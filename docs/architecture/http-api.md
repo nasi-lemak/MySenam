@@ -148,7 +148,7 @@ Account endpoints (session cookie):
 | POST   | `/api/my/bookings/withdraw` | `{bookingId, participantId \| customer: true \| unnamed: n}` → take them off one of the account's bookings, as `POST /api/bookings/withdraw` |
 | GET    | `/api/bookings/reschedule` | `?code&phone&date` → free start times that day; `409` (`RESCHEDULE_CUTOFF`, `RESCHEDULE_STARTED`) with no times once the booking may no longer be changed |
 | POST   | `/api/bookings/reschedule` | `{code, phone, date, start}` → change it   |
-| GET    | `/api/my/venues`          | Private and members-only venues this account is on the list of |
+| GET    | `/api/my/venues`          | Private and members-only venues whose list counts this account: an entry linked to it, or on its proved number |
 | GET    | `/api/bookings/again`     | `?code` (own, signed in) or `?code&phone` → `{url}` |
 
 Admin endpoints (all require an admin session cookie; venue-scoped unless noted):
@@ -179,7 +179,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |
 | GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |
-| POST   | `/api/admin/venue-access`     | `{venueId, action: settings, add, import or remove}` |
+| POST   | `/api/admin/venue-access`     | `{venueId, action: settings, add, import, remove, link or unlink}`; `add` takes an optional `account` and `link` an `id` and `account` (the account's email or number), `unlink` an `id`: an entry counts online only for its linked account or a proved number |
 | POST   | `/api/admin/payments`         | `{code, paid, via?}` or `{seriesCode, via?}`; `via` is cash, qr, transfer or card |
 | POST   | `/api/admin/no-show`          | `{code, noShow}` → flag a passed booking             |
 | POST   | `/api/admin/check-in`         | `{code, out?}` → record arrival or departure; `{code, placeId, mark: "arrived" \| "no_show" \| "clear"}` → one person a booking names (`people`), recorded and logged ([check-in](../features/venue-operations.md#check-in-and-live-crowd-levels)) |
@@ -318,8 +318,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/my/reviews` | `{ id, action: "approve" \| "reject" \| "ask" \| "in_person" \| "check" \| "revoke" \| "authority", reason? }`: the coach's decision, under their name and this account; refused (403, `APR_NOT_REVIEWER`) for any application they are not named for. Rejecting, asking and revoking need a reason |
 | GET | `/api/my/reviews/document` | `?id` → a document sent with an application the signed-in coach may review, as the customer's route serves it (released documents only, `409 SCAN_NOT_RELEASED` before); each opening recorded under the coach's name |
 | GET | `/api/my/games` | The signed-in player's games: hosting, with who asked; and playing |
-| GET | `/api/my/guests` | The venues this resident can invite guests to, and their guests there now |
-| POST | `/api/my/guests` | `{ venueId, phone, name, days }`: put a guest on the venue's list |
+| GET | `/api/my/guests` | The venues this resident can invite guests to, their guests there now (each `linked` or not), and `phoneChecks` |
+| POST | `/api/my/guests` | `{ venueId, phone, name, days, email? }`: put a guest on the venue's list; `email`, the guest's account's, links the entry to it (`GUEST_ACCOUNT_UNKNOWN` if no account has it) |
 | DELETE | `/api/my/guests` | `?id=`: take one's own guest off the list |
 | GET | `/api/my/levels` | The signed-in player's level in each sport they have given one for |
 | GET | `/api/my/profile` | How the signed-in player likes to play (area, approximate point, distance, days, times, intensity, most per share, opt-ins, declared age), and their levels |

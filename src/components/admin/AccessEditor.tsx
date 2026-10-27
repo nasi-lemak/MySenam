@@ -35,7 +35,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
   const [mode, setMode] = useState<VenueAccess>("public");
   const [listed, setListed] = useState(true);
   const [note, setNote] = useState("");
-  const [person, setPerson] = useState({ phone: "", name: "", label: "", kind: "resident" as AccessKind, expiresOn: "" });
+  const [person, setPerson] = useState({ phone: "", name: "", label: "", kind: "resident" as AccessKind, expiresOn: "", account: "" });
   const [paste, setPaste] = useState("");
   const [guests, setGuests] = useState({ perResident: "0", days: "3" });
   const [error, setError] = useState<string | null>(null);
@@ -177,8 +177,13 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                 {current === "members" && <span className="font-normal text-slate-500">{t("acs.plusMembers")}</span>}
               </p>
               <p className="text-xs text-slate-500">
-                {s.phoneChecks ? t("acs.matchedChecked") : t("acs.matchedUnchecked")} {t("acs.guestsDrop")}
+                {s.phoneChecks ? t("acc5.ruleChecks") : t("acc5.ruleNoChecks")} {t("acs.guestsDrop")}
               </p>
+              {s.list.some((e) => !e.account && !e.proved) && (
+                <p className="rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                  {t("acc5.unlinkedCount", { n: s.list.filter((e) => !e.account && !e.proved).length })}
+                </p>
+              )}
               {s.list.length > 0 && (
                 <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
                   <table className="w-full text-left text-xs">
@@ -204,7 +209,37 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                             {e.invitedBy && <span className="block text-xs text-slate-500">{t("acs.invitedBy", { name: e.invitedBy })}</span>}
                           </td>
                           <td className="px-2 py-1">{e.expiresOn ?? "—"}</td>
-                          <td className="px-2 py-1">{e.hasAccount ? "✓" : ""}</td>
+                          <td className="px-2 py-1">
+                            {e.account ? (
+                              <>
+                                <span className="block">{e.account.name}</span>
+                                <span className="block text-slate-500">{e.account.email}</span>
+                                <button
+                                  disabled={busy}
+                                  onClick={() => window.confirm(t("acc5.unlinkConfirm", { name: e.name ?? e.phone })) && post({ action: "unlink", id: e.id }, t("acc5.unlinkedOk"))}
+                                  className="text-teal-700 hover:underline"
+                                >
+                                  {t("acc5.unlink")}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span className={`block ${e.proved ? "text-emerald-700" : "text-amber-700"}`}>
+                                  {e.proved ? t("acc5.proved") : e.hasAccount ? t("acc5.unlinkedHasAccount") : t("acc5.unlinked")}
+                                </span>
+                                <button
+                                  disabled={busy}
+                                  onClick={() => {
+                                    const account = window.prompt(t("acc5.linkPrompt", { name: e.name ?? e.phone }));
+                                    if (account && account.trim() !== "") void post({ action: "link", id: e.id, account }, t("acc5.linkedOk"));
+                                  }}
+                                  className="text-teal-700 hover:underline"
+                                >
+                                  {t("acc5.link")}
+                                </button>
+                              </>
+                            )}
+                          </td>
                           <td className="px-2 py-1 text-right">
                             <button
                               disabled={busy}
@@ -224,6 +259,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                 <input aria-label={t("c.phone")} placeholder={t("c.phone")} value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} className={`${input} w-36`} />
                 <input aria-label={t("c.name")} placeholder={t("c.name")} value={person.name} onChange={(e) => setPerson({ ...person, name: e.target.value })} className={`${input} w-36`} />
                 <input aria-label={t("acs.unitLabel")} placeholder={t("acs.unit")} value={person.label} onChange={(e) => setPerson({ ...person, label: e.target.value })} className={`${input} w-24`} />
+                <input aria-label={t("acc5.accountField")} placeholder={t("acc5.accountField")} value={person.account} onChange={(e) => setPerson({ ...person, account: e.target.value })} className={`${input} w-56`} />
                 <select aria-label={t("acs.as")} value={person.kind} onChange={(e) => setPerson({ ...person, kind: e.target.value as AccessKind })} className={input}>
                   {(Object.keys(KIND_LABELS) as AccessKind[]).map((k) => (
                     <option key={k} value={k}>
@@ -240,7 +276,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                 <button
                   disabled={busy || person.phone.trim() === ""}
                   onClick={async () => {
-                    if (await post({ action: "add", ...person }, t("acs.added"))) setPerson({ phone: "", name: "", label: "", kind: person.kind, expiresOn: "" });
+                    if (await post({ action: "add", ...person }, t("acs.added"))) setPerson({ phone: "", name: "", label: "", kind: person.kind, expiresOn: "", account: "" });
                   }}
                   className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                 >

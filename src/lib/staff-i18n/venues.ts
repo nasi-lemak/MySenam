@@ -301,8 +301,6 @@ const en = {
   "acs.guestsDays": "For up to (days)",
   "acs.listCount": "The list ({n})",
   "acs.plusMembers": "— on top of anyone with an active membership",
-  "acs.matchedChecked": "Matched by the phone number on the customer's account, once they have checked it.",
-  "acs.matchedUnchecked": "Matched by the phone number on the customer's account (this site does not check numbers, so anyone who types a number on the list gets in — set up phone checks before relying on it).",
   "acs.guestsDrop": "Guests drop off after their end date.",
   "acs.unit": "Unit / no.",
   "acs.unitLabel": "Unit or number",
@@ -320,6 +318,20 @@ const en = {
   "acs.importedOk": "Imported.",
   "acs.addMembers": "Add them as members",
   "acs.addResidents": "Add them as residents",
+  // A private or members-only venue's list counts an account only when linked or proved (acc5.)
+  "acc5.ruleChecks": "Online, a person on the list can book from the account you link them to, or from an account that has checked their number. At the counter you book them on your word.",
+  "acc5.ruleNoChecks": "Online, a person on the list can book only from the account you link them to: this site cannot check phone numbers, so a number typed on an account lets nobody in. Link each resident's account (by their email or the number on their account) before relying on online booking. At the counter you book them on your word.",
+  "acc5.unlinkedCount": "Not linked to an account, and their number not checked: {n}. Until you link them, they can be booked only at the counter.",
+  "acc5.proved": "Number checked by their account",
+  "acc5.unlinked": "Not linked: counter only",
+  "acc5.unlinkedHasAccount": "Not linked: an account has this number, unchecked",
+  "acc5.link": "Link account",
+  "acc5.unlink": "Unlink",
+  "acc5.linkPrompt": "Link {name} to which account? Their email, or the phone number on their account.",
+  "acc5.unlinkConfirm": "Unlink {name}'s account? They can then book online only from an account that has checked their number.",
+  "acc5.linkedOk": "Linked.",
+  "acc5.unlinkedOk": "Unlinked.",
+  "acc5.accountField": "Their account: email or number (optional)",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -618,8 +630,6 @@ const ms: Record<keyof typeof en, string> = {
   "acs.guestsDays": "Sehingga (hari)",
   "acs.listCount": "Senarai ({n})",
   "acs.plusMembers": "— selain sesiapa yang mempunyai keahlian aktif",
-  "acs.matchedChecked": "Dipadankan dengan nombor telefon pada akaun pelanggan, setelah mereka mengesahkannya.",
-  "acs.matchedUnchecked": "Dipadankan dengan nombor telefon pada akaun pelanggan (laman ini tidak mengesahkan nombor, jadi sesiapa yang menaip nombor dalam senarai boleh masuk — sediakan pengesahan telefon sebelum bergantung padanya).",
   "acs.guestsDrop": "Tetamu dikeluarkan selepas tarikh tamat mereka.",
   "acs.unit": "Unit / no.",
   "acs.unitLabel": "Unit atau nombor",
@@ -637,6 +647,20 @@ const ms: Record<keyof typeof en, string> = {
   "acs.importedOk": "Diimport.",
   "acs.addMembers": "Tambah sebagai ahli",
   "acs.addResidents": "Tambah sebagai penduduk",
+  // A private or members-only venue's list counts an account only when linked or proved (acc5.)
+  "acc5.ruleChecks": "Dalam talian, orang dalam senarai boleh menempah dari akaun yang anda pautkan kepadanya, atau dari akaun yang telah mengesahkan nombornya. Di kaunter anda menempah untuknya atas pertimbangan anda.",
+  "acc5.ruleNoChecks": "Dalam talian, orang dalam senarai hanya boleh menempah dari akaun yang anda pautkan kepadanya: laman ini tidak dapat mengesahkan nombor telefon, jadi nombor yang ditaip pada akaun tidak membenarkan sesiapa masuk. Pautkan akaun setiap penduduk (dengan e-mel mereka atau nombor pada akaun mereka) sebelum bergantung pada tempahan dalam talian. Di kaunter anda menempah untuknya atas pertimbangan anda.",
+  "acc5.unlinkedCount": "Tidak dipautkan kepada akaun, dan nombornya tidak disahkan: {n}. Sehingga anda memautkannya, mereka hanya boleh ditempah di kaunter.",
+  "acc5.proved": "Nombor disahkan oleh akaunnya",
+  "acc5.unlinked": "Tidak dipautkan: kaunter sahaja",
+  "acc5.unlinkedHasAccount": "Tidak dipautkan: ada akaun dengan nombor ini, belum disahkan",
+  "acc5.link": "Pautkan akaun",
+  "acc5.unlink": "Nyahpaut",
+  "acc5.linkPrompt": "Pautkan {name} kepada akaun yang mana? E-melnya, atau nombor telefon pada akaunnya.",
+  "acc5.unlinkConfirm": "Nyahpaut akaun {name}? Selepas itu dia hanya boleh menempah dalam talian dari akaun yang telah mengesahkan nombornya.",
+  "acc5.linkedOk": "Dipautkan.",
+  "acc5.unlinkedOk": "Dinyahpaut.",
+  "acc5.accountField": "Akaunnya: e-mel atau nombor (pilihan)",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -935,8 +959,6 @@ const zh: Record<keyof typeof en, string> = {
   "acs.guestsDays": "最长（天）",
   "acs.listCount": "名单（{n}）",
   "acs.plusMembers": "——另加所有持有有效会员资格的人",
-  "acs.matchedChecked": "按顾客账户上的电话号码匹配，须在其验证号码之后。",
-  "acs.matchedUnchecked": "按顾客账户上的电话号码匹配（本站不验证号码，任何人输入名单上的号码即可进入——请先设置电话验证再依赖此功能）。",
   "acs.guestsDrop": "访客在结束日期后自动移除。",
   "acs.unit": "单位 / 编号",
   "acs.unitLabel": "单位或编号",
@@ -954,6 +976,20 @@ const zh: Record<keyof typeof en, string> = {
   "acs.importedOk": "已导入。",
   "acs.addMembers": "添加为会员",
   "acs.addResidents": "添加为住户",
+  // A private or members-only venue's list counts an account only when linked or proved (acc5.)
+  "acc5.ruleChecks": "在线上，名单上的人可以用您为其关联的账户预订，或用已验证其号码的账户预订。在前台，由您自行判断为其预订。",
+  "acc5.ruleNoChecks": "在线上，名单上的人只能用您为其关联的账户预订：本站无法验证电话号码，因此在账户上输入名单上的号码不能让任何人进入。在依赖线上预订之前，请关联每位住户的账户（按其电子邮件或其账户上的号码）。在前台，由您自行判断为其预订。",
+  "acc5.unlinkedCount": "未关联账户且号码未经验证：{n} 人。在您关联之前，只能在前台为他们预订。",
+  "acc5.proved": "号码已由其账户验证",
+  "acc5.unlinked": "未关联：仅限前台",
+  "acc5.unlinkedHasAccount": "未关联：有账户使用此号码，但未验证",
+  "acc5.link": "关联账户",
+  "acc5.unlink": "取消关联",
+  "acc5.linkPrompt": "将 {name} 关联到哪个账户？请输入其电子邮件，或其账户上的电话号码。",
+  "acc5.unlinkConfirm": "取消关联 {name} 的账户？之后对方只能用已验证其号码的账户在线预订。",
+  "acc5.linkedOk": "已关联。",
+  "acc5.unlinkedOk": "已取消关联。",
+  "acc5.accountField": "其账户：电子邮件或号码（选填）",
 };
 
 const area = { en, ms, zh };

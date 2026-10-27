@@ -12,7 +12,9 @@ import { NextRequest } from "next/server";
 import {
   accessList,
   accessRefusal,
+  accessEntryId,
   addAccess,
+  linkAccess,
   myPrivateVenues,
   parseAccessLines,
   setAccessSettings,
@@ -52,7 +54,15 @@ let n = 0;
 async function customer(phone: string) {
   const made = await registerUser({ name: `Resident ${++n}`, email: `r${n}@example.com`, phone, password: "password-123" });
   if (!made.ok) throw new Error(made.error);
-  return { id: made.user.id, cookie: `${SESSION_COOKIE}=${(await createSession(made.user.id)).token}` };
+  return { id: made.user.id, email: made.user.email, cookie: `${SESSION_COOKIE}=${(await createSession(made.user.id)).token}` };
+}
+
+/** Staff link the entry for this number to the account: a typed number alone lets nobody in (lib/access.ts). */
+async function link(venueId: number, phone: string, account: { email: string }) {
+  const entryId = await accessEntryId(venueId, phone);
+  if (entryId === null) throw new Error("not on the list");
+  const linked = await linkAccess(venueId, entryId, account.email, ownerId);
+  if (!linked.ok) throw new Error(linked.error);
 }
 
 beforeAll(async () => {
@@ -99,6 +109,9 @@ describe("finding a venue", () => {
 
     const resident = await customer("0170000002");
     await addAccess(privateVenue, [{ phone: "+60 17-000 0002", name: "Aisyah", label: "A-12-3" }], ownerId);
+    // The account's typed number is on the list, but a number is not identity: staff link the account.
+    expect(await mayShowVenue(privateVenue, { admin: null, userId: resident.id })).toMatchObject({ show: false });
+    await link(privateVenue, "0170000002", resident);
     expect(await mayShowVenue(privateVenue, { admin: null, userId: resident.id })).toMatchObject({ show: true });
 
     const owner = (await authenticateAdmin("admin@mysenam.my", "mysenam-admin"))!;
@@ -143,11 +156,15 @@ describe("booking", () => {
 
     const listed = await customer("0170000012");
     await addAccess(members, [{ phone: "0170000012", kind: "member", label: "M-0042" }], ownerId);
+    expect(await accessRefusal(members, listed.id)).toMatchObject({ code: "MEMBERS_ONLY" });
+    await link(members, "0170000012", listed);
     expect(await accessRefusal(members, listed.id)).toBeNull();
   });
 
   it("at a private venue: the list only, with guests until their end date", async () => {
     const guest = await customer("0170000020");
+    // A guest who has checked their number on their account needs no link.
+    await getDb().prepare("UPDATE users SET verified_phone = phone WHERE id = ?").run(guest.id);
     await addAccess(privateVenue, [{ phone: "0170000020", kind: "guest", expiresOn: addDays(todayISO(), -1) }], ownerId);
     expect(await accessRefusal(privateVenue, guest.id)).toMatchObject({ code: "PRIVATE_VENUE" });
     await addAccess(privateVenue, [{ phone: "0170000020", kind: "guest", expiresOn: addDays(todayISO(), 3) }], ownerId);
@@ -178,6 +195,8 @@ describe("booking", () => {
 
     const resident = await customer("0170000041");
     await addAccess(privateVenue, [{ phone: "0170000041" }], ownerId);
+    expect(await (await post(resident.cookie, "0170000041")).json()).toMatchObject({ code: "PRIVATE_VENUE" });
+    await link(privateVenue, "0170000041", resident);
     const ok = await post(resident.cookie, "0170000041");
     expect(ok.status).toBe(201);
   });

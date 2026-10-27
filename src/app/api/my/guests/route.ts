@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { cancelGuest, inviteGuest, myInviteVenues } from "@/lib/guest-invites";
+import { phoneChecksOn } from "@/lib/phone-check";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-/** The venues this resident can invite guests to, and their guests there now. */
+/**
+ * The venues this resident can invite guests to, and their guests there now;
+ * `phoneChecks`: whether a guest can prove their number here, or needs their
+ * entry linked to their account (by email) to book online.
+ */
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-  return NextResponse.json({ venues: await myInviteVenues(user.id) });
+  return NextResponse.json({ venues: await myInviteVenues(user.id), phoneChecks: phoneChecksOn() });
 }
 
-/** `{ venueId, phone, name, days }`: put a guest on the venue's list. */
+/** `{ venueId, phone, name, days, email? }`: put a guest on the venue's list; `email`, their account's, links it to that account. */
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
@@ -26,9 +31,10 @@ export async function POST(req: NextRequest) {
     phone: body.phone,
     name: typeof body.name === "string" ? body.name : null,
     days: Number(body.days),
+    email: typeof body.email === "string" ? body.email : null,
   });
   if (!result.ok) return NextResponse.json(result, { status: 409 });
-  return NextResponse.json({ guest: result.guest, venues: await myInviteVenues(user.id) }, { status: 201 });
+  return NextResponse.json({ guest: result.guest, venues: await myInviteVenues(user.id), phoneChecks: phoneChecksOn() }, { status: 201 });
 }
 
 /** `?id=`: take one's own guest off the list. */

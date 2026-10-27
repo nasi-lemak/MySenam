@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { phoneChecksOn } from "./phone-check";
-import { activeMembership, memberNumberTrusted } from "./store";
+import { activeMembership, findAccountByEmail, memberNumberTrusted } from "./store";
 import { todayISO } from "./time";
 import type { Refusal } from "./types";
 import { longEnough } from "./phone";
@@ -18,9 +18,12 @@ import { longEnough } from "./phone";
  *   gym, where residents, staff and approved guests are the only users.
  *
  * The list is phone numbers — what a management office or club secretary has
- * on file — matched against the signed-in account's number. Where this
- * install checks numbers (lib/phone-check.ts), only a checked number counts:
- * a number is not identity until somebody has shown they hold it. Guests
+ * on file. A number is not identity (docs/architecture/privacy.md), so online
+ * an entry counts only for the account it is linked to (by staff, or by the
+ * resident who invited the guest) or for an account that has proved its
+ * number with a code (lib/phone-check.ts) — the same rule as a membership's
+ * (lib/store.ts `memberNumberTrusted`). A number merely typed on an account
+ * lets nobody in. Staff at the counter act on their word, as ever. Guests
  * carry an end date and drop off on their own.
  *
  * Listing (who can *find* a venue) is in lib/listing.ts; this is who can
@@ -48,8 +51,12 @@ export interface AccessEntry {
   kind: AccessKind;
   expiresOn: string | null;
   createdAt: string;
-  /** Whether an account with this (checked) number exists yet. */
+  /** Whether an account with this number exists yet, proved or only typed. */
   hasAccount: boolean;
+  /** The account this entry is linked to: it counts online for that account, whatever its number. */
+  account: { id: number; name: string; email: string } | null;
+  /** Whether an account has proved this number: the entry counts online for it without a link. */
+  proved: boolean;
   /** A guest a resident invited: who, by name or unit. */
   invitedBy?: string;
 }
@@ -89,16 +96,24 @@ export async function accountPhone(userId: number): Promise<string | null> {
   return phone && phone.trim() !== "" ? phone : null;
 }
 
+/**
+ * The one rule for who an entry on a list counts for online, as SQL on the
+ * entry `a`, with the account's id twice as its parameters: the account it is
+ * linked to, or an account whose proved number it is. Whether this install
+ * checks numbers does not matter: a proved number is proved, a typed one is not.
+ */
+export const ENTRY_COUNTS_FOR = `(a.user_id = ? OR a.phone_key IN (
+  SELECT phone_key(u.verified_phone) FROM users u WHERE u.id = ? AND u.verified_phone IS NOT NULL AND trim(u.verified_phone) <> ''))`;
+
 /** Is this account on the venue's list, today? */
 export async function onAccessList(venueId: number, userId: number): Promise<boolean> {
-  const phone = await accountPhone(userId);
-  if (!phone) return false;
   return (
     (await getDb()
       .prepare(
-        "SELECT 1 AS n FROM venue_access_list WHERE venue_id = ? AND phone_key = phone_key(?) AND (expires_on IS NULL OR expires_on >= ?)"
+        `SELECT 1 AS n FROM venue_access_list a
+          WHERE a.venue_id = ? AND (a.expires_on IS NULL OR a.expires_on >= ?) AND ${ENTRY_COUNTS_FOR}`
       )
-      .get(venueId, phone, todayISO())) !== undefined
+      .get(venueId, todayISO(), userId, userId)) !== undefined
   );
 }
 
@@ -129,16 +144,14 @@ export async function accessRefusal(venueId: number, userId: number | null): Pro
 
 /** Private venues this account is on the list of, for its account page. */
 export async function myPrivateVenues(userId: number): Promise<{ id: number; name: string; area: string }[]> {
-  const phone = await accountPhone(userId);
-  if (!phone) return [];
   return (await getDb()
     .prepare(
       `SELECT DISTINCT v.id, v.name, v.area FROM venue_access_list a JOIN venues v ON v.id = a.venue_id
-        WHERE a.phone_key = phone_key(?) AND (a.expires_on IS NULL OR a.expires_on >= ?)
+        WHERE ${ENTRY_COUNTS_FOR} AND (a.expires_on IS NULL OR a.expires_on >= ?)
           AND v.access IN ('private', 'members') AND v.published_at IS NOT NULL AND v.suspended_at IS NULL
         ORDER BY v.name`
     )
-    .all(phone, todayISO())) as { id: number; name: string; area: string }[];
+    .all(userId, userId, todayISO())) as { id: number; name: string; area: string }[];
 }
 
 // ------------------------------------------------------------ the list
@@ -146,8 +159,11 @@ export async function myPrivateVenues(userId: number): Promise<{ id: number; nam
 const SELECT_ENTRY = `
   SELECT a.id, a.phone, a.name, a.label, a.kind, a.expires_on, a.created_at,
          EXISTS (SELECT 1 FROM users u WHERE phone_key(COALESCE(u.verified_phone, u.phone)) = a.phone_key) AS has_account,
+         EXISTS (SELECT 1 FROM users u WHERE u.verified_phone IS NOT NULL AND trim(u.verified_phone) <> '' AND phone_key(u.verified_phone) = a.phone_key) AS proved,
+         lu.id AS account_id, lu.name AS account_name, lu.email AS account_email,
          COALESCE(i.name, i.phone) AS inviter
-    FROM venue_access_list a LEFT JOIN venue_access_list i ON i.id = a.invited_by`;
+    FROM venue_access_list a LEFT JOIN venue_access_list i ON i.id = a.invited_by
+    LEFT JOIN users lu ON lu.id = a.user_id`;
 
 type EntryRow = {
   id: number;
@@ -158,6 +174,10 @@ type EntryRow = {
   expires_on: string | null;
   created_at: string;
   has_account: boolean | number;
+  proved: boolean | number;
+  account_id: number | null;
+  account_name: string | null;
+  account_email: string | null;
   inviter: string | null;
 };
 const toEntry = (r: EntryRow): AccessEntry => ({
@@ -169,6 +189,8 @@ const toEntry = (r: EntryRow): AccessEntry => ({
   expiresOn: r.expires_on,
   createdAt: r.created_at,
   hasAccount: r.has_account === true || r.has_account === 1,
+  account: r.account_id !== null ? { id: r.account_id, name: r.account_name ?? "", email: r.account_email ?? "" } : null,
+  proved: r.proved === true || r.proved === 1,
   ...(r.inviter ? { invitedBy: r.inviter } : {}),
 });
 
@@ -260,4 +282,70 @@ export function parseAccessLines(text: string, kind: AccessKind, expiresOn: stri
 
 export async function removeAccess(venueId: number, id: number): Promise<boolean> {
   return (await getDb().prepare("DELETE FROM venue_access_list WHERE venue_id = ? AND id = ?").run(venueId, id)).changes === 1;
+}
+
+// ------------------------------------------------------------ linking an entry to an account
+
+/**
+ * The account staff mean, by its email or by its number (as typed on it or
+ * proved): exactly one, or why not. Staff link an entry on their word, as at
+ * the counter, and see the account's name and email to check it is the person.
+ */
+export async function findAccountToLink(
+  query: string
+): Promise<{ ok: true; account: { id: number; name: string; email: string } } | { ok: false; error: string }> {
+  const q = query.trim();
+  if (q === "") return { ok: false, error: "Give the account's email or phone number." };
+  if (q.includes("@")) {
+    const account = await findAccountByEmail(q);
+    return account ? { ok: true, account } : { ok: false, error: "No account has that email or number." };
+  }
+  if (!longEnough(q)) return { ok: false, error: "Give the account's email or phone number." };
+  const rows = (await getDb()
+    .prepare(
+      `SELECT id, name, email FROM users
+        WHERE phone_key(phone) = phone_key(?) OR (verified_phone IS NOT NULL AND trim(verified_phone) <> '' AND phone_key(verified_phone) = phone_key(?))
+        ORDER BY id LIMIT 2`
+    )
+    .all(q, q)) as { id: number; name: string; email: string }[];
+  if (rows.length === 0) return { ok: false, error: "No account has that email or number." };
+  if (rows.length > 1) return { ok: false, error: "More than one account has that number: use the person's email." };
+  return { ok: true, account: rows[0] };
+}
+
+/**
+ * Link one entry on this venue's list to an account: it then counts online
+ * for that account, whatever number the account carries. Only an entry of
+ * this venue's (`venueId` is the staff member's own, checked by the route).
+ */
+export async function linkAccess(
+  venueId: number,
+  entryId: number,
+  query: string,
+  adminId: number | null
+): Promise<{ ok: true; account: { id: number; name: string; email: string } } | { ok: false; error: string; status?: number }> {
+  const found = await findAccountToLink(query);
+  if (!found.ok) return found;
+  const done = await getDb()
+    .prepare("UPDATE venue_access_list SET user_id = ?, linked_by = ?, linked_at = datetime('now') WHERE venue_id = ? AND id = ?")
+    .run(found.account.id, adminId, venueId, entryId);
+  if (done.changes !== 1) return { ok: false, error: "That person is not on this venue's list.", status: 404 };
+  return { ok: true, account: found.account };
+}
+
+/** The id of the entry for this number on this venue's list, if it is on it. */
+export async function accessEntryId(venueId: number, phone: string): Promise<number | null> {
+  const row = (await getDb()
+    .prepare("SELECT id FROM venue_access_list WHERE venue_id = ? AND phone_key = phone_key(?)")
+    .get(venueId, phone)) as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
+/** Unlink an entry: it counts online again only for an account that has proved its number. */
+export async function unlinkAccess(venueId: number, entryId: number): Promise<boolean> {
+  return (
+    (await getDb()
+      .prepare("UPDATE venue_access_list SET user_id = NULL, linked_by = NULL, linked_at = NULL WHERE venue_id = ? AND id = ?")
+      .run(venueId, entryId)).changes === 1
+  );
 }

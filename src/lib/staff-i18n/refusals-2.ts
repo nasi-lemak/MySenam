@@ -637,4 +637,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
     zh: "审核日期早于这些期限最近一次更改：它不可能审核的是现行期限。",
   },
   "Give a reference to the written advice, kept outside MySenam.": { ms: "Berikan rujukan kepada nasihat bertulis, yang disimpan di luar MySenam.", zh: "请填写书面意见的参考编号（保存在 MySenam 之外）。" },
+  "Give the account's email or phone number.": { ms: "Berikan e-mel atau nombor telefon akaun itu.", zh: "请填写该账户的电子邮件或电话号码。" },
+  "No account has that email or number.": { ms: "Tiada akaun dengan e-mel atau nombor itu.", zh: "没有账户使用该电子邮件或号码。" },
+  "More than one account has that number: use the person's email.": { ms: "Lebih daripada satu akaun mempunyai nombor itu: gunakan e-mel orang itu.", zh: "有多个账户使用该号码：请使用对方的电子邮件。" },
+  "That person is not on this venue's list.": { ms: "Orang itu tiada dalam senarai pusat ini.", zh: "此人不在本场馆的名单上。" },
 };

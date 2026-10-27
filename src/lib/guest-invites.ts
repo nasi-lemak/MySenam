@@ -1,5 +1,6 @@
 import { getDb } from "./db";
-import { accountPhone, cleanAccess } from "./access";
+import { accountPhone, cleanAccess, ENTRY_COUNTS_FOR } from "./access";
+import { findAccountByEmail } from "./store";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { addDays, todayISO } from "./time";
 import type { Refusal } from "./types";
@@ -12,6 +13,12 @@ import type { Refusal } from "./types";
  * at a time, rather than asking the management office for each one. The guest
  * carries the resident's unit, so their bookings come out of that household's
  * allowance under the venue's house rules, and they go when the resident does.
+ *
+ * Who counts as a resident here is the list's one rule (lib/access.ts
+ * `ENTRY_COUNTS_FOR`): the account an entry is linked to, or one that has
+ * proved its number. A guest's entry is linked to the guest's account when the
+ * resident gives its email; otherwise it counts only for an account that has
+ * proved the guest's number.
  */
 
 export interface GuestPolicy {
@@ -29,6 +36,8 @@ export interface MyGuest {
   phone: string;
   name: string | null;
   expiresOn: string;
+  /** Linked to the guest's account (by the email the resident gave): it counts online for that account. */
+  linked: boolean;
 }
 
 export interface InviteVenue {
@@ -75,33 +84,32 @@ interface HostRow {
 
 /** The list entries this account invites as: a resident or member, still on, where the venue allows it. */
 async function hostEntries(userId: number, venueId?: number): Promise<HostRow[]> {
-  const phone = await accountPhone(userId);
-  if (!phone) return [];
   return (await getDb()
     .prepare(
       `SELECT a.id, a.venue_id, v.name AS venue_name, a.label, v.guest_invites, v.guest_invite_days
          FROM venue_access_list a JOIN venues v ON v.id = a.venue_id
-        WHERE a.phone_key = phone_key(?) AND a.kind IN ('resident', 'member')
+        WHERE ${ENTRY_COUNTS_FOR} AND a.kind IN ('resident', 'member')
           AND (a.expires_on IS NULL OR a.expires_on >= ?)
           AND v.access IN ('members', 'private') AND v.guest_invites > 0
           AND v.published_at IS NOT NULL AND v.suspended_at IS NULL
           ${venueId !== undefined ? "AND v.id = ?" : ""}
         ORDER BY v.name`
     )
-    .all(phone, todayISO(), ...(venueId !== undefined ? [venueId] : []))) as HostRow[];
+    .all(userId, userId, todayISO(), ...(venueId !== undefined ? [venueId] : []))) as HostRow[];
 }
 
 async function guestsOf(hostId: number): Promise<MyGuest[]> {
   const rows = (await getDb()
     .prepare(
-      "SELECT id, phone, name, expires_on FROM venue_access_list WHERE invited_by = ? AND expires_on >= ? ORDER BY expires_on, id"
+      "SELECT id, phone, name, expires_on, user_id FROM venue_access_list WHERE invited_by = ? AND expires_on >= ? ORDER BY expires_on, id"
     )
-    .all(hostId, todayISO())) as { id: number; phone: string; name: string | null; expires_on: string }[];
+    .all(hostId, todayISO())) as { id: number; phone: string; name: string | null; expires_on: string; user_id: number | null }[];
   return rows.map((r) => ({
     id: r.id,
     phone: r.phone,
     name: r.name,
     expiresOn: r.expires_on,
+    linked: r.user_id !== null,
   }));
 }
 
@@ -123,10 +131,12 @@ export async function myInviteVenues(userId: number): Promise<InviteVenue[]> {
  * Put a guest on the list for `days` days from today. A number already on the
  * list stays as it is, unless it is this resident's own guest (the visit is
  * extended) or a guest whose invitation has run out (it becomes this one's).
+ * `email`, the guest's account's, links the entry to that account, on the
+ * resident's word, so the guest can book online without proving the number.
  */
 export async function inviteGuest(
   userId: number,
-  input: { venueId: number; phone: string; name?: string | null; days: number }
+  input: { venueId: number; phone: string; name?: string | null; days: number; email?: string | null }
 ): Promise<{ ok: true; guest: MyGuest } | Refusal> {
   const [host] = await hostEntries(userId, input.venueId);
   if (!host) return refuse("GUEST_NOT_HOST");
@@ -135,6 +145,10 @@ export async function inviteGuest(
   const cleaned = cleanAccess({ phone: input.phone, name: input.name ?? null, kind: "guest", expiresOn: todayISO() });
   if (!cleaned.ok) return { ok: false, error: cleaned.error };
   const { phone, name } = cleaned.row;
+  const email = input.email?.trim() || null;
+  const guestAccount = email ? await findAccountByEmail(email) : null;
+  if (email && !guestAccount) return refuse("GUEST_ACCOUNT_UNKNOWN");
+  if (guestAccount?.id === userId) return refuse("GUEST_ACCOUNT_SELF");
   const today = todayISO();
   const expiresOn = addDays(today, input.days - 1);
 
@@ -145,8 +159,8 @@ export async function inviteGuest(
     };
     if (self.same) return refuse("GUEST_SELF");
     const existing = (await db
-      .prepare("SELECT id, kind, expires_on, invited_by FROM venue_access_list WHERE venue_id = ? AND phone_key = phone_key(?)")
-      .get(input.venueId, phone)) as { id: number; kind: string; expires_on: string | null; invited_by: number | null } | undefined;
+      .prepare("SELECT id, kind, expires_on, invited_by, user_id FROM venue_access_list WHERE venue_id = ? AND phone_key = phone_key(?)")
+      .get(input.venueId, phone)) as { id: number; kind: string; expires_on: string | null; invited_by: number | null; user_id: number | null } | undefined;
     const mine = existing?.invited_by === host.id;
     const lapsed = existing?.kind === "guest" && existing.expires_on !== null && existing.expires_on < today;
     if (existing && !mine && !lapsed) return refuse("GUEST_LISTED");
@@ -160,21 +174,29 @@ export async function inviteGuest(
 
     let id: number;
     if (existing) {
+      // Their own guest keeps the account it was linked to unless another is named; a lapsed guest taken over keeps none.
       await db
         .prepare(
           "UPDATE venue_access_list SET name = COALESCE(?, name), label = ?, kind = 'guest', expires_on = ?, invited_by = ?, added_by = NULL WHERE id = ?"
         )
         .run(name, host.label, expiresOn, host.id, existing.id);
+      if (guestAccount)
+        await db
+          .prepare("UPDATE venue_access_list SET user_id = ?, linked_by = NULL, linked_at = datetime('now') WHERE id = ?")
+          .run(guestAccount.id, existing.id);
+      else if (!mine) await db.prepare("UPDATE venue_access_list SET user_id = NULL, linked_by = NULL, linked_at = NULL WHERE id = ?").run(existing.id);
       id = existing.id;
     } else {
       const info = await db
         .prepare(
-          "INSERT INTO venue_access_list (venue_id, phone, name, label, kind, expires_on, invited_by) VALUES (?, ?, ?, ?, 'guest', ?, ?)"
+          `INSERT INTO venue_access_list (venue_id, phone, name, label, kind, expires_on, invited_by, user_id, linked_at)
+           VALUES (?, ?, ?, ?, 'guest', ?, ?, ?, ${guestAccount ? "datetime('now')" : "NULL"})`
         )
-        .run(input.venueId, phone, name, host.label, expiresOn, host.id);
+        .run(input.venueId, phone, name, host.label, expiresOn, host.id, guestAccount?.id ?? null);
       id = Number(info.lastInsertRowid);
     }
-    return { ok: true, guest: { id, phone, name, expiresOn } };
+    const linked = guestAccount !== null || (mine && existing?.user_id !== null && existing?.user_id !== undefined);
+    return { ok: true, guest: { id, phone, name, expiresOn, linked } };
   })();
 }
 

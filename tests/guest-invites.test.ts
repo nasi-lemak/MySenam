@@ -10,7 +10,7 @@ vi.mock("next/headers", () => ({
 import { NextRequest } from "next/server";
 import { getDb } from "../src/lib/db";
 import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
-import { accessList, accessRefusal, addAccess, setAccessSettings } from "../src/lib/access";
+import { accessEntryId, accessList, accessRefusal, addAccess, linkAccess, setAccessSettings } from "../src/lib/access";
 import { cancelGuest, inviteGuest, myInviteVenues, setGuestPolicy } from "../src/lib/guest-invites";
 import { houseRuleRefusal, setHouseRules } from "../src/lib/house-rules";
 import { createBooking, createCourt, createVenue } from "../src/lib/store";
@@ -24,8 +24,8 @@ import { DELETE as uninvite, GET as guestsGet, POST as invitePost } from "../src
 
 let venueId: number;
 let courtId: number;
-let host: { id: number; phone: string };
-let neighbour: { id: number; phone: string };
+let host: { id: number; phone: string; email: string };
+let neighbour: { id: number; phone: string; email: string };
 let cookie: string;
 const today = todayISO();
 
@@ -56,6 +56,11 @@ beforeAll(async () => {
     null
   );
   if (!added.ok) throw new Error(added.error);
+  // Staff link the residents' accounts: a number typed on an account lets nobody in (lib/access.ts).
+  for (const [phone, account] of [["0121110000", host], ["0122220000", neighbour]] as const) {
+    const linked = await linkAccess(venueId, (await accessEntryId(venueId, phone))!, (account as { email: string }).email, null);
+    if (!linked.ok) throw new Error(linked.error);
+  }
   cookie = `${SESSION_COOKIE}=${(await createSession(host.id)).token}`;
 });
 
@@ -75,12 +80,12 @@ describe("residents inviting guests", () => {
       new NextRequest("http://localhost/api/my/guests", {
         method: "POST",
         headers: { cookie, "content-type": "application/json" },
-        body: JSON.stringify({ venueId, phone: "013-333 0000", name: "Ali", days: 3 }),
+        body: JSON.stringify({ venueId, phone: "013-333 0000", name: "Ali", days: 3, email: "ali@example.my" }),
       })
     );
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.guest).toMatchObject({ name: "Ali", expiresOn: addDays(today, 2) });
+    expect(body.guest).toMatchObject({ name: "Ali", expiresOn: addDays(today, 2), linked: true });
     expect(body.venues).toMatchObject([{ id: venueId, policy: { perResident: 2, days: 3 }, guests: [{ name: "Ali" }] }]);
     expect(await entry("013-333 0000")).toMatchObject({ kind: "guest", label: "A-12-3", invitedBy: "Hafiz", expiresOn: addDays(today, 2) });
     expect(await accessRefusal(venueId, guest.id)).toBeNull();
