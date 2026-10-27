@@ -553,6 +553,41 @@ four days ahead was off-peak and failed on days it was not, on the base
 commit too; it now reads the booking's price.
 
 
+#### 27 October 2026, commit `07b9f9f`
+
+The owner's decisions of 27 October 2026: another guardian only by verified
+consent and the other guardians told, coaches seeing only the children they
+supervise, eligibility following the participant across guardians
+(ADR 0023); benefits and membership rules by their scope and taking one
+person off a booking (ADR 0025); supporting documents failing closed with
+safe retries, kept while no scanner runs, and clamd started on demand on the
+2 GB Droplet; the erasure ledger off-site and recorded reviews with their
+provenance (ADR 0024). Not a launch. Run on one cloud container, Node 22, all
+on `07b9f9f`.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 104 passed (with this record's documentation, the commit after) |
+| Suite on PGlite | 243 files; 2722 passed, 4 skipped (Postgres-only tests) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 243 files; 2726 passed |
+| ClamAV engine, inside both suites | `tests/clamd-on-demand-engine.test.ts`: clamd 1.5.4 started on demand with ClamAV's official signatures (fetched by freshclam in this container, TLS verified), a PDF clean and the EICAR file refused as `Eicar-Test-Signature`; `tests/document-scanning-engine.test.ts`: the same clamd with a locally generated test signature |
+| Off-site and recovery, inside both suites | `tests/erasure-ledger-restore.test.ts`, `tests/backup-scripts.test.ts`, `tests/offsite.test.ts` with the real scripts against a stand-in bucket on the loopback |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Guardians G and H, Documents I, Recovery J and Places K and L among them | 12 files; 38 of 38 |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments against the fake gateways, messages through the outbox only (the acceptance server logs them), documents scanned by a stand-in in the acceptance scenarios, buckets by a stand-in; no Droplet |
+
+Before this run, the whole suite at `1db6fff` failed one test on both
+engines: a privacy-notice phrase named MySenam instead of the install's own
+site (fixed in `cd7448c`). Gaps: the scanner kit, its memory and clamd's
+start time on a real Droplet; the off-site ledger against a real bucket; no
+live integration has passed its check; machine-assisted Malay, Chinese and
+Tamil await native review; the retention periods are product policy awaiting
+Malaysian and Singaporean legal review; M16 waits on the owner.
+
+
 #### 26 October 2026, commit `8f62ccf`
 
 Participants apart from accounts (ADR 0023), booking for somebody else on
