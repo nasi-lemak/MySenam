@@ -295,13 +295,13 @@ export function BookingsTab() {
   }
 
   /** One person's concession on their own place: their proof seen, or not. */
-  async function checkPlaceConcession(b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused") {
+  async function checkPlaceConcession(b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused", remember?: string) {
     setError(null);
     try {
       const res = await fetch("/api/admin/concessions/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId: b.id, placeBenefitId, outcome }),
+        body: JSON.stringify({ bookingId: b.id, placeBenefitId, outcome, remember }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("bk.recordFailed")));
@@ -1001,7 +1001,7 @@ interface Act {
   writeNote: (b: AdminBookingRow) => void;
   paperWaiver: (b: AdminBookingRow) => void;
   withdrawPerson: (b: AdminBookingRow, placeId: number | null, name: string | null) => void;
-  checkPlaceConcession: (b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused") => void;
+  checkPlaceConcession: (b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused", remember?: string) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -1467,19 +1467,59 @@ function PeopleChips({ b, act }: { b: AdminBookingRow; act: Act }) {
         const name = c.name ?? t("pbk.att.someone");
         if (c.check === "seen") return <div key={c.id} className="mt-1 text-xs text-emerald-700">🎫 {t("ent.bk.concSeen", { concession: c.concessionName, name })}</div>;
         if (c.check === "refused") return <div key={c.id} className="mt-1 text-xs text-slate-500">🎫 {t("ent.bk.concRefused", { concession: c.concessionName, name })}</div>;
-        return (
-          <div key={c.id} className="mt-1 flex flex-wrap items-center gap-1 text-xs text-amber-800">
-            🎫 {t("ent.bk.concDue", { concession: c.concessionName, name, amount: money(c.amount) })}
-            <button type="button" onClick={() => act.checkPlaceConcession(b, c.id, "seen")} className={`${CHIP} bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}>
-              {t("ent.bk.proofSeen")}
-            </button>
-            <button type="button" onClick={() => act.checkPlaceConcession(b, c.id, "refused")} className={`${CHIP} bg-red-50 text-red-700 hover:bg-red-100`}>
-              {t("ent.bk.noProof")}
-            </button>
-          </div>
-        );
+        return <PlaceConcessionCheck key={c.id} b={b} act={act} id={c.id} concession={c.concessionName} name={name} amount={c.amount} />;
       })}
     </>
+  );
+}
+
+/**
+ * One person's concession at the counter: their own proof looked at. Seen, it
+ * can be remembered for that person for a while, as a booking's own can
+ * (lib/concessions.ts checkPlaceConcession); not shown, their place alone is
+ * charged in full.
+ */
+function PlaceConcessionCheck({ b, act, id, concession, name, amount }: { b: AdminBookingRow; act: Act; id: number; concession: string; name: string; amount: number }) {
+  const t = useStaffT();
+  const [asking, setAsking] = useState(false);
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-amber-800">
+      🎫 {t("ent.bk.concDue", { concession, name, amount: money(amount) })}
+      {!asking ? (
+        <>
+          <button type="button" onClick={() => setAsking(true)} className={`${CHIP} bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}>
+            {t("ent.bk.proofSeen")}
+          </button>
+          <button type="button" onClick={() => act.checkPlaceConcession(b, id, "refused")} className={`${CHIP} bg-red-50 text-red-700 hover:bg-red-100`}>
+            {t("ent.bk.noProof")}
+          </button>
+        </>
+      ) : (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <span className="text-slate-500">{t("bk.dontAskUntil")}</span>
+          {(
+            [
+              ["visit", t("bk.until.visit")],
+              ["month", t("bk.until.month")],
+              ["year", t("bk.until.year")],
+              ["twelve", t("bk.until.twelve")],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => act.checkPlaceConcession(b, id, "seen", value)}
+              className={`${CHIP} bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200`}
+            >
+              {label}
+            </button>
+          ))}
+          <button type="button" onClick={() => setAsking(false)} aria-label={t("c.cancel")} className="px-1 text-slate-400">
+            ✕
+          </button>
+        </span>
+      )}
+    </div>
   );
 }
 

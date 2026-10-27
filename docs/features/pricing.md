@@ -197,7 +197,8 @@ student card"), and optionally one sport or off-peak hours only.
   booking priced by the place; several people on one booking may each have
   their own. Its proof is that person's: staff check it person by person
   (*Student price for Alya: check their proof*), a proof seen is remembered
-  for that participant (`participant_concession_proofs`), and no proof
+  for that participant for as long as staff say, as below
+  (`participant_concession_proofs`), and no proof
   charges that place alone in full. The receipt names whose price it was.
 - **At the counter:** the booking shows *Student price (RM10 off): check proof*.
   Staff look at the card and press *Proof seen* (and say until when not to ask

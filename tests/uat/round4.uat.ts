@@ -3,7 +3,7 @@ import net from "net";
 import { describe, expect, inject } from "vitest";
 import type { Page } from "playwright-core";
 import { freeSlot, gone, scenario, signInOwner, signUp, url, type Actor } from "./harness";
-import { applyFor, archeryRange, confirmedCode, decideApi, family, laneLink, staffApi, staffSignIn, type Child, type Range } from "./families";
+import { applyFor, archeryRange, confirmedCode, decideApi, family, laneLink, STAFF_PASSWORD, staffApi, staffSignIn, type Child, type Range } from "./families";
 
 /**
  * Who may act for a child, supporting documents a scanner could not pass,
@@ -22,6 +22,12 @@ import { applyFor, archeryRange, confirmedCode, decideApi, family, laneLink, sta
  *   retry). A document sent while the scanner is away waits in quarantine;
  *   one a working scanner cannot scan fails; the platform owner has it
  *   scanned again with a reason; once it passes the reviewer opens it.
+ * - **Places K, L** (ADR 0025: benefits by scope, one person taken off). A
+ *   guardian takes one child off a pool session sold by the place: the other
+ *   stays booked, the place goes to the waiting list, and only that place's
+ *   price comes off; a session sold whole refuses, saying why. One child's own
+ *   concession on a booking for two: on her place alone, once, with no code
+ *   on top (one discount), on the receipt; her proof checked and remembered.
  * - **Recovery J** (ADR 0024: review provenance). The retention review form
  *   asks for who reviewed what, on what written advice, and says it is the
  *   platform owner's record, not verified by MySenam; changing a period lapses
@@ -636,6 +642,297 @@ describe("recovery: what the platform owner records", () => {
     await s.step(visitor, "reads the periods as provisional again", async () => {
       await visitor.page.reload();
       await visitor.page.getByText("These periods are provisional: they have not yet been reviewed by a lawyer.").waitFor();
+    });
+  });
+});
+
+/**
+ * A swimming centre of a scenario's own: a pool sold by the place (RM10 a
+ * place, `poolPlaces` of them) and a gym floor whose places the venue sells
+ * together (the booking rule `separatePlaces` off), with a manager and a front
+ * desk. Made by the platform's owner.
+ */
+async function swimCentre(owner: Actor, label: string, poolPlaces: number) {
+  const stamp = `${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`;
+  const name = `${label} ${stamp}`;
+  const made = await owner.api("POST", "/api/admin/venues", { name, area: "Wangsa Maju", address: "8 Jalan 4/27A, Wangsa Maju", phone: "03-4142 8800" });
+  if (made.status !== 201) throw new Error(`venue: ${JSON.stringify(made.body)}`);
+  const venueId = (made.body.venue as { id: number }).id;
+  const court = async (sport: string, courtName: string, capacity: number, rate: number) => {
+    const c = await owner.api("POST", "/api/admin/courts", { venueId, sport, name: courtName, offPeakRate: rate, peakRate: rate, capacity, maxPlayers: capacity, deposit: 0 });
+    if (c.status >= 300) throw new Error(`${courtName}: ${JSON.stringify(c.body)}`);
+    return ((c.body.courts as { id: number }[] | undefined)?.[0] ?? (c.body.court as { id: number })).id;
+  };
+  const pool = await court("swimming", "Pool", poolPlaces, 10);
+  const gym = await court("gym", "Gym Floor", 4, 8);
+  const whole = await owner.api("POST", "/api/admin/booking-policies", { venueId, level: "sport", sport: "gym", settings: { separatePlaces: false } });
+  if (whole.status !== 200) throw new Error(`rules: ${JSON.stringify(whole.body)}`);
+  const staff = {
+    manager: { email: `swim-manager-${stamp}@uat.mysenam.test`, name: `${label} Manager` },
+    desk: { email: `swim-desk-${stamp}@uat.mysenam.test`, name: `${label} Desk` },
+  };
+  for (const role of ["manager", "desk"] as const) {
+    const r = await owner.api("POST", "/api/admin/admins", { name: staff[role].name, email: staff[role].email, password: STAFF_PASSWORD, venueId, role });
+    if (r.status >= 300) throw new Error(`${role}: ${JSON.stringify(r.body)}`);
+  }
+  return { venueId, name, pool, gym, ...staff };
+}
+
+/** The venue's grid at one resource and hour, for an activity. */
+const slotLink = (venueId: number, sport: string, courtId: number, date: string, hour: number) =>
+  `${url}/venue/${venueId}?date=${date}&sport=${sport}&court=${courtId}&start=${hour * 60}&minutes=60`;
+
+/** On the booking form: the guardian not taking part, these children ticked. */
+async function forChildren(page: Page, ticked: string[], all: string[]) {
+  const me = page.getByLabel("Me", { exact: true });
+  if (await me.isChecked()) await me.click();
+  for (const name of all) {
+    const box = page.getByLabel(`${name} (booked by you)`);
+    if ((await box.isChecked()) !== ticked.includes(name)) await box.click();
+  }
+}
+
+/** One booking's card on the account page. */
+const bookingCard = (page: Page, code: string) => page.locator("div.rounded-xl").filter({ hasText: code });
+
+describe("places: one person's place on a booking of several", () => {
+  scenario("Places K: a guardian takes one child off a pool session sold by the place; the other stays booked, only that place's price comes off, the freed place goes to the waiting list; a session sold whole refuses, saying why", async (s) => {
+    const owner = await signInOwner(await s.actor("Owner"));
+    const centre = await swimCentre(owner, "Kolam Wangsa", 2);
+    const {
+      parent: mother,
+      kids: [amani, bella],
+    } = await family(s, "Mother", ["Amani", "Bella"]);
+    const swimmer = await signUp(await s.actor("Swimmer"));
+    const slot = await freeSlot({ sport: "swimming", venueId: centre.venueId, hours: [14, 15, 16, 17] });
+    const page = mother.page;
+
+    const code = await s.step(mother, "books both children on the pool's two places, not herself: RM20", async () => {
+      await page.goto(slotLink(centre.venueId, "swimming", centre.pool, slot.date, slot.hour));
+      await page.getByRole("button", { name: /^Book · RM/ }).waitFor();
+      await forChildren(page, ["Amani", "Bella"], ["Amani", "Bella"]);
+      await page.getByRole("button", { name: "Book · RM20" }).waitFor();
+      await page.getByRole("button", { name: /^Book · RM/ }).click();
+      return confirmedCode(page);
+    });
+
+    // Somebody else wants a place at that hour, and waits for one (setup).
+    const waits = await swimmer.api("POST", "/api/waitlist", {
+      courtId: centre.pool,
+      date: slot.date,
+      start: slot.hour * 60,
+      end: slot.hour * 60 + 60,
+      name: "Swimmer Tester",
+      phone: swimmer.phone,
+      email: swimmer.email,
+    });
+    expect(waits.status, JSON.stringify(waits.body)).toBeLessThan(300);
+
+    await s.step(mother, "on her account page, sees who is on the booking and what taking each off would do: RM10 less to pay for either", async () => {
+      await page.goto(`${url}/account`);
+      const card = bookingCard(page, code);
+      await card.getByRole("button", { name: "Take somebody off" }).click();
+      const who = card.getByRole("region", { name: "Who is taking part" });
+      for (const name of ["Amani", "Bella"]) await who.locator("li").filter({ hasText: name }).getByText("RM10 less to pay.").waitFor();
+    });
+
+    await s.step(mother, "takes Bella off: Amani stays booked, and RM10 less is owed", async () => {
+      const card = bookingCard(page, code);
+      let asked = "";
+      page.once("dialog", (d) => {
+        asked = d.message();
+        void d.accept();
+      });
+      await card.getByRole("region", { name: "Who is taking part" }).locator("li").filter({ hasText: "Bella" }).getByRole("button", { name: "Take off" }).click();
+      await page.getByText("Bella is off the booking. RM10 less to pay.").waitFor();
+      expect(asked).toBe("Take Bella off this booking? Everybody else stays booked. RM10 less to pay.");
+      const mine = (await mother.api("GET", "/api/my/bookings")).body.bookings as { code: string; totalPrice: number; participantName: string | null; status: string }[];
+      const booked = mine.find((b) => b.code === code)!;
+      expect([booked.status, booked.totalPrice, booked.participantName]).toEqual(["confirmed", 10, "Amani"]);
+      await page.goto(`${url}/account`);
+      await bookingCard(page, code).getByText("For Amani").waitFor();
+      expect(await bookingCard(page, code).getByText(/Bella/).count()).toBe(0);
+    });
+
+    await s.step(mother, "may not take Amani off too: the last one on a booking is cancelled instead, and the page says so", async () => {
+      const card = bookingCard(page, code);
+      await card.getByRole("button", { name: "Take somebody off" }).click();
+      await card.getByText("Cannot be taken off: Amani is the only one left on this booking. Cancel the booking instead.").waitFor();
+      expect(await card.getByRole("button", { name: "Take off" }).count()).toBe(0);
+    });
+
+    await s.step(swimmer, "is offered the place Bella left, and claims it", async () => {
+      await swimmer.page.goto(`${url}/account`);
+      const list = swimmer.page.locator("section").filter({ has: swimmer.page.getByRole("heading", { name: "Waitlist" }) });
+      const entry = list.locator("li").first();
+      await entry.getByText(/A place is being held for you/).waitFor();
+      await entry.getByRole("link", { name: "Claim place" }).click();
+      await swimmer.page.getByRole("button", { name: "Claim my place" }).click();
+      await swimmer.page.getByText("The place is yours").waitFor();
+    });
+
+    await s.step(mother, "is told by email who is off, that everybody else stays booked, and what happened to the money", async () => {
+      const subject = `Bella is off booking ${code}`;
+      const mgr = await staffApi(await s.actor("Manager API"), centre.manager.email);
+      await expect
+        .poll(async () => {
+          const list = (await mgr.api("GET", `/api/admin/messages?venueId=${centre.venueId}`)).body.messages as { recipient: string; subject: string | null; status: string }[];
+          return list.filter((m) => m.subject === subject).map((m) => [m.recipient, m.status]);
+        })
+        .toEqual([[mother.email, "sent"]]);
+      if (serverLog) {
+        const [mail] = emailsTo(mother.email).filter((m) => m.subject === subject);
+        expect(mail.text).toMatch(new RegExp(`^Hi Mother, Bella is no longer on your booking ${code}: .+\\. Everybody else on it stays booked\\. RM10 less to pay\\.`));
+      }
+    });
+
+    const desk = await s.actor("Desk");
+    await s.step(desk, "sees the pool's hour on the day: Amani on the guardian's booking, the swimmer on the place Bella left", async () => {
+      await staffSignIn(desk, centre.desk.email);
+      await desk.page.getByLabel("Day to show").fill(slot.date);
+      const row = desk.page.locator("tr").filter({ hasText: code });
+      await row.getByText(/Amani/).first().waitFor();
+      expect(await row.getByText(/Bella/).count()).toBe(0);
+      await desk.page.locator("tr").filter({ hasText: "Swimmer Tester" }).first().waitFor();
+    });
+
+    // The gym floor is sold whole (setup): both children on one booking.
+    const gymSlot = await freeSlot({ sport: "gym", venueId: centre.venueId, hours: [14, 15, 16, 17] });
+    const gym = await mother.api("POST", "/api/bookings", {
+      courtId: centre.gym,
+      sport: "gym",
+      date: gymSlot.date,
+      start: gymSlot.hour * 60,
+      end: gymSlot.hour * 60 + 60,
+      name: "Mother Tester",
+      phone: mother.phone,
+      participantIds: [amani.id, bella.id],
+      customerTakesPart: false,
+    });
+    expect(gym.status, JSON.stringify(gym.body)).toBe(201);
+    const gymCode = (gym.body.booking as { code: string }).code;
+
+    await s.step(mother, "on a gym session the venue sells whole, nobody can be taken off, and each says why", async () => {
+      await page.goto(`${url}/account`);
+      const card = bookingCard(page, gymCode);
+      await card.getByRole("button", { name: "Take somebody off" }).click();
+      const why = "Cannot be taken off: The venue sells these places together, so one person cannot be taken off. Cancel the booking, or ask the venue.";
+      for (const name of ["Amani", "Bella"]) await card.locator("li").filter({ hasText: name }).getByText(why).waitFor();
+      expect(await card.getByRole("button", { name: "Take off" }).count()).toBe(0);
+    });
+  });
+
+  scenario("Places L: one child's own concession on a booking for two: it comes off her place alone, the form offers no code on top (one discount), the receipt adds up; her proof is checked at the counter and remembered, and her concession is not taken twice", async (s) => {
+    const owner = await signInOwner(await s.actor("Owner"));
+    const centre = await swimCentre(owner, "Kolam Setapak", 8);
+    const mgr = await staffApi(await s.actor("Manager API"), centre.manager.email);
+    const concession = await mgr.api("POST", "/api/admin/concessions", {
+      venueId: centre.venueId,
+      name: "Junior swimmer",
+      percent: 50,
+      proof: "their MyKid card",
+      sport: "swimming",
+      scope: "participant",
+    });
+    expect(concession.status, JSON.stringify(concession.body)).toBe(200);
+    const concessionId = (concession.body.concession as { id: number }).id;
+    // A code for the whole booking, as the venue advertises it.
+    const promo = await mgr.api("POST", "/api/admin/promos", {
+      venueId: centre.venueId,
+      code: "SPLASH10",
+      description: "Ten percent off a swim",
+      kind: "percent",
+      value: 10,
+      validFrom: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+      validTo: new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10),
+    });
+    expect(promo.status, JSON.stringify(promo.body)).toBeLessThan(300);
+    const {
+      parent: mother,
+      kids: [amani, bella],
+    } = await family(s, "Mother", ["Amani", "Bella"]);
+    const slot = await freeSlot({ sport: "swimming", venueId: centre.venueId, fromDay: 3, toDay: 4, hours: [14, 15, 16, 17] });
+    const page = mother.page;
+
+    const code = await s.step(mother, "books both children with Amani on the junior price, her place only: RM20 less RM5 off Amani's place, RM15; with a concession chosen the form offers no code on top", async () => {
+      await page.goto(slotLink(centre.venueId, "swimming", centre.pool, slot.date, slot.hour));
+      await page.getByRole("button", { name: /^Book · RM/ }).waitFor();
+      await forChildren(page, ["Amani", "Bella"], ["Amani", "Bella"]);
+      await page.getByLabel("Promo code?").waitFor();
+      await page.getByLabel("Price").selectOption({ label: "Junior swimmer, 50% off" });
+      await page.getByText("This price is for one person's place.").waitFor();
+      await page.getByLabel("Whose price is it?").selectOption({ label: "Amani" });
+      await page.getByText("Bring their MyKid card to show at the counter. Without it, the full price is charged there.").waitFor();
+      // One discount at a time (docs/features/pricing.md#concession-prices): the code's field goes.
+      await gone(page.getByLabel("Promo code?"));
+      await page.getByRole("button", { name: "Book · RM15" }).waitFor();
+      await page.getByRole("button", { name: /^Book · RM/ }).click();
+      const booked = await confirmedCode(page);
+      await page.locator("dl").locator("div").filter({ hasText: /^Total/ }).getByText(/RM15 \(pay at counter\)/).waitFor();
+      expect(await page.getByText("Promo discount").count()).toBe(0);
+      return booked;
+    });
+
+    const desk = await s.actor("Desk");
+    await s.step(desk, "at the counter, is asked for Amani's proof only, sees it, remembers it for 12 months, and takes the RM15 in cash", async () => {
+      await staffSignIn(desk, centre.desk.email);
+      await desk.page.getByLabel("Day to show").fill(slot.date);
+      const row = desk.page.locator("tr").filter({ hasText: code });
+      await row.getByText(/Junior swimmer for Amani \(RM5 off\): check their proof/).waitFor();
+      expect(await row.getByText(/Junior swimmer for Bella/).count()).toBe(0);
+      await row.getByRole("button", { name: "Proof seen" }).click();
+      await row.getByRole("button", { name: "12 months" }).click();
+      await row.getByText(/Junior swimmer for Amani: proof seen/).waitFor();
+      await row.getByRole("button", { name: "unpaid" }).click();
+      await row.getByTitle("Cash", { exact: true }).click();
+      await row.getByRole("button", { name: /^✓ / }).waitFor();
+    });
+
+    await s.step(mother, "reads the receipt: both places, Amani's junior price once and on her place alone, RM15", async () => {
+      await page.goto(`${url}/my-booking`);
+      await page.getByLabel("Booking code").fill(code);
+      await page.getByLabel("Phone number").fill(mother.phone);
+      await page.getByRole("button", { name: "Find my booking" }).click();
+      const href = await page.getByRole("link", { name: "Receipt ↗" }).getAttribute("href");
+      await page.goto(new URL(href!, url).toString());
+      const body = page.locator("article");
+      await body.getByText("Junior swimmer price, Amani").waitFor();
+      expect(await body.getByText("Junior swimmer price, Amani").count()).toBe(1);
+      expect(await body.getByText(/price, Bella/).count()).toBe(0);
+      expect(await body.getByText(/Promo/).count()).toBe(0);
+      const text = (await body.textContent())!;
+      for (const shown of [/2 playersRM20/, /Junior swimmer price, Amani−RM5/, /TotalRM15Paid: Cash/]) expect(text).toMatch(shown);
+    });
+
+    // The next week, both again, Amani on her junior price (setup through the API, as the venue's app would).
+    const next = await freeSlot({ sport: "swimming", venueId: centre.venueId, fromDay: 9, toDay: 13, hours: [14, 15, 16, 17] });
+    const booking = (extra: Record<string, unknown>) =>
+      mother.api("POST", "/api/bookings", {
+        courtId: centre.pool,
+        sport: "swimming",
+        date: next.date,
+        start: next.hour * 60,
+        end: next.hour * 60 + 60,
+        name: "Mother Tester",
+        phone: mother.phone,
+        participantIds: [amani.id, bella.id],
+        customerTakesPart: false,
+        ...extra,
+      });
+    // Amani's concession asked for twice on one booking: refused before anything is booked.
+    const twice = await booking({ placeConcessions: [{ participantId: amani.id, concessionId }, { participantId: amani.id, concessionId }] });
+    expect(twice.status).toBe(400);
+    const again = await booking({ placeConcessions: [{ participantId: amani.id, concessionId }] });
+    expect(again.status, JSON.stringify(again.body)).toBe(201);
+    const againBooking = again.body.booking as { code: string; totalPrice: number };
+    expect(againBooking.totalPrice).toBe(15);
+
+    await s.step(desk, "next time, Amani's proof is already on file: nobody asks again, and her place alone is at the junior price", async () => {
+      await desk.page.getByLabel("Day to show").fill(next.date);
+      const row = desk.page.locator("tr").filter({ hasText: againBooking.code });
+      await row.getByText(/Junior swimmer for Amani: proof seen/).waitFor();
+      expect(await row.getByRole("button", { name: "Proof seen" }).count()).toBe(0);
+      expect(await row.getByText(/Junior swimmer for Bella/).count()).toBe(0);
     });
   });
 });
