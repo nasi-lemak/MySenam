@@ -659,6 +659,49 @@ integration has passed its check; machine-assisted Malay, Chinese and Tamil
 await native review; the retention periods are product policy awaiting
 Malaysian and Singaporean legal review.
 
+#### 27 October 2026, commit `7eb5aef`
+
+The owner's round 6 decisions and the remaining functional work: guest,
+game and group invitations that do not reveal whether an address has an
+account (S21, S22), sign-in and password reset that take as long for an
+unknown address; the contention anomaly traced and fixed (B30: rows pointing
+at a booking checked at commit); lesson coaches kept, reassigned by a manager
+with the money effect, or assigned by the venue; membership holds fitted to
+each gateway and family dependants by the plan's policy; booking privileges
+when booking and a members' place by its date, asked again at check-in and
+the door; one person taken off a booking held by a deposit or charged to an
+account; the venue API's discounts and checks (M18, B32) and waiting-list
+claims asking what the booking asks; links and times in each language; the
+guardian notice template prepared; names in receipt lines cleared (S23); and
+the defects the full suites found (B31, B34–B38, S24). Not a launch. Run on
+one cloud container (four cores), Node 22, all on `7eb5aef`.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 104 passed (with this record's documentation, the commit after) |
+| Suite on PGlite | 300 files; 3192 passed, 12 skipped (Postgres-only tests) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server, `max_locks_per_transaction` 256) | 300 files; 3204 passed |
+| Contention, inside both suites | `tests/contention.test.ts` (retries bound unchanged) and `tests/booking-references-deferred.test.ts`: the order of events that cancelled the middle of three bookings, replayed on Postgres, cancels it with the old check and commits all three now |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Guests T, Coaches U and V, Membership W, Family X, Places Y and Malay Z among them | 15 files; 55 of 55 |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments against the fake gateways and the Billplz stand-in, messages through the outbox only (the acceptance server logs them), the WhatsApp template not submitted |
+
+The first full run on `58b1771` failed three Postgres tests with "out of
+shared memory" (the server's default `max_locks_per_transaction` of 64, with
+several test databases restoring at once; the deployment kit and this server
+now set 256), two acceptance scenarios that still expected round 5's wording
+(times, links and receipts are now localised), and showed two unhandled
+errors from a connection cut under a background job (S24, fixed). An earlier
+PGlite run after 16:00 UTC (midnight in Malaysia) found two tests comparing a
+local date with a UTC one (B31, B36, fixed; B37 found by the same search).
+Gaps: no live integration has passed its check; machine-assisted Malay,
+Chinese and Tamil await native review, now including the times each language
+is written in; the retention periods are product policy awaiting legal
+review; the owner's decision on the counter's checks is open.
+
 #### 26 October 2026, commit `8f62ccf`
 
 Participants apart from accounts (ADR 0023), booking for somebody else on
