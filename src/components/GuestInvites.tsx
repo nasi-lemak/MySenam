@@ -12,8 +12,8 @@ export function GuestInvites() {
   const [venues, setVenues] = useState<InviteVenue[]>([]);
   const [form, setForm] = useState<{ venueId: number; phone: string; name: string; days: string; email: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<{ venueId: number; name: string; linked: boolean } | null>(null);
-  // Whether a guest can prove their number here; without, only their account's email lets them book online.
+  const [sent, setSent] = useState<{ venueId: number; name: string; invited: boolean } | null>(null);
+  // Whether a guest can prove their number here; without, only an emailed invitation they accept lets them book online.
   const [phoneChecks, setPhoneChecks] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +49,8 @@ export function GuestInvites() {
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("guests.failed"));
       setVenues(data.venues);
-      setSent({ venueId: form.venueId, name: form.name.trim() || form.phone, linked: data.guest?.linked === true });
+      // The same words whether or not an account holds the address given: nothing here can say which.
+      setSent({ venueId: form.venueId, name: form.name.trim() || form.phone, invited: form.email.trim() !== "" });
       setForm(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("guests.failed"));
@@ -90,7 +91,8 @@ export function GuestInvites() {
                           {g.name ? `${g.phone} · ` : ""}
                           {t("guests.until", { date: g.expiresOn })}
                           {" · "}
-                          {g.linked ? t("acc5.linked") : t("acc5.notLinked")}
+                          {g.linked ? t("acc5.linked") : g.invited ? t("gi6.invitationSent") : t("acc5.notLinked")}
+                          {g.linked && g.invited ? ` · ${t("gi6.invitationSent")}` : ""}
                         </span>
                       </span>
                       <button
@@ -105,7 +107,7 @@ export function GuestInvites() {
               )}
               {sent?.venueId === v.id && (
                 <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                  {t(sent.linked ? "acc5.sentLinked" : phoneChecks ? "acc5.sentChecks" : "acc5.sentNoChecks", {
+                  {t(sent.invited ? "gi6.sent" : phoneChecks ? "acc5.sentChecks" : "acc5.sentNoChecks", {
                     name: sent.name,
                     link: `${window.location.origin}/venue/${v.id}`,
                   })}
@@ -133,7 +135,7 @@ export function GuestInvites() {
                     />
                   </label>
                   <label className="text-xs text-slate-600">
-                    {t("acc5.email")}
+                    {t("gi6.email")}
                     <input
                       type="email"
                       autoComplete="off"
@@ -160,7 +162,7 @@ export function GuestInvites() {
                   >
                     {t("guests.add")}
                   </button>
-                  <p className="w-full text-xs text-slate-500">{phoneChecks ? t("acc5.emailHintChecks") : t("acc5.emailHintNoChecks")}</p>
+                  <p className="w-full text-xs text-slate-500">{phoneChecks ? t("gi6.emailHintChecks") : t("gi6.emailHintNoChecks")}</p>
                 </form>
               ) : (
                 !full && (

@@ -54,6 +54,41 @@ the person ([ADR 0020](decisions/0020-approval-to-booking-payment-and-authority.
 Door codes follow eligibility, not the booking's author
 ([door codes](../features/venue-operations.md#resources-nobody-is-standing-next-to)).
 
+## No account enumeration
+
+A customer who types somebody else's email address must not learn from the
+answer whether an account holds it, whose it is or what it has done (the
+owner's decision of 27 October 2026). Rate limits slow such probing; they do
+not stop it, so the answer itself must say nothing:
+
+- **A resident's guest invited by email** (`src/lib/guest-invites.ts`): the
+  address is never looked up. The reply, its status and its keys are the
+  same whether or not an account holds it; the entry goes on the list the same
+  way; the same email is queued through the outbox either way, in the
+  resident's language, held like a password reset's (no venue's, its text not
+  kept once sent, never readdressed). The address gets a single-use link
+  (24 random bytes, kept as a keyed hash, with a keyed hash of the address),
+  which links that one guest entry to the account that accepts it signed in
+  with that address, and lapses with the entry. Every link that cannot be
+  used gets one answer, `404 GUEST_INVITATION_INVALID`. The resident sees
+  *invitation sent* until the guest accepts; accepting is the guest's own act
+  ([residents inviting their own guests](../features/booking.md#residents-inviting-their-own-guests);
+  `tests/guest-invitations.test.ts`).
+- **A forgotten password** answers the same whether or not the address has an
+  account ([forgotten passwords](authentication.md#forgotten-passwords)).
+- **Inviting a player to an open game or a group by email** answers the same
+  whether or not the address has an account or may be invited
+  (`inviteByEmail` in `src/lib/games.ts`, `inviteToGroup` in
+  `src/lib/groups.ts`).
+
+Guardians invite another guardian with a code they pass on, not an address.
+Staff tools that find an account by email (linking a list entry, selling a
+pass or membership to an account, a sign-off, a coach's login, a guardian
+proposed by account email) say when none has it: they are used by a venue's
+own staff for the person in front of them, not by customers. Where the rule
+does not yet hold for customers is in
+[known limitations](../roadmap/known-limitations.md).
+
 ## Rate limiting
 
 Password endpoints and anything addressable by a short code are rate limited

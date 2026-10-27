@@ -52,8 +52,8 @@ number, not every place queued on a number it typed.
 A members-only or private venue's own list follows the same rule. Online, an
 entry on it counts only for the account staff linked it to (by the account's
 email or the number on it, checked against the name and email shown), the
-account a resident linked their guest's entry to by the guest's account email,
-or an account that has proved the entry's number
+account that accepted the invitation a resident emailed for their guest's
+entry (signed in with that address), or an account that has proved the entry's number
 ([who a venue is for](../features/booking.md#who-a-venue-is-for-public-members-only-private);
 `venue_access_list.user_id`). A number typed on an account opens no private
 venue, whether or not the install checks numbers, so on an install without

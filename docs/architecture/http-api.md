@@ -327,9 +327,10 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/my/reviews` | `{ id, action: "approve" \| "reject" \| "ask" \| "in_person" \| "check" \| "revoke" \| "authority", reason? }`: the coach's decision, under their name and this account; refused (403, `APR_NOT_REVIEWER`) for any application they are not named for. Rejecting, asking and revoking need a reason |
 | GET | `/api/my/reviews/document` | `?id` → a document sent with an application the signed-in coach may review, as the customer's route serves it (released documents only, `409 SCAN_NOT_RELEASED` before); each opening recorded under the coach's name |
 | GET | `/api/my/games` | The signed-in player's games: hosting, with who asked; and playing |
-| GET | `/api/my/guests` | The venues this resident can invite guests to, their guests there now (each `linked` or not), and `phoneChecks` |
-| POST | `/api/my/guests` | `{ venueId, phone, name, days, email? }`: put a guest on the venue's list; `email`, the guest's account's, links the entry to it (`GUEST_ACCOUNT_UNKNOWN` if no account has it) |
-| DELETE | `/api/my/guests` | `?id=`: take one's own guest off the list |
+| GET | `/api/my/guests` | The venues this resident can invite guests to, their guests there now (each `linked` or not, and `invited`: an emailed invitation not yet accepted), and `phoneChecks` |
+| POST | `/api/my/guests` | `{ venueId, phone, name, days, email? }`: put a guest on the venue's list; `email` is sent a single-use invitation to accept, never looked up: the reply (`201 { guest, venues, phoneChecks }`) is the same whether or not an account holds it ([no account enumeration](security.md#no-account-enumeration)). `GUEST_ACCOUNT_SELF` for the resident's own address, `GUEST_EMAIL_INVALID` for something that is not one |
+| DELETE | `/api/my/guests` | `?id=`: take one's own guest off the list (any invitation out for them is void) |
+| POST | `/api/guest-invitations` | `{ token }`, signed in with the address it was sent to: accept a resident's emailed invitation, linking that one guest entry to this account → `{ venue: { id, name }, expiresOn }`. `401` signed out; `404 GUEST_INVITATION_INVALID` for every link that cannot be used (unknown, used, replaced, run out, the guest or the resident gone, another account's) |
 | GET | `/api/my/levels` | The signed-in player's level in each sport they have given one for |
 | GET | `/api/my/profile` | How the signed-in player likes to play (area, approximate point, distance, days, times, intensity, most per share, opt-ins, declared age), and their levels |
 | PUT | `/api/my/profile` | Any of those fields; being found or invited by anybody needs a declared 18 or over |

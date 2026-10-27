@@ -24,7 +24,7 @@ import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdmin, createAdminSessio
 import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
 import { openGame } from "../src/lib/games";
-import { inviteGuest, myInviteVenues, setGuestPolicy } from "../src/lib/guest-invites";
+import { acceptGuestInvitation, inviteGuest, myInviteVenues, setGuestPolicy } from "../src/lib/guest-invites";
 import { houseRuleRefusal, setHouseRules } from "../src/lib/house-rules";
 import { createLeague } from "../src/lib/leagues";
 import { mayShowVenue } from "../src/lib/listing";
@@ -226,7 +226,7 @@ describe("staff link and unlink", () => {
 });
 
 describe("a resident's guest", () => {
-  it("is linked to the guest's account when the resident gives its email, and needs it where numbers are not checked", async () => {
+  it("is linked to the guest's account when the guest accepts the invitation emailed to it, and needs it where numbers are not checked", async () => {
     const host = await person("0183000001");
     await addAccess(kondo, [{ phone: "0183000001", name: "Hafiz", label: "D-4-4" }], ownerId);
     await setGuestPolicy(kondo, { perResident: 3, days: 3 });
@@ -241,17 +241,26 @@ describe("a resident's guest", () => {
     );
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body).toMatchObject({ guest: { linked: true }, phoneChecks: false });
+    // Not linked until accepted: an address is never looked up (tests/guest-invitations.test.ts).
+    expect(body).toMatchObject({ guest: { linked: false, invited: true }, phoneChecks: false });
+    expect(await accessRefusal(kondo, withEmail.id)).toMatchObject({ code: "PRIVATE_VENUE" });
+    const mail = (await getDb().prepare("SELECT body FROM messages WHERE recipient = ? ORDER BY id DESC").get(withEmail.email)) as { body: string };
+    const token = /guest-invitation\?token=([A-Za-z0-9_-]+)/.exec(mail.body)![1];
+    expect(await acceptGuestInvitation(withEmail, token)).toMatchObject({ ok: true });
     expect(await accessRefusal(kondo, withEmail.id)).toBeNull();
     expect(await entry(kondo, "0183000002")).toMatchObject({ kind: "guest", label: "D-4-4", invitedBy: "Hafiz", account: { id: withEmail.id } });
 
     const noEmail = await person("0183000003");
-    expect(await inviteGuest(host.id, { venueId: kondo, phone: "0183000003", days: 1 })).toMatchObject({ ok: true, guest: { linked: false } });
+    expect(await inviteGuest(host.id, { venueId: kondo, phone: "0183000003", days: 1 })).toMatchObject({ ok: true, guest: { linked: false, invited: false } });
     expect(await accessRefusal(kondo, noEmail.id)).toMatchObject({ code: "PRIVATE_VENUE" });
 
-    expect(await inviteGuest(host.id, { venueId: kondo, phone: "0183000004", days: 1, email: "nobody@nowhere.my" })).toMatchObject({ code: "GUEST_ACCOUNT_UNKNOWN" });
-    expect(await accessEntryId(kondo, "0183000004")).toBeNull();
-    expect(await inviteGuest(host.id, { venueId: kondo, phone: "0183000004", days: 1, email: host.email })).toMatchObject({ code: "GUEST_ACCOUNT_SELF" });
+    // An address no account has goes on as any other: same answer, an invitation sent, nothing linked.
+    expect(await inviteGuest(host.id, { venueId: kondo, phone: "0183000004", days: 1, email: "nobody@nowhere.my" })).toMatchObject({
+      ok: true,
+      guest: { linked: false, invited: true },
+    });
+    expect(await inviteGuest(host.id, { venueId: kondo, phone: "0183000005", days: 1, email: host.email })).toMatchObject({ code: "GUEST_ACCOUNT_SELF" });
+    expect(await accessEntryId(kondo, "0183000005")).toBeNull();
   });
 
   it("loses the old guest's link when another resident takes over a lapsed invitation", async () => {

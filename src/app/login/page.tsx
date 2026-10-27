@@ -21,8 +21,11 @@ export default function LoginPage() {
 
   // Whether this address offers Google; and a sign-in that came back refused says why.
   useEffect(() => {
-    const failed = new URLSearchParams(window.location.search).get("error");
+    const params = new URLSearchParams(window.location.search);
+    const failed = params.get("error");
     if (failed) setError(failed === "google" ? t("auth.failed") : failed);
+    // Sent here to make an account (an emailed guest invitation): open on that.
+    if (params.get("mode") === "register") setMode("register");
     void fetch("/api/auth/providers", { cache: "no-store" })
       .then((r) => r.json())
       .then((p: { google?: boolean }) => setGoogle(Boolean(p.google)))
