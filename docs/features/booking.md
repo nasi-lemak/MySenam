@@ -465,8 +465,9 @@ Staff cannot take out more places than are free, since that would strand a
 booking; the refusal names how many remain. A block over time that is partly
 booked covers the rest of it, and one made at the moment a booking lands is
 worked out again around it. Re-blocking time revises it rather than
-duplicating it. The occupancy report counts only full blocks, since a partial
-one does not remove time from the day.
+duplicating it. The occupancy grid and the reports count every place a block
+takes out, whole or partial, off what could have been sold for its time
+([reporting](reporting.md#reporting)).
 
 ## Waitlists
 

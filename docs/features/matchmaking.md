@@ -226,7 +226,13 @@ quietly turns down anything the blocked player asked of the blocker's games;
 somebody already in stays until the host removes them, because a paid share
 may hang on it. Reports (no-show, abuse, spam, safety, other) go to the
 owner's list (`/api/admin/player-reports`), one open report per person, at
-most ten a day from one player.
+most ten a day from one player. The platform owner reads them on the
+dashboard under *Reports about players* (`src/components/admin/PlayerReportsPanel.tsx`):
+open, reviewed or all, fifty at a time and older on request, each with its
+reason, the note, who made it, whom it is about with how many reports there
+are about them, and the game; *Mark reviewed* is all it does. Acting on a
+report (talking to the player, closing an account) happens outside the
+screen; a report blocks nobody.
 
 ## Weekly games
 

@@ -33,6 +33,15 @@ booking was taken, because that is how an operator thinks about a month.
   court sharing its floor was booked, the hours it was **in use** (not free to
   sell) besides ([B11](../roadmap/known-limitations.md#fixed-since-the-audit);
   `tests/reports-floor.test.ts`).
+- **The occupancy grid** (*Occupancy*, `getOccupancy` in `src/lib/store.ts`)
+  shows each court's next seven days by the same measure: place-hours booked
+  against place-hours that could have been sold, which are the day's own
+  hours times capacity, nothing on a closed day, less every place a block or
+  outage takes out for its time. Two kayaks of six blocked for an hour take
+  two place-hours, not the hour; the cell says how many were taken out
+  (`tests/partial-blocks.test.ts`, `tests/components/occupancy-tab.test.tsx`).
+  Its venue total adds the courts' lines together, so unlike the report it
+  neither counts a pitch's floor once nor keeps shared facilities apart.
 - **Utilisation is reported twice**, for exclusive courts and for shared floors
   and pools (places sold against places offered), never blended. A forty-place gym offers more place-hours in a
   fortnight than every court in the building put together, so one combined

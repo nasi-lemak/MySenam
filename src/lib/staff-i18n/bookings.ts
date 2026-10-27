@@ -216,7 +216,7 @@ const en = {
   "occ.loadFailed": "Failed to load",
   "occ.court": "Court",
   "occ.cell": "{booked}/{places} places booked",
-  "occ.cellBlocked": "{booked}/{places} places booked, {hours} hours blocked",
+  "occ.cellBlocked": "{booked}/{places} places booked; {out} more taken out of service",
   "occ.venueTotal": "Venue total",
 
   // Needs attention
@@ -649,7 +649,7 @@ const ms: Record<keyof typeof en, string> = {
   "occ.loadFailed": "Gagal dimuatkan",
   "occ.court": "Gelanggang",
   "occ.cell": "{booked}/{places} tempat ditempah",
-  "occ.cellBlocked": "{booked}/{places} tempat ditempah, {hours} jam disekat",
+  "occ.cellBlocked": "{booked}/{places} tempat ditempah; {out} lagi dihentikan operasi",
   "occ.venueTotal": "Jumlah pusat",
 
   "att.reach.unreachable": "Tiada e-mel atau WhatsApp — telefon mereka",
@@ -1079,7 +1079,7 @@ const zh: Record<keyof typeof en, string> = {
   "occ.loadFailed": "加载失败",
   "occ.court": "场地",
   "occ.cell": "已预订 {booked}/{places} 个名额",
-  "occ.cellBlocked": "已预订 {booked}/{places} 个名额，封场 {hours} 小时",
+  "occ.cellBlocked": "已预订 {booked}/{places} 个名额；另有 {out} 个停用",
   "occ.venueTotal": "场馆合计",
 
   "att.reach.unreachable": "没有电邮或 WhatsApp — 请致电",
