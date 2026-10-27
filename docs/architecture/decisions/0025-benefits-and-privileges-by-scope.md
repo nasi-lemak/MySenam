@@ -113,7 +113,8 @@
   concession for one person; paying a booking for several with each one's
   own pass is through the API (`payWithPasses`) and the counter, not yet a
   choice on the form. Memberships for a participant and family memberships
-  are sold at the counter, not online. A late withdrawal of an unpaid place
+  were sold at the counter only when this was decided (online since; see
+  *Changes*). A late withdrawal of an unpaid place
   takes its price off without a strike. A booking-wide amount promo is
   shared between the places a withdrawal leaves.
 - **Alternatives considered:** a per-person benefits engine beside the
@@ -126,3 +127,14 @@
   and re-booking the others (new codes, lost places, the money twice);
   checking a child's membership requirement against the parent's
   membership (exactly what the owner ruled out).
+- **Changes:**
+  - 2026-10-27 (the owner's decision): memberships for a participant and
+    family memberships can be bought online as well as at the counter, by an
+    account that is the active, unpaused guardian of each person named; a
+    plan says whom it is sold for (`offered_for`, and a family plan's limit,
+    migration 0167). The purchase is kept with its payment
+    (`membership_purchases`, migration 0168) and the membership made only
+    when the payment settles; a family membership's dependants can be
+    changed online within its limit, with no proration. The model of whose a
+    membership is and whom it covers is unchanged
+    ([for somebody you look after, or a family](../../features/pricing.md#for-somebody-you-look-after-or-a-family)).

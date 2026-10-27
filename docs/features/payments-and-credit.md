@@ -112,7 +112,9 @@ running booking software and running a payments business.
 - **Refunds** — a booking paid online and then cancelled, or paid at the counter
   as well, is listed under *Refunds owed* with who to pay back. So is a
   tournament entry, league fee, game share, membership or top-up paid for
-  something that had gone by the time the money arrived. Through **Stripe**,
+  something that had gone by the time the money arrived (for a membership
+  bought for somebody else, also one whose guardian no longer acted for them
+  by then: [joining online](pricing.md#for-somebody-you-look-after-or-a-family)). Through **Stripe**,
   a manager refunds it with one click: MySenam asks Stripe for the session's
   payment and refunds what is owed, in cents, with the venue's own key (which
   needs *Refunds: Write* as well as *Checkout Sessions: Write*). The request

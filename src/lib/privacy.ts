@@ -412,7 +412,10 @@ export interface CustomerExport {
   bookings: unknown[];
   wallet: { balance: number; entries: unknown[] };
   passes: unknown[];
+  /** Memberships this account holds or bought, with whom each is for: a participant's own, or the dependants a family one covers. */
   memberships: unknown[];
+  /** Memberships bought online, as chosen before paying, and what became of each: made, released, owed back (lib/membership-purchases.ts). */
+  membershipPurchases: unknown[];
   doorCodesShown: unknown[];
   /** Open games they hosted or asked to join, and the levels they gave. */
   games: unknown[];
@@ -518,11 +521,16 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId
     ),
     memberships: await all(
-      `SELECT m.code, m.starts_on, m.expires_on, m.price, m.status, v.name AS venue
+      `SELECT m.code, m.starts_on, m.expires_on, m.price, m.status, v.name AS venue,
+              hp.display_name AS for_participant,
+              (SELECT string_agg(cp.display_name, ', ' ORDER BY cp.id) FROM membership_participants mp
+                 JOIN participants cp ON cp.id = mp.participant_id WHERE mp.membership_id = m.id) AS covers
        FROM memberships m JOIN venues v ON v.id = m.venue_id
+       LEFT JOIN participants hp ON hp.id = m.holder_participant_id
        WHERE m.user_id = ?`,
       userId
     ),
+    membershipPurchases: await (await import("./membership-purchases")).purchasesExport(userId),
     doorCodesShown: await all(
       `SELECT r.revealed_at, b.code AS booking, c.name AS court
        FROM access_reveals r

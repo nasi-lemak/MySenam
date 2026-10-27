@@ -136,8 +136,10 @@ Account endpoints (session cookie):
 | POST   | `/api/my/vouchers`        | `{code}` → a gift voucher, as credit            |
 | POST   | `/api/vouchers`           | Buy a gift voucher online → `{url}` to pay      |
 | GET    | `/api/my/passes`          | The signed-in customer's multi-visit passes     |
-| GET    | `/api/my/membership`      | The signed-in customer's memberships            |
-| POST   | `/api/my/membership`      | `{planId, autoRenew?}` → the page to pay the venue on; the membership is made once it is paid, and with `autoRenew` again each period |
+| GET    | `/api/my/membership`      | The signed-in customer's memberships, and `pending`: purchases still waiting on their payment |
+| POST   | `/api/my/membership/quote` | `{planId, participantId?, covers?}` → what paying now would buy: `price`, `startsOn`, `expiresOn`, `renewing`, `holder`, `covers`; or why not (`MBO_*` codes, `JOIN_*`; [joining online](../features/pricing.md#for-somebody-you-look-after-or-a-family)) |
+| POST   | `/api/my/membership`      | `{planId, participantId?, covers?, autoRenew?}` → the page to pay the venue on (`reused` when the same purchase is already waiting); for the customer, for a participant they are an active guardian of (`participantId`), or a family plan's dependants (`covers`). The membership is made once it is paid, and with `autoRenew` again each period |
+| PATCH  | `/api/my/membership`      | `{membershipId, covers}` → whom a family membership bought online covers besides the customer, from now: within its plan's limit, at the same price |
 | DELETE | `/api/my/membership`      | `?renewal=<id>` → stop renewing; the membership runs to its end |
 | GET    | `/api/my/waitlist`        | Places you are queuing for, and any live offer: those this account joined, or on its proved number |
 | GET/POST | `/api/venues/:id/terms` | The venue's booking rules, and for an account whether it put them away and its strikes / `{version}`: don't show again |
@@ -437,9 +439,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/admin/marketing` | `?venueId=` → how many agreed to hear from the venue, how many stopped, and what it has sent |
 | POST | `/api/admin/marketing` | `{ venueId, action: "test" \| "send", subject, body }`: a copy to yourself, or the real thing |
 | GET | `/api/admin/membership-plans` | The plans a venue sells online, and whether it can take the money yet |
-| POST | `/api/admin/membership-plans` | `{ venueId, name, months, price, ratePercent?, aheadDays?, scope? }`: offer a new plan, a tier with its own benefits where given; `scope` the member's price for the whole booking (`booking`, the default) or for members' own places only (`participant`) |
+| POST | `/api/admin/membership-plans` | `{ venueId, name, months, price, ratePercent?, aheadDays?, scope?, offeredFor?, familyLimit? }`: offer a new plan, a tier with its own benefits where given; `scope` the member's price for the whole booking (`booking`, the default) or for members' own places only (`participant`); `offeredFor` whom customers buy it for online: `account` (the default), `participant`, `individual` or `family` with its `familyLimit` (1–12) |
 | DELETE | `/api/admin/membership-plans` | `?venueId=&id=`: stop offering a plan. Memberships bought on it run their course |
-| PATCH | `/api/admin/membership-plans` | `{ venueId, id, ratePercent, aheadDays, scope? }`: a plan's benefits, each null for the venue's; `scope` left out keeps what its price covers. Memberships on it get them from now |
+| PATCH | `/api/admin/membership-plans` | `{ venueId, id, ratePercent, aheadDays, scope?, offeredFor?, familyLimit? }`: a plan's benefits, each null for the venue's; `scope` and `offeredFor` left out keep what they are. Memberships on it get them from now; those already sold keep whom they cover |
 | POST | `/api/admin/memberships/:id/extend` | `{ days, reason? }` → the membership runs that many days longer (managers) |
 | GET | `/api/admin/messages` | What this venue has told its customers, and what is still waiting; `?platform=1` (platform owners only): the platform's own emails, links masked |
 | POST | `/api/admin/messages` | Put one message back in the queue, optionally at a corrected address (a platform email: owners only; a password reset or confirmation never) |

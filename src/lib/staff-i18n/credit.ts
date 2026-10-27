@@ -230,6 +230,14 @@ const en = {
   "ent.cr.planScope": "and the price covers",
   "ent.cr.planScopeBooking": "the whole booking",
   "ent.cr.planScopeOwn": "the members' own places only",
+  // Whom a plan is sold to online (lib/membership-purchases.ts)
+  "mbo.cr.offeredFor": "sold online for",
+  "mbo.cr.forAccount": "the account holder",
+  "mbo.cr.forParticipant": "somebody they look after",
+  "mbo.cr.forIndividual": "either, one person",
+  "mbo.cr.forFamily": "a family",
+  "mbo.cr.upTo_one": "up to {n} person besides the holder",
+  "mbo.cr.upTo_other": "up to {n} people besides the holder",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -461,6 +469,14 @@ const ms: Record<keyof typeof en, string> = {
   "ent.cr.planScope": "dan harga meliputi",
   "ent.cr.planScopeBooking": "keseluruhan tempahan",
   "ent.cr.planScopeOwn": "tempat ahli sendiri sahaja",
+  // Whom a plan is sold to online (lib/membership-purchases.ts)
+  "mbo.cr.offeredFor": "dijual dalam talian untuk",
+  "mbo.cr.forAccount": "pemegang akaun",
+  "mbo.cr.forParticipant": "seseorang yang dijaganya",
+  "mbo.cr.forIndividual": "salah satu, seorang",
+  "mbo.cr.forFamily": "sebuah keluarga",
+  "mbo.cr.upTo_one": "sehingga {n} orang selain pemegang",
+  "mbo.cr.upTo_other": "sehingga {n} orang selain pemegang",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -692,6 +708,14 @@ const zh: Record<keyof typeof en, string> = {
   "ent.cr.planScope": "价格适用于",
   "ent.cr.planScopeBooking": "整个预订",
   "ent.cr.planScopeOwn": "仅会员本人的名额",
+  // Whom a plan is sold to online (lib/membership-purchases.ts)
+  "mbo.cr.offeredFor": "在线出售对象",
+  "mbo.cr.forAccount": "账户持有人",
+  "mbo.cr.forParticipant": "其照顾的人",
+  "mbo.cr.forIndividual": "两者皆可，限一人",
+  "mbo.cr.forFamily": "家庭",
+  "mbo.cr.upTo_one": "除持有人外最多 {n} 人",
+  "mbo.cr.upTo_other": "除持有人外最多 {n} 人",
 };
 
 const area = { en, ms, zh };

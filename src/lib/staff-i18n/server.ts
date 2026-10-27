@@ -353,6 +353,8 @@ const en = {
   "srv.retx.erasureLedger": "Records of erased accounts kept so a restore cannot bring them back (an account number and when it was made)",
   "ptc.ret.participants": "Participants nobody acts for any more, or a venue added and nobody has used, once no application, sign-off or induction in force, or recent booking rests on them",
   "ptc.ret.placeNames": "Names of who took each place on a booking",
+  // A membership's receipt line naming whom it is for: a participant's own, or a family's (lib/store.ts sellMembership)
+  "srv.mbo.line": "Membership {code} for {who}, {from} to {to}",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -704,6 +706,8 @@ const ms: Record<keyof typeof en, string> = {
   "srv.retx.erasureLedger": "Rekod akaun yang dipadam, disimpan supaya pemulihan tidak membawanya kembali (nombor akaun dan bila ia dibuat)",
   "ptc.ret.participants": "Peserta yang tiada sesiapa lagi bertindak bagi pihaknya, atau yang ditambah oleh pusat dan tidak digunakan, apabila tiada permohonan, pengesahan atau taklimat yang berkuat kuasa, atau tempahan baru-baru ini bergantung padanya",
   "ptc.ret.placeNames": "Nama orang yang mengambil setiap tempat dalam tempahan",
+  // A membership's receipt line naming whom it is for: a participant's own, or a family's (lib/store.ts sellMembership)
+  "srv.mbo.line": "Keahlian {code} untuk {who}, {from} hingga {to}",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1055,6 +1059,8 @@ const zh: Record<keyof typeof en, string> = {
   "srv.retx.erasureLedger": "已删除账户的记录，保留以防恢复备份时将其带回（账户编号及创建时间）",
   "ptc.ret.participants": "已无人代为行事的参与者，或场馆添加后无人使用的参与者（在没有申请、有效的确认或入场说明、或近期预订依赖于他们之后）",
   "ptc.ret.placeNames": "预订中每个名额参与者的姓名",
+  // A membership's receipt line naming whom it is for: a participant's own, or a family's (lib/store.ts sellMembership)
+  "srv.mbo.line": "{who} 的会员资格 {code}，{from} 至 {to}",
 };
 
 const area = { en, ms, zh };

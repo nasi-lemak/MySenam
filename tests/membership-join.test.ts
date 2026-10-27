@@ -171,8 +171,14 @@ describe("joining online", () => {
     fakeBillplz();
     expect((await startMembershipPayment(other, planId)).ok).toBe(true);
     const first = await lastBill();
+    // While the first page is open the same purchase goes back to it (lib/membership-purchases.ts)…
+    expect(await startMembershipPayment(other, planId)).toMatchObject({ ok: true, reused: true });
+    expect(await lastBill()).toBe(first);
+    // …and once its hold lapses a second page can be opened, and paid as well.
+    await getDb().prepare("UPDATE membership_purchases SET hold_until = now() - interval '1 minute' WHERE user_id = ?").run(other.id);
     expect((await startMembershipPayment(other, planId)).ok).toBe(true);
     const second = await lastBill();
+    expect(second).not.toBe(first);
     await settleBill({ billId: first, paid: true, paidAt: null });
     await settleBill({ billId: second, paid: true, paidAt: null });
     expect(await listMembershipsFor(other.id)).toHaveLength(1);
