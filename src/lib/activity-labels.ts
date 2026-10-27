@@ -117,4 +117,6 @@ export const ACTION_LABELS: Record<string, string> = {
   "participant.guardian_suspended": "Paused a participant's guardian for review",
   "participant.guardian_confirmed": "Kept a participant's guardian after review",
   "booking.place_withdrawn": "Took one person off a booking, the others staying booked",
+  "waitlist.added": "Put somebody on a waiting list at the counter or through the API",
+  "waitlist.removed": "Took somebody the venue had queued off a waiting list",
 };

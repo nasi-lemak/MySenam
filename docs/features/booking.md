@@ -524,6 +524,47 @@ customer is never booked in a child's place. The same child, or the adult
 taking part themself, cannot queue twice for the same thing; siblings on one
 number can. The offer goes to the account holder, naming who it is for.
 
+### At the counter and through the API
+
+Somebody who rings or walks up can be queued by the venue, not only online,
+so the counter and the venue's own system offer what its page does
+(`src/lib/waitlist-venue.ts`; `POST /api/admin/waitlist`, `POST
+/api/v1/waitlist` with a write key; migration 0180). The front desk and
+managers do it at a venue they work at: on the staff schedule a taken cell
+opens *Add to the waiting list* for that court and time (the times can be
+adjusted to the court's rules), and a full class's roster has the same
+button (`src/components/admin/WaitlistJoin.tsx`).
+
+- **On the venue's word**, as a counter booking: the name, number and email
+  are what staff (or the venue's system) give; nobody signs in. People other
+  than the caller are only participants the venue knows with a live guardian
+  on that number, ticked as for a counter booking
+  ([booking for somebody else](#booking-for-somebody-else)); a key also needs
+  the guardian's agreement to the waiver already on record, as for a booking
+  through the API.
+- **The same rules as online**: a refused number, the venue not open, the
+  house rules and the unpaid-bookings limit (as the counter asks them: who
+  may book a members-only or private venue is not asked of staff, each
+  participant's own membership for a members' place still is), the court's
+  booking rules, a women-only or men-only class said for by staff, the time
+  genuinely taken, and nobody queued twice whoever queued them (an entry made
+  at the counter and the same number online are the same person).
+- **Checked and booked the way it was made**: sign-offs on the entry's number,
+  as the counter checks them; at the offer and again at the claim, each
+  participant still one the venue knows with a guardian on that number
+  (otherwise the entry leaves the queue and the place goes to the next). The
+  booking claimed from it is made as the counter (or the API) would make it,
+  with the member of staff on record as having put each participant on it.
+- **Told as usual**: the offer goes to that number and email by the usual
+  messages, in the language given (English if none), and is claimed by its
+  link; the customer sees the entry on their number, and can leave it.
+- **Seen and taken off by staff**: the day's queues under the schedule, and a
+  class's on its roster, say who made each entry (online, at the counter and
+  by whom, through the API). Staff take off an entry the venue made; one the
+  customer made online is theirs to leave. Taking off a live offer passes it
+  to the next in line. Each join and removal is in the staff activity log
+  (`waitlist.added`, `waitlist.removed`).
+
 ## Moving a booking
 
 A net breaks, a court floods, a league wants to be side by side — the booking

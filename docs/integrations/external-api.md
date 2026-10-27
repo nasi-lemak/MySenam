@@ -25,6 +25,9 @@ are limited to 120 a minute per key.
 | `GET /bookings/<code>` | read | One booking |
 | `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email?, players?, participantIds?, customerTakesPart? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation. `players` is how many places it takes on a resource with places (or how many play on a court priced per player), up to the most the venue lets one booking take (`PLAYERS_RANGE` past it). `participantIds`: for people other than the customer (see below) |
 | `POST /bookings/<code>/cancel` | write | Cancels as staff would; the customer is told |
+| `GET /waitlist?date=` | read | The venue's waiting lists that day: court time on its resources and its classes, each entry with who made it (`madeBy`); never an offer's token |
+| `POST /waitlist` | write | `{ courtId, date, start, end }` or `{ classId }`, with `name, phone, email?, participantIds?, customerTakesPart?, confirmWho?, locale?`: queues somebody for taken time or a full class, as the counter does (see below) |
+| `DELETE /waitlist` | write | `{ entryId }`: takes off an entry the venue made (at its counter or through its API); one its customer made online is theirs to leave (409) |
 
 Times of day are minutes from the venue's midnight on the booking's date
 (`1087` is 18:07; past `1440` is after midnight) or `"HH:MM"`. A booking must
@@ -71,6 +74,25 @@ person taking a place where the booking names somebody other than its
 customer (with `customer: true` for the customer taking a place alongside
 them), and `[]` for a booking its customer takes alone. Webhooks carry the
 booking as before.
+
+**Waiting lists** (added 2026-10-27; additive). A write key queues somebody
+who asked the venue's own system for taken court time or a full class, as
+its counter does ([at the counter and through the API](../features/booking.md#at-the-counter-and-through-the-api)):
+on the venue's word for the name and number, under the same rules as joining
+online (a refused number, the house rules, the unpaid-bookings limit, the
+court's booking rules, a members' place each participant's own, a women-only
+or men-only class said for with `confirmWho: true`, nobody queued twice:
+`ALREADY_WAITING`). `participantIds` are bounded as for a booking above:
+known to the venue, a live guardian on `phone`, the waiver already agreed.
+The entry reads `{ id, classId, courtId, date, start, end, label, name,
+phone, status, places, customerTakesPart, participants, madeBy, createdAt }`
+with the place in the queue (`position`). When the place frees, the offer
+goes to that number and email by the usual messages, in `locale` (English if
+not given), and is claimed by its link; the key never sees the offer's
+token. The entry is checked again at the offer and the claim as the API
+checks a booking, and the booking claimed from it is made as the API makes
+one. Each join and removal is in the staff activity log as the key
+(`API key <id>`). Another venue's court, class or entry is *not found*.
 
 **Webhooks.** Up to 5 HTTPS addresses per venue. Each gets a signing secret,
 shown once. `booking.created`, `booking.paid`, `booking.changed` (date, time

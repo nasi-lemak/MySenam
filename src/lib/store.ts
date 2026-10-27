@@ -7494,7 +7494,21 @@ interface WaitlistRow {
   created_at: string;
   places?: number;
   customer_takes_part?: boolean;
+  made_by?: WaitlistMadeBy;
+  made_by_admin_id?: number | null;
+  made_by_api_key_id?: number | null;
+  made_by_name?: string | null;
 }
+
+/** Who put an entry on the list: its customer online, the venue's staff at the counter, or the venue's API key (migration 0180). */
+export type WaitlistMadeBy = "customer" | "staff" | "api";
+
+/**
+ * The venue queuing somebody on their word, as its counter books
+ * (lib/waitlist-venue.ts): the member of staff, or the venue's own system
+ * through its API key, by name as it is kept.
+ */
+export type WaitlistMaker = { channel: "staff"; adminId: number; name: string } | { channel: "api"; apiKeyId: number; name: string };
 
 function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
   const entry: WaitlistEntry = {
@@ -7515,6 +7529,8 @@ function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
     createdAt: r.created_at,
     places: r.places ?? 1,
     customerTakesPart: r.customer_takes_part !== false,
+    madeBy: r.made_by ?? "customer",
+    ...(r.made_by && r.made_by !== "customer" ? { madeByName: r.made_by_name ?? null } : {}),
   };
   if (r.status === "offered" && r.offered_at) {
     const deadline = parseUtc(r.offered_at) + WAITLIST_OFFER_MINUTES * 60_000;
@@ -7542,14 +7558,35 @@ async function entryPeople(waitlistId: number): Promise<{ id: number | null; nam
     .all(waitlistId)) as { id: number | null; name: string | null }[];
 }
 
+/** The venue an entry is at, through its court or its class. */
+async function entryVenue(row: WaitlistRow): Promise<number | null> {
+  if (row.class_id) return (await getClass(row.class_id))?.venueId ?? null;
+  return row.court_id ? ((await getCourt(row.court_id))?.venueId ?? null) : null;
+}
+
+/** How an entry is checked and booked: as it was made (online, the counter, the API). */
+const channelOf = (row: WaitlistRow): SignOffChannel => row.made_by ?? "customer";
+
 /**
  * Is an entry still for whom it was made, by whoever made it? Each
  * participant's record still there, and the account that queued still
  * acting for each (a guardian who ended or lost the relationship queues for
- * nobody). Never resolved by putting the customer in a child's place.
+ * nobody); for an entry the venue made (the counter, its API key), each a
+ * participant the venue knows with a live guardian on the entry's number, as
+ * the counter checks a booking (lib/participant-bookings.ts `selectionAtVenue`).
+ * Never resolved by putting the customer in a child's place.
  */
 async function entryStillTheirs(row: WaitlistRow): Promise<{ id: number; name: string }[] | null> {
   const people = await entryPeople(row.id);
+  if (channelOf(row) !== "customer") {
+    if (people.length === 0) return [];
+    if (people.some((p) => p.id === null)) return null;
+    const venueId = await entryVenue(row);
+    if (venueId === null) return null;
+    const { selectionAtVenue } = await import("./participant-bookings");
+    const known = await selectionAtVenue(venueId, row.phone, people.map((p) => p.id as number), row.customer_takes_part !== false);
+    return "participants" in known ? known.participants : null;
+  }
   const named: { id: number; name: string }[] = [];
   for (const p of people) {
     if (p.id === null || row.user_id === null) return null;
@@ -7612,14 +7649,16 @@ async function alreadyQueued(
 /** Write an entry and who it is for, in the caller's transaction. */
 async function insertEntry(
   cols: { class_id?: number; court_id?: number; date?: string; start_min?: number; end_min?: number },
-  input: { name: string; phone: string; email?: string; userId?: number; locale?: string },
+  input: { name: string; phone: string; email?: string; userId?: number; locale?: string; madeBy?: WaitlistMaker },
   q: Queuer
 ): Promise<number> {
   const db = getDb();
+  const by = input.madeBy;
   const row = (await db
     .prepare(
-      `INSERT INTO waitlist (class_id, court_id, date, start_min, end_min, name, phone, email, user_id, locale, places, customer_takes_part)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO waitlist (class_id, court_id, date, start_min, end_min, name, phone, email, user_id, locale, places, customer_takes_part,
+                             made_by, made_by_admin_id, made_by_api_key_id, made_by_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
     .get(
       cols.class_id ?? null,
@@ -7633,7 +7672,11 @@ async function insertEntry(
       input.userId ?? null,
       input.locale ?? "en",
       placesFor(q),
-      q.customerTakesPart
+      q.customerTakesPart,
+      by?.channel ?? "customer",
+      by?.channel === "staff" ? by.adminId : null,
+      by?.channel === "api" ? by.apiKeyId : null,
+      by ? by.name.slice(0, 120) : null
     )) as { id: number };
   for (const p of q.participants)
     await db.prepare("INSERT INTO waitlist_participants (waitlist_id, participant_id, name) VALUES (?, ?, ?)").run(row.id, p.id, p.name);
@@ -7712,6 +7755,8 @@ export async function joinClassWaitlist(input: {
   email?: string;
   userId?: number;
   people?: { participants: { id: number; name: string }[]; customerTakesPart: boolean };
+  /** Queued by the venue, on its word (lib/waitlist-venue.ts): checked and booked as the counter would. */
+  madeBy?: WaitlistMaker;
 }): Promise<WaitlistResult> {
   return withTransaction(async () => {
     await expireStaleOffers();
@@ -7827,7 +7872,7 @@ async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
         userId: row.user_id ?? undefined,
         waitlistId: row.id,
         people: [...(takesPart ? [null] : []), ...named],
-        addedBy: { userId: row.user_id },
+        addedBy: channelOf(row) === "customer" ? { userId: row.user_id } : { adminId: row.made_by_admin_id ?? null },
       });
       if (!enrolled.ok) return { ok: false, error: enrolled.error, ...(enrolled.code ? { code: enrolled.code } : {}) } as Refusal;
       bookings = enrolled.bookings;
@@ -7844,7 +7889,11 @@ async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
         email: row.email ?? undefined,
         userId: row.user_id ?? undefined,
         waitlistId: row.id,
-        ...(named.length > 0 ? { participants: named, customerTakesPart: takesPart, addedBy: { userId: row.user_id } } : {}),
+        // As it was queued: an entry the counter or the API made is booked as they book (sign-offs on its number).
+        ...(channelOf(row) !== "customer" ? { by: channelOf(row) } : {}),
+        ...(named.length > 0
+          ? { participants: named, customerTakesPart: takesPart, addedBy: channelOf(row) === "customer" ? { userId: row.user_id } : { adminId: row.made_by_admin_id ?? null } }
+          : {}),
         ...((row.places ?? 1) > 1 ? { players: row.places } : {}),
       });
       if (!created.ok) {
@@ -7920,22 +7969,73 @@ async function listWaitlist(where: string, params: unknown[]): Promise<WaitlistE
     .prepare(`SELECT * FROM waitlist WHERE ${where} AND status IN ('waiting','offered') ORDER BY id DESC`)
     .all(...params) as WaitlistRow[];
   const entries: WaitlistEntry[] = [];
-  for (const row of rows) {
-    const entry = await readEntry(row.id, row.status === "offered");
-    if (row.class_id) {
-      const session = await getClass(row.class_id);
-      if (session) {
-        entry.label = `${session.name} · ${session.date} ${formatMinute(session.startMin)}`;
-      }
-    } else if (row.court_id && row.date && row.start_min !== null) {
-      const court = await getCourt(row.court_id);
-      if (court) {
-        entry.label = `${court.name} · ${row.date} ${formatMinute(row.start_min)}`;
-      }
-    }
-    entries.push(entry);
-  }
+  for (const row of rows) entries.push(await labelled(row, row.status === "offered"));
   return entries;
+}
+
+/** An entry with what it waits for, in words: the class, or the resource and the time. */
+async function labelled(row: WaitlistRow, includeToken: boolean): Promise<WaitlistEntry> {
+  const entry = await readEntry(row.id, includeToken);
+  if (row.class_id) {
+    const session = await getClass(row.class_id);
+    if (session) {
+      entry.label = `${session.name} · ${session.date} ${formatMinute(session.startMin)}`;
+    }
+  } else if (row.court_id && row.date && row.start_min !== null) {
+    const court = await getCourt(row.court_id);
+    if (court) {
+      entry.label = `${court.name} · ${row.date} ${formatMinute(row.start_min)}`;
+    }
+  }
+  return entry;
+}
+
+/**
+ * A venue's queues on a day, for its staff and its own system: court and
+ * facility time on its resources that day, and its classes that day, in the
+ * order they will be offered, each saying who made it. Never an offer's
+ * token: that is only ever the customer's.
+ */
+export async function listVenueWaitlist(venueId: number, date: string): Promise<WaitlistEntry[]> {
+  await expireStaleOffers();
+  const rows = (await getDb()
+    .prepare(
+      `SELECT w.* FROM waitlist w
+         LEFT JOIN courts ct ON ct.id = w.court_id
+         LEFT JOIN classes cl ON cl.id = w.class_id
+         LEFT JOIN courts cc ON cc.id = cl.court_id
+        WHERE w.status IN ('waiting','offered')
+          AND ((w.class_id IS NULL AND ct.venue_id = ? AND w.date = ?) OR (w.class_id IS NOT NULL AND cc.venue_id = ? AND cl.date = ?))
+        ORDER BY w.id`
+    )
+    .all(venueId, date, venueId, date)) as WaitlistRow[];
+  const entries: WaitlistEntry[] = [];
+  for (const row of rows) entries.push(await labelled(row, false));
+  return entries;
+}
+
+/**
+ * Staff (or the venue's API key) take an entry the venue made off its list:
+ * one made at the counter or through the API, at this venue. One its
+ * customer made online is theirs to leave. Its hold goes, and a live offer
+ * passes to the next in line, as when somebody leaves.
+ */
+export async function removeVenueWaitlistEntry(entryId: number, venueId: number): Promise<{ ok: true; entry: WaitlistEntry } | Refusal> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const row = (await db.prepare("SELECT * FROM waitlist WHERE id = ? FOR UPDATE").get(entryId)) as WaitlistRow | undefined;
+    // Another venue's entry is not there at all, as far as this venue is concerned.
+    if (!row || (await entryVenue(row)) !== venueId) return refuse("WAITLIST_NOT_FOUND");
+    if (channelOf(row) === "customer") return { ok: false, error: "That entry was made online by the customer: it is theirs to leave." } as Refusal;
+    if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
+    if (row.status !== "waiting" && row.status !== "offered") return refuse("WAITLIST_NOT_FOUND");
+    await db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ?").run(row.id);
+    await release({ kind: "offer", waitlistId: row.id });
+    const entry = await labelled(row, false);
+    if (row.class_id) await offerClassPlace(row.class_id);
+    else if (row.court_id && row.date) await offerSlotPlace(row.court_id, row.date);
+    return { ok: true as const, entry };
+  });
 }
 
 /* ---------------- Waitlists for ordinary time ---------------- */
@@ -7967,6 +8067,8 @@ export async function joinSlotWaitlist(input: {
   email?: string;
   userId?: number;
   people?: { participants: { id: number; name: string }[]; customerTakesPart: boolean };
+  /** Queued by the venue, on its word (lib/waitlist-venue.ts): checked and booked as the counter would. */
+  madeBy?: WaitlistMaker;
 }): Promise<WaitlistResult> {
   return withTransaction(async () => {
     await expireStaleOffers();
@@ -7997,7 +8099,7 @@ export async function joinSlotWaitlist(input: {
     if (need)
       for (const who of [...(q.customerTakesPart ? [null] : []), ...q.participants])
         if (
-          !(await signOffHolds({ venueId: waitCourt.venueId, sport: waitCourt.sport, until: date, phone: input.phone, userId: input.userId, channel: "customer", need, participant: who ? who.id : null }))
+          !(await signOffHolds({ venueId: waitCourt.venueId, sport: waitCourt.sport, until: date, phone: input.phone, userId: input.userId, channel: input.madeBy?.channel ?? "customer", need, participant: who ? who.id : null }))
         )
           return signOffRefusal(need, activityName(waitCourt.sport), who ? who.name : null);
 
@@ -8057,7 +8159,7 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
         for (const who of [...(row.customer_takes_part !== false ? [null] : []), ...named.map((p) => p.id)])
           eligible =
             eligible &&
-            (await signOffHolds({ venueId: court.venueId, sport: court.sport, until: date, phone: row.phone, userId: row.user_id, channel: "customer", need, participant: who }));
+            (await signOffHolds({ venueId: court.venueId, sport: court.sport, until: date, phone: row.phone, userId: row.user_id, channel: channelOf(row), need, participant: who }));
         if (!eligible) continue;
       }
 

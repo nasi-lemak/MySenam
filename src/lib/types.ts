@@ -655,6 +655,10 @@ export interface WaitlistEntry {
   participantNames?: string[];
   /** Its customer takes one of the places. */
   customerTakesPart?: boolean;
+  /** Who put it on the list: the customer online, the venue's staff at the counter, or its API key (migration 0180). */
+  madeBy?: "customer" | "staff" | "api";
+  /** The member of staff or the key that did, by name as kept; only for an entry the venue made. */
+  madeByName?: string | null;
 }
 
 /**

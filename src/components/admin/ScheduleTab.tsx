@@ -13,6 +13,7 @@ import type { AdminCourtSlots, ScheduleEntry } from "@/lib/store";
 import type { StaffT } from "@/lib/staff-i18n";
 import { todayLocal } from "./shared";
 import { useStaffT } from "./StaffLanguage";
+import { WaitlistJoin, WaitlistQueue } from "./WaitlistJoin";
 
 /** A phrase with elements in it: each `{name}` becomes the element given for it. */
 function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
@@ -49,6 +50,9 @@ export function ScheduleTab({
   const [error, setError] = useState<string | null>(null);
   // Blocking an exact stretch of time, to the minute, rather than whole columns.
   const [exact, setExact] = useState<{ courtId: number; start: number; end: number } | null>(null);
+  // Time somebody holds, picked to queue a caller for (WaitlistJoin.tsx); the day's queues fetched again after.
+  const [queueFor, setQueueFor] = useState<{ courtId: number; name: string; start: number; end: number } | null>(null);
+  const [queued, setQueued] = useState(0);
 
   const load = useCallback(async () => {
     setError(null);
@@ -215,6 +219,17 @@ export function ScheduleTab({
         </div>
       )}
 
+      {queueFor && (
+        <WaitlistJoin
+          key={`${queueFor.courtId}-${queueFor.start}-${date}`}
+          venueId={venueId}
+          target={{ courtId: queueFor.courtId, date, start: queueFor.start, end: queueFor.end }}
+          label={`${queueFor.name}, ${formatMinute(queueFor.start)}`}
+          onDone={() => setQueued((n) => n + 1)}
+          onClose={() => setQueueFor(null)}
+        />
+      )}
+
       {courts && (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full min-w-[980px] border-collapse text-sm">
@@ -242,8 +257,12 @@ export function ScheduleTab({
                   {slots.map((slot) => (
                     <td key={slot.hour} className="p-1 text-center">
                       <button
-                        onClick={() => toggle(court.id, slot.hour, slot.status)}
-                        disabled={slot.status === "booked"}
+                        onClick={() =>
+                          // Taken: a caller can queue for it.
+                          slot.status === "booked"
+                            ? setQueueFor({ courtId: court.id, name: court.name, start: slot.minute, end: slot.minute + (courts.find((c) => c.court.id === court.id)?.grid ?? 60) })
+                            : toggle(court.id, slot.hour, slot.status)
+                        }
                         title={
                           isShared(court)
                             ? t("sch.taken", { booked: slot.booked, capacity: court.capacity }) +
@@ -257,7 +276,7 @@ export function ScheduleTab({
                                   ? ` · ${slot.blockReason ? t("sch.allOutWhy", { reason: t.say(slot.blockReasonPhrase, slot.blockReason) }) : t("sch.allOut")}`
                                   : "")
                             : slot.status === "booked"
-                              ? t("sch.booked", { code: String(slot.bookingCode) })
+                              ? `${t("sch.booked", { code: String(slot.bookingCode) })} · ${t("wl5.clickToQueue")}`
                               : slot.status === "blocked"
                                 ? slot.blockReason
                                   ? t("sch.blockedWhyRelease", { reason: t.say(slot.blockReasonPhrase, slot.blockReason) })
@@ -268,7 +287,7 @@ export function ScheduleTab({
                         }
                         className={`h-9 w-12 rounded-md text-[10px] font-semibold transition ${
                           slot.status === "booked"
-                            ? "cursor-default bg-slate-200 text-slate-600"
+                            ? "bg-slate-200 text-slate-600 hover:bg-amber-100"
                             : slot.status === "blocked"
                               ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
                               : slot.blockedPlaces
@@ -300,6 +319,8 @@ export function ScheduleTab({
           </table>
         </div>
       )}
+
+      <WaitlistQueue venueId={venueId} date={date} refreshKey={queued} />
 
       {courts && courts.some((c) => c.entries.length > 0) && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
