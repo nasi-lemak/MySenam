@@ -478,8 +478,8 @@ describe.skipIf(gateway === null)("memberships bought online", () => {
 
     await s.step(mother, "pays; back on the site she is told Amani's membership runs from today, and its receipt names Amani", async () => {
       await page.getByRole("button", { name: "Pay", exact: true }).click();
-      await page.getByText("You're a member").waitFor({ timeout: 20_000 });
-      await page.getByText(new RegExp(`^Membership MB-[A-Z0-9-]+ at ${centre.name} runs from ${dayAhead(0)} to `)).waitFor();
+      await page.getByText("Amani is a member").waitFor({ timeout: 20_000 });
+      await page.getByText(new RegExp(`^Amani's membership MB-[A-Z0-9-]+ at ${centre.name} runs from ${dayAhead(0)} to `)).waitFor();
       await page.getByRole("link", { name: "Receipt ↗" }).click();
       await page.locator("article").getByText(/Membership MB-[A-Z0-9-]+ for Amani/).waitFor();
     });
