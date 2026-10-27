@@ -49,11 +49,24 @@ typed number is not identity, and the old rule's test now pins the new one
 for an account's waiting-list places: those it joined, or on its proved
 number, not every place queued on a number it typed.
 
+A members-only or private venue's own list follows the same rule. Online, an
+entry on it counts only for the account staff linked it to (by the account's
+email or the number on it, checked against the name and email shown), the
+account a resident linked their guest's entry to by the guest's account email,
+or an account that has proved the entry's number
+([who a venue is for](../features/booking.md#who-a-venue-is-for-public-members-only-private);
+`venue_access_list.user_id`). A number typed on an account opens no private
+venue, whether or not the install checks numbers, so on an install without
+phone checks staff link each resident before relying on online access. The
+link is the account's: its data export lists the entries linked to it, and
+erasing it unlinks them, leaving the venue's list as it was
+(`tests/access-accounts.test.ts`).
+
 ## Asking a venue in person
 
 The account page's *Download my data* (`/api/my/data`) covers what is filed
 against the account: bookings, credit, passes and memberships sold to it,
-games, the playing profile, people blocked, reports made and community
+places on venues' lists linked to it, games, the playing profile, people blocked, reports made and community
 groups, leagues, tournaments, receipts and credit notes, waiting-list places,
 gift vouchers used, applications to be approved for an activity (answers,
 declarations, history, the documents still held with who opened them, and

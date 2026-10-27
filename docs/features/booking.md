@@ -785,11 +785,24 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
   a time or paste a spreadsheet (`phone, name, unit` a line); a number already
   on the list is updated, not doubled. **Guests** need an end date and drop
   off after it (the daily housekeeping removes them). Up to 5,000 people.
-- **Matching is by the phone number on the customer's account** — and, where
-  this site checks numbers (*Checking a customer's phone number*), only once
-  the customer has checked it, because a number is not identity until
-  somebody shows they hold it. Without phone checks, anyone who types a
-  number on the list gets in; the editor says so.
+- **Online, an entry counts only for an account linked to it, or one that
+  has proved its number** ([a phone number is not identity](../architecture/privacy.md#a-phone-number-is-not-identity);
+  `ENTRY_COUNTS_FOR` in `src/lib/access.ts`, the same rule as a membership's).
+  A number merely typed on an account lets nobody in, whether or not this site
+  checks numbers. Staff link an entry to an account in the editor — when
+  adding the person, or with *Link account* on their row — by the account's
+  email or the number on it (a number two accounts carry is refused: use the
+  email); *Unlink* takes it away. Where this site checks numbers (*Checking a
+  customer's phone number*), an account that has proved the number needs no
+  link. **On a site without phone checks, staff must link each resident's
+  account before relying on online access**: until then a resident is booked
+  at the counter. The editor marks each entry linked (with the account's name
+  and email), *number checked by their account*, or *not linked: counter
+  only*, and counts those last. Every path asks the same rule: the venue page
+  and its availability, booking, a class, a waiting list, an open game, a
+  tournament or league there, and *Your private venues*. Staff at the counter
+  still book anyone on their word. Erasing an account unlinks its entries;
+  they stay on the list (`tests/access-accounts.test.ts`).
 - **Members only**: the venue page says *Members only* with the venue's own
   note (how to join, who to ask), and search results carry the badge. Booking,
   enrolling in a class, joining its waitlist, an open game, a tournament or a
@@ -844,8 +857,17 @@ off) and **for up to how many days** (1 to 14). Changing them is a manager's job
   Re-inviting one's own guest extends the visit and uses no extra place. A
   guest whose visit has ended can be invited by anyone.
 - Guests cannot invite guests, and nobody can invite their own number.
-- The guest needs an account with that number (checked, where phone checks
-  are on). The resident is shown the venue link to send them.
+- The resident may give **the guest's account email**: the guest's entry is
+  then linked to that account, on the resident's word, and the guest books
+  online straight away (an email no account has is refused,
+  `GUEST_ACCOUNT_UNKNOWN`). Without it, the entry counts only for an account
+  that has proved the guest's number — so on a site without phone checks the
+  guest cannot book online until the resident invites them again with the
+  email or staff link their account. The resident sees which guests are
+  linked, and is shown the venue link to send them. A lapsed guest another
+  resident takes over keeps no link.
+- Only a resident or member whose own entry counts for their account (linked,
+  or their number proved) can invite guests.
 
 ## Free courts and house rules
 
@@ -868,7 +890,8 @@ venue's fair-use limits for online bookings, each blank for none:
 
 - **Counted per household.** Everybody the venue's list gives the same unit
   (*Who a venue is for*) shares one allowance: a family in B-07-2 gets two
-  bookings a week between them, not two each. Anybody else is counted by the
+  bookings a week between them, not two each. An account linked to an entry
+  counts with that entry's unit, whatever number it books under. Anybody else is counted by the
   number on the booking **and** the account making it, so typing a different
   number does not buy another booking. These are the account's limits:
   bookings it makes for the people it books for count with its own.

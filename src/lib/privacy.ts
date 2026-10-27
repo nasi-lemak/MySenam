@@ -413,6 +413,8 @@ export interface CustomerExport {
   wallet: { balance: number; entries: unknown[] };
   passes: unknown[];
   memberships: unknown[];
+  /** Places on members-only or private venues' lists linked to this account (lib/access.ts). */
+  venueLists: unknown[];
   doorCodesShown: unknown[];
   /** Open games they hosted or asked to join, and the levels they gave. */
   games: unknown[];
@@ -521,6 +523,12 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       `SELECT m.code, m.starts_on, m.expires_on, m.price, m.status, v.name AS venue
        FROM memberships m JOIN venues v ON v.id = m.venue_id
        WHERE m.user_id = ?`,
+      userId
+    ),
+    venueLists: await all(
+      `SELECT v.name AS venue, a.name, a.phone, a.label, a.kind, a.expires_on, a.created_at, a.linked_at
+       FROM venue_access_list a JOIN venues v ON v.id = a.venue_id
+       WHERE a.user_id = ? ORDER BY a.id`,
       userId
     ),
     doorCodesShown: await all(

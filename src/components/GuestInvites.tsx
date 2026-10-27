@@ -10,15 +10,21 @@ import { region } from "@/lib/region";
 export function GuestInvites() {
   const t = useT();
   const [venues, setVenues] = useState<InviteVenue[]>([]);
-  const [form, setForm] = useState<{ venueId: number; phone: string; name: string; days: string } | null>(null);
+  const [form, setForm] = useState<{ venueId: number; phone: string; name: string; days: string; email: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<{ venueId: number; name: string } | null>(null);
+  const [sent, setSent] = useState<{ venueId: number; name: string; linked: boolean } | null>(null);
+  // Whether a guest can prove their number here; without, only their account's email lets them book online.
+  const [phoneChecks, setPhoneChecks] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/my/guests", { cache: "no-store" });
-      if (res.ok) setVenues((await res.json()).venues ?? []);
+      if (res.ok) {
+        const data = await res.json();
+        setVenues(data.venues ?? []);
+        setPhoneChecks(data.phoneChecks === true);
+      }
     } catch {
       // Leave what is on screen.
     }
@@ -38,12 +44,12 @@ export function GuestInvites() {
       const res = await fetch("/api/my/guests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId: form.venueId, phone: form.phone, name: form.name, days: Number(form.days) }),
+        body: JSON.stringify({ venueId: form.venueId, phone: form.phone, name: form.name, days: Number(form.days), email: form.email }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("guests.failed"));
       setVenues(data.venues);
-      setSent({ venueId: form.venueId, name: form.name.trim() || form.phone });
+      setSent({ venueId: form.venueId, name: form.name.trim() || form.phone, linked: data.guest?.linked === true });
       setForm(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("guests.failed"));
@@ -83,6 +89,8 @@ export function GuestInvites() {
                         <span className="ml-1 text-xs text-slate-500">
                           {g.name ? `${g.phone} · ` : ""}
                           {t("guests.until", { date: g.expiresOn })}
+                          {" · "}
+                          {g.linked ? t("acc5.linked") : t("acc5.notLinked")}
                         </span>
                       </span>
                       <button
@@ -97,7 +105,10 @@ export function GuestInvites() {
               )}
               {sent?.venueId === v.id && (
                 <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                  {t("guests.sent", { name: sent.name, link: `${window.location.origin}/venue/${v.id}` })}
+                  {t(sent.linked ? "acc5.sentLinked" : phoneChecks ? "acc5.sentChecks" : "acc5.sentNoChecks", {
+                    name: sent.name,
+                    link: `${window.location.origin}/venue/${v.id}`,
+                  })}
                 </p>
               )}
               {form?.venueId === v.id ? (
@@ -122,6 +133,16 @@ export function GuestInvites() {
                     />
                   </label>
                   <label className="text-xs text-slate-600">
+                    {t("acc5.email")}
+                    <input
+                      type="email"
+                      autoComplete="off"
+                      value={form.email}
+                      onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      className={`mt-0.5 block w-48 ${input}`}
+                    />
+                  </label>
+                  <label className="text-xs text-slate-600">
                     {t("guests.days")}
                     <input
                       type="number"
@@ -139,12 +160,13 @@ export function GuestInvites() {
                   >
                     {t("guests.add")}
                   </button>
+                  <p className="w-full text-xs text-slate-500">{phoneChecks ? t("acc5.emailHintChecks") : t("acc5.emailHintNoChecks")}</p>
                 </form>
               ) : (
                 !full && (
                   <button
                     onClick={() => {
-                      setForm({ venueId: v.id, phone: "", name: "", days: "1" });
+                      setForm({ venueId: v.id, phone: "", name: "", days: "1", email: "" });
                       setError(null);
                     }}
                     className="mt-3 rounded-lg border border-teal-300 px-3 py-1.5 font-semibold text-teal-700 hover:bg-teal-50"

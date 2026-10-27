@@ -71,3 +71,19 @@ cancelled or overlapped without staff seeing it. After upgrading:
 Outages that are over, that have no last day (*until further notice*), or at
 venues that close by midnight need nothing. The same step serves an outage
 whose venue came to stay open past midnight after it was made.
+
+## Venue lists from before migration 0175
+
+Before migration 0175 a members-only or private venue's list matched the phone
+number on a customer's account; on an install without phone checks that was
+the number as typed. Migration 0175 adds the account an entry is linked to
+(`venue_access_list.user_id`) and links nothing, so after upgrading an entry
+counts online only for an account that has proved its number
+([who a venue is for](../../features/booking.md#who-a-venue-is-for-public-members-only-private)).
+On an install without phone checks, every resident who booked online with a
+typed number is refused online until staff link their account: open *Venues &
+staff → Who it is for* at each members-only or private venue, and use *Link
+account* on each row the editor marks *not linked: counter only* (or add the
+account when re-adding the person). Residents' guests invited before the
+upgrade are unlinked too; the resident can invite them again with their account
+email. Staff at the counter book everyone as before.

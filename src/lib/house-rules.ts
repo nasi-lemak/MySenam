@@ -215,16 +215,17 @@ export async function houseRuleRefusal(input: {
   if (rules.upcoming === null && rules.perWeek === null && rules.perDay === null) return null;
 
   const phones = [input.phone, ...(account ? [account] : [])];
-  // Everybody on the venue's list in the same unit as either number, and a
-  // resident's own guests, who share the resident's allowance.
+  // Everybody on the venue's list in the same unit as either number, or as
+  // the entry linked to the account, and a resident's own guests, who share
+  // the resident's allowance.
   const household = (await db
     .prepare(
       `SELECT DISTINCT b.phone_key AS key FROM venue_access_list a
          JOIN venue_access_list b ON b.venue_id = a.venue_id
           AND (b.label = a.label OR COALESCE(b.invited_by, b.id) = COALESCE(a.invited_by, a.id))
-        WHERE a.venue_id = ? AND a.phone_key IN (${phones.map(() => "phone_key(?)").join(",")})`
+        WHERE a.venue_id = ? AND (a.phone_key IN (${phones.map(() => "phone_key(?)").join(",")})${input.userId ? " OR a.user_id = ?" : ""})`
     )
-    .all(input.venueId, ...phones)) as { key: string }[];
+    .all(input.venueId, ...phones, ...(input.userId ? [input.userId] : []))) as { key: string }[];
   const keys = [...new Set([...phones.map(phoneKey), ...household.map((h) => h.key)])];
   const first = input.dates.reduce((a, b) => (a < b ? a : b));
   const from = [today, weekOf(first)].sort()[0];

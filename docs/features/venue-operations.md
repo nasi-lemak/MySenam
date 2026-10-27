@@ -67,6 +67,15 @@ part other than that person ([booking for somebody else](booking.md#booking-for-
   requests to become a guardian, or links a participant's own login by its
   email, each with a reason kept in the participant's history and the
   activity log (`PATCH /api/admin/participants/[id]`; front desk cannot).
+- **A members-only or private venue's list.** At the counter staff book
+  anybody on their word, list or not. Online the list counts only for an
+  account linked to the entry or one that has proved its number, so a
+  resident standing at the desk is the moment to link theirs: *Venues & staff
+  → Who it is for*, *Link account* on their row, by the email they sign in
+  with (or the number on their account), checked against the name and email
+  shown; *Unlink* undoes it, and both are in the activity log. On a site
+  without phone checks this is the only way residents book online
+  ([who a venue is for](booking.md#who-a-venue-is-for-public-members-only-private)).
 
 ### Another guardian by invitation
 
