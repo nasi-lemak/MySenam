@@ -248,6 +248,9 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Recovery J | The retention review is refused until reviewer, role, firm and written-advice reference are given; it is shown as the owner's record, not verified by MySenam, with the rest still provisional; the privacy notice says the same; changing a period lapses it. The ledger and restore gate are script-tested (`tests/erasure-ledger-restore.test.ts`) |
 | Places K | One child taken off a pool session sold by the place: the other stays booked, RM10 less owed, the place offered to the waiting list and claimed, an email names who is off; the last one left and a session sold whole are refused with reasons |
 | Places L | One child's concession on her place alone (the form offers no code on top), the receipt adds up; the counter checks her proof only and remembers it for 12 months, so the next booking does not ask; asked twice, refused |
+| Email 1 | A booking's confirmation email is read from the server's log and its link opens My booking, showing that booking |
+| Email 2 | A waiting-list offer's emailed link claims the place, the claimed booking's confirmation follows, and the link then offers nothing; meanwhile the held place is refused to the person who gave it up |
+| Email 3 | A password-reset email's link sets a new password once; the old password is refused and the link then shows it has run out |
 
 The acceptance server runs as a marketplace (`MYSENAM_MARKETPLACE=on`, in
 `tests/uat/setup.ts`), since only a marketplace has `/list-your-venue`; a
@@ -259,7 +262,7 @@ marked `UAT-HOLD-SCAN` until the scenario releases it, and takes
 I). It is not ClamAV and
 proves nothing about the engine (`tests/document-scanning-engine.test.ts`
 does); it is not used against a deployment, nor where `MYSENAM_CLAMD` is set,
-and *Documents E* and *I* are then skipped. The app's output is kept as
+and *Documents E* and *I* are then skipped, as are *Email 1–3*, which read the emails from the acceptance server's log. The app's output is kept as
 `server.log` beside the evidence (`E2E_SERVER_LOG`); the server sends with
 `MYSENAM_SEND=log`, so that file is where scenarios read the emails sent.
 
