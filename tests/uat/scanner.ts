@@ -22,6 +22,17 @@ import type { TestProject } from "vitest/node";
  *   scenario sends the stand-in's own command `UAT-RELEASE` (see
  *   `releaseHeldScans`), as a slow scanner would;
  * - anything else: `stream: OK`.
+ *
+ * And how it behaves, set by its own command `UAT-MODE <mode>` (see
+ * tests/uat/round4.uat.ts), for a scenario to drive a document through a
+ * scanner that is away or cannot scan it; every scenario that changes it puts
+ * it back to `up`:
+ * - `up` (the default): as above;
+ * - `down`: every clamd command's connection is closed unanswered, so the app
+ *   finds no scanner (its PING fails), as when clamd is stopped;
+ * - `error`: PING and VERSION answer, but every scan answers clamd's own
+ *   `INSTREAM size limit exceeded. ERROR`: a working scanner that cannot scan
+ *   the document.
  */
 
 const EICAR = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
@@ -37,6 +48,7 @@ function version(): string {
 }
 
 let server: net.Server | undefined;
+type Mode = "up" | "down" | "error";
 
 export default async function setup(project: TestProject) {
   if (process.env.E2E_URL || process.env.MYSENAM_CLAMD) {
@@ -45,6 +57,7 @@ export default async function setup(project: TestProject) {
   }
   const held: net.Socket[] = [];
   const open = new Set<net.Socket>();
+  let mode: Mode = "up";
   server = net.createServer((socket) => {
     open.add(socket);
     socket.on("close", () => open.delete(socket));
@@ -55,6 +68,12 @@ export default async function setup(project: TestProject) {
       const nul = buffer.indexOf(0);
       if (nul < 0) return;
       const command = buffer.subarray(buffer[0] === 0x7a ? 1 : 0, nul).toString();
+      const asked = /^UAT-MODE (up|down|error)$/.exec(command);
+      if (asked) {
+        mode = asked[1] as Mode;
+        return void socket.end(`MODE ${mode}\0`);
+      }
+      if (mode === "down" && !command.startsWith("UAT-")) return void socket.destroy();
       if (command === "PING") return void socket.end("PONG\0");
       if (command === "VERSION") return void socket.end(`${version()}\0`);
       if (command === "UAT-RELEASE") {
@@ -76,6 +95,7 @@ export default async function setup(project: TestProject) {
       }
       socket.removeAllListeners("data");
       const content = Buffer.concat(chunks).toString("latin1");
+      if (mode === "error") return void socket.end("INSTREAM size limit exceeded. ERROR\0");
       if (content.includes(EICAR)) return void socket.end("stream: Eicar-Test-Signature FOUND\0");
       if (content.includes(HOLD)) return void held.push(socket);
       socket.end("stream: OK\0");

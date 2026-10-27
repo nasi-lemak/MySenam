@@ -57,8 +57,14 @@ export default async function setup(project: TestProject) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let log = "";
-  server.stdout?.on("data", (d) => (log += d));
-  server.stderr?.on("data", (d) => (log += d));
+  // Where E2E_SERVER_LOG names a file (the acceptance runs: tests/uat/setup.ts), the app's own output goes there too.
+  const keep = process.env.E2E_SERVER_LOG;
+  const record = (d: Buffer) => {
+    log += d;
+    if (keep) fs.appendFileSync(keep, d);
+  };
+  server.stdout?.on("data", record);
+  server.stderr?.on("data", record);
   // Ready when it answers; the first answer also creates the database.
   const deadline = Date.now() + 90_000;
   for (;;) {

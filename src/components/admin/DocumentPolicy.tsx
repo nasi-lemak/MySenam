@@ -99,7 +99,18 @@ export default function DocumentPolicy() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("apr.scan2.retryFailed")));
-      setNotice(data.alreadyQueued ? t("apr.scan2.alreadyQueued") : t("apr.scan2.retried"));
+      // What the scan that followed found, where it answered at once; otherwise it waits in quarantine.
+      setNotice(
+        data.alreadyQueued
+          ? t("apr.scan2.alreadyQueued")
+          : data.status === "clean"
+            ? t("apr.scanRetry.clean")
+            : data.status === "rejected"
+              ? t("apr.scanRetry.rejected")
+              : data.status === "failed"
+                ? t("apr.scanRetry.failed")
+                : t("apr.scan2.retried")
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("apr.scan2.retryFailed"));

@@ -326,6 +326,9 @@ const en = {
   "apr.scan3.problem.ondemand_misconfigured": "The scanner to start on demand cannot be used: check its clamd.conf and the clamd binary.",
   "apr.scan3.problem.ondemand_failed": "The scanner started on demand failed to start or stopped by itself: documents wait in quarantine, and it is tried again after a pause.",
   "apr.scan3.problem.ondemand_blocked": "The scanner has not been started on demand for over 30 minutes while documents wait (too little free memory, freshclam running, or another process holding it).",
+  "apr.scanRetry.clean": "Scanned again: it passed, and can now be opened.",
+  "apr.scanRetry.rejected": "Scanned again: the scan refused it, and its content was removed.",
+  "apr.scanRetry.failed": "Scanned again: it still could not be scanned.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -648,6 +651,9 @@ const ms: Record<keyof typeof en, string> = {
   "apr.scan3.problem.ondemand_misconfigured": "Pengimbas yang dimulakan apabila perlu tidak boleh digunakan: semak clamd.conf dan binari clamd.",
   "apr.scan3.problem.ondemand_failed": "Pengimbas yang dimulakan apabila perlu gagal dimulakan atau berhenti dengan sendirinya: dokumen menunggu dalam kuarantin, dan ia dicuba semula selepas seketika.",
   "apr.scan3.problem.ondemand_blocked": "Pengimbas tidak dimulakan lebih 30 minit sedangkan dokumen menunggu (memori bebas tidak mencukupi, freshclam sedang berjalan, atau proses lain memegangnya).",
+  "apr.scanRetry.clean": "Diimbas semula: ia lulus, dan kini boleh dibuka.",
+  "apr.scanRetry.rejected": "Diimbas semula: imbasan menolaknya, dan kandungannya telah dibuang.",
+  "apr.scanRetry.failed": "Diimbas semula: ia masih tidak dapat diimbas.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -970,6 +976,9 @@ const zh: Record<keyof typeof en, string> = {
   "apr.scan3.problem.ondemand_misconfigured": "无法使用按需启动的扫描器：请检查其 clamd.conf 和 clamd 程序。",
   "apr.scan3.problem.ondemand_failed": "按需启动的扫描器启动失败或自行停止：文件留在隔离区等待，稍后会再次尝试启动。",
   "apr.scan3.problem.ondemand_blocked": "有文件在等待，但扫描器已超过 30 分钟未按需启动（可用内存不足、freshclam 正在运行，或另一个进程占用）。",
+  "apr.scanRetry.clean": "已重新扫描：已通过，现在可以打开。",
+  "apr.scanRetry.rejected": "已重新扫描：扫描拒绝了该文件，其内容已删除。",
+  "apr.scanRetry.failed": "已重新扫描：仍然无法扫描。",
 };
 
 const area = { en, ms, zh };

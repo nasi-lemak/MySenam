@@ -140,3 +140,30 @@ describe("a booking at the counter", () => {
     expect(screen.getAllByText("MS-59FNSZ").length).toBeGreaterThan(0);
   });
 });
+
+describe("one person's concession at the counter", () => {
+  // Found by acceptance scenario L (tests/uat/round4.uat.ts): a person's proof could be seen but never
+  // remembered from the dashboard, though a booking's own could be (docs/features/pricing.md#concession-prices).
+  it("asks until when not to ask again for that person's proof, and sends it with the check", async () => {
+    const withConcession = {
+      ...booking,
+      paymentStatus: "unpaid",
+      players: 2,
+      people: [
+        { placeId: 11, participantId: 5, name: "Amani", arrivedAt: null, noShow: false },
+        { placeId: 12, participantId: 6, name: "Bella", arrivedAt: null, noShow: false },
+      ],
+      placeConcessions: [{ id: 77, name: "Amani", concessionName: "Junior swimmer", concessionPreset: null, amount: 5, check: "due" }],
+    };
+    fetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ bookings: [withConcession], revenue: 15, collected: 0, outstanding: 15 }) }));
+    await show();
+    const row = screen.getByRole("table").querySelector("tbody tr")! as HTMLElement;
+    expect(within(row).getByText(/Junior swimmer for Amani .*: check their proof/)).toBeTruthy();
+    await act(async () => within(row).getByText("Proof seen").click());
+    for (const choice of ["next visit", "month end", "year end"]) expect(within(row).getByText(choice)).toBeTruthy();
+    await act(async () => within(row).getByText("12 months").click());
+    const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === "POST");
+    expect(String(posts[0][0])).toBe("/api/admin/concessions/check");
+    expect(JSON.parse(posts[0][1].body)).toEqual({ bookingId: 1, placeBenefitId: 77, outcome: "seen", remember: "twelve" });
+  });
+});

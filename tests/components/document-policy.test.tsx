@@ -104,3 +104,45 @@ describe("the retention periods", () => {
     });
   });
 });
+
+describe("scanning a failed document again", () => {
+  const FAILED = {
+    id: 41,
+    requestId: 7,
+    venueId: 1,
+    venueName: "Panahan Rawang",
+    sport: "archery",
+    contentType: "application/pdf",
+    size: 2048,
+    failure: "unscannable",
+    error: "too_large: size limit exceeded",
+    failedAt: "2026-10-27T01:00:00.000Z",
+    storedAt: "2026-10-27T01:00:00.000Z",
+    legacyReason: null,
+    intact: true,
+    manualRetries: 0,
+    retries: [],
+  };
+
+  // The owner learns what the scan that followed found, not only that it was asked for (found by Documents I, tests/uat/round4.uat.ts).
+  it.each([
+    [{ status: "clean", alreadyQueued: false }, "Scanned again: it passed, and can now be opened."],
+    [{ status: "rejected", alreadyQueued: false }, "Scanned again: the scan refused it, and its content was removed."],
+    [{ status: "failed", alreadyQueued: false }, "Scanned again: it still could not be scanned."],
+    [{ status: "pending", alreadyQueued: false }, "Put back in quarantine to be scanned."],
+    [{ status: "pending", alreadyQueued: true }, "It is already waiting for a scan."],
+  ])("says what the scan found: %j", async (after, said) => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) =>
+      init?.method === "POST" ? json(after) : json({ policy: policy(), events: [], failed: [FAILED] })
+    );
+    render(<DocumentPolicy />);
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText("Why scan it again"), { target: { value: "Scanner restarted after an update" } });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Scan again"));
+    });
+    const sent = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect(JSON.parse(String(sent[1].body))).toEqual({ action: "retry", documentId: 41, reason: "Scanner restarted after an update" });
+    expect(screen.getByText(said)).toBeTruthy();
+  });
+});

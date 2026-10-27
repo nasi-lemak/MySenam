@@ -2,7 +2,7 @@
 
 import { activityIcon } from "@/lib/activity-registry";
 import type { CreditPosition } from "@/lib/reports";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CoachPayoutsPanel } from "./CoachPayoutsPanel";
 import { CustomerReportPanel } from "./CustomerReportPanel";
 import { formatHour } from "@/lib/time";
@@ -75,7 +75,11 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The latest venue and period asked for: an answer for one asked for earlier that arrives later is
+  // dropped, so a venue's figures never show under another venue's name.
+  const asked = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++asked.current;
     setBusy(true);
     setError(null);
     try {
@@ -84,13 +88,15 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
         { cache: "no-store" }
       );
       const body = await res.json();
+      if (mine !== asked.current) return;
       if (!res.ok) throw new Error(t.err(body, t("rpt.failed")));
       setData(body);
     } catch (err) {
+      if (mine !== asked.current) return;
       setError(err instanceof Error ? err.message : t("rpt.failed"));
       setData(null);
     } finally {
-      setBusy(false);
+      if (mine === asked.current) setBusy(false);
     }
   }, [venueId, range, t]);
 
