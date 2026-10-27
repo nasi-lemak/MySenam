@@ -33,6 +33,18 @@ kept and logged. A class roster is already one person per enrolment. An
 arrival goes with the booking's check-in when check-ins are pruned
 ([privacy](../architecture/privacy.md)).
 
+**A membership asked again on the day.** On a members-only session, checking
+a booking in (or marking one person arrived) asks whether each person's
+membership still covers the session's date
+([before taking part](pricing.md#before-taking-part)). Where one was
+cancelled, voided or has ended since it was booked, nobody is checked in
+silently: staff see a warning naming each person and why
+(`MV6_DESK_WARNING`, with `warnings`), and decide. *Admit them all the same*
+(`admit: true`, with a note) checks them in and keeps the decision with the
+booking (`membership_admissions`) and in the activity log
+(`checkin.membership_admitted`); declining leaves the booking as it was, for
+staff to cancel on the venue's terms or keep.
+
 ## Booking at the counter
 
 Staff book on the venue's own booking page while signed in to the dashboard
@@ -309,6 +321,11 @@ Check-in — by QR or at the desk — is only open from
 Without that window an early scan would count toward the live headcount for the
 rest of the day.
 
+Scanning the code never admits somebody to a members-only session whose
+membership no longer covers its date: it is refused with the reason, and they
+check in at the desk, where staff decide (above;
+`MV6_CHECKIN_ENDED`, `MV6_CHECKIN_CANCELLED`, `MV6_CHECKIN_NONE`).
+
 ## Resources nobody is standing next to
 
 Unstaffed gyms are a proven model — Anytime Fitness, Snap, Jetts, chocoZAP —
@@ -351,6 +368,7 @@ Who gets the code, and when:
 | Everybody taking part has been **inducted** at that venue, each on their own ([inductions](#inductions)) | Nobody is there to show a stranger where the emergency button is, so it has to have happened already, in person. An induction is not an activity [sign-off](activities.md#sign-offs), which clears somebody to book one activity at any hour |
 | Where the booked activity's rules ask for a [sign-off](activities.md#sign-offs) or certification, or the venue takes [approval applications](activities.md#registering-online-for-approval) for it, one is in force that day for everybody taking part: the customer's own (for the number booked), and each participant's own | Nobody is there to check. The rules are the activity booked, on a resource that offers several. Eligibility is never bypassed, whoever made the booking: one made past the rules by a manager, at the counter, through the venue's API key, as a coach's lesson, a session booked for an approval's in-person step, or one whose application is pending, refused, lapsed or revoked gets no code (`approval-needed`) ([ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md); `tests/approval-workflow.test.ts`, "door codes never bypass eligibility") |
 | The booking is not **staff-supervised** | A manager can arrange staff-supervised attendance for somebody not signed off, where the venue's safety procedures allow (*Courts & rates → Staff-supervised attendance*, saying who supervises under which procedure; recorded in the activity log). Staff meet them and let them in (`supervised`); it is never a door code and signs nobody off for later |
+| On a members-only session, **everybody taking a place is still a member on its date**: their own membership, or a family one naming them (the customer's own place: theirs, or the venue's list) | A membership cancelled, voided on a chargeback or ended since the booking was made is for staff to decide at the desk, never the door (`membership`, `MV6_DOOR_*`; [before taking part](pricing.md#before-taking-part)). A court reserved whole is the booker's privilege, checked when it was booked, and is not asked again |
 | The booking is not cancelled | — |
 | **The booking is paid** | Nobody is on site to take payment, so the door is the till. An unpaid booking still holds its slot; the code appears the moment staff or a payment marks it paid |
 | Inside the check-in window | The same hour before the slot that check-in already uses |

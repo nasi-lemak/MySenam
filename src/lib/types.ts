@@ -205,6 +205,12 @@ export type AccessDenial =
   | "approval-needed"
   /** Attendance a manager arranged under staff supervision: staff let them in (ADR 0020). */
   | "supervised"
+  /**
+   * A place on a members' session whose person's membership no longer covers
+   * its date (cancelled, voided or ended since it was booked): staff at the
+   * desk decide, never the door (lib/entitlements.ts `participationLapses`).
+   */
+  | "membership"
   | "cancelled"
   | "unpaid"
   | "too-early"
@@ -227,7 +233,7 @@ export type AccessResult =
        */
       presentNow: number;
     }
-  | { ok: false; reason: AccessDenial; message: string };
+  | { ok: false; reason: AccessDenial; message: string; code?: string; vars?: Record<string, string | number> };
 
 /** One person cleared by staff to use a venue outside staffed hours. */
 export interface Induction {

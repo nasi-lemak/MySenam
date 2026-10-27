@@ -5,6 +5,7 @@ import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
 import { customerChangeRefusal, findBooking, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
 import { houseRuleRefusal } from "@/lib/house-rules";
+import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +45,13 @@ export async function POST(req: NextRequest) {
   // The code and the phone number together, as for cancelling.
   const booking = await findBooking(code, phone);
   if (!booking) return NextResponse.json({ error: "Booking not found. Check the code and phone number.", code: "BOOKING_NOT_FOUND_CODE" }, { status: 404 });
-  // The venue's house rules hold for the new day as for a new booking.
+  // The venue's house rules hold for the new day as for a new booking: the members' longer window
+  // is the account's privilege, asked now as booking online asks it (a number the account that made
+  // the booking has proved or is linked to), never the number typed on it alone.
   const venueId = await getVenueIdForBookingCode(booking.code);
   if (venueId !== null) {
-    const tooMany = await houseRuleRefusal({ venueId, phone: booking.phone, dates: [date], excluding: booking.id });
+    const madeBy = ((await getDb().prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null } | undefined)?.user_id ?? null;
+    const tooMany = await houseRuleRefusal({ venueId, phone: booking.phone, userId: madeBy, dates: [date], excluding: booking.id, online: true });
     if (tooMany) return refusal(tooMany);
   }
   const result = await rescheduleBooking(booking.code, { date, start }, "customer");

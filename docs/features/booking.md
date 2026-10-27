@@ -546,8 +546,16 @@ weeks after somebody joined goes only to somebody who could book it now:
   the API made as their bookings are asked them. A class place is not held
   to the house rules at the claim, as an enrolment is not (a class is limited
   by the class).
+- **A members' place nobody on the entry is covered for on its date** (each
+  person named, and the customer where they take a place; however the entry
+  was made): a membership that has since been cancelled or ends before the
+  session. The entry is passed over at the offer and keeps its place, to
+  renew; at the claim it is refused with the reason (`MV6_ENDS_BEFORE`,
+  `ENT_MEMBERS_PLACE`, `MV6_OWN_*`), goes back to waiting and the place
+  passes on ([membership validity](pricing.md#membership-validity)).
 
-The booking the claim makes is then held until paid where the venue asks
+The members' longer booking window is a booking privilege, asked when the
+place is asked for (at the join), not again at the claim. The booking the claim makes is then held until paid where the venue asks
 that, as any booking is.
 
 Claiming is deliberately a tap rather than automatic on page load, because
@@ -919,22 +927,32 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
   note (how to join, who to ask), and search results carry the badge. Booking,
   enrolling in a class, joining its waitlist, an open game, a tournament or a
   league all need an account that is eligible. Staff still book anyone at the
-  counter. Each rule is the scope it is about
+  counter, except a place on a members' session, which needs the person's own
+  membership on its date there too (below). Each rule is the scope it is about
   ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
   - *Reserving a court or room whole* is the account's privilege: a member
     books one for their children, who need no membership of their own to
     play on it.
   - *A place on a shared session* (a pool's places, a gym floor, a class) is
-    each person's own to hold: the customer's place is the account's, as
-    above; each participant needs their own membership, or a family
-    membership naming them, on every date booked
-    (`ENT_MEMBERS_PLACE` names who lacks one). A parent's membership does not
-    cover a child it does not name, and a parent who is not a member may book
-    their member child's place. This one check is made on every path: online,
-    the counter, the venue's API key, a group of courts, a waiting-list offer
-    (and joining the list), a class, and moving the booking to another date. A
-    manager going past the booking rules may book without it, and it is
-    recorded as an override (`lib/entitlements.ts`, `membersOnlyRefusal`).
+    each person's own to hold, **on the session's date**, not today: the
+    customer's own place needs their own membership (or a place on the
+    venue's list) valid then, besides the account being eligible to book;
+    each participant needs their own membership, or a family membership
+    naming them, on every date booked (`ENT_MEMBERS_PLACE` names who lacks
+    one; `MV6_ENDS_BEFORE` and `MV6_OWN_ENDS_BEFORE` say whose ends before the
+    session, and when, with where to renew;
+    [membership validity](pricing.md#membership-validity)). A parent's
+    membership does not cover a child it does not name, and a parent who is
+    not a member may book their member child's place. This one check is made
+    on every path: online, the counter (by the number given), the venue's API
+    key, a group of courts, a waiting list (joining it, the offer and its
+    claim), a class, and moving the booking to another date; the booking form
+    says it before booking. A manager going past the booking rules may book
+    without it, and it is recorded as an override (`lib/entitlements.ts`,
+    `membersOnlyRefusal`). It is asked again at check-in and before a door
+    code ([before taking part](pricing.md#before-taking-part)), and a
+    membership that stops early flags the bookings it no longer covers for
+    staff ([when a membership stops](pricing.md#when-a-membership-stops)).
   - *A tournament entry or a league place* for a participant is theirs in the
     same way: their own membership or a family one naming them, whoever
     enters them, online or at the counter
@@ -1035,8 +1053,9 @@ venue's fair-use limits for online bookings, each blank for none:
   bookings it makes for the people it books for count with its own.
 - Only court bookings count; a class place is limited by the class.
 - Checked when a customer books (every week of a weekly series), and when
-  they move a booking to another day. Staff at the counter are not held to
-  them.
+  they move a booking to another day, each time counting the account that
+  made the booking as booking online does. Staff at the counter are not held
+  to them.
 - The venue page shows them (*House rules: up to 2 a week for each person or
   household; book up to 7 days ahead. Members book up to 21 days ahead.*), and
   its dates stop at the last day the venue takes bookings from whoever is

@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
     email: typeof body.email === "string" && body.email.trim() ? body.email.trim() : undefined,
     ...(body.players !== undefined ? { players: body.players as number } : {}),
   });
-  if (!made.ok) return NextResponse.json({ error: made.error, code: made.code }, { status: 409 });
+  if (!made.ok) return NextResponse.json({ error: made.error, code: made.code, ...(made.vars ? { vars: made.vars } : {}) }, { status: 409 });
   // The discounts asked for, as on every path: the same price for the same request.
   const discounts = await applyAskedDiscounts([made.booking], { concessionId: body.concessionId, placeConcessions, promoCode: body.promoCode });
   if (selection)

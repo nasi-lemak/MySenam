@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
       { status: 404 }
     );
   if (!result.ok)
-    return NextResponse.json({ error: result.message, reason: result.reason }, { status: 409 });
+    // A refusal with a code (a membership that no longer covers the session) is said in the customer's language from it.
+    return NextResponse.json({ error: result.message, reason: result.reason, ...(result.code ? { code: result.code, vars: result.vars } : {}) }, { status: 409 });
 
   return NextResponse.json(result, {
     // A door code has no business in any cache between here and the customer.

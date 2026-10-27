@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { loyaltyEvery } from "@/lib/loyalty";
 import { sportRules } from "@/lib/sport-rules";
 import { variesByDay, weekLines } from "@/lib/week-hours";
-import { getVenue, listMembershipsFor, listVenueClosures, readNear } from "@/lib/store";
+import { activeMembership, getVenue, listMembershipsFor, listVenueClosures, readNear } from "@/lib/store";
 import { formatMinute, isMinute, parseClock } from "@/lib/interval";
 import { distanceM } from "@/lib/geo";
 import { todayISO, addDays } from "@/lib/time";
@@ -14,7 +14,7 @@ import LiveOccupancy from "@/components/LiveOccupancy";
 import { serverT } from "@/lib/locale";
 import { currentStorefront, shows } from "@/lib/storefront";
 import { mayShowVenue, pageViewer } from "@/lib/listing";
-import { accessSettings, eligible } from "@/lib/access";
+import { accountPhone, accessSettings, eligible } from "@/lib/access";
 import { aheadFor, hasRules, houseRules, memberAhead } from "@/lib/house-rules";
 import Link from "next/link";
 import { listOutages } from "@/lib/outages";
@@ -106,6 +106,9 @@ export default async function VenuePage({
   const access = await accessSettings(venue.id);
   const member =
     access.access === "members" && viewer.userId !== null ? await eligible(venue.id, viewer.userId, "members") : false;
+  // Until when: a members' session after that needs it renewed first, however live it is today (lib/entitlements.ts).
+  const memberPhone = member && viewer.userId !== null ? await accountPhone(viewer.userId) : null;
+  const memberUntil = memberPhone ? ((await activeMembership(venue.id, memberPhone))?.expiresOn ?? null) : null;
 
   // Membership plans sold online, and where this visitor stands with them.
   const online = await takesPaymentOnline(venue.id);
@@ -271,6 +274,7 @@ export default async function VenuePage({
         (member ? (
           <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">
             🎟️ {t("access.youAreMember")}
+            {memberUntil && <p className="mt-0.5 text-xs">{t("mv6.until", { until: memberUntil })}</p>}
           </div>
         ) : (
           <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
@@ -288,15 +292,18 @@ export default async function VenuePage({
           </div>
         ))}
       {plans.length > 0 && access.access !== "private" && (
-        <JoinMembership
-          venueId={venue.id}
-          plans={plans}
-          standing={standing}
-          canAutoRenew={canAutoRenew}
-          renewals={renewals}
-          people={people}
-          families={families}
-        />
+        // Where a refusal's renewal link lands (lib/entitlements.ts renewPath).
+        <div id="membership" className="scroll-mt-20">
+          <JoinMembership
+            venueId={venue.id}
+            plans={plans}
+            standing={standing}
+            canAutoRenew={canAutoRenew}
+            renewals={renewals}
+            people={people}
+            families={families}
+          />
+        </div>
       )}
       {coaches.length > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white px-4 py-3">

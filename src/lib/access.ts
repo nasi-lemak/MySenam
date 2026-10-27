@@ -117,6 +117,34 @@ export async function onAccessList(venueId: number, userId: number): Promise<boo
   );
 }
 
+/**
+ * Is this person on the venue's list on this date (an entry with no end, or
+ * ending on or after it)? For a place on a members' session the list counts
+ * as a membership does (lib/entitlements.ts `memberCover`). Online
+ * (`by: "customer"`) by the one rule above for the account; staff, the
+ * venue's API key and the system re-checking a booking take the number on
+ * their word, or an entry linked to the account that made it.
+ */
+export async function listedOn(venueId: number, who: { phone: string; userId?: number | null; by?: "customer" | "staff" | "api" }, date: string): Promise<boolean> {
+  const db = getDb();
+  if (who.by === "customer") {
+    if (!who.userId) return false;
+    return (
+      (await db
+        .prepare(`SELECT 1 AS n FROM venue_access_list a WHERE a.venue_id = ? AND (a.expires_on IS NULL OR a.expires_on >= ?) AND ${ENTRY_COUNTS_FOR}`)
+        .get(venueId, date, who.userId, who.userId)) !== undefined
+    );
+  }
+  return (
+    (await db
+      .prepare(
+        `SELECT 1 AS n FROM venue_access_list a WHERE a.venue_id = ? AND (a.expires_on IS NULL OR a.expires_on >= ?)
+            AND (a.phone_key = phone_key(?) OR (a.user_id IS NOT NULL AND a.user_id = ?))`
+      )
+      .get(venueId, date, who.phone, who.userId ?? 0)) !== undefined
+  );
+}
+
 /** May this account book here? Members: a membership or the list. Private: the list. */
 export async function eligible(venueId: number, userId: number, mode?: VenueAccess): Promise<boolean> {
   const access = mode ?? (await accessSettings(venueId)).access;

@@ -2570,8 +2570,12 @@ async function takeBackWhatItBought(payment: PaymentRow, amount: number): Promis
       break;
     }
     case "membership":
-      if (payment.membership_id != null)
+      if (payment.membership_id != null) {
         await db.prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(payment.membership_id);
+        // Revoked: the bookings from today on it no longer covers are flagged for staff, never cancelled (lib/membership-flags.ts).
+        const { flagAfterMembershipLoss } = await import("./membership-flags");
+        await flagAfterMembershipLoss(payment.membership_id, "revoked");
+      }
       if (payment.subscription_id) await stopSubscription(payment.subscription_id);
       break;
     case "share": {
