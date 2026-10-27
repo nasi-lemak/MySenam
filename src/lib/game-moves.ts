@@ -42,7 +42,7 @@ export const PROPOSAL_HOURS = 24;
 /** A proposal needs at least this long for players to answer before its deadline. */
 const MIN_ANSWER_MINUTES = 30;
 
-type To = { date: string; start: number; courtId?: number; override?: boolean };
+type To = { date: string; start: number; courtId?: number; override?: boolean; coachId?: number };
 
 export interface MovePreview {
   from: { date: string; startMin: number; endMin: number; courtId: number; courtName: string };

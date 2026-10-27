@@ -553,6 +553,13 @@ export async function noticeContactGuardians(
         vars: { venue: await venueName(venueId) },
         dedupeKey: opts.about !== undefined ? `guardian-notice-${change}:${participantId}:${opts.about}:${g.id}` : undefined,
       });
+      // Whom it was for and about what: should it not arrive, that guardian becomes the venue's task (taskUndeliveredNotices).
+      await db
+        .prepare(
+          `INSERT INTO guardian_notice_messages (message_id, participant_id, guardianship_id, venue_id, change, about) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT DO NOTHING`
+        )
+        .run(m.id, participantId, g.id, venueId, change, opts.about ?? null);
       sent.push(m.id);
     } else {
       const made = await db
@@ -568,7 +575,52 @@ export async function noticeContactGuardians(
     venueId: opts.venueId,
     detail: `${change}: ${sent.length} guardian(s) recorded by name and number told on WhatsApp${sent.length ? ` (messages ${sent.join(", ")})` : ""}; ${tasks} left for the venue's staff to tell`,
   });
+  // One given up at once (over the day's limit for that number) is the venue's task now, not at the next look.
+  if (sent.length > 0) await taskUndeliveredNotices();
   return sent.length;
+}
+
+/**
+ * Notices that did not reach the guardian: given up by the outbox (out of
+ * tries, out of the venue's WhatsApp credit, over the day's limit for the
+ * number, run out) or reported undelivered by WhatsApp afterwards. Each
+ * becomes the task staff get when nothing could be sent (why
+ * `not_delivered`), for the venue that recorded the guardian: tell them, and
+ * mark it done. Once per message, however often this runs (lib/notify.ts
+ * tickOutbox calls it after each drain); a task already open or done for the
+ * same guardian and change is left as it is. Returns how many tasks it made.
+ */
+export async function taskUndeliveredNotices(): Promise<number> {
+  return withTransaction(async () => {
+    const db = getDb();
+    const rows = (await db
+      .prepare(
+        `SELECT gm.message_id, gm.participant_id, gm.guardianship_id, gm.venue_id, gm.change, gm.about
+           FROM guardian_notice_messages gm JOIN messages m ON m.id = gm.message_id
+          WHERE gm.tasked_at IS NULL AND (m.status = 'abandoned' OR m.delivery_error IS NOT NULL)
+          ORDER BY gm.message_id LIMIT 100
+          FOR UPDATE OF gm SKIP LOCKED`
+      )
+      .all()) as { message_id: number; participant_id: number; guardianship_id: number; venue_id: number | null; change: Change; about: number | null }[];
+    let made = 0;
+    for (const r of rows) {
+      const task = await db
+        .prepare(
+          `INSERT INTO guardian_notice_tasks (participant_id, guardianship_id, venue_id, change, why, about, message_id)
+           SELECT ?, ?, ?, ?, 'not_delivered', ?, ? WHERE EXISTS (SELECT 1 FROM participant_guardians g WHERE g.id = ? AND g.revoked_at IS NULL)
+           ON CONFLICT DO NOTHING`
+        )
+        .run(r.participant_id, r.guardianship_id, r.venue_id, r.change, r.about, r.message_id, r.guardianship_id);
+      await db.prepare("UPDATE guardian_notice_messages SET tasked_at = now() WHERE message_id = ?").run(r.message_id);
+      if (task.changes === 0) continue;
+      made++;
+      await participantEvent(r.participant_id, "guardian.notice_undelivered", { system: true }, {
+        venueId: r.venue_id,
+        detail: `${r.change}: the WhatsApp notice to a guardian recorded by name and number (message ${r.message_id}) did not reach them; left for the venue's staff to tell`,
+      });
+    }
+    return made;
+  });
 }
 
 export interface NoticeTask {
@@ -581,7 +633,7 @@ export interface NoticeTask {
   venueId: number | null;
   venueName: string | null;
   change: Change;
-  why: "unverified_number" | "no_channel";
+  why: "unverified_number" | "no_channel" | "not_delivered";
   createdAt: string;
 }
 

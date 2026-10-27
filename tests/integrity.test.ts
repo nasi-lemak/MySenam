@@ -83,16 +83,60 @@ describe("the integrity check", () => {
     expect(await checkIntegrityIfDue(new Date(now.getTime() + 86_400_001))).toEqual([]);
   });
 
-  it("is the platform owner's to ask", async () => {
-    const call = async (role: "owner" | "manager") => {
-      const admin = await createAdmin({ name: role, email: `${role}${++n}@integrity.test`, password: "a long enough password", venueId: role === "owner" ? null : venueId });
+  it("is the platform owner's to ask for every venue, a manager's for their own, never front desk's", async () => {
+    const other = await createVenue({ name: "Elsewhere Hall", area: "Ampang", address: "x", phone: "0312340002", openMin: 7 * 60, closeMin: 23 * 60 });
+    if (!other.ok) throw new Error("venue");
+    const otherCourt = await createCourt({ venueId: other.venue.id, name: "Court 9", sport: "badminton", offPeakRate: 20, peakRate: 20 });
+    if (!otherCourt.ok) throw new Error(otherCourt.error);
+    const there = await createBooking({ courtId: otherCourt.court.id, date: day(2), start: 9 * 60, end: 10 * 60, name: "E", phone: "0177771999" });
+    if (!there.ok) throw new Error(there.error);
+    const here = await book(20);
+    const call = async (role: "owner" | "manager" | "desk", at: number | null = venueId) => {
+      const admin = await createAdmin({
+        name: role,
+        email: `${role}${++n}@integrity.test`,
+        password: "a long enough password",
+        venueId: role === "owner" ? null : at,
+        role: role === "desk" ? "desk" : "manager",
+      });
       if (!admin.ok) throw new Error(admin.error);
       const { token } = await createAdminSession(admin.admin.id);
       return integrityGet(new NextRequest("http://localhost/api/admin/integrity", { headers: { cookie: `${ADMIN_SESSION_COOKIE}=${token}` } }));
     };
-    expect((await call("manager")).status).toBe(403);
-    const res = await call("owner");
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, problems: [] });
+    // Nothing wrong anywhere: everybody allowed to ask hears so.
+    expect(await (await call("manager")).json()).toEqual({ ok: true, problems: [] });
+    expect(await (await call("owner")).json()).toEqual({ ok: true, problems: [] });
+    // Round the code: each venue now has a booking that holds nothing.
+    await getDb().prepare("UPDATE claims SET active = false WHERE booking_id IN (?, ?)").run(here.id, there.booking.id);
+    const desk = await call("desk");
+    expect(desk.status).toBe(403);
+    expect((await desk.json()).code).toBe("MANAGER_ONLY");
+    // A manager here: this venue's problem, never the other's.
+    const mine = await call("manager");
+    expect(mine.status).toBe(200);
+    const seen = (await mine.json()) as { ok: boolean; problems: { venueId: number; bookingId?: number }[] };
+    expect(seen.ok).toBe(false);
+    expect(seen.problems.map((p) => p.bookingId)).toEqual([here.id]);
+    expect(seen.problems.every((p) => p.venueId === venueId)).toBe(true);
+    // The other venue's manager: theirs alone.
+    const theirs = (await (await call("manager", other.venue.id)).json()) as { problems: { bookingId?: number }[] };
+    expect(theirs.problems.map((p) => p.bookingId)).toEqual([there.booking.id]);
+    // The platform owner: both.
+    const all = (await (await call("owner")).json()) as { problems: { bookingId?: number }[] };
+    expect(all.problems.map((p) => p.bookingId).sort((a, b) => a! - b!)).toEqual([here.id, there.booking.id].sort((a, b) => a - b));
+    // A business running both: both, as its own.
+    const business = ((await getDb().prepare("INSERT INTO businesses (name) VALUES ('Both Halls') RETURNING id").get()) as { id: number }).id;
+    await getDb().prepare("UPDATE venues SET business_id = ? WHERE id IN (?, ?)").run(business, venueId, other.venue.id);
+    const runs = await createAdmin({ name: "Runs both", email: `both${++n}@integrity.test`, password: "a long enough password", venueId: null, businessId: business });
+    if (!runs.ok) throw new Error(runs.error);
+    const both = await integrityGet(
+      new NextRequest("http://localhost/api/admin/integrity", { headers: { cookie: `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(runs.admin.id)).token}` } })
+    );
+    expect(((await both.json()) as { problems: unknown[] }).problems).toHaveLength(2);
+    // Scoped in the query itself: an empty scope looks for nothing.
+    expect(await checkIntegrity([])).toEqual([]);
+    expect((await checkIntegrity([other.venue.id])).map((p) => p.bookingId)).toEqual([there.booking.id]);
+    await getDb().prepare("UPDATE bookings SET status = 'cancelled' WHERE id IN (?, ?)").run(here.id, there.booking.id);
+    expect(await checkIntegrity()).toEqual([]);
   });
 });

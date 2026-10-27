@@ -451,7 +451,10 @@ export async function tickOutbox(): Promise<DrainResult> {
     // Players in somebody else's open game: the booking's reminder goes to its host only.
     await (await import("./games")).remindPlayers();
   }
-  return await drainOutbox();
+  const drained = await drainOutbox();
+  // A guardian notice given up, or reported undelivered, becomes the venue's task to tell them (lib/contact-guardians.ts).
+  await (await import("./contact-guardians")).taskUndeliveredNotices();
+  return drained;
 }
 
 const remindersLooked = { at: 0 };

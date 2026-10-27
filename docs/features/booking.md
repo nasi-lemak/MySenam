@@ -667,8 +667,11 @@ the time goes while the customer rebooks.
   staff who do have chosen not to charge the difference. Its concessions and
   promo code stay as they were given, the same amounts, and are not asked
   about again ([discounts together](pricing.md#discounts-together)).
-- Refused for a class place (it moves with its class), a lesson with a
-  coach, a checked-in booking, or kit still out; and, for a customer, a
+- A lesson moves with its coach, to a time the coach takes lessons and is
+  free, or (staff) to another of the venue's coaches while nothing is paid
+  ([moving a lesson](programmes.md#moving-a-lesson)).
+- Refused for a class place (it moves with its class), a checked-in
+  booking, or kit still out; and, for a customer, a
   booking friends have already paid shares of in a split (the venue can move
   it). A booking under an open game with players in it moves only through
   the game, as its host's proposal the players answer or a manager's change

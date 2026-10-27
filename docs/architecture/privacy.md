@@ -369,8 +369,10 @@ share a number, and nothing is merged, matched or moved on them.
 Who sees a participant: their guardians whose relationship stands, their
 own linked login, and the venues they have dealings with (the venue that
 added them, or one where they have a booking, application, sign-off,
-induction or waiver, with the other branches of its business, as sign-offs
-are shared). Never other customers, opponents, other parents, coaches or
+induction or waiver, a concession proof staff saw there, or a membership or
+pass sold there that they hold or that names them, with the other branches
+of its business, as sign-offs are shared; `KNOWN_TO` in
+`src/lib/participants.ts`, `tests/participants-known-links.test.ts`). Never other customers, opponents, other parents, coaches or
 venues, and never discovery: a participant has no user record, so player
 search, suggestions, profiles and invitations cannot reach them, and a
 booking that names one is never opened as an open game. A participant later

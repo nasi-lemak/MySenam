@@ -113,10 +113,11 @@ describe("booking a lesson", () => {
     expect((await post({ hours: [12], coachId: coach.id })).status).toBe(201);
   });
 
-  it("is not moved by the customer: the coach's time is the venue's to change", async () => {
+  it("is moved by the customer with its coach, never to another coach (tests/lesson-moves.test.ts has the rest)", async () => {
     const { booking } = await (await post({ hours: [14], coachId: coach.id })).json();
     const moved = await rescheduleBooking(booking.code, { date, startHour: 15 }, "customer");
-    expect(moved).toMatchObject({ ok: false, code: "RESCHEDULE_COACH" });
+    expect(moved).toMatchObject({ ok: true, booking: { startMin: 15 * 60, coachId: coach.id, coachFee: 80 } });
+    expect(await rescheduleBooking(booking.code, { date, startHour: 16, coachId: coach.id + 1000 }, "customer")).toMatchObject({ ok: false, code: "RESCHEDULE_COACH" });
   });
 
   it("takes a promo code off the court, not the coach's fee", async () => {

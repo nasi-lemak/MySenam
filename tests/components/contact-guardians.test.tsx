@@ -142,6 +142,22 @@ describe("needs attention", () => {
     expect(calls.filter((c) => c.method === "POST").at(-1)!.body).toEqual({ taskId: 7, action: "guardianTold", how: "told" });
     expect(screen.queryByText(/Tell Puan Aminah/)).toBeNull();
   });
+
+  it("says when a WhatsApp notice did not reach the guardian", async () => {
+    stub({
+      "GET /api/admin/attention": {
+        open: [],
+        recent: [],
+        refundsOverdue: [],
+        guardianTasks: [{ id: 8, participantId: 42, displayName: "Bunga", guardianName: "Puan Rosnah", phone: "0177000002", venueId: 3, venueName: "Guardian Centre", change: "request", why: "not_delivered", createdAt: "" }],
+        guardianReviews: [],
+      },
+    });
+    render(<AttentionPanel />);
+    await act(async () => {});
+    expect(screen.getByText(/Tell Puan Rosnah, a guardian of Bunga recorded by name and number/)).toBeTruthy();
+    expect(screen.getByText(/the WhatsApp notice did not reach them/)).toBeTruthy();
+  });
 });
 
 describe("the people page", () => {

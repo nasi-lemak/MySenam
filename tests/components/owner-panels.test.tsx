@@ -171,12 +171,31 @@ describe("the integrity check", () => {
     expect(screen.getByText("MS-ABC234 on 2026-10-28 holds no court time")).toBeTruthy();
   });
 
-  it("says why when the route refuses (a manager, say)", async () => {
-    fetchMock.mockImplementation(async () => json({ error: "Only the platform owner can do that." }, false, 403));
+  it("tells a manager that only their own venues are checked, and lists what the server found there", async () => {
+    fetchMock.mockImplementation(async () =>
+      json({ ok: false, problems: [{ kind: "coach_orphaned", venueId: 1, bookingId: 9, detail: "MS-XYZ on 2026-10-30 is cancelled but still holds its coach" }] })
+    );
+    render(<IntegrityCheck venues={VENUES} own />);
+    expect(screen.getByText("Only your own venues are checked, and only their problems are shown.")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Check now"));
+    });
+    expect(urls()).toEqual(["/api/admin/integrity"]);
+    expect(screen.getByText("A cancelled lesson still holds its coach")).toBeTruthy();
+    expect(screen.getByText(/Arena MySenam · Booking 9/)).toBeTruthy();
+  });
+
+  it("does not say so to the platform owner", () => {
+    render(<IntegrityCheck venues={VENUES} />);
+    expect(screen.queryByText(/Only your own venues/)).toBeNull();
+  });
+
+  it("says why when the route refuses (front desk, say)", async () => {
+    fetchMock.mockImplementation(async () => json({ error: "Front-desk accounts cannot change this. Ask a manager.", code: "MANAGER_ONLY" }, false, 403));
     render(<IntegrityCheck venues={VENUES} />);
     await act(async () => {
       fireEvent.click(screen.getByText("Check now"));
     });
-    expect(screen.getByText("Only the platform owner can do that.")).toBeTruthy();
+    expect(screen.getByText("Front-desk accounts cannot change this. Ask a manager.")).toBeTruthy();
   });
 });

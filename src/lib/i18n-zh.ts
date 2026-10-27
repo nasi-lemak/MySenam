@@ -1466,7 +1466,7 @@ export const ZH: Record<Phrase, string> = {
   "err.COACH_NOT_WORKING": "{name} 在该时间不授课。请选择显示的时间之一。",
   "err.COACH_TAKEN": "{name} 该时间刚被预订。请选择其他时间。",
   "err.COACH_ONE_WEEK": "请逐次预订课程。",
-  "err.RESCHEDULE_COACH": "有教练的课程需由场馆调整，请联系场馆。",
+  "err.RESCHEDULE_COACH": "课程的教练需由场馆更换，请联系场馆。",
   "coach.title": "教练课",
   "coach.intro": "一对一课程。我们会为您安排场地；教练费另加于场地价格之上。",
   "coach.rate": "每小时 {amount}，另加场地费",
@@ -2311,6 +2311,12 @@ export const ZH: Record<Phrase, string> = {
   "lg5.inBox": "{name}：第 {n} 组",
   "lg5.inLeague": "{name}：已在联赛中",
   "lg5.shareNoteFor": "其同组球员会看到其姓名和您的电话号码，方便您为其约定比赛。",
+  "err.RESCHEDULE_COACH_PAID": "已付款的课程保留原教练。如需更换教练，请取消后重新预订。",
+  "fin6.msg.coachMovedSubject": "已改期：课程改至 {date}，{time}",
+  "fin6.msg.coachMoved": "{name}，您好，{student} 的课程已从 {was} 改至 {date}，{time}（{court}，{venue}）。预订编号 {code}。\n\n您的完整日程请查看场馆提供的私人链接。",
+  "fin6.msg.coachHandedOverSubject": "已转给其他教练：{date}，{time} 的课程",
+  "fin6.msg.coachHandedOver": "{name}，您好，{student} 于 {date}，{time}（{court}，{venue}）的课程已转给另一位教练，不再列入您的日程。预订编号 {code}。",
+  "fin6.lessonKeepsCoach": "您的课程保留原教练：显示的时间为该教练授课且有空的时段。如需更换教练，请联系场馆。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

@@ -152,6 +152,16 @@ Guardians a venue recorded by name and number only have no email
   checked by a code, or no WhatsApp), shown under *Needs attention* to its
   staff until one of them marks it done (`POST /api/admin/attention`,
   `guardianTold`), with who.
+- A WhatsApp notice that does not reach them becomes the same task, with
+  why *not delivered* (`taskUndeliveredNotices`, migration 0184): given up
+  by the outbox (out of tries, over the day's limit for the number, run
+  out) or reported undelivered by WhatsApp afterwards. Which notice went to
+  which guardian about what is kept (`guardian_notice_messages`), and the
+  task names the message; it is made once per notice, after each outbox
+  drain (`tickOutbox`), and not for a guardian whose relationship has since
+  ended. A notice that was sent and not reported undelivered makes no task:
+  WhatsApp's acceptance is not proof it was read.
+  Tests: `tests/guardian-notice-undelivered.test.ts`.
 
 The codes staff send to such a number (`gw5.sms.code`: the code and the
 venue's name) go through the phone-check delivery (`src/lib/phone-check.ts`,
