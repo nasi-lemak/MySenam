@@ -217,7 +217,6 @@ const en = {
   "occ.court": "Court",
   "occ.cell": "{booked}/{places} places booked",
   "occ.cellBlocked": "{booked}/{places} places booked; {out} more taken out of service",
-  "occ.venueTotal": "Venue total",
 
   // Needs attention
   "att.reach.unreachable": "No email or WhatsApp — call them",
@@ -446,6 +445,10 @@ const en = {
   "ent.con.wholeBooking": "The whole booking",
   "ent.con.onePlace": "One person's place",
   "ent.act.placeWithdrawn": "Took one person off a booking",
+  "occ5.floor": "Courts, floor counted once",
+  "occ5.floorTitle": "{sold} of {sellable} hours of the courts' floor in use; a pitch and the courts under it counted once",
+  "occ5.shared": "Shared facilities",
+  "occ5.sharedTitle": "{sold} of {sellable} place-hours booked on shared facilities, measured apart from the courts",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -650,7 +653,6 @@ const ms: Record<keyof typeof en, string> = {
   "occ.court": "Gelanggang",
   "occ.cell": "{booked}/{places} tempat ditempah",
   "occ.cellBlocked": "{booked}/{places} tempat ditempah; {out} lagi dihentikan operasi",
-  "occ.venueTotal": "Jumlah pusat",
 
   "att.reach.unreachable": "Tiada e-mel atau WhatsApp — telefon mereka",
   "att.reach.failed": "Mesej gagal — telefon mereka",
@@ -876,6 +878,10 @@ const ms: Record<keyof typeof en, string> = {
   "ent.con.wholeBooking": "Keseluruhan tempahan",
   "ent.con.onePlace": "Tempat seorang",
   "ent.act.placeWithdrawn": "Mengeluarkan seorang daripada tempahan",
+  "occ5.floor": "Gelanggang, ruang dikira sekali",
+  "occ5.floorTitle": "{sold} daripada {sellable} jam ruang gelanggang digunakan; padang dan gelanggang di bawahnya dikira sekali sahaja",
+  "occ5.shared": "Kemudahan dikongsi",
+  "occ5.sharedTitle": "{sold} daripada {sellable} jam tempat ditempah pada kemudahan dikongsi, diukur berasingan daripada gelanggang",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1080,7 +1086,6 @@ const zh: Record<keyof typeof en, string> = {
   "occ.court": "场地",
   "occ.cell": "已预订 {booked}/{places} 个名额",
   "occ.cellBlocked": "已预订 {booked}/{places} 个名额；另有 {out} 个停用",
-  "occ.venueTotal": "场馆合计",
 
   "att.reach.unreachable": "没有电邮或 WhatsApp — 请致电",
   "att.reach.failed": "消息发送失败 — 请致电",
@@ -1306,6 +1311,10 @@ const zh: Record<keyof typeof en, string> = {
   "ent.con.wholeBooking": "整个预订",
   "ent.con.onePlace": "一个人的名额",
   "ent.act.placeWithdrawn": "从预订中移除一人",
+  "occ5.floor": "场地（同一场地只计一次）",
+  "occ5.floorTitle": "场地使用 {sold} / {sellable} 小时，大场与其下的小场只计一次",
+  "occ5.shared": "共享设施",
+  "occ5.sharedTitle": "共享设施已预订 {sold} / {sellable} 名额小时，与场地分开计算",
 };
 
 const area = { en, ms, zh };
