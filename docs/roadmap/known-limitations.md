@@ -335,7 +335,8 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   A first lesson or registration no longer needs the counter where the
   venue takes applications online ([registering online](../features/activities.md#registering-online-for-approval));
   a coach's lesson is not held with an application (court time is), and is
-  booked once approved (P3). A group of places on such an activity is booked
+  booked once approved (P3). Online, every place on such an activity must be
+  a named person with a sign-off of their own; unnamed extra places are booked
   at the counter, since one sign-off covers one person.
 - **Approval applications are kept for provisional periods**: documents
   90 days after the decision, the review window 30, closed records 365 and
