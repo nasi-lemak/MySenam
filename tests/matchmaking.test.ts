@@ -23,6 +23,7 @@ import {
   setPlayerLevel,
 } from "../src/lib/games";
 import { distanceBand, recommendGames, recommendPlayers, WEIGHTS } from "../src/lib/matchmaking";
+import { acceptPlayerInvitation } from "../src/lib/player-invitations";
 import { playerProfile, saveProfile } from "../src/lib/player-profiles";
 import { blockPlayer, listPlayerReports, myBlocks, reportPlayer, reviewPlayerReport, unblockPlayer } from "../src/lib/player-safety";
 import { setPlayerGender } from "../src/lib/who";
@@ -376,8 +377,14 @@ describe("invitations", () => {
     const b = await inviteByEmail(host.id, game.id, no.email);
     const c = await inviteByEmail(host.id, game.id, "nobody@nowhere.my");
     for (const r of [a, b, c]) expect(r.ok).toBe(true);
-    expect(await statusOf(game.id, yes.id)).toBe("invited");
+    // Nobody is put in the game by an address: each is emailed a link, which the account signed in with it
+    // accepts, if the rules allow (tests/player-invitations.test.ts).
+    expect(await statusOf(game.id, yes.id)).toBeUndefined();
     expect(await statusOf(game.id, no.id)).toBeUndefined();
+    const link = (await getDb().prepare("SELECT body FROM messages WHERE lower(recipient) = lower(?) ORDER BY id DESC").get(yes.email)) as { body: string };
+    const token = /player-invitation\?token=([A-Za-z0-9_-]+)/.exec(link.body)![1];
+    expect(await acceptPlayerInvitation(yes, token)).toMatchObject({ ok: true, kind: "game", status: "accepted" });
+    expect(await statusOf(game.id, yes.id)).toBe("accepted");
 
     await getDb()
       .prepare(

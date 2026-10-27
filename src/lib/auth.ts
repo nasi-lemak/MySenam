@@ -37,11 +37,23 @@ export function hashPassword(password: string): string {
   return `${salt}:${hash}`;
 }
 
+/**
+ * Stands in for a password where there is none to check: no account has the
+ * address, or the account was made with Google and has no password. Hashing
+ * against it takes as long as a real check, so a sign-in with an unknown
+ * address takes about as long as one with a wrong password, and the time
+ * taken does not say whether an account holds it
+ * (docs/architecture/security.md#no-account-enumeration). It matches nothing.
+ */
+const NO_PASSWORD = `${"0".repeat(32)}:${"0".repeat(128)}`;
+
+/** Whether `password` is the one `stored` was made from; always the work of one scrypt hash, whatever `stored` is. */
 export function verifyPassword(password: string, stored: string): boolean {
   const [salt, hash] = stored.split(":");
-  if (!salt || !hash) return false;
-  const test = crypto.scryptSync(password, salt, 64);
-  return crypto.timingSafeEqual(Buffer.from(hash, "hex"), test);
+  const usable = Boolean(salt) && /^[0-9a-f]{128}$/i.test(hash ?? "");
+  const [s, h] = usable ? [salt, hash] : NO_PASSWORD.split(":");
+  const test = crypto.scryptSync(password, s, 64);
+  return crypto.timingSafeEqual(Buffer.from(h, "hex"), test) && usable;
 }
 
 export type RegisterResult = { ok: true; user: User } | { ok: false; error: string };
@@ -72,7 +84,8 @@ export async function authenticate(email: string, password: string): Promise<Use
   const row = await db
     .prepare("SELECT id, name, email, phone, password_hash FROM users WHERE email = ?")
     .get(email.trim()) as UserRow | undefined;
-  if (!row || !verifyPassword(password, row.password_hash)) return null;
+  // Hashed whether or not an account has the address: the same work, and about the same time, either way.
+  if (!verifyPassword(password, row?.password_hash ?? "") || !row) return null;
   return { id: row.id, name: row.name, email: row.email, phone: row.phone };
 }
 

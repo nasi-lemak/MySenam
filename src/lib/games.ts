@@ -6,8 +6,8 @@ import { isBlocked } from "./limits";
 import { accessRefusal } from "./access";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { distanceM } from "./geo";
-import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
-import type { T } from "./i18n";
+import { baseUrl, drainOutbox, emailPlayer, sentences, type Written } from "./outbox";
+import type { ErrorCode, T } from "./i18n";
 import { addDays, formatHour, isPastSlot, slotStartsAt, todayISO } from "./time";
 import type { Near } from "./store";
 import { isWho, whoRefusal, type Who } from "./who";
@@ -18,6 +18,21 @@ import { NAMES_PARTICIPANTS } from "./participants";
 import { blockedBetween, blockedInGame, related } from "./player-safety";
 import { declaredAdult, type Intensity } from "./player-profiles";
 import { mostSpots, OPEN_GAME_SPOTS } from "./court-activities";
+import {
+  claimInvitation,
+  EMAIL_INVITES_TODAY,
+  FROM_EMAIL_INVITATION,
+  forgetOldInvitations,
+  invitationAddress,
+  invitationInvalid,
+  issueInvitation,
+  newInvitationToken,
+  openEmailInvitationCount,
+  openEmailInvitations,
+  type EmailInvitation,
+  type InvitationRow,
+  type PlayerAcceptResult,
+} from "./player-invitations";
 
 /**
  * Player matching: open games.
@@ -166,6 +181,8 @@ export interface OpenGame {
   yours?: boolean;
   /** For its host: everybody who asked. */
   players?: GamePlayer[];
+  /** For its host: invitations by email not yet accepted, shown as "invited (email)", never who. */
+  emailInvites?: EmailInvitation[];
   /** Whether the venue takes shares online. */
   payOnline: boolean;
 }
@@ -788,18 +805,25 @@ async function mayInvite(inviterId: number, inviteeId: number): Promise<boolean>
   return sameGroup || profile.invitable === 1 || profile.discoverable === 1 || (await related(inviterId, inviteeId));
 }
 
-/** Invitations somebody has sent in the last day, to games and groups together. */
+/**
+ * Invitations somebody has sent in the last day, to games and groups
+ * together: by name, and every one by email, whoever holds the address, if
+ * anybody does. An emailed one accepted is counted once.
+ */
 export async function invitesToday(userId: number): Promise<number> {
   const row = (await getDb()
     .prepare(
-      `SELECT (SELECT COUNT(*) FROM open_game_players WHERE invited_by = ? AND created_at >= datetime('now', '-1 day'))
-            + (SELECT COUNT(*) FROM group_members WHERE invited_by = ? AND created_at >= datetime('now', '-1 day')) AS n`
+      `SELECT (SELECT COUNT(*) FROM open_game_players p WHERE p.invited_by = ? AND p.created_at >= datetime('now', '-1 day')
+                 AND NOT ${FROM_EMAIL_INVITATION("p", "game_id")})
+            + (SELECT COUNT(*) FROM group_members m WHERE m.invited_by = ? AND m.created_at >= datetime('now', '-1 day')
+                 AND NOT ${FROM_EMAIL_INVITATION("m", "group_id")})
+            + ${EMAIL_INVITES_TODAY} AS n`
     )
-    .get(userId, userId)) as { n: number | string };
+    .get(userId, userId, userId)) as { n: number | string };
   return Number(row.n);
 }
 
-export type InviteResult = { ok: true; game: OpenGame } | { ok: false; error: string; status?: number };
+export type InviteResult = { ok: true; game: OpenGame } | { ok: false; error: string; status?: number; code?: string };
 
 /**
  * Invite somebody to a game: its host, or a player in it where the game is
@@ -824,8 +848,7 @@ export async function invitePlayer(inviterId: number, gameId: number, inviteeId:
   const until = untilAtMost(game, INVITE_HOURS * 60);
   const refused = await withTransaction(async (): Promise<string | null> => {
     await lockPlaces(gameId);
-    const open = (await db.prepare("SELECT COUNT(*)::int AS n FROM open_game_players WHERE game_id = ? AND status = 'invited'").get(gameId)) as { n: number };
-    if (open.n >= game.spots * OPEN_INVITES_PER_SPOT) return "Wait for some of the invitations already sent to be answered.";
+    if ((await invitationsOut(gameId)) >= game.spots * OPEN_INVITES_PER_SPOT) return "Wait for some of the invitations already sent to be answered.";
     const existing = (await db.prepare("SELECT id, status FROM open_game_players WHERE game_id = ? AND user_id = ?").get(gameId, inviteeId)) as
       | { id: number; status: PlayerStatus }
       | undefined;
@@ -850,22 +873,129 @@ export async function invitePlayer(inviterId: number, gameId: number, inviteeId:
   return { ok: true, game: (await gameById(gameId))! };
 }
 
+/** Invitations waiting for an answer in a game, by name and by email. Under the game's lock. */
+async function invitationsOut(gameId: number): Promise<number> {
+  const named = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM open_game_players WHERE game_id = ? AND status = 'invited'").get(gameId)) as { n: number };
+  return named.n + (await openEmailInvitationCount(gameId));
+}
+
 /**
- * Invite by email address. The answer is the same whether or not the address
- * has an account here and whether or not they may be invited, so nobody can
- * use it to find out who uses MySenam; only those who may be invited are.
+ * Invite by email address. The address is never looked up: whether or not an
+ * account holds it, and whether or not whoever does may be invited, the
+ * answer is the same and so is the work done. The invitation counts against
+ * the daily limit and the game's invitations waiting for an answer, and the
+ * address is emailed a single-use link (lib/player-invitations.ts). The host
+ * sees "invited (email)" until the account that signs in with that address
+ * accepts it; who may be invited is checked then (acceptGameInvitation).
+ * Refusals are about the inviter, the game or what was typed, never about
+ * whoever holds the address.
  */
 export async function inviteByEmail(inviterId: number, gameId: number, email: string): Promise<InviteResult> {
   const game = await gameById(gameId);
-  if (!game || (game.hostId !== inviterId && (await myPlace(inviterId, gameId))?.status !== "accepted"))
-    return { ok: false, error: "Not found.", status: 404 };
-  const user = (await getDb().prepare("SELECT id FROM users WHERE LOWER(email) = LOWER(?)").get(email.trim())) as { id: number } | undefined;
-  if (user) {
-    const sent = await invitePlayer(inviterId, gameId, user.id);
-    // Limits and a game not taking players are the inviter's to hear; nothing about the invitee is.
-    if (!sent.ok && (sent.status === 429 || sent.status === 404 || sent.status === 403)) return sent;
-  }
+  const byHost = game?.hostId === inviterId;
+  if (!game || (!byHost && (await myPlace(inviterId, gameId))?.status !== "accepted")) return { ok: false, error: "Not found.", status: 404 };
+  if (game.status !== "open") return { ok: false, error: NOT_TAKING, status: 404 };
+  if (isPastSlot(game.date, game.startHour, game.timeZone)) return { ok: false, error: "That game has started." };
+  if (!byHost && game.visibility === "private") return { ok: false, error: "Only the host can invite people to this game.", status: 403 };
+  const address = await invitationAddress(inviterId, email);
+  if (!address.ok) return { ok: false, error: address.error, code: address.code, status: 400 };
+  if ((await invitesToday(inviterId)) >= INVITES_PER_DAY) return { ok: false, error: "You have sent a lot of invitations today. Please try again tomorrow.", status: 429 };
+
+  const until = untilAtMost(game, INVITE_HOURS * 60);
+  const token = newInvitationToken();
+  const inviter = (await getDb().prepare("SELECT name FROM users WHERE id = ?").get(inviterId)) as { name: string };
+  const refused = await withTransaction(async (): Promise<string | null> => {
+    await lockPlaces(gameId);
+    if ((await invitationsOut(gameId)) >= game.spots * OPEN_INVITES_PER_SPOT) return "Wait for some of the invitations already sent to be answered.";
+    await issueInvitation({
+      target: { gameId },
+      invitedBy: inviterId,
+      email: address.email,
+      token,
+      expiresAt: until,
+      subject: "gi7.mail.game.s",
+      body: "gi7.mail.game.b",
+      vars: {
+        by: firstName(inviter.name),
+        host: game.hostName,
+        court: game.courtName,
+        venue: game.venueName,
+        when: when(game),
+        hours: INVITE_HOURS,
+        link: `${baseUrl()}/player-invitation?token=${token}`,
+      },
+    });
+    return null;
+  });
+  if (refused) return { ok: false, error: refused };
+  // As a password reset's link: sent now if it can be, not waited on, and the same either way.
+  void drainOutbox().catch(() => null);
   return { ok: true, game: (await gameById(gameId))! };
+}
+
+/**
+ * Accept an emailed invitation to a game, signed in with the address it was
+ * sent to: taking up a place in it as an invitation by name is taken up
+ * (askToJoin). In, if the host invited (or lets everybody in) and there is
+ * room; asking, where another player invited and the host decides; on the
+ * waiting list, if it is full and has one. The rules on who may be invited
+ * are checked now, and an invitation they do not allow is refused in the
+ * same words as one that does not exist: a declared adult who has come
+ * across the inviter here or opted in to being invited; anybody else only
+ * through a community group both are in; nobody across a block (ADR 0016).
+ * Whatever takes a place does so under the game's row lock, in its one row
+ * per person.
+ */
+export async function acceptGameInvitation(user: { id: number; phone: string }, invitation: InvitationRow): Promise<PlayerAcceptResult> {
+  const gameId = invitation.gameId!;
+  const game = await gameById(gameId);
+  if (!game || game.status !== "open" || isPastSlot(game.date, game.startHour, game.timeZone) || game.hostId === user.id) return invitationInvalid();
+  const byHost = game.hostId === invitation.invitedBy;
+  // The inviter must still be able to invite to it, as when they did.
+  if (!byHost && (game.visibility === "private" || (await myPlace(invitation.invitedBy, gameId))?.status !== "accepted")) return invitationInvalid();
+  if (!(await mayInvite(invitation.invitedBy, user.id)) || (await blockedInGame(user.id, gameId))) return invitationInvalid();
+  if (game.adultsOnly && (await declaredAdult(user.id)) !== true) return invitationInvalid();
+  // Their own reasons they cannot play in it, as anybody asking to join hears them: a phone number first, as joining needs.
+  const noPhone = await (await import("./phone-check")).phoneRefusal(user.id);
+  if (noPhone) return { ...noPhone, status: 403 };
+  const unable = await eligibility(user, game);
+  if (unable) return { ok: false, error: unable.error, status: unable.status ?? 409, ...(unable.code ? { code: unable.code as ErrorCode } : {}) };
+
+  const db = getDb();
+  const outcome = await withTransaction(async (): Promise<{ refused: PlayerAcceptResult } | { status: PlayerStatus }> => {
+    const places = await lockPlaces(gameId);
+    if (!places || places.status !== "open") return { refused: invitationInvalid() };
+    if ((await pendingMove(gameId)) !== null) return { refused: { ok: false, error: MOVING, status: 409 } };
+    const existing = (await db.prepare("SELECT id, status FROM open_game_players WHERE game_id = ? AND user_id = ?").get(gameId, user.id)) as
+      | { id: number; status: PlayerStatus }
+      | undefined;
+    // Somebody the host turned down is let back in only by the host.
+    if (existing && (existing.status === "declined" || existing.status === "removed") && !byHost) return { refused: invitationInvalid() };
+    const fromOffer = existing?.status === "offered";
+    let status: PlayerStatus;
+    if (existing?.status === "accepted" || fromOffer) status = "accepted";
+    else if (places.taken >= places.spots) {
+      // Not spent on a refusal: kept for when a place frees, while it lasts.
+      if (!places.waitlist) return { refused: { ok: false, error: "That game is full.", status: 409 } };
+      status = "waitlisted";
+    } else status = places.autoAccept || byHost ? "accepted" : "requested";
+    if (!(await claimInvitation(invitation.id, user.id))) return { refused: invitationInvalid() };
+    if (existing?.status === "accepted") return { status };
+    if (existing)
+      await db
+        .prepare(
+          `UPDATE open_game_players SET status = ?, invited_by = ?, decided_at = NULL, expires_at = NULL,
+                  created_at = CASE WHEN ? = 1 THEN created_at ELSE datetime('now') END WHERE id = ?`
+        )
+        .run(status, invitation.invitedBy, fromOffer ? 1 : 0, existing.id);
+    else
+      await db.prepare("INSERT INTO open_game_players (game_id, user_id, status, invited_by) VALUES (?, ?, ?, ?)").run(gameId, user.id, status, invitation.invitedBy);
+    if (status === "accepted") await tellHost(game, "joined");
+    else if (status === "requested") await tellHost(game, "asked");
+    return { status };
+  });
+  if ("refused" in outcome) return outcome.refused;
+  return { ok: true, kind: "game", gameId, status: outcome.status };
 }
 
 const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
@@ -928,7 +1058,10 @@ export async function gameForViewer(gameId: number, viewerId: number | null, lin
   if (game.visibility === "private" && !yours && !(mine && ACTIVE.includes(mine.status)) && !(link && (await linkLeadsTo(link, gameId)))) return null;
   game.yours = yours;
   game.mine = mine;
-  if (yours) game.players = await gamePlayers(gameId);
+  if (yours) {
+    game.players = await gamePlayers(gameId);
+    game.emailInvites = await openEmailInvitations({ gameId });
+  }
   if (yours || mine?.status === "accepted") game.move = await moveOf(gameId);
   return game;
 }
@@ -980,6 +1113,7 @@ export async function expireHolds(): Promise<{ invitations: number; offers: numb
     const game = await gameById(gameId);
     if (game) await withTransaction(() => fillPlaces(game));
   }
+  await forgetOldInvitations();
   return { invitations: invitations.length, offers: offers.length };
 }
 
@@ -1079,6 +1213,7 @@ export async function myGames(userId: number): Promise<{ hosting: OpenGame[]; pl
     .all(userId, since)) as GameRow[]).map(toGame);
   for (const g of hosting) {
     g.players = await gamePlayers(g.id);
+    g.emailInvites = await openEmailInvitations({ gameId: g.id });
     g.move = await moveOf(g.id);
   }
   const playing = ((await db

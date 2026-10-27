@@ -8,7 +8,7 @@ import { registerUser } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
 import { tellOwners, tellVenueStaff } from "../src/lib/owner-alerts";
 import { drainOutbox, listPlatformMessages, MESSAGES_PER_RECIPIENT_PER_DAY, retryMessage, setTransport, type OutboxMessage } from "../src/lib/outbox";
-import { requestReset } from "../src/lib/password-reset";
+import { requestReset, settleResetRequests } from "../src/lib/password-reset";
 import { listVenues } from "../src/lib/store";
 import { GET as listRoute, POST as retryRoute } from "../src/app/api/admin/messages/route";
 
@@ -99,6 +99,8 @@ describe("a password reset link", () => {
     const made = await registerUser({ name: "Reset Person", email, phone: `0187${String(n).padStart(6, "0")}`, password: "a long enough password" });
     if (!made.ok) throw new Error(made.error);
     await requestReset("user", email);
+    // Worked through after the reply, as is its first try at sending: wait for both.
+    await settleResetRequests();
     const { id } = (await db().prepare("SELECT id FROM messages WHERE recipient = ? AND kind = 'account_email' ORDER BY id DESC").get(email)) as { id: number };
     // It is tried at once, in the background (the reply does not wait for it): wait for that try.
     for (let i = 0; i < 200 && (await row(id)).attempts === 0 && (await row(id)).status === "queued"; i++) await new Promise((r) => setTimeout(r, 10));

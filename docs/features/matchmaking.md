@@ -160,10 +160,32 @@ Who may be invited: a declared adult the inviter has come across here (played
 with, been invited by, or in a community group with), or one who has opted in
 to being found or invited; somebody under 18, or who has not said, only by a
 fellow member of a community group, never out of the blue; nobody across a
-block. Inviting by email answers the same whether the address has an account
-or not, and invites only those who may be invited, so it cannot be used to
-find out who uses MySenam. One person sends at most 30 invitations a day, and
-a game holds at most three outstanding per place.
+block. One person sends at most 30 invitations a day, to games and groups
+together, and a game holds at most three outstanding per place.
+
+**Inviting by email** cannot be used to find out who uses MySenam
+(`src/lib/player-invitations.ts`;
+[no account enumeration](../architecture/security.md#no-account-enumeration)).
+The address is never looked up: the answer is the same, and the same work is
+done, whether or not an account holds it and whether or not whoever does may
+be invited. Every one counts against the daily limit and the game's
+outstanding invitations, and the address is emailed a link to the game,
+written in the inviter's language. The link works once, for the account
+signed in with that address (made then, if there is none), at
+`/player-invitation`; it lasts as an invitation does (48 hours, or the
+game's start), and inviting the same address again replaces it. Until it is
+accepted, the host sees *invited by email, not yet accepted*: no name, no
+account, nothing about opting in. Accepting is taking up the invitation, as
+with one by name: in, if the host invited (or lets everybody in) and there is
+room; a request where another player invited and the host decides; the
+waiting list if the game is full and has one. A game full without a waiting
+list leaves the link to use if a place frees. Who may be invited is checked on
+acceptance, by the rules above, and a link they do not allow gets the same
+answer as one that is used, replaced, run out or another address's.
+
+Inviting somebody the inviter already knows here (a suggested player, last
+week's players, a group's members) picks the account from those lists and
+invites it by name, as before.
 
 A **private** game is never listed or suggested. Only its host's invitations
 and links lead to it: a link lasts what the host chooses (at most 14 days,
@@ -262,10 +284,14 @@ Membership is always agreed by both sides: somebody asks and the organiser
 says yes, or the organiser invites and they say yes; nobody joins by
 themselves, because a group is the only way a player under 18 can be invited
 to a game, so it must not be a door anybody can walk through. The organiser
-invites by email, with the same answer whatever the address, and only
-declared adults they have come across or who opted in to being invited; a
-player under 18 asks to join themselves. A public group is listed; a private
-one is seen only by its members and those invited. Members see each other's
+invites by email, as a host does: the same answer and work whatever the
+address, a single-use link that lasts seven days, and *invited by email* on
+the organiser's roster until it is accepted. Accepting makes a member, if
+there is room, of a declared adult the organiser has come across or who opted
+in to being invited; anybody else's link is refused like one that cannot be
+used, and a player under 18 asks to join themselves. A public group is
+listed; a private one is seen only by its members, not by somebody invited
+by email until they accept. Members see each other's
 first names only. A group holds 2 to 60 people, an organiser runs at most
 five, and a closed group no longer counts for invitations.
 
@@ -308,6 +334,7 @@ These are proposals in the [roadmap](../roadmap/roadmap.md), not commitments.
 | Playing profiles | `src/lib/player-profiles.ts` | `tests/matchmaking.test.ts` |
 | Blocking and reporting | `src/lib/player-safety.ts` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
 | Weekly games, groups, suggestion emails | `src/lib/game-series.ts`, `src/lib/groups.ts` | `tests/community.test.ts` |
+| Invitations by email to a game or a group | `src/lib/player-invitations.ts`, `src/app/player-invitation/page.tsx` | `tests/player-invitations.test.ts`, `tests/components/games-screens.test.tsx` |
 | Women-only and men-only games | `src/lib/who.ts` | `tests/who.test.ts` |
 | Visual acceptance, several players at once | | `tests/uat/matchmaking.uat.ts`, `tests/uat/community.uat.ts` |
 

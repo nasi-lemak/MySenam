@@ -135,12 +135,20 @@ describe("matchmaking", () => {
     const other = await signUp(await s.actor("Other"), { profile: { adult: true, invitable: true } });
     const outsider = await signUp(await s.actor("Outsider"), { profile: { adult: true } });
 
-    await s.step(host, "invites a friend by email", async () => {
+    await s.step(host, "invites a friend by email, and sees an invitation by email, not who holds the address", async () => {
       await games(host);
       const tools = host.page.getByTestId(`host-tools-${gameId}`);
       await tools.getByPlaceholder("Invite by email").fill(friend.email);
       await tools.getByRole("button", { name: "Invite", exact: true }).click();
       await host.page.getByText("Invitation sent, if they can be invited.").waitFor();
+      await games(host);
+      const hosted = host.page.getByTestId(`hosted-${gameId}`);
+      await hosted.getByText("Invited by email, not yet accepted").waitFor();
+      expect(await hosted.getByText(/Friend/).count()).toBe(0);
+    });
+    // The emailed link is the friend's to accept (tests/player-invitations.test.ts); here the host also picks them by name.
+    await s.step(host, "invites the friend by name too", async () => {
+      expect((await host.api("POST", `/api/games/${gameId}`, { action: "invite", userId: friend.id })).status).toBe(200);
     });
     await s.step(friend, "sees the invitation and says yes: the host's invitation is the host's yes", async () => {
       await games(friend);
@@ -149,12 +157,12 @@ describe("matchmaking", () => {
       await row.getByRole("button", { name: "Say yes" }).click();
       await friend.page.getByTestId(`playing-${gameId}`).getByText("You're in").waitFor();
     });
-    await s.step(host, "invites another player, then withdraws it", async () => {
-      await host.api("POST", `/api/games/${gameId}`, { action: "invite", email: other.email });
+    await s.step(host, "invites another player they know by name, then withdraws it", async () => {
+      await host.api("POST", `/api/games/${gameId}`, { action: "invite", userId: other.id });
       await games(host);
-      const invited = host.page.getByTestId(`hosted-${gameId}`).locator("li").filter({ hasText: "Invited" });
+      const invited = host.page.getByTestId(`hosted-${gameId}`).locator("li").filter({ hasText: "Other" });
       await invited.getByRole("button", { name: "Remove" }).click();
-      await gone(host.page.getByTestId(`hosted-${gameId}`).locator("li").filter({ hasText: "Invited" }));
+      await gone(host.page.getByTestId(`hosted-${gameId}`).locator("li").filter({ hasText: "Other" }));
     });
     await s.step(other, "finds the withdrawn invitation gone, and cannot use it", async () => {
       await games(other);

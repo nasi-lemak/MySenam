@@ -65,7 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           ? await invitePlayer(user.id, gameId, body.userId as number)
           : null;
     if (!invited) return NextResponse.json({ error: "Who?" }, { status: 400 });
-    if (!invited.ok) return NextResponse.json({ error: invited.error }, { status: invited.status ?? 409 });
+    if (!invited.ok) return NextResponse.json({ error: invited.error, code: invited.code }, { status: invited.status ?? 409 });
     return NextResponse.json({ game: invited.game });
   }
   if (body.action === "link") {

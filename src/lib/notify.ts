@@ -443,6 +443,8 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
  * the requests that could have caused work, and is cheap when there is none.
  */
 export async function tickOutbox(): Promise<DrainResult> {
+  // Password resets asked for are worked through after their reply; any a server stopped before reaching are done here.
+  await (await import("./password-reset")).processResetRequests();
   await notifyPendingOffers();
   // Reminders look over three days of bookings: once a minute is soon enough, not on every request.
   if (Date.now() - remindersLooked.at >= 60_000) {

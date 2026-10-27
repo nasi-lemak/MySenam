@@ -190,6 +190,7 @@ describe("the /games page, signed in", () => {
           { id: 101, userId: 21, name: "Bala", level: "beginner", status: "requested", paid: false, noShow: false, expiresAt: null, invited: false, toConfirm: false },
           { id: 102, userId: 22, name: "Chen", level: null, status: "accepted", paid: true, noShow: false, expiresAt: null, invited: false, toConfirm: false },
         ],
+        emailInvites: [{ id: 5, expiresAt: "2026-12-01 10:00:00" }],
       }),
     ];
     routes["POST /api/games/15/players/101"] = { body: { ok: true } };
@@ -200,6 +201,10 @@ describe("the /games page, signed in", () => {
     expect(within(hosted).getByText(/1 of 3 joined/)).toBeTruthy();
     expect(within(hosted).getByText(/Bala \(Beginner\) · wants to join/)).toBeTruthy();
     expect(within(hosted).getByText(/Chen · joined, share paid/)).toBeTruthy();
+    // Somebody invited by email: nothing about who, and nothing to act on, until they accept.
+    const emailed = within(hosted).getByTestId("email-invite");
+    expect(emailed.textContent).toBe("Invited by email, not yet accepted");
+    expect(within(emailed).queryAllByRole("button")).toHaveLength(0);
     const bala = within(hosted).getByText(/Bala/).closest("li")!;
     await act(async () => {
       fireEvent.click(within(bala).getByRole("button", { name: "Accept" }));
@@ -361,9 +366,11 @@ describe("one group", () => {
           { memberId: 31, userId: 6, name: "Bala", role: "member", status: "requested" },
           { memberId: 32, userId: 7, name: "Chen", role: "member", status: "member" },
         ],
+        emailInvites: [{ id: 9, expiresAt: "2026-12-01 10:00:00" }],
       })
     );
     const roster = screen.getByTestId("roster");
+    expect(within(roster).getByTestId("email-invite").textContent).toBe("Invited by email, not yet accepted");
     const row = (name: string) => within(roster).getByText(new RegExp(`^${name} ·`)).closest("li")!;
     expect(within(row("Aina")).queryAllByRole("button")).toHaveLength(0);
     expect(within(row("Bala")).getByText(/Wants to join/)).toBeTruthy();

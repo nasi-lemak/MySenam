@@ -75,11 +75,37 @@ not stop it, so the answer itself must say nothing:
   ([residents inviting their own guests](../features/booking.md#residents-inviting-their-own-guests);
   `tests/guest-invitations.test.ts`).
 - **A forgotten password** answers the same whether or not the address has an
-  account ([forgotten passwords](authentication.md#forgotten-passwords)).
-- **Inviting a player to an open game or a group by email** answers the same
-  whether or not the address has an account or may be invited
-  (`inviteByEmail` in `src/lib/games.ts`, `inviteToGroup` in
-  `src/lib/groups.ts`).
+  account, and the reply waits on the same work either way: the request is
+  queued and worked through afterwards
+  ([forgotten passwords](authentication.md#forgotten-passwords)).
+- **Signing in** with an address no account has, or one whose account has no
+  password, hashes the password given all the same, so it takes about as long
+  as a wrong password (`verifyPassword` in `src/lib/auth.ts`, for customers
+  and staff).
+- **Inviting a player to an open game or a group by email**
+  (`src/lib/player-invitations.ts`): the address is never looked up. The
+  reply, its status and its keys are the same whether or not an account holds
+  it and whether or not whoever does may be invited; the same statements run;
+  the invitation counts against the inviter's daily limit either way; and the
+  same email is queued through the outbox, in the inviter's language, held
+  like a password reset's. Its single-use link (24 random bytes, kept as a
+  keyed hash, with a keyed hash of the address) is bound to that one game or
+  group and to the account signed in with that address, and runs out (48
+  hours or the game's start; 7 days for a group). The host or organiser sees
+  *invited by email* until it is accepted, never a name, an account or
+  whether they opted in. The rules on who may be invited
+  ([ADR 0016](decisions/0016-matchmaking-on-open-games.md)) are applied on
+  acceptance, and a link they do not allow gets the same answer as one that
+  cannot be used, `404 PLAYER_INVITATION_INVALID`
+  ([invitations](../features/matchmaking.md#invitations-links-and-private-games);
+  `tests/player-invitations.test.ts`). Inviting somebody the inviter already
+  knows here, picked from their lists, names an account they have seen and is
+  unchanged.
+
+The timing of signing in and of asking for a reset is measured in
+`tests/no-enumeration-timing.test.ts`, with bounds generous enough for a busy
+machine: they show the unknown address is not systematically faster, not
+that the two take exactly the same time.
 
 Guardians invite another guardian with a code they pass on, not an address.
 Staff tools that find an account by email (linking a list entry, selling a
