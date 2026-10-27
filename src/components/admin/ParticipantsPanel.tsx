@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/components/Language";
+import { LOCALE_NAMES, offeredLocales, type Locale } from "@/lib/i18n";
 import type { ManagedVenue } from "./shared";
 import { useStaffT } from "./StaffLanguage";
+import { startingLanguage } from "./WaitlistJoin";
 
 type Flag = "counter-shortcut" | "reported" | "exception" | "in-person-agreement";
 const CATEGORIES = ["custody_dispute", "guardian_unavailable", "safeguarding"] as const;
@@ -95,6 +98,9 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
   const [codeInput, setCodeInput] = useState("");
   const [claimMade, setClaimMade] = useState<{ guardianId: number; code: string; expiresAt: string } | null>(null);
   const [reporting, setReporting] = useState<{ participantId: number; reporter: Guardian; target: number | null; note: string } | null>(null);
+  // The language the code's message goes in: staff choose, starting from the language they read the site in (as the waiting-list counter form does).
+  const offered = offeredLocales();
+  const [codeLanguage, setCodeLanguage] = useState<Locale>(startingLanguage(useT().locale, offered));
 
   async function load(how: "phone" | "review" | "everywhere") {
     setError(null);
@@ -192,7 +198,11 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
   /** A one-time code to the number recorded for them: the code and this venue's name, nothing about the child. */
   async function sendCode(p: Found, g: Guardian, purpose: Purpose, requestId?: number) {
     if (purpose === "withdraw" && !window.confirm(t("gw5.pp.withdrawConfirm", { guardian: g.name, name: p.displayName }))) return;
-    const data = await contact(p.id, { action: "sendCode", guardianId: g.id, purpose, ...(requestId ? { requestId } : {}) }, t("gw5.pp.codeSent", { guardian: g.name }));
+    const data = await contact(
+      p.id,
+      { action: "sendCode", guardianId: g.id, purpose, locale: codeLanguage, ...(requestId ? { requestId } : {}) },
+      t("gw5.pp.codeSent", { guardian: g.name })
+    );
     if (data) {
       setAwaiting({ participantId: p.id, guardian: g, purpose, requestId });
       setCodeInput("");
@@ -281,6 +291,18 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-sm text-emerald-700">{notice}</p>}
       {found !== null && !codesPossible && !everywhere && <p className="mt-2 text-xs text-amber-700">{t("gw5.pp.noCodes")}</p>}
+      {found !== null && found.length > 0 && codesPossible && !everywhere && offered.length > 1 && (
+        <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          {t("fin5.pp.codeLanguage")}
+          <select value={codeLanguage} onChange={(e) => setCodeLanguage(e.target.value as Locale)} className={input}>
+            {offered.map((code) => (
+              <option key={code} value={code}>
+                {LOCALE_NAMES[code]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {found !== null && found.length === 0 && <p className="mt-2 text-sm text-slate-500">{t(lastLook === "phone" ? "pbk.pp.none" : "gv.pp.reviewNone")}</p>}
       {found !== null && found.length > 0 && (
         <ul className="mt-3 space-y-2">

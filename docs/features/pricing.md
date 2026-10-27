@@ -450,7 +450,11 @@ under *Plans and tiers*; `membership_plans.offered_for`, migration 0167;
   acting for somebody it named by then gets nothing for that payment, which
   is owed back.
 - **The receipt names whom it is for**: *Membership MB-… for Alya, …* or,
-  for a family, the holder and each dependant. The child's history records
+  for a family, the holder and each dependant. So does the page the customer
+  comes back to from the gateway: *Alya is a member* for a participant's own
+  membership (*You're a member* for the buyer's own), and *It covers Alya,
+  Badrul too* for those a family membership covers, in the customer's
+  language (`src/app/payments/return/page.tsx`). The child's history records
   who bought it (*membership.bought*). Staff see these memberships in the list
   exactly as counter-sold ones, tagged *online*, with whose they are and
   whom they cover; they count for member prices and members-only places

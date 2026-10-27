@@ -16,7 +16,7 @@ const input = "rounded-md border border-slate-300 px-2 py-1 text-sm focus:border
  * member of staff reads the site in (the language switch), where the install
  * offers it, else English (else the install's first).
  */
-function startingLanguage(site: Locale, offered: Locale[]): Locale {
+export function startingLanguage(site: Locale, offered: Locale[]): Locale {
   if (offered.includes(site)) return site;
   return offered.includes("en") ? "en" : (offered[0] ?? "en");
 }

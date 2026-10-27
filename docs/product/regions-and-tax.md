@@ -152,7 +152,13 @@ details → Tax* (managers only).
   price*, *Harga Pelajar*, *学生优惠价*, *மாணவர் விலை*), or as written in a
   language with no words for it, or one the install does not offer, which
   reads in the install's own. A concession the venue named itself is shown
-  as typed. Only the words change: the amounts, the number, the tax and the
+  as typed. One person's own price on their place
+  ([what a benefit applies to](../features/pricing.md#what-a-benefit-applies-to))
+  is said the same way with their name as written: the line keeps whose
+  place it was beside its words (`place` on the line) and, for a built-in
+  concession, its key (*Member price, Alya* reads *Harga ahli, Alya*,
+  *会员价（Alya）*, *உறுப்பினர் விலை, Alya*; a concession the venue named
+  itself stays as typed). Only the words change: the amounts, the number, the tax and the
   line as stored are the same for every reader, and the sales journal,
   exports and e-invoices keep the words as written. A receipt from before
   lines kept the key reads in the customer's language only where it can be

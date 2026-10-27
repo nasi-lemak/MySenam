@@ -22,6 +22,11 @@ import { receiptFor, receiptLineText, receiptToken } from "../src/lib/receipts";
 import { adminCancelBooking, createBooking, createCourt, createVenue, setPaymentStatus } from "../src/lib/store";
 import { addDays, dayOfWeek, todayISO } from "../src/lib/time";
 import { POST as book } from "../src/app/api/bookings/route";
+import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
+import { addManaged } from "../src/lib/managed-people";
+import { createPlan } from "../src/lib/membership-plans";
+import { createResources } from "../src/lib/resources";
+import { sellMembership } from "../src/lib/store";
 
 /**
  * A built-in concession (student, senior, child, OKU) on a receipt and in
@@ -226,5 +231,140 @@ describe("the off-peak refusal", () => {
     expect(err).toMatchObject({ code: "CONCESSION_OFF_PEAK", vars: { name: "Senior (65+)" } });
     expect(err.vars.nameKey).toBeUndefined();
     expect(translateError(translator("ms"), err)).toBe("Harga Senior (65+) hanya untuk waktu luar puncak.");
+  });
+});
+
+describe("one person's own price on their place", () => {
+  /**
+   * A guardian's booking of three children's places on a pool sold by the
+   * place: Alya's at her own membership's price, Badrul's at the built-in
+   * child price, Chen's at a concession the venue named itself
+   * (lib/entitlements.ts). Each line names whose place it was.
+   */
+  let placeVenue: number;
+  let pool: number;
+  let child: number; // built-in, for one person's place
+  let squad: number; // the venue's own words, for one person's place
+
+  async function placesBooked(hour: number) {
+    const ph = phone();
+    const made = await registerUser({ name: `Mak ${n}`, email: `fin5-${n}@receipts.test`, phone: ph, password: "a long enough password" });
+    if (!made.ok) throw new Error(made.error);
+    await getDb().prepare("UPDATE users SET phone_verified_at = datetime('now'), verified_phone = phone WHERE id = ?").run(made.user.id);
+    const cookie = `${SESSION_COOKIE}=${(await createSession(made.user.id)).token}`;
+    const kid = async (displayName: string) => {
+      const k = await addManaged(made.user.id, { displayName, relationship: "parent", authority: true }, made.user.name);
+      if (!k.ok) throw new Error(k.error);
+      return k.person.id;
+    };
+    const [alya, badrul, chen] = [await kid("Alya"), await kid("Badrul"), await kid("Chen")];
+    const plan = await createPlan(placeVenue, { name: `Swim member ${n}`, months: 12, price: 50, ratePercent: 50, scope: "participant" });
+    if (!plan.ok) throw new Error(plan.error);
+    const sold = await sellMembership({
+      venueId: placeVenue,
+      holderName: made.user.name,
+      holderPhone: ph,
+      userId: made.user.id,
+      startsOn: todayISO(),
+      expiresOn: addDays(todayISO(), 60),
+      price: 50,
+      holderParticipantId: alya,
+      tierId: plan.plan.id,
+    });
+    if (!sold.ok) throw new Error(sold.error);
+    const res = await book(
+      new NextRequest("http://localhost/api/bookings", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie, "x-forwarded-for": `10.55.${n % 250}.${hour}` },
+        body: JSON.stringify({
+          courtId: pool,
+          date,
+          start: hour * 60,
+          end: (hour + 1) * 60,
+          name: made.user.name,
+          phone: ph,
+          participantIds: [alya, badrul, chen],
+          placeConcessions: [
+            { participantId: badrul, concessionId: child },
+            { participantId: chen, concessionId: squad },
+          ],
+        }),
+      })
+    );
+    const body = (await res.json()) as { booking: { id: number; code: string; totalPrice: number } };
+    expect(res.status).toBe(201);
+    // RM10 a place: Alya's at half, Badrul's at half, Chen's 20% off.
+    expect(body.booking.totalPrice).toBe(5 + 5 + 8);
+    expect((await setPaymentStatus(body.booking.code, true, "cash")).ok).toBe(true);
+    return body.booking;
+  }
+
+  beforeAll(async () => {
+    const v = await createVenue({ name: "Kolam Bahasa", area: "Brickfields", address: "x", phone: "0322224444" });
+    if (!v.ok) throw new Error("venue");
+    placeVenue = v.venue.id;
+    const r = await createResources({ venueId: placeVenue, sport: "swimming", name: "Pool", offPeakRate: 10, peakRate: 10, capacity: 8, maxPlayers: 8 });
+    if (!r.ok) throw new Error(r.error);
+    pool = r.courts[0].id;
+    const c = await saveConcession(placeVenue, { name: "Child (under 12)", percent: 50, proof: "your child's MyKid or birth certificate", preset: "child", scope: "participant" });
+    const s = await saveConcession(placeVenue, { name: "Junior squad", percent: 20, proof: "your squad card", scope: "participant" });
+    if (!c.ok || !s.ok) throw new Error("concessions");
+    expect(c.concession.preset).toBe("child");
+    child = c.concession.id;
+    squad = s.concession.id;
+  });
+
+  it("reads in each customer's language with the person's name; the line as written, the venue's own words and the money unchanged", async () => {
+    const booking = await placesBooked(9);
+    const receipt = (await open(booking.code))!;
+    const member = receipt.lines.find((l) => l.place?.kind === "membership")!;
+    const kids = receipt.lines.find((l) => l.concessionPreset === "child")!;
+    const own = receipt.lines.find((l) => l.place?.kind === "concession" && !l.concessionPreset)!;
+    expect(member).toEqual({ description: "Member price, Alya", amount: -5, place: { kind: "membership", name: "Alya" } });
+    expect(kids).toEqual({ description: "Child (under 12) price, Badrul", amount: -5, concessionPreset: "child", place: { kind: "concession", name: "Badrul" } });
+    expect(own).toEqual({ description: "Junior squad price, Chen", amount: -2, place: { kind: "concession", name: "Chen" } });
+    expect(receipt.total).toBe(18);
+
+    const read = (locale: "en" | "ms" | "zh" | "ta") => [member, kids, own].map((l) => receiptLineText(translator(locale), l));
+    expect(read("en")).toEqual(["Member price, Alya", "Child (under 12) price, Badrul", "Junior squad price, Chen"]);
+    expect(read("ms")).toEqual(["Harga ahli, Alya", "Harga Kanak-kanak (bawah 12), Badrul", "Junior squad price, Chen"]);
+    expect(read("zh")).toEqual(["会员价（Alya）", "儿童（12岁以下）优惠价（Badrul）", "Junior squad price, Chen"]);
+    expect(read("ta")).toEqual(["உறுப்பினர் விலை, Alya", "குழந்தை (12 வயதுக்குட்பட்டோர்) விலை, Badrul", "Junior squad price, Chen"]);
+
+    // The customer's own place (no name on it) says the price alone.
+    expect(receiptLineText(translator("ms"), { description: "Member price", place: { kind: "membership", name: null } })).toBe("Harga ahli");
+    // A language with no words for it says the line as written.
+    const ms = DICTIONARIES.ms as Record<Phrase, string>;
+    for (const key of ["fin5.memberPrice", "fin5.placeFor"] as Phrase[]) {
+      const kept = ms[key];
+      delete (ms as Partial<Record<Phrase, string>>)[key];
+      try {
+        expect(receiptLineText(translator("ms"), member)).toBe("Member price, Alya");
+      } finally {
+        ms[key] = kept;
+      }
+    }
+  });
+
+  it("a credit note keeps whose place it was and reads the same; one written before lines kept it stays as stored", async () => {
+    const booking = await placesBooked(10);
+    await adminCancelBooking(booking.code);
+    const credit = (await documentFor(`booking:${booking.id}`))!;
+    const shown = (await open(credit.ref))!;
+    expect(receiptLineText(translator("zh"), shown.lines.find((l) => l.concessionPreset === "child")!)).toBe("儿童（12岁以下）优惠价（Badrul）");
+    expect(receiptLineText(translator("ta"), shown.lines.find((l) => l.place?.kind === "membership")!)).toBe("உறுப்பினர் விலை, Alya");
+
+    // As one written before lines kept it: no key and no place. It is shown, and stays, as stored.
+    const bare = credit.lines.map(({ concessionPreset: _k, place: _p, ...rest }) => rest);
+    await getDb().prepare("UPDATE receipts SET lines = ? WHERE id = ?").run(JSON.stringify(bare), credit.id);
+    const old = (await open(credit.ref))!;
+    expect(old).toMatchObject({ number: credit.number, total: credit.total });
+    for (const locale of ["ms", "zh", "ta"] as const)
+      expect(old.lines.filter((l) => l.amount < 0).map((l) => receiptLineText(translator(locale), l))).toEqual([
+        "Member price, Alya",
+        "Child (under 12) price, Badrul",
+        "Junior squad price, Chen",
+      ]);
+    expect((await documentFor(`booking:${booking.id}`))!.lines).toEqual(bare);
   });
 });

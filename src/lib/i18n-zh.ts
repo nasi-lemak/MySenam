@@ -2311,6 +2311,18 @@ export const ZH: Record<Phrase, string> = {
   "lg5.inBox": "{name}：第 {n} 组",
   "lg5.inLeague": "{name}：已在联赛中",
   "lg5.shareNoteFor": "其同组球员会看到其姓名和您的电话号码，方便您为其约定比赛。",
+  "fin5.memberPrice": "会员价",
+  "fin5.placeFor": "{price}（{name}）",
+  "fin5.memberFor.title": "{name}已成为会员",
+  "fin5.memberFor.body": "{name}在 {venue} 的会员资格 {code} 有效期为 {from} 至 {until}。",
+  "fin5.memberCovers": "此会员资格也涵盖{names}。",
+  "fin5.tour.birthDateOf": "{name}的出生日期",
+  "fin5.tour.partnerOf": "{name}的搭档姓名",
+  "fin5.tour.partnerBirthDateOf": "{name}的搭档的出生日期",
+  "fin5.tour.entryMarkOf": "{name}的报名成绩（可选，用于编排）",
+  "fin5.who.partnerOf": "{name}的搭档是",
+  "fin5.tour.payFeeFor": "支付{name}的 {cur}{amount} 报名费",
+  "fin5.leag.payFeeFor": "支付{name}的 {cur}{amount} 费用",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

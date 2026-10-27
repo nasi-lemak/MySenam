@@ -75,17 +75,26 @@ async function issuer(venueId: number | null): Promise<Receipt["venue"] | null> 
 /**
  * A line as this reader sees it. A built-in concession's price (*Student
  * price*) is said in their language; everything else, and a concession the
- * venue named itself, as written. Only the words change: the amount, and
+ * venue named itself, as written. One person's own price on their place
+ * (*Member price, Alya*; *Child (under 12) price, Alya*) is said the same
+ * way, with their name as written. Only the words change: the amount, and
  * the line kept in the venue's books, are the same in every language. A
  * language with no words for it says it as written.
  */
-export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset">): string {
-  const preset = line.concessionPreset;
-  if (!isConcessionPreset(preset)) return line.description;
+export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset" | "place">): string {
   const words = DICTIONARIES[t.locale];
-  const name = `pre.con.${preset}` as Phrase;
-  if (!words?.[name] || !words["rcpt.concessionPrice"]) return line.description;
-  return t("rcpt.concessionPrice", { name: t(name) });
+  const preset = line.concessionPreset;
+  const said = (key: Phrase) => Boolean(words?.[key]);
+  let price: string | null = null;
+  if (line.place?.kind === "membership") price = said("fin5.memberPrice") ? t("fin5.memberPrice") : null;
+  else if (isConcessionPreset(preset)) {
+    const name = `pre.con.${preset}` as Phrase;
+    price = said(name) && said("rcpt.concessionPrice") ? t("rcpt.concessionPrice", { name: t(name) }) : null;
+  }
+  if (price === null) return line.description;
+  const who = line.place?.name;
+  if (!who) return price;
+  return said("fin5.placeFor") ? t("fin5.placeFor", { price, name: who }) : line.description;
 }
 
 /**
@@ -97,10 +106,11 @@ export function receiptLineText(t: T, line: Pick<Line, "description" | "concessi
 async function withConcessionKeys(doc: Document): Promise<Line[]> {
   const from = /^booking(?:-paid)?:(\d+)(?::|$)/.exec(doc.source);
   if (!from || !doc.lines.some((l) => l.amount < 0 && !l.concessionPreset)) return doc.lines;
-  const keyed = ((await bookingSale(Number(from[1])))?.lines ?? []).filter((l) => l.concessionPreset);
+  // The booking's own concession only: one person's line written before lines kept it stays as stored.
+  const keyed = ((await bookingSale(Number(from[1])))?.lines ?? []).filter((l) => l.concessionPreset && !l.place);
   if (keyed.length === 0) return doc.lines;
   return doc.lines.map((l) => {
-    if (l.concessionPreset || l.amount >= 0) return l;
+    if (l.concessionPreset || l.place || l.amount >= 0) return l;
     const same = keyed.find((k) => k.description === l.description && k.amount === l.amount);
     return same ? { ...l, concessionPreset: same.concessionPreset } : l;
   });

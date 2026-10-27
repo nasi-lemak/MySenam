@@ -132,18 +132,31 @@ export default async function PaymentReturnPage({
   // A membership fee: the membership it made, or why there is none.
   if (payment?.purpose === "membership") {
     const m = payment.membership;
+    // Whose it is: the buyer's own, or the child's (or other participant's) it was bought for; and whom a family one covers.
+    const dates = m && { code: m.code, venue: m.venueName, from: m.startsOn, until: m.expiresOn };
     return (
       <div className="mx-auto max-w-sm">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
           <div className="text-4xl">{m ? "🎟️" : payment.status === "paid" ? "⚠️" : "↩️"}</div>
-          <h1 className="mt-2 text-xl font-bold">{m ? t("member.welcomeTitle") : payment.status === "paid" ? t("member.notMadeTitle") : t("pay.notPaidTitle")}</h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <h1 className="mt-2 text-xl font-bold">
             {m
-              ? t("member.welcomeBody", { code: m.code, venue: m.venueName, from: m.startsOn, until: m.expiresOn })
+              ? m.holderName
+                ? t("fin5.memberFor.title", { name: m.holderName })
+                : t("member.welcomeTitle")
+              : payment.status === "paid"
+                ? t("member.notMadeTitle")
+                : t("pay.notPaidTitle")}
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            {m && dates
+              ? m.holderName
+                ? t("fin5.memberFor.body", { name: m.holderName, ...dates })
+                : t("member.welcomeBody", dates)
               : payment.status === "paid"
                 ? t("member.notMadeBody", { amount: payment.amount })
                 : t("member.notPaidBody")}
           </p>
+          {m && m.covers.length > 0 && <p className="mt-1 text-sm text-slate-600">{t("fin5.memberCovers", { names: m.covers.join(", ") })}</p>}
           {receiptLink}
           <Link
             href={payment.venueId ? `/venue/${payment.venueId}` : "/account"}
