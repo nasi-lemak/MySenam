@@ -51,7 +51,7 @@ export function Suggested({ t, refreshKey, join }: { t: T; refreshKey: number; j
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <div className="font-medium">
-                    {activityIcon(g.sport)} {shortDate(g.date, t.locale, true)}, {formatHour(g.startHour)}–{formatHour(g.endHour)} · {g.venueName}
+                    {activityIcon(g.sport)} {shortDate(g.date, t.locale, true)}, {formatHour(g.startHour, t.locale)}–{formatHour(g.endHour, t.locale)} · {g.venueName}
                   </div>
                   <ul className="mt-1 flex flex-wrap gap-1.5" aria-label={t("match.points", { n: g.match.score })}>
                     {g.match.reasons.map((r) => (

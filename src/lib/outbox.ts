@@ -4,6 +4,7 @@ import { Locale, isLocale, offeredLocales, translator } from "./i18n";
 import type { Phrase, T, Vars } from "./i18n";
 import { emailConfig, emailTransport, whatsappConfig, whatsappTransport } from "./transports";
 import { chatOfferedFor, paidByVenue, refundCredit, spendCredit } from "./whatsapp-credit";
+import { linkIn } from "./link-locale";
 
 /**
  * Messages to customers, written down before they are sent.
@@ -67,8 +68,8 @@ export type MessageKind =
   /** By email only, to somebody who applied to list a venue: the decision on it (lib/applications.ts). */
   | "applicant"
   /**
-   * On WhatsApp only, to a guardian a venue recorded by name and number whose number a code has come back from: who acts for a
-   * child changed, ask at the counter or sign in. The venue's name only, never the child's (lib/contact-guardians.ts).
+   * On WhatsApp only, to a guardian a venue recorded by name and number whose number a code has come back from: what changed in
+   * who acts for a child, and the venue's page. The venue's name only, never the child's (lib/contact-guardians.ts).
    */
   | "guardian_notice";
 
@@ -333,9 +334,9 @@ export function chatHoldMinutes(): number {
   return Number.isInteger(n) && n >= 0 && n <= 30 ? n : 3;
 }
 
-/** A booking's hours as they read in a message. */
-export function hourRange(startHour: number, endHour: number): { from: string; to: string } {
-  return { from: formatHour(startHour), to: formatHour(endHour) };
+/** A booking's hours as they read in a message, in its language (lib/time.ts `formatHour`); English by default. */
+export function hourRange(startHour: number, endHour: number, locale: Locale = "en"): { from: string; to: string } {
+  return { from: formatHour(startHour, locale), to: formatHour(endHour, locale) };
 }
 
 // ------------------------------------------------------------------ reading
@@ -713,7 +714,7 @@ export async function emailPlayer(input: { venueId: number | null; userId: numbe
   const { siteName } = await import("./site");
   const locale = await accountLocale(input.userId);
   const t = translator(locale, siteName());
-  const text = `${t("mail.hi", { name: user.name.split(/\s+/)[0] })}\n\n${input.body(t)}\n\n${input.link}\n\n${siteName()}`;
+  const text = `${t("mail.hi", { name: user.name.split(/\s+/)[0] })}\n\n${input.body(t)}\n\n${linkIn(input.link, locale)}\n\n${siteName()}`;
   await enqueue({
     venueId: input.venueId,
     kind: "programme",

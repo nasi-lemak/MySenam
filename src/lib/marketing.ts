@@ -5,6 +5,7 @@ import { enqueue } from "./outbox";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
 import { getVenue } from "./store";
+import { linkIn } from "./link-locale";
 
 /**
  * News and offers from a venue, by email, to people who asked for them.
@@ -97,7 +98,7 @@ export async function recordConsent(input: {
     subject: "msg.mktConfirmSubject",
     body: "msg.mktConfirm",
     dedupeKey: `mkt-confirm:${row.token}:${new Date().toISOString().slice(0, 10)}`,
-    vars: { venue: venue.name, link: `${await venueBaseUrl(venue.id)}/unsubscribe/${row.token}`, site: siteName() },
+    vars: { venue: venue.name, link: linkIn(`${await venueBaseUrl(venue.id)}/unsubscribe/${row.token}`, input.locale), site: siteName() },
   });
 }
 

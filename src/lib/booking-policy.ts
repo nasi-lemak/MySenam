@@ -20,7 +20,7 @@ export * from "./booking-rules";
 /** `describePolicy` (lib/booking-rules.ts) as a phrase, for the staff screen in the staff language: the same words in English. */
 export function policySummary(p: BookingPolicy): StaffText {
   const starts = p.startTimes
-    ? said("srv.pol.startsAt", { times: p.startTimes.map(formatMinute).join(", ") })
+    ? said("srv.pol.startsAt", { times: p.startTimes.map((m) => formatMinute(m)).join(", ") })
     : p.startEvery === 60 && p.startOffset === 0
       ? said("srv.pol.onTheHour")
       : said("srv.pol.startsEvery", { length: lengthText(p.startEvery) });

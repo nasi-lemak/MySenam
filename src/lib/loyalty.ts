@@ -5,6 +5,7 @@ import { siteName } from "./site";
 import { issuePass } from "./store";
 import { venueBaseUrl } from "./storefront";
 import { addDays, todayISO } from "./time";
+import { linkIn } from "./link-locale";
 
 /**
  * A free hour for regulars, the friendly way to reward coming back: every
@@ -122,7 +123,7 @@ export async function grantLoyalty(): Promise<number> {
               every: v.loyalty_every,
               code: pass.pass.code,
               until: pass.pass.expiresOn,
-              link: `${await venueBaseUrl(v.id)}/venue/${v.id}`,
+              link: linkIn(`${await venueBaseUrl(v.id)}/venue/${v.id}`, locale),
               site: siteName(),
             },
           });

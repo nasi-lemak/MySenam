@@ -122,9 +122,9 @@ export default function ClassesPage() {
                       className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
                     >
                       <div className="w-28 shrink-0 font-semibold text-teal-700">
-                        {formatHour(session.startHour)}
+                        {formatHour(session.startHour, t.locale)}
                         <div className="text-xs font-normal text-slate-400">
-                          {t("classes.to", { time: formatHour(session.endHour) })}
+                          {t("classes.to", { time: formatHour(session.endHour, t.locale) })}
                         </div>
                       </div>
                       <div className="min-w-[12rem] flex-1">
@@ -359,8 +359,8 @@ function EnrolModal({
             <h2 className="text-lg font-bold">{session.name}</h2>
             <p className="mt-1 text-sm text-slate-600">
               {t("classes.summary", {
-                from: formatHour(session.startHour),
-                to: formatHour(session.endHour),
+                from: formatHour(session.startHour, t.locale),
+                to: formatHour(session.endHour, t.locale),
                 instructor: session.instructor,
                 price: session.price,
               })}

@@ -87,8 +87,13 @@ describe("a booking's receipt with a built-in concession", () => {
     expect(receiptLineText(translator("ms"), line)).toBe("Harga Pelajar");
     expect(receiptLineText(translator("zh"), line)).toBe("学生优惠价");
     expect(receiptLineText(translator("ta"), line)).toBe("மாணவர் விலை");
-    // The court line, written by MySenam, is unchanged in every language.
-    for (const locale of ["en", "ms", "zh", "ta"] as const) expect(receiptLineText(translator(locale), receipt.lines[0])).toBe(receipt.lines[0].description);
+    // The court line, written by MySenam, reads as written in English and with each language's times elsewhere; the books keep the English.
+    const court = receipt.lines[0];
+    expect(receiptLineText(translator("en"), court)).toBe(court.description);
+    expect(receiptLineText(translator("ms"), court)).toBe(`Court 1 (Badminton), ${date}, 9:00 PG–10:00 PG`);
+    expect(receiptLineText(translator("zh"), court)).toContain(`${date} 上午9:00–上午10:00`);
+    expect(receiptLineText(translator("ta"), court)).toContain(`${date} அன்று 09:00–10:00`);
+    expect(court.description).toBe(`Court 1 (Badminton), ${date} 9:00 AM–10:00 AM`);
   });
 
   it("reads in the language the customer chose (Tamil), and in the install's own where that language is not offered", async () => {

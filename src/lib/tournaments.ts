@@ -2669,7 +2669,7 @@ export async function moveMatch(matchId: number, to: MatchSlot & { minutes?: num
         entryId,
         d,
         (tr) => tr("mail.tour.moved.s", { t: d.name }),
-        (tr) => tr("mail.tour.moved.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!), court: m.courtName ?? "" })
+        (tr) => tr("mail.tour.moved.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!, tr.locale), court: m.courtName ?? "" })
       );
   }
   return { ok: true, value: { detail: (await tournamentDetail(tournamentId, { forStaff: true }))!, change: result.value.change } };
@@ -2779,7 +2779,7 @@ export async function resolveIssue(
             entryId,
             d,
             (tr) => tr("mail.tour.replay.s", { t: d.name }),
-            (tr) => tr("mail.tour.replay.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!), court: m.courtName ?? "" })
+            (tr) => tr("mail.tour.replay.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!, tr.locale), court: m.courtName ?? "" })
           );
       }
     }
@@ -3124,12 +3124,12 @@ async function tellFirstMatches(d: TournamentDetail): Promise<void> {
     const bye = d.matches.some((m) => m.status === "bye" && m.winner === r.id);
     const text: Written = (tr) =>
       heat
-        ? tr("mail.tour.draw.heat", { heat: heat.position, t: d.name, lane: lane ?? "", date: heat.date!, time: formatMinute(heat.minute!), court: heat.courtName ?? "" })
+        ? tr("mail.tour.draw.heat", { heat: heat.position, t: d.name, lane: lane ?? "", date: heat.date!, time: formatMinute(heat.minute!, tr.locale), court: heat.courtName ?? "" })
         : first
           ? tr("mail.tour.draw.first", {
               t: d.name,
               date: first.date!,
-              time: formatMinute(first.minute!),
+              time: formatMinute(first.minute!, tr.locale),
               court: first.courtName ?? "",
               opponent: names.get(first.a === r.id ? first.b! : first.a!) ?? tr("mail.tour.draw.tbd"),
             })

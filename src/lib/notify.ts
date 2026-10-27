@@ -22,6 +22,7 @@ import { venueZoneOf } from "./zones";
 import { longEnough } from "./phone";
 import { taxIncluded, venueTax } from "./tax";
 import { receiptPath } from "./receipts";
+import { linkIn } from "./link-locale";
 import { said, type ServerPhrase, type StaffText } from "./staff-text";
 
 /**
@@ -142,7 +143,7 @@ export async function notifyBookingConfirmed(
       ...slot(locale, where, venue.name, first),
       total: await totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid"), venue.id),
       // Back to the site they booked on: the venue's storefront, if it has one.
-      link: `${await venueBaseUrl(venue.id)}/my-booking`,
+      link: linkIn(`${await venueBaseUrl(venue.id)}/my-booking`, locale),
     },
   });
 }
@@ -339,7 +340,7 @@ export async function notifyWaitlistOffer(input: {
   // Nobody hears from a venue that has never been live: its bookings are
   // its own staff trying it out, under whatever number they typed.
   if (!venue || !hasBeenLive(venue)) return null;
-  const { from } = hourRange(input.startHour, input.startHour + 1);
+  const { from } = hourRange(input.startHour, input.startHour + 1, input.locale);
 
   return await deliver(input, {
     venueId: venue.id,
@@ -356,7 +357,8 @@ export async function notifyWaitlistOffer(input: {
       venue: venue.name,
       date: input.date,
       from,
-      link: `${await venueBaseUrl(venue.id)}/waitlist/${input.token}`,
+      // In the language the offer is written in, unless they have chosen one (lib/link-locale.ts).
+      link: linkIn(`${await venueBaseUrl(venue.id)}/waitlist/${input.token}`, input.locale),
     },
   });
 }
@@ -475,7 +477,7 @@ function slot(
   const t = translator(locale);
   return {
     where: t("msg.where", { court, venue }),
-    when: t("msg.when", { date: at.date, ...hourRange(at.startHour, at.endHour) }),
+    when: t("msg.when", { date: at.date, ...hourRange(at.startHour, at.endHour, locale) }),
   };
 }
 
@@ -598,7 +600,7 @@ export async function notifyVenueCancelled(booking: Booking, what?: string, why?
       where,
       when,
       money: reason ? `${t("pre.why", { reason })}\n${owed}` : owed,
-      ack: `${await venueBaseUrl(venue.id)}/ack/${notice.token}`,
+      ack: linkIn(`${await venueBaseUrl(venue.id)}/ack/${notice.token}`, locale),
     },
   });
   return notice.id;
@@ -647,7 +649,7 @@ export async function notifyMoved(booking: Booking): Promise<number | null> {
       code: booking.code,
       where,
       when,
-      ack: `${await venueBaseUrl(venue.id)}/ack/${notice.token}`,
+      ack: linkIn(`${await venueBaseUrl(venue.id)}/ack/${notice.token}`, locale),
     },
   });
   return notice.id;
@@ -694,7 +696,7 @@ export async function notifyRescheduled(
           where,
           when,
           money,
-          link: `${await venueBaseUrl(venue.id)}/my-booking`,
+          link: linkIn(`${await venueBaseUrl(venue.id)}/my-booking`, locale),
         },
       },
       false
@@ -730,7 +732,7 @@ export async function notifyRescheduled(
       where,
       when,
       money,
-      ack: `${await venueBaseUrl(venue.id)}/ack/${notice.token}`,
+      ack: linkIn(`${await venueBaseUrl(venue.id)}/ack/${notice.token}`, locale),
     },
   });
   return notice.id;
@@ -776,8 +778,9 @@ export async function notifyPaid(bookings: Booking[], how: "online" | "counter")
           amount: booking.totalPrice,
           how: translator(locale)(how === "online" ? "msg.howOnline" : "msg.howCounter"),
           taxLine,
-          receiptUrl: `${await venueBaseUrl(venue.id)}${receiptPath(booking.code)}`,
-          ...slot(locale, court.name, venue.name, booking),
+          receiptUrl: linkIn(`${await venueBaseUrl(venue.id)}${receiptPath(booking.code)}`, locale),
+          // Whom it is for, where it names somebody other than its customer: a guardian paying for children sees which booking is whose.
+          ...slot(locale, forWhom(locale, court.name, namesOn([booking])), venue.name, booking),
         },
       },
       false
@@ -836,8 +839,8 @@ export async function notifyReminders(now = new Date()): Promise<number> {
         vars: {
           name: firstName(r.name as string),
           code: r.code as string,
-          ...slot(locale, court.name, venue.name, { date: r.date as string, startHour: hoursOf(r.start_min as number), endHour: hoursOf(r.end_min as number) }),
-          link: `${await venueBaseUrl(venue.id)}/my-booking`,
+          ...slot(locale, forWhom(locale, court.name, (r.participant_name as string | null) ?? null), venue.name, { date: r.date as string, startHour: hoursOf(r.start_min as number), endHour: hoursOf(r.end_min as number) }),
+          link: linkIn(`${await venueBaseUrl(venue.id)}/my-booking`, locale),
         },
       },
       r.whatsapp_reminders === 1

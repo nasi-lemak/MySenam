@@ -66,7 +66,7 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
                 ],
                 [
                   t("checkin.time"),
-                  `${formatHour(result.booking.startHour)} – ${formatHour(result.booking.endHour)}`,
+                  `${formatHour(result.booking.startHour, t.locale)} – ${formatHour(result.booking.endHour, t.locale)}`,
                 ],
                 [t("checkin.code"), result.booking.code],
               ].map(([label, value]) => (

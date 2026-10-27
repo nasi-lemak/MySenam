@@ -54,8 +54,8 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
                   instructor: result.session.instructor,
                 })}
                 <br />
-                {result.session.date} · {formatHour(result.session.startHour)} –{" "}
-                {formatHour(result.session.endHour)}
+                {result.session.date} · {formatHour(result.session.startHour, t.locale)} –{" "}
+                {formatHour(result.session.endHour, t.locale)}
               </p>
             )}
             <div className="mt-4 rounded-xl bg-teal-50 py-3 text-2xl font-bold tracking-widest text-teal-700">

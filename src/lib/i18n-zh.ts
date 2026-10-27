@@ -2263,7 +2263,7 @@ export const ZH: Record<Phrase, string> = {
   "mbo.err.MBO_NOT_YOURS": "那不是您的会员资格。",
   "mbo.err.MBO_ENDED": "此会员资格已结束。",
   "gw5.sms.code": "来自 {venue} 的验证码 {code}。只交给场馆职员，并且只在您同意他们所询问的事项时才交出。",
-  "gw5.msg.notice": "这里是 {venue}。您被登记为监护人的一名孩子，其代理人有所变动。请到柜台询问，或登录查看。",
+  "gw5.msg.notice": "这里是 {venue}，关于一名您被登记为其监护人的孩子：{change}。我们的联系方式见 {link}；如需了解详情，请到柜台询问或致电我们。",
   "gw5.mail.claimedSubject": "{name}：一位监护人现在用自己的账户登录",
   "gw5.mail.claimed": "{when}，场馆以姓名和电话登记的一位 {name} 的监护人，已用自己的账户接管该关系。没有新的人为 {name} 代理。",
   "gw5.accept.claimed": "完成：您现在以此账户为 {name} 代理，身份是场馆登记的监护人。",
@@ -2330,6 +2330,13 @@ export const ZH: Record<Phrase, string> = {
   "fin6.msg.coachHandedOverSubject": "已转给其他教练：{date}，{time} 的课程",
   "fin6.msg.coachHandedOver": "{name}，您好，{student} 于 {date}，{time}（{court}，{venue}）的课程已转给另一位教练，不再列入您的日程。预订编号 {code}。",
   "fin6.lessonKeepsCoach": "您的课程保留原教练：显示的时间为该教练授课且有空的时段。如需更换教练，请联系场馆。",
+  // 以读者语言撰写的消息（lo6.）
+  "lo6.notice.added": "新增了一名监护人",
+  "lo6.notice.ended": "一名监护人已不再代其行事",
+  "lo6.notice.request": "另一名成年人申请成为其监护人；除非有监护人同意或场馆经理记录例外，否则不会有任何变动",
+  "lo6.notice.claimed": "场馆以姓名和号码登记的一名监护人现已使用自己的账户；没有新的人代其行事",
+  "lo6.rcpt.slot": "{court}（{activity}），{date} {from}–{to}",
+  "lo6.rcpt.players": "{line}，{n} 人",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

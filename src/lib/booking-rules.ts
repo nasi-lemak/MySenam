@@ -407,7 +407,7 @@ export function breachMessage(policy: BookingPolicy, breach: PolicyBreach): stri
   switch (breach) {
     case "START":
       return policy.startTimes
-        ? `Bookings here start at ${policy.startTimes.map(formatMinute).join(", ")}.`
+        ? `Bookings here start at ${policy.startTimes.map((m) => formatMinute(m)).join(", ")}.`
         : policy.startEvery === 60 && policy.startOffset === 0
           ? "Bookings here start on the hour."
           : `Bookings here start every ${formatLength(policy.startEvery)}${policy.startOffset ? `, from ${policy.startOffset} past` : ""}.`;
@@ -431,7 +431,7 @@ export function breachMessage(policy: BookingPolicy, breach: PolicyBreach): stri
 /** A policy said in a line, for staff: "Starts on the hour; 1–4 hours, by the hour; 10 minutes after". */
 export function describePolicy(p: BookingPolicy): string {
   const starts = p.startTimes
-    ? `starts at ${p.startTimes.map(formatMinute).join(", ")}`
+    ? `starts at ${p.startTimes.map((m) => formatMinute(m)).join(", ")}`
     : p.startEvery === 60 && p.startOffset === 0
       ? "starts on the hour"
       : `starts every ${formatLength(p.startEvery)}`;

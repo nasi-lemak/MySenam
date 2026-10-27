@@ -16,7 +16,7 @@ export default async function SplitPage({ params }: { params: Promise<{ token: s
     <div className="mx-auto max-w-lg space-y-3 rounded-2xl border border-slate-200 bg-white p-6 text-sm shadow-sm">
       <h1 className="text-xl font-bold">{t("split.payTitle", { host: split.host, venue: split.venueName })}</h1>
       <p className="text-slate-600">
-        {t("split.payWhat", { court: split.courtName, date: split.date, time: `${formatHour(split.startHour)}–${formatHour(split.endHour)}` })}
+        {t("split.payWhat", { court: split.courtName, date: split.date, time: `${formatHour(split.startHour, t.locale)}–${formatHour(split.endHour, t.locale)}` })}
       </p>
       <p className="text-lg font-semibold">{t("split.payShare", { share: money(split.share) })}</p>
       <p className="text-slate-500">{t("split.progress", { paid: split.paid, of: split.parts - 1 })}</p>

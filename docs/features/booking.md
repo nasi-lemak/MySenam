@@ -851,7 +851,8 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
   customer's phone number*), an account that has proved the number needs no
   link. **On a site without phone checks, staff must link each resident's
   account before relying on online access**: until then a resident is booked
-  at the counter. The editor marks each entry linked (with the account's name
+  at the counter. The editor says so, and recommends phone checks
+  ([recommended, not required](venue-operations.md#phone-checks-recommended-not-required)). The editor marks each entry linked (with the account's name
   and email), *number checked by their account*, or *not linked: counter
   only*, and counts those last. Every path asks the same rule: the venue page
   and its availability, booking, a class, a waiting list, an open game, a

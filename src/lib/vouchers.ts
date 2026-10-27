@@ -12,6 +12,7 @@ import { venueBaseUrl } from "./storefront";
 import { venueTax } from "./tax";
 import { addDays, todayISO } from "./time";
 import { MAX_TOP_UP, type Refusal } from "./types";
+import { linkIn } from "./link-locale";
 
 /**
  * Gift vouchers: an amount somebody buys for somebody else, at the counter or
@@ -256,7 +257,7 @@ export async function sendVoucher(voucher: Voucher, locale: Locale = voucher.loc
       venue: voucher.venueName,
       code: voucher.code,
       until: voucher.expiresOn,
-      link: `${await venueBaseUrl(voucher.venueId)}${voucherPath(voucher.code)}`,
+      link: linkIn(`${await venueBaseUrl(voucher.venueId)}${voucherPath(voucher.code)}`, locale),
       site: siteName(),
     },
   });

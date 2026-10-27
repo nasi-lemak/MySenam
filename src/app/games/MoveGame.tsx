@@ -8,7 +8,7 @@ import { formatMinute } from "@/lib/interval";
 import { ChangeTime } from "@/components/ChangeTime";
 
 type Act = (url: string, body: object, done?: string) => Promise<void>;
-const span = (x: { date: string; startMin: number; endMin: number }) => `${x.date} ${formatMinute(x.startMin)}–${formatMinute(x.endMin)}`;
+const span = (x: { date: string; startMin: number; endMin: number }, locale: string) => `${x.date} ${formatMinute(x.startMin, locale)}–${formatMinute(x.endMin, locale)}`;
 const small = "rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium hover:border-teal-500";
 /** A moment as this browser's clock reads it. */
 export const localTime = (iso: string | null | undefined) =>
@@ -30,7 +30,7 @@ export function HostMove({ t, g, act, done }: { t: T; g: OpenGame; act: Act; don
     return (
       <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900" data-testid={`move-waiting-${g.id}`}>
         {t("move.waiting", {
-          when: span(g.move.to),
+          when: span(g.move.to, t.locale),
           court: g.move.to.courtName,
           n: g.move.waitingFor,
           until: localTime(g.move.expiresAt),
@@ -77,8 +77,8 @@ export function PlayerMove({ t, g, act }: { t: T; g: OpenGame; act: Act }) {
     <div className="basis-full rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900" data-testid={`move-asked-${g.id}`}>
       <p>
         {m.kind === "proposal"
-          ? t("move.asked", { host: g.hostName, when: span(m.to), court: m.to.courtName })
-          : t("move.venueMoved", { from: span(m.from), reason: m.reason ?? "" })}
+          ? t("move.asked", { host: g.hostName, when: span(m.to, t.locale), court: m.to.courtName })
+          : t("move.venueMoved", { from: span(m.from, t.locale), reason: m.reason ?? "" })}
       </p>
       <div className="mt-1 flex flex-wrap gap-2">
         <button

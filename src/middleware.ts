@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { crossSiteRefusal } from "./lib/same-origin";
 import { contentSecurityPolicy, DOCUMENT_PATH, DOCUMENT_POLICY, newNonce } from "./lib/security-headers";
+import { LINK_LOCALE_HEADER, linkLocaleOf } from "./lib/link-locale";
 
 /**
  * Every request but static files: a fresh nonce and the content security
@@ -22,6 +23,10 @@ export function middleware(req: NextRequest) {
   const policy = DOCUMENT_PATH.test(req.nextUrl.pathname) ? DOCUMENT_POLICY : contentSecurityPolicy(newNonce());
   const headers = new Headers(req.headers);
   headers.set("Content-Security-Policy", policy);
+  // A message's link opens in the message's language, unless one was chosen (lib/link-locale.ts): only one of the four, never what the browser sent.
+  headers.delete(LINK_LOCALE_HEADER);
+  const linked = linkLocaleOf(req.nextUrl.searchParams);
+  if (linked) headers.set(LINK_LOCALE_HEADER, linked);
   return withPolicy(NextResponse.next({ request: { headers } }), policy);
 }
 

@@ -1,4 +1,4 @@
-import { slotStartsAt, zoneOffsetMinutes } from "./time.ts";
+import { formatHour, slotStartsAt, zoneOffsetMinutes } from "./time.ts";
 
 /**
  * Time as the scheduling engine keeps it (ADR 0010). A reservation is an
@@ -95,13 +95,9 @@ export function rangeLiteral(date: string, start: number, end: number, zone: str
   return `[${instantOf(date, start, zone).toISOString()},${instantOf(date, end, zone).toISOString()})`;
 }
 
-/** "6:07 PM" for minute 1087; "1:00 AM" for 1500 (after midnight). */
-export function formatMinute(minute: number): string {
-  const h = Math.floor(minute / 60) % 24;
-  const m = minute % 60;
-  const suffix = h < 12 ? "AM" : "PM";
-  const twelve = h % 12 === 0 ? 12 : h % 12;
-  return `${twelve}:${String(m).padStart(2, "0")} ${suffix}`;
+/** "6:07 PM" for minute 1087; "1:00 AM" for 1500 (after midnight); in another language as it writes a time (lib/time.ts `formatHour`). */
+export function formatMinute(minute: number, locale: string = "en"): string {
+  return formatHour(minute / 60, locale);
 }
 
 /** "75 minutes", "1 hour", "1 hour 30 minutes". */

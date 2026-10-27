@@ -44,7 +44,7 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
                   <li key={l.code} className="flex flex-wrap justify-between gap-2">
                     <span>
                       <span className="font-medium">
-                        {formatHour(l.startHour)}–{formatHour(l.endHour)}
+                        {formatHour(l.startHour, t.locale)}–{formatHour(l.endHour, t.locale)}
                       </span>{" "}
                       · {l.court} · {l.student}
                       {!l.paid && <span className="text-amber-700"> · {t("coachpage.unpaid")}</span>}

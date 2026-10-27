@@ -108,7 +108,7 @@ export default function TournamentPage() {
           <Link href={`/venue/${x.venueId}`} className="underline">
             {x.venueName}
           </Link>{" "}
-          · {t("tour.when", { from: x.startsOn, to: x.endsOn, start: formatMinute(x.startMin), end: formatMinute(x.endMin) })}
+          · {t("tour.when", { from: x.startsOn, to: x.endsOn, start: formatMinute(x.startMin, t.locale), end: formatMinute(x.endMin, t.locale) })}
         </p>
         <p className="mt-1 text-sm text-slate-500">
           {x.category !== "open" && `${t(`cat.${x.category}`)} · `}
@@ -209,7 +209,7 @@ export default function TournamentPage() {
               .map((m) => (
                 <li key={m.id} className="flex flex-wrap gap-x-3 py-1.5">
                   <span className="w-36 shrink-0 text-slate-500">
-                    {m.date} {formatMinute(m.minute!)}, {m.courtName}
+                    {m.date} {formatMinute(m.minute!, t.locale)}, {m.courtName}
                   </span>
                   <span className="flex-1">
                     <Side id={m.a} m={m} names={names} t={t} /> v <Side id={m.b} m={m} names={names} t={t} />
@@ -354,7 +354,7 @@ function Performances({ t, x, names }: { t: T; x: TournamentDetail; names: Map<n
             <h3 className="font-semibold">
               {m.stage === "final" ? t("tour.final") : t("tour.heat", { n: m.position })}
               <span className="ml-2 text-xs font-normal text-slate-500">
-                {m.date} {m.minute !== null && formatMinute(m.minute)}, {m.courtName}
+                {m.date} {m.minute !== null && formatMinute(m.minute, t.locale)}, {m.courtName}
               </span>
             </h3>
             <table className="mt-1 w-full">

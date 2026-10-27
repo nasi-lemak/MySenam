@@ -1,5 +1,5 @@
 import { MAX_ADVANCE_DAYS } from "./types.ts";
-import { region } from "./region.ts";
+import { clockTime, region } from "./region.ts";
 
 /**
  * Time zones. Every venue keeps its courts' times in its own wall-clock time:
@@ -295,11 +295,13 @@ export function isWithinCancelWindow(
   return hoursUntilSlot(date, hour, zone) >= cutoffHours;
 }
 
-export function formatHour(hour: number): string {
-  const whole = Math.floor(hour);
-  const minutes = Math.round((hour - whole) * 60);
-  const h = whole % 24;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const display = h % 12 === 0 ? 12 : h % 12;
-  return `${display}:${String(minutes).padStart(2, "0")} ${suffix}`;
+/**
+ * A booking's hour (18.5 is 18:30; 25 is 1 AM the next morning) as its
+ * language writes a time (lib/region.ts `clockTime`): "6:30 PM", "6:30 PTG",
+ * "下午6:30", "18:30". The hour is already the venue's wall clock, so it is
+ * written as it stands, whatever zone the reader is in.
+ */
+export function formatHour(hour: number, locale: string = "en"): string {
+  const minute = ((Math.round(hour * 60) % 1440) + 1440) % 1440;
+  return clockTime(new Date(Date.UTC(2000, 0, 1, 0, minute)), "UTC", locale);
 }

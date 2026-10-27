@@ -6,6 +6,8 @@ import { bookingSale, documentById, documentFor, documentId, paidVia, type Docum
 import { siteName } from "./site";
 import { DICTIONARIES, type Phrase, type T } from "./i18n";
 import { isConcessionPreset } from "./concessions-shared";
+import { activityName } from "./activity-registry";
+import { formatMinute } from "./interval";
 
 /**
  * Receipts as the customer sees them: a page to keep or print, and — when
@@ -81,8 +83,9 @@ async function issuer(venueId: number | null): Promise<Receipt["venue"] | null> 
  * the line kept in the venue's books, are the same in every language. A
  * language with no words for it says it as written.
  */
-export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset" | "place">): string {
+export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset" | "place" | "slot">): string {
   const words = DICTIONARIES[t.locale];
+  if (line.slot && words?.["lo6.rcpt.slot"]) return slotText(t, line.slot);
   const preset = line.concessionPreset;
   const said = (key: Phrase) => Boolean(words?.[key]);
   let price: string | null = null;
@@ -95,6 +98,25 @@ export function receiptLineText(t: T, line: Pick<Line, "description" | "concessi
   const who = line.place?.name;
   if (!who) return price;
   return said("fin5.placeFor") ? t("fin5.placeFor", { price, name: who }) : line.description;
+}
+
+/**
+ * A booking's court time as this reader reads it: the activity's name and the
+ * hours in their language (lib/time.ts `formatHour`), and whom its places are
+ * for, by name, where the booking names anybody other than its customer
+ * ("…, for Alya, Bilal"), so a guardian paying for two children sees which is
+ * which. In English it reads as the line was written, the names added.
+ */
+function slotText(t: T, s: NonNullable<Line["slot"]>): string {
+  let text = t("lo6.rcpt.slot", {
+    court: s.court,
+    activity: activityName(s.sport, t.locale),
+    date: s.date,
+    from: formatMinute(s.startMin, t.locale),
+    to: formatMinute(s.endMin, t.locale),
+  });
+  if (s.players > 1) text = t("lo6.rcpt.players", { line: text, n: s.players });
+  return s.for.length > 0 ? t("pbk.msg.for", { what: text, names: s.for.join(", ") }) : text;
 }
 
 /**

@@ -68,7 +68,7 @@ export function ChangeTime({
     };
   }, [date, optionsUrl, t]);
 
-  const when = (o: RescheduleOption) => `${date}, ${formatMinute(o.startMin)}–${formatMinute(o.startMin + length)}`;
+  const when = (o: RescheduleOption) => `${date}, ${formatMinute(o.startMin, t.locale)}–${formatMinute(o.startMin + length, t.locale)}`;
 
   async function choose(o: RescheduleOption) {
     if (preview) {
@@ -110,7 +110,7 @@ export function ChangeTime({
   if (checking) {
     const p = checking.preview;
     const span = (x: { date: string; startMin: number; endMin: number; courtName: string }) =>
-      `${x.date}, ${formatMinute(x.startMin)}–${formatMinute(x.endMin)}, ${x.courtName}`;
+      `${x.date}, ${formatMinute(x.startMin, t.locale)}–${formatMinute(x.endMin, t.locale)}, ${x.courtName}`;
     const pendingCount = p.pending.invited + p.pending.requested + p.pending.waitlisted + p.pending.offered;
     const needsReason = p.outcome === "venue";
     return (
@@ -190,7 +190,7 @@ export function ChangeTime({
             onClick={() => choose(o)}
             className="rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-left text-xs font-semibold text-teal-700 hover:bg-teal-100 disabled:opacity-50"
           >
-            {formatMinute(o.startMin)}–{formatMinute(o.startMin + length)}
+            {formatMinute(o.startMin, t.locale)}–{formatMinute(o.startMin + length, t.locale)}
             <span className="block font-normal text-slate-500">
               {o.courtId !== booking.courtId || staff ? `${o.courtName} · ` : ""}{money(o.price.toFixed(2))}
               {o.difference !== 0 && ` (${o.difference > 0 ? "+" : "−"}${money(Math.abs(o.difference).toFixed(2))})`}

@@ -108,6 +108,29 @@ Closing a day that has bookings or classes on it is refused until staff say
 to cancel them; then each customer is told, as above. Messages are written in
 the language the customer booked in.
 
+**In the message's language, links and times too.**
+
+- *Links.* Every link MySenam puts in a message to a customer (a waiting-list
+  offer, *My Booking*, a receipt, *I have seen this*, a review, a gift
+  voucher, a loyalty reward, a company account's invoice, confirming
+  marketing email, a customer's password reset, programme emails and the
+  guardian emails' people page) carries the message's language as a fixed
+  parameter, `?lang=ms`, so it opens in that language in a browser that has
+  never been to the site; a language the person has chosen with the switch
+  wins ([regions](../product/regions-and-tax.md)). Staff alerts, coach
+  emails and staff password resets are unchanged.
+- *Times.* A message writes a time as its language does, by the same
+  formatter as the pages (`formatHour` and `formatMinute`, from
+  `clockTime` in `src/lib/region.ts`): *6:30 PM*, *6:30 PTG*, *下午6:30*,
+  *18:30*; a moment (a guardian change, a payment deadline) in the venue's
+  time zone. What staff read about a booking (urgent notices' lines, coach
+  emails, staff calendars) stays in English.
+
+Tests: `tests/link-locale.test.ts` (the parameter, the middleware, the
+language a page opens in, links in an offer, a confirmation, a receipt and a
+venue's cancellation), `tests/message-times.test.ts` (each language,
+morning, afternoon and past midnight, in the venue's zone).
+
 ### Guardian notices
 
 When who acts for a participant changes (ADR 0023;
@@ -141,10 +164,16 @@ Guardians a venue recorded by name and number only have no email
 - At a number a code has come back from (staff sent a code to it and the
   guardian read it back), and where WhatsApp is set up, a WhatsApp message
   (kind `guardian_notice`, template `mysenam_guardian_notice` in
-  [WhatsApp templates](whatsapp-templates.md)): the venue's name, that there
-  has been a change to who acts for a child they are recorded as a guardian
-  of, to ask at the counter or sign in. Never the child's name or anything
-  about them, since a number is not an identity. Paid by the platform, as
+  [WhatsApp templates](whatsapp-templates.md)), in the language of the code
+  that came back (`participant_guardians.contact_locale`, migration 0198;
+  the install's first language for one confirmed before): the venue's name,
+  what changed (another guardian added; a guardian stopped acting; another
+  adult asked to become a guardian, nothing changing unless a guardian
+  agrees or the manager records an exception; a guardian recorded by name
+  and number now on their own account, nobody new acting), and the venue's
+  page, in that language, to find its number; ask at the counter or call.
+  Never the child's name, birth year or anything about them, nor the other
+  adult's, since a number is not an identity. Paid by the platform, as
   urgent news is; queued, retried and capped per number like any other.
   SMS is not used: the outbox has no SMS channel.
 - Otherwise nothing is sent, and the venue that recorded them gets a task
@@ -178,9 +207,31 @@ queued messages are listed in the participant's history
 name and number). Tested with a transport that fails and a queue that
 throws (`tests/counter-guardians.test.ts`), and the WhatsApp notice and the
 tasks with a stand-in SMS gateway and a queued WhatsApp message
-(`tests/guardian-contact.test.ts`); live delivery is part of the email,
-SMS and WhatsApp integrations' verification, and the
-`mysenam_guardian_notice` template needs Meta's approval before it can go.
+(`tests/guardian-contact.test.ts`, the notice's language, each change's
+wording and its three values too); live delivery is part of the email,
+SMS and WhatsApp integrations' verification.
+
+**The guardian notice template is prepared, not submitted.** Before any
+notice can reach a guardian:
+
+1. In WhatsApp Manager, under the business account that owns the number in
+   `WHATSAPP_PHONE_NUMBER_ID`, create `mysenam_guardian_notice` (with this
+   install's `WHATSAPP_TEMPLATE_PREFIX` if it has one), category
+   **Utility**, with its four translations (`en`, `ms`, `zh_CN`, `ta`)
+   exactly as in [WhatsApp templates](whatsapp-templates.md#mysenam_guardian_notice)
+   and the sample values given there for its three variables.
+2. Wait for Meta to approve each translation. Meta may re-categorise it or
+   ask for changes; a changed wording is changed in the dictionaries first
+   (the test that compares them with the document fails otherwise) and
+   submitted again.
+3. Nothing else is configured: the notice goes through the WhatsApp set-up
+   every other message uses (`WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`).
+   Until the template is approved a notice sent fails at Meta, is retried,
+   is given up, and becomes the venue's task like any undelivered notice;
+   nothing about a guardian's consent or relationship waits on it.
+
+Then verify it live, as the WhatsApp integration's other templates are,
+before calling it working ([testing](../development/testing.md)).
 
 ### Urgent news, and knowing it arrived
 

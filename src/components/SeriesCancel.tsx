@@ -111,7 +111,7 @@ export function SeriesCancel({
               />
               <span>
                 <span className="font-medium">
-                  {w.date} · {formatHour(w.startHour)}–{formatHour(w.endHour)}
+                  {w.date} · {formatHour(w.startHour, t.locale)}–{formatHour(w.endHour, t.locale)}
                 </span>{" "}
                 <span className={w.outcome === "free" ? "text-slate-600" : w.outcome === "late" ? "text-amber-800" : "text-slate-500"}>
                   {line(w)}

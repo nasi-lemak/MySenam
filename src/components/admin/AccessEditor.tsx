@@ -5,6 +5,7 @@ import type { AccessEntry, AccessKind, AccessSettings, VenueAccess } from "@/lib
 import { money, region } from "@/lib/region";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { PhoneCheckAdvice } from "./PhoneCheckAdvice";
 
 const modes = (t: StaffT): { value: VenueAccess; label: string; note: string }[] => [
   { value: "public", label: t("acs.public"), note: t("acs.publicNote") },
@@ -108,6 +109,8 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                 {t("acs.listed")}
               </label>
             )}
+            {/* Members only or private: what phone checks would give, and what happens without them. */}
+            {mode !== "public" && <PhoneCheckAdvice on={s.phoneChecks} where="access" />}
             {mode !== "public" && (
               <label className="block text-sm">
                 {t("acs.noteLabel")}

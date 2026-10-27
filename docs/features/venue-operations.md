@@ -248,9 +248,12 @@ desk included):
 - **Told of changes.** When a guardian is added or ends, a request waits for
   agreement, or a guardian takes theirs over with an account, a guardian
   recorded by name and number is sent a WhatsApp notice only at a number a
-  code has come back from: the venue's name and that there has been a change
-  to who acts for a child, to ask at the counter or sign in, never the
-  child's name ([guardian notices](../integrations/messaging.md#guardian-notices)).
+  code has come back from, in the language of that code (kept when it comes
+  back, `contact_locale`, migration 0198): the venue's name, what changed,
+  and the venue's page to find its number, to ask at the counter or call;
+  never the child's name or anything else about them
+  ([guardian notices](../integrations/messaging.md#guardian-notices); its
+  template is prepared but not yet submitted to Meta).
   Otherwise nothing is sent, and the venue that recorded them gets a task
   under *Needs attention* (front desk too): tell them, then *I have told
   them*, recorded with who.
@@ -295,6 +298,42 @@ notices and tasks; a report through staff; authority lost online, in a
 group booking, at the counter, through the API key and on a waiting-list
 offer; reminders; the platform owner's review; races on Postgres) and
 `tests/components/contact-guardians.test.tsx` (the screens).
+
+### Phone checks: recommended, not required
+
+Checking a customer's phone number by a one-time code
+([authentication](../architecture/authentication.md)) is what lets a number
+count by itself: a resident or member on a members-only or private venue's
+list books online from their own account
+([who a venue is for](booking.md#who-a-venue-is-for-public-members-only-private)),
+a resident's guest proves their number, and a guardian recorded by name and
+number takes the relationship over with an account (above). An install
+without them (no WhatsApp or SMS provider set up) still works, through
+staff: they link each resident's or member's account to their entry, a guest
+counts once invited with their account email or linked, anyone not linked is
+booked at the counter on staff's word, a code still goes to a guardian's
+recorded number where SMS or WhatsApp can send one, and otherwise a manager
+records an agreement given in person, flagged for review. Nothing is
+bypassed: a typed number still lets nobody in.
+
+Where a venue relies on numbers, its staff are told so plainly
+(`src/components/admin/PhoneCheckAdvice.tsx`, staff phrases `lo6.pc.*`):
+
+- *Venues & staff → Who it is for*, once *Members only* or *Private* is
+  chosen: without phone checks, what they would enable, what happens without
+  them, and the recommendation to ask whoever runs the site to switch them
+  on (WhatsApp or an SMS provider set up); with them, one line saying they
+  are on. A public venue is told nothing.
+- *Venues → Participants*, after a look-up, where phone checks are off: that
+  a guardian recorded by name and number cannot take the relationship over
+  with an account (invite their account instead), what staff do without
+  codes, and the same recommendation.
+
+This is advice, not a setting: nothing is switched on, no paid provider is
+chosen, and the rules above (an entry counts only for a linked account or a
+proved number; a claim needs a proved number and a code) are unchanged.
+Tests: `tests/components/phone-check-advice.test.tsx` (the notice by access
+mode and phone-check setting, in the staff language).
 
 ### Self-service check-in
 

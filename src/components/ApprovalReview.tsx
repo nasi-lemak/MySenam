@@ -214,9 +214,9 @@ export function History({ say, locale, request }: { say: Say; locale: string; re
   );
 }
 
-export function slotText(request: ApprovalRequest): string {
+export function slotText(request: ApprovalRequest, locale = "en"): string {
   if (!request.slot) return "";
-  return `${request.slot.courtName} · ${request.slot.date} ${formatMinute(request.slot.start)}–${formatMinute(request.slot.end)}`;
+  return `${request.slot.courtName} · ${request.slot.date} ${formatMinute(request.slot.start, locale)}–${formatMinute(request.slot.end, locale)}`;
 }
 
 /**

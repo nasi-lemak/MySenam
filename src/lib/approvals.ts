@@ -19,7 +19,8 @@ import { phoneRefusal } from "./phone-check";
 import { addSignOff, revokeSignOff, signOffHolds, type SignOffKind } from "./sign-offs";
 import { courtDay, createBookingSeries, getBookingById, getCourt, offerSlotPlace, settleCancelled, spanFor } from "./store";
 import { venueBaseUrl } from "./storefront";
-import { addDays, isBookableDate, isValidDateString, todayISO } from "./time";
+import { addDays, isBookableDate, isValidDateString, localDateOf, todayISO } from "./time";
+import { clockTime } from "./region";
 import { GUARDIAN_AGE } from "./tournaments";
 import type { Phrase } from "./i18n";
 import type { Booking, Sport } from "./types";
@@ -998,24 +999,19 @@ type CustomerMail =
   | "latePaymentBooked"
   | "latePaymentRefund";
 
-/** A booking hold's end (UTC, as lib/holds.ts writes it) as the venue's local date and time. */
-async function venueTime(venueId: number, utc: string): Promise<string> {
+/**
+ * A booking hold's end (UTC, as lib/holds.ts writes it) as the venue's local
+ * date and time, in the reader's language: the date as the venue's
+ * YYYY-MM-DD, the time as the language writes one (lib/region.ts `clockTime`).
+ */
+async function venueTime(venueId: number, utc: string): Promise<(locale: string) => string> {
   const row = (await getDb().prepare("SELECT time_zone, lat, lng FROM venues WHERE id = ?").get(venueId)) as
     | { time_zone: string | null; lat: number | null; lng: number | null }
     | undefined;
   const at = new Date(`${utc.replace(" ", "T").replace(/Z?$/, "Z")}`);
-  if (Number.isNaN(at.getTime())) return utc;
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: venueZoneOf(row ?? {}),
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(at);
-  const p = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
-  return `${p("year")}-${p("month")}-${p("day")} ${p("hour")}:${p("minute")}`;
+  if (Number.isNaN(at.getTime())) return () => utc;
+  const zone = venueZoneOf(row ?? {});
+  return (locale) => `${localDateOf(at.toISOString(), zone)} ${clockTime(at, zone, locale)}`;
 }
 
 /**
@@ -1051,7 +1047,7 @@ async function tellCustomer(
             code: extra.code ?? "",
           }),
           // Booked and held for payment: not theirs until paid, by then.
-          extra.code && payBy ? t("apr.mail.payBy", { code: extra.code, time: payBy }) : extra.code && mail !== "latePaymentBooked" ? t("apr.mail.booked", { code: extra.code }) : null,
+          extra.code && payBy ? t("apr.mail.payBy", { code: extra.code, time: payBy(t.locale) }) : extra.code && mail !== "latePaymentBooked" ? t("apr.mail.booked", { code: extra.code }) : null,
           extra.slotTaken ? t("apr.mail.slotTaken") : null,
         ]
           .filter(Boolean)

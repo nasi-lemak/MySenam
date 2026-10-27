@@ -233,11 +233,34 @@ export function shortDate(date: string, locale: string, weekday = false): string
   return weekday ? `${part({ weekday: "short" })}, ${dayMonth}` : dayMonth;
 }
 
-/** A UTC "YYYY-MM-DD HH:MM:SS" as the venue's HH:MM, for the customer. */
-export function localTimeOf(utc: string, zone: string = region().timeZone): string {
-  return new Date(`${utc.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
-    timeZone: zone,
-    hour: "numeric",
-    minute: "2-digit",
-  });
+/**
+ * A time of day as each language writes it, by the one formatter every page,
+ * email and message uses (Intl.DateTimeFormat): English "6:30 PM", as the
+ * pages have always written it; Malay "6:30 PTG"; Chinese "下午6:30"; Tamil
+ * "18:30". Tamil takes the 24-hour clock because its 12-hour form differs
+ * between the server's CLDR data ("6:30 PM") and browsers' ("பிற்பகல் 6:30"),
+ * and a page must read the same on both (as `shortDate` above). The
+ * narrow spaces some runtimes put before "PM" are written as plain spaces,
+ * so a time reads (and is found) the same everywhere.
+ */
+const clockFormats = new Map<string, Intl.DateTimeFormat>();
+function clockFormat(locale: string, zone: string): Intl.DateTimeFormat {
+  const key = `${locale}|${region().country}|${zone}`;
+  let f = clockFormats.get(key);
+  if (!f) {
+    const tag = locale === "en" ? "en-US" : ["ms", "zh", "ta"].includes(locale) ? intlTag(locale) : "en-US";
+    f = new Intl.DateTimeFormat(tag, { timeZone: zone, hour: "numeric", minute: "2-digit", ...(locale === "ta" ? { hourCycle: "h23" as const } : {}) });
+    clockFormats.set(key, f);
+  }
+  return f;
+}
+
+/** A moment as the time of day in a zone (a venue's or an event's), in a language: see `clockFormat`. */
+export function clockTime(at: Date, zone: string, locale: string = "en"): string {
+  return clockFormat(locale, zone).format(at).replace(/[  ]/g, " ");
+}
+
+/** A UTC "YYYY-MM-DD HH:MM:SS" as the venue's time of day, for the customer, in their language. */
+export function localTimeOf(utc: string, zone: string = region().timeZone, locale: string = "en"): string {
+  return clockTime(new Date(`${utc.replace(" ", "T")}Z`), zone, locale);
 }

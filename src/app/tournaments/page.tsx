@@ -66,7 +66,7 @@ export default async function TournamentsPage({ searchParams }: { searchParams: 
                 {x.venueName} · 📍 {x.area}
               </div>
               <div className="mt-1 text-sm text-slate-500">
-                {t("tour.when", { from: x.startsOn, to: x.endsOn, start: formatHour(x.startHour), end: formatHour(x.endHour) })}
+                {t("tour.when", { from: x.startsOn, to: x.endsOn, start: formatHour(x.startHour, t.locale), end: formatHour(x.endHour, t.locale) })}
               </div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 {x.category !== "open" && (

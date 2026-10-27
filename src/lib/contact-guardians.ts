@@ -2,7 +2,9 @@ import crypto from "crypto";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { offeredLocales, isLocale, translator, type Locale } from "./i18n";
 import { agreeForContactInside, finishActivation, lockParticipant, notifyGuardianChange, type Activated, type Change } from "./guardian-requests";
-import { enqueue } from "./outbox";
+import { baseUrl, enqueue } from "./outbox";
+import { linkIn } from "./link-locale";
+import { venueBookingUrl } from "./venue-link";
 import {
   INVITE_DAYS,
   KNOWN_TO,
@@ -62,9 +64,10 @@ import { whatsappAvailable } from "./whatsapp-credit";
  *   single-use code staff gave them in person, or one another guardian with
  *   an account gave. Either alone is not enough.
  * - **Told of changes** (`noticeContactGuardians`): only a number a code has
- *   come back from, and only on WhatsApp (the outbox has no SMS), with the
- *   venue's name and that a child's guardians changed; otherwise a task for
- *   the venue's staff to tell them, shown under *Needs attention*.
+ *   come back from, and only on WhatsApp (the outbox has no SMS), in the
+ *   language of that code, with the venue's name, what changed and the
+ *   venue's page; otherwise a task for the venue's staff to tell them, shown
+ *   under *Needs attention*.
  * - **Reporting a mistake** (`reportForContact`): through staff, flagged for
  *   a manager like a report from a guardian with an account.
  */
@@ -206,10 +209,10 @@ export async function sendContactCode(
       .run(g.id, purpose);
     const row = (await db
       .prepare(
-        `INSERT INTO guardian_contact_codes (guardianship_id, participant_id, purpose, request_id, venue_id, number, code_hash, channel, sent_by_admin_id, sent_by_name, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now() + interval '${CONTACT_CODE_MINUTES} minutes') RETURNING expires_at`
+        `INSERT INTO guardian_contact_codes (guardianship_id, participant_id, purpose, request_id, venue_id, number, code_hash, channel, sent_by_admin_id, sent_by_name, locale, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now() + interval '${CONTACT_CODE_MINUTES} minutes') RETURNING expires_at`
       )
-      .get(g.id, p.id, purpose, requestId, at.venueId, number, codeHash(g.id, purpose, number, code), sent.channel, at.admin.id, at.admin.name)) as { expires_at: unknown };
+      .get(g.id, p.id, purpose, requestId, at.venueId, number, codeHash(g.id, purpose, number, code), sent.channel, at.admin.id, at.admin.name, locale)) as { expires_at: unknown };
     await participantEvent(p.id, "guardian.code_sent", { adminId: at.admin.id, name: at.admin.name }, {
       venueId: at.venueId,
       detail: `a code to the number recorded for ${g.contact_name}, to ${PURPOSE_TEXT[purpose]}; it carries the code and the venue's name, nothing about them`,
@@ -253,12 +256,12 @@ export async function confirmContactCode(
       return refused("GW5_GUARDIAN_PAUSED", "This guardian's relationship is paused while a manager looks at it.", 409);
     const c = (await db
       .prepare(
-        `SELECT id, guardianship_id, request_id, number, code_hash, attempts, expires_at > now() AS live FROM guardian_contact_codes
+        `SELECT id, guardianship_id, request_id, number, code_hash, attempts, locale, expires_at > now() AS live FROM guardian_contact_codes
           WHERE guardianship_id = ? AND participant_id = ? AND purpose = ? AND used_at IS NULL AND cancelled_at IS NULL
           ORDER BY id DESC LIMIT 1 FOR UPDATE`
       )
       .get(Number(input.guardianshipId) || 0, p.id, purpose)) as
-      | { id: number; guardianship_id: number; request_id: number | null; number: string; code_hash: string; attempts: number; live: boolean }
+      | { id: number; guardianship_id: number; request_id: number | null; number: string; code_hash: string; attempts: number; locale: string | null; live: boolean }
       | undefined;
     if (!c || !c.live) return refused("GW5_CODE_EXPIRED", "That code has run out, or was used already. Send a new one.", 409);
     if (purpose === "agree" && c.request_id !== Number(input.requestId)) return refused("GV_REQUEST_NOT_FOUND", "No such request.", 404);
@@ -272,9 +275,11 @@ export async function confirmContactCode(
     await db.prepare("UPDATE guardian_contact_codes SET used_at = now(), used_by_admin_id = ?, used_by_name = ? WHERE id = ?").run(at.admin.id, at.admin.name, c.id);
     const g = await contactGuardian(p.id, c.guardianship_id, true);
     if (!g) throw new Undone(notRecorded());
-    // The number reaches them: a message came back from it (only while it is still the number recorded).
+    // The number reaches them: a message came back from it (only while it is still the number recorded), in the language it was in (later notices too).
     if (phoneNumber(g.contact_phone) === c.number)
-      await db.prepare("UPDATE participant_guardians SET contact_verified_at = now(), contact_verified_number = ? WHERE id = ?").run(c.number, g.id);
+      await db
+        .prepare("UPDATE participant_guardians SET contact_verified_at = now(), contact_verified_number = ?, contact_locale = COALESCE(?, contact_locale) WHERE id = ?")
+        .run(c.number, c.locale, g.id);
     if (purpose === "agree") {
       if (g.suspended_at) throw new Undone(refused("GW5_GUARDIAN_PAUSED", "This guardian's relationship is paused while a manager looks at it.", 409));
       const agreed = await agreeForContactInside({
@@ -533,8 +538,10 @@ export async function reportForContact(
  * for them changed (lib/guardian-requests.ts notifyGuardianChange calls
  * this). Only a number a code has come back from (`contact_verified_at`,
  * still the number recorded) is sent anything, and only on WhatsApp, the
- * outbox's channel for numbers: the venue's name and that a child's
- * guardians changed, to ask at the counter or sign in. Never the child's
+ * outbox's channel for numbers, in the language of the code that came back:
+ * the venue's name, what changed (a guardian added or ended, another adult
+ * asking, a guardian now on their own account), and the venue's page, to
+ * ask at the counter or call. Never the child's
  * name or anything else about them. Every other is a task for the venue that
  * recorded them: tell them in person or by phone, and mark it done. Returns
  * how many messages were queued.
@@ -547,11 +554,11 @@ export async function noticeContactGuardians(
   const db = getDb();
   const rows = (await db
     .prepare(
-      `SELECT g.id, g.contact_phone, g.contact_verified_at IS NOT NULL AS verified, g.contact_verified_number, g.venue_id
+      `SELECT g.id, g.contact_phone, g.contact_verified_at IS NOT NULL AS verified, g.contact_verified_number, g.venue_id, g.contact_locale
          FROM participant_guardians g
         WHERE g.participant_id = ? AND g.user_id IS NULL AND g.revoked_at IS NULL AND g.suspended_at IS NULL ORDER BY g.id`
     )
-    .all(participantId)) as { id: number; contact_phone: string; verified: boolean; contact_verified_number: string | null; venue_id: number | null }[];
+    .all(participantId)) as { id: number; contact_phone: string; verified: boolean; contact_verified_number: string | null; venue_id: number | null; contact_locale: string | null }[];
   const to = rows.filter((r) => !opts.exceptGuardianshipIds.includes(r.id));
   if (to.length === 0) return 0;
   const sent: number[] = [];
@@ -561,7 +568,9 @@ export async function noticeContactGuardians(
     const reaches = g.verified && g.contact_verified_number !== null && phoneNumber(g.contact_phone) === g.contact_verified_number;
     const venueId = g.venue_id ?? opts.venueId;
     if (reaches && channel) {
-      const locale = offeredLocales()[0];
+      // In the language of the code that came back from them, else the install's first; what changed said plainly,
+      // with where to find the venue (its page, in that language), never the child's name or anything about them.
+      const locale = localeOf(g.contact_locale);
       const m = await enqueue({
         venueId,
         kind: "guardian_notice",
@@ -569,7 +578,11 @@ export async function noticeContactGuardians(
         recipient: g.contact_phone,
         locale,
         body: "gw5.msg.notice",
-        vars: { venue: await venueName(venueId) },
+        vars: {
+          venue: await venueName(venueId),
+          change: translator(locale)(`lo6.notice.${change}`),
+          link: linkIn(venueId ? await venueBookingUrl(venueId) : baseUrl(), locale),
+        },
         dedupeKey: opts.about !== undefined ? `guardian-notice-${change}:${participantId}:${opts.about}:${g.id}` : undefined,
       });
       // Whom it was for and about what: should it not arrive, that guardian becomes the venue's task (taskUndeliveredNotices).

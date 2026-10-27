@@ -123,12 +123,12 @@ export default function CoachBooking({
           </p>
         )}
         <p>
-          {booked.date} {formatMinute(booked.startMin)}–{formatMinute(booked.endMin)} · {t("coach.with", { name: coach.name })} ·{" "}
+          {booked.date} {formatMinute(booked.startMin, t.locale)}–{formatMinute(booked.endMin, t.locale)} · {t("coach.with", { name: coach.name })} ·{" "}
           {money(booked.totalPrice)}
           {all.length > 1 && <> · {t("done.total")} {money(total)}</>}
         </p>
         {holdUntil && unpaid.length > 0 && (
-          <p className="font-medium text-amber-800">{t("hold.body", { time: localTimeOf(holdUntil, timeZone) })}</p>
+          <p className="font-medium text-amber-800">{t("hold.body", { time: localTimeOf(holdUntil, timeZone, t.locale) })}</p>
         )}
         {payOnline && unpaid.length > 0 && (
           <PayOnline codes={unpaid.map((b) => b.code)} phone={booked.phone} amount={unpaidTotal} held={!!holdUntil} depositPercent={depositPercent} />
@@ -183,7 +183,7 @@ export default function CoachBooking({
                 }}
                 className={pill(s.minute === start)}
               >
-                {formatMinute(s.minute)}
+                {formatMinute(s.minute, t.locale)}
               </button>
             ))}
           </div>
@@ -235,7 +235,7 @@ export default function CoachBooking({
           <p className="text-xs text-slate-500">{t("coach.terms")}</p>
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}
           <button disabled={busy} className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
-            {t("coach.confirm", { length: t("coach.minutes", { n: length }), name: coach.name, time: formatMinute(start!) })}
+            {t("coach.confirm", { length: t("coach.minutes", { n: length }), name: coach.name, time: formatMinute(start!, t.locale) })}
           </button>
         </>
       )}

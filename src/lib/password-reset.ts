@@ -6,6 +6,7 @@ import { keyedHash } from "./secrets";
 import { baseUrl, drainOutbox, emailPlain } from "./outbox";
 import { siteName } from "./site";
 import { errorText, translator, type ErrorCode, type Locale } from "./i18n";
+import { linkIn } from "./link-locale";
 
 /**
  * Forgotten passwords, for customers and for venue staff.
@@ -59,7 +60,8 @@ export async function requestReset(kind: AccountKind, email: string, locale: Loc
     )
     .run(kind, account.id, hashOf(token));
   const tr = translator(kind === "admin" ? "en" : locale);
-  const link = `${baseUrl()}/reset-password?kind=${kind}&token=${token}`;
+  // A customer's opens in the language they asked in (lib/link-locale.ts); staff have their own.
+  const link = kind === "admin" ? `${baseUrl()}/reset-password?kind=${kind}&token=${token}` : linkIn(`${baseUrl()}/reset-password?kind=${kind}&token=${token}`, locale);
   // Queued, so a mail server that is down delays the link rather than losing
   // it; not sent once the link has run out, and never sent again to another
   // address. The sending is not awaited: a reply that took as long as sending

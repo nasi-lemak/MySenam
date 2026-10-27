@@ -79,7 +79,7 @@ export default async function AccountInvoicePage({ params }: { params: Promise<{
             <tr key={l.code} className="border-b border-slate-100 align-top">
               <td className="py-2 pr-3 whitespace-nowrap">{l.date}</td>
               <td className="py-2 pr-3">
-                {l.courtName}, {formatHour(l.startHour)}–{formatHour(l.endHour)} <span className="font-mono text-xs text-slate-500">{l.code}</span>
+                {l.courtName}, {formatHour(l.startHour, t.locale)}–{formatHour(l.endHour, t.locale)} <span className="font-mono text-xs text-slate-500">{l.code}</span>
               </td>
               <td className="py-2 pr-3">{l.bookedBy}</td>
               <td className="py-2 text-right tabular-nums">{money(l.amount)}</td>
