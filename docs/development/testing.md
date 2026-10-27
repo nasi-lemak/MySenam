@@ -602,6 +602,47 @@ Tamil await native review; the retention periods are product policy awaiting
 Malaysian and Singaporean legal review; M16 waits on the owner.
 
 
+#### 27 October 2026, commit `636eccd`
+
+The remaining functional limitations, with further work on supporting
+documents and their infrastructure deferred by the owner: discounts that
+stack only by the venue's setting and the code's (M16), several passes on
+the form and at the counter, memberships bought online for the account, a
+child or a family, guardians recorded by name and number taken through to
+agreement or an account, concession records exported, access lists linked to
+accounts, the waiting list at the counter and through the API, entering
+competitions for somebody at the counter, league results changed only from
+the version read, occupancy totals, and several servers starting at once.
+Not a launch. Run on one cloud container, Node 22. The suites ran on
+`7f20b9a`; `636eccd` changed only one acceptance step's expected wording (the
+return page names the child who became a member), and the build, end-to-end
+tests and acceptance scenarios ran on `636eccd`.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 104 passed (with this record's documentation, the commit after) |
+| Suite on PGlite | 278 files; 3027 passed, 8 skipped (Postgres-only tests) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 278 files; 3035 passed, on the second run (below) |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Membership O and scenarios M–S among them | 14 files; 48 of 48 |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments against the fake gateways and a stand-in for Billplz's payment page, messages through the outbox only, documents scanned by a stand-in; no Droplet, no bucket |
+
+The first full Postgres run on `7f20b9a` failed one test:
+`tests/contention.test.ts`, *all go through on different courts of one
+venue*, counted 36 retried transactions in a round where it allows 2 (every
+booking still went through). It passed three times on its own and the whole
+suite passed on the second run, with nothing changed; it is recorded as
+sensitive to the load of the whole suite on one machine, not explained. The
+first acceptance run, on `7f20b9a`, failed Membership O, which waited for the
+return page's old wording. Gaps: further work on supporting documents and
+their infrastructure is deferred ([roadmap](../roadmap/roadmap.md)); no live
+integration has passed its check; machine-assisted Malay, Chinese and Tamil
+await native review; the retention periods are product policy awaiting
+Malaysian and Singaporean legal review.
+
 #### 26 October 2026, commit `8f62ccf`
 
 Participants apart from accounts (ADR 0023), booking for somebody else on
