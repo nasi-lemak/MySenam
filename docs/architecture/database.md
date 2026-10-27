@@ -82,3 +82,13 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
 The same migrations run on PGlite and on Postgres 16+, and CI runs the suite
 on both ([testing](../development/testing.md)). Anything engine-specific must
 work on both; PGlite has no extensions beyond what it bundles.
+
+On Postgres the app keeps a pool of connections (`DATABASE_POOL_SIZE`, ten by
+default). A connection cut while it waits in the pool is thrown away and
+replaced; one cut while a transaction holds it (the server restarting, an
+administrator ending it) fails that transaction, which is not committed, and
+is thrown away rather than handed to the next request, without stopping the
+process (`tests/db-connection-lost.test.ts`). The server needs
+`max_locks_per_transaction` of 256 or more for a restore, which locks every
+table, index and sequence in one transaction
+([`deploy/digitalocean/postgresql.conf`](../../deploy/digitalocean/postgresql.conf)).

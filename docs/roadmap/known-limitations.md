@@ -193,7 +193,7 @@ page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **85 now**. Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B38, M16–M18 and
-S12–S23, found and fixed in the same work) and
+S12–S24, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (75
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
@@ -629,6 +629,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | S21 | A resident inviting a guest by email could learn whether an account held that address (`GUEST_ACCOUNT_UNKNOWN`, and an entry linked at once); the address is now never looked up, a single-use, hashed, expiring invitation is emailed either way, and it links only its entry to the account that accepts it signed in with that address | `tests/guest-invitations.test.ts`, `tests/components/guest-invitations.test.tsx` |
 | S22 | Inviting a player to a game or a group by email revealed whether the address had an account (the host's or organiser's roster named them at once, the daily invite counter counted only real accounts, and an email was queued only for one), and sign-in and password reset answered measurably faster for an unknown address; invitations are now emailed either way and accepted signed in, every attempt counts, and sign-in and reset do the same work either way | `tests/player-invitations.test.ts`, `tests/no-enumeration-timing.test.ts` |
 | S23 | Receipts and credit notes kept the names of whom their lines were for (a guardian's children, a child taken off a booking, a family membership's dependants) after the retention period and after an erasure, and a participant's erasure did not reach receipts; names are now kept apart from a line's words and cleared by retention, account erasure and participant erasure (older lines by their known shapes and the names known for the receipt), and again after a restore | `tests/receipt-names.test.ts` |
+| S24 | A Postgres connection cut while a transaction held it (the server restarting, an administrator ending it) raised an error nobody listened for, which stops a Node process; such a connection now fails only its transaction and is thrown away. Found by the full Postgres suite, where a test database dropped under a background password-reset run did it | `tests/db-connection-lost.test.ts` (Postgres) |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number

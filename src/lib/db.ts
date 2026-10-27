@@ -168,6 +168,17 @@ async function postgresDriver(url: string): Promise<Driver> {
     },
     async inTransaction(fn) {
       const client = await pool.connect();
+      // Cut while checked out (the server restarting, an administrator ending
+      // it): the pool's own listener is for idle connections only, and an error
+      // nobody hears takes the whole process down. Heard here, the query in
+      // hand fails, the transaction is not committed, and the connection is
+      // thrown away rather than handed to the next request.
+      let lost: Error | undefined;
+      const onLost = (err: Error) => {
+        lost = err;
+        console.error(`[db] connection lost in a transaction: ${err.message}`);
+      };
+      client.on("error", onLost);
       try {
         await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
         const result = await fn({
@@ -183,11 +194,18 @@ async function postgresDriver(url: string): Promise<Driver> {
         await client.query("ROLLBACK").catch(() => {});
         throw err;
       } finally {
-        client.release();
+        client.off("error", onLost);
+        client.release(lost);
       }
     },
     async lockMigrations(fn) {
       const client = await pool.connect();
+      let lost: Error | undefined;
+      const onLost = (err: Error) => {
+        lost = err;
+        console.error(`[db] connection lost while migrating: ${err.message}`);
+      };
+      client.on("error", onLost);
       try {
         // Any constant will do, as long as it is always the same one.
         await client.query("SELECT pg_advisory_lock(7419266)");
@@ -197,7 +215,8 @@ async function postgresDriver(url: string): Promise<Driver> {
           await client.query("SELECT pg_advisory_unlock(7419266)");
         }
       } finally {
-        client.release();
+        client.off("error", onLost);
+        client.release(lost);
       }
     },
     async close() {
