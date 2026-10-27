@@ -2152,7 +2152,7 @@ export const ZH: Record<Phrase, string> = {
   "gv.err.GV_REQUEST_CLOSED": "此申请已不再等待答复。",
   "gv.err.GV_ANSWER_NEEDED": "请说明您是否同意。",
   "gv.err.GV_CHANGE_NOT_FOUND": "您无法报告该变更。",
-  "apr.retx2.privacyRecorded": "平台所有者已记录：{name}（{role}，{firm}）于 {date} 审核了{country}的{classes}期限。MySenam 未予核实，这也不是法律上的批准。",
+  "apr.retx2.privacyRecorded": "平台所有者已记录：{name}（{role}，{firm}）于 {date} 审核了{country}的{classes}期限。{site} 未予核实，这也不是法律上的批准。",
   "apr.retx2.privacyStill": "仍为暂定：{classes}。",
   "apr.retx2.clsDocuments": "决定后的文件",
   "apr.retx2.clsReview": "为复核保留的文件",

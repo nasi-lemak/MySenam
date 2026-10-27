@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { RETENTION } from "@/lib/privacy";
 import { retentionPolicy, type RetentionPolicy, type ScopeKey } from "@/lib/retention-policy";
 import { serverT } from "@/lib/locale";
+import { siteName } from "@/lib/site";
 import type { Phrase, T } from "@/lib/i18n";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -38,7 +39,7 @@ function reviewWords(t: T, policy: RetentionPolicy): string {
   const classes = (keys: ScopeKey[]) => keys.map((k) => t(CLASS_WORDS[k])).join(", ");
   return [
     ...here.reviews.map((r) =>
-      t("apr.retx2.privacyRecorded", { classes: classes(r.scope), country: t(`apr.retx2.${policy.home}`), name: r.reviewerName, role: r.reviewerRole, firm: r.firm, date: r.reviewedOn })
+      t("apr.retx2.privacyRecorded", { classes: classes(r.scope), country: t(`apr.retx2.${policy.home}`), name: r.reviewerName, role: r.reviewerRole, firm: r.firm, date: r.reviewedOn, site: siteName() })
     ),
     ...(here.provisional.length > 0 ? [t("apr.retx2.privacyStill", { classes: classes(here.provisional) })] : []),
   ].join(" ");

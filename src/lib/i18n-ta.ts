@@ -2155,7 +2155,7 @@ export const TA: Record<Phrase, string> = {
   "gv.err.GV_REQUEST_CLOSED": "இந்தக் கோரிக்கை இனி பதிலுக்காகக் காத்திருக்கவில்லை.",
   "gv.err.GV_ANSWER_NEEDED": "நீங்கள் ஒப்புக்கொள்கிறீர்களா என்று சொல்லுங்கள்.",
   "gv.err.GV_CHANGE_NOT_FOUND": "அந்த மாற்றத்தை நீங்கள் புகாரளிக்க முடியாது.",
-  "apr.retx2.privacyRecorded": "{country} இல் {classes} க்கான காலங்களை {name} ({role}, {firm}) {date} அன்று பரிசீலித்ததாகத் தளத்தின் உரிமையாளர் பதிவு செய்துள்ளார். MySenam இதைச் சரிபார்க்கவில்லை; இது சட்டப்பூர்வ ஒப்புதல் அல்ல.",
+  "apr.retx2.privacyRecorded": "{country} இல் {classes} க்கான காலங்களை {name} ({role}, {firm}) {date} அன்று பரிசீலித்ததாகத் தளத்தின் உரிமையாளர் பதிவு செய்துள்ளார். {site} இதைச் சரிபார்க்கவில்லை; இது சட்டப்பூர்வ ஒப்புதல் அல்ல.",
   "apr.retx2.privacyStill": "இன்னும் தற்காலிகமானவை: {classes}.",
   "apr.retx2.clsDocuments": "முடிவுக்குப் பிந்தைய ஆவணங்கள்",
   "apr.retx2.clsReview": "மறுபரிசீலனைக்காக வைக்கப்படும் ஆவணங்கள்",
