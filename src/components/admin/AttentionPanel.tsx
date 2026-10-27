@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { UrgentNotice } from "@/lib/urgent";
 import type { OverdueRefunds } from "@/lib/payments";
+import type { GuardianReviews, NoticeTask } from "@/lib/contact-guardians";
 import { money } from "@/lib/region";
 import { formatHour } from "@/lib/time";
 import type { StaffT } from "@/lib/staff-i18n";
@@ -65,7 +66,13 @@ function channelLine(t: StaffT, n: UrgentNotice) {
  */
 export function AttentionPanel() {
   const t = useStaffT();
-  const [data, setData] = useState<{ open: UrgentNotice[]; recent: UrgentNotice[]; refundsOverdue?: OverdueRefunds[] } | null>(null);
+  const [data, setData] = useState<{
+    open: UrgentNotice[];
+    recent: UrgentNotice[];
+    refundsOverdue?: OverdueRefunds[];
+    guardianTasks?: NoticeTask[];
+    guardianReviews?: GuardianReviews[];
+  } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,11 +93,54 @@ export function AttentionPanel() {
   }, [load]);
 
   const overdue = data?.refundsOverdue ?? [];
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0)) return null;
+  const tasks = data?.guardianTasks ?? [];
+  const reviews = data?.guardianReviews ?? [];
+  const guardians = tasks.length + reviews.length > 0;
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians)) return null;
+
+  /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
+  async function guardianTold(taskId: number) {
+    setError(null);
+    const res = await fetch("/api/admin/attention", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskId, action: "guardianTold", how: "told" }),
+    });
+    const out = await res.json();
+    if (!res.ok) setError(t.err(out, t("att.saveFailed")));
+    else setData((was) => (was ? { ...was, ...out } : was));
+  }
 
   const reach = reachLabels(t);
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label={t("att.title")}>
+      {reviews.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900">
+          <strong>{t("gw5.att.reviews")}</strong>{" "}
+          {reviews.map((r) => t("gw5.att.reviewLine", { venue: r.venueName, waiting: r.waiting, due: r.datesDue })).join(" ")}
+        </div>
+      )}
+      {tasks.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900">
+          <strong>{t("gw5.att.tasks", { n: tasks.length })}</strong>
+          <ul className="mt-1 space-y-1 text-xs">
+            {tasks.map((task) => (
+              <li key={task.id} className="flex flex-wrap items-center gap-2">
+                <span>
+                  {t("gw5.att.taskLine", { guardian: task.guardianName, name: task.displayName, change: t(`gw5.att.change.${task.change}`) })}{" "}
+                  <a href={`tel:${task.phone}`} className="text-teal-700 underline">
+                    {task.phone}
+                  </a>{" "}
+                  ({t(`gw5.att.why.${task.why}`)})
+                </span>
+                <button type="button" onClick={() => void guardianTold(task.id)} className="font-semibold text-teal-700 underline">
+                  {t("gw5.att.told")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {overdue.length > 0 && (
         <div className="mb-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-800">
           <strong>{t("att.refundsOverdue")}</strong>{" "}
@@ -103,7 +153,7 @@ export function AttentionPanel() {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 ? t("att.title") : t("att.nothing")}
+          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians ? t("att.title") : t("att.nothing")}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">
@@ -147,7 +197,7 @@ export function AttentionPanel() {
                   });
                   const out = await res.json();
                   if (!res.ok) setError(t.err(out, t("att.saveFailed")));
-                  else setData(out);
+                  else setData((was) => ({ ...was, ...out }));
                 }}
                 className="mt-2 rounded-md border border-teal-600 px-2.5 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-50"
               >

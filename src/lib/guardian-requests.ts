@@ -4,6 +4,7 @@ import { accountLocale, baseUrl, enqueue } from "./outbox";
 import {
   INVITE_DAYS,
   OPEN_INVITE,
+  REVIEW_DATE_DUE,
   guardianshipOf,
   iso,
   isRefusal,
@@ -73,7 +74,10 @@ export type ExceptionCategory = (typeof EXCEPTION_CATEGORIES)[number];
 /** Staff acting: a venue's (for a participant it knows), or the platform owner's (any participant). */
 export type StaffScope = { venueId: number } | { owner: true };
 export type StaffActor = { id: number | null; name: string };
-type Change = "added" | "ended" | "request";
+/** What changed: another guardian added, one ended, a request waiting, or a guardian recorded by name and number took theirs over with an account. */
+export type Change = "added" | "ended" | "request" | "claimed";
+/** How an existing guardian agreed (migration 0172). */
+export type ConsentMethod = "online" | "guardian_code" | "staff_assisted_phone_code" | "staff_in_person";
 
 const venueOf = (scope: StaffScope): number | null => ("venueId" in scope ? scope.venueId : null);
 
@@ -96,6 +100,10 @@ interface RequestRow {
   relationship: Relationship | null;
   consented_by_name: string | null;
   consented_at: unknown;
+  consent_method: ConsentMethod | null;
+  consent_guardianship_id: number | null;
+  consent_staff_name: string | null;
+  consent_reason: string | null;
   exception_category: ExceptionCategory | null;
   exception_reason: string | null;
   exception_review_on: string | null;
@@ -104,7 +112,7 @@ interface RequestRow {
 }
 
 /** One change to who acts for a participant at a time: the participant's row is written, so another waits, then reads again. */
-async function lockParticipant(participantId: number): Promise<{ id: number; display_name: string; linked_user_id: number | null } | undefined> {
+export async function lockParticipant(participantId: number): Promise<{ id: number; display_name: string; linked_user_id: number | null } | undefined> {
   return (await getDb()
     .prepare("UPDATE participants SET updated_at = now() WHERE id = ? RETURNING id, display_name, linked_user_id")
     .get(participantId)) as { id: number; display_name: string; linked_user_id: number | null } | undefined;
@@ -132,6 +140,9 @@ async function activateInside(requestId: number, actor: Actor): Promise<Activate
     .get(requestId)) as RequestRow;
   const accepted = (await db.prepare("SELECT name FROM users WHERE id = ?").get(r.accepted_by_user_id)) as { name: string };
   const exception = r.exception_category !== null;
+  // An agreement a manager recorded in person, no code having been possible: flagged for review as an exception's is.
+  const inPerson = !exception && r.consent_method === "staff_in_person";
+  const flag = exception ? "exception" : inPerson ? "in-person-agreement" : null;
   const g = (await db
     .prepare(
       `INSERT INTO participant_guardians (participant_id, user_id, relationship, authority_declared_at, provenance, venue_id, note, request_id,
@@ -141,13 +152,23 @@ async function activateInside(requestId: number, actor: Actor): Promise<Activate
     )
     .get(
       `Invited by ${r.initiated_by_name}`.slice(0, 200),
-      exception ? "exception" : null,
-      exception ? new Date().toISOString() : null,
-      exception ? `Exception (${r.exception_category}) by ${r.exception_by_name}: ${r.exception_reason}; review by ${r.exception_review_on}` : null,
+      flag,
+      flag ? new Date().toISOString() : null,
+      exception
+        ? `Exception (${r.exception_category}) by ${r.exception_by_name}: ${r.exception_reason}; review by ${r.exception_review_on}`
+        : inPerson
+          ? `Agreement of ${r.consented_by_name} (recorded by name and number) recorded in person by ${r.consent_staff_name}: ${r.consent_reason}; not proof of authority`
+          : null,
       r.id
     )) as { id: number };
   await db.prepare("UPDATE guardian_requests SET status = 'active', guardianship_id = ?, activated_at = now() WHERE id = ?").run(g.id, r.id);
-  const how = exception ? `exception (${r.exception_category}) recorded by ${r.exception_by_name}` : `agreed by ${r.consented_by_name}`;
+  const how = exception
+    ? `exception (${r.exception_category}) recorded by ${r.exception_by_name}`
+    : r.consent_method === "staff_assisted_phone_code"
+      ? `agreed by ${r.consented_by_name} (recorded by name and number), by a code sent to their number, entered by ${r.consent_staff_name}`
+      : inPerson
+        ? `agreement of ${r.consented_by_name} (recorded by name and number) recorded in person by ${r.consent_staff_name}, not proof of authority`
+        : `agreed by ${r.consented_by_name}`;
   await participantEvent(r.participant_id, "guardian.added", actor, {
     venueId: r.venue_id,
     detail: `${accepted.name} (their account) declared ${r.relationship} online, invited by ${r.initiated_by_name}; ${how}`,
@@ -156,13 +177,20 @@ async function activateInside(requestId: number, actor: Actor): Promise<Activate
 }
 
 /** After a relationship was made: the other guardians told, or (an exception requiring it) not, and that recorded. */
-async function afterActivation(a: Activated, alsoExcept: number[] = []): Promise<void> {
+async function afterActivation(a: Activated, alsoExcept: number[] = [], exceptGuardianshipIds: number[] = []): Promise<void> {
   if (a.suppress) {
     await participantEvent(a.participantId, "guardian.notice_suppressed", { system: true }, { venueId: a.venueId, detail: "an exception requires the other guardians not to be told" });
     return;
   }
-  await notifyGuardianChange(a.participantId, "added", { exceptUserIds: [a.newUserId, ...alsoExcept], venueId: a.venueId, about: a.guardianshipId });
+  await notifyGuardianChange(a.participantId, "added", { exceptUserIds: [a.newUserId, ...alsoExcept], exceptGuardianshipIds, venueId: a.venueId, about: a.guardianshipId });
 }
+
+/** After a relationship made on the agreement of a guardian recorded by name and number (lib/contact-guardians.ts): the others told, not the one who agreed. */
+export async function finishActivation(a: Activated, agreedGuardianshipId: number): Promise<void> {
+  await afterActivation(a, [], [agreedGuardianshipId]);
+}
+
+export type { Activated };
 
 const toRefusal = (err: unknown): ParticipantRefusal => {
   if (isUniqueViolation(err, "participant_guardians")) return refused("PTC_ALREADY_GUARDIAN", "You already manage them.", 409);
@@ -187,7 +215,7 @@ export async function requestAtVenue(input: {
   admin: StaffActor;
   proposedName?: unknown;
   email?: unknown;
-}): Promise<{ ok: true; requestId: number; code: string; expiresAt: string; consentPossible: boolean; proposedName: string } | ParticipantRefusal> {
+}): Promise<{ ok: true; requestId: number; code: string; expiresAt: string; consentPossible: boolean; contactConsent: boolean; proposedName: string } | ParticipantRefusal> {
   const db = getDb();
   const name = typeof input.proposedName === "string" ? input.proposedName.trim().replace(/\s+/g, " ") : "";
   const email = typeof input.email === "string" ? input.email.trim() : "";
@@ -231,6 +259,7 @@ export async function requestAtVenue(input: {
       code: shown,
       expiresAt: iso(inv.expires_at) ?? "",
       consentPossible: await consentPossible(p.id, proposedUserId),
+      contactConsent: await contactConsentPossible(p.id),
       proposedName: proposed,
     };
   });
@@ -244,6 +273,19 @@ async function consentPossible(participantId: number, notUserId: number | null):
           AND revoked_at IS NULL AND suspended_at IS NULL AND archived_at IS NULL LIMIT 1`
     )
     .get(participantId, notUserId));
+}
+
+/**
+ * Could a guardian the venue recorded by name and number agree, through its
+ * staff (lib/contact-guardians.ts): one acting for them now, not paused?
+ */
+export async function contactConsentPossible(participantId: number): Promise<boolean> {
+  return !!(await getDb()
+    .prepare(
+      `SELECT 1 FROM participant_guardians WHERE participant_id = ? AND user_id IS NULL
+          AND revoked_at IS NULL AND suspended_at IS NULL AND archived_at IS NULL LIMIT 1`
+    )
+    .get(participantId));
 }
 
 // ------------------------------------------------------------------ accepting
@@ -299,15 +341,36 @@ export async function acceptGuardianInvite(
           `UPDATE guardian_requests SET status = 'awaiting_consent', accepted_by_user_id = ?, accepted_at = now(), relationship = ?, authority_declared_at = now(),
              consented_by_user_id = CASE WHEN ? THEN initiated_by_user_id ELSE consented_by_user_id END,
              consented_by_name = CASE WHEN ? THEN initiated_by_name ELSE consented_by_name END,
-             consented_at = CASE WHEN ? THEN now() ELSE consented_at END
+             consented_at = CASE WHEN ? THEN now() ELSE consented_at END,
+             consent_method = CASE WHEN ? THEN 'guardian_code' ELSE consent_method END
            WHERE id = ?`
         )
-        .run(user.id, relationship, own, own, own, req.id);
+        .run(user.id, relationship, own, own, own, own, req.id);
       await participantEvent(p.id, "guardian.request_accepted", { userId: user.id, name: user.name }, {
         venueId: req.venue_id,
         detail: `declared ${relationship} online, signed in, accepting the code ${inv.by_name} gave`,
       });
-      const activated = own || req.exception_category !== null ? await activateInside(req.id, { userId: user.id, name: user.name }) : null;
+      // Agreed before the adult accepted, by a guardian recorded by name and number (lib/contact-guardians.ts): only while that guardian still acts for them.
+      let agreed = !own && req.consented_at !== null && req.consented_at !== undefined;
+      if (agreed && req.consent_guardianship_id !== null) {
+        const still = await db
+          .prepare("SELECT 1 FROM participant_guardians WHERE id = ? AND revoked_at IS NULL AND suspended_at IS NULL")
+          .get(req.consent_guardianship_id);
+        if (!still) {
+          agreed = false;
+          await db
+            .prepare(
+              `UPDATE guardian_requests SET consented_by_user_id = NULL, consented_by_name = NULL, consented_at = NULL, consent_method = NULL,
+                 consent_guardianship_id = NULL, consent_staff_admin_id = NULL, consent_staff_name = NULL, consent_reason = NULL WHERE id = ?`
+            )
+            .run(req.id);
+          await participantEvent(p.id, "guardian.consent_lapsed", { system: true }, {
+            venueId: req.venue_id,
+            detail: `the agreement ${req.consented_by_name} gave no longer counts: they no longer act for them, or are paused`,
+          });
+        }
+      }
+      const activated = own || agreed || req.exception_category !== null ? await activateInside(req.id, { userId: user.id, name: user.name }) : null;
       return { ok: true as const, participantId: p.id, displayName: p.display_name, activated, venueId: req.venue_id, requestId: req.id };
     });
   } catch (err) {
@@ -350,7 +413,9 @@ export async function answerRequest(
       if (r.status !== "awaiting_consent") return refused("GV_REQUEST_CLOSED", "This request is no longer waiting for an answer.", 409);
       await lockParticipant(r.participant_id);
       if (agree) {
-        await db.prepare("UPDATE guardian_requests SET consented_by_user_id = ?, consented_by_name = ?, consented_at = now() WHERE id = ?").run(user.id, user.name ?? null, r.id);
+        await db
+          .prepare("UPDATE guardian_requests SET consented_by_user_id = ?, consented_by_name = ?, consented_at = now(), consent_method = 'online' WHERE id = ?")
+          .run(user.id, user.name ?? null, r.id);
         await participantEvent(r.participant_id, "guardian.request_agreed", { userId: user.id, name: user.name }, { venueId: r.venue_id });
         return { ok: true as const, status: "active" as const, activated: await activateInside(r.id, { userId: user.id, name: user.name }) };
       }
@@ -422,6 +487,55 @@ export async function recordException(
   if (!done.ok) return done;
   if (done.activated) await afterActivation(done.activated);
   return { ok: true, active: done.active, participantId: done.participantId };
+}
+
+/**
+ * The agreement of a guardian a venue recorded by name and number, given
+ * through its staff (lib/contact-guardians.ts), in the caller's transaction:
+ * a code sent to the number recorded for them and read back to staff
+ * (`staff_assisted_phone_code`), or, where no code can be sent from this
+ * install, a manager's record of their agreement in person, with a reason
+ * (`staff_in_person`, recorded as such and never as proof of authority; the
+ * relationship it makes is flagged for review). Only for a request staff
+ * started, still open and not yet agreed to. The relationship is made now if
+ * the adult has accepted, or when they do, provided that guardian still acts
+ * for the participant then.
+ */
+export async function agreeForContactInside(input: {
+  requestId: unknown;
+  participantId: number;
+  guardian: { id: number; name: string };
+  staff: StaffActor;
+  venueId: number;
+  method: "staff_assisted_phone_code" | "staff_in_person";
+  reason?: string | null;
+}): Promise<{ ok: true; activated: Activated | null } | ParticipantRefusal> {
+  const db = getDb();
+  const id = Number(input.requestId);
+  const r = (await db
+    .prepare("SELECT * FROM guardian_requests WHERE id = ? FOR UPDATE")
+    .get(Number.isInteger(id) && id > 0 ? id : 0)) as RequestRow | undefined;
+  if (!r || r.participant_id !== input.participantId) return refused("GV_REQUEST_NOT_FOUND", "No such request.", 404);
+  if (r.status !== "invited" && r.status !== "awaiting_consent") return refused("GV_REQUEST_CLOSED", "This request is no longer waiting for an answer.", 409);
+  // A guardian's own request carries their agreement already; one agreed to needs no other.
+  if (r.initiated_as !== "staff" || (r.consented_at !== null && r.consented_at !== undefined))
+    return refused("GW5_ALREADY_AGREED", "A guardian has already agreed to this request.", 409);
+  await lockParticipant(r.participant_id);
+  await db
+    .prepare(
+      `UPDATE guardian_requests SET consented_by_user_id = NULL, consented_by_name = ?, consented_at = now(), consent_method = ?, consent_guardianship_id = ?,
+         consent_staff_admin_id = ?, consent_staff_name = ?, consent_reason = ? WHERE id = ?`
+    )
+    .run(input.guardian.name, input.method, input.guardian.id, input.staff.id, input.staff.name, input.reason ?? null, r.id);
+  await participantEvent(r.participant_id, "guardian.request_agreed", { adminId: input.staff.id, name: input.staff.name }, {
+    venueId: input.venueId,
+    detail:
+      input.method === "staff_assisted_phone_code"
+        ? `${input.guardian.name} (recorded by name and number) agreed, by a code sent to the number recorded for them, entered by ${input.staff.name}`
+        : `${input.guardian.name} (recorded by name and number) agreed in person, recorded by ${input.staff.name}: ${input.reason}; not proof of authority`,
+  });
+  const activated = r.status === "awaiting_consent" ? await activateInside(r.id, { adminId: input.staff.id, name: input.staff.name }) : null;
+  return { ok: true, activated };
 }
 
 /** Staff close a request still open, with a reason: refused if it was accepted, cancelled if not; its code stops working. */
@@ -507,15 +621,20 @@ export async function reviewGuardian(
     if (!(await participantForStaff(scope, participantId))) return refused("PTC_NOT_FOUND", "No such relationship.", 404);
     const g = (await db
       .prepare(
-        "SELECT id, suspended_at, review_reason, reviewed_at FROM participant_guardians WHERE id = ? AND participant_id = ? AND revoked_at IS NULL FOR UPDATE"
+        `SELECT g.id, g.suspended_at, g.review_reason, g.reviewed_at, ${REVIEW_DATE_DUE} AS due
+           FROM participant_guardians g WHERE g.id = ? AND g.participant_id = ? AND g.revoked_at IS NULL FOR UPDATE`
       )
-      .get(Number.isInteger(gid) && gid > 0 ? gid : 0, participantId)) as { id: number; suspended_at: unknown; review_reason: string | null; reviewed_at: unknown } | undefined;
+      .get(todayISO(), Number.isInteger(gid) && gid > 0 ? gid : 0, participantId)) as
+      | { id: number; suspended_at: unknown; review_reason: string | null; reviewed_at: unknown; due: boolean }
+      | undefined;
     if (!g) return refused("PTC_NOT_FOUND", "No such relationship.", 404);
     if (action === "suspend") {
       if (g.suspended_at) return refused("GV_ALREADY_PAUSED", "This relationship is already paused.", 409);
       await db.prepare("UPDATE participant_guardians SET suspended_at = now(), suspended_by_name = ?, suspend_reason = ? WHERE id = ?").run(admin.name, why, g.id);
     } else {
-      if (!g.suspended_at && !(g.review_reason && !g.reviewed_at)) return refused("GV_NOTHING_TO_REVIEW", "Nothing about this relationship is waiting for a review.", 409);
+      // Flagged, paused, or an exception's date to look at it again has come.
+      if (!g.suspended_at && !(g.review_reason && !g.reviewed_at) && !g.due)
+        return refused("GV_NOTHING_TO_REVIEW", "Nothing about this relationship is waiting for a review.", 409);
       await db
         .prepare(
           "UPDATE participant_guardians SET suspended_at = NULL, reviewed_at = now(), reviewed_by_name = ?, review_outcome = ? WHERE id = ?"
@@ -543,6 +662,10 @@ export interface StaffRequest {
   relationship: Relationship | null;
   /** Could an existing guardian agree online? If not, only an exception completes it. */
   consentPossible: boolean;
+  /** Could a guardian recorded by name and number agree through staff (lib/contact-guardians.ts)? */
+  contactConsent: boolean;
+  /** Already agreed to, before the adult accepted: by whom, and how; null otherwise. */
+  agreed: { by: string; how: ConsentMethod } | null;
   exception: { category: ExceptionCategory; reviewOn: string } | null;
   createdAt: string;
 }
@@ -558,7 +681,11 @@ export async function openRequestsFor(participantIds: number[]): Promise<Map<num
               NOT EXISTS (SELECT 1 FROM participant_invites i WHERE i.request_id = r.id AND i.used_at IS NULL AND i.cancelled_at IS NULL AND i.expires_at > now()) AS no_code,
               EXISTS (SELECT 1 FROM participant_guardians g WHERE g.participant_id = r.participant_id AND g.user_id IS NOT NULL
                          AND g.user_id IS DISTINCT FROM r.accepted_by_user_id AND g.user_id IS DISTINCT FROM r.proposed_user_id
-                         AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.archived_at IS NULL) AS consent_possible
+                         AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.archived_at IS NULL) AS consent_possible,
+              r.initiated_as = 'staff' AND r.consented_at IS NULL
+                AND EXISTS (SELECT 1 FROM participant_guardians g WHERE g.participant_id = r.participant_id AND g.user_id IS NULL
+                               AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.archived_at IS NULL) AS contact_consent,
+              r.consented_by_name, r.consent_method
          FROM guardian_requests r LEFT JOIN users u ON u.id = r.accepted_by_user_id
         WHERE r.participant_id IN (${participantIds.map(() => "?").join(",")}) AND r.status IN ('invited', 'awaiting_consent')
         ORDER BY r.id`
@@ -577,6 +704,9 @@ export async function openRequestsFor(participantIds: number[]): Promise<Map<num
     created_at: unknown;
     no_code: boolean;
     consent_possible: boolean;
+    contact_consent: boolean;
+    consented_by_name: string | null;
+    consent_method: ConsentMethod | null;
   }[];
   for (const r of rows)
     out.set(r.participant_id, [
@@ -590,6 +720,8 @@ export async function openRequestsFor(participantIds: number[]): Promise<Map<num
         acceptedName: r.accepted_name,
         relationship: r.relationship,
         consentPossible: r.consent_possible,
+        contactConsent: !!r.contact_consent,
+        agreed: r.consent_method && r.consented_by_name ? { by: r.consented_by_name, how: r.consent_method } : null,
         exception: r.exception_category ? { category: r.exception_category, reviewOn: String(r.exception_review_on) } : null,
         createdAt: iso(r.created_at) ?? "",
       },
@@ -701,9 +833,25 @@ function moment(at: Date, zone: string): string {
 export async function notifyGuardianChange(
   participantId: number,
   change: Change,
-  opts: { exceptUserIds: number[]; venueId: number | null; about?: number }
+  opts: { exceptUserIds: number[]; venueId: number | null; about?: number; exceptGuardianshipIds?: number[] }
 ): Promise<number> {
   const db = getDb();
+  // Guardians a venue recorded by name and number: a minimal notice to a number known to reach them, or a task for staff (lib/contact-guardians.ts).
+  const contacts = async () => {
+    try {
+      return await (await import("./contact-guardians")).noticeContactGuardians(participantId, change, {
+        venueId: opts.venueId,
+        about: opts.about,
+        exceptGuardianshipIds: opts.exceptGuardianshipIds ?? [],
+      });
+    } catch (err) {
+      await participantEvent(participantId, "guardian.notice_failed", { system: true }, {
+        venueId: opts.venueId,
+        detail: `${change}, guardians recorded by name and number: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
+      }).catch(() => {});
+      return 0;
+    }
+  };
   try {
     const recipients = (await db
       .prepare(
@@ -713,7 +861,7 @@ export async function notifyGuardianChange(
       )
       .all(participantId)) as { id: number; email: string; name: string }[];
     const to = recipients.filter((r) => !opts.exceptUserIds.includes(r.id));
-    if (to.length === 0) return 0;
+    if (to.length === 0) return await contacts();
     const p = (await db.prepare("SELECT display_name FROM participants WHERE id = ?").get(participantId)) as { display_name: string } | undefined;
     if (!p) return 0;
     const venue = opts.venueId
@@ -728,8 +876,9 @@ export async function notifyGuardianChange(
       const locale = await accountLocale(r.id);
       const t = translator(locale, siteName());
       const vars = { name: p.display_name, when };
+      const key = change === "claimed" ? "gw5.mail.claimed" : (`gv.mail.${change}` as const);
       const parts = [
-        t(`gv.mail.${change}`, vars),
+        t(key, vars),
         t("gv.mail.mistake", { link }),
         venue ? (venue.phone ? t("gv.mail.venue", { venue: venue.name, phone: venue.phone }) : t("gv.mail.venueNoPhone", { venue: venue.name })) : t("gv.mail.platform"),
       ];
@@ -742,7 +891,7 @@ export async function notifyGuardianChange(
         locale,
         subject: "msg.programmeSubject",
         body: "msg.programmeBody",
-        vars: { subject: t(`gv.mail.${change}Subject`, vars), text },
+        vars: { subject: t(`${key}Subject` as const, vars), text },
         dedupeKey: opts.about !== undefined ? `guardian-${change}:${participantId}:${opts.about}:${r.id}` : undefined,
       });
       ids.push(m.id);
@@ -751,13 +900,13 @@ export async function notifyGuardianChange(
       venueId: opts.venueId,
       detail: `${change}: ${ids.length} other guardian(s) told by email (messages ${ids.join(", ")})`,
     });
-    return ids.length;
+    return ids.length + (await contacts());
   } catch (err) {
     // The change stands, and is on record; only the telling failed.
     await participantEvent(participantId, "guardian.notice_failed", { system: true }, {
       venueId: opts.venueId,
       detail: `${change}: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
     }).catch(() => {});
-    return 0;
+    return await contacts();
   }
 }

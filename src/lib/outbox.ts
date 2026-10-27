@@ -65,7 +65,12 @@ export type MessageKind =
   /** By email only, to the platform's owners or a venue's staff: something they would want to know (lib/owner-alerts.ts, alerts.ts). */
   | "staff_alert"
   /** By email only, to somebody who applied to list a venue: the decision on it (lib/applications.ts). */
-  | "applicant";
+  | "applicant"
+  /**
+   * On WhatsApp only, to a guardian a venue recorded by name and number whose number a code has come back from: who acts for a
+   * child changed, ask at the counter or sign in. The venue's name only, never the child's (lib/contact-guardians.ts).
+   */
+  | "guardian_notice";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the

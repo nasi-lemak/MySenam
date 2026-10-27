@@ -37,6 +37,7 @@ export const TEMPLATE_PHRASES: Partial<Record<MessageKind, Phrase>> = {
   booking_rescheduled: "msg.rescheduled",
   booking_reminder: "msg.reminder",
   venue_new_booking: "msg.venueNewBooking",
+  guardian_notice: "gw5.msg.notice",
 };
 
 /** The language codes Meta files a template's translations under. */

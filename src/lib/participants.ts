@@ -1,6 +1,7 @@
 import { createHash, randomInt } from "crypto";
 import { getDb, withTransaction } from "./db";
 import { phoneKey } from "./phone";
+import { todayISO } from "./time";
 
 /**
  * Participants: the people who take part, apart from the accounts that sign
@@ -250,22 +251,30 @@ export async function guardianshipOf(
 }
 
 /** Everybody this account is guardian of (not revoked or paused), with their own relationship to each; archived ones only when asked. */
-export async function guardianshipsOf(userId: number, opts: { archived?: boolean } = {}): Promise<{ participant: Participant; guardianship: Guardianship; otherGuardians: number }[]> {
+export async function guardianshipsOf(
+  userId: number,
+  opts: { archived?: boolean } = {}
+): Promise<{ participant: Participant; guardianship: Guardianship; otherGuardians: number; recordedGuardians: number }[]> {
   const rows = (await getDb()
     .prepare(
       `SELECT p.id, p.display_name, p.birth_year, p.origin, p.venue_id, p.linked_user_id, p.created_at,
               g.id AS g_id, g.user_id, g.relationship, g.authority_declared_at, g.provenance, g.recorded_by_name,
               g.created_at AS g_created_at, g.archived_at, g.revoked_at, g.revoke_reason,
-              (SELECT COUNT(*)::int FROM participant_guardians o WHERE o.participant_id = p.id AND o.id <> g.id AND o.revoked_at IS NULL) AS others
+              (SELECT COUNT(*)::int FROM participant_guardians o WHERE o.participant_id = p.id AND o.id <> g.id AND o.revoked_at IS NULL) AS others,
+              (SELECT COUNT(*)::int FROM participant_guardians o WHERE o.participant_id = p.id AND o.user_id IS NULL
+                  AND o.revoked_at IS NULL AND o.suspended_at IS NULL) AS recorded
          FROM participant_guardians g JOIN participants p ON p.id = g.participant_id
         WHERE g.user_id = ? AND g.revoked_at IS NULL AND g.suspended_at IS NULL${opts.archived ? "" : " AND g.archived_at IS NULL"}
         ORDER BY g.archived_at NULLS FIRST, p.id`
     )
-    .all(userId)) as (ParticipantRow & Omit<GuardianRow, "id" | "participant_id" | "contact_name" | "created_at"> & { g_id: number; g_created_at: unknown; others: number })[];
+    .all(userId)) as (ParticipantRow &
+    Omit<GuardianRow, "id" | "participant_id" | "contact_name" | "created_at"> & { g_id: number; g_created_at: unknown; others: number; recorded: number })[];
   return rows.map((row) => ({
     participant: toParticipant(row),
     guardianship: toGuardianship({ ...row, id: row.g_id, participant_id: row.id, contact_name: null, created_at: row.g_created_at }),
     otherGuardians: row.others,
+    // Guardians a venue recorded by name and number, acting for them now: each may take theirs over with an account (lib/contact-guardians.ts).
+    recordedGuardians: row.recorded,
   }));
 }
 
@@ -389,8 +398,14 @@ export interface VenueGuardian {
   provenance: Provenance;
   account: boolean;
   suspended: boolean;
-  review: "counter-shortcut" | "reported" | "exception" | null;
+  review: "counter-shortcut" | "reported" | "exception" | "in-person-agreement" | null;
   reviewNote: string | null;
+  /** An exception's date to look at it again has come (lib/guardian-requests.ts REVIEW_DATE_DUE). */
+  reviewDue: boolean;
+  /** Recorded by name and number: a code sent to the number came back, so it reaches them (lib/contact-guardians.ts). */
+  contactVerified: boolean;
+  /** Recorded by name and number, since taken over by their own account. */
+  claimed: boolean;
 }
 
 export interface VenueParticipant extends Participant {
@@ -426,7 +441,7 @@ export async function participantsForVenue(venueId: number, phone: string): Prom
            FROM participant_guardians g LEFT JOIN users u ON u.id = g.user_id
           WHERE g.participant_id = ? AND g.revoked_at IS NULL AND (phone_key(u.phone) = ? OR phone_key(g.contact_phone) = ?) ORDER BY g.id`
       )
-      .all(r.id, key, key)) as GuardianOut[];
+      .all(todayISO(), r.id, key, key)) as GuardianOut[];
     const induction = (await db
       .prepare("SELECT id FROM inductions WHERE venue_id = ? AND participant_id = ? AND revoked_at IS NULL")
       .get(venueId, r.id)) as { id: number } | undefined;
@@ -435,38 +450,56 @@ export async function participantsForVenue(venueId: number, phone: string): Prom
   return out;
 }
 
+/**
+ * SQL: relationship `g` was made by an exception whose date to look at it
+ * again (`?`, today as YYYY-MM-DD) has come, and nobody has reviewed it since
+ * that date: a manager's reminder (lib/contact-guardians.ts guardianAttention).
+ */
+export const REVIEW_DATE_DUE = `EXISTS (SELECT 1 FROM guardian_requests rq WHERE rq.id = g.request_id AND rq.exception_review_on IS NOT NULL
+    AND rq.exception_review_on <= ?::date AND (g.reviewed_at IS NULL OR g.reviewed_at::date < rq.exception_review_on))`;
+
 const GUARDIAN_COLUMNS = `g.id, COALESCE(u.name, g.contact_name) AS name, g.relationship, g.provenance, g.user_id IS NOT NULL AS account,
   g.suspended_at IS NOT NULL AS suspended, CASE WHEN g.reviewed_at IS NULL THEN g.review_reason END AS review,
-  CASE WHEN g.reviewed_at IS NULL THEN g.review_note END AS review_note`;
+  CASE WHEN g.reviewed_at IS NULL THEN g.review_note END AS review_note, ${REVIEW_DATE_DUE} AS "reviewDue",
+  (g.user_id IS NULL AND g.contact_verified_at IS NOT NULL) AS "contactVerified", g.claimed_at IS NOT NULL AS claimed`;
 type GuardianOut = Omit<VenueGuardian, "reviewNote"> & { review_note: string | null };
 const toVenueGuardian = ({ review_note, ...g }: GuardianOut): VenueGuardian => ({ ...g, reviewNote: review_note });
+
+/**
+ * SQL: relationship `g` waits for a manager: flagged and not reviewed, paused,
+ * or made by an exception whose date to look at it again (`?`, today) has
+ * come since it was last reviewed.
+ */
+export const NEEDS_REVIEW = `((g.review_reason IS NOT NULL AND g.reviewed_at IS NULL) OR g.suspended_at IS NOT NULL OR ${REVIEW_DATE_DUE})`;
 
 /**
  * What a manager has to look at (lib/guardian-requests.ts): participants this
  * venue knows (or, for the platform owner, any) with a relationship flagged
  * for review (made by the earlier counter shortcut, reported as a mistake by
- * another guardian, made by an exception) or paused. Each with those
- * guardians only. Bounded: never a list of everybody.
+ * another guardian, made by an exception or on an agreement recorded in
+ * person), paused, or whose exception's date to look at it again has come.
+ * Each with those guardians only. Bounded: never a list of everybody.
  */
 export async function reviewQueue(scope: { venueId: number } | { owner: true }): Promise<VenueParticipant[]> {
   const db = getDb();
   const venue = "venueId" in scope;
+  const today = todayISO();
   const rows = (await db
     .prepare(
       `SELECT DISTINCT p.* FROM participants p JOIN participant_guardians g ON g.participant_id = p.id AND g.revoked_at IS NULL
-        WHERE ((g.review_reason IS NOT NULL AND g.reviewed_at IS NULL) OR g.suspended_at IS NOT NULL)${venue ? ` AND ${KNOWN_TO}` : ""}
+        WHERE ${NEEDS_REVIEW}${venue ? ` AND ${KNOWN_TO}` : ""}
         ORDER BY p.id LIMIT 50`
     )
-    .all(...(venue ? knownArgs(scope.venueId) : []))) as ParticipantRow[];
+    .all(today, ...(venue ? knownArgs(scope.venueId) : []))) as ParticipantRow[];
   const out: VenueParticipant[] = [];
   for (const r of rows) {
     const guardians = (await db
       .prepare(
         `SELECT ${GUARDIAN_COLUMNS} FROM participant_guardians g LEFT JOIN users u ON u.id = g.user_id
-          WHERE g.participant_id = ? AND g.revoked_at IS NULL AND ((g.review_reason IS NOT NULL AND g.reviewed_at IS NULL) OR g.suspended_at IS NOT NULL)
+          WHERE g.participant_id = ? AND g.revoked_at IS NULL AND ${NEEDS_REVIEW}
           ORDER BY g.id`
       )
-      .all(r.id)) as GuardianOut[];
+      .all(today, r.id, today)) as GuardianOut[];
     out.push({ ...toParticipant(r), guardians: guardians.map(toVenueGuardian), inductionId: null });
   }
   return out;
@@ -535,6 +568,9 @@ export async function revokeGuardianship(
         staff ? by.admin.name : (by.name ?? null),
         g.id
       );
+    // A code to take this relationship over with an account, or one sent to its number, is void with it (lib/contact-guardians.ts).
+    await db.prepare("UPDATE participant_invites SET cancelled_at = now() WHERE guardianship_id = ? AND used_at IS NULL AND cancelled_at IS NULL").run(g.id);
+    await db.prepare("UPDATE guardian_contact_codes SET cancelled_at = now() WHERE guardianship_id = ? AND used_at IS NULL AND cancelled_at IS NULL").run(g.id);
     // Codes this guardian gave out and nobody used yet go with it.
     if (g.user_id !== null) {
       await db
@@ -556,7 +592,11 @@ export async function revokeGuardianship(
   });
   if (!done.ok) return done;
   // The other guardians are told that a relationship ended (lib/guardian-requests.ts); a failure to tell them undoes nothing.
-  await (await import("./guardian-requests")).notifyGuardianChange(done.participantId, "ended", { exceptUserIds: done.userId !== null ? [done.userId] : [], venueId });
+  await (await import("./guardian-requests")).notifyGuardianChange(done.participantId, "ended", {
+    exceptUserIds: done.userId !== null ? [done.userId] : [],
+    venueId,
+    about: guardianshipId,
+  });
   // Their applications for the participant still waiting are withdrawn: nothing new from them (lib/approvals.ts).
   if (done.userId !== null)
     await (await import("./approvals")).guardianEnded(done.userId, done.participantId, staff ? `revoked by ${by.admin.name}` : "ended by the guardian");
@@ -590,10 +630,14 @@ export async function createInvite(
   participantId: unknown,
   purpose: unknown
 ): Promise<{ ok: true; code: string; expiresAt: string } | ParticipantRefusal> {
-  if (purpose !== "guardian" && purpose !== "link") return refused("PTC_PURPOSE", "A code for another guardian, or for their own login.");
+  if (purpose !== "guardian" && purpose !== "link" && purpose !== "claim") return refused("PTC_PURPOSE", "A code for another guardian, or for their own login.");
   const mine = await guardianshipOf(user.id, participantId, { live: true });
   if (!mine) return refused("GUARD_NOT_FOUND", "Not one of the people you manage.", 404);
   if (purpose === "link" && mine.participant.linked) return refused("PTC_ALREADY_LINKED", "They already have their own login linked.", 409);
+  // `claim`: this guardian's agreement that a guardian a venue recorded by name and number takes theirs over with their own account
+  // (lib/contact-guardians.ts claimRelationship); the account accepting must also have proved the number recorded for them.
+  if (purpose === "claim" && !(await recordedGuardianOf(mine.participant.id)))
+    return refused("GW5_NO_RECORDED_GUARDIAN", "Nobody acts for them on a name and number a venue recorded.", 409);
   const { shown, hash } = newInviteCode();
   return withTransaction(async () => {
     const db = getDb();
@@ -620,23 +664,32 @@ export async function createInvite(
         `INSERT INTO participant_invites (participant_id, purpose, code_hash, created_by_user_id, request_id, expires_at) VALUES (?, ?, ?, ?, ?, now() + interval '${INVITE_DAYS} days') RETURNING expires_at`
       )
       .get(mine.participant.id, purpose, hash, user.id, request)) as { expires_at: unknown };
-    await participantEvent(mine.participant.id, purpose === "link" ? "invite.link" : "invite.guardian", { userId: user.id, name: user.name });
+    await participantEvent(mine.participant.id, `invite.${purpose}`, { userId: user.id, name: user.name });
     return { ok: true as const, code: shown, expiresAt: iso(row.expires_at) ?? "" };
   });
+}
+
+/** Does a guardian a venue recorded by name and number (no account yet) act for this participant now, not paused? */
+async function recordedGuardianOf(participantId: number): Promise<boolean> {
+  return !!(await getDb()
+    .prepare("SELECT 1 FROM participant_guardians WHERE participant_id = ? AND user_id IS NULL AND revoked_at IS NULL AND suspended_at IS NULL LIMIT 1")
+    .get(participantId));
 }
 
 /** A code still good to accept, with who gave it and the request it carries. */
 export interface OpenInvite {
   id: number;
   participant_id: number;
-  purpose: "guardian" | "link";
+  purpose: "guardian" | "link" | "claim";
   created_by_user_id: number | null;
   by_name: string;
   request_id: number | null;
+  /** For a `claim` code staff gave: the relationship recorded by name and number it is for. */
+  guardianship_id: number | null;
 }
 
 /** SQL for a code still good to accept, by its hash (one `?`). */
-export const OPEN_INVITE = `SELECT i.id, i.participant_id, i.purpose, i.created_by_user_id, COALESCE(u.name, i.created_by_name, 'Staff') AS by_name, i.request_id
+export const OPEN_INVITE = `SELECT i.id, i.participant_id, i.purpose, i.created_by_user_id, COALESCE(u.name, i.created_by_name, 'Staff') AS by_name, i.request_id, i.guardianship_id
    FROM participant_invites i LEFT JOIN users u ON u.id = i.created_by_user_id
   WHERE i.code_hash = ? AND i.used_at IS NULL AND i.cancelled_at IS NULL AND i.expires_at > now()`;
 
@@ -651,13 +704,14 @@ export const OPEN_INVITE = `SELECT i.id, i.participant_id, i.purpose, i.created_
 export async function acceptInvite(
   user: { id: number; name?: string | null },
   input: Record<string, unknown>
-): Promise<{ ok: true; participant: Participant; as: "guardian" | "linked" } | { ok: true; as: "pending"; displayName: string } | ParticipantRefusal> {
+): Promise<{ ok: true; participant: Participant; as: "guardian" | "linked" | "claimed" } | { ok: true; as: "pending"; displayName: string } | ParticipantRefusal> {
   const code = typeof input.code === "string" ? input.code : "";
   if (code.replace(/[^A-Za-z0-9]/g, "").length !== 10) return refused("PTC_INVITE_INVALID", "That code is not one we know, or it has run out.", 404);
   const db = getDb();
   const found = (await db.prepare(OPEN_INVITE).get(hashCode(code))) as OpenInvite | undefined;
   if (!found) return refused("PTC_INVITE_INVALID", "That code is not one we know, or it has run out.", 404);
   if (found.purpose === "guardian") return (await import("./guardian-requests")).acceptGuardianInvite(user, hashCode(code), input);
+  if (found.purpose === "claim") return (await import("./contact-guardians")).claimRelationship(user, hashCode(code), input);
   return withTransaction(async () => {
     const inv = (await db.prepare(`${OPEN_INVITE} FOR UPDATE OF i`).get(hashCode(code))) as OpenInvite | undefined;
     // Whoever gave it must still act for them.
@@ -945,8 +999,55 @@ async function participantRecord(id: number): Promise<Record<string, unknown>> {
           WHERE s.managed_person_id = ? ORDER BY s.signed_at`
       )
       .all(id),
+    // A concession's proof a venue saw for them (`participant_concession_proofs`): the structured record only, never a card,
+    // a number off it or any file; who saw it by their role and venue, not by name.
+    concessionProofs: await db
+      .prepare(
+        `SELECT c.name AS concession, c.preset AS concession_type, v.name AS venue, p.seen_on AS verified_on, p.valid_until AS expires_on,
+                CASE WHEN p.valid_until >= ? THEN 'current' ELSE 'expired' END AS status, ${VERIFIED_BY_ROLE} AS verified_by
+           FROM participant_concession_proofs p JOIN concessions c ON c.id = p.concession_id JOIN venues v ON v.id = p.venue_id
+           LEFT JOIN admins a ON a.id = p.seen_by
+          WHERE p.participant_id = ? ORDER BY p.seen_on, c.name`
+      )
+      .all(todayISO(), id),
+    // Their own passes and memberships, and memberships naming them as covered (migrations 0155-0156).
+    passes: await db
+      .prepare(
+        `SELECT v.name AS venue, p.name, p.entries, p.expires_on, p.status FROM passes p JOIN venues v ON v.id = p.venue_id
+          WHERE p.holder_participant_id = ? ORDER BY p.id`
+      )
+      .all(id),
+    memberships: await db
+      .prepare(
+        `SELECT v.name AS venue, m.starts_on, m.expires_on, m.status, CASE WHEN m.holder_participant_id = ? THEN 'holder' ELSE 'covered' END AS as_member
+           FROM memberships m JOIN venues v ON v.id = m.venue_id
+          WHERE m.holder_participant_id = ? OR EXISTS (SELECT 1 FROM membership_participants mp WHERE mp.membership_id = m.id AND mp.participant_id = ?)
+          ORDER BY m.id`
+      )
+      .all(id, id, id),
+    // Taken off a booking (place_withdrawals, 0157): what their place cost and what went back; who did it, by kind.
+    placesWithdrawn: await db
+      .prepare(
+        `SELECT v.name AS venue, c.name AS court, bk.date, bk.start_min, w.price, w.paid, w.refunded, w.kept, w.late, w.units_returned,
+                w.by_kind AS withdrawn_by, w.reason, w.created_at
+           FROM place_withdrawals w JOIN bookings bk ON bk.id = w.booking_id JOIN courts c ON c.id = bk.court_id JOIN venues v ON v.id = c.venue_id
+          WHERE w.participant_id = ? ORDER BY w.id`
+      )
+      .all(id),
+    // Benefits redeemed for their place (place_benefits, 0155): a concession or a member's price, and what it took off.
+    placeBenefits: await db
+      .prepare(
+        `SELECT v.name AS venue, bk.date, b.kind, b.concession_name, b.amount, b.proof_check, b.created_at, b.reversed_at, b.reversed_why
+           FROM place_benefits b JOIN bookings bk ON bk.id = b.booking_id JOIN courts c ON c.id = bk.court_id JOIN venues v ON v.id = c.venue_id
+          WHERE b.participant_id = ? ORDER BY b.id`
+      )
+      .all(id),
   };
 }
+
+/** SQL: who verified something, as a staff role (`a`, an admin), never their name: front desk, a manager, or the platform's owner. */
+export const VERIFIED_BY_ROLE = `CASE WHEN a.id IS NULL THEN NULL WHEN a.venue_id IS NULL AND a.business_id IS NULL THEN 'platform owner'
+  WHEN a.venue_id IS NOT NULL AND a.role = 'desk' THEN 'front desk' ELSE 'manager' END`;
 
 /**
  * For an account's export (lib/privacy.ts): the participants it manages (not
@@ -956,7 +1057,7 @@ async function participantRecord(id: number): Promise<Record<string, unknown>> {
  */
 export async function participantsExport(
   userId: number
-): Promise<{ managed: unknown[]; ended: unknown[]; asParticipant: unknown | null; guardianRequestsPending: unknown[] }> {
+): Promise<{ managed: unknown[]; ended: unknown[]; paused: unknown[]; asParticipant: unknown | null; guardianRequestsPending: unknown[]; guardianRequests: unknown[] }> {
   const db = getDb();
   const managed: unknown[] = [];
   for (const { participant: p, guardianship: g, otherGuardians } of await guardianshipsOf(userId, { archived: true }))
@@ -980,11 +1081,31 @@ export async function participantsExport(
   const pending = (await db
     .prepare("SELECT accepted_at FROM guardian_requests WHERE accepted_by_user_id = ? AND status = 'awaiting_consent' ORDER BY id")
     .all(userId)) as { accepted_at: unknown }[];
+  // Paused while a manager reviews them: the relationship alone, since a paused guardian sees nothing of the participant meanwhile.
+  const paused = await db
+    .prepare("SELECT relationship, created_at, suspended_at FROM participant_guardians WHERE user_id = ? AND revoked_at IS NULL AND suspended_at IS NOT NULL ORDER BY id")
+    .all(userId);
+  // Requests this account started, accepted (once decided), agreed to or refused: its part and the outcome. The participant's
+  // name only where the account acts for them now; never the other adult's details.
+  const requests = (await db
+    .prepare(
+      `SELECT CASE WHEN r.initiated_by_user_id = ? THEN 'started' WHEN r.accepted_by_user_id = ? THEN 'accepted'
+                   WHEN r.consented_by_user_id = ? THEN 'agreed' ELSE 'refused' END AS role,
+              r.status, CASE WHEN r.accepted_by_user_id = ? THEN r.relationship END AS declared_relationship, r.created_at, r.activated_at, r.closed_at,
+              CASE WHEN ${ACTS_FOR("p")} THEN p.display_name END AS participant
+         FROM guardian_requests r JOIN participants p ON p.id = r.participant_id
+        WHERE r.initiated_by_user_id = ? OR r.consented_by_user_id = ? OR r.closed_by_user_id = ?
+           OR (r.accepted_by_user_id = ? AND r.status <> 'awaiting_consent')
+        ORDER BY r.id`
+    )
+    .all(userId, userId, userId, userId, userId, userId, userId, userId, userId, userId)) as Record<string, unknown>[];
   return {
     managed,
     ended,
+    paused,
     asParticipant: own ? { name: own.displayName, declaredBirthYear: own.birthYear, linkedFrom: own.createdAt, ...(await participantRecord(own.id)) } : null,
     guardianRequestsPending: pending.map((r) => ({ requestPending: true, since: iso(r.accepted_at) })),
+    guardianRequests: requests.map((r) => ({ ...r, created_at: iso(r.created_at), activated_at: iso(r.activated_at), closed_at: iso(r.closed_at) })),
   };
 }
 

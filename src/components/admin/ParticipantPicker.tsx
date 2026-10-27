@@ -66,7 +66,7 @@ export function ParticipantPicker({
     found: Candidate[] | null;
     chosen: number | null;
     email: string;
-    made: { code: string; expiresAt: string; consentPossible: boolean; name: string } | null;
+    made: { code: string; expiresAt: string; consentPossible: boolean; contactConsent?: boolean; name: string } | null;
   } | null>(null);
   const adult = guardianName.trim();
 
@@ -253,7 +253,13 @@ export function ParticipantPicker({
                   {other.made && (
                     <div role="status" className="space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2 text-emerald-900">
                       <p>{t("gv.g.code", { adult, code: other.made.code, date: new Date(other.made.expiresAt).toLocaleDateString(), name: other.made.name })}</p>
-                      {!other.made.consentPossible && <p className="text-amber-800">{t("gv.g.noConsent", { name: other.made.name })}</p>}
+                      {!other.made.consentPossible &&
+                        (other.made.contactConsent ? (
+                          // A guardian recorded here by name and number can agree through staff, by a code to their number (lib/contact-guardians.ts).
+                          <p className="text-amber-800">{t("gw5.g.contactConsent", { name: other.made.name })}</p>
+                        ) : (
+                          <p className="text-amber-800">{t("gv.g.noConsent", { name: other.made.name })}</p>
+                        ))}
                     </div>
                   )}
                 </>

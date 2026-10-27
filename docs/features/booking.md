@@ -269,7 +269,13 @@ taking part in the same way, and books them through the same engine
   guardian's agreement or a manager's exception
   ([another guardian by invitation](venue-operations.md#another-guardian-by-invitation)).
   Until then their request grants nothing: they book for the child neither
-  online nor at the counter.
+  online nor at the counter. A guardian paused for a manager's review, or
+  whose relationship ended, books for nobody on any path: online, a booking
+  of several courts, the counter and the venue's API key on their number,
+  and a waiting-list entry they made is offered to nobody. A guardian the
+  venue recorded by name and number acts only through its staff, by a code
+  to their number, or takes the relationship over with their own account
+  ([guardians without an account](venue-operations.md#guardians-without-an-account)).
 - **Places.** Each person takes a place: a parent booking two children on a
   shared facility takes two, and takes a third only when ticked as taking
   part; a court booked whole is one booking whoever plays. The same person
@@ -319,6 +325,7 @@ taking part in the same way, and books them through the same engine
 
 Tests: `tests/participant-bookings.test.ts` (each path, refusals, and races
 on Postgres), `tests/participants.test.ts` (the model),
+`tests/guardian-contact.test.ts` (a paused or ended guardian on every path),
 `tests/components/people-per-court.test.tsx` (people per court on the
 booking page) and `tests/people-per-court.test.ts` (what the page sends, as
 the route books it, online and at the counter).

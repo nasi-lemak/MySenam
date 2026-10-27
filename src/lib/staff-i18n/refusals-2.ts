@@ -653,4 +653,26 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That person is not on this venue's list.": { ms: "Orang itu tiada dalam senarai pusat ini.", zh: "此人不在本场馆的名单上。" },
   "A plan is sold to the account holder, somebody they look after, either, or a family.": { ms: "Pelan dijual kepada pemegang akaun, seseorang yang dijaganya, salah satu, atau sebuah keluarga.", zh: "配套的出售对象须为账户持有人、其照顾的人、两者之一，或家庭。" },
   "A family plan covers 1–12 people besides its holder.": { ms: "Pelan keluarga melindungi 1–12 orang selain pemegangnya.", zh: "家庭配套除持有人外涵盖 1–12 人。" },
+  "No guardian recorded by name and number acts for them under that id.": {
+    ms: "Tiada penjaga yang direkodkan dengan nama dan nombor bertindak bagi pihaknya di bawah id itu.",
+    zh: "该编号下没有以姓名和电话登记、为其代理的监护人。",
+  },
+  "This guardian's relationship is paused while a manager looks at it.": { ms: "Hubungan penjaga ini digantung sementara pengurus menyemaknya.", zh: "此监护人的关系已暂停，经理正在复核。" },
+  "A guardian has already agreed to this request.": { ms: "Seorang penjaga sudah bersetuju dengan permintaan ini.", zh: "已有监护人同意此申请。" },
+  "The number recorded for them is not one a code can be sent to.": { ms: "Nombor yang direkodkan untuk mereka bukan nombor yang boleh dihantar kod.", zh: "为其登记的号码无法接收验证码。" },
+  "No SMS or WhatsApp is set up here to send a code with.": { ms: "Tiada SMS atau WhatsApp disediakan di sini untuk menghantar kod.", zh: "此处未设置可发送验证码的短信或 WhatsApp。" },
+  "Codes are paused for now. Please try again later.": { ms: "Kod dihentikan buat sementara. Sila cuba lagi kemudian.", zh: "验证码暂停发送。请稍后再试。" },
+  "That code has run out, or was used already. Send a new one.": { ms: "Kod itu telah tamat tempoh, atau sudah digunakan. Hantar kod baharu.", zh: "该验证码已过期或已被使用。请发送新的验证码。" },
+  "A code can be sent to their number from here: use that instead.": { ms: "Kod boleh dihantar ke nombor mereka dari sini: gunakan cara itu.", zh: "此处可以向其号码发送验证码：请改用验证码。" },
+  "A code to agree to a request, to end their own relationship, or to check their number.": {
+    ms: "Kod untuk bersetuju dengan permintaan, menamatkan hubungan mereka sendiri, atau menyemak nombor mereka.",
+    zh: "验证码用于同意申请、结束其本人的关系，或核对其号码。",
+  },
+  "No such change to report.": { ms: "Tiada perubahan sedemikian untuk dilaporkan.", zh: "没有可报告的此项变更。" },
+  "Say whether you told them, or it is no longer needed.": { ms: "Nyatakan sama ada anda telah memaklumkan mereka, atau ia tidak lagi diperlukan.", zh: "请说明您是否已告知对方，或已无需告知。" },
+  "No such task.": { ms: "Tiada tugasan sedemikian.", zh: "没有此项任务。" },
+  "action is sendCode, confirmCode, inPerson, claimCode or report.": {
+    ms: "action ialah sendCode, confirmCode, inPerson, claimCode atau report.",
+    zh: "action 须为 sendCode、confirmCode、inPerson、claimCode 或 report。",
+  },
 };

@@ -110,6 +110,14 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "booking.place_withdrawn": "ent.act.placeWithdrawn",
   "waitlist.added": "wl5.act.added",
   "waitlist.removed": "wl5.act.removed",
+  "participant.guardian_code_sent": "gw5.act.codeSent",
+  "participant.guardian_agreed_by_code": "gw5.act.agreedByCode",
+  "participant.guardian_agreed_in_person": "gw5.act.agreedInPerson",
+  "participant.guardian_withdrawn": "gw5.act.withdrawn",
+  "participant.guardian_number_checked": "gw5.act.numberChecked",
+  "participant.guardian_claim_code": "gw5.act.claimCode",
+  "participant.guardian_reported": "gw5.act.reported",
+  "participant.guardian_told": "gw5.act.told",
 };
 
 /**

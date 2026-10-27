@@ -2262,6 +2262,17 @@ export const ZH: Record<Phrase, string> = {
   "mbo.err.MBO_TOO_EARLY": "{name} 在此的会员资格有效期至 {until}。您可从 {from} 起在线续期。",
   "mbo.err.MBO_NOT_YOURS": "那不是您的会员资格。",
   "mbo.err.MBO_ENDED": "此会员资格已结束。",
+  "gw5.sms.code": "来自 {venue} 的验证码 {code}。只交给场馆职员，并且只在您同意他们所询问的事项时才交出。",
+  "gw5.msg.notice": "这里是 {venue}。您被登记为监护人的一名孩子，其代理人有所变动。请到柜台询问，或登录查看。",
+  "gw5.mail.claimedSubject": "{name}：一位监护人现在用自己的账户登录",
+  "gw5.mail.claimed": "{when}，场馆以姓名和电话登记的一位 {name} 的监护人，已用自己的账户接管该关系。没有新的人为 {name} 代理。",
+  "gw5.accept.claimed": "完成：您现在以此账户为 {name} 代理，身份是场馆登记的监护人。",
+  "gw5.accept.claimHint": "场馆以您的姓名和电话将您登记为监护人，并给了您一个代码？请先在此账户验证该号码，然后在这里输入代码。",
+  "gw5.claim.give": "给场馆登记的监护人的代码",
+  "gw5.claim.code": "给 {name} 在场馆登记的监护人的代码：{code}（有效至 {date}）。对方先验证场馆为其登记的号码，再用自己的账户在这里输入。",
+  "gw5.err.GW5_PHONE_UNPROVEN": "请先验证您账户上的电话号码（在账户页面），然后再次输入代码。",
+  "gw5.err.GW5_NOT_THEIR_NUMBER": "您账户上已验证的号码不是为这位监护人登记的号码。请询问场馆。",
+  "gw5.err.GW5_NO_RECORDED_GUARDIAN": "没有以场馆登记的姓名和电话为其代理的人。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

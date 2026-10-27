@@ -289,17 +289,43 @@ export async function verifyFromWhatsapp(from: string, text: string): Promise<bo
 }
 
 /**
+ * A code a venue's staff send to a number on record for somebody without an
+ * account (lib/contact-guardians.ts): the same delivery and the same site-wide
+ * daily ceiling as a customer's own code, with its own words by SMS (`text`,
+ * which carries the code and the venue, nothing else). How it went, or why
+ * it could not.
+ */
+export async function sendCodeToNumber(number: string, code: string, text: string, locale: Locale = "en"): Promise<{ ok: true; channel: "sms" | "whatsapp" | "log" } | { ok: false; error: string; code: string }> {
+  if (!phoneMethods().code) return { ok: false, error: "No SMS or WhatsApp is set up here to send a code with.", code: "GW5_NO_PHONE_CODES" };
+  const db = getDb();
+  const { today } = (await db
+    .prepare(
+      `SELECT ((SELECT COUNT(*) FROM phone_codes WHERE method = 'code' AND created_at > datetime('now', '-1 day'))
+             + (SELECT COUNT(*) FROM guardian_contact_codes WHERE created_at > now() - interval '1 day'))::int AS today`
+    )
+    .get()) as { today: number };
+  if (today >= codesPerDay()) return { ok: false, error: "Codes are paused for now. Please try again later.", code: "PHONE_CODES_PAUSED" };
+  const channel = process.env.MYSENAM_SEND === "log" ? "log" : smsConfig() ? "sms" : "whatsapp";
+  try {
+    await deliver(number, code, locale, text);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The code could not be sent.", code: "GW5_CODE_NOT_SENT" };
+  }
+  return { ok: true, channel };
+}
+
+/**
  * The code, on WhatsApp, through the "authentication" template Meta keeps
  * for exactly this (WHATSAPP_CODE_TEMPLATE, default `mysenam_login_code`):
  * the code in the body, and again on its copy-code button.
  */
-async function deliver(number: string, code: string, locale: Locale): Promise<void> {
+async function deliver(number: string, code: string, locale: Locale, text?: string): Promise<void> {
   if (process.env.MYSENAM_SEND === "log") {
     console.info(`[phone code] → +${number}: ${code} (${siteName()})`);
     return;
   }
   const sms = smsConfig();
-  if (sms) return sendSms(sms, number, smsText(translator(locale)("phone.smsText", { site: siteName(), code })));
+  if (sms) return sendSms(sms, number, smsText(text ?? translator(locale)("phone.smsText", { site: siteName(), code })));
   const config = whatsappConfig();
   if (!config) throw new Error("WhatsApp is not set up here, so no code can be sent.");
   const res = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`, {

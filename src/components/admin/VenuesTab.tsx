@@ -166,7 +166,7 @@ export function VenuesTab({
 
       <DataRequestPanel venues={venues} />
 
-      {admin.role !== "desk" && <ParticipantsPanel venues={venues} />}
+      <ParticipantsPanel venues={venues} role={admin.role} owner={isOwner} />
 
       <MessagesPanel venues={venues} isOwner={isOwner} />
 

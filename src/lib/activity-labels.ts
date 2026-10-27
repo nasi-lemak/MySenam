@@ -119,4 +119,12 @@ export const ACTION_LABELS: Record<string, string> = {
   "booking.place_withdrawn": "Took one person off a booking, the others staying booked",
   "waitlist.added": "Put somebody on a waiting list at the counter or through the API",
   "waitlist.removed": "Took somebody the venue had queued off a waiting list",
+  "participant.guardian_code_sent": "Sent a code to the number recorded for a participant's guardian",
+  "participant.guardian_agreed_by_code": "Recorded a guardian's agreement by a code to their number",
+  "participant.guardian_agreed_in_person": "Recorded a guardian's agreement given in person (no code could be sent)",
+  "participant.guardian_withdrawn": "Ended a guardian's relationship at their request, by a code to their number",
+  "participant.guardian_number_checked": "Checked by a code that a guardian's number reaches them",
+  "participant.guardian_claim_code": "Gave a guardian a code to take their relationship over with an account",
+  "participant.guardian_reported": "Reported a guardian's relationship for review, for a guardian without an account",
+  "participant.guardian_told": "Told a guardian without an account about a change",
 };
