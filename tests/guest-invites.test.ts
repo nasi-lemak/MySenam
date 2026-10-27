@@ -11,7 +11,7 @@ import { NextRequest } from "next/server";
 import { getDb } from "../src/lib/db";
 import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
 import { accessEntryId, accessList, accessRefusal, addAccess, linkAccess, setAccessSettings } from "../src/lib/access";
-import { cancelGuest, inviteGuest, myInviteVenues, setGuestPolicy } from "../src/lib/guest-invites";
+import { acceptGuestInvitation, cancelGuest, inviteGuest, myInviteVenues, setGuestPolicy } from "../src/lib/guest-invites";
 import { houseRuleRefusal, setHouseRules } from "../src/lib/house-rules";
 import { createBooking, createCourt, createVenue } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -85,9 +85,15 @@ describe("residents inviting guests", () => {
     );
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.guest).toMatchObject({ name: "Ali", expiresOn: addDays(today, 2), linked: true });
+    // An invitation is emailed, not a link made: nothing says whether the address has an account (tests/guest-invitations.test.ts).
+    expect(body.guest).toMatchObject({ name: "Ali", expiresOn: addDays(today, 2), linked: false, invited: true });
     expect(body.venues).toMatchObject([{ id: venueId, policy: { perResident: 2, days: 3 }, guests: [{ name: "Ali" }] }]);
     expect(await entry("013-333 0000")).toMatchObject({ kind: "guest", label: "A-12-3", invitedBy: "Hafiz", expiresOn: addDays(today, 2) });
+    expect(await accessRefusal(venueId, guest.id)).toMatchObject({ code: "PRIVATE_VENUE" });
+    // The guest accepts it, signed in with that address: now they can book.
+    const mail = (await getDb().prepare("SELECT body FROM messages WHERE recipient = 'ali@example.my' ORDER BY id DESC").get()) as { body: string };
+    const token = /guest-invitation\?token=([A-Za-z0-9_-]+)/.exec(mail.body)![1];
+    expect(await acceptGuestInvitation(guest, token)).toMatchObject({ ok: true, venue: { id: venueId } });
     expect(await accessRefusal(venueId, guest.id)).toBeNull();
   });
 

@@ -916,15 +916,37 @@ off) and **for up to how many days** (1 to 14). Changing them is a manager's job
   Re-inviting one's own guest extends the visit and uses no extra place. A
   guest whose visit has ended can be invited by anyone.
 - Guests cannot invite guests, and nobody can invite their own number.
-- The resident may give **the guest's account email**: the guest's entry is
-  then linked to that account, on the resident's word, and the guest books
-  online straight away (an email no account has is refused,
-  `GUEST_ACCOUNT_UNKNOWN`). Without it, the entry counts only for an account
-  that has proved the guest's number — so on a site without phone checks the
-  guest cannot book online until the resident invites them again with the
-  email or staff link their account. The resident sees which guests are
-  linked, and is shown the venue link to send them. A lapsed guest another
-  resident takes over keeps no link.
+- The resident may give **the guest's email**, and the address is sent an
+  **invitation**, not linked to anything: the resident learns nothing about
+  it ([no account enumeration](../architecture/security.md#no-account-enumeration)).
+  Whether or not an account has that address, the answer is the same
+  (*Invitation submitted: if the recipient can receive invitations, they'll
+  receive further instructions*), the entry goes on the list the same way,
+  and the same email goes out through the outbox, in the resident's language.
+  Only the resident's own address is refused (`GUEST_ACCOUNT_SELF`), and
+  something that is not an address (`GUEST_EMAIL_INVALID`).
+  - The email carries a **single-use link** to `/guest-invitation`, kept only
+    as a keyed hash with a keyed hash of the address. It works until the
+    guest's entry ends, and only for **an account signed in with that
+    address**: somebody without one makes it (*Create an account*) and comes
+    back. Accepting links that one entry to the account, and nothing else —
+    no other entry, venue, household or staff access.
+  - Inviting the same guest again with an email **replaces** the link; the
+    guest taken off, their entry running out, a lapsed guest taken over by
+    another resident, or the resident leaving the list or no longer counting
+    as one **voids** it. Every link that cannot be used gets the same answer
+    (`GUEST_INVITATION_INVALID`); one opened by another account is left for
+    the right one. Two acceptances at once link it once.
+  - The resident sees each guest as *invitation sent* until it is accepted,
+    then *linked* (accepting is the guest's own act, so it tells the resident
+    nothing they were not meant to know); a guest already linked keeps that
+    account until a new invitation is accepted.
+- Without an email, the entry counts only for an account that has proved the
+  guest's number — so on a site without phone checks the guest cannot book
+  online until the resident invites them again with an email or staff link
+  their account. The resident is shown the venue link to send them. A lapsed
+  guest another resident takes over keeps no link
+  (`tests/guest-invitations.test.ts`, `tests/components/guest-invitations.test.tsx`).
 - Only a resident or member whose own entry counts for their account (linked,
   or their number proved) can invite guests.
 

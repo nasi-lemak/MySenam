@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /**
  * The venues this resident can invite guests to, and their guests there now;
  * `phoneChecks`: whether a guest can prove their number here, or needs their
- * entry linked to their account (by email) to book online.
+ * entry linked to their account (by accepting an emailed invitation) to book online.
  */
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req);
@@ -17,7 +17,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ venues: await myInviteVenues(user.id), phoneChecks: phoneChecksOn() });
 }
 
-/** `{ venueId, phone, name, days, email? }`: put a guest on the venue's list; `email`, their account's, links it to that account. */
+/**
+ * `{ venueId, phone, name, days, email? }`: put a guest on the venue's list;
+ * `email` is sent an invitation to accept with the account that signs in with
+ * it. The answer is the same whether or not any account holds the address.
+ */
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
