@@ -128,7 +128,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | A participant nobody acts for any more (every account's relationship ended or archived, no linked login), or one a venue added that nobody has used, once no application, sign-off or induction in force, or booking in the last 365 days or to come, rests on them | 365 days after the last relationship ended, or after the venue added them | deleted |
 | Documents sent with an application to be approved for an activity | the review window (30 days) after a refusal, withdrawal, lapse or the approval ending; at most 90 days after the decision (the install's periods: [below](#applications-to-be-approved-for-an-activity)) | deleted; what was seen stays on the sign-off it wrote |
 | What is left of a document the malware scan refused (the fact; its bytes were wiped at once) or could not scan (its quarantined bytes) | 7 days after the scan settled (the install's quarantine period) | deleted; the application's history says a document was refused or could not be checked |
-| The erasure ledger: an erased account's number and the moment it was created | 400 days | deleted ([backups](../operations/backups.md#after-a-restore)) |
+| The erasure ledger: an erased account's (or a participant erased with it) number and the moment it was created, and changes of the install's retention periods; in the database, beside the backups and off-site | 400 days (off-site: the bucket's lifecycle rule, as backups) | deleted ([backups](../operations/backups.md#after-a-restore)) |
 | An approved application's answers, declarations and history detail, its approval still standing | 365 days after the decision | removed; the approval and the bare facts stay |
 | Applications to be approved for an activity, once closed (refused, withdrawn, lapsed, or the approval ended) | 365 days after closing | deleted; the bare facts kept |
 | The bare facts of a deleted application, and who opened its documents | 730 days | deleted |
@@ -165,15 +165,33 @@ under *Venues & staff → Supporting documents*, within bounds wide enough that
 no country's answer is assumed: documents 7–365 days after the decision, the
 review window 1 day up to the documents' period, a closed application 30–2190
 days, what is left of a refused or unscannable document 1–30 days (7 by
-default). **Provisional until reviewed:** until somebody records a review (who
-reviewed the periods, name and firm; on what day; on what basis), the
-dashboard, the activity settings and the privacy notice say the periods are
-provisional; once recorded, the notice says when and by whom. Changing any
-period lapses the review. Every change and review, with who recorded it, is
-kept and never pruned (`retention_policy_events`), as the deposit-tax review
-is ([venue operations](../features/venue-operations.md)). The review is the
-reviewer's view, recorded; the app does not judge whether a period meets any
-law.
+default). **Provisional until reviewed, and a review must say what it is.**
+A review is recorded by the platform owner (`retention_policy_reviews`,
+migration 0162), separately for Malaysia and for Singapore, with:
+
+- the reviewer's name, and their role or qualification as they state it;
+- their firm or organisation;
+- which periods it covers (documents after the decision, the review window,
+  closed applications, refused or unscannable documents);
+- the day of the review, which cannot be before the periods were last set or
+  in the future;
+- a reference to the written advice, which is kept outside MySenam;
+- what it was based on.
+
+A name and a day alone are refused. Every period a review in force does not
+cover stays **provisional**, for each jurisdiction; the install's own country
+(`MYSENAM_COUNTRY`) decides whether the dashboard, the activity settings and
+the privacy notice call the periods provisional, and the notice names, for
+that country, each review as *recorded by the platform owner, not verified by
+MySenam* and what is still provisional. Nothing in the app or these documents
+calls the periods legally approved: a recorded review is the owner's record
+of what a reviewer advised, and the app does not judge whether a period meets
+any law. Changing any period lapses every review in force (kept, marked
+lapsed). A review recorded before migration 0162 with only a name, a day and a
+basis was lapsed by it, with an entry saying so. Every change, review and
+lapse, with who recorded it, is kept and never pruned
+(`retention_policy_events`, `retention_policy_reviews`), as the deposit-tax
+review is ([venue operations](../features/venue-operations.md)).
 
 | Part | Its purpose | Kept |
 | ---- | ----------- | ---- |
@@ -251,18 +269,33 @@ removed earlier while their Object Lock lasts
 ([keys and Object Lock](../operations/backups.md#keys-and-object-lock)).
 
 **A restore does not bring them back for good.** Every erasure is recorded in
-an erasure ledger (an account's number and the moment it was created, nothing
-else), in the database and in a file beside the backup sets that a restore
-does not overwrite. After a restore the app, before it serves anything,
-erases again every account in the ledger that came back with the same
-creation moment, and runs the retention policy again, so what had aged out
-since the backup goes again ([backups](../operations/backups.md#after-a-restore)).
-What it cannot do: an erasure recorded after the ledger file last left the
-server is lost with the server (the file is not copied off-site), and an
-account the restored copy shows holding credit, a live pass or a membership,
-or under a hold, is not erased again by itself: the owners are told, to
-settle it and erase it by hand. The privacy notice says that deleted data can
-stay in backups until they expire and is erased again after a restore.
+an erasure ledger (an account's number and the moment it was created, the
+same for a participant erased with it, nothing else; and each change of the
+install's retention periods), in the database, in a file beside the backup
+sets that a restore does not overwrite, and off-site in signed segments
+copied within a minute and with every backup set, so it survives losing the
+server. After a restore the app, before it serves anything, erases again
+every account and participant in the ledger that came back with the same
+creation moment, puts back the newest retention periods, and runs the
+retention policy again, so what had aged out since the backup goes again. A
+restore that cannot show the ledger complete (after losing the server, or
+with a gap, a refused segment or a newer entry named elsewhere) is not served
+until the operator acknowledges it
+([backups](../operations/backups.md#after-a-restore)).
+
+The off-site ledger holds account and participant numbers with creation
+moments: pseudonymous personal data. It goes only where the backups may go,
+under the same data-location and transfer checks
+([below](#backups-held-abroad)), encrypted for a bucket abroad.
+
+What it cannot do: an erasure made in the moments before the server was lost,
+before its entry left it, is in no surviving copy; the restore says how far
+the ledger verifiably reached, and the operator makes it again from the
+request's own record. And an account the restored copy shows holding credit,
+a live pass or a membership, or under a hold, is not erased again by itself:
+the owners are told, to settle it and erase it by hand. The privacy notice
+says that deleted data can stay in backups until they expire, is erased again
+after a restore, and that its record is kept off the server too.
 
 **`/privacy` is not legal advice.** It describes what the software actually
 does, which is the hard part, in each of the site's languages (Bahasa Malaysia,
@@ -543,6 +576,16 @@ each country an install serves (and, for the documents, the venue's adviser):
 7. Whether keeping an unscannable document's bytes in quarantine for the
    quarantine period, never opened, is justified, or whether it should go at
    once.
+8. Whether keeping the erasure ledger (an erased account's or participant's
+   number and creation moment) for 400 days, and a copy of it off-site, in
+   the bucket's country, so that a restore cannot bring an erased person back,
+   is proportionate; and whether a restore that may have lost the last
+   erasures before a server was lost, made again by hand from the request's
+   own record, is enough.
+9. What a review of the retention periods must contain for each country to
+   rely on it (the app records the reviewer's name, role or qualification as
+   stated, firm, jurisdiction, the periods covered, the day and a reference
+   to the written advice), and who should keep that advice.
 
 How much data an install accumulates, and why bookings stay in plain Postgres
 rather than TimescaleDB, is in

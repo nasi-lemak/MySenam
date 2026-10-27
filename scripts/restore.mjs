@@ -23,9 +23,20 @@
  * --app-stopped says it has really stopped.
  *
  * A snapshot holds accounts erased and records retention removed since it was
- * taken. The restored database is marked, and the app, when it next starts and
- * before it serves anything, erases again the accounts in the erasure ledger
- * beside the backups and runs the retention policy (src/lib/erasure-ledger.ts).
+ * taken. The erasure ledger is read from the file beside the backups and,
+ * with the read key, from its off-site segments; checked as a chain from the
+ * restored copy's own newest entry and against every newer number known (the
+ * set's manifest, the newest manifest in the bucket, --expect-ledger-head N);
+ * and what is verified is brought in (src/lib/erasure-ledger-offsite.ts). The
+ * restored database is marked, and the app, when it next starts and before it
+ * serves anything, erases again the accounts and participants in the ledger,
+ * puts back the newest retention periods and runs the retention policy
+ * (src/lib/erasure-ledger.ts). Where the ledger cannot be shown complete (a
+ * gap, a broken or refused segment, a newer number named elsewhere, or no
+ * ledger beside the backups because the server was lost) the script exits 3
+ * and the app will not serve until somebody acknowledges it:
+ *
+ *   node scripts/restore.mjs --acknowledge-ledger "<who checked, and what was found>"
  *
  *   node scripts/restore.mjs <backup> --drill
  *
@@ -36,19 +47,61 @@
  */
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { backupDir, createBackup, pgEnvironment, restoreDrill, restorePhotos, verifyBackup, verifyBackupSet } from "../src/lib/backup.ts";
+import { backupDir, createBackup, manifestOf, pgEnvironment, restoreDrill, restorePhotos, verifyBackup, verifyBackupSet } from "../src/lib/backup.ts";
 import { databaseLabel, databaseTarget, getDb } from "../src/lib/db.ts";
 
 const run = promisify(execFile);
 const args = process.argv.slice(2);
-const source = args.find((a) => !a.startsWith("--"));
+/** The value after a flag, if the flag is there. */
+const valueOf = (name) => {
+  const i = args.indexOf(`--${name}`);
+  return i === -1 ? null : (args[i + 1] ?? "");
+};
+const VALUED = ["--acknowledge-ledger", "--expect-ledger-head"];
+const source = args.find((a, i) => !a.startsWith("--") && !VALUED.includes(args[i - 1]));
 const force = args.includes("--force");
 const drill = args.includes("--drill");
+const acknowledgement = valueOf("acknowledge-ledger");
+const expectHead = valueOf("expect-ledger-head");
+const operator = os.userInfo().username;
+// Looked at before anything else: keeping what is there takes a backup, which makes an empty ledger file.
+const ledgerWasThere = fs.existsSync(path.join(backupDir(), "erasure-ledger.jsonl"));
+
+/** Acknowledge a restore that could not show the erasure ledger complete (lib/erasure-ledger.ts), so the app serves again. */
+async function acknowledge(reason) {
+  const { acknowledgeRecovery } = await import("../src/lib/erasure-ledger.ts");
+  const done = await acknowledgeRecovery(reason, operator);
+  if ("error" in done) {
+    console.error(done.error);
+    return false;
+  }
+  console.log(
+    `Acknowledged by ${operator}.` +
+      (done.lost ? ` Entries ${done.lost[0]}–${done.lost[1]} are recorded as lost: erase from the dashboard anybody among them you find came back.` : "") +
+      " Start the app: it applies the erasures it has and the retention policy again before it serves."
+  );
+  return true;
+}
+
+if (!source && acknowledgement !== null) {
+  // With the app stopped: the database as it is now, after a restore that is waiting to be acknowledged.
+  const ok = await acknowledge(acknowledgement);
+  await getDb().close();
+  process.exit(ok ? 0 : 1);
+}
 
 if (!source) {
-  console.error("Usage: node scripts/restore.mjs <backup.dump | backup.tar.gz> --force | --drill");
+  console.error(
+    "Usage: node scripts/restore.mjs <backup.dump | backup.tar.gz> --force [--expect-ledger-head N] [--acknowledge-ledger REASON] | --drill\n" +
+      '       node scripts/restore.mjs --acknowledge-ledger "<who checked, and what was found>"'
+  );
+  process.exit(1);
+}
+if (expectHead !== null && !/^\d+$/.test(expectHead)) {
+  console.error("--expect-ledger-head takes the number of the newest erasure-ledger entry you know of (from the owners' erasure-ledger alerts).");
   process.exit(1);
 }
 if (!fs.existsSync(source)) {
@@ -190,10 +243,42 @@ const { n } = await getDb().prepare("SELECT COUNT(*) AS n FROM bookings").get();
 await getDb()
   .prepare("INSERT INTO settings (key, value) VALUES ('restore_reapply_due', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
   .run(path.basename(source));
-const ledger = path.join(backupDir(), "erasure-ledger.jsonl");
-const erasures = fs.existsSync(ledger) ? fs.readFileSync(ledger, "utf8").split("\n").filter((l) => l.trim()).length : 0;
-await getDb().close();
+// The erasure ledger from every source there is: the ledger beside the backups, the off-site segments (with the
+// read key), checked as a chain from the restored copy's own newest entry and against every newer number known
+// (lib/erasure-ledger-offsite.ts). What is verified is brought into the restored database.
+const { recoverLedger } = await import("../src/lib/erasure-ledger-offsite.ts");
+let manifestHead = null;
+try {
+  manifestHead = JSON.parse(fs.readFileSync(manifestOf(source), "utf8")).erasureLedger ?? null;
+} catch {
+  // an older set, without a manifest or without the ledger's number in it
+}
+const recovery = await recoverLedger({
+  backup: source,
+  manifestHead,
+  expectSeq: expectHead === null ? null : Number(expectHead),
+  localLedger: ledgerWasThere,
+});
 console.log(`Restored: ${n} bookings, ${photos.photos} photos. Start the app and check the Bookings tab for today.`);
 console.log(
-  `When it starts, the app applies again the ${erasures} erasure(s) in the ledger beside the backups and the retention policy, before it serves anything.`
+  `Erasure ledger: read from ${recovery.sources.join(", ")}; the restored copy's ends at entry ${recovery.anchor}, verified to entry ${recovery.verified}` +
+    `${recovery.knownSeq > recovery.verified ? `, newest known ${recovery.knownSeq}` : ""}; ${recovery.broughtIn} entr${recovery.broughtIn === 1 ? "y" : "ies"} brought in.`
 );
+for (const w of recovery.warnings) console.log(`warning: ${w}`);
+console.log(
+  `When it starts, the app applies again the ${recovery.toApply} erasure(s) recorded since this backup, the newest retention periods and the retention policy, before it serves anything.`
+);
+let blocked = recovery.state === "blocked";
+if (blocked) {
+  console.error(`\nThe erasure ledger could not be shown complete:\n  ${recovery.problems.join("\n  ")}`);
+  if (acknowledgement !== null) blocked = !(await acknowledge(acknowledgement));
+  else
+    console.error(
+      "\nThe app will not serve until this is acknowledged. Check the owners' erasure-ledger alerts (each names the newest entry and how far the off-site copy reached)\n" +
+        "and the account-closure requests made since the backup, then, with the app stopped:\n" +
+        '  npm run restore -- --acknowledge-ledger "<who checked, and what was found>"\n' +
+        "Erase from the dashboard anybody you find who came back (docs/operations/backups.md#after-a-restore)."
+    );
+}
+await getDb().close();
+if (blocked) process.exit(3);

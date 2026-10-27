@@ -3,10 +3,18 @@
  * from src/instrumentation.ts, inside its Node.js branch.
  */
 export async function startNode(): Promise<void> {
-  // After a restore: erasures recorded since the backup, and the retention
-  // policy, applied again before anything is served (lib/erasure-ledger.ts).
-  const { reapplyIfRestored } = await import("./lib/erasure-ledger");
+  // After a restore: erasures recorded since the backup, the newest retention
+  // periods and the retention policy, applied again before anything is served
+  // (lib/erasure-ledger.ts). Until that has succeeded, and while a restore
+  // that could not show the ledger complete is not acknowledged, the app
+  // does not serve at all.
+  const { reapplyIfRestored, restoreGate } = await import("./lib/erasure-ledger");
   await reapplyIfRestored();
+  const blocked = await restoreGate();
+  if (blocked) {
+    console.error(`[mysenam] Not serving.\n${blocked}`);
+    process.exit(78);
+  }
 
   const { startScheduler } = await import("./lib/scheduler");
   startScheduler();

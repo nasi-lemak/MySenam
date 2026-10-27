@@ -49,6 +49,9 @@ Everything is an environment variable; there is nothing else to configure.
 | `OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE` | — | Decrypt them, on the restore machine only |
 | `OFFSITE_SIGNING_KEY_FILE` | — | An Ed25519 private key the server signs each set's manifest with ([backups](../operations/backups.md#signed-manifests)) |
 | `OFFSITE_SIGNING_PUBLIC_KEY_FILE` | — | Its public key, on the restore machine: sets not signed by it are refused |
+| `OFFSITE_LEDGER_S3_BUCKET` / `OFFSITE_LEDGER_S3_PREFIX` | the backup bucket; `erasure-ledger/` inside `OFFSITE_S3_PREFIX` | Where the erasure ledger's signed segments go, on the same endpoint ([backups](../operations/backups.md#the-erasure-ledger-off-site)) |
+| `OFFSITE_LEDGER_S3_ACCESS_KEY_ID` / `OFFSITE_LEDGER_S3_SECRET_ACCESS_KEY` | the backups' upload key | An upload-only key of its own for the ledger's bucket, on the server |
+| `OFFSITE_LEDGER_S3_READ_ACCESS_KEY_ID` / `OFFSITE_LEDGER_S3_READ_SECRET_ACCESS_KEY` | the backups' read key | Its read and list key, on the restore machine only |
 | `PHOTOS_S3_*` | — | A bucket of its own for venue photos (`ENDPOINT`, `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION`); without one, photos go in the data folder. See *Venue photos* |
 | `PHOTOS_PUBLIC_URL` | — | The photo bucket's public address, so browsers fetch photos from it rather than through this server |
 | `MYSENAM_URL` | `http://localhost:3000` | Where this install is reachable, for the links inside customer messages |

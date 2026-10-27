@@ -2277,6 +2277,15 @@ const EN = {
   "pbk2.holder": "The number holder",
   "err.SIGN_OFF_NEEDED_FOR": "{name} needs the venue's own sign-off for {sport} first, such as a safety check. Apply for them from your account, or ask at the counter. Anyone else ticked can still be booked without them.",
   "err.CERTIFICATION_NEEDED_FOR": "{name} needs a certification the venue has recorded for them before {sport} here, such as a licence. Apply for them from your account with it, or ask at the counter. Anyone else ticked can still be booked without them.",
+  "apr.retx2.privacyRecorded": "The platform owner has recorded a review of the periods for {classes} in {country} by {name} ({role}, {firm}) on {date}. MySenam has not verified it, and it is not a legal approval.",
+  "apr.retx2.privacyStill": "Still provisional: {classes}.",
+  "apr.retx2.clsDocuments": "documents after the decision",
+  "apr.retx2.clsReview": "documents kept for a review",
+  "apr.retx2.clsRecords": "closed applications",
+  "apr.retx2.clsQuarantine": "refused or unscannable documents",
+  "apr.retx2.MY": "Malaysia",
+  "apr.retx2.SG": "Singapore",
+  "apr.retx2.privacyLedger": "So that this works even if the server itself is lost, a record of each erasure (an account's number and when it was created, nothing else) is also kept off this server, as backups are. An erasure made in the last moments before such a loss may not have reached that record; it is then made again by hand.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4507,6 +4516,15 @@ const MS: Record<Phrase, string> = {
   "pbk2.holder": "Pemegang nombor ini",
   "err.SIGN_OFF_NEEDED_FOR": "{name} memerlukan pengesahan kakitangan pusat untuk {sport} dahulu, seperti pemeriksaan keselamatan. Mohon untuknya dari akaun anda, atau tanya di kaunter. Orang lain yang ditanda masih boleh ditempah tanpanya.",
   "err.CERTIFICATION_NEEDED_FOR": "{name} memerlukan pensijilan yang direkodkan oleh pusat untuknya sebelum {sport} di sini, seperti lesen. Mohon untuknya dari akaun anda dengan pensijilan itu, atau tanya di kaunter. Orang lain yang ditanda masih boleh ditempah tanpanya.",
+  "apr.retx2.privacyRecorded": "Pemilik platform telah merekodkan semakan tempoh bagi {classes} di {country} oleh {name} ({role}, {firm}) pada {date}. MySenam tidak mengesahkannya, dan ia bukan kelulusan dari segi undang-undang.",
+  "apr.retx2.privacyStill": "Masih sementara: {classes}.",
+  "apr.retx2.clsDocuments": "dokumen selepas keputusan",
+  "apr.retx2.clsReview": "dokumen yang disimpan untuk semakan",
+  "apr.retx2.clsRecords": "permohonan yang ditutup",
+  "apr.retx2.clsQuarantine": "dokumen yang ditolak atau tidak dapat diimbas",
+  "apr.retx2.MY": "Malaysia",
+  "apr.retx2.SG": "Singapura",
+  "apr.retx2.privacyLedger": "Supaya ini berkesan walaupun pelayan itu sendiri hilang, rekod setiap pemadaman (nombor akaun dan bila ia dibuat, tiada yang lain) turut disimpan di luar pelayan ini, sama seperti sandaran. Pemadaman yang dibuat pada saat-saat terakhir sebelum kehilangan sedemikian mungkin belum sampai ke rekod itu; ia kemudian dibuat semula secara manual.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

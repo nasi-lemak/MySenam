@@ -2,13 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ScannerHealth, ScannerProblem } from "@/lib/document-scanning";
-import type { RetentionPolicy } from "@/lib/retention-policy";
+import type { Jurisdiction, RetentionPolicy, ScopeKey } from "@/lib/retention-policy";
 import { useStaffT } from "./StaffLanguage";
+
+// The same lists as lib/retention-policy.ts, which a client component does not import (it reads the database).
+const JURISDICTIONS: Jurisdiction[] = ["MY", "SG"];
+const REVIEW_SCOPE: ScopeKey[] = ["documentDays", "reviewDays", "recordDays", "quarantineDays"];
+const toggle = <T,>(list: T[], item: T): T[] => (list.includes(item) ? list.filter((x) => x !== item) : [...list, item]);
 
 /**
  * The platform owner's view of supporting documents (ADR 0024): whether the
  * malware scanner answers, how old its signatures are and what is waiting or
- * was refused; and the install's retention periods for applications, marked
+ * was refused; and the install's retention periods for applications, with
+ * each review recorded (per jurisdiction, as recorded by the platform owner,
+ * not verified by MySenam) and what stays provisional, marked
  * provisional until somebody records a review, with the form to change them
  * and to record that review.
  */
@@ -34,7 +41,16 @@ export default function DocumentPolicy() {
     events?: { at: string | null; kind: string; by: string; detail: string }[];
   } | null>(null);
   const [form, setForm] = useState<Record<keyof Periods, string>>({ documentDays: "", reviewDays: "", recordDays: "", quarantineDays: "" });
-  const [review, setReview] = useState({ reviewedOn: "", reviewedBy: "", basis: "" });
+  const [review, setReview] = useState<{
+    jurisdictions: Jurisdiction[];
+    scope: ScopeKey[];
+    reviewedOn: string;
+    reviewerName: string;
+    reviewerRole: string;
+    firm: string;
+    adviceReference: string;
+    basis: string;
+  }>({ jurisdictions: [], scope: [], reviewedOn: "", reviewerName: "", reviewerRole: "", firm: "", adviceReference: "", basis: "" });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -112,13 +128,38 @@ export default function DocumentPolicy() {
       {policy && (
         <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="font-semibold">{t("apr.retx.title")}</h3>
-          {policy.review ? (
-            <p className="text-sm text-emerald-800">
-              {t("apr.retx.reviewed", { date: policy.review.reviewedOn, by: policy.review.reviewedBy, basis: policy.review.basis, recorder: policy.review.recordedBy ?? "" })}
-            </p>
+          {policy.provisional ? (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">{t("apr.retx2.homeProvisional", { jurisdiction: t(`apr.retx2.${policy.home}`) })}</p>
           ) : (
-            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">{t("apr.retx.provisional")}</p>
+            <p className="text-sm text-slate-700">{t("apr.retx2.homeCovered", { jurisdiction: t(`apr.retx2.${policy.home}`) })}</p>
           )}
+          <ul className="space-y-1 text-sm text-slate-700">
+            {JURISDICTIONS.flatMap((j) => [
+              ...policy.coverage[j].reviews.map((r) => (
+                <li key={`r${r.id}`}>
+                  {t("apr.retx2.review", {
+                    jurisdiction: t(`apr.retx2.${j}`),
+                    name: r.reviewerName,
+                    role: r.reviewerRole,
+                    firm: r.firm,
+                    scope: r.scope.map((s) => t(`apr.retx2.cls.${s}`)).join(", "),
+                    date: r.reviewedOn,
+                    reference: r.adviceReference,
+                    basis: r.basis,
+                    recorder: r.recordedBy,
+                  })}
+                </li>
+              )),
+              ...(policy.coverage[j].provisional.length > 0
+                ? [
+                    <li key={`p${j}`} className="text-amber-900">
+                      {t("apr.retx2.provisionalFor", { jurisdiction: t(`apr.retx2.${j}`), scope: policy.coverage[j].provisional.map((s) => t(`apr.retx2.cls.${s}`)).join(", ") })}
+                    </li>,
+                  ]
+                : []),
+            ])}
+          </ul>
+          <p className="text-xs text-slate-500">{t("apr.retx2.notApproval")}</p>
           <div className="flex flex-wrap items-end gap-2">
             {FIELDS.map((f) => (
               <label key={f.key} className={label}>
@@ -139,14 +180,49 @@ export default function DocumentPolicy() {
 
           <details className="text-sm">
             <summary className="cursor-pointer font-medium">{t("apr.retx.reviewTitle")}</summary>
+            <p className="mt-2 text-xs text-slate-500">{t("apr.retx2.formNote")}</p>
             <div className="mt-2 flex flex-wrap items-end gap-2">
+              <fieldset className={label}>
+                <legend>{t("apr.retx2.jurisdictions")}</legend>
+                <div className="mt-1 flex gap-3">
+                  {JURISDICTIONS.map((j) => (
+                    <label key={j} className="flex items-center gap-1 text-sm font-normal text-slate-700">
+                      <input type="checkbox" checked={review.jurisdictions.includes(j)} onChange={() => setReview({ ...review, jurisdictions: toggle(review.jurisdictions, j) })} />
+                      {t(`apr.retx2.${j}`)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className={`${label} w-full`}>
+                <legend>{t("apr.retx2.scope")}</legend>
+                <div className="mt-1 flex flex-wrap gap-3">
+                  {REVIEW_SCOPE.map((s) => (
+                    <label key={s} className="flex items-center gap-1 text-sm font-normal text-slate-700">
+                      <input type="checkbox" checked={review.scope.includes(s)} onChange={() => setReview({ ...review, scope: toggle(review.scope, s) })} />
+                      {t(`apr.retx2.cls.${s}`)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <label className={label}>
                 {t("apr.retx.reviewedOn")}
                 <input type="date" value={review.reviewedOn} onChange={(e) => setReview({ ...review, reviewedOn: e.target.value })} className={`mt-1 ${input}`} />
               </label>
               <label className={label}>
-                {t("apr.retx.reviewedBy")}
-                <input value={review.reviewedBy} maxLength={200} onChange={(e) => setReview({ ...review, reviewedBy: e.target.value })} className={`mt-1 ${input}`} />
+                {t("apr.retx2.reviewerName")}
+                <input value={review.reviewerName} maxLength={200} onChange={(e) => setReview({ ...review, reviewerName: e.target.value })} className={`mt-1 ${input}`} />
+              </label>
+              <label className={label}>
+                {t("apr.retx2.reviewerRole")}
+                <input value={review.reviewerRole} maxLength={200} onChange={(e) => setReview({ ...review, reviewerRole: e.target.value })} className={`mt-1 ${input}`} />
+              </label>
+              <label className={label}>
+                {t("apr.retx2.firm")}
+                <input value={review.firm} maxLength={200} onChange={(e) => setReview({ ...review, firm: e.target.value })} className={`mt-1 ${input}`} />
+              </label>
+              <label className={`${label} w-full`}>
+                {t("apr.retx2.adviceReference")}
+                <input value={review.adviceReference} maxLength={200} onChange={(e) => setReview({ ...review, adviceReference: e.target.value })} className={`mt-1 ${input}`} />
               </label>
               <label className={`${label} w-full`}>
                 {t("apr.retx.basis")}

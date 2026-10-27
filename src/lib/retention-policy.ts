@@ -2,12 +2,13 @@ import { logAction } from "./activity";
 import { isOwner, type Admin } from "./admin-auth";
 import { getDb } from "./db";
 import { RETENTION } from "./privacy";
+import { region } from "./region";
 import { isValidDateString, todayISO } from "./time";
 
 /**
  * The install's own retention periods for applications to be approved for an
  * activity, and the record of their review (docs/architecture/privacy.md#applications-to-be-approved-for-an-activity;
- * ADR 0024; migration 0143).
+ * ADR 0024; migrations 0143, 0162).
  *
  * The defaults (lib/privacy.ts RETENTION: documents 90 days after the
  * decision, a 30-day review window, a closed application's record 365 days)
@@ -18,11 +19,51 @@ import { isValidDateString, todayISO } from "./time";
  * wide bounds (no country's answer is built in); an activity may keep less
  * than the install, never more; a hold keeps one application longer.
  *
- * Until somebody records a review (who reviewed the periods, on what day, on
- * what basis), the periods are **provisional** wherever they are shown.
- * Changing any period lapses the review. Every change and review is kept
- * (`retention_policy_events`), never pruned.
+ * **A recorded review is the platform owner's record of what a reviewer
+ * advised, not a verification by MySenam, and never a legal approval.** It
+ * must say who reviewed the periods (name, and role or qualification as
+ * they state it), their firm, the jurisdiction (Malaysia and Singapore are
+ * recorded separately), which periods it covers, the day, and a reference to
+ * the written advice kept outside MySenam, with what it was based on. A
+ * period or jurisdiction no review covers stays **provisional**; the
+ * install's own country (`MYSENAM_COUNTRY`) decides whether the periods as a
+ * whole are shown as provisional. Changing any period lapses every review in
+ * force. Every change, review and lapse is kept (`retention_policy_events`,
+ * `retention_policy_reviews`), never pruned.
  */
+
+export const JURISDICTIONS = ["MY", "SG"] as const;
+export type Jurisdiction = (typeof JURISDICTIONS)[number];
+/** The periods a review may cover, each one class of record. */
+export const REVIEW_SCOPE = ["documentDays", "reviewDays", "recordDays", "quarantineDays"] as const;
+export type ScopeKey = (typeof REVIEW_SCOPE)[number];
+
+export interface PolicyReview {
+  id: number;
+  jurisdiction: Jurisdiction;
+  reviewerName: string;
+  /** Their role or qualification, as they state it: not checked by MySenam. */
+  reviewerRole: string;
+  firm: string;
+  scope: ScopeKey[];
+  reviewedOn: string;
+  /** Where the written advice is kept, outside MySenam. */
+  adviceReference: string;
+  basis: string;
+  /** The periods as they stood when it was recorded. */
+  periods: string;
+  recordedBy: string;
+  recordedAt: string | null;
+}
+
+export interface Coverage {
+  /** Reviews in force for this jurisdiction. */
+  reviews: PolicyReview[];
+  /** Periods a review in force covers. */
+  covered: ScopeKey[];
+  /** Periods none covers: provisional. */
+  provisional: ScopeKey[];
+}
 
 export interface RetentionPolicy {
   /** Supporting documents, at most this long after the decision. */
@@ -35,8 +76,11 @@ export interface RetentionPolicy {
   quarantineDays: number;
   changedAt: string | null;
   changedBy: string | null;
-  review: { reviewedOn: string; reviewedBy: string; basis: string; recordedBy: string | null; recordedAt: string | null } | null;
-  /** No review recorded since the periods were last set. */
+  /** Reviews in force, as recorded by the platform owner (not verified by MySenam), per jurisdiction. */
+  coverage: Record<Jurisdiction, Coverage>;
+  /** The install's own country, whose coverage decides `provisional`. */
+  home: Jurisdiction;
+  /** Some period has no review in force for the install's own country. */
   provisional: boolean;
 }
 
@@ -64,37 +108,70 @@ interface PolicyRow {
   scan_quarantine_days: number;
   changed_at: unknown;
   changed_by_name: string | null;
-  reviewed_on: string | null;
-  reviewed_by: string | null;
-  review_basis: string | null;
-  review_recorded_by_name: string | null;
-  review_recorded_at: unknown;
 }
 
-/** The install's periods as they stand. */
+interface ReviewRow {
+  id: number;
+  jurisdiction: Jurisdiction;
+  reviewer_name: string;
+  reviewer_role: string;
+  firm: string;
+  scope: string;
+  reviewed_on: string;
+  advice_reference: string;
+  basis: string;
+  periods: string;
+  recorded_by_name: string;
+  recorded_at: unknown;
+}
+
+const periodsOf = (p: { documentDays: number; reviewDays: number; recordDays: number; quarantineDays: number }) =>
+  `${p.documentDays}/${p.reviewDays}/${p.recordDays}/${p.quarantineDays}`;
+
+/** The install's periods as they stand, with the reviews in force. */
 export async function retentionPolicy(): Promise<RetentionPolicy> {
-  const r = (await getDb().prepare("SELECT * FROM retention_policy WHERE id = 1").get()) as PolicyRow | undefined;
-  if (!r) return { ...DEFAULT_POLICY, changedAt: null, changedBy: null, review: null, provisional: true };
-  const review =
-    r.reviewed_on && r.reviewed_by && r.review_basis
-      ? { reviewedOn: r.reviewed_on, reviewedBy: r.reviewed_by, basis: r.review_basis, recordedBy: r.review_recorded_by_name, recordedAt: iso(r.review_recorded_at) }
-      : null;
+  const db = getDb();
+  const r = (await db.prepare("SELECT * FROM retention_policy WHERE id = 1").get()) as PolicyRow | undefined;
+  const rows = (await db.prepare("SELECT * FROM retention_policy_reviews WHERE lapsed_at IS NULL ORDER BY id").all()) as ReviewRow[];
+  const reviews: PolicyReview[] = rows.map((x) => ({
+    id: Number(x.id),
+    jurisdiction: x.jurisdiction,
+    reviewerName: x.reviewer_name,
+    reviewerRole: x.reviewer_role,
+    firm: x.firm,
+    scope: x.scope.split(",").filter((s): s is ScopeKey => (REVIEW_SCOPE as readonly string[]).includes(s)),
+    reviewedOn: x.reviewed_on,
+    adviceReference: x.advice_reference,
+    basis: x.basis,
+    periods: x.periods,
+    recordedBy: x.recorded_by_name,
+    recordedAt: iso(x.recorded_at),
+  }));
+  const coverage = Object.fromEntries(
+    JURISDICTIONS.map((j) => {
+      const mine = reviews.filter((v) => v.jurisdiction === j);
+      const covered = REVIEW_SCOPE.filter((s) => mine.some((v) => v.scope.includes(s)));
+      return [j, { reviews: mine, covered, provisional: REVIEW_SCOPE.filter((s) => !covered.includes(s)) }];
+    })
+  ) as Record<Jurisdiction, Coverage>;
+  const home = region().country as Jurisdiction;
+  const periods = r
+    ? { documentDays: r.approval_document_days, reviewDays: r.approval_review_days, recordDays: r.approval_record_days, quarantineDays: r.scan_quarantine_days }
+    : { ...DEFAULT_POLICY };
   return {
-    documentDays: r.approval_document_days,
-    reviewDays: r.approval_review_days,
-    recordDays: r.approval_record_days,
-    quarantineDays: r.scan_quarantine_days,
-    changedAt: iso(r.changed_at),
-    changedBy: r.changed_by_name,
-    review,
-    provisional: review === null,
+    ...periods,
+    changedAt: r ? iso(r.changed_at) : null,
+    changedBy: r?.changed_by_name ?? null,
+    coverage,
+    home,
+    provisional: (coverage[home]?.provisional.length ?? REVIEW_SCOPE.length) > 0,
   };
 }
 
 export type PolicyRefusal = { ok: false; error: string; status: number };
 const no = (error: string, status = 400): PolicyRefusal => ({ ok: false, error, status });
 
-/** Every change and recorded review of the install's periods, newest first. */
+/** Every change, recorded review and lapse of the install's periods, newest first. */
 export async function policyEvents(limit = 50): Promise<{ at: string | null; kind: string; by: string; detail: string }[]> {
   const rows = (await getDb()
     .prepare("SELECT at, kind, by_name, detail FROM retention_policy_events ORDER BY id DESC LIMIT ?")
@@ -102,10 +179,32 @@ export async function policyEvents(limit = 50): Promise<{ at: string | null; kin
   return rows.map((r) => ({ at: iso(r.at), kind: r.kind, by: r.by_name, detail: r.detail }));
 }
 
+/** Set the periods and lapse every review in force, inside the caller's transaction. */
+async function writePeriods(
+  p: { documentDays: number; reviewDays: number; recordDays: number; quarantineDays: number },
+  by: { id: number | null; name: string },
+  detail: string,
+  why: string
+): Promise<void> {
+  const db = getDb();
+  await db
+    .prepare(
+      `UPDATE retention_policy SET approval_document_days = ?, approval_review_days = ?, approval_record_days = ?, scan_quarantine_days = ?,
+         changed_at = now(), changed_by_name = ?, reviewed_on = NULL, reviewed_by = NULL, review_basis = NULL,
+         review_recorded_by_name = NULL, review_recorded_at = NULL
+        WHERE id = 1`
+    )
+    .run(p.documentDays, p.reviewDays, p.recordDays, p.quarantineDays, by.name);
+  await db.prepare("UPDATE retention_policy_reviews SET lapsed_at = now(), lapse_reason = ? WHERE lapsed_at IS NULL").run(why);
+  await db.prepare("INSERT INTO retention_policy_events (kind, admin_id, by_name, detail) VALUES ('changed', ?, ?, ?)").run(by.id, by.name, detail);
+}
+
 /**
  * Set the install's periods (the platform owner only). Each within its
  * bounds; the review window no longer than the documents' period. Any change
- * lapses a recorded review: the periods are provisional again until reviewed.
+ * lapses every recorded review: the periods are provisional again until
+ * reviewed. The change is also an entry in the erasure ledger (the periods
+ * only), so a restore of an older backup applies these periods again.
  */
 export async function setRetentionPolicy(
   admin: Admin,
@@ -130,48 +229,105 @@ export async function setRetentionPolicy(
     documentDays !== now.documentDays || reviewDays !== now.reviewDays || recordDays !== now.recordDays || quarantineDays !== now.quarantineDays;
   if (!changed) return { ok: true, policy: now };
   const db = getDb();
+  const periods = { documentDays, reviewDays, recordDays, quarantineDays };
   const detail = `Documents ${documentDays} days, review window ${reviewDays}, closed applications ${recordDays}, refused or unscannable documents ${quarantineDays} (was ${now.documentDays}, ${now.reviewDays}, ${now.recordDays}, ${now.quarantineDays})`;
+  const ledger = await import("./erasure-ledger");
+  let entry: { id: string } | null = null;
   await db.transaction(async () => {
-    await db
-      .prepare(
-        `UPDATE retention_policy SET approval_document_days = ?, approval_review_days = ?, approval_record_days = ?, scan_quarantine_days = ?,
-           changed_at = now(), changed_by_name = ?, reviewed_on = NULL, reviewed_by = NULL, review_basis = NULL,
-           review_recorded_by_name = NULL, review_recorded_at = NULL
-          WHERE id = 1`
-      )
-      .run(documentDays, reviewDays, recordDays, quarantineDays, admin.name);
-    await db.prepare("INSERT INTO retention_policy_events (kind, admin_id, by_name, detail) VALUES ('changed', ?, ?, ?)").run(admin.id, admin.name, detail);
+    await writePeriods(periods, { id: admin.id, name: admin.name }, detail, `The periods changed to ${periodsOf(periods)}.`);
+    entry = await ledger.recordLedgerEntry("retention_policy", { detail: JSON.stringify(periods) });
   })();
+  if (entry) await ledger.appendToLedgerFile(entry);
   await logAction(admin, { venueId: null, action: "retention.policy", detail });
   return { ok: true, policy: await retentionPolicy() };
 }
 
 /**
- * Record that somebody qualified reviewed the install's periods (the platform
- * owner records it): who reviewed them (name and firm), on what day, and on
- * what basis. It is the reviewer's view, recorded; the app does not decide
- * whether the periods meet any law.
+ * After a restore (lib/erasure-ledger.ts): the newest periods the erasure
+ * ledger records, put back where the restored copy has others, lapsing its
+ * reviews as any change does. Returns whether anything changed.
  */
-export async function recordPolicyReview(
-  admin: Admin,
-  input: { reviewedOn?: unknown; reviewedBy?: unknown; basis?: unknown }
-): Promise<{ ok: true; policy: RetentionPolicy } | PolicyRefusal> {
+export async function applyPolicyFromLedger(detail: string): Promise<boolean> {
+  let p: Record<string, unknown>;
+  try {
+    p = JSON.parse(detail) as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  const inBounds = (k: keyof typeof POLICY_BOUNDS) => Number.isInteger(p[k]) && (p[k] as number) >= POLICY_BOUNDS[k][0] && (p[k] as number) <= POLICY_BOUNDS[k][1];
+  if (!(["documentDays", "reviewDays", "recordDays", "quarantineDays"] as const).every(inBounds) || (p.reviewDays as number) > (p.documentDays as number)) return false;
+  const periods = { documentDays: p.documentDays as number, reviewDays: p.reviewDays as number, recordDays: p.recordDays as number, quarantineDays: p.quarantineDays as number };
+  const now = await retentionPolicy();
+  if (periodsOf(now) === periodsOf(periods)) return false;
+  const db = getDb();
+  await db.transaction(async () => {
+    await writePeriods(
+      periods,
+      { id: null, name: "Restore (erasure ledger)" },
+      `Put back after a restore, from the erasure ledger: ${periodsOf(periods)} (the restored copy had ${periodsOf(now)})`,
+      "The periods were put back after a restore."
+    );
+  })();
+  return true;
+}
+
+export interface ReviewInput {
+  jurisdictions?: unknown;
+  reviewerName?: unknown;
+  reviewerRole?: unknown;
+  firm?: unknown;
+  scope?: unknown;
+  reviewedOn?: unknown;
+  adviceReference?: unknown;
+  basis?: unknown;
+}
+
+const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+
+/**
+ * Record a review of the install's periods (the platform owner records it):
+ * one row for each jurisdiction it covers, each saying who reviewed them and
+ * on what authority as they state it, their firm, which periods it covers,
+ * the day (on or after the periods were last set, and not in the future), a
+ * reference to the written advice kept outside MySenam, and what it was
+ * based on. It is what the reviewer advised, as recorded by the owner: the
+ * app does not decide whether the periods meet any law, and does not call
+ * them approved.
+ */
+export async function recordPolicyReview(admin: Admin, input: ReviewInput): Promise<{ ok: true; policy: RetentionPolicy } | PolicyRefusal> {
   if (!isOwner(admin)) return no("Only the platform owner can record the review of the retention periods.", 403);
+  const jurisdictions = Array.isArray(input.jurisdictions) ? [...new Set(input.jurisdictions)] : [];
+  if (jurisdictions.length === 0 || !jurisdictions.every((j) => (JURISDICTIONS as readonly unknown[]).includes(j)))
+    return no("Say which jurisdiction the review covers: Malaysia (MY), Singapore (SG), or each.");
+  const scope = Array.isArray(input.scope) ? [...new Set(input.scope)] : [];
+  if (scope.length === 0 || !scope.every((s) => (REVIEW_SCOPE as readonly unknown[]).includes(s)))
+    return no("Say which periods the review covers.");
+  const reviewerName = text(input.reviewerName);
+  if (reviewerName.length < 3 || reviewerName.length > 200) return no("Give the reviewer's name.");
+  const reviewerRole = text(input.reviewerRole);
+  if (reviewerRole.length < 3 || reviewerRole.length > 200) return no("Give the reviewer's role or qualification, as they state it.");
+  const firm = text(input.firm);
+  if (firm.length < 2 || firm.length > 200) return no("Give the reviewer's firm or organisation.");
+  const now = await retentionPolicy();
   const reviewedOn = typeof input.reviewedOn === "string" ? input.reviewedOn : "";
   if (!isValidDateString(reviewedOn) || reviewedOn > todayISO()) return no("Give the day of the review: today or earlier.");
-  const reviewedBy = typeof input.reviewedBy === "string" ? input.reviewedBy.trim() : "";
-  if (reviewedBy.length < 3 || reviewedBy.length > 200) return no("Name who reviewed the periods, and their firm.");
-  const basis = typeof input.basis === "string" ? input.basis.trim() : "";
+  if (now.changedAt && reviewedOn < now.changedAt.slice(0, 10)) return no("The review is dated before the periods were last changed: it cannot have reviewed these periods.");
+  const adviceReference = text(input.adviceReference);
+  if (adviceReference.length < 3 || adviceReference.length > 200) return no("Give a reference to the written advice, kept outside MySenam.");
+  const basis = text(input.basis);
   if (basis.length < 10 || basis.length > 2000) return no("Say what the review was based on, in a sentence or two.");
-  const now = await retentionPolicy();
   const db = getDb();
-  const detail = `Reviewed by ${reviewedBy} on ${reviewedOn} (documents ${now.documentDays} days, review window ${now.reviewDays}, closed applications ${now.recordDays}, refused or unscannable documents ${now.quarantineDays}): ${basis}`;
+  const periods = periodsOf(now);
+  const covered = (scope as ScopeKey[]).sort((a, b) => REVIEW_SCOPE.indexOf(a) - REVIEW_SCOPE.indexOf(b));
+  const detail = `Review recorded (not verified by MySenam) for ${jurisdictions.join(" and ")}: ${reviewerName} (${reviewerRole}), ${firm}, on ${reviewedOn}, covering ${covered.join(", ")} at ${periods}; written advice ${adviceReference}: ${basis}`;
   await db.transaction(async () => {
-    await db
-      .prepare(
-        `UPDATE retention_policy SET reviewed_on = ?, reviewed_by = ?, review_basis = ?, review_recorded_by_name = ?, review_recorded_at = now() WHERE id = 1`
-      )
-      .run(reviewedOn, reviewedBy, basis, admin.name);
+    for (const j of jurisdictions)
+      await db
+        .prepare(
+          `INSERT INTO retention_policy_reviews (jurisdiction, reviewer_name, reviewer_role, firm, scope, reviewed_on, advice_reference, basis, periods, recorded_by_admin_id, recorded_by_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(j, reviewerName, reviewerRole, firm, covered.join(","), reviewedOn, adviceReference, basis, periods, admin.id, admin.name);
     await db.prepare("INSERT INTO retention_policy_events (kind, admin_id, by_name, detail) VALUES ('reviewed', ?, ?, ?)").run(admin.id, admin.name, detail.slice(0, 3000));
   })();
   await logAction(admin, { venueId: null, action: "retention.reviewed", detail: detail.slice(0, 500) });

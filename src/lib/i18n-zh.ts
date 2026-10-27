@@ -2117,6 +2117,15 @@ export const ZH: Record<Phrase, string> = {
   "pbk2.holder": "该号码的持有人",
   "err.SIGN_OFF_NEEDED_FOR": "{name}需先获得场馆工作人员对{sport}的确认（例如安全检查）。请从您的账户为其申请，或到柜台询问。其他已勾选的人仍可不含其预订。",
   "err.CERTIFICATION_NEEDED_FOR": "{name}在此进行{sport}前，需要场馆为其登记的证书（例如执照）。请从您的账户凭该证书为其申请，或到柜台询问。其他已勾选的人仍可不含其预订。",
+  "apr.retx2.privacyRecorded": "平台所有者已记录：{name}（{role}，{firm}）于 {date} 审核了{country}的{classes}期限。MySenam 未予核实，这也不是法律上的批准。",
+  "apr.retx2.privacyStill": "仍为暂定：{classes}。",
+  "apr.retx2.clsDocuments": "决定后的文件",
+  "apr.retx2.clsReview": "为复核保留的文件",
+  "apr.retx2.clsRecords": "已结束的申请",
+  "apr.retx2.clsQuarantine": "被拒或无法扫描的文件",
+  "apr.retx2.MY": "马来西亚",
+  "apr.retx2.SG": "新加坡",
+  "apr.retx2.privacyLedger": "为了在服务器本身丢失时也能做到这一点，每次删除的记录（仅账户编号及其创建时间）也会像备份一样保存在本服务器之外。在服务器丢失前最后片刻所做的删除可能尚未进入该记录，届时会以人工方式重新删除。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

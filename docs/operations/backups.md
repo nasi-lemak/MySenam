@@ -125,6 +125,9 @@ data locations, is in [launch providers](../integrations/launch-providers.md#off
 | `OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE` | restore machine only | decrypt after download |
 | `OFFSITE_SIGNING_KEY_FILE` | server | sign each manifest (below) |
 | `OFFSITE_SIGNING_PUBLIC_KEY_FILE` | restore machine only | refuse sets the server did not sign |
+| `OFFSITE_LEDGER_S3_BUCKET` / `OFFSITE_LEDGER_S3_PREFIX` | both | the erasure ledger's own bucket and prefix ([below](#the-erasure-ledger-off-site)); by default the backup bucket, `erasure-ledger/` inside `OFFSITE_S3_PREFIX` |
+| `OFFSITE_LEDGER_S3_ACCESS_KEY_ID` / `OFFSITE_LEDGER_S3_SECRET_ACCESS_KEY` | server only | an upload-only key for the ledger's bucket; by default the backups' upload key |
+| `OFFSITE_LEDGER_S3_READ_ACCESS_KEY_ID` / `OFFSITE_LEDGER_S3_READ_SECRET_ACCESS_KEY` | restore machine only | a read and list key for the ledger's bucket; by default the backups' read key |
 
 Each part goes up in one PUT, streamed from disk, signed over its SHA-256 and
 carrying its MD5 as `Content-MD5` (which buckets with Object Lock require), so
@@ -372,6 +375,59 @@ application key; S3: deactivate then delete the access key). A B2 key can be
 given an expiry under 1,000 days. To rotate the encryption pair, set the new
 public key: older copies still need the old private key until they expire.
 
+### The erasure ledger off-site
+
+The erasure ledger beside the backups survives a restore, not the loss of the
+server, so its entries also go to the bucket
+(`src/lib/erasure-ledger-offsite.ts`;
+[after a restore](#after-a-restore) for how a restore uses them):
+
+- **What goes:** segments, each one JSON file holding the entries not yet
+  copied, numbered and hash-chained, with the first and last number, the hash
+  the first follows from and the hash the last ends on. A segment is uploaded
+  once, under a name of its own
+  (`erasure-ledger/ledger-<first>-<last>-<time>.json`), and never replaced.
+  Each is signed with the backup-signing key (`OFFSITE_SIGNING_KEY_FILE`: a
+  detached `.sig`, sent first) and encrypted like a backup set where
+  `OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE` is set (`.json.enc`; required for a
+  bucket abroad). An entry holds numbers and moments only, but they are
+  personal data: segments go only where backups may go, under the same
+  data-location and transfer checks ([where the data may go](#where-the-data-may-go)).
+- **When:** at once after each erasure, then on every scheduler tick (each
+  minute) until the bucket accepts it, and before every backup set is copied.
+  An entry not off-site an hour after it was made, or a copy that fails,
+  raises the `erasure-ledger-offsite` alert. The alert names the newest entry
+  and how far the off-site copy reaches, so it is itself a record, off the
+  server, of how far the ledger had reached. With the scheduler off, copies
+  go only after erasures and with backup sets copied off-site.
+- **Where:** by default the backup bucket, under `erasure-ledger/` inside
+  `OFFSITE_S3_PREFIX`, with the same upload-only key. The upload key's prefix
+  restriction covers it, and Object Lock and the lifecycle rule apply to it as
+  to the sets. Segments must be kept at least as long as backup sets; the
+  same 14 days is enough, because the entries a set needs were made, and
+  copied, after it.
+- **A separate failure domain, where wanted:** `OFFSITE_LEDGER_S3_BUCKET`
+  (a bucket of its own on the same endpoint, with Object Lock),
+  `OFFSITE_LEDGER_S3_PREFIX`, and a key of its own that may only upload there
+  (`OFFSITE_LEDGER_S3_ACCESS_KEY_ID` / `OFFSITE_LEDGER_S3_SECRET_ACCESS_KEY`),
+  read on the restore machine with `OFFSITE_LEDGER_S3_READ_ACCESS_KEY_ID` /
+  `OFFSITE_LEDGER_S3_READ_SECRET_ACCESS_KEY`. The ledger is never the only
+  copy of anything in one place: the database and the file are on the
+  server; the segments, and each set's manifest naming the newest entry, are
+  off it. Losing the bucket loses the backups too, so there is nothing to
+  restore that the ledger would have to correct. A separate bucket and key
+  protect the ledger from a mistake or a stolen key confined to the backups'
+  bucket. A different provider or region is not supported: the same endpoint
+  keeps the location check simple.
+- **What protects it:** the upload key only writes; Object Lock keeps each
+  segment's first upload, and a restore reads the first upload and reports a
+  name written again; a segment unsigned, signed by another key, damaged or
+  not holding together is refused; and the chain shows a segment removed as
+  a gap. A thief with the upload key alone can add segments but not sign
+  them. Somebody who controls the server can sign; for that, a restore
+  chooses its recovery point as for sets
+  ([threat model](#threat-model-what-each-protection-proves)).
+
 ## Recovery point and recovery time
 
 - **Recovery point (RPO): up to 24 hours.** The alert threshold is
@@ -430,34 +486,99 @@ when it next starts (below).
 A snapshot holds what was in the database when it was taken, including
 accounts closed and records the retention policy removed since. So that a
 restore cannot bring them back for good
-(`src/lib/erasure-ledger.ts`; [ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)):
+(`src/lib/erasure-ledger.ts`, `src/lib/erasure-ledger-offsite.ts`;
+[ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)):
 
-- **Every erasure is recorded** in an erasure ledger: in the database
-  (`erasure_ledger`, migration 0144) and, outside it, appended to
-  `erasure-ledger.jsonl` in the backup folder (`MYSENAM_BACKUP_DIR`, readable
-  by the app's user only), which a restore does not overwrite. An entry is an
-  account's number and the moment it was created, and when it was erased: no
-  name, email or phone. Entries are kept 400 days, longer than any backup
-  set is.
+- **Every erasure is recorded** in an erasure ledger (`erasure_ledger`,
+  migrations 0144 and 0161): an account's number and the moment it was
+  created, the same for a participant erased with the account, and each
+  change of the install's retention periods (the periods only); no name,
+  email or phone. Each entry takes the next number and the SHA-256 of the
+  entry before it, and its own hash covers both, so a changed, removed or
+  inserted entry breaks the chain and a missing number is a gap; the database
+  refuses to change an entry once recorded. The ledger is kept in three
+  places:
+  - the database;
+  - `erasure-ledger.jsonl` in the backup folder (`MYSENAM_BACKUP_DIR`,
+    readable by the app's user only), which a restore does not overwrite;
+  - off-site, in signed segments ([below](#the-erasure-ledger-off-site)),
+    so that it survives losing the server.
+
+  Entries are kept 400 days, longer than any backup set is. Each backup
+  set's manifest records the ledger's newest entry (`erasureLedger`), a
+  record of how far it had reached that goes off-site with the set.
+- **The restore reads the ledger** from the file beside the backups (only if
+  it was there before the restore began) and, with the read key, from the
+  off-site segments. It checks the chain from the restored copy's own newest
+  entry, brings in every entry it can verify, and records what it found
+  (`erasure_ledger_recoveries`). The ledger is **shown complete** only when
+  all of these hold:
+  - the file beside the backups was there;
+  - nothing is missing, broken, refused, unsigned where a signature is
+    expected, or in conflict;
+  - no other record names a newer entry than the verified chain reaches:
+    this set's manifest, the newest backup set's manifest in the bucket, the
+    file, or the operator's `--expect-ledger-head N`.
+- **Otherwise the app will not serve.** The restore exits 3 and prints what
+  is wrong. Restoring after losing the server is never complete by itself,
+  because nothing can prove that the newest erasures left the server before
+  it was lost. Somebody checks the owners' `erasure-ledger-offsite` alerts
+  (each names the newest entry and how far the off-site copy reached) and the
+  account-closure requests made since the backup, then acknowledges, with the
+  app stopped:
+
+  ```bash
+  npm run restore -- --acknowledge-ledger "<who checked, and what was found>"
+  ```
+
+  (or adds `--acknowledge-ledger "…"` to the restore command itself). Who and
+  why are recorded. Where a newer entry was named than could be verified, the
+  numbers in between are recorded as lost by a `recovery` entry, so they are
+  never taken again and a later restore sees the gap explained. Anybody among
+  them who came back is erased again by hand from the dashboard.
 - **When the app next starts after a restore**, before it serves anything
-  (`src/instrumentation-node.ts`), it erases again every account in the ledger
-  (the file's entries and the restored table's together) that came back with
-  the same creation moment, never a later account that happens to have the
-  same number, and then runs the retention policy at once, so documents and
-  records that had aged out since the snapshot go again. It does this when
-  the restore script marked the database, and also when the ledger file has
-  entries the database lacks (a restore done by hand). The log says how many
-  accounts were erased again and how many records the retention run removed.
+  (`src/instrumentation-node.ts`):
+  - it erases again every account and participant in the ledger that came
+    back with the same creation moment, never a later one that happens to
+    have the same number;
+  - it puts back the newest retention periods where the restored copy has
+    older ones (lapsing any review recorded for those, as any change does);
+  - it runs the retention policy at once, so documents and records that had
+    aged out since the snapshot go again.
+
+  It does this when the restore script marked the database, and also when the
+  ledger file has entries the database lacks (a restore done by hand). The
+  mark is removed only once this has succeeded. **Until then, and while a
+  restore that could not show the ledger complete is not acknowledged, the app
+  exits at start-up** (code 78) with the reason and these instructions, rather
+  than serve the restored data. The log says how many were erased again and
+  how many records the retention run removed. Applying the ledger again is
+  idempotent: a second start does nothing more.
 - **When an erasure cannot be applied again** because the restored copy shows
   the account holding credit, a live pass or membership, or an application
   under a hold, it is not forced: the owners are told (alert
   `erasure-reapply`), to settle what the copy says and erase it from the
   dashboard.
 
-What this does not cover: the ledger file is not copied off-site, so after
-losing the server, erasures made since the last off-site set are not in any
-surviving ledger and must be made again from the requests' own record; and
-the copies inside backups themselves stay until those backups expire
+**The recovery invariants**, each tested with the real scripts
+(`tests/erasure-ledger-restore.test.ts`, `tests/backup-scripts.test.ts`):
+
+1. No customer data is served from a restored database until every verified
+   ledger entry after its backup has been applied again and the retention
+   policy has run.
+2. An entry is applied only if the chain verifies it from the restored copy's
+   own newest entry, and only to the account or participant created at the
+   moment it names.
+3. A gap, a broken link, a refused segment, a conflict, a newer entry named
+   elsewhere, or the loss of the ledger beside the backups keeps the app from
+   serving until a named person acknowledges it; numbers known but not
+   verified are recorded as lost and never reused.
+4. Applying the ledger is idempotent and never records the same erasure twice.
+
+What this does not cover: an erasure made after its entry last left the
+server (normally under a minute; longer while copies fail, which the owners
+are told) is in no surviving copy, and the copies inside backups themselves
+stay until those backups expire
 ([privacy](../architecture/privacy.md#what-deletion-reaches)). A drill
 (`--drill`) restores aside and touches nothing live, so it re-applies nothing.
 
@@ -510,11 +631,17 @@ work before you need them.
    payment keys.
 5. To recover for real: provision the new server, set `DATABASE_URL` to it,
    keep the app stopped, and run
-   `npm run restore -- /srv/restore/mysenam-2026-09-26-030000.dump --force`;
-   then start the app and check today's bookings.
+   `npm run restore -- /srv/restore/mysenam-2026-09-26-030000.dump --force`.
+   With the read key it also reads the erasure ledger's off-site segments
+   (checked with `OFFSITE_SIGNING_PUBLIC_KEY_FILE` and decrypted with
+   `OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE`). The ledger beside the backups went
+   with the server, so the restore exits 3 and the app will not serve until
+   you acknowledge it ([after a restore](#after-a-restore)). Then start the
+   app and check today's bookings.
 
 **What is tested** (`tests/backup.test.ts`, `tests/offsite.test.ts`,
-`tests/backup-scripts.test.ts`, on PGlite and on Postgres 16):
+`tests/backup-scripts.test.ts`, `tests/erasure-ledger.test.ts`,
+`tests/erasure-ledger-restore.test.ts`, on PGlite and on Postgres 16):
 
 - A venue's settings, a customer's credit, a booking paid from it and a photo
   are backed up with the script; then the booking is cancelled and refunded,
@@ -550,6 +677,27 @@ work before you need them.
 - `scripts/verify-offsite.mjs` run end to end against the B2 stand-in with
   both keys: every refusal passes. A stand-in key given `readFiles` makes the
   script fail (`tests/offsite.test.ts`).
+- The erasure ledger (`tests/erasure-ledger.test.ts`, and with the real
+  scripts and a stand-in bucket `tests/erasure-ledger-restore.test.ts`):
+  - the chain: a changed entry, a missing one, one slipped in, two under one
+    number, a newer number named elsewhere, and a recovery's lost range;
+  - segments: one changed, reordered, unsigned or signed by another key,
+    written over (first upload used), changed in the bucket, removed;
+  - sent with the upload-only key alone, encrypted and signed, nothing twice,
+    to a bucket of its own where set, paused and alerted where the transfer
+    is not allowed;
+  - replay applies erasures, participants and the newest periods once, never
+    to a later account with the same number;
+  - the app exits rather than serve until a restore's ledger is applied and,
+    where it could not be shown complete, acknowledged;
+  - with the scripts, the server lost (backups and ledger file deleted), an
+    older set fetched from the bucket and restored:
+    - erasures made after it are replayed from the off-site ledger alone,
+      the newer periods put back and retention re-run;
+    - a newer set's manifest naming an entry that never left the server is
+      detected, and once acknowledged recorded as lost;
+    - a segment missing or changed in the bucket stops the replay there and
+      keeps the app from serving.
 
 ### Verifying a real bucket
 

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { RETENTION } from "@/lib/privacy";
-import { retentionPolicy, type RetentionPolicy } from "@/lib/retention-policy";
+import { retentionPolicy, type RetentionPolicy, type ScopeKey } from "@/lib/retention-policy";
 import { serverT } from "@/lib/locale";
 import type { Phrase, T } from "@/lib/i18n";
 
@@ -19,6 +19,31 @@ const HOW_LONG_VARS: Record<number, { n: number }> = {
   8: { n: RETENTION.messageDays },
 };
 
+const CLASS_WORDS: Record<ScopeKey, Phrase> = {
+  documentDays: "apr.retx2.clsDocuments",
+  reviewDays: "apr.retx2.clsReview",
+  recordDays: "apr.retx2.clsRecords",
+  quarantineDays: "apr.retx2.clsQuarantine",
+};
+
+/**
+ * What the notice says of a review of the periods, for the install's own
+ * country: provisional where none is recorded; otherwise each one, as the
+ * platform owner recorded it and not verified by MySenam, and whatever is
+ * still provisional. Never that the periods are legally approved.
+ */
+function reviewWords(t: T, policy: RetentionPolicy): string {
+  const here = policy.coverage[policy.home];
+  if (here.reviews.length === 0) return t("scan.privacyProvisional");
+  const classes = (keys: ScopeKey[]) => keys.map((k) => t(CLASS_WORDS[k])).join(", ");
+  return [
+    ...here.reviews.map((r) =>
+      t("apr.retx2.privacyRecorded", { classes: classes(r.scope), country: t(`apr.retx2.${policy.home}`), name: r.reviewerName, role: r.reviewerRole, firm: r.firm, date: r.reviewedOn })
+    ),
+    ...(here.provisional.length > 0 ? [t("apr.retx2.privacyStill", { classes: classes(here.provisional) })] : []),
+  ].join(" ");
+}
+
 function heldRows(t: T, policy: RetentionPolicy) {
   return [
     ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({
@@ -30,9 +55,7 @@ function heldRows(t: T, policy: RetentionPolicy) {
     {
       what: t("apr.privacyWhat"),
       why: t("apr.privacyWhy"),
-      how: `${t("aprdoc.privacyHow", { n: policy.documentDays, review: policy.reviewDays, m: policy.recordDays })}. ${
-        policy.review ? t("scan.privacyReviewed", { date: policy.review.reviewedOn, by: policy.review.reviewedBy }) : t("scan.privacyProvisional")
-      }`,
+      how: `${t("aprdoc.privacyHow", { n: policy.documentDays, review: policy.reviewDays, m: policy.recordDays })}. ${reviewWords(t, policy)}`,
     },
     // People an adult manages from their account, participants apart from accounts (lib/participants.ts).
     { what: t("guard.privacyWhat"), why: t("guard.privacyWhy"), how: t("ptc.privacyHow", { n: RETENTION.archivedManagedDays }) },
@@ -124,7 +147,7 @@ export default async function PrivacyPage() {
             <strong>{t("privacy.doGuestLead")}</strong> {t("privacy.doGuestBody")}
           </li>
           <li>
-            <strong>{t("scan.privacyBackupsLead")}</strong> {t("scan.privacyBackupsBody")}
+            <strong>{t("scan.privacyBackupsLead")}</strong> {t("scan.privacyBackupsBody")} {t("apr.retx2.privacyLedger")}
           </li>
         </ul>
       </section>

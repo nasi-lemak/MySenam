@@ -116,12 +116,25 @@ Update frequency: ClamAV documentation, *Configuration*: <https://docs.clamav.ne
   provisional 90, 30, 365 and 7. **An activity may keep less, never more**
   than the install; the retention run never applies more than the install's
   period whatever an activity stores.
-- **Provisional until reviewed**, as the deposit-tax review is: a review is
-  recorded with who reviewed (name and firm), the day and the basis; until
-  then the dashboard, the activity settings and the privacy notice say the
-  periods are provisional; any change lapses it; every change and review is
-  kept, never pruned. The app never states that the periods satisfy either
-  country's PDPA; the open questions are listed for a lawyer in
+- **Provisional until reviewed, and a recorded review must mean something**
+  (amended 2026-10-27, below). A review is the platform owner's record of
+  what a reviewer advised, made separately for Malaysia and Singapore, and
+  refused unless it says:
+  - the reviewer's name, and their role or qualification as they state it;
+  - their firm or organisation;
+  - which periods it covers;
+  - the day, not before the periods were last set and not in the future;
+  - a reference to the written advice, kept outside MySenam;
+  - what it was based on.
+
+  Every period or jurisdiction no review covers stays provisional; the
+  install's own country decides whether the dashboard, the activity settings
+  and the privacy notice call the periods provisional, and they name each
+  review as *recorded by the platform owner, not verified by MySenam*. Any
+  change lapses every review in force; every change, review and lapse is kept,
+  never pruned. Neither the app nor these documents ever call the periods
+  legally approved or say that they satisfy either country's PDPA; the open
+  questions are listed for a lawyer in
   [privacy](../privacy.md#open-questions-for-professional-review-retention-and-documents).
 - **Cleanup covers** documents (released, waiting, refused, failed), the
   application's record and history, the bare facts and access records after
@@ -131,15 +144,35 @@ Update frequency: ClamAV documentation, *Configuration*: <https://docs.clamav.ne
   application they belong to. There are no temporary uploads:
   everything is checked and scanned in memory, and the tests assert no
   temporary file is written.
-- **A restore cannot bring back for good what was removed**, proportionately:
-  every erasure is recorded in an **erasure ledger** (an account's number and
-  creation moment, no contact details) in the database and in a file beside
-  the backup sets, which a restore does not overwrite. The restore script
-  marks the database; the app, at its next start and before it serves, erases
-  again every account in the ledger that came back with the same creation
-  moment, and runs the retention policy again. A restore done by hand is
-  caught by ledger entries the database lacks. Copies inside backups stay
-  until those backups expire, and the privacy notice says so.
+- **A restore cannot bring back for good what was removed**, proportionately
+  (amended 2026-10-27, below). Every erasure is recorded in an **erasure
+  ledger**: an account's number and creation moment, the same for a
+  participant erased with it, and each change of the install's retention
+  periods; no contact details. Each entry is numbered and hash-chained. The
+  ledger is kept in the database, in a file beside the backup sets that a
+  restore does not overwrite, and **off-site**, in segments signed with the
+  backup-signing key and encrypted like the sets. Segments go within a minute
+  of each erasure (retried each minute) and before every set; each set's
+  manifest names the newest entry. Off-site they sit under their own prefix,
+  or in a bucket with an upload-only key of their own.
+  - **The restore** reads the ledger from every source it has, checks the
+    chain from the restored copy's own newest entry, and brings in what it
+    can verify.
+  - **The app**, at its next start and before it serves, erases again every
+    account and participant in the ledger that came back with the same
+    creation moment, puts back the newest retention periods and runs the
+    retention policy again.
+  - **It does not serve** until that has succeeded. It does not serve either
+    while a restore that could not show the ledger complete is
+    unacknowledged: after losing the server (always), or with a gap, a broken
+    or refused segment, a conflict, or a newer entry named elsewhere (a newer
+    set's manifest, the file, the operator).
+  - **The acknowledgement** records who and why, and the numbers known but
+    not verified as lost.
+
+  A restore done by hand is caught by ledger entries the database lacks.
+  Copies inside backups stay until those backups expire, and the privacy
+  notice says so.
 
 ## Alternatives considered
 
@@ -156,9 +189,21 @@ Update frequency: ClamAV documentation, *Configuration*: <https://docs.clamav.ne
   does not know who was erased, so erased accounts would come back.
 - **Rewriting backup sets to remove erased people:** breaks their signatures
   and Object Lock, and costs far more than re-applying erasures on restore.
-- **Copying the ledger off-site with each set:** would cover losing the
-  server, but adds a second signed, encrypted object per set; not built now,
-  and recorded as a limitation.
+- **Copying the ledger off-site only with each set** (the first answer to
+  losing the server): an erasure made after the nightly set would be lost
+  with the server for up to a day. Built instead: segments within a minute,
+  with each set as well.
+- **An event-sourcing platform, or a separate ledger service**, for the
+  off-site ledger: far more to run and secure than append-only segments in
+  the bucket already there, for the same guarantees.
+- **Serving after losing the server whenever the chain verifies:** nothing
+  can show that the last erasures left the server before it was lost, so a
+  person checks the alerts and the requests and acknowledges it; the
+  acknowledgement is recorded, and the restore says how far the ledger
+  verifiably reached.
+- **Applying unverified entries** (beyond a gap, or from a refused segment):
+  an entry erases; one the chain and signature do not vouch for is listed,
+  not applied, and the operator decides.
 
 ## Verification
 
@@ -176,3 +221,38 @@ Update frequency: ClamAV documentation, *Configuration*: <https://docs.clamav.ne
 - Retention and restore: `tests/retention-policy.test.ts`,
   `tests/approval-retention.test.ts`, and the restore round trip in
   `tests/backup-scripts.test.ts`.
+- The erasure ledger: the chain, segments, signatures and replay
+  (`tests/erasure-ledger.test.ts`). With the real scripts, a stand-in bucket
+  and the server lost (`tests/erasure-ledger-restore.test.ts`):
+  - an older set restored, and later erasures replayed from the off-site
+    ledger alone;
+  - the newest entries lost and detected from a newer set's manifest;
+  - a segment missing or changed;
+  - retention re-run and the newer periods put back;
+  - the app not serving until acknowledged.
+
+  On PGlite and on Postgres 16, in the development container. Not verified:
+  any of it against a real bucket (Object Lock, key capabilities, versions
+  listing for the ledger's prefix), which `verify-offsite` does for the sets
+  only.
+
+## Changes
+
+- **2026-10-27, the erasure ledger off-site** (owner's decision): the ledger
+  survives losing the server. Entries are numbered and hash-chained
+  (migration 0161), also recording participants erased with an account and
+  changes of the retention periods. They are copied off-site in signed,
+  encrypted segments (`src/lib/erasure-ledger-offsite.ts`), and each set's
+  manifest names the newest. A restore checks the chain and brings in what
+  it verifies; the app does not serve until the ledger is applied again and,
+  where it cannot be shown complete, a person acknowledges it
+  (`scripts/restore.mjs --acknowledge-ledger`). Before this, the ledger file
+  was not copied off-site, and a failed re-application was told to the owners
+  while the app served.
+- **2026-10-27, what a recorded review must say** (owner's decision): a
+  review of the retention periods is recorded per jurisdiction with its
+  provenance (migration 0162, `retention_policy_reviews`). A period or
+  jurisdiction it does not cover stays provisional. It is shown as recorded
+  by the platform owner, not verified by MySenam. A review recorded before
+  with only a name, a day and a basis was lapsed. The defaults (90, 30, 365
+  and 7 days) and every bound are unchanged.
