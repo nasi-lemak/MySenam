@@ -30,6 +30,9 @@ export async function startNode(): Promise<void> {
     warn("No malware scanner is configured (MYSENAM_CLAMD): supporting documents sent with applications wait in quarantine, and nobody can open them, until one is.");
   if (withdrawnOptOutSet())
     warn("MYSENAM_DOCUMENT_SCAN=off is no longer read: supporting documents are never released without a malware scan. Remove it from the environment.");
+  const { onDemandProblem } = await import("./lib/document-scanning");
+  const onDemand = onDemandProblem();
+  if (onDemand) warn(`The malware scanner to start on demand cannot be used (${onDemand}): supporting documents wait in quarantine until it can.`);
   if (!process.env.OFFSITE_S3_ENDPOINT || !process.env.OFFSITE_S3_BUCKET)
     warn(
       "Off-site copies are not set up (OFFSITE_S3_*), so every backup is on the same disk as the database it backs up."
