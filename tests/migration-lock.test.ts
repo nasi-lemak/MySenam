@@ -140,6 +140,15 @@ describe.skipIf(!server)("migrations under a lock, on Postgres", () => {
     expect(versions.every((v) => v.n === 1)).toBe(true);
   }, 300_000);
 
+  it("let several servers start at once on an empty Malaysian database: each starts, and the starter venues are seeded once", async () => {
+    // Seeding runs under the same lock as migrations (lib/db.ts, opened): without it, one of the
+    // servers failed with a serialization error (40001) in its serializable seed.
+    const url = await freshDatabase();
+    const started = await Promise.all([start(url), start(url), start(url), start(url)]);
+    for (const s of started) expect(s, s.out).toMatchObject({ code: 0 });
+    expect(await onDatabase(url, async (c) => (await c.query("SELECT COUNT(*)::int AS n FROM venues")).rows[0].n)).toBe(4);
+  }, 300_000);
+
   it("start a server on a database already migrated without applying anything again", async () => {
     const url = await freshDatabase();
     expect((await start(url)).code).toBe(0);

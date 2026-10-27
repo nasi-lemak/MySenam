@@ -427,9 +427,15 @@ function opened(): Promise<Driver> {
       const d = await driver();
       await migrate(d);
       // The built-in activities, as this release has them, and the catalogue read (lib/activities.ts).
+      // Under the same lock as migrations, taken again: servers starting together on an empty
+      // database seed one after another, so the second finds the venues there rather than
+      // colliding with the first's serializable seed.
       const { syncActivities } = await import("./activities.ts");
-      await syncActivities(d);
-      await seedIfEmpty();
+      const firstRun = async () => {
+        await syncActivities(d);
+        await seedIfEmpty();
+      };
+      await (d.lockMigrations ? d.lockMigrations(firstRun) : firstRun());
     })();
     // A failed start must not be remembered: the next query tries again.
     shared.ready.catch(() => {
