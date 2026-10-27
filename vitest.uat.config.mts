@@ -6,14 +6,15 @@ import { defineConfig } from "vitest/config";
  * screenshot of every step. Against the production build (`npm run build`
  * first) like the end-to-end tests, but as the marketplace (tests/uat/setup.ts
  * runs first and says so), with a stand-in for the malware scanner
- * (tests/uat/scanner.ts: not ClamAV), or a deployment (E2E_URL). See
+ * (tests/uat/scanner.ts: not ClamAV) and one for Billplz's sandbox
+ * (tests/uat/gateway.ts: not Billplz), or a deployment (E2E_URL). See
  * docs/development/testing.md#visual-acceptance-scenarios.
  */
 export default defineConfig({
   test: {
     include: ["tests/uat/**/*.uat.ts"],
     environment: "node",
-    globalSetup: ["./tests/uat/setup.ts", "./tests/uat/scanner.ts", "./tests/e2e/server.ts"],
+    globalSetup: ["./tests/uat/setup.ts", "./tests/uat/scanner.ts", "./tests/uat/gateway.ts", "./tests/e2e/server.ts"],
     fileParallelism: false,
     testTimeout: 180_000,
     hookTimeout: 120_000,
