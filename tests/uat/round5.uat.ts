@@ -262,7 +262,7 @@ describe("discounts together", () => {
 
     await s.step(mother, "reads the receipt: three places RM30, Amani's junior price RM5, the code RM2.50, each its own line, adding up to RM22.50 paid", async () => {
       const text = await receiptText(page, code, mother.phone);
-      for (const line of [/3 playersRM30/, /Junior swimmer price, Amani−RM5/, /Promo SPLASH10−RM2\.50/, /TotalRM22\.50/]) expect(text).toMatch(line);
+      for (const line of [/3 players, for Amani, Bella, ChloeRM30/, /Junior swimmer price, Amani−RM5/, /Promo SPLASH10−RM2\.50/, /TotalRM22\.50/]) expect(text).toMatch(line);
       expect(text).not.toMatch(/price, (Bella|Chloe)/);
     });
 
@@ -392,7 +392,7 @@ describe("several passes for one booking", () => {
 
     await s.step(mother, "reads the receipt of the booking she paid with the passes: two places, RM20, paid by pass", async () => {
       const text = await receiptText(page, code, mother.phone);
-      for (const line of [/2 playersRM20/, /TotalRM20/, /Paid: Pass/]) expect(text).toMatch(line);
+      for (const line of [/2 players, for Amani, BellaRM20/, /TotalRM20/, /Paid: Pass/]) expect(text).toMatch(line);
     });
 
     await s.step(mother, "takes Bella off the booking paid by passes: Amani stays booked, and Bella's entry goes back on Bella's pass only", async () => {
@@ -433,7 +433,8 @@ describe.skipIf(gateway === null)("memberships bought online", () => {
     expect(keys.status, JSON.stringify(keys.body)).toBe(200);
     for (const plan of [
       { name: "Junior swim", months: 1, price: 30, offeredFor: "participant" },
-      { name: "Family swim", months: 1, price: 80, offeredFor: "family", familyLimit: 2 },
+      // One person put on in place of another each term (docs/features/pricing.md#changing-whom-a-family-membership-covers).
+      { name: "Family swim", months: 1, price: 80, offeredFor: "family", familyLimit: 2, coverSwaps: 1 },
     ]) {
       const made = await mgrApi.api("POST", "/api/admin/membership-plans", { venueId: centre.venueId, ...plan });
       expect(made.status, JSON.stringify(made.body)).toBeLessThan(300);
@@ -520,14 +521,16 @@ describe.skipIf(gateway === null)("memberships bought online", () => {
       await card.getByText("The price stays as paid: nothing is charged for adding somebody, and nothing is refunded for taking somebody off.").waitFor();
       await card.getByRole("button", { name: "Take Chloe off" }).click();
       await card.getByText("Saved.").waitFor();
+      await card.getByText("1 more person can be put on it this term.").waitFor();
       await card.getByRole("button", { name: "Add Chloe" }).waitFor();
       expect(await refusedFor([chloe])).toEqual([409, "ENT_MEMBERS_PLACE"]);
     });
 
-    await s.step(mother, "adds Chloe back: she is covered again", async () => {
+    await s.step(mother, "adds Chloe back, using the term's one place for somebody put on in place of another: she is covered again, and the card says it is full", async () => {
       const card = page.locator("div").filter({ has: page.getByText(/^Family membership MB-[A-Z0-9-]+, until /) }).last();
       await card.getByRole("button", { name: "Add Chloe" }).click();
       await card.getByRole("button", { name: "Take Chloe off" }).waitFor();
+      await card.getByText("It covers as many people as its plan allows (2).").waitFor();
       const r = await bookChildren(mother, slots[2], [chloe]);
       expect(r.status, JSON.stringify(r.body)).toBe(201);
     });
