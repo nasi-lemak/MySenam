@@ -345,7 +345,9 @@ describe("participants: children apart from the account that books for them", ()
       expect(await panel.locator("li").filter({ hasText: "Mei" }).count()).toBe(0);
       await page.getByRole("button", { name: "Venue details", exact: true }).first().click();
       await page.getByRole("button", { name: /sign out/i }).waitFor();
-      expect(await page.getByRole("heading", { name: "Participants: guardians and own logins" }).count()).toBe(0);
+      // Since 27 October 2026 the desk sees the participants panel by a guardian's number (to invite another adult, and to act
+      // for a guardian recorded by name and number), without the managers' corrections, which the server refuses it too.
+      await page.getByRole("heading", { name: "Participants: guardians and own logins" }).waitFor();
       const known = (await desk.api("GET", `/api/admin/participants?venueId=${range.venueId}&phone=${guardian.phone}`)).body.participants as { id: number }[];
       const correction = await desk.api("PATCH", `/api/admin/participants/${known[0].id}`, { venueId: range.venueId, action: "link", email: "someone@uat.mysenam.test", reason: "asked at the desk" });
       expect(correction.status).toBe(403);
