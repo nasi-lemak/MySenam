@@ -4,7 +4,8 @@
   architectural decision). Amended 27 October 2026 (the owner's decisions:
   another guardian only by verified consent, the other guardians told,
   coaches seeing only the children they supervise, eligibility status
-  following the participant; see *Changes*). Amends
+  following the participant; and, the same day, guardians recorded by name
+  and number taking part only through proved steps; see *Changes*). Amends
   [ADR 0022](0022-children-managed-from-an-adults-account.md): its managed
   people become participants, and its consequence that a child rides on the
   adult's induction no longer holds. How customers and staff use it is
@@ -121,6 +122,31 @@
     account proved) and waivers; their bookings stay theirs; the guardians
     carry on until they stop. Who may end a guardian's relationship over a
     linked adult participant is left to staff for now (see consequences).
+  - **Guardians a venue recorded by name and number act only through a
+    proved step** (amended 27 October 2026, the owner's approved decision;
+    migrations 0171–0174, `src/lib/contact-guardians.ts`;
+    [guardians without an account](../../features/venue-operations.md#guardians-without-an-account)).
+    A name and a number grant no access to a child's information and no
+    authority. Through the venue's staff, a one-time code sent to the
+    number recorded for them by the install's phone-check delivery (the
+    code and the venue's name, nothing about the child), read back and
+    entered, is their agreement to a request (`staff_assisted_phone_code`,
+    with the staff member), their own withdrawal, or proof that the number
+    reaches them. Where no code can be sent, a manager (never front desk)
+    may record their agreement given in person, with a reason
+    (`staff_in_person`): recorded as such, not proof of authority, the
+    relationship it makes flagged for review. An agreement given before
+    the adult accepts counts only while that guardian still acts for the
+    participant. Registering later, they take over the same relationship
+    row (history kept; no new participant or relationship) only with both
+    a number proved on their account and a single-use code staff gave in
+    person or another standing guardian gave. They are told of a change
+    only at a number a code came back from, on WhatsApp, without the
+    child's name; otherwise the venue gets a task to tell them. They may
+    report a relationship as a mistake through staff. Managers are reminded
+    daily of relationships waiting for review and exception review dates
+    come; the platform owner reviews participants no venue knows on the
+    same screen.
   - **Bookings name everybody taking part** (`booking_participants`, 0139):
     one row per participant taking a place, and one for the customer only
     when they take a place alongside others. A booking with no rows is taken
@@ -260,3 +286,15 @@
     Coaches see only the children they supervise. Eligibility status
     follows the participant: another guardian's application counts for the
     child's status, never for access to the application.
+  - 2026-10-27 (second amendment, the owner's approved decision to complete
+    the guardian workflow): a guardian a venue recorded by name and number,
+    who until then could neither agree (only a manager's exception could
+    complete a request), nor be told, nor take the relationship over after
+    registering, now agrees, withdraws or proves their number by a one-time
+    code staff send to it, or (no phone messaging) a manager records an
+    in-person agreement; registers later and claims the same relationship
+    with a proved number and a single-use code; is told only at a proved
+    number without the child's name, else in person on a task; and reports
+    a mistake through staff. Managers get reminders of reviews and
+    exception review dates; the platform owner a review screen for
+    participants no venue knows. Migrations 0171–0174.

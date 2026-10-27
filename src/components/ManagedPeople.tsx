@@ -10,7 +10,7 @@ const RELATIONSHIPS: Relationship[] = ["parent", "guardian", "other"];
 
 /** A refusal about somebody managed, in the customer's language: by its code where it has one. */
 export function explainGuard(t: T, body: { error?: string; code?: string; vars?: Record<string, string | number> } | null | undefined): string {
-  for (const key of body?.code ? [`guard.err.${body.code}`, `ptc.err.${body.code}`, `pbk.err.${body.code}`, `gv.err.${body.code}`] : [])
+  for (const key of body?.code ? [`guard.err.${body.code}`, `ptc.err.${body.code}`, `pbk.err.${body.code}`, `gv.err.${body.code}`, `gw5.err.${body.code}`] : [])
     if (hasPhrase(key)) return t(key as Phrase, body?.vars);
   return body?.error || t("guard.failed");
 }
@@ -53,7 +53,7 @@ export default function ManagedPeople() {
   }, []);
 
   /** A code for another guardian, or for their own login: shown once (lib/participants.ts). */
-  async function invite(p: ManagedPerson, purpose: "guardian" | "link") {
+  async function invite(p: ManagedPerson, purpose: "guardian" | "link" | "claim") {
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -62,7 +62,13 @@ export default function ManagedPeople() {
       const data = await res.json();
       if (!res.ok) throw new Error(explainGuard(t, data));
       const date = new Date(data.expiresAt).toLocaleDateString();
-      setNotice(purpose === "guardian" ? t("ptc.invite.toGuardian", { code: data.code, date }) : t("ptc.invite.toLogin", { name: p.displayName, code: data.code, date }));
+      setNotice(
+        purpose === "guardian"
+          ? t("ptc.invite.toGuardian", { code: data.code, date })
+          : purpose === "claim"
+            ? t("gw5.claim.code", { name: p.displayName, code: data.code, date })
+            : t("ptc.invite.toLogin", { name: p.displayName, code: data.code, date })
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : t("guard.failed"));
     } finally {
@@ -95,7 +101,9 @@ export default function ManagedPeople() {
           ? t("gv.accept.pending", { name: data.person.displayName })
           : data.as === "guardian"
             ? t("ptc.accept.doneGuardian", { name: data.person.displayName })
-            : t("ptc.accept.doneLinked", { name: data.person.displayName })
+            : data.as === "claimed"
+              ? t("gw5.accept.claimed", { name: data.person.displayName })
+              : t("ptc.accept.doneLinked", { name: data.person.displayName })
       );
       setCodeForm(EMPTY_CODE);
       load();
@@ -268,6 +276,11 @@ export default function ManagedPeople() {
                   {t("ptc.invite.link")}
                 </button>
               )}
+              {(p.recordedGuardians ?? 0) > 0 && (
+                <button type="button" disabled={busy} className="text-teal-700 underline" onClick={() => void invite(p, "claim")}>
+                  {t("gw5.claim.give")}
+                </button>
+              )}
               <button type="button" disabled={busy} className="text-red-700 underline" onClick={() => void end(p)}>
                 {t("ptc.end")}
               </button>
@@ -330,6 +343,7 @@ export default function ManagedPeople() {
       <form onSubmit={accept} className="space-y-2 rounded-lg border border-slate-100 p-3">
         <p className="text-sm font-medium">{t("ptc.accept.title")}</p>
         <p className="text-xs text-slate-500">{t("gv.accept.intro")}</p>
+        <p className="text-xs text-slate-500">{t("gw5.accept.claimHint")}</p>
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs text-slate-600">
             {t("ptc.accept.code")}

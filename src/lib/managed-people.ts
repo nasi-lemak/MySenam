@@ -67,11 +67,18 @@ export interface ManagedPerson {
   otherGuardians: number;
   /** Their own login is linked. */
   linked: boolean;
+  /** Of the other guardians, those a venue recorded by name and number (no account), who may take theirs over with one (lib/contact-guardians.ts). */
+  recordedGuardians?: number;
 }
 
 export type ManagedRefusal = ParticipantRefusal;
 
-const toPerson = (p: Participant, g: { relationship: Relationship; authorityDeclaredAt: string; archivedAt: string | null }, otherGuardians = 0): ManagedPerson => ({
+const toPerson = (
+  p: Participant,
+  g: { relationship: Relationship; authorityDeclaredAt: string; archivedAt: string | null },
+  otherGuardians = 0,
+  recordedGuardians = 0
+): ManagedPerson => ({
   id: p.id,
   displayName: p.displayName,
   birthYear: p.birthYear,
@@ -81,6 +88,7 @@ const toPerson = (p: Participant, g: { relationship: Relationship; authorityDecl
   archivedAt: g.archivedAt,
   otherGuardians,
   linked: p.linked,
+  recordedGuardians,
 });
 
 /** The only things held; anything else sent (an email, a phone, a photo, a school, an ID number) is refused, never stored. */
@@ -100,7 +108,7 @@ function extraFields(input: Record<string, unknown>): ManagedRefusal | null {
 
 /** The people this account manages, oldest first; those it stopped managing (archived) only when asked. */
 export async function listManaged(userId: number, opts: { archived?: boolean } = {}): Promise<ManagedPerson[]> {
-  return (await guardianshipsOf(userId, opts)).map((x) => toPerson(x.participant, x.guardianship, x.otherGuardians));
+  return (await guardianshipsOf(userId, opts)).map((x) => toPerson(x.participant, x.guardianship, x.otherGuardians, x.recordedGuardians));
 }
 
 /**

@@ -39,7 +39,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     detail: `Invited ${done.proposedName} to become a guardian of ${participant.displayName} (participant ${participant.id}); pending until accepted and agreed`,
   });
   return NextResponse.json(
-    { request: { id: done.requestId, code: done.code, expiresAt: done.expiresAt, consentPossible: done.consentPossible }, participant },
+    {
+      request: { id: done.requestId, code: done.code, expiresAt: done.expiresAt, consentPossible: done.consentPossible, contactConsent: done.contactConsent },
+      participant,
+    },
     { status: 201, headers: { "Cache-Control": "no-store" } }
   );
 }

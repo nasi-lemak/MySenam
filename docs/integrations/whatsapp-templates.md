@@ -530,3 +530,31 @@ Tamil (`ta`) — {{1}} name, {{2}} phone, {{3}} where, {{4}} when, {{5}} code, {
 
 குறியீடு {{5}}, {{6}}, {{7}}. இது உங்கள் முன்பதிவுகள் பட்டியலில் உள்ளது.
 ```
+
+### `mysenam_guardian_notice`
+
+To a guardian a venue recorded by name and number only, at a number a code has come back from: who acts for a child changed ([guardian notices](messaging.md#guardian-notices)). The venue's name only, never the child's.
+
+English (`en`) — {{1}} venue
+
+```text
+This is {{1}}. There has been a change to who acts for a child you are recorded as a guardian of. Please ask at the counter, or sign in to see it.
+```
+
+Malay (`ms`) — {{1}} venue
+
+```text
+Ini {{1}}. Terdapat perubahan tentang siapa yang bertindak bagi pihak seorang kanak-kanak yang anda direkodkan sebagai penjaganya. Sila tanya di kaunter, atau log masuk untuk melihatnya.
+```
+
+Chinese (`zh_CN`) — {{1}} venue
+
+```text
+这里是 {{1}}。您被登记为监护人的一名孩子，其代理人有所变动。请到柜台询问，或登录查看。
+```
+
+Tamil (`ta`) — {{1}} venue
+
+```text
+இது {{1}}. நீங்கள் பாதுகாவலராகப் பதிவு செய்யப்பட்டுள்ள ஒரு குழந்தைக்காக யார் செயல்படுகிறார்கள் என்பதில் மாற்றம் ஏற்பட்டுள்ளது. முன் மேசையில் கேளுங்கள், அல்லது உள்நுழைந்து பாருங்கள்.
+```

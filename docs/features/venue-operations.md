@@ -67,6 +67,9 @@ part other than that person ([booking for somebody else](booking.md#booking-for-
   requests to become a guardian, or links a participant's own login by its
   email, each with a reason kept in the participant's history and the
   activity log (`PATCH /api/admin/participants/[id]`; front desk cannot).
+  Front desk sees the same panel by a guardian's number, without those
+  corrections, for what it may do: invite another adult, and act for a
+  guardian recorded by name and number ([below](#guardians-without-an-account)).
 
 ### Another guardian by invitation
 
@@ -96,10 +99,14 @@ on the existing participant, never a second record of the same child:
 3. **Agreed.** A guardian's own code needs nothing more: giving it was their
    agreement. A request staff started waits (*pending*) until an existing
    guardian with an account agrees on their people page
-   (`POST /api/my/people/requests`), or a manager records an exception
-   (below). An existing guardian may refuse, with a reason; the request is
-   then closed and its code dead. The guardians who could agree are emailed
-   that there is a request to answer ([messaging](../integrations/messaging.md#guardian-notices)).
+   (`POST /api/my/people/requests`), or an existing guardian the venue
+   recorded by name and number agrees through its staff, by a code sent to
+   their number ([below](#guardians-without-an-account)), or a manager
+   records an exception (below). An existing guardian may refuse, with a
+   reason; the request is then closed and its code dead. The guardians who
+   could agree are emailed that there is a request to answer, and those
+   recorded by name and number are told as [below](#guardians-without-an-account)
+   ([messaging](../integrations/messaging.md#guardian-notices)).
 4. **Active.** Only then is the relationship made (`participant_guardians`,
    provenance `online`: the adult's own declaration, signed in), and the
    adult books, applies and sees the child as any guardian does. Their
@@ -122,8 +129,8 @@ export say only that a request is pending.
 desk, may complete a request without an existing guardian's agreement:
 under *Participants*, *Record an exception* on the request, with a category
 (a custody dispute; an existing guardian who cannot agree, because they
-cannot be reached or have no MySenam account, as a guardian a venue
-recorded by name and number never does; another safeguarding reason), a
+cannot be reached, have no MySenam account and no number a code reaches;
+another safeguarding reason), a
 reason in words, and a date within a year to look at it again
 (`PATCH /api/admin/participants/[id]`, `exception`). It may also say the
 other guardians are not to be told, only where safeguarding requires it.
@@ -174,6 +181,105 @@ down undo nothing; a reported mistake paused, kept and revoked; another
 venue; no second participant; guardians sharing one number; races on
 Postgres; the migration's flag), `tests/components/counter-guardian-picker.test.tsx`
 and `tests/components/guardian-requests.test.tsx` (the screens).
+
+### Guardians without an account
+
+A walk-in family's child is often recorded with one parent by name and
+number only (`createAtVenue`, above). That parent has no account, so they
+can neither agree online, nor be emailed, nor sign in. A name and a number
+grant nothing on their own: a number proves at most that whoever holds the
+phone can read a message sent to it. So everything such a guardian does goes
+through the venue's staff (front desk or a manager, for a participant their
+venue knows; another venue's staff get *not found*), and is proved
+(`src/lib/contact-guardians.ts`; `POST /api/admin/participants/[id]/contact-guardians`;
+on screen under *Venues → Participants*, found by a guardian's number, front
+desk included):
+
+- **A code to the number recorded for them.** Staff send a one-time code
+  (six digits, ten minutes, five tries) through the install's own
+  phone-check delivery (SMS, or WhatsApp's authentication template), under
+  the same limits as a customer's own codes (five a day to one number, the
+  site's daily ceiling) and three an hour for one guardian. The message
+  carries the code and the venue's name, never the child's name or anything
+  about them. The guardian reads it back, present or on the phone, and staff
+  enter it. It is then, as asked: their **agreement** to a request for
+  another adult to become a guardian (recorded on the request as
+  `staff_assisted_phone_code`, with the member of staff who entered it and
+  when; the relationship is made now if the adult has accepted, or when they
+  do, provided that guardian still acts for the child then); their own
+  **withdrawal** (their relationship ended for good, by them, history
+  kept; the other guardians told); or a **check** that the number reaches
+  them. Whichever, the number is then known to reach them
+  (`contact_verified_at`). A code wrong, run out, used, or replaced by a
+  newer one is refused, and nothing is done.
+- **No phone messaging on this install.** No code can be sent; a manager
+  (never front desk) may record that guardian's agreement given in person,
+  with a reason (`staff_in_person`). It is recorded as such, never as proof
+  of authority, and the relationship it makes is flagged for review
+  (`in-person-agreement`) like an exception's. Where a code can be sent it
+  is refused: the code is the way.
+- **Registering later.** The guardian makes an account and proves on it the
+  number the venue recorded (the ordinary phone check). That alone shows
+  them nothing and grants nothing. With it, a single-use code (a week)
+  staff give them in person (*Code to take it over with an account*), or
+  one another guardian with an account gives from their people page (*Code
+  for a guardian a venue recorded*), entered under *Have a code?* with their
+  declaration of authority again, binds the account to the existing
+  relationship: the same row (`claimed_at`, how, whose code), the name and
+  number staff recorded kept as how it began; no new participant and no new
+  relationship. The other guardians are told. A code from a guardian who
+  has since stopped acting, or for a relationship since ended or paused, is
+  void.
+- **Told of changes.** When a guardian is added or ends, a request waits for
+  agreement, or a guardian takes theirs over with an account, a guardian
+  recorded by name and number is sent a WhatsApp notice only at a number a
+  code has come back from: the venue's name and that there has been a change
+  to who acts for a child, to ask at the counter or sign in, never the
+  child's name ([guardian notices](../integrations/messaging.md#guardian-notices)).
+  Otherwise nothing is sent, and the venue that recorded them gets a task
+  under *Needs attention* (front desk too): tell them, then *I have told
+  them*, recorded with who.
+- **Disputes.** Such a guardian may report another guardian's relationship
+  as a mistake through staff, with their note; it is flagged for a manager
+  exactly as a report from a guardian with an account. A manager pauses,
+  keeps or revokes it.
+- **Authority, on every path.** A guardian paused for a review, or whose
+  relationship ended, acts for nobody: not online, not in a group booking,
+  not at the counter or through the venue's API key on their number, and a
+  waiting-list entry they made for the child is offered to nobody and
+  dropped ([booking for somebody else](booking.md#booking-for-somebody-else)).
+  A paused guardian agrees to nothing.
+
+**A manager's reminders.** *Needs attention* tells a venue's managers each
+day how many participants the venue knows have a relationship waiting for a
+review (flagged, paused, or made by an exception whose date to look at it
+again has come) and how many such dates have come; *Show what needs review*
+lists them, and *Keep* records the review (it clears the date). The platform
+owner sees the same across every venue, and *Everything waiting for review,
+at every venue* lists the participants no venue knows as well (a family's
+own records), acted on as the owner.
+
+On record: each code sent (who, for what, never the code), each agreement,
+withdrawal, check, claim, report and task closed, in the participant's
+history (`guardian.code_sent`, `guardian.request_agreed`, `guardian.ended`,
+`guardian.contact_verified`, `guardian.claimed`, `guardian.reported`,
+`guardian.notified_contact`, `guardian.contact_told`,
+`guardian.consent_lapsed`) and, for staff, the activity log
+(`participant.guardian_code_sent`, `participant.guardian_agreed_by_code`,
+`participant.guardian_agreed_in_person`, `participant.guardian_withdrawn`,
+`participant.guardian_number_checked`, `participant.guardian_claim_code`,
+`participant.guardian_reported`, `participant.guardian_told`).
+
+Tests: `tests/guardian-contact.test.ts` (agreement by a code, the text
+carrying nothing about the child; codes wrong, run out, replaced and over
+the hourly limit; agreement before acceptance, and lapsing when that
+guardian withdraws; the in-person agreement a manager's only and only
+without phone messaging; a paused guardian; another venue; claiming with a
+proved number and a staff code, or another guardian's code, neither alone;
+notices and tasks; a report through staff; authority lost online, in a
+group booking, at the counter, through the API key and on a waiting-list
+offer; reminders; the platform owner's review; races on Postgres) and
+`tests/components/contact-guardians.test.tsx` (the screens).
 
 ### Self-service check-in
 

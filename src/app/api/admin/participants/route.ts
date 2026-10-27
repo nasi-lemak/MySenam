@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
+import { contactCodesAvailable, openNoticeTasks } from "@/lib/contact-guardians";
 import { openRequestsFor } from "@/lib/guardian-requests";
 import { createAtVenue, participantsForVenue, reviewQueue, type VenueParticipant } from "@/lib/participants";
 import { getVenue } from "@/lib/store";
@@ -24,24 +25,33 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
-  const withRequests = async (found: VenueParticipant[]) => {
+  // Each with the requests still open, and tasks to tell a guardian recorded by name and number of a change (lib/contact-guardians.ts).
+  const withRequests = async (found: VenueParticipant[], venueIds: number[] | null) => {
     const requests = await openRequestsFor(found.map((p) => p.id));
-    return found.map((p) => ({ ...p, requests: requests.get(p.id) ?? [] }));
+    const tasks = await openNoticeTasks(venueIds, found.map((p) => p.id));
+    return found.map((p) => ({
+      ...p,
+      requests: requests.get(p.id) ?? [],
+      noticeTasks: tasks.filter((t) => t.participantId === p.id).map((t) => ({ id: t.id, guardianName: t.guardianName, change: t.change, why: t.why })),
+    }));
   };
   const review = req.nextUrl.searchParams.get("review") === "1";
   // The review list is a manager's: front desk finds participants only by a guardian's number.
   if (review && admin.role === "desk")
     return NextResponse.json({ error: "Front-desk accounts cannot change this. Ask a manager.", code: "MANAGER_ONLY" }, { status: 403 });
   if (review &&!req.nextUrl.searchParams.get("venueId") && isOwner(admin))
-    return NextResponse.json({ participants: await withRequests(await reviewQueue({ owner: true })) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ participants: await withRequests(await reviewQueue({ owner: true }), null), codesPossible: contactCodesAvailable() }, { headers: { "Cache-Control": "no-store" } });
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  if (review) return NextResponse.json({ participants: await withRequests(await reviewQueue({ venueId })) }, { headers: { "Cache-Control": "no-store" } });
+  if (review) return NextResponse.json({ participants: await withRequests(await reviewQueue({ venueId }), [venueId]), codesPossible: contactCodesAvailable() }, { headers: { "Cache-Control": "no-store" } });
   const phone = req.nextUrl.searchParams.get("phone") ?? "";
   if (phone.replace(/\D/g, "").length < 7) return NextResponse.json({ error: "phone is required." }, { status: 400 });
-  return NextResponse.json({ participants: await withRequests(await participantsForVenue(venueId, phone)) }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(
+    { participants: await withRequests(await participantsForVenue(venueId, phone), [venueId]), codesPossible: contactCodesAvailable() },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 /**

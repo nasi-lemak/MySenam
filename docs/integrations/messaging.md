@@ -128,10 +128,35 @@ took effect (in the venue's time zone), links to the account's people page
 (`/account#people`) to report a mistake or answer, and gives the venue to
 contact (its name and number) where a venue is involved. Never the other
 adult's name or details, and never a location, court, schedule or anything
-else private. Guardians recorded by a venue by name and number only have no
-email and are not told (no WhatsApp template exists for this). An exception
-that requires it (`suppressNotice`, a manager's) tells nobody, and the
-participant's history says so (`guardian.notice_suppressed`).
+else private. A guardian taking over, with their own account, the
+relationship a venue recorded by name and number is told to the others the
+same way (`gw5.mail.claimed`). An exception that requires it
+(`suppressNotice`, a manager's) tells nobody, and the participant's history
+says so (`guardian.notice_suppressed`).
+
+Guardians a venue recorded by name and number only have no email
+(`noticeContactGuardians` in `src/lib/contact-guardians.ts`;
+[guardians without an account](../features/venue-operations.md#guardians-without-an-account)):
+
+- At a number a code has come back from (staff sent a code to it and the
+  guardian read it back), and where WhatsApp is set up, a WhatsApp message
+  (kind `guardian_notice`, template `mysenam_guardian_notice` in
+  [WhatsApp templates](whatsapp-templates.md)): the venue's name, that there
+  has been a change to who acts for a child they are recorded as a guardian
+  of, to ask at the counter or sign in. Never the child's name or anything
+  about them, since a number is not an identity. Paid by the platform, as
+  urgent news is; queued, retried and capped per number like any other.
+  SMS is not used: the outbox has no SMS channel.
+- Otherwise nothing is sent, and the venue that recorded them gets a task
+  (`guardian_notice_tasks`, migration 0173, with why: the number was never
+  checked by a code, or no WhatsApp), shown under *Needs attention* to its
+  staff until one of them marks it done (`POST /api/admin/attention`,
+  `guardianTold`), with who.
+
+The codes staff send to such a number (`gw5.sms.code`: the code and the
+venue's name) go through the phone-check delivery (`src/lib/phone-check.ts`,
+SMS or WhatsApp's authentication template) and its daily limits, not the
+outbox.
 
 Queued like any other message: retried when the mail server is down, held
 to the daily limit per address, its body (with the account link) wiped once
@@ -139,9 +164,13 @@ sent. The change is made and recorded before anything is queued, so a
 failed delivery, or a failure even to queue it (recorded as
 `guardian.notice_failed`), never undoes the change or loses its record; the
 queued messages are listed in the participant's history
-(`guardian.notified`). Tested with a transport that fails and a queue that
-throws (`tests/counter-guardians.test.ts`); live delivery is part of the
-email integration's verification, as for every email.
+(`guardian.notified`, and `guardian.notified_contact` for those recorded by
+name and number). Tested with a transport that fails and a queue that
+throws (`tests/counter-guardians.test.ts`), and the WhatsApp notice and the
+tasks with a stand-in SMS gateway and a queued WhatsApp message
+(`tests/guardian-contact.test.ts`); live delivery is part of the email,
+SMS and WhatsApp integrations' verification, and the
+`mysenam_guardian_notice` template needs Meta's approval before it can go.
 
 ### Urgent news, and knowing it arrived
 

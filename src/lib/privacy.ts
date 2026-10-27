@@ -8,7 +8,7 @@ import { forgetLeaguePlayer } from "./leagues";
 import { removeVenuePhotoFiles } from "./photos";
 import { money } from "./region";
 import { englishOf, said, type StaffText } from "./staff-text";
-import { participantsExport, unusedParticipantsWhere } from "./participants";
+import { VERIFIED_BY_ROLE, participantsExport, unusedParticipantsWhere } from "./participants";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -455,6 +455,14 @@ export interface CustomerExport {
   asParticipant: unknown | null;
   /** Requests this account accepted to become somebody's guardian, still waiting: that one is pending, and nothing about the participant (lib/guardian-requests.ts). */
   guardianRequestsPending: unknown[];
+  /** Requests this account started, accepted (once decided), agreed to or refused: its part, the outcome and when; the participant's name only while it acts for them. */
+  guardianRequests: unknown[];
+  /** Its relationships paused while a manager reviews them: the relationship alone. */
+  guardianshipsPaused: unknown[];
+  /** People taken off its bookings, the others staying booked (lib/place-withdrawals.ts): what each place cost and what went back. */
+  placeWithdrawals: unknown[];
+  /** Benefits redeemed for one place of its bookings: a concession or a member's price, and what each took off (lib/entitlements.ts). */
+  placeBenefits: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -511,15 +519,18 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         userId
       ),
     },
+    // Whose each is: the account holder's own, or a participant's it was sold for (ADR 0025); a family membership with the people it covers.
     passes: await all(
-      `SELECT p.code, p.name, p.entries, p.price, p.expires_on, p.status, v.name AS venue
-       FROM passes p JOIN venues v ON v.id = p.venue_id
+      `SELECT p.code, p.name, p.entries, p.price, p.expires_on, p.status, v.name AS venue, p.holder_kind, hp.display_name AS holder_participant
+       FROM passes p JOIN venues v ON v.id = p.venue_id LEFT JOIN participants hp ON hp.id = p.holder_participant_id
        WHERE p.user_id = ?`,
       userId
     ),
     memberships: await all(
-      `SELECT m.code, m.starts_on, m.expires_on, m.price, m.status, v.name AS venue
-       FROM memberships m JOIN venues v ON v.id = m.venue_id
+      `SELECT m.code, m.starts_on, m.expires_on, m.price, m.status, v.name AS venue, m.holder_kind, hp.display_name AS holder_participant,
+              (SELECT string_agg(cp.display_name, ', ' ORDER BY cp.id) FROM membership_participants mp JOIN participants cp ON cp.id = mp.participant_id
+                WHERE mp.membership_id = m.id) AS covers
+       FROM memberships m JOIN venues v ON v.id = m.venue_id LEFT JOIN participants hp ON hp.id = m.holder_participant_id
        WHERE m.user_id = ?`,
       userId
     ),
@@ -609,10 +620,14 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId,
       account.email
     ),
+    // The structured record only (no card, number or file): what, where, when seen, until when, whether still current, and who saw it by role.
     concessionProofs: await all(
-      `SELECT v.name AS venue, c.name AS concession, p.seen_on, p.valid_until
+      `SELECT v.name AS venue, c.name AS concession, c.preset AS concession_type, p.seen_on, p.valid_until,
+              CASE WHEN p.valid_until >= ? THEN 'current' ELSE 'expired' END AS status, ${VERIFIED_BY_ROLE} AS verified_by
          FROM concession_proofs p JOIN concessions c ON c.id = p.concession_id JOIN venues v ON v.id = p.venue_id
+         LEFT JOIN admins a ON a.id = p.seen_by
         WHERE p.phone_key = phone_key(?) ORDER BY p.seen_on`,
+      todayISO(),
       account.phone
     ),
     staffNotes: await all(
@@ -649,8 +664,25 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         guardianshipsEnded: people.ended,
         asParticipant: people.asParticipant,
         guardianRequestsPending: people.guardianRequestsPending,
+        guardianRequests: people.guardianRequests,
+        guardianshipsPaused: people.paused,
       };
     })()),
+    placeWithdrawals: await all(
+      `SELECT b.code AS booking, v.name AS venue, b.date, w.takes_part_as, w.name, w.places, w.price, w.paid, w.refunded, w.kept, w.late,
+              w.units_returned, w.by_kind AS withdrawn_by, w.reason, w.created_at
+         FROM place_withdrawals w JOIN bookings b ON b.id = w.booking_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+        WHERE b.user_id = ? ORDER BY w.id`,
+      userId
+    ),
+    placeBenefits: await all(
+      `SELECT b.code AS booking, v.name AS venue, b.date, bp.name AS place, pb.kind, pb.concession_name, pb.amount, pb.proof_check,
+              pb.created_at, pb.reversed_at, pb.reversed_why
+         FROM place_benefits pb JOIN bookings b ON b.id = pb.booking_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+         LEFT JOIN booking_participants bp ON bp.id = pb.place_id
+        WHERE b.user_id = ? ORDER BY pb.id`,
+      userId
+    ),
     heldAtACounter:
       "A pass, membership, waiting-list place, induction, sign-off or booking made at a counter is filed against a phone number rather than this account. Ask the venue for those: its manager can give you everything it holds against your number once they have checked who you are in person, which this page cannot.",
   };

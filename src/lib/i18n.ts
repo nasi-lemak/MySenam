@@ -2375,6 +2375,17 @@ const EN = {
   "ent.form.whose": "Whose price is it?",
   "ent.form.mine": "Mine",
   "ent.form.placeOnly": "This price is for one person's place.",
+  "gw5.sms.code": "Code {code} from {venue}. Give it only to the venue's staff, and only if you agree to what they asked you.",
+  "gw5.msg.notice": "This is {venue}. There has been a change to who acts for a child you are recorded as a guardian of. Please ask at the counter, or sign in to see it.",
+  "gw5.mail.claimedSubject": "{name}: a guardian now signs in with their own account",
+  "gw5.mail.claimed": "On {when}, a guardian of {name} whom the venue had recorded by name and number took that relationship over with their own account. Nobody new acts for {name}.",
+  "gw5.accept.claimed": "Done: you now act for {name} with this account, as the guardian the venue recorded.",
+  "gw5.accept.claimHint": "A venue recorded you as a guardian by your name and number and gave you a code? Prove that number on this account first, then enter the code here.",
+  "gw5.claim.give": "Code for a guardian a venue recorded",
+  "gw5.claim.code": "A code for {name}'s guardian recorded at a venue: {code} (until {date}). They enter it here on their own account, after proving the number the venue recorded for them.",
+  "gw5.err.GW5_PHONE_UNPROVEN": "Prove the phone number on your account first (on your account page), then enter the code again.",
+  "gw5.err.GW5_NOT_THEIR_NUMBER": "The number proved on your account is not the one recorded for this guardian. Ask the venue.",
+  "gw5.err.GW5_NO_RECORDED_GUARDIAN": "Nobody acts for them on a name and number a venue recorded.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4703,6 +4714,17 @@ const MS: Record<Phrase, string> = {
   "ent.form.whose": "Harga siapa?",
   "ent.form.mine": "Saya",
   "ent.form.placeOnly": "Harga ini untuk tempat seorang.",
+  "gw5.sms.code": "Kod {code} daripada {venue}. Berikan hanya kepada kakitangan pusat, dan hanya jika anda bersetuju dengan apa yang mereka minta.",
+  "gw5.msg.notice": "Ini {venue}. Terdapat perubahan tentang siapa yang bertindak bagi pihak seorang kanak-kanak yang anda direkodkan sebagai penjaganya. Sila tanya di kaunter, atau log masuk untuk melihatnya.",
+  "gw5.mail.claimedSubject": "{name}: seorang penjaga kini log masuk dengan akaunnya sendiri",
+  "gw5.mail.claimed": "Pada {when}, seorang penjaga {name} yang direkodkan oleh pusat dengan nama dan nombor telah mengambil alih hubungan itu dengan akaunnya sendiri. Tiada orang baharu bertindak bagi pihak {name}.",
+  "gw5.accept.claimed": "Selesai: anda kini bertindak bagi pihak {name} dengan akaun ini, sebagai penjaga yang direkodkan oleh pusat.",
+  "gw5.accept.claimHint": "Pusat merekodkan anda sebagai penjaga dengan nama dan nombor anda dan memberi anda kod? Sahkan nombor itu pada akaun ini dahulu, kemudian masukkan kod di sini.",
+  "gw5.claim.give": "Kod untuk penjaga yang direkodkan oleh pusat",
+  "gw5.claim.code": "Kod untuk penjaga {name} yang direkodkan di pusat: {code} (sehingga {date}). Mereka memasukkannya di sini pada akaun mereka sendiri, selepas mengesahkan nombor yang direkodkan oleh pusat untuk mereka.",
+  "gw5.err.GW5_PHONE_UNPROVEN": "Sahkan nombor telefon pada akaun anda dahulu (di halaman akaun anda), kemudian masukkan kod sekali lagi.",
+  "gw5.err.GW5_NOT_THEIR_NUMBER": "Nombor yang disahkan pada akaun anda bukan nombor yang direkodkan untuk penjaga ini. Tanya pusat.",
+  "gw5.err.GW5_NO_RECORDED_GUARDIAN": "Tiada sesiapa bertindak bagi pihaknya dengan nama dan nombor yang direkodkan oleh pusat.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
