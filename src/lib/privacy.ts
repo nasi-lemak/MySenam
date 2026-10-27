@@ -142,6 +142,12 @@ interface Rule {
   where: string;
   /** For an anonymising rule: what the matching rows become. */
   set?: string;
+  /**
+   * For one a single UPDATE cannot do: applied to the rows `where` matches
+   * (given the cutoff), before the other rules, so what they clear (the
+   * booking's names) is still there to know.
+   */
+  apply?: (where: string, cutoff: string) => Promise<void>;
 }
 
 const RULES: Rule[] = [
@@ -231,9 +237,13 @@ const RULES: Rule[] = [
     days: RETENTION.bookingIdentityDays,
     action: "anonymised",
     table: "receipts",
-    where: `issued_at < ? AND customer_name <> '${ANONYMOUS}'`,
-    // Kept for the books, like the bookings: what was sold and the tax on it.
-    set: `customer_name = '${ANONYMOUS}', customer_phone = NULL, user_id = NULL`,
+    // Due by its date, the customer or the names inside its lines still there; and one anonymised before its
+    // lines' names were cleared too (an erasure before migration 0207), whatever its date.
+    where: `(names_cleared_at IS NULL OR customer_name <> '${ANONYMOUS}')
+            AND (issued_at < ? OR (customer_name = '${ANONYMOUS}' AND names_cleared_at IS NULL))`,
+    // Kept for the books, like the bookings: what was sold and the tax on it. Nobody named: not the customer,
+    // nor whom its lines were for (lib/receipt-names.ts).
+    apply: async (where, cutoff) => (await import("./receipt-names")).anonymiseReceipts(where, cutoff),
   },
   {
     what: said("srv.ret.access"),
@@ -333,7 +343,10 @@ export async function pruneOldData(): Promise<PruneResult> {
     // Applications first, so an approval's end is noted before the sign-off it rests on can go.
     await approvals.pruneApprovals();
     await ledger.pruneErasureLedger();
+    // Those that read other records first (a receipt's names, from its booking), before the other rules clear them.
+    for (const rule of RULES) if (rule.apply) await rule.apply(rule.where, addDays(today, -rule.days));
     for (const rule of RULES) {
+      if (rule.apply) continue;
       const cutoff = addDays(today, -rule.days);
       await db
         .prepare(
@@ -1031,6 +1044,9 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
       .prepare("DELETE FROM venue_reviews WHERE user_id = ? OR booking_id IN (SELECT id FROM bookings WHERE user_id = ?)")
       .run(userId, userId);
 
+    // Receipts and credit notes, theirs and their bookings': the venue's books keep what was sold, not to whom, nor
+    // whom it was for (lib/receipt-names.ts). Before their bookings stop being linked to them.
+    await (await import("./receipt-names")).clearReceiptNamesForUser(userId);
     // Their own name on a place they gave up (lib/place-withdrawals.ts) goes with the booking's.
     await db
       .prepare("UPDATE place_withdrawals SET name = NULL WHERE takes_part_as = 'customer' AND booking_id IN (SELECT id FROM bookings WHERE user_id = ?)")
@@ -1050,10 +1066,6 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
     ).run(ANONYMOUS, userId);
     await db.prepare(
       "UPDATE memberships SET holder_name = ?, holder_phone = '', user_id = NULL WHERE user_id = ?"
-    ).run(ANONYMOUS, userId);
-    // So do receipts and credit notes: the venue's books keep what was sold, not to whom.
-    await db.prepare(
-      "UPDATE receipts SET customer_name = ?, customer_phone = NULL, user_id = NULL WHERE user_id = ?"
     ).run(ANONYMOUS, userId);
     await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
     // Applied again after a restore, it is the same erasure: no second entry.

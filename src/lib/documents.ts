@@ -50,6 +50,42 @@ export interface Line {
    * the books.
    */
   slot?: { court: string; sport: string; date: string; startMin: number; endMin: number; players: number; for: string[] };
+  /**
+   * Whom the line is for, by name, where it names somebody (a child taken off
+   * a booking, the family a membership covers): kept apart from the words, so
+   * retention and erasure clear it (lib/receipt-names.ts). `description`, and
+   * the phrase's `who`, then hold `{who}` where the names are said, and every
+   * reader fills it in (`lineText`, `linePhrase`). Lines written before it
+   * have the names in `description`.
+   */
+  who?: string[];
+}
+
+/** Where a line's names go in its words (`Line.who`). */
+export const WHO = "{who}";
+
+/** What a reader says where a line's names were, once they are cleared (lib/privacy.ts `ANONYMOUS`). */
+const REMOVED = "(removed)";
+
+/**
+ * A line as the books, a list of receipts and an e-invoice say it: in
+ * English, with whom it is for where it names somebody (`who`, or one
+ * person's own price on their place). A booking's court time reads as it
+ * always did there, without its people; the receipt page says them
+ * (lib/receipts.ts `receiptLineText`).
+ */
+export function lineText(line: Pick<Line, "description" | "place" | "who">): string {
+  if (line.description.includes(WHO)) return line.description.split(WHO).join(line.who?.length ? line.who.join(", ") : REMOVED);
+  const name = line.place?.name;
+  if (name && !line.description.endsWith(`, ${name}`)) return `${line.description}, ${name}`;
+  return line.description;
+}
+
+/** A line's phrase, for a staff screen, its names filled in where it holds them apart. */
+export function linePhrase(line: Pick<Line, "phrase" | "who">): StaffText | null {
+  if (!line.phrase) return null;
+  if (line.who === undefined || line.phrase.vars?.who !== WHO) return line.phrase;
+  return { ...line.phrase, vars: { ...line.phrase.vars, who: line.who.length ? line.who.join(", ") : REMOVED } };
 }
 
 /** A line MySenam words: the receipt's English, with its phrase kept beside it. */
@@ -291,7 +327,12 @@ export async function creditReceipt(
   source: string,
   why: string,
   share = 1,
-  part?: { key: string; amount: number }
+  /**
+   * `key` makes the credit note's source, so it names nobody; `text` is how
+   * the part is said on it (the key where not given), with `{who}` where
+   * `who`, the people it was for, go (`Line.who`).
+   */
+  part?: { key: string; amount: number; text?: string; who?: string[] }
 ): Promise<Document | null> {
   const full = await documentFor(source);
   if (!full || full.kind !== "receipt" || share <= 0) return null;
@@ -312,8 +353,12 @@ export async function creditReceipt(
           total: amount,
           lines: [
             {
-              description: share < 1 ? `${Math.round(share * 100)}% of ${full.number}${part ? `, ${part.key}` : ""}, cancelled late` : `Part of ${full.number}${part ? `, ${part.key}` : ""}`,
+              description:
+                share < 1
+                  ? `${Math.round(share * 100)}% of ${full.number}${part ? `, ${part.text ?? part.key}` : ""}, cancelled late`
+                  : `Part of ${full.number}${part ? `, ${part.text ?? part.key}` : ""}`,
               amount,
+              ...(part?.who ? { who: part.who } : {}),
             },
           ],
           tax: full.tax ? { ...full.tax, amount: taxIncluded(amount, full.tax.rate) } : null,
@@ -441,7 +486,8 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
         ]
       : []),
     ...perPlace.map((p) => ({
-      description: `${p.kind === "membership" ? "Member price" : `${p.concession_name ?? "Concession"} price`}${p.name ? `, ${p.name}` : ""}`,
+      // Whose place it was is `place.name`, apart from the words (`lineText` says it), so it can be cleared.
+      description: p.kind === "membership" ? "Member price" : `${p.concession_name ?? "Concession"} price`,
       amount: -roundMoney(Number(p.amount)),
       // Its key and whose place, so the receipt says it in the reader's language; a concession the venue named stays as typed.
       ...(p.kind === "concession" && isConcessionPreset(p.concession_preset) ? { concessionPreset: p.concession_preset } : {}),
@@ -556,7 +602,7 @@ export async function creditBooking(
  * booking's receipt stays what was sold; the fee kept on a late withdrawal
  * stays sold. Once per withdrawal.
  */
-export async function creditBookingPlace(bookingId: number, withdrawalId: number, who: string, amount: number, why: string): Promise<Document | null> {
+export async function creditBookingPlace(bookingId: number, withdrawalId: number, who: PlaceTaken, amount: number, why: string): Promise<Document | null> {
   const full = await bookingSale(bookingId);
   if (!full || full.paymentStatus !== "paid" || amount <= 0) return null;
   const total = roundMoney(amount);
@@ -570,7 +616,7 @@ export async function creditBookingPlace(bookingId: number, withdrawalId: number
     user_id: full.userId,
     customer_name: full.name,
     customer_phone: full.phone,
-    lines: JSON.stringify([{ description: `${who}, taken off ${full.code}`, amount: total }]),
+    lines: JSON.stringify([takenOffLine(who, full.code, total)]),
     total,
     tax_name: full.taxRate ? tax!.name : null,
     tax_rate: full.taxRate,
@@ -579,6 +625,19 @@ export async function creditBookingPlace(bookingId: number, withdrawalId: number
     paid_via: paidVia(full.paidVia),
     note: why,
   });
+}
+
+/** Who was taken off a booking: the person, by name, or so many places nobody was named on. */
+export interface PlaceTaken {
+  name: string | null;
+  places: number;
+}
+
+/** A credit note's line for a place taken off: the person's name apart from the words (`Line.who`). */
+function takenOffLine(who: PlaceTaken, code: string, amount: number): Line {
+  return who.name
+    ? { description: `${WHO}, taken off ${code}`, amount, who: [who.name] }
+    : { description: `${who.places} place${who.places === 1 ? "" : "s"}, taken off ${code}`, amount };
 }
 
 /**
@@ -594,7 +653,7 @@ export async function creditAccountPlace(credit: {
   accountName: string;
   invoiceNumber: string | null;
   code: string;
-  who: string;
+  who: PlaceTaken;
   amount: number;
   taxRate: number | null;
   why: string;
@@ -613,7 +672,7 @@ export async function creditAccountPlace(credit: {
     user_id: null,
     customer_name: credit.accountName,
     customer_phone: null,
-    lines: JSON.stringify([{ description: `${credit.who}, taken off ${credit.code}`, amount: total }]),
+    lines: JSON.stringify([takenOffLine(credit.who, credit.code, total)]),
     total,
     tax_name: rate ? tax!.name : null,
     tax_rate: rate,

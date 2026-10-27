@@ -979,6 +979,8 @@ export async function eraseParticipant(id: number, why: string): Promise<void> {
   const db = getDb();
   // In the erasure ledger, so a restore from an earlier backup erases them again (lib/erasure-ledger.ts).
   await (await import("./erasure-ledger")).recordParticipantErasure(id);
+  // Their name off every receipt and credit note about them, while their places and entries still say which (lib/receipt-names.ts).
+  await (await import("./receipt-names")).clearReceiptNamesForParticipant(id);
   await db.prepare("UPDATE sign_offs SET revoked_at = datetime('now'), revoke_reason = ? WHERE revoked_at IS NULL AND managed_person_id = ?").run(why, id);
   await db.prepare("UPDATE sign_offs SET managed_person_id = NULL WHERE managed_person_id = ?").run(id);
   await db.prepare("UPDATE inductions SET revoked_at = COALESCE(revoked_at, datetime('now')), participant_id = NULL WHERE participant_id = ?").run(id);

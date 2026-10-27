@@ -95,6 +95,12 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
 - replaces the name, phone and email on every booking it owns with `(removed)`,
   **keeping the hour and the price**;
 - strips the holder from spent passes and lapsed memberships;
+- takes its name, phone and account off its receipts and credit notes, and
+  off those of its bookings that carry no account (a deposit paid online, a
+  credit note on a company account the booking was charged to, which keeps
+  the company's name), and every name inside their lines: whom the court
+  time was for, whose place a price was, who was taken off, whom a
+  membership covers ([below](#receipts-and-credit-notes));
 - takes it off every waiting list it joined, passing a place it was waiting
   for or had been offered to the next person, and deletes those entries;
 - takes it out of open games still to come, passing a freed place on, and
@@ -137,6 +143,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
+| Names and numbers on receipts and credit notes, with every name inside their lines | 730 days after issue | anonymised; what was sold, the amounts and the tax kept ([below](#receipts-and-credit-notes)) |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Withdrawn activity sign-offs | 365 days | deleted |
 | Names of who took each place on a booking | 730 days | removed, the booking kept |
@@ -160,6 +167,53 @@ incident window has passed.
 The scheduler applies the policy once a day; where it is turned off, it
 applies itself the first time anyone opens the dashboard each day. An owner can see what is due, when it last ran, and
 run it early, under *Venues & staff → Keeping nothing too long*.
+
+### Receipts and credit notes
+
+A receipt or credit note is the venue's record of a sale, written once
+(`receipts`; [payments](../features/payments-and-credit.md)): its number,
+what was sold, the amounts and the tax stay for the books. Who it was made
+out to (name, phone, account) and the people its lines name go
+(`src/lib/receipt-names.ts`):
+
+- **When**: 730 days after it was issued (the retention rule, which also
+  catches a receipt anonymised before its lines' names were cleared,
+  whatever its date); when the account it belongs to, or whose booking it is
+  about, is erased; and, for one person, when a participant is erased: their
+  name comes off every receipt and credit note about them (the bookings
+  they had a place on or were taken off, memberships naming them as holder
+  or as covered, now or when sold, their tournament entries and league
+  places), and a receipt made out to them (a child's own entry) stops
+  naming them; others those receipts name stay named.
+- **What is named, and how it is cleared.** Lines written since migration
+  0207 keep the people apart from their words: whom the court time is for
+  (`slot.for`), whose place a price was (`place.name`), and whom anything
+  else is for (`who`: a child taken off a booking, a deposit's part given
+  back for them, a family membership's dependants), the words holding
+  `{who}` where the names go. The receipt page, the receipts lists, the
+  sales journal and an e-invoice all say a line from those fields, so
+  clearing them clears the name everywhere; a cleared name reads
+  `(removed)`. A deposit's part credited for a place is keyed by the
+  withdrawal, not by the person's name.
+- **Written before that**, a line may say a name in its words: a place
+  taken off (*Alya, taken off BK-…*), a deposit's part (*Part of R-…, BK-…,
+  Alya*, its key naming her too), a membership's *for Alya, Bilal*, a
+  person's own price (*Member price, Alya*). Each of these is taken out
+  where it stands, and every name known for the receipt (in its lines, its
+  customer, its booking's people and withdrawals, or the participant's own
+  record) is replaced wherever it stands as a word. A name of one letter is
+  cleared only where those shapes place it. Replacing a word that happens to
+  be the same as a name (a coach called Ana, a child called Ana) is the
+  mistake chosen over leaving a name behind; the amounts never change.
+- **After a restore** the same happens again: an account's or a
+  participant's erasure applied again from the erasure ledger clears the
+  restored copy's receipts the same way, and the retention run that follows
+  catches the rest ([backups](../operations/backups.md#after-a-restore)).
+- **Not reached**: an e-invoice already sent to LHDN keeps what it said
+  there (and its copy in `e_invoices`); a reason staff typed for a credit
+  top-up loses only the names known for the receipt; coaches' names on lesson receipts stay (they are
+  the venue's staff); messages and the staff activity log follow their own
+  retention.
 
 ### Applications to be approved for an activity
 

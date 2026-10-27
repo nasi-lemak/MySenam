@@ -109,7 +109,7 @@ import { venueZoneOf } from "./zones";
 import { utilisationByDay, type UseSplit } from "./reports";
 import { cancelPolicy, cancelPolicyFor } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
-import { creditBooking, creditReceipt, issueReceipt, saidLine } from "./documents";
+import { creditBooking, creditReceipt, issueReceipt, saidLine, WHO } from "./documents";
 import { venueTax } from "./tax";
 import { englishOf, lengthText, readStaffText, said, withPhrase, type StaffText } from "./staff-text";
 
@@ -6826,21 +6826,17 @@ export async function sellMembership(input: {
       name: holderName,
       phone: holderPhone,
       // Whom it is for, where that is not the number's holder alone: the participant's own, or the family it covers.
+      // Their names are kept apart from the words (`Line.who`), so retention and erasure clear them (lib/receipt-names.ts).
       lines: [
-        saidLine(
-          membership.holderParticipantId !== null || (membership.covers ?? []).length > 0
-            ? said("srv.mbo.line", {
-                code: membership.code,
-                who: [
-                  membership.holderParticipantId !== null ? (membership.holderParticipantName ?? "") : holderName,
-                  ...(membership.covers ?? []).map((c) => c.name),
-                ].join(", "),
-                from: input.startsOn,
-                to: input.expiresOn,
-              })
-            : said("srv.line.membership", { code: membership.code, from: input.startsOn, to: input.expiresOn }),
-          input.price
-        ),
+        membership.holderParticipantId !== null || (membership.covers ?? []).length > 0
+          ? {
+              ...saidLine(said("srv.mbo.line", { code: membership.code, who: WHO, from: input.startsOn, to: input.expiresOn }), input.price),
+              who: [
+                membership.holderParticipantId !== null ? (membership.holderParticipantName ?? "") : holderName,
+                ...(membership.covers ?? []).map((c) => c.name),
+              ],
+            }
+          : saidLine(said("srv.line.membership", { code: membership.code, from: input.startsOn, to: input.expiresOn }), input.price),
       ],
       paidVia: input.paidVia ?? "At the counter",
       taxable: true,

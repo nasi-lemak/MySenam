@@ -1,6 +1,6 @@
 import { salesJournal, type Category } from "./accounting";
 import { getDb } from "./db";
-import { documentById, documentId } from "./documents";
+import { documentById, documentId, lineText } from "./documents";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { documentStatus, MyInvoisError, submitDocument, validationLink, type Connection } from "./myinvois/client";
 import { buildDocument, STATE_CODES, type DocLine, type Party, type Supplier } from "./myinvois/ubl";
@@ -643,7 +643,7 @@ async function linesFor(r: EInvoiceRow): Promise<DocLine[]> {
     if (!receipt) return [];
     return [
       {
-        description: `Receipt ${receipt.number}: ${receipt.lines[0]?.description ?? "sale"}`,
+        description: `Receipt ${receipt.number}: ${receipt.lines[0] ? lineText(receipt.lines[0]) : "sale"}`,
         gross: receipt.total,
         tax: receipt.tax?.amount ?? 0,
         rate: receipt.tax?.rate ?? null,

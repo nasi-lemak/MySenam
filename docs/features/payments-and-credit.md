@@ -475,10 +475,19 @@ the children are named only to say which place is whose.
   opening in that language, in the language the booking was made in
   ([regions](../product/regions-and-tax.md)); the amounts, the line as
   stored and the books are the same for everybody.
+- **The children's names are kept apart from the words**, on the receipt
+  and on every credit note and kept receipt written from it (whom the court
+  time is for, whose place a price was, who was taken off, whom a membership
+  covers), so they go when the install stops keeping names, when the
+  guardian's account is erased, and, one child's, when that child is
+  erased; the amounts and tax stay
+  ([privacy](../architecture/privacy.md#receipts-and-credit-notes)).
 
 Tests: `tests/guardian-receipts.test.ts` (two children on one booking with
 one child's concession, a booking each, an adult's own; the payer, the
-recipient, no birth year, the four languages), on PGlite and Postgres.
+recipient, no birth year, the four languages), on PGlite and Postgres;
+`tests/receipt-names.test.ts` (the names cleared by retention, the
+guardian's erasure and a child's, and again after a restore).
 
 ## Stored credit
 
