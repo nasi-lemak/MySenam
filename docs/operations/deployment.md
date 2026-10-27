@@ -61,12 +61,32 @@ npm package and no paid service, and no document leaves the machine.
   3 GiB and preferably 4 GiB for the machine, and puts its container with the
   signature database at about 300 MB compressed, 456 MB uncompressed
   ([ClamAV: Docker](https://docs.clamav.net/manual/Installing/Docker.html)).
-  With the app (about 250 MB) and Postgres (about 300 MB) beside it, the 2 GB
-  Droplet is too small: use the 4 GB one (USD 24 a month instead of USD 12;
-  [kit](../../deploy/digitalocean/README.md#what-it-costs)). Reloading
-  signatures in place, rather than beside the old ones, keeps it to one copy
-  in memory at the price of scans pausing during a reload: documents wait in
-  quarantine and are retried.
+  Measured in the development container on 27 October 2026 with the
+  official signatures (daily 28165, main 63, bytecode 339; ClamAV 1.5.4,
+  the kit's settings): clamd's resident memory was **969 MiB** once loaded
+  (15.5 s to load), and its peak **1,038 MiB** through a reload in place;
+  freshclam's own peak while fetching the full set was **about 700 MiB**
+  with `TestDatabases yes` (it loads each new database once to test it;
+  14 s) and **about 320 MiB** with `TestDatabases no` (4 s). freshclam
+  tests before clamd reloads, so the two peaks do not coincide: about
+  1.7 GiB for both at the worst moment, besides the app (about 250 MB) and
+  Postgres (about 300 MB). A routine update tests only the database that
+  changed (usually the smaller daily one), so the full download is the
+  upper bound. The 4 GB Droplet (USD 24 a month instead of USD 12;
+  [kit](../../deploy/digitalocean/README.md#what-it-costs)) stays the
+  recommendation: 2 GB would leave no headroom for a build or a burst. These
+  are one container's figures, not a Droplet's. Reloading signatures in
+  place, rather than beside the old ones, keeps it to one copy in memory at
+  the price of scans pausing during a reload: documents wait in quarantine
+  and are retried.
+- **`TestDatabases`.** The kit leaves freshclam's default, `yes`: a new
+  database is loaded once by freshclam before clamd is told to reload, so a
+  database that is corrupt or that this engine cannot load is caught there
+  and clamd keeps the one it has. `no` saves about 380 MiB at the update's
+  peak and some seconds; freshclam still checks each database's digital
+  signature (a `.cvd` is signed by ClamAV), but an unloadable database would
+  then reach clamd, whose reload could fail and leave documents waiting in
+  quarantine until it is fixed. Keep `yes` unless memory forces otherwise.
 - **Signatures.** `clamav-freshclam` fetches the official signatures from
   ClamAV's mirrors and checks for new ones every hour (Ubuntu's default
   `Checks 24`); clamd reloads them by itself. A signature database more than
@@ -80,26 +100,51 @@ npm package and no paid service, and no document leaves the machine.
   it stops. `/api/health` does not include it: a scanner that is down holds
   documents back, it does not take the site down.
 - **Failure and recovery.** While clamd is away, documents stay `pending`
-  (never openable) and are retried after 1, 5, 30, 120, 360 and 720 minutes;
-  after the seventh try, about 20 hours on, they are `failed` and the
-  applicant is asked to send them again. Nothing needs restoring: the
-  scanner holds no data of the app's, and its signatures are fetched again.
-- **Without a scanner** documents are refused, with a message saying they
-  cannot be checked now. `MYSENAM_DOCUMENT_SCAN=off` is the operator's
-  explicit opt-out: documents are then taken and marked *not checked for
-  malware* to the applicant and reviewers. A production start warns about
-  either.
-- **Upgrading to migration 0142.** Documents stored before it were never
-  scanned: they become `pending` and are scanned by the scheduler. Configure
-  the scanner before upgrading, or they fail after their tries (and go after
-  the quarantine period) and their applicants are asked again.
+  (never openable) and are retried after 1, 5, 30, 120, 360 and 720 minutes.
+  After the seventh try, about 20 hours on, a document whose last try found
+  no scanner is `failed` **waiting for a scanner**: kept, never openable,
+  never removed for that, and put back in quarantine by the scheduler as soon
+  as clamd answers again (within a minute), then scanned. Nothing needs doing
+  by hand, and nothing needs restoring: the scanner holds no data of the
+  app's, and its signatures are fetched again. A document a working clamd
+  could not scan (over `StreamMaxLength`, or no answer for that document) is
+  `failed` for good and goes after the quarantine period.
+- **Scanning one again.** The platform owner's *Supporting documents* panel
+  lists failed documents (number, venue, activity, kind and size; never the
+  contents or who sent them) with a *Scan again* action that asks for a
+  reason: for example after raising `StreamMaxLength`. It puts the same bytes
+  back in quarantine, only if they are still there and match the hash taken
+  when they were checked, at most three times per document; otherwise the
+  applicant has to send it again. Each request and its outcome are kept
+  with the document and in the staff activity log
+  ([security](../architecture/security.md#malware-scanning)).
+- **Without a scanner** documents are still taken, into quarantine: they wait
+  there, never openable, and an application that needs one cannot be
+  approved, until a scanner is configured and passes them. There is no
+  setting to release documents unscanned: `MYSENAM_DOCUMENT_SCAN=off` was
+  withdrawn on 27 October 2026 and is ignored, with a start-up warning where
+  it is still set. A production start without `MYSENAM_CLAMD` warns too, and
+  the hourly check tells the owners once documents are waiting.
+- **Upgrading to migrations 0159–0160.** Documents taken unscanned under the
+  withdrawn setting go back into quarantine and are scanned; until then
+  nobody can open them. Documents stored before scanning existed, or that
+  failed only because no scanner was configured, are marked and kept until a
+  scanner passes them or their own retention period ends
+  ([privacy](../architecture/privacy.md#applications-to-be-approved-for-an-activity)).
+  Configure the scanner, and they are scanned within a minute or two.
 
-What this deployment has **not** verified: clamd against the official
-signatures (in the development container freshclam could not reach ClamAV's
-mirrors, so the engine was tested with a locally generated test signature for
-the EICAR test file), the kit's scanner set-up on a real Droplet, and scan
-latency, start-up time and memory with the official signatures. Each is a
-launch check below.
+**Verified in the development container on 27 October 2026**: freshclam
+fetched the official signatures from ClamAV's mirrors over HTTPS, with TLS
+verification on (its first attempt there had failed with *Problem with the SSL
+CA cert*: the container pointed it at a CA bundle in a folder the `clamav`
+user cannot read; pointing `CURL_CA_BUNDLE` at the system store fixed it, a
+quirk of that container, not of a Droplet); clamd 1.5.4 with them found the
+EICAR test file as `Eicar-Test-Signature` and released a plain PDF through the
+app (`tests/document-scanning-engine.test.ts` with `MYSENAM_TEST_CLAMD`), with
+the memory above. The official signatures find the EICAR file only as the
+EICAR standard defines it (the string at the start of the file), not inside a
+PDF. **Not verified**: the kit's scanner set-up and memory on a real Droplet,
+and signature updates over days. Each is a launch check below.
 
 ## Upgrading
 
@@ -179,10 +224,10 @@ these once with a real account, in its sandbox where it has one:
       most, so holds, reminders, offers and backups happen on time.
 - [ ] **The malware scanner**: on the 4 GB Droplet, `clamav-freshclam` has
       fetched the official signatures, the *Supporting documents* panel shows
-      clamd answering with signatures under a day old, an application sent
-      with the EICAR test file inside a PDF is refused by the scan, a plain
-      PDF is released, and the memory clamd takes and the time a 10 MB PDF
-      takes are noted ([the malware scanner](#the-malware-scanner)).
+      clamd answering with signatures under a day old, `clamdscan --stream`
+      finds the EICAR test file as `Eicar-Test-Signature`, a plain PDF sent
+      with an application is released, and the memory clamd takes and the
+      time a 10 MB PDF takes are noted ([the malware scanner](#the-malware-scanner)).
 - [ ] **Retention periods reviewed**: a lawyer in each country has answered
       the [open questions](../architecture/privacy.md#open-questions-for-professional-review-retention-and-documents),
       the install's periods are set accordingly, and the review is recorded
@@ -221,7 +266,7 @@ the result is recorded there with the date.
 | Legal review | A lawyer in each country | The open points in [privacy](../architecture/privacy.md#backups-held-abroad) answered before `OFFSITE_TRANSFER_APPROVED` is set (Backblaze's terms as the transfer contract, the TIA, roles, breach notice); the terms, privacy notice and venue agreement reviewed; whether a venue's refund period meets consumer law; what guardian consent the law asks for | Nothing: the app refuses the transfer until it is declared, and records consent as declared |
 | Continuous integration | GitHub Actions able to start runners on the repository (the account's billing or spending limit) | A CI and a Docs run on the commit being launched start, run every step and pass | Every run since 16 October 2026 ended before a runner was assigned ([known limitations](../roadmap/known-limitations.md)); the suites have been run by hand only |
 | Staging on DigitalOcean (optional) | A DigitalOcean team used for nothing else, a custom-scoped token (droplets, tags, registry read), a read-only registry credential, and an agreed spend per run | `scripts/stage-remote.mjs up --approve-usd …` serves the image on `sslip.io`, its tests pass, `down` leaves nothing billable | `tests/stage-remote.test.ts` (stand-in API) |
-| Malware scanner (ClamAV) | The 4 GB Droplet (the owner's decision: USD 12 a month more) and outbound access to ClamAV's signature mirrors | freshclam fetches the official signatures; the EICAR test file is refused and a plain PDF released through the app; the hourly check stays quiet; clamd's memory and scan time measured | `tests/document-scanning.test.ts` (stand-in scanner and stand-in sockets), `tests/document-scanning-engine.test.ts` (real clamd 1.5.4 with a locally generated test signature, not the official ones) |
+| Malware scanner (ClamAV) | The 4 GB Droplet (the owner's decision: USD 12 a month more) and outbound access to ClamAV's signature mirrors | freshclam fetches the official signatures; the EICAR test file is found and a plain PDF released through the app; the hourly check stays quiet; clamd's memory and scan time measured on the Droplet | `tests/document-scanning.test.ts` (stand-in scanner and stand-in sockets), `tests/document-scanning-engine.test.ts` (real clamd 1.5.4: with a locally generated test signature, and, in the development container on 27 October 2026, with the official signatures) |
 | Performance under production-like conditions | A managed database across a real network, a production-size pool, two or more app instances | The [benchmark](../development/testing.md#results) re-run there, with the targets in the roadmap | One machine, database beside the app |
 | Monitoring and alerts | An error-tracking DSN (`SENTRY_DSN`) and an owner email that receives alerts | A deliberate error reaches the tracker; a failed backup or off-site copy, and a `refund_failed` integrity problem, email the owners; `/api/health` is polled by an uptime monitor | `tests/alerts.test.ts`, `tests/integrity.test.ts` |
 

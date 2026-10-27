@@ -115,19 +115,24 @@ export type ReviewKey =
   | "apr.scan.pending"
   | "apr.scan.rejected"
   | "apr.scan.failed"
-  | "apr.scan.not_scanned"
   | "apr.scan.ev.scan_rejected"
-  | "apr.scan.ev.scan_failed";
+  | "apr.scan.ev.scan_failed"
+  | "apr.scan2.waiting"
+  | "apr.scan2.ev.scan_requeued";
 
-/** A review key as the customer dictionary has it: those about somebody managed are `guard.rv.*` there, a document's malware scan `scan.rv.*`. */
+/** A review key as the customer dictionary has it: those about somebody managed are `guard.rv.*` there, a document's malware scan `scan.rv.*` (and `scan2.rv.*`). */
 export function customerKey(key: string): string {
   if (key.startsWith("apr.scan.")) return `scan.rv.${key.slice("apr.scan.".length)}`;
+  if (key.startsWith("apr.scan2.")) return `scan2.rv.${key.slice("apr.scan2.".length)}`;
   return key.startsWith("apr.child.") ? `guard.rv.${key.slice("apr.child.".length)}` : key;
 }
 
 /** Where a document's malware scan stands, for the reader; nothing for one that passed. */
-export function scanText(say: Say, d: Pick<ApprovalRequest["documents"][number], "scan">): string | null {
-  return d.scan === "clean" ? null : say(`apr.scan.${d.scan}` as ReviewKey);
+export function scanText(say: Say, d: Pick<ApprovalRequest["documents"][number], "scan"> & { scanWaiting?: boolean }): string | null {
+  if (d.scan === "clean") return null;
+  // Failed only because no scanner answered: it waits, and is scanned by itself once one does.
+  if (d.scan === "failed" && d.scanWaiting) return say("apr.scan2.waiting");
+  return say(`apr.scan.${d.scan}` as ReviewKey);
 }
 
 export type Say = (key: ReviewKey, vars?: Record<string, string | number>) => string;
@@ -176,6 +181,7 @@ export function statusOf(say: Say, r: Pick<ApprovalRequest, "status" | "lapsed" 
 export function eventText(say: Say, action: string): string {
   if (action === "authority_reviewed") return say("apr.child.evReviewed");
   if (action === "scan_rejected" || action === "scan_failed") return say(`apr.scan.ev.${action}` as ReviewKey);
+  if (action === "scan_requeued") return say("apr.scan2.ev.scan_requeued");
   return EVENT_KEYS.has(action) ? say(`apr.ev.${action}` as ReviewKey) : action;
 }
 

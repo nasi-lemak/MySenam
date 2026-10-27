@@ -126,7 +126,7 @@ Such a document may hold sensitive personal information, so:
 | Images | Redrawn as WebP, as venue photos are: nothing of the upload survives but its pixels |
 | PDFs | Never rendered or run on the server. Refused if encrypted; if its dictionaries, or its object streams (decompressed, within 40 MB), name JavaScript, an action on opening other than a page to open at, additional actions, Launch, GoToR, GoToE, SubmitForm, ImportData, media, attached files, rich media or XFA, however the name is escaped; if it has more than 20 pages or none; or if it cannot be checked (no end marker, an object stream with another filter or a predictor). Otherwise kept as sent |
 | Storage | In the database (`approval_documents`), never in the public photo store or any public URL; deleted by the retention rules ([privacy](privacy.md#applications-to-be-approved-for-an-activity)); no temporary files (uploads are read, checked and scanned in memory, and streamed to the scanner from memory) |
-| Malware scan | Every stored document waits in quarantine (`pending`) until the server's own call to the scanner (clamd, [below](#malware-scanning)) passes it (`clean`); until then nobody can open it, and an application whose activity asks for a document cannot be approved or have its in-person step recorded unless at least one of its documents is released and none is still waiting. Found something: `rejected`, its bytes wiped at once. No answer after seven tries over about 20 hours: `failed`, never released |
+| Malware scan | Every stored document waits in quarantine (`pending`) until the server's own call to the scanner (clamd, [below](#malware-scanning)) passes it (`clean`); until then nobody can open it, and an application whose activity asks for a document cannot be approved or have its in-person step recorded unless at least one of its documents is released and none is still waiting. Found something: `rejected`, its bytes wiped at once. No answer after seven tries over about 20 hours: `failed`, never released (kept and waiting when no scanner answered; see [below](#malware-scanning)) |
 | Who may open one | The applicant; the venue's staff; a coach the venue authorised for that activity there, signed in to the MySenam account the venue linked to them, and only once released. Another venue's staff, another customer, another coach or nobody signed in gets nothing, in every state: the same `404` as a document that does not exist, so numbers cannot be probed; one of the people entitled gets `409 SCAN_NOT_RELEASED` for a document not released |
 | Handing it out | Through the app only: `Content-Disposition: attachment` for a PDF (a redrawn image inline), `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, and a content security policy of its own (`default-src 'none'; sandbox`, set by the middleware for these paths instead of the pages' policy) |
 | Record | Every opening: who (customer, staff member or coach), which document, when (`approval_document_access`), kept 730 days and given to the customer with their data |
@@ -160,29 +160,66 @@ run as in [deployment](../operations/deployment.md#the-malware-scanner).
 - **When the scanner is away, slow or unsure** (`unavailable`, `timeout`,
   `inconclusive`), the try is recorded and the scheduler tries again after 1,
   5, 30, 120, 360 and 720 minutes; after the seventh try the document is
-  `failed`. A stream over clamd's own size limit fails at once. Never clean by
-  default.
+  `failed`, for one of two reasons (`scan_failure`, migration 0159):
+  - **`scanner_unavailable`**: the last try found no scanner (none
+    configured, no connection, or a timeout or unreadable answer from a
+    scanner that then did not answer at all). The document is kept, never
+    released, never removed for that, and put back in quarantine by the
+    scheduler within a minute of a scanner answering again, then scanned.
+    Reviewers and the applicant see it as *waiting for the malware scanner*.
+  - **`unscannable`**: a working scanner could not scan it (over clamd's size
+    limit, which fails at once, or no usable answer for this document), or its
+    bytes no longer match the hash taken when they were checked. Terminal:
+    it goes after the quarantine period.
+
+  Never clean by default.
+- **Fail closed, no opt-out.** Supporting documents are safety and guardian
+  application documents: none is released without a scan that passed. There
+  is no setting to take or release documents unscanned (the former
+  `MYSENAM_DOCUMENT_SCAN=off` was withdrawn on 27 October 2026 and is
+  ignored, with a start-up warning). Exempting a lower-risk class of document
+  would be a separate, documented platform-level policy, never a venue
+  setting; there is none today.
+- **Without a scanner** documents are still taken, into quarantine
+  (`pending`), so nothing a customer sent is lost: they wait there, never
+  openable, and an application that needs one cannot be approved until a
+  scanner is configured and passes it. Applications without documents, and
+  in-person steps on them, carry on as before.
+- **Scanning again.** Besides the automatic return to quarantine above, the
+  platform owner may have a `failed` document scanned again from the
+  *Supporting documents* panel (`POST /api/admin/document-policy`, `retry`),
+  with a reason; a venue's staff cannot (the document is theirs to review,
+  the scanner is the platform's; they ask the applicant for a new file). It
+  is allowed only while the bytes are there and their SHA-256 matches the one
+  recorded when they were checked, at most three times per document;
+  otherwise a new upload is needed, and a document whose bytes are gone or
+  changed becomes `unscannable`. A retry puts the same bytes back in
+  quarantine for a new round of tries: it never changes them and never
+  releases the document; asking again while it waits does nothing more. Every
+  request, refused or not, is recorded with the document (who, when, why, and
+  once the scan settles its outcome) and in the staff activity log; the
+  history goes with the document.
 - **Only the server releases a document.** No route takes a scan status; the
   database refuses `clean` without a recorded scan of exactly the stored bytes,
-  refuses any change to a settled status (`clean`, `rejected`, `failed`,
-  `not_scanned`), and refuses any change to a stored document's bytes but the
-  wipe of a rejected one (migration 0142).
-- **Without a scanner** documents are refused (`503 SCAN_UNAVAILABLE`, nothing
-  of the application kept). An operator may turn scanning off on purpose
-  (`MYSENAM_DOCUMENT_SCAN=off`): documents are then stored `not_scanned`, shown
-  as *not checked for malware* to the applicant and reviewers, and may be
-  opened and approved. A configured scanner always wins over the opt-out.
-- **Afterwards.** What is left of a rejected or failed document goes after the
-  install's quarantine period (7 days by default), unless a hold keeps its
-  application ([privacy](privacy.md#applications-to-be-approved-for-an-activity)).
-  The application's history keeps that a document was refused or could not be
-  checked.
+  refuses any change to a settled status but a failed document's return to
+  quarantine with its bytes intact (migration 0159), refuses any change to a
+  stored document's bytes but the wipe of a rejected one, and any change to
+  its recorded hash.
+- **Afterwards.** What is left of a rejected or `unscannable` document goes
+  after the install's quarantine period (7 days by default), unless a hold
+  keeps its application ([privacy](privacy.md#applications-to-be-approved-for-an-activity)).
+  The application's history keeps that a document was refused, could not be
+  checked, or was put back to be scanned again. Each document removed is
+  recorded with the rule that removed it (retention, quarantine or erasure),
+  never "no scanner".
 - **Health.** The platform owner's *Supporting documents* panel shows whether
-  the scanner answers, its engine and signature date and age, and documents
-  waiting, refused, failed or taken unchecked; every hour the scheduler tells
-  the owners (alert `document-scanner`) when the scanner does not answer, its
-  signatures are over 48 hours old or of unknown age, a document has waited
-  over an hour, one has failed, or documents are being taken unscanned
+  the scanner answers, its engine and signature date and age, documents
+  waiting for a scan, waiting for a scanner, refused or unscannable, and
+  where documents stored before scanning existed stand; every hour the
+  scheduler tells the owners (alert `document-scanner`) when the scanner does
+  not answer, none is configured while documents wait, its signatures are
+  over 48 hours old or of unknown age, a document has waited over an hour,
+  documents wait for a scanner, or one was unscannable
   ([monitoring](../operations/monitoring.md)). `/api/health` stays as thin as
   before: a scanner that is down does not take the site down.
 - **Logs** name a document by its number and the signature found, never its

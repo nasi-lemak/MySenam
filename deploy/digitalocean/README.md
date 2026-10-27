@@ -29,8 +29,9 @@ customers send with applications, holds its signatures in memory (about
 1.2 GiB; ClamAV recommends 3 to 4 GiB of RAM for the machine) and a few hundred megabytes
 of disk for them. With it, choose the **4 GB / 2 vCPU** Droplet (USD 24 a
 month, USD 12 more than without it). Without it (`--no-scanner`), the app
-refuses supporting documents, or takes them unscanned if
-`MYSENAM_DOCUMENT_SCAN=off` ([deployment](../../docs/operations/deployment.md#the-malware-scanner)).
+takes supporting documents into quarantine and nobody can open them, or
+approve an application that needs one, until a scanner is set up; there is no
+setting to release them unscanned ([deployment](../../docs/operations/deployment.md#the-malware-scanner)).
 
 ## Setting it up
 

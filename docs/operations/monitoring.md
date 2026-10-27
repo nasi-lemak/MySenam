@@ -35,11 +35,15 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   single-upload limit raises `offsite-near-limit`
   ([backups](backups.md#backup-health)).
 - **supporting documents cannot be scanned** (hourly, `document-scanner`):
-  the malware scanner does not answer, its signatures are over 48 hours old
-  or of unknown age, a document has waited over an hour, one could not be
-  scanned after every try, or documents are being refused (no scanner) or
-  taken unscanned (scanning turned off) ([security](../architecture/security.md#malware-scanning)).
-  The owner's *Supporting documents* panel shows the scanner's state.
+  the malware scanner does not answer, none is configured while documents
+  wait in quarantine, its signatures are over 48 hours old or of unknown age,
+  a document has waited over an hour, documents wait for a scanner (their
+  tries ran out with none answering: kept, and scanned by themselves once one
+  answers), or a working scanner could not scan one
+  ([security](../architecture/security.md#malware-scanning)). The owner's
+  *Supporting documents* panel shows the scanner's state, the failed
+  documents and the action to scan one again
+  ([deployment](deployment.md#the-malware-scanner)).
 - **after a restore**, an erasure could not be applied again
   (`erasure-reapply`), or the erasure ledger could not be written beside the
   backups (`erasure-ledger`) ([backups](backups.md#after-a-restore)).

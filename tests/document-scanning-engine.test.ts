@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "child_process";
+import crypto from "crypto";
 import fs from "fs";
 import net from "net";
 import os from "os";
@@ -12,7 +13,7 @@ import { apply, openDocument, requestById, saveRequirement } from "../src/lib/ap
 import { registerUser } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
 import { ClamdScanner, parseClamdAddress, setDocumentScanner } from "../src/lib/document-scanner";
-import { scanDocument } from "../src/lib/document-scanning";
+import { requeueWaitingDocuments, scanDocument } from "../src/lib/document-scanning";
 import { createResources } from "../src/lib/resources";
 import { createVenue } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -21,9 +22,12 @@ import { addDays, todayISO } from "../src/lib/time";
  * The real engine: ClamAV's clamd, over its TCP `INSTREAM` protocol, with the
  * EICAR test file (a recognised, harmless test string; never real malware).
  *
- * Where clamd runs. `MYSENAM_TEST_CLAMD=host:port` names one already running
- * (with whatever signatures it has: the official ones detect EICAR as
- * `Eicar-Signature` or `Win.Test.EICAR_HDB-1`). Otherwise, where the `clamd`
+ * Where clamd runs. `MYSENAM_TEST_CLAMD=host:port` names one already running,
+ * with whatever signatures it has. With ClamAV's official signatures (a
+ * database with a build date), the EICAR test file is found as
+ * `Eicar-Test-Signature`; they find it only as the file the EICAR standard
+ * defines (the string at the start), not inside a PDF, so there the refusal
+ * is shown on a stored document holding the test file itself. Otherwise, where the `clamd`
  * binary is installed (`apt-get install clamav-daemon`), the test starts its
  * own on a free local port with a **locally generated test signature
  * database** holding one signature, for the EICAR string, so it needs no
@@ -65,6 +69,8 @@ let child: ChildProcess | null = null;
 let work: string | null = null;
 /** Started here, with the local test signature: what it reports and detects is known. */
 const own = !given;
+/** A clamd given with ClamAV's official signatures (they carry a build date). */
+let official = false;
 
 async function freePort(): Promise<number> {
   const server = net.createServer();
@@ -91,6 +97,17 @@ async function customer() {
   return made.user;
 }
 let venueId: number;
+
+/** A document written straight to the database: `pending`, or failed while no scanner answered. */
+async function storedDirectly(requestId: number, bytes: Buffer, status: "pending" | "failed"): Promise<number> {
+  const row = (await getDb()
+    .prepare(
+      `INSERT INTO approval_documents (request_id, content_type, size, content, sha256, scan_status, scan_failure, scanned_at, scan_next_at)
+       VALUES (?, 'image/webp', ?, ?, ?, ?, ?, ${status === "failed" ? "now(), NULL" : "NULL, now()"}) RETURNING id`
+    )
+    .get(requestId, bytes.length, bytes, crypto.createHash("sha256").update(bytes).digest("hex"), status, status === "failed" ? "scanner_unavailable" : null)) as { id: number };
+  return row.id;
+}
 
 describe.skipIf(why !== null)("clamd, the real engine", () => {
   beforeAll(async () => {
@@ -120,6 +137,7 @@ describe.skipIf(why !== null)("clamd, the real engine", () => {
     const ready = await waitForPong(new ClamdScanner(host, port), 60_000);
     if (!ready) throw new Error(`clamd did not answer on ${host}:${port}`);
     setDocumentScanner(new ClamdScanner(host, port));
+    official = !own && (await new ClamdScanner(host, port).status()).signaturesAt !== null;
 
     const v = await createVenue({ name: "Engine Pool", area: "Puchong", address: "x", phone: "0312349501", openMin: 7 * 60, closeMin: 23 * 60 });
     if (!v.ok) throw new Error("venue");
@@ -177,15 +195,29 @@ describe.skipIf(why !== null)("clamd, the real engine", () => {
   it("finds the EICAR test string, on its own and inside a PDF that passed every structural check, and refuses it", async () => {
     const plain = await new ClamdScanner(host, port).scan(Buffer.from(EICAR));
     expect(plain.kind).toBe("found");
-    if (plain.kind === "found") expect(plain.finding).toMatch(own ? /^MySenam\.Test\.EICAR/ : /eicar/i);
+    if (plain.kind === "found") expect(plain.finding).toMatch(own ? /^MySenam\.Test\.EICAR/ : official ? /^Eicar-Test-Signature$/ : /eicar/i);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const { me, request } = await applyWith(EICAR_PDF);
-    const id = request.documents[0].id;
-    expect((await requestById(request.id))!.documents[0].scan).toBe("rejected");
+    const { me, request } = await applyWith(official ? PDF : EICAR_PDF);
+    let id = request.documents[0].id;
+    if (official) {
+      // The official signatures find the test file as the standard defines it, so it is stored as such (past the
+      // format checks, as only a direct database write could) and taken through the same lifecycle.
+      id = await storedDirectly(request.id, Buffer.from(EICAR), "pending");
+      expect(await scanDocument(id)).toBe("rejected");
+    }
+    expect((await requestById(request.id))!.documents.find((d) => d.id === id)!.scan).toBe("rejected");
     const row = (await getDb().prepare("SELECT octet_length(content) AS bytes, scan_finding FROM approval_documents WHERE id = ?").get(id)) as { bytes: number; scan_finding: string };
     expect(row.bytes).toBe(0);
-    expect(row.scan_finding).toMatch(/eicar/i);
+    expect(row.scan_finding).toMatch(official ? /^Eicar-Test-Signature$/ : /eicar/i);
     expect(await openDocument(id, { kind: "customer", userId: me.id, name: me.name })).toEqual({ withheld: "rejected" });
+  });
+
+  it("puts a document that waited for a scanner back in quarantine once clamd answers, and scans it clean", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { request } = await applyWith(PDF);
+    const id = await storedDirectly(request.id, PDF, "failed");
+    expect((await requeueWaitingDocuments()).requeued).toBeGreaterThanOrEqual(1);
+    expect(await scanDocument(id)).toBe("clean");
   });
 
   it.skipIf(!own)("refuses a stream over its own limit, which fails the document at once rather than passing it", async () => {

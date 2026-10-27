@@ -1,7 +1,7 @@
 import { logAction } from "./activity";
 import { activityName } from "./activity-registry";
 import { MAX_DOCUMENT_BYTES, prepareDocument, uploaded, type DocumentDownload, type UploadedFile } from "./approval-documents";
-import { initialScanStatus, RELEASED, scanDocuments, type ScanStatus } from "./document-scanning";
+import { RELEASED, scanDocuments, type ScanStatus } from "./document-scanning";
 import { retentionPolicy, type RetentionPolicy } from "./retention-policy";
 import { forgetApplicant, removedApplications } from "./approval-retention";
 import { venueMayOffer } from "./activities";
@@ -143,11 +143,13 @@ export interface ApprovalDocumentInfo {
   /** A PDF's page count; null for an image. */
   pages: number | null;
   createdAt: string;
-  /**
-   * Where its malware scan stands (lib/document-scanning.ts): only `clean`,
-   * or `not_scanned` where the operator turned scanning off, can be opened.
-   */
+  /** Where its malware scan stands (lib/document-scanning.ts): only `clean` can be opened. */
   scan: ScanStatus;
+  /**
+   * Failed only because no scanner answered: kept in quarantine, never
+   * released, and scanned again by itself once a scanner answers.
+   */
+  scanWaiting: boolean;
 }
 
 export interface ApprovalRequest {
@@ -528,7 +530,7 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
     .prepare(`SELECT request_id, at, actor, actor_name, action, reason FROM approval_events WHERE request_id IN (${marks}) ORDER BY id`)
     .all(...ids)) as { request_id: number; at: unknown; actor: ApprovalEvent["actor"]; actor_name: string; action: string; reason: string | null }[];
   const docs = (await db
-    .prepare(`SELECT id, request_id, content_type, size, file_name, pages, created_at, scan_status FROM approval_documents WHERE request_id IN (${marks}) ORDER BY id`)
+    .prepare(`SELECT id, request_id, content_type, size, file_name, pages, created_at, scan_status, scan_failure FROM approval_documents WHERE request_id IN (${marks}) ORDER BY id`)
     .all(...ids)) as {
     id: number;
     request_id: number;
@@ -538,6 +540,7 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
     pages: number | null;
     created_at: unknown;
     scan_status: ScanStatus;
+    scan_failure: string | null;
   }[];
   const today = todayISO();
   return rows.map((r) => {
@@ -607,6 +610,7 @@ async function toRequests(rows: RequestRow[]): Promise<ApprovalRequest[]> {
           pages: d.pages,
           createdAt: isoOf(d.created_at),
           scan: d.scan_status,
+          scanWaiting: d.scan_failure === "scanner_unavailable",
         })),
       events: events
         .filter((e) => e.request_id === r.id)
@@ -817,22 +821,17 @@ function documentName(d: { id: number; file_name: string | null; content_type: s
   return d.file_name ?? `document-${d.id}.${d.content_type === "application/pdf" ? "pdf" : "webp"}`;
 }
 
-/** Documents cannot be taken without a malware scanner, unless the operator turned scanning off on purpose (ADR 0024). */
-export const SCAN_UNAVAILABLE =
-  "Documents cannot be taken just now: they could not be checked for malware. Try again later, or ask the venue.";
-
 /**
  * Check uploads and store them with an application (lib/approval-documents.ts):
  * images redrawn, PDFs checked and kept as sent, only where the venue has
  * said what it needs and why. Stored in quarantine (`pending`) for the
  * malware scan (lib/document-scanning.ts), which runs once the transaction
- * has committed; returns their ids for it. Refused, never stored unscanned,
- * when there is no scanner and scanning was not turned off on purpose.
+ * has committed; returns their ids for it. Taken into quarantine even when
+ * no scanner is configured: they wait there, never released, until one is
+ * and passes them (ADR 0024, amended 27 October 2026).
  */
 async function storeDocuments(requestId: number, files: Buffer[]): Promise<Refused | number[]> {
   if (files.length === 0) return [];
-  const scan = initialScanStatus();
-  if (!scan) return refused("SCAN_UNAVAILABLE", SCAN_UNAVAILABLE, 503);
   const db = getDb();
   const asked = (await db
     .prepare("SELECT q.document_label, q.document_purpose FROM approval_requests r JOIN approval_requirements q ON q.id = r.requirement_id WHERE r.id = ?")
@@ -853,9 +852,9 @@ async function storeDocuments(requestId: number, files: Buffer[]): Promise<Refus
     const row = (await db
       .prepare(
         `INSERT INTO approval_documents (request_id, content_type, size, content, file_name, pages, sha256, scan_status, scanned_at, scan_next_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${scan === "pending" ? "NULL, now()" : "now(), NULL"}) RETURNING id`
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, now()) RETURNING id`
       )
-      .get(requestId, d.contentType, d.content.length, d.content, d.fileName, d.pages, d.sha256, scan)) as { id: number };
+      .get(requestId, d.contentType, d.content.length, d.content, d.fileName, d.pages, d.sha256)) as { id: number };
     ids.push(row.id);
   }
   return ids;
@@ -2307,7 +2306,7 @@ export async function approvalsExport(userId: number): Promise<unknown[]> {
     // A document's bytes only once its malware scan released it: one in quarantine, refused or unscannable is listed, not copied.
     const docs = (await getDb()
       .prepare(
-        "SELECT id, content_type, CASE WHEN scan_status IN ('clean', 'not_scanned') THEN content END AS content, file_name, pages, created_at, scan_status FROM approval_documents WHERE request_id = ? ORDER BY id"
+        "SELECT id, content_type, CASE WHEN scan_status = 'clean' THEN content END AS content, file_name, pages, created_at, scan_status FROM approval_documents WHERE request_id = ? ORDER BY id"
       )
       .all(r.id)) as {
       id: number;

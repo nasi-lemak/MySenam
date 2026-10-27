@@ -602,4 +602,17 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That account is their own login: it cannot be their guardian too.": { ms: "Akaun itu ialah log masuk mereka sendiri: ia tidak boleh menjadi penjaga mereka juga.", zh: "该账户是其本人的登录账户，不能同时作为其监护人。" },
   "That account already acts for them.": { ms: "Akaun itu sudah bertindak bagi pihak mereka.", zh: "该账户已代其行事。" },
   "Somebody on this number already acts for them.": { ms: "Seseorang yang menggunakan nombor ini sudah bertindak bagi pihak mereka.", zh: "此号码下已有人代其行事。" },
+  "Only the platform owner can have a document scanned again.": { ms: "Hanya pemilik platform boleh meminta dokumen diimbas semula.", zh: "只有平台所有者可以要求重新扫描文件。" },
+  "Say why the document should be scanned again.": { ms: "Nyatakan sebab dokumen itu perlu diimbas semula.", zh: "请说明需要重新扫描该文件的原因。" },
+  "That document is no longer kept: the applicant needs to send it again.": { ms: "Dokumen itu tidak lagi disimpan: pemohon perlu menghantarnya semula.", zh: "该文件已不再保存：申请人需要重新发送。" },
+  "Only a document that could not be scanned can be scanned again.": { ms: "Hanya dokumen yang tidak dapat diimbas boleh diimbas semula.", zh: "只有无法扫描的文件才能重新扫描。" },
+  "That document's content is gone or no longer matches what was checked, so it cannot be scanned again: the applicant needs to send it again.": {
+    ms: "Kandungan dokumen itu telah tiada atau tidak lagi sepadan dengan yang disemak, jadi ia tidak boleh diimbas semula: pemohon perlu menghantarnya semula.",
+    zh: "该文件的内容已不存在或与检查时不一致，因此无法重新扫描：申请人需要重新发送。",
+  },
+  "That document has been scanned again {0} times already: the applicant needs to send it again.": {
+    ms: "Dokumen itu telah diimbas semula sebanyak {0} kali: pemohon perlu menghantarnya semula.",
+    zh: "该文件已重新扫描 {0} 次：申请人需要重新发送。",
+  },
+  "action is set, review or retry.": { ms: "action ialah set, review atau retry.", zh: "action 须为 set、review 或 retry。" },
 };
