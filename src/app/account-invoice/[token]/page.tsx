@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { accountById, invoiceByToken, invoiceLines } from "@/lib/accounts";
+import { accountById, invoiceByToken, invoiceCredits, invoiceLines } from "@/lib/accounts";
 import { getVenue } from "@/lib/store";
 import { venueTax } from "@/lib/tax";
 import { money } from "@/lib/region";
@@ -24,11 +24,12 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
 export default async function AccountInvoicePage({ params }: { params: Promise<{ token: string }> }) {
   const invoice = await invoiceByToken((await params).token);
   if (!invoice) notFound();
-  const [account, venue, lines, tax] = await Promise.all([
+  const [account, venue, lines, tax, credits] = await Promise.all([
     accountById(invoice.accountId, true),
     getVenue(invoice.venueId),
     invoiceLines(invoice.id),
     venueTax(invoice.venueId),
+    invoiceCredits(invoice.id),
   ]);
   if (!account || !venue) notFound();
   const t = translator(account.locale, await currentSiteName());
@@ -101,6 +102,23 @@ export default async function AccountInvoicePage({ params }: { params: Promise<{
             </td>
             <td className="pt-2 text-right text-base font-bold tabular-nums">{money(invoice.total)}</td>
           </tr>
+          {/* Credit notes on the account (a place taken off a booking already invoiced), taken off this invoice. */}
+          {credits.map((c, i) => (
+            <tr key={`${c.number}-${i}`}>
+              <td colSpan={3} className="pt-2 pr-3 text-slate-600">
+                {t("pw6.inv.credit", { number: c.number, code: c.code ?? "" })}
+              </td>
+              <td className="pt-2 text-right tabular-nums text-slate-600">−{money(c.amount)}</td>
+            </tr>
+          ))}
+          {credits.length > 0 && (
+            <tr>
+              <td colSpan={3} className="pt-2 pr-3 font-semibold">
+                {t("pw6.inv.toPay")}
+              </td>
+              <td className="pt-2 text-right text-base font-bold tabular-nums">{money(invoice.due)}</td>
+            </tr>
+          )}
         </tfoot>
       </table>
 

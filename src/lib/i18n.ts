@@ -2336,8 +2336,8 @@ const EN = {
   "err.ENT_WITHDRAW_CLASS": "Each place in a class is its own booking: cancel that person's place in the class instead.",
   "err.ENT_WITHDRAW_GAME": "This booking is an open game: players leave the game instead.",
   "err.ENT_WITHDRAW_ACCOUNT": "This booking is charged to an account. Ask the venue to take somebody off it.",
-  "err.ENT_WITHDRAW_DEPOSIT": "A deposit was paid to hold this booking. Ask the venue to take somebody off it.",
-  "err.ENT_WITHDRAW_SHARED": "Other players paid shares of this booking. Ask the venue to change who takes part.",
+  "err.ENT_WITHDRAW_DEPOSIT": "Part of this booking was paid online apart from its deposit, so what one person's place cost cannot be told apart. Cancel the booking, or ask the venue.",
+  "err.ENT_WITHDRAW_SHARED": "Other players paid shares of this booking, each worked out from its whole price, so nobody can be taken off it on their own. Cancel the booking, or ask the venue.",
   "err.ENT_WITHDRAW_PAGE_OPEN": "A payment for this booking is under way. Finish paying, or wait for the payment page to close, first.",
   "err.ENT_WITHDRAW_SOLD_WHOLE": "The venue sells these places together, so one person cannot be taken off. Cancel the booking, or ask the venue.",
   "err.ENT_WITHDRAW_STARTED": "This booking has started, so nobody can be taken off it now.",
@@ -2505,6 +2505,10 @@ const EN = {
   "gi6.accepted": "Accepted. You are on {venue}'s list as a guest until {until}, and can book there online.",
   "gi6.openVenue": "Go to {venue}",
   "gi6.noToken": "This link is not complete. Open the link in the invitation email again.",
+  "pw6.msg.toAccount": "{amount} is a credit note on the account this booking is charged to, taken off its next invoice.",
+  "pw6.msg.depositBack": "{amount} of the deposit goes back to the card or account it was paid with.",
+  "pw6.inv.credit": "Credit note {number}, {code}",
+  "pw6.inv.toPay": "To pay",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4794,8 +4798,8 @@ const MS: Record<Phrase, string> = {
   "err.ENT_WITHDRAW_CLASS": "Setiap tempat dalam kelas ialah tempahan tersendiri: batalkan tempat orang itu dalam kelas.",
   "err.ENT_WITHDRAW_GAME": "Tempahan ini ialah permainan terbuka: pemain keluar daripada permainan itu.",
   "err.ENT_WITHDRAW_ACCOUNT": "Tempahan ini dicaj kepada akaun. Minta pusat mengeluarkan seseorang daripadanya.",
-  "err.ENT_WITHDRAW_DEPOSIT": "Deposit telah dibayar untuk menahan tempahan ini. Minta pusat mengeluarkan seseorang daripadanya.",
-  "err.ENT_WITHDRAW_SHARED": "Pemain lain telah membayar bahagian tempahan ini. Minta pusat menukar siapa yang menyertai.",
+  "err.ENT_WITHDRAW_DEPOSIT": "Sebahagian tempahan ini dibayar dalam talian selain depositnya, jadi harga tempat seseorang tidak dapat diasingkan. Batalkan tempahan, atau tanya pusat.",
+  "err.ENT_WITHDRAW_SHARED": "Pemain lain telah membayar bahagian tempahan ini, setiap satu dikira daripada harga penuhnya, jadi tiada sesiapa boleh dikeluarkan seorang diri. Batalkan tempahan, atau tanya pusat.",
   "err.ENT_WITHDRAW_PAGE_OPEN": "Pembayaran untuk tempahan ini sedang berjalan. Selesaikan pembayaran, atau tunggu halaman pembayaran ditutup, dahulu.",
   "err.ENT_WITHDRAW_SOLD_WHOLE": "Pusat menjual tempat-tempat ini bersama, jadi seorang tidak boleh dikeluarkan. Batalkan tempahan, atau tanya pusat.",
   "err.ENT_WITHDRAW_STARTED": "Tempahan ini sudah bermula, jadi tiada sesiapa boleh dikeluarkan sekarang.",
@@ -4963,6 +4967,10 @@ const MS: Record<Phrase, string> = {
   "gi6.accepted": "Diterima. Anda kini dalam senarai {venue} sebagai tetamu sehingga {until}, dan boleh menempah di sana dalam talian.",
   "gi6.openVenue": "Pergi ke {venue}",
   "gi6.noToken": "Pautan ini tidak lengkap. Buka semula pautan dalam e-mel jemputan.",
+  "pw6.msg.toAccount": "{amount} menjadi nota kredit pada akaun yang dicaj untuk tempahan ini, ditolak daripada invoisnya yang seterusnya.",
+  "pw6.msg.depositBack": "{amount} daripada deposit dikembalikan ke kad atau akaun yang digunakan untuk membayarnya.",
+  "pw6.inv.credit": "Nota kredit {number}, {code}",
+  "pw6.inv.toPay": "Perlu dibayar",
 };
 
 /** Exported so a test can hold the two languages against each other. */

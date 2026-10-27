@@ -19,19 +19,29 @@ interface Option {
   kept?: number;
   owedLess?: number;
   units?: number;
-  how?: "credit" | "online" | "hand" | "pass" | "none";
+  how?: "credit" | "online" | "hand" | "pass" | "account" | "none";
+  /** Of `refund`, what goes back to the deposit paid online. */
+  deposit?: number;
 }
 
 /** What taking somebody off would do to the money, as the customer reads it. */
-export function withdrawMoneyLine(t: T, o: Pick<Option, "price" | "refund" | "kept" | "owedLess" | "units" | "how">): string {
+export function withdrawMoneyLine(t: T, o: Pick<Option, "price" | "refund" | "kept" | "owedLess" | "units" | "how" | "deposit">): string {
   const price = o.price ?? 0;
   const units = o.units ?? 0;
   if (price <= 0 && units <= 0) return t("ent.msg.noPrice");
   const parts: string[] = [];
   if ((o.owedLess ?? 0) > 0) parts.push(t("ent.msg.owedLess", { amount: money(o.owedLess!) }));
   if ((o.kept ?? 0) > 0) parts.push(t("ent.msg.kept", { kept: money(o.kept!) }));
-  if ((o.refund ?? 0) > 0)
-    parts.push(t(o.how === "credit" ? "ent.msg.toCredit" : o.how === "online" ? "ent.msg.toCard" : "ent.msg.byHand", { amount: money(o.refund!) }));
+  // The booker's own part the way it was paid (or a credit on the account invoiced); a deposit's to the deposit's payment.
+  const deposit = o.deposit ?? 0;
+  const own = Math.round(((o.refund ?? 0) - deposit) * 100) / 100;
+  if (own > 0)
+    parts.push(
+      o.how === "account"
+        ? t("pw6.msg.toAccount", { amount: money(own) })
+        : t(o.how === "credit" ? "ent.msg.toCredit" : o.how === "online" ? "ent.msg.toCard" : "ent.msg.byHand", { amount: money(own) })
+    );
+  if (deposit > 0) parts.push(t("pw6.msg.depositBack", { amount: money(deposit) }));
   if (units > 0) parts.push(t("ent.msg.toPass", { n: units }));
   if (parts.length === 0) parts.push(t("ent.msg.wholeStays"));
   return parts.join(" ");

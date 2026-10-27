@@ -79,6 +79,8 @@ and *Pay a 30% deposit now: RM10.50*, and the booking terms say so.
   and the rest is owed back; a late cancellation with a deposit paid is not a
   strike, since the venue was paid something.
 - The customer can still move it themselves; only friends' shares stop that.
+- One person can be taken off it: off the balance first, then out of the
+  deposit ([refunds for one person's place](#refunds-for-one-persons-place)).
 - A number past its no-show strikes is offered no deposit: it pays it all.
 - Several bookings paid together (a weekly series) take the share of the
   whole, split across them. Cancelling one owes back and credits that
@@ -340,13 +342,33 @@ through the paths a cancellation uses, and nothing twice:
 - **Not yet paid**, the place's price comes off what is owed instead, and
   the code's use comes down by exactly that place's recorded share
   (`place_withdrawals.promo_share` keeps it either way).
-- Bookings others paid shares of, held by a deposit, charged to an account,
-  or with a payment page open are refused: the venue can change those
-  ([taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
+- **Held by a deposit**, the price comes off what the booking costs, off the
+  balance still owed first. Only what was paid beyond the new total comes
+  out of the deposit: it goes back to the deposit's online payment, on the
+  venue's cancellation terms (a late withdrawal keeps the venue's share of
+  that part; the part off the balance is never charged), with a credit note
+  on the deposit's receipt; the booking's deposit is then what is left
+  (`bookings.deposit_paid`). A booking paid in full after its deposit keeps
+  its price as sold, and the place is settled from the part paid last (the
+  rest, the way it was paid, with its own credit note) and then from the
+  deposit. What came out of the deposit (`place_withdrawals.deposit_part`,
+  and `deposit_refunded` of it back) is left out of a later cancellation,
+  which gives back only the deposit left.
+- **Charged to a company or school account**, before the month's invoice
+  the price comes off the booking's charge; after it, the invoice stays as
+  issued, and the place's price on the venue's cancellation terms is a
+  credit note on the account, taken off its next invoice
+  ([company and school accounts](#company-and-school-accounts)).
+- **Refused**: a booking other players paid shares of (a split share or an
+  open game's), each share worked out from the whole price; part of it paid
+  online that is no deposit of the booker's; a payment page open, its own or
+  a friend's share ([taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
 
-Tested in `tests/place-withdrawals.test.ts` and, with a concession and a
-code on the booking, `tests/discount-stacking.test.ts`, on PGlite and
-Postgres, against a stand-in gateway for the online case.
+Tested in `tests/place-withdrawals.test.ts`,
+`tests/place-withdrawals-money.test.ts` (deposits, accounts, splits) and,
+with a concession and a code on the booking,
+`tests/discount-stacking.test.ts`, on PGlite and Postgres, against a
+stand-in gateway for the online case.
 
 ## Stored credit
 
@@ -475,6 +497,11 @@ WhatsApp*.
 - Not for a booking held until paid (pay it first), a weekly series, a class
   enrolment, or an open game (whose players pay there). Search engines are
   kept off split pages.
+- **One person taken off** the booking
+  ([taking one person off a booking](booking.md#taking-one-person-off-a-booking))
+  while no friend has paid: each share is worked out again on the new price.
+  While a friend is paying, or once one has paid, nobody can be taken off on
+  their own: a share is a part of the whole price, not anybody's place.
 
 ## Extras: rentals and sales with a booking
 
@@ -564,6 +591,21 @@ or this month so far. *Mark paid* records how it came in and marks every
 booking on it paid the same way. An unpaid invoice can be withdrawn; its
 bookings go on the next one. Closing an account stops new bookings on it;
 what is on it is still invoiced.
+
+**Credit notes on the account.** One person taken off a booking on the
+account ([taking one person off a booking](booking.md#taking-one-person-off-a-booking))
+before its invoice is issued comes off the booking's charge. After, an
+issued invoice never changes: the place's price, on the venue's
+cancellation terms, is a credit note to the account against that invoice
+(`account_credits`, migration 0201; in the venue's documents at the tax the
+booking was invoiced at), whether the invoice is paid or not, and comes off
+the account's next invoice, whole and oldest first, as far as its total
+goes: the invoice lists each (*Credit note CN-…, MS-…*) and what is *To
+pay*, and its email gives that. Staff see the credit waiting on the
+account, and on each invoice what was credited. Withdrawing an invoice gives
+its credits back to the account for the next one. A closed account with no
+more to invoice keeps its credit until the venue settles it by hand.
+Tested in `tests/place-withdrawals-money.test.ts`.
 
 Managers open, change and close accounts and invoice them; the desk charges
 bookings to them and marks invoices paid. Every step is in the activity log.

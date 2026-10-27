@@ -6310,18 +6310,32 @@ export async function paymentPageOpen(bookingId: number): Promise<boolean> {
 /**
  * The part of a paid booking's price still on it: all of it, less places taken
  * off while it was paid (lib/place-withdrawals.ts), whose money was settled
- * then. What a cancellation gives back is of this part only.
+ * then. What a cancellation gives back is of this part only. The booking's
+ * own part, that is: what was settled from a deposit is the deposit's
+ * (`depositGone`).
  */
 export async function paidPartLeft(bookingId: number): Promise<number> {
   const row = (await getDb()
     .prepare(
       `SELECT (b.total_price - b.shares_paid)::float AS base,
-              (SELECT COALESCE(SUM(w.price), 0) FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid)::float AS gone
+              (SELECT COALESCE(SUM(w.price - w.deposit_part), 0) FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid)::float AS gone
          FROM bookings b WHERE b.id = ?`
     )
     .get(bookingId)) as { base: number; gone: number } | undefined;
   if (!row || Number(row.gone) <= 0 || Number(row.base) <= 0) return 1;
   return Math.max(0, (Number(row.base) - Number(row.gone)) / Number(row.base));
+}
+
+/**
+ * What places taken off a booking took of its deposit (lib/place-withdrawals.ts,
+ * `place_withdrawals.deposit_part`): given back then, or kept on a late
+ * withdrawal. A cancellation gives back only the deposit that is left.
+ */
+export async function depositGone(bookingId: number): Promise<number> {
+  const row = (await getDb()
+    .prepare("SELECT COALESCE(SUM(deposit_part), 0)::float AS gone FROM place_withdrawals WHERE booking_id = ?")
+    .get(bookingId)) as { gone: number } | undefined;
+  return roundMoney(Number(row?.gone ?? 0));
 }
 
 async function refundBooking(bookingId: number, share = 1): Promise<void> {
@@ -6332,7 +6346,7 @@ async function refundBooking(bookingId: number, share = 1): Promise<void> {
   await refundBookingToWallet(bookingId, share * left);
   // A pass's spends are each given back once: a place taken off already settled its own.
   await refundBookingToPass(bookingId, share);
-  await noteOnlineRefundDue(bookingId, share * left);
+  await noteOnlineRefundDue(bookingId, share, left);
   // The customer never had the benefit, so a limited code is not poorer for it.
   await releasePromoUse(bookingId);
   // An open game on it goes too, and its players' shares are owed back.
@@ -6350,21 +6364,31 @@ async function refundBooking(bookingId: number, share = 1): Promise<void> {
  * back — a refund is made in the gateway — so the amount is written against
  * the payment, and the venue is shown what it owes until staff say it is done.
  */
-async function noteOnlineRefundDue(bookingId: number, share = 1): Promise<void> {
+async function noteOnlineRefundDue(
+  bookingId: number,
+  share = 1,
+  /** The part of a paid booking's own price still on it (`paidPartLeft`); a deposit has its own (`depositGone`). */
+  left = 1
+): Promise<void> {
+  // What places taken off it took of its deposit was settled then: only the deposit left goes back now.
+  const gone = await depositGone(bookingId);
   // What the payment took for this booking, where it says; never more than it took in all.
   await getDb()
     .prepare(`
       UPDATE online_payments p
-         SET refund_due = LEAST(p.amount, p.refund_due + ROUND(COALESCE(
+         SET refund_due = LEAST(p.amount, p.refund_due + ROUND(CASE WHEN p.deposit = 1
+               THEN GREATEST(0, COALESCE((SELECT pb.amount FROM online_payment_bookings pb WHERE pb.payment_id = p.id AND pb.booking_id = ?),
+                                         (SELECT total_price - shares_paid FROM bookings WHERE id = ?)) - ${Number(gone)}) * ${Number(share)}
+               ELSE COALESCE(
                (SELECT pb.amount FROM online_payment_bookings pb WHERE pb.payment_id = p.id AND pb.booking_id = ?),
-               (SELECT total_price - shares_paid FROM bookings WHERE id = ?)) * ${Number(share)}, 2))
+               (SELECT total_price - shares_paid FROM bookings WHERE id = ?)) * ${Number(share * left)} END, 2))
        WHERE p.status = 'paid'
          AND p.id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id = ?)
          -- Paid for online, or a deposit or other part paid on it (the rest was never paid online).
          AND (p.deposit = 1 OR EXISTS (SELECT 1 FROM bookings WHERE id = ? AND paid_via = 'online')
               OR EXISTS (SELECT 1 FROM receipts r WHERE r.source IN ('booking-part:' || ? || ':' || p.id, 'booking-paid:' || ? || ':' || p.id)))
     `)
-    .run(bookingId, bookingId, bookingId, bookingId, bookingId, bookingId);
+    .run(bookingId, bookingId, bookingId, bookingId, bookingId, bookingId, bookingId, bookingId);
   const why = share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled";
   const code = ((await getDb().prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId)) as { code: string } | undefined)?.code ?? String(bookingId);
   // A deposit's own receipt is credited for what goes back: this booking's part
@@ -6376,13 +6400,18 @@ async function noteOnlineRefundDue(bookingId: number, share = 1): Promise<void> 
     )
     .all(bookingId)) as { id: number; amount: number | null }[];
   for (const d of deposits)
-    await creditReceipt(`payment:${d.id}`, why, share, d.amount === null ? undefined : { key: code, amount: Number(d.amount) });
+    await creditReceipt(
+      `payment:${d.id}`,
+      why,
+      share,
+      d.amount === null ? undefined : { key: code, amount: roundMoney(Math.max(0, Number(d.amount) - gone)) }
+    );
   // So is a part paid online before a share it counted on was handed back (lib/games.ts, unpayShare),
   // or the part a chargeback left (lib/payments.ts, disputeLost): each is this booking's alone.
   const parts = (await getDb()
     .prepare("SELECT source, total::float AS total FROM receipts WHERE kind = 'receipt' AND (source LIKE ? OR source LIKE ?)")
     .all(`booking-part:${bookingId}:%`, `booking-paid:${bookingId}:%`)) as { source: string; total: number }[];
-  for (const p of parts) await creditReceipt(p.source, why, share, { key: code, amount: Number(p.total) });
+  for (const p of parts) await creditReceipt(p.source, why, share * left, { key: code, amount: Number(p.total) });
 }
 
 /* ---------------- Memberships ---------------- */

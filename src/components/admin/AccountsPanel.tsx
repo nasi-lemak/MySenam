@@ -110,6 +110,12 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
               </div>
               <div className="text-slate-700">
                 {t("acc.uninvoiced")} <strong>{money(a.uninvoiced)}</strong> · {t("acc.owing")} <strong>{money(a.owing)}</strong>
+                {a.credit > 0 && (
+                  <>
+                    {" "}
+                    · {t("pw6.acc.credit")} <strong>{money(a.credit)}</strong>
+                  </>
+                )}
               </div>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -267,7 +273,10 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 </td>
                 <td className="py-2 pr-2">{i.accountName}</td>
                 <td className={`py-2 pr-2 ${!i.paidOn && i.dueOn < todayLocal() ? "font-semibold text-red-600" : ""}`}>{i.dueOn}</td>
-                <td className="py-2 pr-2 text-right tabular-nums">{money(i.total)}</td>
+                <td className="py-2 pr-2 text-right tabular-nums">
+                  {money(i.total)}
+                  {i.credited > 0 && <span className="block text-xs text-slate-500">{t("pw6.acc.credited", { amount: money(i.credited), due: money(i.due) })}</span>}
+                </td>
                 <td className="py-2 text-right text-xs">
                   {i.paidOn ? (
                     <span className="text-emerald-700">
