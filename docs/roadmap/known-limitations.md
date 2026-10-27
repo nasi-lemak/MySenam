@@ -161,7 +161,7 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
 | [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities) | 3 / 5 | Families, clubs | Kept until a venue needs more |
-| [Guardians recorded by name and number](#activities): notices by WhatsApp only, an abandoned notice makes no task, the code's language | 3 / 6 | Families | The template approved; a task for an abandoned notice |
+| [Guardians recorded by name and number](#activities): notices by WhatsApp only, an abandoned notice makes no task | 3 / 6 | Families | The template approved; a task for an abandoned notice |
 | [Country names for countries not sold in](#activities); [clock changes](#booking-and-availability-b) (handled, no such country) | 8 | — | When a country is added |
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
 | [A proposal holds a day](#booking-and-availability-b); [independent bookings retried](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
@@ -176,7 +176,7 @@ two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **82 now**. Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B28, M16, M17 and
 S12–S19, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (61
+[resolved without a number](#resolved-limitations-without-a-number) (65
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
@@ -364,12 +364,11 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   self check-in and door codes check a booking in as a whole, though the
   door asks for each person's own eligibility ([taking one person off](../features/booking.md#taking-one-person-off-a-booking)) (P3).
 - **Benefits by scope have gaps** ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
-  a place concession's receipt line is in English with the person's name;
   memberships for a participant and family memberships bought online are
   verified only against stand-in gateways (a family membership is held by the
   buying account; dependants change without proration; a purchase holds its
   people for 60 minutes; overlapping cover is refused online but not at the
-  counter; the payment return page does not name whom it is for; a child's
+  counter; a child's
   name stays on the guardian's receipt); a last-minute price combines with no
   discount, a moved booking keeps the discounts it had, and the venue's API
   key books with none (P3).
@@ -379,8 +378,7 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   no proof of authority. Their notices go only by WhatsApp to a number a code
   has come back from (the outbox has no SMS channel, and the
   `mysenam_guardian_notice` template needs Meta's approval), otherwise a task
-  for the venue; a notice the outbox abandons makes no task, and the code's
-  SMS is in the install's first language. A guardian's relationship and
+  for the venue; a notice the outbox abandons makes no task. A guardian's relationship and
   authority remain their declaration, reviewed by staff only where an activity
   asks it, never verified ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)) (P3).
 - **A catalogue change** made on one instance reaches the others within a
@@ -605,6 +603,10 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A child whose only guardians were a name and number got another guardian only by a manager's exception; such a guardian could not register later; nothing reminded managers of flagged relationships or review dates; participants no venue knows had no owner screen | Staff send a code to the recorded number for agreement, withdrawal or a check; a recorded guardian takes the relationship over with a proved number and a code; managers see reviews and due dates under *Needs attention*; the owner reviews every venue's | `tests/guardian-contact.test.ts`, `tests/components/contact-guardians.test.tsx` |
 | A participant's remembered concession proof, guardian requests, withdrawn places and place benefits were missing from the account's data export | Each is in the export as a structured record (who verified by role, never by name; no files) | `tests/participant-export.test.ts` |
 | Tournaments and leagues took entries from an account for itself only; staff could not enter a player at the counter; members-only competitions checked the account's membership; a league partner's gender was not asked; staff league decisions and walkovers told nobody | A guardian enters a participant, staff enter a player at the counter, both through the self-entry checks; members-only follows the entrant's own or a family membership; a gendered league of pairs asks the partner's; both sides are emailed a staff decision | `tests/competition-entrants.test.ts`, `tests/components/competition-entrants.test.tsx` |
+| One person's member price or concession on a receipt was in English whatever the customer's language | Said in the customer's language (built-in concessions by their key) with the person's name; the venue's own words, stored lines, amounts and older receipts unchanged | `tests/receipt-languages.test.ts` |
+| The membership payment return page said "You're a member" for a child's or a family membership | It names whose membership it is and whom a family one covers | `tests/payment-return-membership.test.tsx` |
+| A guardian entering somebody in a tournament or league was asked for "your" details and shown "Pay my entry"; tournament emails did not say whose entry | The forms and fee buttons name the person entered, and every tournament email about such an entry starts by saying whose it is | `tests/components/entering-for-someone.test.tsx`, `tests/tournament-entry-mails.test.ts` |
+| The code sent to a guardian recorded by name and number was always in the install's first language | Staff choose the message's language, starting from their own site language | `tests/components/guardian-code-language.test.tsx` |
 
 ## Production readiness
 
