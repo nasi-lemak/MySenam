@@ -3,7 +3,7 @@ import { isOwner, type Admin } from "./admin-auth";
 import { getDb } from "./db";
 import { RETENTION } from "./privacy";
 import { region } from "./region";
-import { isValidDateString, todayISO } from "./time";
+import { isValidDateString, localDateOf, todayISO } from "./time";
 
 /**
  * The install's own retention periods for applications to be approved for an
@@ -311,7 +311,8 @@ export async function recordPolicyReview(admin: Admin, input: ReviewInput): Prom
   const now = await retentionPolicy();
   const reviewedOn = typeof input.reviewedOn === "string" ? input.reviewedOn : "";
   if (!isValidDateString(reviewedOn) || reviewedOn > todayISO()) return no("Give the day of the review: today or earlier.");
-  if (now.changedAt && reviewedOn < now.changedAt.slice(0, 10)) return no("The review is dated before the periods were last changed: it cannot have reviewed these periods.");
+  // The change's date where the install is, as the review's date is (todayISO), not the UTC date of the moment.
+  if (now.changedAt && reviewedOn < localDateOf(now.changedAt)) return no("The review is dated before the periods were last changed: it cannot have reviewed these periods.");
   const adviceReference = text(input.adviceReference);
   if (adviceReference.length < 3 || adviceReference.length > 200) return no("Give a reference to the written advice, kept outside MySenam.");
   const basis = text(input.basis);

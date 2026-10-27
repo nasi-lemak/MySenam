@@ -206,4 +206,22 @@ describe("the install's periods", () => {
     await pruneOldData();
     expect(((await getDb().prepare("SELECT COUNT(*)::int AS n FROM approval_documents WHERE request_id = ?").get(applied.request.id)) as { n: number }).n).toBe(0);
   });
+
+  it("judge a review's date against the day the periods changed where the install is, not in UTC", async () => {
+    const review = {
+      jurisdictions: ["MY"],
+      scope: ["documentDays"],
+      reviewerName: "Aisha Rahman",
+      reviewerRole: "Advocate & Solicitor, High Court of Malaya",
+      firm: "Rahman & Co",
+      adviceReference: "Letter RC/2026/120",
+      basis: "Reviewed against the retention principle for these purposes.",
+    };
+    // Changed at 01:00 on 1 June in Kuala Lumpur, which is still 31 May in UTC.
+    await getDb().prepare("UPDATE retention_policy SET changed_at = '2026-05-31T17:00:00Z'::timestamptz WHERE id = 1").run();
+    expect(await recordPolicyReview(owner, { ...review, reviewedOn: "2026-05-31" })).toMatchObject({ ok: false, error: expect.stringContaining("before the periods were last changed") });
+    expect((await recordPolicyReview(owner, { ...review, reviewedOn: "2026-06-01" })).ok).toBe(true);
+    // Lapsed again, as any change does, so nothing here is left reviewed.
+    expect((await setRetentionPolicy(owner, { documentDays: 21 })).ok).toBe(true);
+  });
 });

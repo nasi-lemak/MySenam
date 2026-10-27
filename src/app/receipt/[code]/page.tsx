@@ -3,6 +3,7 @@ import { receiptFor, receiptLineText } from "@/lib/receipts";
 import { serverT } from "@/lib/locale";
 import { money, region } from "@/lib/region";
 import { einvoiceForReceipt } from "@/lib/myinvois";
+import { localDateOf } from "@/lib/time";
 import { PrintButton } from "@/components/PrintButton";
 import { EInvoiceRequest } from "@/components/EInvoiceRequest";
 
@@ -44,7 +45,7 @@ export default async function ReceiptPage({
           {receipt.credits && <p className="text-slate-600">{t("receipt.credits", { ref: receipt.credits })}</p>}
           {receipt.paidAt && (
             <p className="text-slate-600">
-              {t("receipt.date")} {receipt.paidAt.slice(0, 10)}
+              {t("receipt.date")} {localDateOf(receipt.paidAt)}
             </p>
           )}
         </div>

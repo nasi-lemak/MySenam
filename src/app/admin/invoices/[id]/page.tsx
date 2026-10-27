@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, canAccessVenue, getAdminByToken, isOwner } from "@/lib/admin-auth";
 import { invoiceById } from "@/lib/billing";
 import { getVenue } from "@/lib/store";
+import { localDateOf } from "@/lib/time";
 import { venueTax } from "@/lib/tax";
 import { money } from "@/lib/region";
 import { siteName } from "@/lib/site";
@@ -125,7 +126,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
       <p className="text-slate-600">
         {invoice.status === "paid"
           ? invoice.paidAt
-            ? t(invoice.paidVia === "online" ? "bill.inv.paidOnOnline" : "bill.inv.paidOn", { date: invoice.paidAt.slice(0, 10) })
+            ? t(invoice.paidVia === "online" ? "bill.inv.paidOnOnline" : "bill.inv.paidOn", { date: localDateOf(invoice.paidAt) })
             : t(invoice.paidVia === "online" ? "bill.inv.paidOnline" : "bill.inv.paid")
           : invoice.status === "void"
             ? t("bill.inv.void")

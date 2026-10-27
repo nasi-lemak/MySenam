@@ -192,7 +192,7 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **85 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B35, M16–M18 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B37, M16–M18 and
 S12–S22, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (75
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -614,6 +614,8 @@ IDs are not reused. Each fix came with the test recommended above.
 | B33 | An offer of a waiting-list place made before the venue refused the number could still be written to the outbox and sent to that number afterwards; unsent offer messages are now withdrawn when the number is refused | `tests/benefits-paths.test.ts` |
 | B34 | A customer moving a booking got the members' longer booking window from the number typed on the booking alone, so a guest or another account booking on a member's number could move into it; a move is now asked the window with the booking's account and online trust | `tests/membership-validity.test.ts` ("a member books further ahead…") |
 | B35 | Withdrawing a company account's invoice while a booking on it was being changed could deadlock: the invoice's delete cascaded onto bookings another transaction held; the invoice now locks its bookings first | `tests/place-withdrawals-money.test.ts` ("a withdrawal racing the month's invoice…", Postgres) |
+| B36 | A review of the retention periods dated the day they were changed was refused as "before the periods were last changed" when the change was made between midnight and 08:00 in Malaysia: the change's date was its UTC date | `tests/retention-policy.test.ts` ("judge a review's date against the day the periods changed where the install is…") |
+| B37 | A receipt's and a platform invoice's paid date was printed as the UTC date of the payment, so one paid between midnight and 08:00 in Malaysia showed the day before; both now show the install's date | `tests/receipts.test.ts` (unchanged; the date is `localDateOf`, tested in `tests/time.test.ts`) |
 | M18 | The venue's API key booked with no discount at all, though ADR 0025 and the pricing document said every path took them; it now takes `concessionId`, `placeConcessions` and `promoCode` through the one calculation the form and the counter use | `tests/benefits-paths.test.ts` |
 | S21 | A resident inviting a guest by email could learn whether an account held that address (`GUEST_ACCOUNT_UNKNOWN`, and an entry linked at once); the address is now never looked up, a single-use, hashed, expiring invitation is emailed either way, and it links only its entry to the account that accepts it signed in with that address | `tests/guest-invitations.test.ts`, `tests/components/guest-invitations.test.tsx` |
 | S22 | Inviting a player to a game or a group by email revealed whether the address had an account (the host's or organiser's roster named them at once, the daily invite counter counted only real accounts, and an email was queued only for one), and sign-in and password reset answered measurably faster for an unknown address; invitations are now emailed either way and accepted signed in, every attempt counts, and sign-in and reset do the same work either way | `tests/player-invitations.test.ts`, `tests/no-enumeration-timing.test.ts` |

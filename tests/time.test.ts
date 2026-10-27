@@ -37,3 +37,13 @@ describe("Malaysia time follows the clock", () => {
     expect(isPastSlot("2026-03-03", 8)).toBe(false);
   });
 });
+
+describe("the date of a stored moment where the install is (receipts, invoices, reviews)", () => {
+  it("is the install's date, not the UTC one, for an ISO time and for the database's UTC text", async () => {
+    const { localDateOf } = await import("../src/lib/time");
+    // 01:00 on 1 June in Kuala Lumpur is still 31 May in UTC.
+    expect(localDateOf("2026-05-31T17:00:00Z", "Asia/Kuala_Lumpur")).toBe("2026-06-01");
+    expect(localDateOf("2026-05-31 17:00:00", "Asia/Kuala_Lumpur")).toBe("2026-06-01");
+    expect(localDateOf("2026-05-31T15:59:00Z", "Asia/Kuala_Lumpur")).toBe("2026-05-31");
+  });
+});
