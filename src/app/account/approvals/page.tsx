@@ -237,7 +237,7 @@ function RequestCard({
         <div className="flex flex-wrap gap-2 text-xs">
           <span className="text-slate-500">{t("apr.yourDocuments")}</span>
           {r.documents.map((d) => (
-            <DocumentLink key={d.id} href={`/api/my/approvals/document?id=${d.id}`} document={d} status={d.scan === "clean" ? null : t(`scan.${d.scan}` as Phrase)} />
+            <DocumentLink key={d.id} href={`/api/my/approvals/document?id=${d.id}`} document={d} status={d.scan === "clean" ? null : d.scanWaiting ? t("scan2.waiting") : t(`scan.${d.scan}` as Phrase)} />
           ))}
         </div>
       )}

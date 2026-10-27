@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ScannerHealth, ScannerProblem } from "@/lib/document-scanning";
+import type { FailedDocument, ScannerHealth, ScannerProblem } from "@/lib/document-scanning";
+import { fileSize } from "@/components/ApprovalDocumentLink";
 import type { RetentionPolicy } from "@/lib/retention-policy";
 import { useStaffT } from "./StaffLanguage";
 
 /**
  * The platform owner's view of supporting documents (ADR 0024): whether the
  * malware scanner answers, how old its signatures are and what is waiting or
- * was refused; and the install's retention periods for applications, marked
+ * was refused; documents that could not be scanned, with their retries and
+ * the action to scan one again; and the install's retention periods for applications, marked
  * provisional until somebody records a review, with the form to change them
  * and to record that review.
  */
@@ -26,11 +28,17 @@ const FIELDS: { key: keyof Periods; words: "apr.retx.documentDays" | "apr.retx.r
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
+/** Problems worded under the amended decision (no opt-out, documents waiting for a scanner) have `apr.scan2.` words. */
+const problemKey = (p: ScannerProblem) => (p === "unconfigured" || p === "waiting" ? (`apr.scan2.problem.${p}` as const) : (`apr.scan.problem.${p}` as const));
+/** How many times the owner may have one document scanned again (lib/document-scanning.ts MAX_MANUAL_RETRIES). */
+const MAX_RETRIES = 3;
+
 export default function DocumentPolicy() {
   const t = useStaffT();
   const [state, setState] = useState<{
     policy: RetentionPolicy;
     scanner?: ScannerHealth;
+    failed?: FailedDocument[];
     events?: { at: string | null; kind: string; by: string; detail: string }[];
   } | null>(null);
   const [form, setForm] = useState<Record<keyof Periods, string>>({ documentDays: "", reviewDays: "", recordDays: "", quarantineDays: "" });
@@ -38,6 +46,7 @@ export default function DocumentPolicy() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reasons, setReasons] = useState<Record<number, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +63,27 @@ export default function DocumentPolicy() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function retry(documentId: number) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/document-policy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry", documentId, reason: reasons[documentId] ?? "" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("apr.scan2.retryFailed")));
+      setNotice(data.alreadyQueued ? t("apr.scan2.alreadyQueued") : t("apr.scan2.retried"));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("apr.scan2.retryFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function send(body: Record<string, unknown>, done: string) {
     setBusy(true);
@@ -86,7 +116,7 @@ export default function DocumentPolicy() {
       {scanner && (
         <div className="space-y-1 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
           <p className="font-medium">
-            {scanner.mode === "scanner" ? t("apr.scan.modeScanner") : scanner.mode === "off" ? t("apr.scan.modeOff") : t("apr.scan.modeUnconfigured")}
+            {scanner.mode === "scanner" ? t("apr.scan.modeScanner") : t("apr.scan2.modeUnconfigured")}
           </p>
           {scanner.mode === "scanner" && (
             <p className="text-slate-600">{scanner.reachable ? t("apr.scan.answering", { engine: scanner.engine ?? "" }) : t("apr.scan.notAnswering")}</p>
@@ -97,15 +127,85 @@ export default function DocumentPolicy() {
             </p>
           )}
           <p className="text-slate-600">
-            {t("apr.scan.counts", { pending: scanner.pending, overdue: scanner.overdue, rejected: scanner.rejected, failed: scanner.failed, notScanned: scanner.notScanned })}
+            {t("apr.scan2.counts", { pending: scanner.pending, overdue: scanner.overdue, waiting: scanner.waiting, rejected: scanner.rejected, failed: scanner.failed })}
           </p>
+          {scanner.legacy.total > 0 && <p className="text-slate-600">{t("apr.scan2.legacy", { ...scanner.legacy })}</p>}
           {scanner.problems.length > 0 && (
             <ul className="list-disc pl-5 text-amber-800">
               {scanner.problems.map((p: ScannerProblem) => (
-                <li key={p}>{t(`apr.scan.problem.${p}`)}</li>
+                <li key={p}>{t(problemKey(p))}</li>
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {state?.failed && (
+        <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+          <h3 className="font-semibold">{t("apr.scan2.failedTitle")}</h3>
+          <p className="text-xs text-slate-500">{t("apr.scan2.failedIntro")}</p>
+          {state.failed.length === 0 && <p className="text-slate-500">{t("apr.scan2.failedNone")}</p>}
+          <ul className="space-y-3">
+            {state.failed.map((d) => (
+              <li key={d.id} className="space-y-1 border-t border-slate-100 pt-2">
+                <p className="font-medium">
+                  {t("apr.scan2.failedRow", {
+                    id: d.id,
+                    request: d.requestId,
+                    venue: d.venueName,
+                    sport: d.sport,
+                    kind: d.contentType.split("/")[1].toUpperCase(),
+                    size: fileSize(d.size),
+                  })}
+                </p>
+                <p className={d.failure === "scanner_unavailable" ? "text-amber-800" : "text-red-700"}>
+                  {t(`apr.scan2.failure.${d.failure}`)}
+                  {d.legacyReason && <span className="text-slate-500"> · {t(`apr.scan2.legacy.${d.legacyReason}`)}</span>}
+                </p>
+                {!d.intact && <p className="text-red-700">{t("apr.scan2.notIntact")}</p>}
+                <p className="text-xs text-slate-500">{t("apr.scan2.retriesUsed", { n: d.manualRetries, max: MAX_RETRIES })}</p>
+                {d.intact && d.manualRetries < MAX_RETRIES && (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className={label}>
+                      {t("apr.scan2.reason")}
+                      <input
+                        value={reasons[d.id] ?? ""}
+                        maxLength={500}
+                        onChange={(e) => setReasons({ ...reasons, [d.id]: e.target.value })}
+                        className={`mt-1 w-72 ${input}`}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={busy || (reasons[d.id] ?? "").trim().length < 5}
+                      onClick={() => retry(d.id)}
+                      className="rounded-lg border border-teal-600 px-3 py-1.5 text-xs font-semibold text-teal-700 disabled:opacity-50"
+                    >
+                      {t("apr.scan2.retry")}
+                    </button>
+                  </div>
+                )}
+                {d.retries.length > 0 && (
+                  <details className="text-xs text-slate-600">
+                    <summary className="cursor-pointer font-medium">{t("apr.scan2.history")}</summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {d.retries.map((r, i) => (
+                        <li key={i}>
+                          {t("apr.scan2.historyRow", {
+                            date: day(r.at),
+                            by: r.by,
+                            kind: t(`apr.scan2.kind.${r.kind}`),
+                            reason: r.reason,
+                            outcome: t(`apr.scan2.outcome.${r.outcome}`),
+                          })}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

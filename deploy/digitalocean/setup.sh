@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
     # Leave out the malware scanner for supporting documents (ClamAV). Without
-    # it the app refuses documents unless MYSENAM_DOCUMENT_SCAN=off is set.
+    # it documents wait in quarantine, unopened, until a scanner is set up.
     --no-scanner) SCANNER="no"; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -186,8 +186,7 @@ ADMIN_PASSWORD=
 
 # The malware scanner supporting documents are checked with before anybody
 # can open them (ClamAV, installed by setup unless --no-scanner). Without it,
-# documents are refused; MYSENAM_DOCUMENT_SCAN=off takes them unscanned,
-# marked so for reviewers.
+# documents wait in quarantine, unopened, until one is set up.
 $( [[ "$SCANNER" == "yes" ]] && echo "MYSENAM_CLAMD=127.0.0.1:3310" || echo "# MYSENAM_CLAMD=127.0.0.1:3310" )
 
 # Messages to customers.

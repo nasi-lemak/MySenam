@@ -25,12 +25,11 @@ export async function startNode(): Promise<void> {
   }
   if (!process.env.ADMIN_EMAIL)
     warn("ADMIN_EMAIL is unset, so the first operator account is admin@mysenam.my.");
-  const { scanMode } = await import("./lib/document-scanner");
-  const scanning = scanMode();
-  if (scanning === "unconfigured")
-    warn("No malware scanner is configured (MYSENAM_CLAMD), so supporting documents sent with applications are refused.");
-  else if (scanning === "off")
-    warn("Malware scanning of supporting documents is turned off (MYSENAM_DOCUMENT_SCAN=off): documents are taken and marked not scanned.");
+  const { scanMode, withdrawnOptOutSet } = await import("./lib/document-scanner");
+  if (scanMode() === "unconfigured")
+    warn("No malware scanner is configured (MYSENAM_CLAMD): supporting documents sent with applications wait in quarantine, and nobody can open them, until one is.");
+  if (withdrawnOptOutSet())
+    warn("MYSENAM_DOCUMENT_SCAN=off is no longer read: supporting documents are never released without a malware scan. Remove it from the environment.");
   if (!process.env.OFFSITE_S3_ENDPOINT || !process.env.OFFSITE_S3_BUCKET)
     warn(
       "Off-site copies are not set up (OFFSITE_S3_*), so every backup is on the same disk as the database it backs up."

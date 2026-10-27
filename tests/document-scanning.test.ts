@@ -21,7 +21,18 @@ import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
 import { saveCoach } from "../src/lib/coaching";
 import { getDb } from "../src/lib/db";
 import { ClamdScanner, parseClamdAddress, readReply, scanMode, setDocumentScanner, signaturesDate } from "../src/lib/document-scanner";
-import { checkScanner, MAX_SCAN_ATTEMPTS, RETRY_MINUTES, scanDocument, scanDueDocuments, scannerHealth } from "../src/lib/document-scanning";
+import {
+  checkScanner,
+  MAX_MANUAL_RETRIES,
+  MAX_SCAN_ATTEMPTS,
+  requeueWaitingDocuments,
+  retryDocumentScan,
+  RETRY_MINUTES,
+  scanDocument,
+  scanDueDocuments,
+  scannerHealth,
+} from "../src/lib/document-scanning";
+import { addManaged } from "../src/lib/managed-people";
 import { exportCustomerData, pruneOldData } from "../src/lib/privacy";
 import { createResources } from "../src/lib/resources";
 import { createVenue } from "../src/lib/store";
@@ -30,6 +41,7 @@ import * as myRoute from "../src/app/api/my/approvals/route";
 import * as myDocRoute from "../src/app/api/my/approvals/document/route";
 import * as adminDocRoute from "../src/app/api/admin/approvals/document/route";
 import * as coachDocRoute from "../src/app/api/my/reviews/document/route";
+import * as policyRoute from "../src/app/api/admin/document-policy/route";
 import { fakeScanner, type FakeScanner } from "./helpers/scanner";
 
 /**
@@ -102,8 +114,11 @@ const get = (url: string, cookie: string | null) =>
 
 const db = () => getDb();
 const docRow = async (id: number) =>
-  (await db().prepare("SELECT scan_status, scan_attempts, scan_next_at, scan_finding, scan_error, scan_engine, octet_length(content) AS bytes FROM approval_documents WHERE id = ?").get(id)) as {
+  (await db()
+    .prepare("SELECT scan_status, scan_failure, scan_attempts, scan_next_at, scan_finding, scan_error, scan_engine, octet_length(content) AS bytes FROM approval_documents WHERE id = ?")
+    .get(id)) as {
     scan_status: string;
+    scan_failure: string | null;
     scan_attempts: number;
     scan_next_at: Date | null;
     scan_finding: string | null;
@@ -237,10 +252,11 @@ describe("what the scanner says", () => {
 
   it("unavailable, timed out or inconclusive: tried again on a bounded schedule, then failed for good, never clean", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // The last try is an answer a working scanner could not give for this document: unscannable, for good.
     const errors = [
+      { kind: "error" as const, error: "inconclusive" as const, detail: "Can't allocate memory ERROR" },
       { kind: "error" as const, error: "unavailable" as const, detail: "ECONNREFUSED" },
       { kind: "error" as const, error: "timeout" as const, detail: "no answer" },
-      { kind: "error" as const, error: "inconclusive" as const, detail: "Can't allocate memory ERROR" },
     ];
     let i = 0;
     scanner.answer = () => errors[i++ % errors.length];
@@ -257,8 +273,8 @@ describe("what the scanner says", () => {
       await scanDueDocuments();
     }
     const failed = await docRow(docId);
-    expect(failed).toMatchObject({ scan_status: "failed", scan_attempts: MAX_SCAN_ATTEMPTS, scan_next_at: null });
-    expect(failed.scan_error).toMatch(/^(unavailable|timeout|inconclusive):/);
+    expect(failed).toMatchObject({ scan_status: "failed", scan_failure: "unscannable", scan_attempts: MAX_SCAN_ATTEMPTS, scan_next_at: null });
+    expect(failed.scan_error).toMatch(/^inconclusive:/);
     expect(scanner.calls).toBe(MAX_SCAN_ATTEMPTS);
     // No more tries, whatever is asked.
     await dueNow(docId).catch(() => undefined);
@@ -338,39 +354,283 @@ describe("only the server's own scan releases a document", () => {
   });
 });
 
-describe("without a scanner", () => {
-  it("refuses documents, with a clear reason, and keeps nothing of the application", async () => {
-    setDocumentScanner("unconfigured");
-    expect(scanMode()).toBe("unconfigured");
-    const me = await customer();
-    const made = await apply(me, diving(), [doc()]);
-    expect(made).toMatchObject({ ok: false, code: "SCAN_UNAVAILABLE", status: 503 });
-    expect(((await db().prepare("SELECT COUNT(*)::int AS n FROM approval_requests WHERE user_id = ?").get(me.id)) as { n: number }).n).toBe(0);
-    // A document already pending is never released while there is none: tries fail, then it fails for good.
-    setDocumentScanner(scanner);
-    scanner.answer = { kind: "error", error: "unavailable", detail: "away" };
-    const { docId } = await applied();
-    setDocumentScanner("unconfigured");
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    for (let i = 0; i < MAX_SCAN_ATTEMPTS; i++) {
-      await dueNow(docId).catch(() => undefined);
-      await scanDueDocuments();
-    }
-    expect((await docRow(docId)).scan_status).toBe("failed");
+describe("no opt-out: fail closed for safety and guardian documents", () => {
+  afterEach(() => {
+    delete process.env.MYSENAM_DOCUMENT_SCAN;
   });
 
-  it("with scanning turned off on purpose, takes documents marked not scanned, for everybody who sees them", async () => {
-    setDocumentScanner("off");
-    const { me, requestId, docId } = await applied();
-    expect(await docRow(docId)).toMatchObject({ scan_status: "not_scanned", scan_engine: null });
-    expect((await requestById(requestId))!.documents[0].scan).toBe("not_scanned");
-    expect((await myDocRoute.GET(get(`http://localhost/api/my/approvals/document?id=${docId}`, me.cookie))).status).toBe(200);
-    // The operator chose it, and reviewers see it: the review can be completed.
-    expect(await decide(staff(), requestId, "approve", { venueId: venueA })).toMatchObject({ ok: true });
-    // And it never becomes clean by a later scan.
+  it("ignores the withdrawn MYSENAM_DOCUMENT_SCAN=off: a safety document and a guardian's document for a child stay in quarantine, unopened and unapprovable", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    process.env.MYSENAM_DOCUMENT_SCAN = "off";
+    setDocumentScanner("unconfigured");
+    expect(scanMode()).toBe("unconfigured");
+    // A certification (safety) document of the applicant's own.
+    const own = await applied();
+    // A guardian applying for a child they manage, with the child's certificate.
+    const parent = await customer();
+    const kid = await addManaged(parent.id, { displayName: "Aisyah", relationship: "parent", authority: true });
+    if (!kid.ok) throw new Error(kid.error);
+    const forChild = await apply(parent, diving({ adult: undefined, forPerson: kid.person.id, authority: true }), [doc()]);
+    if (!forChild.ok) throw new Error(`${forChild.code}: ${forChild.error}`);
+    const guardian = { me: parent, requestId: forChild.request.id, docId: forChild.request.documents[0].id };
+    for (const { me, requestId, docId } of [own, guardian]) {
+      expect(await docRow(docId)).toMatchObject({ scan_status: "pending", scan_engine: null });
+      expect((await myDocRoute.GET(get(`http://localhost/api/my/approvals/document?id=${docId}`, me.cookie))).status).toBe(409);
+      expect((await adminDocRoute.GET(get(`http://localhost/api/admin/approvals/document?venueId=${venueA}&id=${docId}`, staffA.cookie))).status).toBe(409);
+      expect(await decide(staff(), requestId, "approve", { venueId: venueA })).toMatchObject({ ok: false, code: "SCAN_NOT_CLEAN" });
+    }
+    // The status the opt-out wrote is gone from the database: nothing can be stored as taken unscanned.
+    await expect(db().prepare("UPDATE approval_documents SET scan_status = 'not_scanned' WHERE id = ?").run(own.docId)).rejects.toThrow();
+    // Once a scanner is there, they are scanned like any other, and only then released.
     setDocumentScanner(scanner);
-    expect(await scanDocument(docId)).toBe("not_scanned");
-    expect(scanner.calls).toBe(0);
+    for (const { docId } of [own, guardian]) {
+      await dueNow(docId);
+      expect(await scanDocument(docId)).toBe("clean");
+    }
+  });
+
+  it("takes documents into quarantine with no scanner configured, so nothing sent is lost; tries run out into waiting, never into release or removal", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    setDocumentScanner("unconfigured");
+    const { me, requestId, docId } = await applied();
+    expect((await requestById(requestId))!.status).toBe("pending");
+    expect(await docRow(docId)).toMatchObject({ scan_status: "pending", scan_attempts: 1 });
+    expect((await docRow(docId)).scan_error).toMatch(/^unavailable: no scanner configured/);
+    for (let i = 1; i < MAX_SCAN_ATTEMPTS; i++) {
+      await dueNow(docId);
+      await scanDueDocuments();
+    }
+    expect(await docRow(docId)).toMatchObject({ scan_status: "failed", scan_failure: "scanner_unavailable", scan_attempts: MAX_SCAN_ATTEMPTS });
+    const request = (await requestById(requestId))!;
+    expect(request.documents[0]).toMatchObject({ scan: "failed", scanWaiting: true });
+    // Waiting is not a failure of the document: the application's history does not say it could not be checked.
+    expect(request.events.map((e) => e.action)).not.toContain("scan_failed");
+    expect(await openDocument(docId, { kind: "customer", userId: me.id, name: me.name })).toEqual({ withheld: "failed" });
+    // Long past the quarantine period, it is still kept: no scanner is no reason to remove it.
+    await db().prepare("UPDATE approval_documents SET scanned_at = now() - interval '60 days' WHERE id = ?").run(docId);
+    await pruneOldData();
+    expect((await docRow(docId)).scan_status).toBe("failed");
+  });
+});
+
+describe("scanning a failed document again", () => {
+  let owner: Awaited<ReturnType<typeof staffMember>>;
+  let manager: Awaited<ReturnType<typeof staffMember>>;
+  const retries = async (docId: number) =>
+    (await db()
+      .prepare("SELECT kind, by_name, reason, outcome, settled_at FROM approval_document_scan_retries WHERE document_id = ? ORDER BY id")
+      .all(docId)) as { kind: string; by_name: string; reason: string; outcome: string; settled_at: Date | null }[];
+  const post = (body: Record<string, unknown>, cookie: string) =>
+    policyRoute.POST(
+      new NextRequest("http://localhost/api/admin/document-policy", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": `10.89.${++n % 250}.${n % 200}`, cookie },
+        body: JSON.stringify(body),
+      })
+    );
+  /** A document that failed for good: too large for the scanner's limits. */
+  async function unscannable() {
+    scanner.answer = { kind: "error", error: "too_large", detail: "size limit exceeded" };
+    const made = await applied();
+    expect(await docRow(made.docId)).toMatchObject({ scan_status: "failed", scan_failure: "unscannable" });
+    return made;
+  }
+
+  beforeAll(async () => {
+    owner = await staffMember(null, "Rina Retry Owner");
+    manager = await staffMember(venueA, "Mona Venue Manager");
+  });
+
+  it("is the platform owner's alone, with a reason; it puts the same bytes back in quarantine, never releases them, and records who, when, why and the outcome", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { me, docId } = await unscannable();
+    const before = (await db().prepare("SELECT content, sha256 FROM approval_documents WHERE id = ?").get(docId)) as { content: Uint8Array; sha256: string };
+    // Not the venue's staff, not without a reason.
+    expect(await retryDocumentScan(manager.admin, { documentId: docId, reason: "Please try again" })).toMatchObject({ ok: false, code: "SCAN_RETRY_OWNER", status: 403 });
+    expect((await post({ action: "retry", documentId: docId, reason: "Please try again" }, staffA.cookie)).status).toBe(403);
+    expect(await retryDocumentScan(owner.admin, { documentId: docId, reason: "" })).toMatchObject({ ok: false, code: "SCAN_RETRY_REASON" });
+    // The scanner still cannot answer for it: back in quarantine, never released, failed again.
+    scanner.answer = { kind: "error", error: "unavailable", detail: "ECONNREFUSED" };
+    expect(await retryDocumentScan(owner.admin, { documentId: docId, reason: "StreamMaxLength raised to 25M" })).toMatchObject({ ok: true, status: "pending", alreadyQueued: false });
+    const row = await docRow(docId);
+    expect(row).toMatchObject({ scan_status: "pending", scan_failure: null, scan_attempts: 1 });
+    expect(await openDocument(docId, { kind: "customer", userId: me.id, name: me.name })).toEqual({ withheld: "pending" });
+    // Asked again while it waits: nothing more happens, nothing more is counted.
+    const again = await post({ action: "retry", documentId: docId, reason: "Clicked twice by mistake" }, owner.cookie);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ status: "pending", alreadyQueued: true });
+    expect(await retries(docId)).toEqual([expect.objectContaining({ kind: "manual", by_name: owner.name, reason: "StreamMaxLength raised to 25M", outcome: "queued", settled_at: null })]);
+    // Its scan passes: released by the scan, and the retry's outcome written.
+    scanner.answer = { kind: "clean", engine: "FakeScan 1.0/3/Tue Oct 27 06:00:00 2026" };
+    await dueNow(docId);
+    await scanDueDocuments();
+    expect(await docRow(docId)).toMatchObject({ scan_status: "clean", scan_failure: null });
+    expect(await retries(docId)).toEqual([expect.objectContaining({ outcome: "clean", settled_at: expect.any(Date) })]);
+    const after = (await db().prepare("SELECT content, sha256, scan_rounds FROM approval_documents WHERE id = ?").get(docId)) as { content: Uint8Array; sha256: string; scan_rounds: number };
+    expect(Buffer.from(after.content).equals(Buffer.from(before.content))).toBe(true);
+    expect(after).toMatchObject({ sha256: before.sha256, scan_rounds: 2 });
+    // A clean document is not scanned again.
+    expect(await retryDocumentScan(owner.admin, { documentId: docId, reason: "Once more, to be sure" })).toMatchObject({ ok: false, code: "SCAN_RETRY_NOT_FAILED", status: 409 });
+    expect((await retries(docId)).map((r) => r.outcome)).toEqual(["clean", "refused_not_failed"]);
+    // In the activity log, under the owner's name.
+    const logged = (await db().prepare("SELECT admin_name, detail FROM staff_actions WHERE action = 'approval.scan_retry' ORDER BY id").all()) as { admin_name: string; detail: string }[];
+    expect(logged[0]).toMatchObject({ admin_name: owner.name });
+    expect(logged[0].detail).toContain(`supporting document ${docId}`);
+  });
+
+  it("refuses, and asks for a new upload, when the bytes changed or are gone; a refused document is unscannable", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const changed = await unscannable();
+    // Bytes changed behind the app's back (the guard trigger set aside, as only a direct database edit could).
+    await db().prepare("ALTER TABLE approval_documents DISABLE TRIGGER approval_documents_scan_guard").run();
+    try {
+      await db().prepare("UPDATE approval_documents SET content = ? WHERE id = ?").run(Buffer.from("%PDF-1.7 something else %%EOF"), changed.docId);
+    } finally {
+      await db().prepare("ALTER TABLE approval_documents ENABLE TRIGGER approval_documents_scan_guard").run();
+    }
+    const res = await post({ action: "retry", documentId: changed.docId, reason: "Scanner was upgraded" }, owner.cookie);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "SCAN_RETRY_NEW_UPLOAD" });
+    expect((await retries(changed.docId)).map((r) => r.outcome)).toEqual(["refused_integrity"]);
+    expect((await docRow(changed.docId)).scan_status).toBe("failed");
+    // The database itself refuses to put changed bytes back in quarantine.
+    await expect(db().prepare("UPDATE approval_documents SET scan_status = 'pending', scan_failure = NULL WHERE id = ?").run(changed.docId)).rejects.toThrow(/settled/);
+    // Gone: removed by retention, so there is nothing to scan.
+    const gone = await unscannable();
+    await db().prepare("UPDATE approval_documents SET scanned_at = now() - interval '8 days' WHERE id = ?").run(gone.docId);
+    await pruneOldData();
+    expect(await retryDocumentScan(owner.admin, { documentId: gone.docId, reason: "Scanner was upgraded" })).toMatchObject({ ok: false, code: "SCAN_RETRY_GONE", status: 404 });
+  });
+
+  it("is bounded: at most three retries by the owner, then a new upload is needed", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { docId } = await unscannable();
+    for (let i = 1; i <= MAX_MANUAL_RETRIES; i++) {
+      expect(await retryDocumentScan(owner.admin, { documentId: docId, reason: `Attempt number ${i}` })).toMatchObject({ ok: true, status: "failed" });
+    }
+    expect(await retryDocumentScan(owner.admin, { documentId: docId, reason: "One more time" })).toMatchObject({ ok: false, code: "SCAN_RETRY_LIMIT" });
+    expect((await retries(docId)).map((r) => r.outcome)).toEqual([...Array(MAX_MANUAL_RETRIES).fill("failed_unscannable"), "refused_limit"]);
+    expect(scanner.calls).toBe(1 + MAX_MANUAL_RETRIES);
+  });
+
+  it("two retries at once put it back once", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { docId } = await unscannable();
+    scanner.answer = { kind: "error", error: "unavailable", detail: "away" };
+    const both = await Promise.all([
+      retryDocumentScan(owner.admin, { documentId: docId, reason: "First click on retry" }),
+      retryDocumentScan(owner.admin, { documentId: docId, reason: "Second click on retry" }),
+    ]);
+    expect(both.every((r) => r.ok)).toBe(true);
+    expect(both.filter((r) => r.ok && r.alreadyQueued)).toHaveLength(1);
+    expect((await retries(docId)).filter((r) => r.outcome !== "refused_not_failed")).toHaveLength(1);
+    expect((await docRow(docId)).scan_attempts).toBe(1);
+  });
+
+  it("lists failed documents for the owner only, with their retries and no contents, names or applicant", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { docId, me } = await unscannable();
+    const asOwner = await policyRoute.GET(get("http://localhost/api/admin/document-policy", owner.cookie));
+    const body = (await asOwner.json()) as { failed: Record<string, unknown>[] };
+    const mine = body.failed.find((d) => d.id === docId)!;
+    expect(mine).toMatchObject({ failure: "unscannable", intact: true, venueId: venueA, manualRetries: 0 });
+    expect(JSON.stringify(body.failed)).not.toContain(me.name);
+    expect(JSON.stringify(body.failed)).not.toContain("certificate.pdf");
+    const asStaff = (await (await policyRoute.GET(get("http://localhost/api/admin/document-policy", staffA.cookie))).json()) as Record<string, unknown>;
+    expect(asStaff.failed).toBeUndefined();
+  });
+});
+
+describe("documents waiting for a scanner, and legacy documents", () => {
+  it("go back into quarantine by themselves once the scanner answers again, and are scanned; not while it is down", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    scanner.answer = { kind: "error", error: "unavailable", detail: "ECONNREFUSED" };
+    const { requestId, docId } = await applied();
+    for (let i = 1; i < MAX_SCAN_ATTEMPTS; i++) {
+      await dueNow(docId);
+      await scanDueDocuments();
+    }
+    expect(await docRow(docId)).toMatchObject({ scan_status: "failed", scan_failure: "scanner_unavailable" });
+    // Still down: left waiting.
+    scanner.state = { reachable: false, engine: null, signaturesAt: null, error: "unavailable: ECONNREFUSED" };
+    expect(await requeueWaitingDocuments()).toEqual({ requeued: 0 });
+    // A timeout from a scanner that then does not answer at all is the scanner's fault too.
+    // Back: put back in quarantine by the app itself, and scanned.
+    scanner.state = { reachable: true, engine: "FakeScan 1.0/4/Tue Oct 27 06:00:00 2026", signaturesAt: new Date().toISOString(), error: null };
+    scanner.answer = { kind: "clean", engine: "FakeScan 1.0/4/Tue Oct 27 06:00:00 2026" };
+    expect((await requeueWaitingDocuments()).requeued).toBeGreaterThanOrEqual(1);
+    expect((await docRow(docId)).scan_status).toBe("pending");
+    await scanDueDocuments(100);
+    expect((await docRow(docId)).scan_status).toBe("clean");
+    const history = (await db().prepare("SELECT kind, by_name, outcome FROM approval_document_scan_retries WHERE document_id = ?").all(docId)) as Record<string, string>[];
+    expect(history).toEqual([{ kind: "recovery", by_name: "MySenam", outcome: "clean" }]);
+    expect((await requestById(requestId))!.events.map((e) => e.action)).toContain("scan_requeued");
+  });
+
+  it("a timeout from a scanner that no longer answers leaves the document waiting, not unscannable", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    scanner.answer = { kind: "error", error: "timeout", detail: "no answer" };
+    scanner.state = { reachable: false, engine: null, signaturesAt: null, error: "timeout" };
+    const { docId } = await applied();
+    for (let i = 1; i < MAX_SCAN_ATTEMPTS; i++) {
+      await dueNow(docId);
+      await scanDueDocuments();
+    }
+    expect(await docRow(docId)).toMatchObject({ scan_status: "failed", scan_failure: "scanner_unavailable" });
+    expect((await docRow(docId)).scan_error).toMatch(/^unavailable: no answer/);
+  });
+
+  it("a legacy document is never treated as clean or removed for want of a scanner, but goes at its own retention deadline, recorded as retention", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    setDocumentScanner("unconfigured");
+    const { requestId, docId } = await applied();
+    // As migration 0159 marks a document stored before scanning existed, whose tries ran out with no scanner.
+    await db()
+      .prepare("UPDATE approval_documents SET legacy_reason = 'before_scanning', scan_status = 'failed', scan_failure = 'scanner_unavailable', scanned_at = now() - interval '200 days' WHERE id = ?")
+      .run(docId);
+    const health = await scannerHealth();
+    expect(health.legacy.waiting).toBeGreaterThanOrEqual(1);
+    expect(health.legacy.clean).toBe(0);
+    await pruneOldData();
+    expect((await docRow(docId)).scan_status).toBe("failed");
+    expect((await requestById(requestId))!.documents[0]).toMatchObject({ scan: "failed", scanWaiting: true });
+    // Its own deadline: the application was refused, and its review window has passed.
+    expect((await decide(staff(), requestId, "reject", { venueId: venueA, reason: "Certificate not for this activity." })).ok).toBe(true);
+    await pruneOldData();
+    expect((await docRow(docId)).scan_status).toBe("failed");
+    await db().prepare("UPDATE approval_requests SET decided_at = now() - interval '40 days', closed_at = now() - interval '40 days' WHERE id = ?").run(requestId);
+    await pruneOldData();
+    expect(await docRow(docId)).toBeUndefined();
+    const removed = (await db().prepare("SELECT why, scan_status, scan_failure, legacy_reason FROM approval_document_removals WHERE document_id = ?").all(docId)) as Record<string, string>[];
+    expect(removed).toEqual([{ why: "retention", scan_status: "failed", scan_failure: "scanner_unavailable", legacy_reason: "before_scanning" }]);
+  });
+
+  it("records refused and unscannable documents removed after the quarantine period as quarantine", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    scanner.answer = { kind: "error", error: "too_large", detail: "size limit exceeded" };
+    const { docId } = await applied();
+    await db().prepare("UPDATE approval_documents SET scanned_at = now() - interval '8 days' WHERE id = ?").run(docId);
+    await pruneOldData();
+    expect(await docRow(docId)).toBeUndefined();
+    const removed = (await db().prepare("SELECT why, scan_failure FROM approval_document_removals WHERE document_id = ?").all(docId)) as Record<string, string>[];
+    expect(removed).toEqual([{ why: "quarantine", scan_failure: "unscannable" }]);
+  });
+
+  it("tells the owners when documents wait for a scanner that is missing or down", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    setDocumentScanner("unconfigured");
+    await applied();
+    let health = await checkScanner();
+    expect(health.problems).toEqual(expect.arrayContaining(["unconfigured"]));
+    let alert = (await db().prepare("SELECT last_detail FROM system_alerts WHERE key = 'document-scanner'").get()) as { last_detail: string };
+    expect(alert.last_detail).toContain("No malware scanner is configured");
+    setDocumentScanner(scanner);
+    scanner.state = { reachable: false, engine: null, signaturesAt: null, error: "unavailable: ECONNREFUSED" };
+    health = await checkScanner();
+    expect(health.problems).toEqual(expect.arrayContaining(["unreachable", "waiting"]));
+    alert = (await db().prepare("SELECT last_detail FROM system_alerts WHERE key = 'document-scanner'").get()) as { last_detail: string };
+    expect(alert.last_detail).toContain("no scanner answered");
   });
 });
 

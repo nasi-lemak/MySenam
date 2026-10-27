@@ -2047,14 +2047,11 @@ export const ZH: Record<Phrase, string> = {
   "scan.pending": "正在进行恶意软件检查",
   "scan.rejected": "未通过恶意软件检查：请发送其他文件",
   "scan.failed": "无法进行恶意软件检查：如场馆要求，请重新发送",
-  "scan.not_scanned": "未经恶意软件检查",
   "scan.rv.pending": "正在进行恶意软件检查：通过后即可打开",
   "scan.rv.rejected": "未通过恶意软件检查：无法打开",
   "scan.rv.failed": "无法进行恶意软件检查：无法打开",
-  "scan.rv.not_scanned": "未经恶意软件检查（本站已关闭扫描）",
   "scan.rv.ev.scan_rejected": "一份文件未通过恶意软件检查",
   "scan.rv.ev.scan_failed": "一份文件无法进行恶意软件检查",
-  "scan.err.SCAN_UNAVAILABLE": "目前无法接收文件：文件无法进行恶意软件检查。请稍后再试，或询问场馆。",
   "scan.err.SCAN_NOT_RELEASED": "此文件尚未通过恶意软件检查，因此无法打开。",
   "scan.err.SCAN_NOT_CLEAN": "此活动所需的文件尚未通过恶意软件检查，因此暂时无法批准。请等待检查完成，或请申请人发送其他文件。",
   "scan.privacyProvisional": "以上期限为暂定：尚未经律师审核。",
@@ -2117,6 +2114,10 @@ export const ZH: Record<Phrase, string> = {
   "pbk2.holder": "该号码的持有人",
   "err.SIGN_OFF_NEEDED_FOR": "{name}需先获得场馆工作人员对{sport}的确认（例如安全检查）。请从您的账户为其申请，或到柜台询问。其他已勾选的人仍可不含其预订。",
   "err.CERTIFICATION_NEEDED_FOR": "{name}在此进行{sport}前，需要场馆为其登记的证书（例如执照）。请从您的账户凭该证书为其申请，或到柜台询问。其他已勾选的人仍可不含其预订。",
+  // 等待恶意软件扫描器的证明文件；重新扫描（ADR 0024，2026年10月27日修订）
+  "scan2.waiting": "正在等待恶意软件检查：文件已妥善保存，扫描器恢复后会立即检查",
+  "scan2.rv.waiting": "正在等待恶意软件扫描器：文件保存在隔离区，扫描器恢复应答后会自动检查；通过检查前无法打开",
+  "scan2.rv.ev.scan_requeued": "一份文件已重新排队进行恶意软件检查",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

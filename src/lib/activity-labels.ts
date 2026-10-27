@@ -29,6 +29,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "approval.settings": "Changed what is asked before approving somebody online",
   "approval.checked": "Checked an application (administrative)",
   "approval.authority_reviewed": "Reviewed the authority of an adult applying for somebody they manage",
+  "approval.scan_retry": "Asked for a supporting document to be scanned for malware again",
   "competition.cancelled": "Called off a competition",
   "retention.policy": "Changed how long applications and documents are kept",
   "retention.reviewed": "Recorded a legal review of how long applications are kept",

@@ -2207,14 +2207,11 @@ const EN = {
   "scan.pending": "Being checked for malware",
   "scan.rejected": "Refused by the malware check: send another file",
   "scan.failed": "Could not be checked for malware: send it again if the venue asks",
-  "scan.not_scanned": "Not checked for malware",
   "scan.rv.pending": "Being checked for malware: it can be opened once it passes",
   "scan.rv.rejected": "Refused by the malware check: it cannot be opened",
   "scan.rv.failed": "Could not be checked for malware: it cannot be opened",
-  "scan.rv.not_scanned": "Not checked for malware (scanning is turned off on this site)",
   "scan.rv.ev.scan_rejected": "a document was refused by the malware check",
   "scan.rv.ev.scan_failed": "a document could not be checked for malware",
-  "scan.err.SCAN_UNAVAILABLE": "Documents cannot be taken just now: they could not be checked for malware. Try again later, or ask the venue.",
   "scan.err.SCAN_NOT_RELEASED": "This document has not passed its malware check, so it cannot be opened.",
   "scan.err.SCAN_NOT_CLEAN": "The document this activity needs has not passed its malware check, so this cannot be approved yet. Wait for the check, or ask the applicant for another file.",
   "scan.privacyProvisional": "These periods are provisional: they have not yet been reviewed by a lawyer.",
@@ -2277,6 +2274,10 @@ const EN = {
   "pbk2.holder": "The number holder",
   "err.SIGN_OFF_NEEDED_FOR": "{name} needs the venue's own sign-off for {sport} first, such as a safety check. Apply for them from your account, or ask at the counter. Anyone else ticked can still be booked without them.",
   "err.CERTIFICATION_NEEDED_FOR": "{name} needs a certification the venue has recorded for them before {sport} here, such as a licence. Apply for them from your account with it, or ask at the counter. Anyone else ticked can still be booked without them.",
+  // Supporting documents waiting for a malware scanner; scanned again (ADR 0024, amended 27 October 2026)
+  "scan2.waiting": "Waiting for the malware check: kept safely, and checked as soon as the scanner is back",
+  "scan2.rv.waiting": "Waiting for the malware scanner: kept in quarantine and checked by itself once the scanner answers; it cannot be opened until it passes",
+  "scan2.rv.ev.scan_requeued": "a document was put back to be checked for malware again",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4437,14 +4438,11 @@ const MS: Record<Phrase, string> = {
   "scan.pending": "Sedang disemak untuk perisian hasad",
   "scan.rejected": "Ditolak oleh semakan perisian hasad: hantar fail lain",
   "scan.failed": "Tidak dapat disemak untuk perisian hasad: hantar semula jika pusat meminta",
-  "scan.not_scanned": "Tidak disemak untuk perisian hasad",
   "scan.rv.pending": "Sedang disemak untuk perisian hasad: boleh dibuka setelah lulus",
   "scan.rv.rejected": "Ditolak oleh semakan perisian hasad: tidak boleh dibuka",
   "scan.rv.failed": "Tidak dapat disemak untuk perisian hasad: tidak boleh dibuka",
-  "scan.rv.not_scanned": "Tidak disemak untuk perisian hasad (imbasan dimatikan di laman ini)",
   "scan.rv.ev.scan_rejected": "satu dokumen ditolak oleh semakan perisian hasad",
   "scan.rv.ev.scan_failed": "satu dokumen tidak dapat disemak untuk perisian hasad",
-  "scan.err.SCAN_UNAVAILABLE": "Dokumen tidak dapat diterima buat masa ini: ia tidak dapat disemak untuk perisian hasad. Cuba lagi kemudian, atau tanya pusat.",
   "scan.err.SCAN_NOT_RELEASED": "Dokumen ini belum lulus semakan perisian hasad, jadi ia tidak boleh dibuka.",
   "scan.err.SCAN_NOT_CLEAN": "Dokumen yang diperlukan untuk aktiviti ini belum lulus semakan perisian hasad, jadi permohonan ini belum boleh diluluskan. Tunggu semakan selesai, atau minta fail lain daripada pemohon.",
   "scan.privacyProvisional": "Tempoh ini adalah sementara: ia belum disemak oleh peguam.",
@@ -4507,6 +4505,10 @@ const MS: Record<Phrase, string> = {
   "pbk2.holder": "Pemegang nombor ini",
   "err.SIGN_OFF_NEEDED_FOR": "{name} memerlukan pengesahan kakitangan pusat untuk {sport} dahulu, seperti pemeriksaan keselamatan. Mohon untuknya dari akaun anda, atau tanya di kaunter. Orang lain yang ditanda masih boleh ditempah tanpanya.",
   "err.CERTIFICATION_NEEDED_FOR": "{name} memerlukan pensijilan yang direkodkan oleh pusat untuknya sebelum {sport} di sini, seperti lesen. Mohon untuknya dari akaun anda dengan pensijilan itu, atau tanya di kaunter. Orang lain yang ditanda masih boleh ditempah tanpanya.",
+  // Dokumen sokongan menunggu pengimbas perisian hasad; diimbas semula (ADR 0024, dipinda 27 Oktober 2026)
+  "scan2.waiting": "Menunggu semakan perisian hasad: disimpan dengan selamat, dan disemak sebaik sahaja pengimbas kembali",
+  "scan2.rv.waiting": "Menunggu pengimbas perisian hasad: disimpan dalam kuarantin dan disemak dengan sendirinya apabila pengimbas menjawab; tidak boleh dibuka sehingga ia lulus",
+  "scan2.rv.ev.scan_requeued": "sebuah dokumen dihantar semula untuk disemak bagi perisian hasad",
 };
 
 /** Exported so a test can hold the two languages against each other. */

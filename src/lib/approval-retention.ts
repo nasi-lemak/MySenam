@@ -34,9 +34,13 @@ import { addDays, isValidDateString, todayISO } from "./time";
  *
  * The periods above are the defaults; the platform owner may set the
  * install's own (lib/retention-policy.ts), still provisional until a review
- * is recorded. A supporting document the malware scan refused, or could not
- * scan (lib/document-scanning.ts), goes the install's quarantine period (7
- * days by default) after that was settled, whatever else applies.
+ * is recorded. A supporting document the malware scan refused, or a working
+ * scanner could not scan (lib/document-scanning.ts), goes the install's
+ * quarantine period (7 days by default) after that was settled, whatever
+ * else applies. A document still waiting for a scanner (pending, or failed
+ * only because none answered), stored before scanning existed or not, is
+ * never removed for that: only by the periods above. Each document removed
+ * is recorded with the rule that removed it (`approval_document_removals`).
  *
  * An activity may set shorter periods (approval_requirements), never longer.
  * Only a hold keeps an application longer: placed for an actual legal,
@@ -121,14 +125,32 @@ const documentRows = (today: string, p: Periods) =>
    OR NOT EXISTS (SELECT 1 FROM approval_requests x WHERE x.id = approval_documents.request_id)`;
 
 /**
- * Documents the malware scan refused (their bytes already gone) or could not
- * scan (their bytes still in quarantine, never released): what is left goes
- * the quarantine period after the scan settled, unless a hold keeps the
- * application.
+ * Documents the malware scan refused (their bytes already gone) or a working
+ * scanner could not scan (their bytes still in quarantine, never released):
+ * what is left goes the quarantine period after the scan settled, unless a
+ * hold keeps the application. Not a document that failed only because no
+ * scanner answered: that one waits for a scanner, and goes only by its own
+ * retention (documentRows).
  */
 const quarantineRows = (today: string, p: Periods) =>
-  `scan_status IN ('rejected', 'failed') AND scanned_at < now() - make_interval(days => ${daysLiteral(p.quarantineDays)})
+  `(scan_status = 'rejected' OR (scan_status = 'failed' AND scan_failure = 'unscannable'))
+   AND scanned_at < now() - make_interval(days => ${daysLiteral(p.quarantineDays)})
    AND request_id IN (SELECT r.id FROM approval_requests r WHERE NOT ${held(today)})`;
+
+/**
+ * Note each document about to be removed, and under which rule: numbers and
+ * states only (migration 0160). `where` is one of the conditions above,
+ * written against approval_documents.
+ */
+const noteRemovals = (where: string, why: "retention" | "quarantine" | "erasure", ...params: unknown[]) =>
+  getDb()
+    .prepare(
+      `INSERT INTO approval_document_removals (document_id, request_id, venue_id, why, scan_status, scan_failure, legacy_reason)
+       SELECT id, request_id, (SELECT x.venue_id FROM approval_requests x WHERE x.id = approval_documents.request_id), '${why}',
+              scan_status, scan_failure, legacy_reason
+         FROM approval_documents WHERE ${where}`
+    )
+    .run(...params);
 
 const auditDue = `COALESCE(closed_at, removed_at) < now() - make_interval(days => ${RETENTION.approvalAuditDays})`;
 const accessDue = `at < now() - make_interval(days => ${RETENTION.approvalAuditDays})`;
@@ -187,11 +209,14 @@ export async function pruneApprovals(today = todayISO()): Promise<void> {
     )
     .run();
   // Documents no longer needed, and any left without an application to hold them.
+  await noteRemovals(documentRows(today, p), "retention");
   await db.prepare(`DELETE FROM approval_documents WHERE ${documentRows(today, p)}`).run();
   // What is left of documents the malware scan refused or could not scan, after the quarantine period.
+  await noteRemovals(quarantineRows(today, p), "quarantine");
   await db.prepare(`DELETE FROM approval_documents WHERE ${quarantineRows(today, p)}`).run();
   // An approval still standing keeps its bare facts; the answers, declarations and slot go.
   const minimise = `SELECT r.id FROM ${FROM} WHERE ${minimiseDue(today, p)}`;
+  await noteRemovals(`request_id IN (${minimise})`, "retention");
   await db.prepare(`DELETE FROM approval_documents WHERE request_id IN (${minimise})`).run();
   await db
     .prepare(
@@ -208,10 +233,12 @@ export async function pruneApprovals(today = todayISO()): Promise<void> {
     .run();
   // Closed applications past their time: the bare facts kept, the rest deleted (documents, history and holds with it).
   await db.prepare(`${AUDIT_INSERT} ${AUDIT_SELECT(today, "retention", true)} WHERE ${recordDue(today, p)}`).run();
+  await noteRemovals(`request_id IN (SELECT r.id FROM ${FROM} WHERE ${recordDue(today, p)})`, "retention");
   await db.prepare(`DELETE FROM approval_requests WHERE id IN (SELECT r.id FROM ${FROM} WHERE ${recordDue(today, p)})`).run();
   // And those bare facts, and who opened which document, after their own period.
   await db.prepare(`DELETE FROM approval_audit WHERE ${auditDue}`).run();
   await db.prepare(`DELETE FROM approval_document_access WHERE ${accessDue}`).run();
+  await db.prepare(`DELETE FROM approval_document_removals WHERE removed_at < now() - make_interval(days => ${RETENTION.approvalAuditDays})`).run();
 }
 
 /**
@@ -222,6 +249,8 @@ export async function pruneApprovals(today = todayISO()): Promise<void> {
 export async function forgetApplicant(userId: number): Promise<void> {
   const db = getDb();
   await db.prepare(`${AUDIT_INSERT} ${AUDIT_SELECT(null, "erasure", false)} WHERE r.user_id = ?`).run(userId);
+  // Their documents go with the applications (lib/approvals.ts eraseApprovals): noted as erased.
+  await noteRemovals("request_id IN (SELECT id FROM approval_requests WHERE user_id = ?)", "erasure", userId);
   await db.prepare("UPDATE approval_audit SET user_id = NULL WHERE user_id = ?").run(userId);
   await db.prepare("UPDATE approval_document_access SET user_id = NULL, viewer_name = ? WHERE user_id = ?").run(ANONYMOUS, userId);
 }

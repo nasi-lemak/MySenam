@@ -175,21 +175,25 @@ export function readReply(reply: string, engine: string): ScanVerdict {
 /**
  * - `scanner`: a scanner is configured (`MYSENAM_CLAMD`); documents wait in
  *   quarantine until it has passed them.
- * - `off`: the operator turned scanning off on purpose
- *   (`MYSENAM_DOCUMENT_SCAN=off`); documents are taken, marked *not scanned*
- *   for everybody who sees them.
- * - `unconfigured`: neither; documents are refused, never taken unscanned.
+ * - `unconfigured`: none is. Documents are still taken into quarantine and
+ *   wait there, never released, until a scanner is configured and passes
+ *   them (lib/document-scanning.ts).
+ *
+ * There is no opt-out: supporting documents are safety and guardian
+ * application documents, and none is released without a scan (ADR 0024,
+ * amended 27 October 2026). The withdrawn `MYSENAM_DOCUMENT_SCAN=off` has no
+ * effect; a start-up warning says so where it is still set.
  */
-export type ScanMode = "scanner" | "off" | "unconfigured";
+export type ScanMode = "scanner" | "unconfigured";
 
-const testing = globalThis as { __mysenamDocumentScanner?: DocumentScanner | "off" | "unconfigured" | null };
+const testing = globalThis as { __mysenamDocumentScanner?: DocumentScanner | "unconfigured" | null };
 
-/** Tests only: put a scanner (or a mode) in place of the configured one; null goes back to the environment. */
-export function setDocumentScanner(scanner: DocumentScanner | "off" | "unconfigured" | null): void {
+/** Tests only: put a scanner in place of the configured one, or none ("unconfigured"); null goes back to the environment. */
+export function setDocumentScanner(scanner: DocumentScanner | "unconfigured" | null): void {
   testing.__mysenamDocumentScanner = scanner;
 }
 
-/** The scanner in use, or null when there is none. A configured scanner wins over the opt-out. */
+/** The scanner in use, or null when there is none. */
 export function documentScanner(): DocumentScanner | null {
   const t = testing.__mysenamDocumentScanner;
   if (t !== undefined && t !== null) return typeof t === "string" ? null : t;
@@ -199,8 +203,10 @@ export function documentScanner(): DocumentScanner | null {
 }
 
 export function scanMode(): ScanMode {
-  const t = testing.__mysenamDocumentScanner;
-  if (t !== undefined && t !== null) return typeof t === "string" ? t : "scanner";
-  if (documentScanner()) return "scanner";
-  return process.env.MYSENAM_DOCUMENT_SCAN?.trim().toLowerCase() === "off" ? "off" : "unconfigured";
+  return documentScanner() ? "scanner" : "unconfigured";
+}
+
+/** Whether the withdrawn opt-out is still set in the environment: it has no effect, and the operator is told. */
+export function withdrawnOptOutSet(): boolean {
+  return process.env.MYSENAM_DOCUMENT_SCAN?.trim().toLowerCase() === "off";
 }

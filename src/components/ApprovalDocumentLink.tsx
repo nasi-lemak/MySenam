@@ -7,7 +7,7 @@ export function fileSize(bytes: number): string {
 
 /** Whether a document can be opened: its malware scan released it (lib/document-scanning.ts). */
 export function released(d: Pick<ApprovalDocumentInfo, "scan">): boolean {
-  return d.scan === "clean" || d.scan === "not_scanned";
+  return d.scan === "clean";
 }
 
 /**
@@ -15,9 +15,9 @@ export function released(d: Pick<ApprovalDocumentInfo, "scan">): boolean {
  * kind and its size. A PDF is downloaded, never shown in the app's pages; a
  * redrawn image opens on its own (lib/approval-documents.ts). No preview is
  * made of either. One its malware scan has not released (still being
- * checked, refused, or not checkable) is named, with where it stands, and is
- * not a link; one taken unscanned, where the operator turned scanning off,
- * says so beside its link. `status` is that state in the reader's language.
+ * checked, waiting for the scanner, refused, or not checkable) is named, with
+ * where it stands, and is not a link. `status` is that state in the reader's
+ * language.
  */
 export function DocumentLink({
   href,
@@ -25,13 +25,13 @@ export function DocumentLink({
   status,
 }: {
   href: string;
-  document: Pick<ApprovalDocumentInfo, "fileName" | "contentType" | "size" | "scan">;
+  document: Pick<ApprovalDocumentInfo, "fileName" | "contentType" | "size" | "scan"> & { scanWaiting?: boolean };
   status?: string | null;
 }) {
   const pdf = d.contentType === "application/pdf";
   const kind = `(${d.contentType.split("/")[1].toUpperCase()}, ${fileSize(d.size)})`;
   const note = status ? (
-    <span className={`ml-1 rounded px-1 font-normal ${d.scan === "pending" ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700"}`}>{status}</span>
+    <span className={`ml-1 rounded px-1 font-normal ${d.scan === "pending" || d.scanWaiting ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700"}`}>{status}</span>
   ) : null;
   if (!released(d))
     return (

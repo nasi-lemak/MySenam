@@ -127,7 +127,8 @@ safety or dispute reason ([below](#holds)), and says so.
 | Names of who took each place on a booking | 730 days | removed, the booking kept |
 | A participant nobody acts for any more (every account's relationship ended or archived, no linked login), or one a venue added that nobody has used, once no application, sign-off or induction in force, or booking in the last 365 days or to come, rests on them | 365 days after the last relationship ended, or after the venue added them | deleted |
 | Documents sent with an application to be approved for an activity | the review window (30 days) after a refusal, withdrawal, lapse or the approval ending; at most 90 days after the decision (the install's periods: [below](#applications-to-be-approved-for-an-activity)) | deleted; what was seen stays on the sign-off it wrote |
-| What is left of a document the malware scan refused (the fact; its bytes were wiped at once) or could not scan (its quarantined bytes) | 7 days after the scan settled (the install's quarantine period) | deleted; the application's history says a document was refused or could not be checked |
+| What is left of a document the malware scan refused (the fact; its bytes were wiped at once) or a working scanner could not scan (its quarantined bytes) | 7 days after the scan settled (the install's quarantine period) | deleted; the application's history says a document was refused or could not be checked |
+| Which supporting document was removed, when, and under which rule (retention, quarantine or erasure): numbers and states only | 730 days | deleted |
 | The erasure ledger: an erased account's number and the moment it was created | 400 days | deleted ([backups](../operations/backups.md#after-a-restore)) |
 | An approved application's answers, declarations and history detail, its approval still standing | 365 days after the decision | removed; the approval and the bare facts stay |
 | Applications to be approved for an activity, once closed (refused, withdrawn, lapsed, or the approval ended) | 365 days after closing | deleted; the bare facts kept |
@@ -195,10 +196,23 @@ periods.
 **Documents refused or not checked.** A supporting document waits in
 quarantine until the malware scan passes it
 ([security](security.md#malware-scanning)). One the scan refused has its
-bytes wiped at once; one that could not be scanned after every try keeps its
-bytes in quarantine, never opened. What is left of either goes after the
-install's quarantine period (7 days by default) from the scan's result,
-under the same holds as the rest of the application.
+bytes wiped at once; one a working scanner could not scan keeps its bytes in
+quarantine, never opened. What is left of either goes after the install's
+quarantine period (7 days by default) from the scan's result, under the same
+holds as the rest of the application.
+
+**Documents waiting for a scanner, and those from before scanning.** A
+document that could not be scanned only because no scanner was configured or
+answering, a document stored before malware scanning existed (before
+migration 0142), and one taken unscanned under the withdrawn opt-out are
+kept in quarantine, unopened, until a scanner passes them: none is ever
+treated as clean, and none is removed because the scanning infrastructure
+was missing. Their own retention still applies: they go when the
+application's documents would (the review window, the documents' period, the
+application minimised or deleted) or with an erasure. Each removal is
+recorded with its rule, so a removal for retention is never mistaken for one
+for want of a scanner. Migration 0159 marks these documents
+(`legacy_reason`), and the owner's panel shows where they stand.
 
 **Asking only for what is needed.** A venue that asks for a document must say
 which document and why, and the applicant sees both; it may never ask for an
