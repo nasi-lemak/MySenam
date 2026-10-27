@@ -77,7 +77,7 @@ recommendation, not a decision. A decision is recorded by changing the row to
 
 | Limitation | What happens today | Recommendation |
 | ---------- | ------------------ | -------------- |
-| Without WhatsApp or SMS no number can be proved ([production readiness](#production-readiness)) | A typed number grants nothing online any more; members, sign-offs and company accounts work online only once staff link them to the customer's account | Switch on WhatsApp phone checks once Meta approves the templates; until then staff link members' accounts when they sell or renew |
+| Without WhatsApp or SMS no number can be proved ([production readiness](#production-readiness)) | A typed number grants nothing online any more; members, sign-offs, company accounts and members-only or private venues' list entries work online only once staff link them to the customer's account | Switch on WhatsApp phone checks once Meta approves the templates; until then staff link members' accounts when they sell or renew |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
 
 ### Accepted
@@ -127,8 +127,6 @@ promise. The P2 items among them:
   on a schedule once CI does.
 - Ways basic and specialised activities are commonly sold ([activities](#activities)):
   roadmap rows; operators see the note as they pick one.
-- Browser tests drive most journeys; not following an emailed confirmation
-  link ([gaps](#gaps-in-verification-and-documentation)).
 
 ## Every open limitation, by kind
 
@@ -146,7 +144,7 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: one defect
 | ---------- | ---- | -------------- | --------------------------------- |
 | [Email, WhatsApp, SMS, Billplz, Stripe, MyInvois, Google sign-in, off-site and photo buckets](#integrations-awaiting-live-verification-or-a-partner) never checked against the real service | 6 | Everyone, once the feature is on | Each passes its live check ([launch checklist](../operations/deployment.md#launch-integration-checklist)) |
 | [Email bounces not read back](#operations-and-security-s) | 6 | Venues whose customers' mail bounces | The owner reads bounces in the provider's dashboard weekly; a bounce webhook once a provider is chosen |
-| [Without WhatsApp or SMS, no number is proved](#decisions-the-owner-has-to-make); a [venue's access list](#operations-and-security-s) then matches a typed number | 6 | Members-only and private venues | Switch phone checks on |
+| [Without WhatsApp or SMS, no number is proved](#decisions-the-owner-has-to-make): staff link each member's or resident's account before they book online | 6 | Members-only and private venues | Switch phone checks on |
 | [M16: a person's concession and a promo code combine through the API only](#money-m) | 1 | Venues with both concessions and promo codes | The owner decides whether they combine; then one rule on every path |
 | [Refunds by hand](#money-m) (every Billplz refund) depend on staff | 6 | Customers owed a refund at Billplz venues | A gateway with a refund API (HitPay is the candidate) |
 | [Reserve with Google, smart locks, Stripe Connect, InvoiceNow, web push, LINE, Zalo](#integrations-awaiting-live-verification-or-a-partner) | 6 / 8 | Venues wanting them | A partner approval or contract each |
@@ -177,8 +175,8 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **82 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B23 and
-S12–S18, found and fixed in the same work) and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B26 and
+S12–S19, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (56
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
@@ -214,14 +212,12 @@ Also: an email the mail server accepted is recorded as sent; that is not
 proof it reached the inbox (spam folders, a full mailbox, a bounce later).
 Bounces are not read back from any provider ([messaging](../integrations/messaging.md)) (P2; a [decision for the owner](#decisions-the-owner-has-to-make)).
 
-Also: a venue's own access list (a members-only or private venue's numbers,
-`venue_access_list`) is matched on an account's number. Where the install
-checks numbers (WhatsApp or SMS), an account must prove its number before it
-books, so that is a proved number; where it does not, it is the number as
-typed, and an account registered with a listed number could see or book a
-private venue. Unlike memberships, list entries have no account to link to.
-Depends on an external service: the next action is to switch phone checks on
-([launch checklist](../operations/deployment.md#launch-integration-checklist)) (P2).
+Also: without phone checks, residents and members of a private or members-only
+venue book online only once staff link their account to their entry on the
+venue's list; after migration 0175 every existing entry is unlinked unless
+its number is proved ([migration note](../archive/migrations/legacy-installs.md#venue-lists-from-before-migration-0175)).
+A resident inviting a guest by email learns whether that email has an account
+(refused `GUEST_ACCOUNT_UNKNOWN`), within the guest-invite rate limit (P3).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -232,7 +228,7 @@ code); scripts need the response's nonce (resolved below).
 
 | ID | Defect | Evidence | Test to write first | Priority |
 | -- | ------ | -------- | ------------------- | -------- |
-| B24 | The Occupancy tab's venue total adds each court's line, so the floor under a pitch counts once per court beneath it and shared facilities are blended with courts, contrary to the floor-once rule (B11) and [reporting](../features/reporting.md) | `src/components/admin/OccupancyTab.tsx` sums `perCourt`; the Reports tab (`src/lib/reports.ts`) counts each unit of floor once | A pitch over two courts booked for an hour counts that floor once; the grid's totals equal the Reports tab's for the same day | P3 (being fixed) |
+| — | None open | | | |
 
 Also, in [tournaments](../features/tournaments.md):
 
@@ -359,8 +355,12 @@ What the [activity catalogue](../features/activities.md) does not yet do:
 - **Benefits by scope have gaps** ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
   the booking form spends one pass per booking (several passes are paid
   through the API only); a place concession's receipt line is in English
-  with the person's name; memberships held for a participant, and family
-  memberships, are sold at the counter only; a tournament's members-only
+  with the person's name; memberships for a participant and family memberships
+  bought online are verified only against stand-in gateways (a family
+  membership is held by the buying account; dependants change without
+  proration; a purchase holds its people for 60 minutes; overlapping cover is
+  refused online but not at the counter; the payment return page does not
+  name whom it is for; a child's name stays on the guardian's receipt); a tournament's members-only
   rule still checks the entrant's account, not each player's membership;
   a participant's remembered concession proof is not yet in the account's
   data export (P3).
@@ -527,6 +527,10 @@ IDs are not reused. Each fix came with the test recommended above.
 | B21 | The Reports tab could show one venue's figures under another's name: a late answer for the venue shown first overwrote the venue just chosen (also the activity log and coach payouts); stale answers are now dropped | `tests/components/reports-venue-switch.test.tsx` |
 | B22 | At the counter, one person's concession proof could be marked seen but never remembered (no "until when" was sent), so every visit asked again; the dashboard now offers next visit, month end, year end or 12 months, as for a booking-wide concession | `tests/components/bookings-tab.test.tsx`, `tests/uat/round4.uat.ts` (Places L) |
 | B23 | The Occupancy grid ignored places taken out of service: a partial block counted nothing, a whole block on a shared facility counted only its hours, the percentage never subtracted blocks, and it used the venue's usual hours rather than the day's, closed days counting as sellable; now blocks count by places and the percentage is of what that day could sell | `tests/partial-blocks.test.ts`, `tests/components/occupancy-tab.test.tsx` |
+| B24 | The Occupancy grid's venue total added every court's line, counting a pitch's floor again for each court under it and blending shared facilities' places with the courts; each day now has two totals measured as the period report measures that day (the courts' floor once, shared facilities apart) | `tests/occupancy-totals.test.ts`, `tests/components/occupancy-tab.test.tsx` |
+| B25 | The period report counted a booking on a shared facility as one place whatever its players, so shared facilities' utilisation and hours (by court, in all, by activity, by month and by hour) were under-counted; they now count each booking's places | `tests/occupancy-totals.test.ts` |
+| B26 | On a new Postgres install with several servers starting at once, seeding the starter venues ran after the migration lock in a serializable transaction without retry, so one server's start failed with a serialization error; seeding now runs under the lock | `tests/migration-lock.test.ts` |
+| S19 | A members-only or private venue's access list let in any account whose typed number was on it, where the install had no phone checks; an entry now counts online only for the account staff (or the inviting resident, by the guest's account email) linked it to, or an account that has proved the number; the counter is unchanged | `tests/access-accounts.test.ts` |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number
@@ -670,6 +674,6 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
-| Browser tests drive the main journeys: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and twenty-six acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), among them a venue's set-up from sign-up to its first booking, changing a booking's time, and a tournament's whole run from set-up to corrections; not following an emailed confirmation link | Those are checked by route and unit tests, not a browser | P2 |
+| Browser tests drive the main journeys: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and twenty-six acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), among them a venue's set-up from sign-up to its first booking, changing a booking's time, and a tournament's whole run from set-up to corrections; emailed confirmation, waiting-list offer and password-reset links are followed from the acceptance server's log (skipped against a deployment) | Those are checked by route and unit tests, not a browser | P2 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1: [blocks any launch](#blockers-for-any-launch) |
 | The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1: [blocks any launch](#blockers-for-any-launch) until a lawyer confirms it |

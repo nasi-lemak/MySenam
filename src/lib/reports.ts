@@ -513,7 +513,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
 
   // --- place-hours sold ----------------------------------------------------
   const sold = records.sold;
-  const soldHours = sold.reduce((sum, b) => sum + (b.end_min - b.start_min), 0) / 60;
+  const soldHours = sold.reduce((sum, b) => sum + (b.end_min - b.start_min) * b.places, 0) / 60;
 
   const tradingHours = Math.max(0, lastHour - firstHour);
 
@@ -551,7 +551,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     await db
       .prepare(`
         SELECT b.sport AS sport, COUNT(*) AS bookings,
-               SUM(b.end_min - b.start_min) / 60.0 AS booked_hours,
+               SUM((b.end_min - b.start_min) * CASE WHEN c.capacity > 1 THEN GREATEST(1, COALESCE(b.players, 1)) ELSE 1 END) / 60.0 AS booked_hours,
                SUM(b.total_price) AS expected,
                SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
         FROM bookings b
@@ -589,8 +589,8 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   for (const b of sold) {
     const month = b.date.slice(0, 7);
     const line = monthHours.find((m) => m.month === month);
-    if (line) line.hours += (b.end_min - b.start_min) / 60;
-    else monthHours.push({ month, hours: (b.end_min - b.start_min) / 60 });
+    if (line) line.hours += ((b.end_min - b.start_min) * b.places) / 60;
+    else monthHours.push({ month, hours: ((b.end_min - b.start_min) * b.places) / 60 });
   }
 
   const byMonth: MonthLine[] = monthsIn(from, to).map((month) => ({
@@ -601,12 +601,12 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   }));
 
   // --- when the place is actually busy ------------------------------------
-  // Each booking's minutes, into the hours of the day they fall in.
+  // Each booking's place-minutes, into the hours of the day they fall in.
   const minutesByHour = new Map<number, number>();
   for (const b of sold)
     for (let h = Math.floor(b.start_min / 60); h * 60 < b.end_min; h++) {
       const minutes = Math.min(b.end_min, (h + 1) * 60) - Math.max(b.start_min, h * 60);
-      minutesByHour.set(h, (minutesByHour.get(h) ?? 0) + minutes);
+      minutesByHour.set(h, (minutesByHour.get(h) ?? 0) + minutes * b.places);
     }
   const byHour: HourLine[] = Array.from({ length: tradingHours }, (_, i) => {
     const hour = firstHour + i;

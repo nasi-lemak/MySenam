@@ -50,7 +50,10 @@ booking was taken, because that is how an operator thinks about a month.
   the venue has nothing of its kind (`tests/occupancy-totals.test.ts`).
 - **Utilisation is reported twice**, for exclusive courts and for shared floors
   and pools (places sold against places offered: a booking takes as many
-  places as it has players), never blended. A forty-place gym offers more place-hours in a
+  places as it has players), never blended. The report's other hours (in all,
+  by activity, by month and by hour of the day) count places the same way, so
+  a gym session for three is three place-hours wherever it appears
+  (`tests/occupancy-totals.test.ts`). A forty-place gym offers more place-hours in a
   fortnight than every court in the building put together, so one combined
   figure lets the gym decide the headline and teaches an owner nothing about
   either. The demo data is what made that obvious: courts read 13% while the

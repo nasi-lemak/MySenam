@@ -120,6 +120,12 @@ describe("the occupancy grid's venue totals", () => {
     expect(line.hours).toBe(6);
     expect(cell.booked).toBe(6);
     expect(line.inUseHours).toBe(6);
+    // The period report's other hours count places the same way: by sport, by month, by hour and in all.
+    expect(report.bySport.find((s) => s.sport === "gym")!.hours).toBe(6);
+    const allCourts = report.byCourt.reduce((n, c) => n + c.hours, 0);
+    expect(report.bookings.hours).toBe(allCourts);
+    expect(report.byMonth.reduce((n, m) => n + m.hours, 0)).toBe(allCourts);
+    expect(report.byHour.reduce((n, h) => n + h.hours, 0)).toBe(allCourts);
   });
 
   it("has no courts' row for a venue of shared facilities only", async () => {
