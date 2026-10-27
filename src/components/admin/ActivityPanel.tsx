@@ -102,6 +102,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "induction.kept": "ptc.act.inductionKept",
   "booking.for_participant": "pua.act.bookedFor",
   "class.enrol_participant": "pua.act.enrolledFor",
+  "booking.place_withdrawn": "ent.act.placeWithdrawn",
 };
 
 /**

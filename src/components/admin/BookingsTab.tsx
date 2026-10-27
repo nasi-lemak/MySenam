@@ -259,6 +259,58 @@ export function BookingsTab() {
     }
   }
 
+  /**
+   * One person (or a place nobody is named on) taken off a booking at the
+   * counter, the others staying booked (lib/place-withdrawals.ts): in full, on
+   * the record. The server says why where it cannot be done.
+   */
+  async function withdrawPerson(b: AdminBookingRow, placeId: number | null, name: string | null) {
+    if (!window.confirm(placeId === null ? t("ent.bk.giveUpConfirm", { code: b.code }) : t("ent.bk.takeOffConfirm", { name: name ?? "?", code: b.code })))
+      return;
+    const reason = window.prompt(t("ent.bk.reason"), "") ?? "";
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/bookings/withdraw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: b.code, ...(placeId === null ? { unnamed: 1 } : { placeId }), reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("ent.bk.takeOffFailed")));
+      const w = data.withdrawal as { name: string | null; refund: number; owedLess: number; units: number; price: number };
+      setNotice(
+        [
+          w.name ? t("ent.bk.tookOff", { name: w.name }) : t("ent.bk.gaveUp"),
+          w.refund > 0 ? t("ent.bk.refunded", { amount: money(w.refund) }) : w.owedLess > 0 ? t("ent.bk.owedLess", { amount: money(w.owedLess) }) : w.units > 0 ? "" : t("ent.bk.noPrice"),
+          w.units > 0 ? t("ent.bk.unitsBack", { n: w.units }) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("ent.bk.takeOffFailed"));
+    }
+  }
+
+  /** One person's concession on their own place: their proof seen, or not. */
+  async function checkPlaceConcession(b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused") {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/concessions/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: b.id, placeBenefitId, outcome }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("bk.recordFailed")));
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("bk.recordFailed"));
+    }
+  }
+
   /** The venue's note on this customer (lib/customer-notes.ts): written, changed, or cleared. */
   async function writeNote(b: AdminBookingRow) {
     const note = window.prompt(t("bk.notePrompt", { name: b.name, phone: b.phone }), b.staffNote ?? "");
@@ -449,6 +501,8 @@ export function BookingsTab() {
     charge,
     writeNote,
     paperWaiver,
+    withdrawPerson,
+    checkPlaceConcession,
   };
 
   return (
@@ -946,6 +1000,8 @@ interface Act {
   charge: (b: AdminBookingRow, accountId: number | null) => void;
   writeNote: (b: AdminBookingRow) => void;
   paperWaiver: (b: AdminBookingRow) => void;
+  withdrawPerson: (b: AdminBookingRow, placeId: number | null, name: string | null) => void;
+  checkPlaceConcession: (b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused") => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -1356,28 +1412,74 @@ function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
  */
 function PeopleChips({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
-  if (b.status !== "confirmed" || b.people.length === 0) return null;
+  if (b.status !== "confirmed") return null;
+  // Places nobody is named on, one of which a group can give up (lib/place-withdrawals.ts); a court hired whole has none.
+  const unnamed = b.classId === null ? Math.max(0, (b.players ?? 1) - Math.max(1, b.people.length)) : 0;
+  const concessions = b.placeConcessions ?? [];
+  if (b.people.length === 0 && unnamed === 0 && concessions.length === 0) return null;
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1" aria-label={t("pbk.att.title")}>
-      <span className="text-xs text-slate-500">{t("pbk.att.title")}</span>
-      {b.people.map((p) => {
-        const name = p.name ?? t("pbk.att.someone");
-        const next = p.arrivedAt ? "no_show" : p.noShow ? "clear" : "arrived";
+    <>
+      {(b.people.length > 0 || unnamed > 0) && (
+        <div className="mt-1 flex flex-wrap items-center gap-1" aria-label={t("pbk.att.title")}>
+          {b.people.length > 0 && <span className="text-xs text-slate-500">{t("pbk.att.title")}</span>}
+          {b.people.map((p) => {
+            const name = p.name ?? t("pbk.att.someone");
+            const next = p.arrivedAt ? "no_show" : p.noShow ? "clear" : "arrived";
+            return (
+              <span key={p.placeId} className="inline-flex items-center">
+                <button
+                  type="button"
+                  onClick={() => act.markPerson(b.code, p.placeId, next)}
+                  title={t(next === "arrived" ? "pbk.att.markArrived" : next === "no_show" ? "pbk.att.markNoShow" : "pbk.att.clear", { name })}
+                  className={`${CHIP} ${
+                    p.arrivedAt ? "bg-emerald-100 text-emerald-700" : p.noShow ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {t(p.arrivedAt ? "pbk.att.in" : p.noShow ? "pbk.att.noShow" : "pbk.att.unknown", { name })}
+                </button>
+                {!p.arrivedAt && !p.noShow && b.people.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => act.withdrawPerson(b, p.placeId, name)}
+                    title={t("ent.bk.takeOffTitle", { name })}
+                    aria-label={t("ent.bk.takeOffTitle", { name })}
+                    className="ml-0.5 inline-flex min-h-6 min-w-6 items-center justify-center rounded-full text-xs text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
+            );
+          })}
+          {unnamed > 0 && (
+            <button
+              type="button"
+              onClick={() => act.withdrawPerson(b, null, null)}
+              title={t("ent.bk.giveUpTitle", { n: unnamed })}
+              className={`${CHIP} bg-slate-50 text-slate-500 hover:bg-red-50 hover:text-red-600`}
+            >
+              {t("ent.bk.giveUp")}
+            </button>
+          )}
+        </div>
+      )}
+      {concessions.map((c) => {
+        const name = c.name ?? t("pbk.att.someone");
+        if (c.check === "seen") return <div key={c.id} className="mt-1 text-xs text-emerald-700">🎫 {t("ent.bk.concSeen", { concession: c.concessionName, name })}</div>;
+        if (c.check === "refused") return <div key={c.id} className="mt-1 text-xs text-slate-500">🎫 {t("ent.bk.concRefused", { concession: c.concessionName, name })}</div>;
         return (
-          <button
-            key={p.placeId}
-            type="button"
-            onClick={() => act.markPerson(b.code, p.placeId, next)}
-            title={t(next === "arrived" ? "pbk.att.markArrived" : next === "no_show" ? "pbk.att.markNoShow" : "pbk.att.clear", { name })}
-            className={`${CHIP} ${
-              p.arrivedAt ? "bg-emerald-100 text-emerald-700" : p.noShow ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            {t(p.arrivedAt ? "pbk.att.in" : p.noShow ? "pbk.att.noShow" : "pbk.att.unknown", { name })}
-          </button>
+          <div key={c.id} className="mt-1 flex flex-wrap items-center gap-1 text-xs text-amber-800">
+            🎫 {t("ent.bk.concDue", { concession: c.concessionName, name, amount: money(c.amount) })}
+            <button type="button" onClick={() => act.checkPlaceConcession(b, c.id, "seen")} className={`${CHIP} bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}>
+              {t("ent.bk.proofSeen")}
+            </button>
+            <button type="button" onClick={() => act.checkPlaceConcession(b, c.id, "refused")} className={`${CHIP} bg-red-50 text-red-700 hover:bg-red-100`}>
+              {t("ent.bk.noProof")}
+            </button>
+          </div>
         );
       })}
-    </div>
+    </>
   );
 }
 
