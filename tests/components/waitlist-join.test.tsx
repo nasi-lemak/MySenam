@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { WaitlistJoin, WaitlistQueue } from "../../src/components/admin/WaitlistJoin";
+import { LanguageProvider } from "../../src/components/Language";
 import type { WaitlistEntry } from "../../src/lib/types";
 
 /**
@@ -65,7 +66,7 @@ const entry = (id: number, madeBy: "customer" | "staff" | "api", name: string): 
   madeBy,
   madeByName: madeBy === "staff" ? "Dina Desk" : null,
 });
-const QUEUE = [entry(1, "customer", "Online Olivia"), entry(2, "staff", "Counter Carl"), entry(3, "api", "System Sam")];
+const QUEUE = [entry(1, "customer", "Online Olivia"), { ...entry(2, "staff", "Counter Carl"), locale: "ms" }, entry(3, "api", "System Sam")];
 
 describe("adding a caller to a waiting list at the counter", () => {
   it("sends the time, the caller and the people ticked, and says their place in the queue", async () => {
@@ -81,7 +82,7 @@ describe("adding a caller to a waiting list at the counter", () => {
       {
         url: "/api/admin/waitlist",
         method: "POST",
-        body: { venueId: 3, courtId: 5, date: "2026-11-03", start: 18 * 60, end: 19 * 60, name: "Puan Aminah", phone: MUM, participantIds: [41], customerTakesPart: false },
+        body: { venueId: 3, courtId: 5, date: "2026-11-03", start: 18 * 60, end: 19 * 60, name: "Puan Aminah", phone: MUM, locale: "en", participantIds: [41], customerTakesPart: false },
       },
     ]);
     expect(screen.getByText("Added: number 2 in the queue.")).toBeTruthy();
@@ -95,7 +96,37 @@ describe("adding a caller to a waiting list at the counter", () => {
     await act(async () => void fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "0123000088" } }));
     await act(async () => void fireEvent.click(screen.getByLabelText("Women only: I confirm everybody this is for is a woman")));
     await act(async () => void fireEvent.click(screen.getByText("Add them")));
-    expect(sent[0].body).toEqual({ venueId: 3, classId: 12, name: "Puan Siti", phone: "0123000088", confirmWho: true });
+    expect(sent[0].body).toEqual({ venueId: 3, classId: 12, name: "Puan Siti", phone: "0123000088", locale: "en", confirmWho: true });
+  });
+
+  it("asks the caller's language among the site's four, English to start with, and sends the one chosen", async () => {
+    render(<WaitlistJoin venueId={3} target={{ classId: 12 }} label="Kids circuit" onClose={() => {}} />);
+    const language = screen.getByLabelText("Language for the offer") as HTMLSelectElement;
+    expect(language.value).toBe("en");
+    expect(Array.from(language.options).map((o) => o.value)).toEqual(["en", "ms", "zh", "ta"]);
+    expect(Array.from(language.options).map((o) => o.textContent)).toEqual(["English", "Bahasa Malaysia", "中文", "தமிழ்"]);
+    await act(async () => void fireEvent.change(language, { target: { value: "ms" } }));
+    await act(async () => void fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Encik Rahman" } }));
+    await act(async () => void fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "0123000099" } }));
+    await act(async () => void fireEvent.click(screen.getByText("Add them")));
+    expect(sent[0].body).toEqual({ venueId: 3, classId: 12, name: "Encik Rahman", phone: "0123000099", locale: "ms" });
+    // Ready for the next caller: back to where it started.
+    expect((screen.getByLabelText("Language for the offer") as HTMLSelectElement).value).toBe("en");
+  });
+
+  it("starts from the customer language this member of staff reads the site in", async () => {
+    render(
+      <LanguageProvider locale="ta">
+        <WaitlistJoin venueId={3} target={{ classId: 12 }} label="Kids circuit" onClose={() => {}} />
+      </LanguageProvider>
+    );
+    // Staff screens are not in Tamil (they read in English), but the caller's language starts as the site's.
+    const language = screen.getByLabelText("Language for the offer") as HTMLSelectElement;
+    expect(language.value).toBe("ta");
+    await act(async () => void fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Puan Devi" } }));
+    await act(async () => void fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "0123000100" } }));
+    await act(async () => void fireEvent.click(screen.getByText("Add them")));
+    expect(sent[0].body).toMatchObject({ name: "Puan Devi", locale: "ta" });
   });
 });
 
@@ -107,6 +138,9 @@ describe("the day's queues", () => {
     expect(screen.getByText("Online")).toBeTruthy();
     expect(screen.getByText("At the counter (Dina Desk)")).toBeTruthy();
     expect(screen.getByText("Through the API")).toBeTruthy();
+    // The language each offer goes in.
+    expect(screen.getAllByText("offer in English")).toHaveLength(2);
+    expect(screen.getByText("offer in Bahasa Malaysia")).toBeTruthy();
     const removes = screen.getAllByText("Remove");
     expect(removes).toHaveLength(2);
     await act(async () => void fireEvent.click(removes[0]));

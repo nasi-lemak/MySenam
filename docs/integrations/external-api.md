@@ -85,13 +85,15 @@ or men-only class said for with `confirmWho: true`, nobody queued twice:
 `ALREADY_WAITING`). `participantIds` are bounded as for a booking above:
 known to the venue, a live guardian on `phone`, the waiver already agreed.
 The entry reads `{ id, classId, courtId, date, start, end, label, name,
-phone, status, places, customerTakesPart, participants, madeBy, createdAt }`
+phone, status, places, customerTakesPart, participants, madeBy, locale, createdAt }`
 with the place in the queue (`position`). When the place frees, the offer
 goes to that number and email by the usual messages, in `locale` (English if
 not given), and is claimed by its link; the key never sees the offer's
 token. The entry is checked again at the offer and the claim as the API
-checks a booking, and the booking claimed from it is made as the API makes
-one. Each join and removal is in the staff activity log as the key
+checks a booking, and against the venue's refused numbers and its being
+open, as when it joined (a number refused since leaves the queue; see
+[waitlists](../features/booking.md#waitlists)); the booking claimed from it
+is made as the API makes one. Each join and removal is in the staff activity log as the key
 (`API key <id>`). Another venue's court, class or entry is *not found*.
 
 **Webhooks.** Up to 5 HTTPS addresses per venue. Each gets a signing secret,

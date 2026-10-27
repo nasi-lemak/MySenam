@@ -472,6 +472,8 @@ const en = {
   "occ5.floorTitle": "{sold} of {sellable} hours of the courts' floor in use; a pitch and the courts under it counted once",
   "occ5.shared": "Shared facilities",
   "occ5.sharedTitle": "{sold} of {sellable} place-hours booked on shared facilities, measured apart from the courts",
+  "wl5b.language": "Language for the offer",
+  "wl5b.offerIn": "offer in {language}",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -928,6 +930,8 @@ const ms: Record<keyof typeof en, string> = {
   "occ5.floorTitle": "{sold} daripada {sellable} jam ruang gelanggang digunakan; padang dan gelanggang di bawahnya dikira sekali sahaja",
   "occ5.shared": "Kemudahan dikongsi",
   "occ5.sharedTitle": "{sold} daripada {sellable} jam tempat ditempah pada kemudahan dikongsi, diukur berasingan daripada gelanggang",
+  "wl5b.language": "Bahasa untuk tawaran",
+  "wl5b.offerIn": "tawaran dalam {language}",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1384,6 +1388,8 @@ const zh: Record<keyof typeof en, string> = {
   "occ5.floorTitle": "场地使用 {sold} / {sellable} 小时，大场与其下的小场只计一次",
   "occ5.shared": "共享设施",
   "occ5.sharedTitle": "共享设施已预订 {sold} / {sellable} 名额小时，与场地分开计算",
+  "wl5b.language": "通知所用语言",
+  "wl5b.offerIn": "以{language}通知",
 };
 
 const area = { en, ms, zh };

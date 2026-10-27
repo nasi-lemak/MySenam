@@ -7629,6 +7629,40 @@ async function dropEntry(id: number): Promise<void> {
   await release({ kind: "offer", waitlistId: id });
 }
 
+/**
+ * May the entry still book at its venue, as joining asked it
+ * (lib/limits.ts `customerMayBook`), now that a place is offered or claimed?
+ * Asked of every channel. `leaves`: the venue refuses its number now
+ * (lib/limits.ts `isBlocked`), and the entry leaves the queue, as one no
+ * longer for whom it was made does. Otherwise it waits, keeping its place:
+ * the venue not open to customers (a draft, or unlisted), or, for an entry
+ * made online, the venue's access no longer admitting the account (members
+ * only, a private list; not asked of the counter or the API, as at the join).
+ * Null: it may.
+ */
+async function entryRefused(row: WaitlistRow, named: { id: number; name: string }[]): Promise<{ refusal: Refusal; leaves: boolean } | null> {
+  const venueId = await entryVenue(row);
+  if (venueId === null) return { refusal: refuse("OFFER_INVALID"), leaves: true };
+  const { isBlocked } = await import("./limits");
+  if (await isBlocked(venueId, row.phone)) return { refusal: refuse("PHONE_BLOCKED"), leaves: true };
+  const { venueIsOpen } = await import("./listing");
+  if (!(await venueIsOpen(venueId))) return { refusal: refuse("VENUE_NOT_OPEN"), leaves: false };
+  if (channelOf(row) === "customer") {
+    const { accessRefusal, accessSettings } = await import("./access");
+    const notHere = await accessRefusal(venueId, row.user_id);
+    // As at the join: places only for people a parent books for, each a member themself, at a members-only venue.
+    const forOthers =
+      notHere !== null &&
+      row.customer_takes_part === false &&
+      named.length > 0 &&
+      row.user_id !== null &&
+      (row.class_id !== null || ((row.court_id ? await getCourt(row.court_id) : null)?.capacity ?? 1) > 1) &&
+      (await accessSettings(venueId)).access === "members";
+    if (notHere && !forOthers) return { refusal: notHere, leaves: false };
+  }
+  return null;
+}
+
 /** Who an entry is for, as the queue asks it (lib/participant-bookings.ts). */
 interface Queuer {
   /** Participants named. */
@@ -7844,10 +7878,15 @@ export async function offerClassPlace(classId: number): Promise<WaitlistEntry | 
     const db = getDb();
     for (const next of queue) {
       if (next.status !== "waiting" || (next.places ?? 1) > free) continue;
-      if ((await entryStillTheirs(next)) === null) {
+      const named = await entryStillTheirs(next);
+      if (named === null) {
         await dropEntry(next.id);
         continue;
       }
+      // A number the venue refuses now leaves; a venue not open, or no longer admitting the account, makes it wait.
+      const refused = await entryRefused(next, named);
+      if (refused?.leaves) await dropEntry(next.id);
+      if (refused) continue;
       await db.prepare(
         "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
       ).run(randomBytes(16).toString("hex"), next.id);
@@ -7885,6 +7924,20 @@ async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
       if (row.class_id) await offerClassPlace(row.class_id);
       else if (row.court_id && row.date) await offerSlotPlace(row.court_id, row.date);
       return refuse("OFFER_INVALID");
+    }
+    // The venue's say as at the join, for every channel: a number it refuses now leaves the queue and the
+    // place goes to the next; a venue not open, or no longer admitting the account, puts the entry back to
+    // wait in its place, its hold let go, and the place goes to the next who may take it.
+    const refused = await entryRefused(row, named);
+    if (refused) {
+      if (refused.leaves) await dropEntry(row.id);
+      else {
+        await db.prepare("UPDATE waitlist SET status = 'waiting', offered_at = NULL, offer_token = NULL WHERE id = ?").run(row.id);
+        await release({ kind: "offer", waitlistId: row.id });
+      }
+      if (row.class_id) await offerClassPlace(row.class_id);
+      else if (row.court_id && row.date) await offerSlotPlace(row.court_id, row.date);
+      return refused.refusal;
     }
     const takesPart = row.customer_takes_part !== false || named.length === 0;
 
@@ -8179,6 +8232,10 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
         await dropEntry(row.id);
         continue;
       }
+      // A number the venue refuses now leaves; a venue not open, or no longer admitting the account, makes it wait.
+      const refused = await entryRefused(row, named);
+      if (refused?.leaves) await dropEntry(row.id);
+      if (refused) continue;
       // Eligibility as it stands now, each on their own: a sign-off that lapsed while they waited.
       if (need) {
         let eligible = true;
