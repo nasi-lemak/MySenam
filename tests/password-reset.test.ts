@@ -21,7 +21,7 @@ import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdmin, createAdminSessio
 import { authenticate, createSession, getUserByToken, registerUser, SESSION_COOKIE } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
 import { translateError, translator } from "../src/lib/i18n";
-import { changePassword, hasPassword, requestReset, resetPassword, RESETS_PER_HOUR } from "../src/lib/password-reset";
+import { changePassword, hasPassword, requestReset, resetPassword, RESETS_PER_HOUR, settleResetRequests } from "../src/lib/password-reset";
 import { resetRateLimits } from "../src/lib/rate-limit";
 import { POST as forgotUser } from "../src/app/api/auth/forgot/route";
 import { POST as resetUser } from "../src/app/api/auth/reset/route";
@@ -49,6 +49,13 @@ function req(path: string, body: unknown, cookie?: string, method = "POST") {
 
 let userId: number;
 
+/** Ask for a link, and wait for the request to be worked through: that happens after the reply (lib/password-reset.ts). */
+async function ask(...args: Parameters<typeof requestReset>) {
+  const answer = await requestReset(...args);
+  await settleResetRequests();
+  return answer;
+}
+
 beforeAll(async () => {
   const user = await registerUser({ name: "Aisyah Rahman", email: "aisyah@example.com", phone: "0121112222", password: "old-password-1" });
   if (!user.ok) throw new Error(user.error);
@@ -56,7 +63,8 @@ beforeAll(async () => {
   await ensureBootstrapAdmin();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  await settleResetRequests();
   sent.length = 0;
   resetRateLimits();
 });
@@ -64,7 +72,7 @@ beforeEach(() => {
 describe("forgot password", () => {
   it("emails a link that sets a new password once, and signs the account out everywhere", async () => {
     const elsewhere = await createSession(userId);
-    expect(await requestReset("user", "aisyah@example.com")).toEqual({ ok: true });
+    expect(await ask("user", "aisyah@example.com")).toEqual({ ok: true });
     expect(sent).toHaveLength(1);
     expect(sent[0].subject).toMatch(/new password/);
     expect(sent[0].text).toContain("Hi Aisyah");
@@ -84,7 +92,7 @@ describe("forgot password", () => {
   });
 
   it("never says whether an address has an account", async () => {
-    expect(await requestReset("user", "nobody@example.com")).toEqual({ ok: true });
+    expect(await ask("user", "nobody@example.com")).toEqual({ ok: true });
     expect(sent).toHaveLength(0);
     const res = await forgotUser(req("/api/auth/forgot", { email: "nobody@example.com" }));
     const known = await forgotUser(req("/api/auth/forgot", { email: "aisyah@example.com" }));
@@ -94,7 +102,7 @@ describe("forgot password", () => {
   });
 
   it("runs out after 30 minutes", async () => {
-    await requestReset("user", "aisyah@example.com");
+    await ask("user", "aisyah@example.com");
     const token = linkTokenFor("aisyah@example.com");
     await getDb().prepare("UPDATE password_resets SET expires_at = datetime('now', '-1 minutes') WHERE used_at IS NULL").run();
     expect(await resetPassword("user", token, "new-password-9")).toMatchObject({ ok: false, code: "RESET_INVALID" });
@@ -102,9 +110,9 @@ describe("forgot password", () => {
 
   it("voids the other links still out once one is used", async () => {
     await getDb().prepare("DELETE FROM password_resets").run();
-    await requestReset("user", "aisyah@example.com");
+    await ask("user", "aisyah@example.com");
     const first = linkTokenFor("aisyah@example.com");
-    await requestReset("user", "aisyah@example.com");
+    await ask("user", "aisyah@example.com");
     const second = linkTokenFor("aisyah@example.com");
     expect(first).not.toBe(second);
     expect((await resetPassword("user", second, "new-password-4")).ok).toBe(true);
@@ -113,13 +121,13 @@ describe("forgot password", () => {
 
   it("sends at most three links an hour to an account", async () => {
     await getDb().prepare("DELETE FROM password_resets").run();
-    for (let i = 0; i < RESETS_PER_HOUR + 2; i++) await requestReset("user", "aisyah@example.com");
+    for (let i = 0; i < RESETS_PER_HOUR + 2; i++) await ask("user", "aisyah@example.com");
     expect(sent).toHaveLength(RESETS_PER_HOUR);
   });
 
   it("refuses a short password, a made-up token, and a customer link used for staff", async () => {
     await getDb().prepare("DELETE FROM password_resets").run();
-    await requestReset("user", "aisyah@example.com");
+    await ask("user", "aisyah@example.com");
     const token = linkTokenFor("aisyah@example.com");
     expect(await resetPassword("user", token, "short")).toMatchObject({ ok: false, code: "PASSWORD_WEAK" });
     expect(await resetPassword("user", "x".repeat(201), "long-enough-1")).toMatchObject({ ok: false, code: "RESET_INVALID" });
@@ -131,7 +139,7 @@ describe("forgot password", () => {
 
   it("writes to the customer in their language", async () => {
     await getDb().prepare("DELETE FROM password_resets").run();
-    await requestReset("user", "aisyah@example.com", "ms");
+    await ask("user", "aisyah@example.com", "ms");
     expect(sent[0].subject).toMatch(/kata laluan baharu/);
   });
 
@@ -150,6 +158,7 @@ describe("staff", () => {
 
     const asked = await forgotAdmin(req("/api/admin/auth/forgot", { email: "desk@venue.my" }));
     expect(asked.status).toBe(200);
+    await settleResetRequests();
     expect(sent[0].text).toContain("kind=admin");
     const token = linkTokenFor("desk@venue.my");
 
@@ -192,6 +201,7 @@ describe("customers signed in", () => {
   it("change their password, and are signed in after a reset through the route", async () => {
     await getDb().prepare("DELETE FROM password_resets").run();
     await forgotUser(req("/api/auth/forgot", { email: "aisyah@example.com" }));
+    await settleResetRequests();
     const token = linkTokenFor("aisyah@example.com");
     const res = await resetUser(req("/api/auth/reset", { token, password: "route-password-1" }));
     expect(res.status).toBe(200);

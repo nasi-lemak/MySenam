@@ -1,8 +1,20 @@
 import { getDb, withTransaction } from "./db";
-import { baseUrl, emailPlayer } from "./outbox";
+import { baseUrl, drainOutbox, emailPlayer } from "./outbox";
 import { blockedBetween, related } from "./player-safety";
 import { declaredAdult } from "./player-profiles";
 import { gameById, invitePlayer, invitesToday, INVITES_PER_DAY } from "./games";
+import {
+  claimInvitation,
+  GROUP_INVITE_DAYS,
+  invitationAddress,
+  invitationInvalid,
+  issueInvitation,
+  newInvitationToken,
+  openEmailInvitations,
+  type EmailInvitation,
+  type InvitationRow,
+  type PlayerAcceptResult,
+} from "./player-invitations";
 import type { Sport } from "./types";
 
 /**
@@ -44,6 +56,8 @@ export interface Group {
   mine?: { memberId: number; role: "organiser" | "member"; status: MemberStatus } | null;
   /** Members (first names), for members only; and for the organiser, everybody waiting. */
   roster?: { memberId: number; userId: number; name: string; role: "organiser" | "member"; status: MemberStatus }[];
+  /** For the organiser: invitations by email not yet accepted, shown as "invited (email)", never who. */
+  emailInvites?: EmailInvitation[];
 }
 
 interface GroupRow {
@@ -94,7 +108,7 @@ async function membership(groupId: number, userId: number) {
     | undefined;
 }
 
-export type GroupResult = { ok: true; group: Group } | { ok: false; error: string; status?: number };
+export type GroupResult = { ok: true; group: Group } | { ok: false; error: string; status?: number; code?: string };
 
 export async function createGroup(
   organiserId: number,
@@ -177,6 +191,7 @@ export async function groupView(groupId: number, viewerId: number | null): Promi
       )
       .all(groupId)) as { id: number; user_id: number; name: string; role: "organiser" | "member"; status: MemberStatus }[];
     group.roster = rows.map((r) => ({ memberId: r.id, userId: r.user_id, name: firstName(r.name), role: r.role, status: r.status }));
+    if (organiser) group.emailInvites = await openEmailInvitations({ groupId });
   }
   return group;
 }
@@ -262,34 +277,74 @@ export async function decideMember(organiserId: number, memberId: number, action
 }
 
 /**
- * The organiser inviting somebody by email. The answer is the same whether or
- * not the address has an account and may be invited, and only a declared
- * adult the organiser has come across here, or who has opted in to being
- * invited, is: a player under 18 asks to join a group themselves, never
- * invited into one out of the blue.
+ * The organiser inviting somebody by email. The address is never looked up:
+ * whether or not an account holds it, and whether or not whoever does may be
+ * invited, the answer and the work done are the same. The invitation counts
+ * against the daily limit and the address is emailed a single-use link
+ * (lib/player-invitations.ts), for GROUP_INVITE_DAYS. The organiser sees
+ * "invited (email)" until the account that signs in with that address
+ * accepts it, which makes them a member if the rules allow
+ * (acceptGroupInvitation).
  */
 export async function inviteToGroup(organiserId: number, groupId: number, email: string): Promise<GroupResult> {
   const group = await groupRow(groupId);
   if (!group || group.organiserId !== organiserId || group.status !== "active") return { ok: false, error: "Not found.", status: 404 };
+  const address = await invitationAddress(organiserId, email);
+  if (!address.ok) return { ok: false, error: address.error, code: address.code, status: 400 };
   if ((await invitesToday(organiserId)) >= INVITES_PER_DAY) return { ok: false, error: "You have sent a lot of invitations today. Please try again tomorrow.", status: 429 };
-  const user = (await getDb().prepare("SELECT id FROM users WHERE LOWER(email) = LOWER(?)").get(email.trim())) as { id: number } | undefined;
-  if (user && user.id !== organiserId && (await mayJoinByInvitation(organiserId, user.id))) {
-    const m = await membership(groupId, user.id);
-    if (!m || m.status === "left" || m.status === "declined") {
-      if (m) await getDb().prepare("UPDATE group_members SET status = 'invited', invited_by = ?, created_at = datetime('now') WHERE id = ?").run(organiserId, m.id);
-      else await getDb().prepare("INSERT INTO group_members (group_id, user_id, status, invited_by) VALUES (?, ?, 'invited', ?)").run(groupId, user.id, organiserId);
-      const organiser = (await getDb().prepare("SELECT name FROM users WHERE id = ?").get(organiserId)) as { name: string };
-      await emailPlayer({
-        venueId: null,
-        userId: user.id,
-        subject: (tr) => tr("mail.group.invite.s", { by: firstName(organiser.name), g: group.name }),
-        body: (tr) => tr("mail.group.invite.b", { by: firstName(organiser.name), g: group.name }),
-        link: `${baseUrl()}/games/groups/${groupId}`,
-        dedupeKey: `group-invite:${groupId}:${user.id}:${new Date().toISOString().slice(0, 10)}`,
-      });
-    }
-  }
+  const token = newInvitationToken();
+  const organiser = (await getDb().prepare("SELECT name FROM users WHERE id = ?").get(organiserId)) as { name: string };
+  await withTransaction(async () => {
+    await getDb().prepare("SELECT id FROM community_groups WHERE id = ? FOR UPDATE").get(groupId);
+    await issueInvitation({
+      target: { groupId },
+      invitedBy: organiserId,
+      email: address.email,
+      token,
+      expiresAt: ((await getDb().prepare(`SELECT datetime('now', '+${GROUP_INVITE_DAYS} days') AS at`).get()) as { at: string }).at,
+      subject: "gi7.mail.group.s",
+      body: "gi7.mail.group.b",
+      vars: { by: firstName(organiser.name), g: group.name, days: GROUP_INVITE_DAYS, link: `${baseUrl()}/player-invitation?token=${token}` },
+    });
+  });
+  // As a password reset's link: sent now if it can be, not waited on, and the same either way.
+  void drainOutbox().catch(() => null);
   return { ok: true, group: (await groupView(groupId, organiserId))! };
+}
+
+/**
+ * Accept an emailed invitation to a group, signed in with the address it was
+ * sent to: both sides agreeing, so they are a member, if there is room. Only
+ * a declared adult the organiser has come across here, or who has opted in
+ * to being invited, and nobody across a block, can be: anybody else's is
+ * refused in the same words as an invitation that does not exist. A player
+ * under 18 asks to join a group themselves, never invited into one out of
+ * the blue.
+ */
+export async function acceptGroupInvitation(user: { id: number }, invitation: InvitationRow): Promise<PlayerAcceptResult> {
+  const groupId = invitation.groupId!;
+  const group = await groupRow(groupId);
+  if (!group || group.status !== "active" || group.organiserId !== invitation.invitedBy || user.id === group.organiserId) return invitationInvalid();
+  if (!(await mayJoinByInvitation(group.organiserId, user.id))) return invitationInvalid();
+  const db = getDb();
+  const refused = await withTransaction(async (): Promise<PlayerAcceptResult | null> => {
+    await db.prepare("SELECT id FROM community_groups WHERE id = ? FOR UPDATE").get(groupId);
+    const now = await membership(groupId, user.id);
+    // Somebody the organiser took out is not let back in by an email.
+    if (now?.status === "removed") return invitationInvalid();
+    if (now?.status !== "member") {
+      const count = (await db.prepare("SELECT COUNT(*)::int AS n FROM group_members WHERE group_id = ? AND status = 'member'").get(groupId)) as { n: number };
+      // Not spent on a refusal: kept for when somebody leaves, while it lasts.
+      if (count.n >= group.capacity) return { ok: false, error: "That group is full.", status: 409 };
+    }
+    if (!(await claimInvitation(invitation.id, user.id))) return invitationInvalid();
+    if (now?.status === "member") return null;
+    if (now) await db.prepare("UPDATE group_members SET status = 'member', invited_by = ? WHERE id = ?").run(group.organiserId, now.id);
+    else await db.prepare("INSERT INTO group_members (group_id, user_id, status, invited_by) VALUES (?, ?, 'member', ?)").run(groupId, user.id, group.organiserId);
+    return null;
+  });
+  if (refused) return refused;
+  return { ok: true, kind: "group", groupId, name: group.name };
 }
 
 async function mayJoinByInvitation(organiserId: number, userId: number): Promise<boolean> {

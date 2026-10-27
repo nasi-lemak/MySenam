@@ -1,3 +1,4 @@
+import { linkIn } from "./link-locale";
 import crypto from "crypto";
 import { getDb } from "./db";
 import { accountPhone, cleanAccess, ENTRY_COUNTS_FOR } from "./access";
@@ -260,19 +261,21 @@ async function sendInvitation(input: { userId: number; host: HostRow; entryId: n
     .run(input.host.venue_id, input.entryId, input.host.id, input.userId, tokenHash(input.token), emailHash(input.email), input.expiresOn);
   const inviter = (await db.prepare("SELECT name FROM users WHERE id = ?").get(input.userId)) as { name: string } | undefined;
   // As a password reset's link: no venue's (its staff do not see it), its text not kept once sent, never readdressed.
+  const locale = await accountLocale(input.userId);
   await enqueue({
     venueId: null,
     kind: "account_email",
     channel: "email",
     recipient: input.email,
-    locale: await accountLocale(input.userId),
+    locale,
     subject: "gi6.mail.subject",
     body: "gi6.mail.body",
     vars: {
       by: (inviter?.name ?? "").trim().split(/\s+/)[0] || "-",
       venue: input.host.venue_name,
       until: input.expiresOn,
-      link: `${baseUrl()}/guest-invitation?token=${input.token}`,
+      // Opens in the email's language (lib/link-locale.ts).
+      link: linkIn(`${baseUrl()}/guest-invitation?token=${input.token}`, locale),
     },
     // Not sent once it can no longer be accepted.
     expiresMinutes: (Date.parse(`${addDays(input.expiresOn, 1)}T00:00:00Z`) - Date.now()) / 60000 + 24 * 60,

@@ -405,7 +405,7 @@ function MyGames({
               <span className="text-xs text-slate-500">{g.status === "cancelled" ? t("games.cancelled") : t("games.closed")}</span>
             )}
           </div>
-          {(g.players ?? []).length === 0 ? (
+          {(g.players ?? []).length === 0 && (g.emailInvites ?? []).length === 0 ? (
             <p className="mt-1 text-slate-500">{t("games.nobodyYet")}</p>
           ) : (
             <ul className="mt-2 space-y-1">
@@ -449,6 +449,12 @@ function MyGames({
                     )}
                   </li>
                 ))}
+              {/* Invited by email: nothing about who until they accept. */}
+              {(g.emailInvites ?? []).map((x) => (
+                <li key={`email-${x.id}`} className="text-slate-500" data-testid="email-invite">
+                  {t("gi7.invitedEmail")}
+                </li>
+              ))}
             </ul>
           )}
           {!started(g) && g.status !== "cancelled" && (

@@ -149,7 +149,8 @@ export async function authenticateAdmin(email: string, password: string): Promis
   const row = await getDb()
     .prepare(`SELECT ${ADMIN_COLUMNS}, a.password_hash FROM ${ADMIN_FROM} WHERE a.email = ?`)
     .get(email.trim()) as AdminRow | undefined;
-  if (!row || !verifyPassword(password, row.password_hash)) return null;
+  // Hashed whether or not a staff account has the address, as a customer's sign-in is (lib/auth.ts, verifyPassword).
+  if (!verifyPassword(password, row?.password_hash ?? "") || !row) return null;
   // The published default opens nothing in production, whoever still has it.
   if (production() && password === DEFAULT_ADMIN_PASSWORD) return null;
   return await toAdmin(row);

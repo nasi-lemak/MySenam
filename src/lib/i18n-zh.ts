@@ -2411,6 +2411,27 @@ export const ZH: Record<Phrase, string> = {
   "lo6.notice.claimed": "场馆以姓名和号码登记的一名监护人现已使用自己的账户；没有新的人代其行事",
   "lo6.rcpt.slot": "{court}（{activity}），{date} {from}–{to}",
   "lo6.rcpt.players": "{line}，{n} 人",
+  // Players invited to a game or a group by email: an invitation to accept, never a lookup of the address (gi7.)
+  "err.PLAYER_INVITATION_INVALID": "此邀请无法使用。它可能已过期、已被使用或已被替换，或所发送的电子邮件地址与此账户的不同。请邀请人重新发送。",
+  "err.INVITE_EMAIL_INVALID": "这不是电子邮件地址。",
+  "err.INVITE_EMAIL_SELF": "这是您自己的电子邮件地址。",
+  "gi7.invitedEmail": "已通过电子邮件邀请，尚未接受",
+  "gi7.mail.game.s": "{by}邀请您参加球局：{venue}，{when}",
+  "gi7.mail.game.b": "{by}邀请您参加{host}的球局：{court}，{venue}，{when}。\n\n如要接受，请打开以下链接，并用使用此电子邮件地址的账户登录，或用此地址注册新账户。\n\n{link}\n\n此链接只能使用一次，最长有效{hours}小时，球局开始后失效。在您接受之前，不会预订或付款。如果您并未预期收到此邮件，请忽略：除非接受邀请，否则不会有任何变化。",
+  "gi7.mail.group.s": "{by}邀请您加入{g}",
+  "gi7.mail.group.b": "{by}邀请您加入{g}，一个一起打球的群组。\n\n如要接受，请打开以下链接，并用使用此电子邮件地址的账户登录，或用此地址注册新账户。\n\n{link}\n\n此链接只能使用一次，有效期{days}天。成员之间可以互相邀请参加球局；加入群组不会预订或付款。如果您并未预期收到此邮件，请忽略：除非接受邀请，否则不会有任何变化。",
+  "gi7.title": "打球邀请",
+  "gi7.intro": "接受后，即表示您接受所邀请的球局或群组。请用接收此邀请的电子邮件地址所对应的账户登录。",
+  "gi7.signedOut": "请用接收此邀请的电子邮件地址所对应的账户登录，或用该地址注册新账户。之后您会回到此页面接受邀请。",
+  "gi7.accept": "接受邀请",
+  "gi7.accepting": "正在接受…",
+  "gi7.joined": "您已加入球局。",
+  "gi7.asked": "已接受。由主办人决定谁参加，对方回复后您会收到通知。",
+  "gi7.waitlisted": "球局已满，您已列入候补名单。",
+  "gi7.groupJoined": "您已成为{g}的成员。",
+  "gi7.openGame": "前往球局",
+  "gi7.openGroup": "前往群组",
+  "gi7.noToken": "此链接不完整。请重新打开邀请邮件中的链接。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

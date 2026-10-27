@@ -125,6 +125,12 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
               )}
             </li>
           ))}
+          {/* Invited by email: nothing about who until they accept. */}
+          {(group.emailInvites ?? []).map((x) => (
+            <li key={`email-${x.id}`} className="text-slate-500" data-testid="email-invite">
+              {t("gi7.invitedEmail")}
+            </li>
+          ))}
         </ul>
       )}
 

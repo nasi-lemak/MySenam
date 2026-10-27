@@ -48,6 +48,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             ? await inviteToGroup(user.id, id, body.email)
             : null;
   if (!result) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 409 });
+  if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status ?? 409 });
   return NextResponse.json({ group: result.group });
 }

@@ -29,6 +29,10 @@ enforced on every admin route, is in [tenancy and roles](tenancy.md).
 
 Customer accounts are separate (`users`, `src/lib/auth.ts`): an email and
 scrypt-hashed password, or Google sign-in, and an HTTP-only session cookie.
+Signing in, a customer's or staff's, hashes the password given even when no
+account has the address or the account has no password, so a wrong address
+takes about as long as a wrong password
+([no account enumeration](security.md#no-account-enumeration)).
 A booking needs no account; a weekly series, stored credit, passes bought
 online and the personal-data export do.
 
@@ -197,9 +201,13 @@ message to whoever runs the site (`src/lib/password-reset.ts`).
   the browser that used the link. Whoever had the old password no longer has
   a session.
 - The form never says whether an address has an account: the reply is the
-  same either way, and the email is sent without waiting on it so the timing
-  does not tell either. An account gets at most three links an hour, and the
-  endpoints share the sign-in rate limit.
+  same either way, and so is the work it waits on. The request is written
+  down (`password_reset_requests`) and the reply sent; finding the account,
+  making the link and queuing its email happen afterwards, in the background
+  and on the scheduler's next tick, so the time taken does not tell either.
+  A request not worked through within the link's 30 minutes is dropped, and
+  the address is kept only until it is worked through. An account gets at
+  most three links an hour, and the endpoints share the sign-in rate limit.
 - Customers get the email in their language; staff emails are in English.
 
 Signed in, a password is changed from the account page (*Change password*,

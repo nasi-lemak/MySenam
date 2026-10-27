@@ -8,6 +8,7 @@ import { endSeries, extendSeries, inviteRegulars, mySeries, startSeries } from "
 import { askToJoin, gamePlayers, invitePlayer, openGame, setPlayerLevel } from "../src/lib/games";
 import { closeGroup, createGroup, decideMember, groupView, GROUPS_PER_ORGANISER, inviteGroupToGame, inviteToGroup, joinGroup, leaveGroup, listGroups } from "../src/lib/groups";
 import { sendMatchNotices } from "../src/lib/matchmaking";
+import { acceptPlayerInvitation } from "../src/lib/player-invitations";
 import { saveProfile } from "../src/lib/player-profiles";
 import { exportCustomerData } from "../src/lib/privacy";
 import { cancelBooking, createBooking, createBookingSeries, listVenues } from "../src/lib/store";
@@ -98,12 +99,19 @@ describe("community groups", () => {
     const minor = await player({ adult: false });
     for (const email of [willing.email, stranger.email, minor.email, "nobody@nowhere.my"])
       expect(await inviteToGroup(organiser.id, id, email)).toMatchObject({ ok: true });
-    expect((await memberRow(id, willing.id))?.status).toBe("invited");
-    expect(await memberRow(id, stranger.id)).toBeUndefined();
+    // Nobody is put in the group by an address: each is emailed a link, which the account signed in with it
+    // accepts, if the rules allow (tests/player-invitations.test.ts).
+    for (const u of [willing, stranger, minor]) expect(await memberRow(id, u.id)).toBeUndefined();
+    expect(await groupView(id, willing.id)).toBeNull();
+    const tokenFor = async (email: string) => {
+      const sent = (await getDb().prepare("SELECT body FROM messages WHERE lower(recipient) = lower(?) ORDER BY id DESC").get(email)) as { body: string };
+      return /player-invitation\?token=([A-Za-z0-9_-]+)/.exec(sent.body)![1];
+    };
+    expect(await acceptPlayerInvitation(minor, await tokenFor(minor.email))).toMatchObject({ ok: false, code: "PLAYER_INVITATION_INVALID" });
     expect(await memberRow(id, minor.id)).toBeUndefined();
-    // An invitation taken up is membership; the invitee sees the private group.
-    expect(await groupView(id, willing.id)).toMatchObject({ id, mine: { status: "invited" } });
-    expect(await joinGroup(willing.id, id)).toMatchObject({ ok: true, group: { mine: { status: "member" } } });
+    // An invitation taken up is membership; the new member sees the private group.
+    expect(await acceptPlayerInvitation(willing, await tokenFor(willing.email))).toMatchObject({ ok: true, kind: "group", groupId: id });
+    expect(await groupView(id, willing.id)).toMatchObject({ id, mine: { status: "member" } });
   });
 
   it("are how a player under 18 can be invited to a game, and only while the group is open", async () => {
