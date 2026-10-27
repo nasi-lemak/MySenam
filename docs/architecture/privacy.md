@@ -65,8 +65,10 @@ erasing it unlinks them, leaving the venue's list as it was
 ## Asking a venue in person
 
 The account page's *Download my data* (`/api/my/data`) covers what is filed
-against the account: bookings, credit, passes and memberships sold to it,
-places on venues' lists linked to it, games, the playing profile, people blocked, reports made and community
+against the account: bookings, credit, passes and memberships sold to it
+(with the participant each is for and the dependants a family one covers,
+and memberships bought online as chosen and what became of each), places on
+venues' lists linked to it, games, the playing profile, people blocked, reports made and community
 groups, leagues, tournaments, receipts and credit notes, waiting-list places,
 gift vouchers used, applications to be approved for an activity (answers,
 declarations, history, the documents still held with who opened them, and

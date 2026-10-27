@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { loyaltyEvery } from "@/lib/loyalty";
 import { sportRules } from "@/lib/sport-rules";
 import { variesByDay, weekLines } from "@/lib/week-hours";
-import { getVenue, listVenueClosures, readNear } from "@/lib/store";
+import { getVenue, listMembershipsFor, listVenueClosures, readNear } from "@/lib/store";
 import { formatMinute, isMinute, parseClock } from "@/lib/interval";
 import { distanceM } from "@/lib/geo";
 import { todayISO, addDays } from "@/lib/time";
@@ -24,12 +24,13 @@ import { VenueGallery } from "@/components/VenueGallery";
 import { NoticeBar } from "@/components/NoticeBar";
 import { showingFor } from "@/lib/notices";
 import { venuePhotos } from "@/lib/photos";
-import { joinTerms, listPlans } from "@/lib/membership-plans";
-import { onlineTopUpsAllowed, renewalFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
+import { joinTerms, listPlans, planById } from "@/lib/membership-plans";
+import { guardianshipsOf } from "@/lib/participants";
+import { onlineTopUpsAllowed, renewalsFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
 import { listCoaches } from "@/lib/coaching";
 import { sportLabel } from "@/lib/i18n";
 import { intlTag, money } from "@/lib/region";
-import JoinMembership, { type JoinStanding } from "@/components/JoinMembership";
+import JoinMembership, { type Dependant, type FamilyMembership, type JoinStanding } from "@/components/JoinMembership";
 import type { Metadata } from "next";
 import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
 import { photoAt } from "@/lib/photos-shared";
@@ -124,7 +125,19 @@ export default async function VenuePage({
         : { kind: "noPhone" };
   }
   const canAutoRenew = plans.length > 0 && (await renewsByItself(venue.id));
-  const renewal = plans.length > 0 && viewer.userId !== null ? await renewalFor(viewer.userId, venue.id) : null;
+  const renewals = plans.length > 0 && viewer.userId !== null ? await renewalsFor(viewer.userId, venue.id) : [];
+  // Whom this account may buy for (lib/membership-purchases.ts): the people it looks after now, and its family memberships here.
+  const people: Dependant[] = [];
+  const families: FamilyMembership[] = [];
+  if (plans.some((p) => p.offeredFor !== "account") && viewer.userId !== null) {
+    for (const g of await guardianshipsOf(viewer.userId)) people.push({ id: g.participant.id, name: g.participant.displayName });
+    for (const m of await listMembershipsFor(viewer.userId)) {
+      if (m.venueId !== venue.id || m.status !== "active" || m.expiresOn < todayISO() || m.holderParticipantId !== null || !m.tierId) continue;
+      const plan = await planById(m.tierId, { retired: true });
+      if (plan?.offeredFor === "family" && plan.familyLimit !== null)
+        families.push({ id: m.id, code: m.code, expiresOn: m.expiresOn, limit: plan.familyLimit, covers: m.covers ?? [] });
+    }
+  }
 
   const sports = sportsOf(venue.courts);
   const today = todayISO();
@@ -275,7 +288,15 @@ export default async function VenuePage({
           </div>
         ))}
       {plans.length > 0 && access.access !== "private" && (
-        <JoinMembership venueId={venue.id} plans={plans} standing={standing} canAutoRenew={canAutoRenew} renewal={renewal} />
+        <JoinMembership
+          venueId={venue.id}
+          plans={plans}
+          standing={standing}
+          canAutoRenew={canAutoRenew}
+          renewals={renewals}
+          people={people}
+          families={families}
+        />
       )}
       {coaches.length > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white px-4 py-3">

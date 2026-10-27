@@ -6574,7 +6574,23 @@ export async function sellMembership(input: {
       userId: input.userId ?? null,
       name: holderName,
       phone: holderPhone,
-      lines: [saidLine(said("srv.line.membership", { code: membership.code, from: input.startsOn, to: input.expiresOn }), input.price)],
+      // Whom it is for, where that is not the number's holder alone: the participant's own, or the family it covers.
+      lines: [
+        saidLine(
+          membership.holderParticipantId !== null || (membership.covers ?? []).length > 0
+            ? said("srv.mbo.line", {
+                code: membership.code,
+                who: [
+                  membership.holderParticipantId !== null ? (membership.holderParticipantName ?? "") : holderName,
+                  ...(membership.covers ?? []).map((c) => c.name),
+                ].join(", "),
+                from: input.startsOn,
+                to: input.expiresOn,
+              })
+            : said("srv.line.membership", { code: membership.code, from: input.startsOn, to: input.expiresOn }),
+          input.price
+        ),
+      ],
       paidVia: input.paidVia ?? "At the counter",
       taxable: true,
     });

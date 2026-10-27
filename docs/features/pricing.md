@@ -275,11 +275,14 @@ price they were given.
 - **Whose.** The number's holder's own, as every membership sold before; or
   a participant's own, sold at the counter on their guardian's number (a
   child's swim-club membership; *Whose membership* under *Credit & passes →
-  Memberships*). A participant's membership is theirs alone: it never gives
+  Memberships*) or bought online by an account that is their active
+  guardian ([for somebody you look after](#for-somebody-you-look-after-or-a-family)).
+  A participant's membership is theirs alone: it never gives
   the number's holder a member's price, window or entry.
 - **Whom else.** A family membership names the dependants it covers (*A
   family membership also covers*), each a participant the venue knows with a
-  guardian on the holder's number. Nothing is inferred from a shared number
+  guardian on the holder's number at the counter, or one the buying account
+  is an active guardian of online. Nothing is inferred from a shared number
   or surname, and the holder's own membership covers nobody it does not name.
 - **What its price covers**, the plan's (*and the price covers*, under *Plans
   and tiers*): the whole booking its member takes part in (as every plan
@@ -305,9 +308,12 @@ A club that takes payment online can list up to six **membership plans** (a
 name, 1–12 months, a fee of at least RM1) under *Credit & passes → Memberships →
 Join online*. Adding and retiring plans is a manager's job. The plans show on
 the venue page, inside the members-only notice where there is one. A
-signed-in customer picks a plan and pays the venue through its own Billplz
-account, and the membership is made **when the payment settles**, against the
-account's phone number (the checked one, where phone checks are on). It then
+signed-in customer picks a plan, for themself or, where the plan is sold
+for them, for somebody they look after or their family
+([below](#for-somebody-you-look-after-or-a-family)), and pays the venue
+through its own gateway account; the membership is made **when the payment
+settles**, against the account's phone number (the checked one, where phone
+checks are on). It then
 works like one sold at the counter: member rates, and booking at a members-only
 venue. Staff see it in the list tagged *online*.
 
@@ -325,6 +331,68 @@ venue. Staff see it in the list tagged *online*.
 - **Private venues** do not sell membership online: their access list is the
   only way in, and a fee does not put anyone on it. Free memberships are
   given at the counter.
+- **Price and dates first.** Choosing a plan shows its price, whom it is for
+  and the dates it would run (`POST /api/my/membership/quote`) before any
+  payment page opens; *Pay* then opens it.
+- **Never a member unpaid.** Until the gateway settles the payment, the
+  purchase waits (`membership_purchases`, migration 0168, *pending*) and
+  nobody is a member. It holds the people it names for an hour: opening the
+  same purchase again goes back to the same payment page, and another
+  purchase naming any of them is refused until the first is paid, fails or
+  lapses. A payment that fails or expires (Stripe's
+  `checkout.session.expired` or `async_payment_failed`, or a return saying
+  it was not paid) *releases* it; so does an hour with no word. Money that
+  still arrives for a released purchase makes the membership where it can,
+  or is owed back. The gateway's callback and the customer's return, each
+  repeated, make one membership.
+
+#### For somebody you look after, or a family
+
+Each plan says whom customers can buy it for online (*sold online for*,
+under *Plans and tiers*; `membership_plans.offered_for`, migration 0167;
+`src/lib/membership-purchases.ts`):
+
+| Sold online for | Who it is bought for | Whose membership it makes |
+| --------------- | -------------------- | ------------------------- |
+| **The account holder** (every plan before; the default) | The signed-in customer | Theirs, on their number, as above |
+| **Somebody they look after** (a junior plan) | One participant the account is an active guardian of | The participant's own (`holder_participant_id`), on the guardian's number |
+| **Either, one person** | The customer, or one participant as above | Theirs, or the participant's |
+| **A family**, up to a limit (1–12) | The customer and the dependants they name, at least one and no more than the plan's limit | The customer's, naming the dependants it covers (`membership_participants`) |
+
+- **Only people the account acts for now**: an active relationship
+  ([people an adult manages](booking.md#booking-for-somebody-else)), not
+  paused for a review, archived or revoked. Somebody whose guardian request
+  is still waiting is nobody's dependant yet. The child needs no account of
+  their own. Refused with the reason otherwise, and nothing is held.
+- **Ages and categories** are as the guardian declared them; plans have no
+  age or category rule of their own, so none is checked here.
+- **Nobody covered twice**: a person who already holds, or is covered by, a
+  membership for any of the same days (here, or at a branch of the same
+  business) is refused, with the day it ends. A participant's own membership
+  renews like the customer's: from 45 days before it ends, starting the day
+  after.
+- **Checked again when the money comes in**: an account that has stopped
+  acting for somebody it named by then gets nothing for that payment, which
+  is owed back.
+- **The receipt names whom it is for**: *Membership MB-… for Alya, …* or,
+  for a family, the holder and each dependant. The child's history records
+  who bought it (*membership.bought*). Staff see these memberships in the list
+  exactly as counter-sold ones, tagged *online*, with whose they are and
+  whom they cover; they count for member prices and members-only places
+  per person as above. The account's data export lists each membership with
+  whom it is for and covers, and each purchase as chosen and what became of
+  it.
+- **Changing whom a family membership covers**: the account that bought it
+  adds people it looks after, up to the plan's limit, or takes people off,
+  on the venue page (`PATCH /api/my/membership`). The price stays as paid:
+  no plan is prorated, so nothing is charged for adding somebody and nothing
+  is refunded for taking somebody off. Somebody taken off is no longer a
+  member through it from then on; bookings already made keep their price. A
+  membership sold at the counter, or one that is not a family plan's, is the
+  venue's to change.
+- **Cancelling** is as for any membership: the customer can stop it renewing;
+  the venue cancels it (*Void*), with a credit note on its receipt, which also
+  stops its renewal.
 
 #### Renewing automatically
 
@@ -340,6 +408,13 @@ charges every 3 months), on the venue's own account:
   on from the last whatever day the charge lands, with its receipt. Stripe
   sending it twice counts once. The first invoice is not counted again: its
   checkout session already settled it.
+- **A child's or a family membership** renews for the same holder, naming
+  the dependants the membership it runs on from names when the charge comes
+  (so a change to whom it covers carries on), less anybody the account no
+  longer acts for then. A child's own membership whose guardian no longer
+  acts for them buys nothing: the charge is owed back and the subscription
+  cancelled, as below. Each renewing membership is listed on the venue page
+  with whose it is, and stopped on its own.
 - **Stopping**: the member presses *Stop renewing* on the venue page, or the
   venue voids the membership. Either way MySenam cancels the subscription in
   Stripe and nothing more is charged; what was already paid for runs to its

@@ -651,4 +651,6 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "No account has that email or number.": { ms: "Tiada akaun dengan e-mel atau nombor itu.", zh: "没有账户使用该电子邮件或号码。" },
   "More than one account has that number: use the person's email.": { ms: "Lebih daripada satu akaun mempunyai nombor itu: gunakan e-mel orang itu.", zh: "有多个账户使用该号码：请使用对方的电子邮件。" },
   "That person is not on this venue's list.": { ms: "Orang itu tiada dalam senarai pusat ini.", zh: "此人不在本场馆的名单上。" },
+  "A plan is sold to the account holder, somebody they look after, either, or a family.": { ms: "Pelan dijual kepada pemegang akaun, seseorang yang dijaganya, salah satu, atau sebuah keluarga.", zh: "配套的出售对象须为账户持有人、其照顾的人、两者之一，或家庭。" },
+  "A family plan covers 1–12 people besides its holder.": { ms: "Pelan keluarga melindungi 1–12 orang selain pemegangnya.", zh: "家庭配套除持有人外涵盖 1–12 人。" },
 };

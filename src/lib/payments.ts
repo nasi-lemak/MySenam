@@ -17,8 +17,8 @@ import type { DisputeEvent, SubscriptionEvent } from "./gateways/types";
 import { tellOwners, tellVenueStaff } from "./owner-alerts";
 import { siteName } from "./site";
 import { seal, unseal } from "./secrets";
-import { findBooking, getCourt, getVenue, membershipById, sellMembership } from "./store";
-import { joinTerms } from "./membership-plans";
+import { findBooking, getCourt, getVenue, membershipById } from "./store";
+import { attachPayment, holdPurchase, membershipForPayment, purchaseTerms, releaseForPayment, releasePurchase } from "./membership-purchases";
 import { accessSettings, accountPhone } from "./access";
 import { toWhatsAppNumber } from "./transports";
 import { baseUrl } from "./outbox";
@@ -402,7 +402,7 @@ export async function paymentByBill(billId: string): Promise<OnlinePayment | nul
 
 export type StartResult =
   | { ok: true; url: string; amount: number; reused: boolean; /** Only the venue's deposit. */ deposit?: boolean }
-  | { ok: false; error: string; status: number; code?: ErrorCode; vars?: Record<string, string | number> };
+  | { ok: false; error: string; status: number; code?: ErrorCode | `MBO_${string}`; vars?: Record<string, string | number> };
 
 /**
  * Send a customer to pay for one or more of their bookings.
@@ -594,6 +594,8 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
     | PaymentRow
     | undefined;
   if (!row) return null;
+  // A membership's payment failed or lapsed: the purchase holds nobody now (lib/membership-purchases.ts).
+  if (!result.paid && row.purpose === "membership" && row.status === "pending") await releaseForPayment(row.id);
   if (!result.paid || row.status === "paid") return { payment: await toPayment(row), newlyPaid: [] };
 
   if (row.purpose === "entry") {
@@ -1943,16 +1945,23 @@ export async function startVoucherPayment(input: VoucherInput): Promise<StartRes
 
 const ENGLISH = translator("en");
 
-/** A customer joining, or renewing, on one of the venue's membership plans. */
+/**
+ * A customer joining, or renewing, on one of the venue's membership plans:
+ * for themself, for somebody they look after (`participantId`), or a family
+ * membership naming the dependants it covers (`covers`); who may be named is
+ * lib/membership-purchases.ts. The purchase waits on the payment, and the
+ * membership is made only once it is paid.
+ */
 export async function startMembershipPayment(
   user: { id: number; name: string; email: string },
   planId: number,
   /** Charge the plan's price again each period until stopped, where the venue's gateway can. */
-  opts: { autoRenew?: boolean } = {}
+  opts: { autoRenew?: boolean; participantId?: number | null; covers?: number[] } = {}
 ): Promise<StartResult> {
-  const joining = await joinTerms(user.id, planId);
-  if (!joining.ok) return { ok: false, error: joining.error, code: joining.code, vars: joining.vars, status: 409 };
-  const { plan, phone, startsOn, expiresOn, renewing } = joining.terms;
+  const quoted = await purchaseTerms(user.id, { planId, participantId: opts.participantId ?? null, covers: opts.covers ?? [] });
+  if (!quoted.ok)
+    return { ok: false, error: quoted.error, code: quoted.code as ErrorCode, vars: quoted.vars, status: quoted.status === 404 ? 404 : 409 };
+  const { plan, phone, startsOn, expiresOn, renewing, holder, covers } = quoted.terms;
   // A private venue's door is its list, which a fee does not put anyone on.
   if ((await accessSettings(plan.venueId)).access === "private")
     return { ok: false, error: errorText(ENGLISH, "JOIN_NO_PLAN"), code: "JOIN_NO_PLAN", status: 409 };
@@ -1963,6 +1972,12 @@ export async function startMembershipPayment(
   const autoRenew = opts.autoRenew === true;
   if (autoRenew && !gatewayFor(account.provider)?.subscriptions)
     return { ok: false, error: "This venue's payments cannot renew by themselves. Pay for one period instead.", status: 409 };
+  // Held for the people it names while it is paid; the same purchase already open goes back to its page.
+  const held = await holdPurchase(user.id, quoted.terms, autoRenew);
+  if (!held.ok) return { ok: false, error: held.error, code: held.code as ErrorCode, vars: held.vars, status: 409 };
+  if ("reuse" in held) return { ok: true, url: held.reuse, amount: plan.price, reused: true };
+  // Whom it is for, on the page: the participant's or the family's names (never more about them).
+  const whom = holder ? ` for ${holder.name}` : covers.length > 0 ? ` for ${[user.name, ...covers.map((c) => c.name)].join(", ")}` : "";
   let bill;
   try {
     bill = await openCheckout(account, {
@@ -1970,20 +1985,22 @@ export async function startMembershipPayment(
       name: user.name,
       email: user.email,
       mobile: toWhatsAppNumber(phone),
-      description: `${venue.name}: ${plan.name}, ${startsOn} to ${expiresOn}${renewing ? " (renewal)" : ""}`,
+      description: `${venue.name}: ${plan.name}${whom}, ${startsOn} to ${expiresOn}${renewing ? " (renewal)" : ""}`,
       redirectUrl: `${await venueBaseUrl(plan.venueId)}/payments/return`,
       reference: { label: "Membership", value: `U${user.id}` },
       ...(autoRenew ? { recurring: { months: plan.months } } : {}),
     });
   } catch (err) {
+    await releasePurchase(held.purchaseId, "checkout_failed");
     return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
   }
-  await getDb()
+  const info = await getDb()
     .prepare(
       `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, member_user_id, membership_plan_id, auto_renew)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'membership', ?, ?, ?)`
     )
     .run(account.provider, bill.id, bill.url, plan.venueId, plan.price, user.name, phone, user.id, plan.id, autoRenew ? 1 : 0);
+  await attachPayment(held.purchaseId, Number(info.lastInsertRowid));
   return { ok: true, url: bill.url, amount: plan.price, reused: false };
 }
 
@@ -1993,26 +2010,12 @@ export async function startMembershipPayment(
  * old one. Null when there is nothing it can buy any more.
  */
 async function makePaidMembership(row: PaymentRow): Promise<number | null> {
-  if (!row.member_user_id || !row.membership_plan_id) return null;
-  // A plan retired while they paid still gives what they paid for.
-  const joining = await joinTerms(row.member_user_id, row.membership_plan_id, { retired: true, renewal: Boolean(row.subscription_id) });
-  if (!joining.ok) return null;
-  const { plan, phone, startsOn, expiresOn } = joining.terms;
-  const user = (await getDb().prepare("SELECT name FROM users WHERE id = ?").get(row.member_user_id)) as { name: string } | undefined;
-  if (!user) return null;
-  const sold = await sellMembership({
-    venueId: plan.venueId,
-    holderName: user.name,
-    holderPhone: phone,
-    startsOn,
-    expiresOn,
-    // What they paid, which a plan's later price change does not rewrite.
-    price: roundMoney(row.amount),
-    userId: row.member_user_id,
-    planId: plan.id,
-    paidVia: paidVia("online", gatewayFor(row.provider)?.name) ?? undefined,
-  });
-  return sold.ok ? sold.membership.id : null;
+  // A plan retired while they paid still gives what they paid for; for whom its purchase
+  // (or, renewing by itself, the membership it runs on from) names (lib/membership-purchases.ts).
+  return membershipForPayment(
+    { ...row, amount: roundMoney(row.amount) },
+    paidVia("online", gatewayFor(row.provider)?.name) ?? undefined
+  );
 }
 
 // ------------------------------------------------------------ league fees
@@ -2161,6 +2164,26 @@ async function stopSubscription(subscriptionId: string): Promise<string | null> 
 export async function renewsByItself(venueId: number): Promise<boolean> {
   const account = await venueAccount(venueId);
   return Boolean(account && gatewayFor(account.provider)?.subscriptions);
+}
+
+/** Every membership this customer bought at this venue that renews itself, with whom it is for (null: their own, or their family's). */
+export async function renewalsFor(userId: number, venueId: number): Promise<(Renewal & { holderParticipantId: number | null; holderName: string | null })[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT s.id, s.venue_id, s.plan_id, m.expires_on, m.holder_participant_id, hp.display_name FROM membership_subscriptions s
+         LEFT JOIN memberships m ON m.id = s.membership_id
+         LEFT JOIN participants hp ON hp.id = m.holder_participant_id
+        WHERE s.user_id = ? AND s.venue_id = ? AND s.status = 'active' ORDER BY s.id DESC`
+    )
+    .all(userId, venueId)) as { id: number; venue_id: number; plan_id: number | null; expires_on: string | null; holder_participant_id: number | null; display_name: string | null }[];
+  return rows.map((r) => ({
+    id: r.id,
+    venueId: r.venue_id,
+    planId: r.plan_id,
+    until: r.expires_on,
+    holderParticipantId: r.holder_participant_id,
+    holderName: r.display_name,
+  }));
 }
 
 /** A customer's membership at this venue that renews itself, if they have one. */

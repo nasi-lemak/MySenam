@@ -6,8 +6,9 @@ import { VouchersPanel } from "./VouchersPanel";
 import { CounterSalesPanel } from "./CounterSalesPanel";
 import { AccountsPanel } from "./AccountsPanel";
 import { useCallback, useEffect, useState } from "react";
-import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP } from "@/lib/types";
+import { MAX_HOURS_PER_BOOKING, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP } from "@/lib/types";
 import type { BenefitScope, Membership, Pass, PromoCode, WalletEntry } from "@/lib/types";
+import type { OfferedFor } from "@/lib/membership-plans";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
@@ -1261,7 +1262,20 @@ interface Plan {
   aheadDays: number | null;
   /** What the member's price covers: the whole booking its member takes part in, or the members' own places only. */
   scope?: BenefitScope;
+  /** Whom customers buy it for online (lib/membership-purchases.ts), and a family plan's limit besides its holder. */
+  offeredFor?: OfferedFor;
+  familyLimit?: number | null;
 }
+
+const OFFERED_FOR: OfferedFor[] = ["account", "participant", "individual", "family"];
+const OFFERED_FOR_LABELS: Record<OfferedFor, "mbo.cr.forAccount" | "mbo.cr.forParticipant" | "mbo.cr.forIndividual" | "mbo.cr.forFamily"> = {
+  account: "mbo.cr.forAccount",
+  participant: "mbo.cr.forParticipant",
+  individual: "mbo.cr.forIndividual",
+  family: "mbo.cr.forFamily",
+};
+/** A new family plan's limit until a manager chooses another. */
+const DEFAULT_FAMILY_LIMIT = 4;
 
 /** What a pass, a concession or a plan's price covers, in a few words (lib/entitlements.ts). */
 function scopeLabel(t: StaffT, scope: BenefitScope): string {
@@ -1321,7 +1335,10 @@ function MembershipPlans({ venueId }: { venueId: number }) {
     await load();
   }
 
-  async function benefits(plan: Plan, change: { ratePercent?: number | null; aheadDays?: number | null; scope?: BenefitScope }) {
+  async function benefits(
+    plan: Plan,
+    change: { ratePercent?: number | null; aheadDays?: number | null; scope?: BenefitScope; offeredFor?: OfferedFor; familyLimit?: number | null }
+  ) {
     setError(null);
     const res = await fetch("/api/admin/membership-plans", {
       method: "PATCH",
@@ -1400,6 +1417,34 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                     <option value="booking">{t("ent.cr.planScopeBooking")}</option>
                     <option value="participant">{t("ent.cr.planScopeOwn")}</option>
                   </select>
+                  {t("mbo.cr.offeredFor")}
+                  <select
+                    value={p.offeredFor ?? "account"}
+                    onChange={(e) => {
+                      const offeredFor = e.target.value as OfferedFor;
+                      benefits(p, { offeredFor, familyLimit: offeredFor === "family" ? (p.familyLimit ?? DEFAULT_FAMILY_LIMIT) : null });
+                    }}
+                    className="rounded border border-slate-300 px-1 py-0.5"
+                  >
+                    {OFFERED_FOR.map((f) => (
+                      <option key={f} value={f}>
+                        {t(OFFERED_FOR_LABELS[f])}
+                      </option>
+                    ))}
+                  </select>
+                  {p.offeredFor === "family" && (
+                    <select
+                      value={p.familyLimit ?? DEFAULT_FAMILY_LIMIT}
+                      onChange={(e) => benefits(p, { familyLimit: Number(e.target.value) })}
+                      className="rounded border border-slate-300 px-1 py-0.5"
+                    >
+                      {Array.from({ length: MAX_MEMBERSHIP_COVERS }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {t.plural("mbo.cr.upTo", n)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </span>
               </span>
               <button
