@@ -411,6 +411,40 @@ with a concession and a code on the booking,
 `tests/discount-stacking.test.ts`, on PGlite and Postgres, against a
 stand-in gateway for the online case.
 
+### Refunds for a cheaper coach
+
+A paid lesson a manager gives to another coach, choosing to adjust the price
+([giving a lesson to another coach](programmes.md#giving-a-lesson-to-another-coach);
+`lib/lesson-coaches.ts`), settles the difference between the two coaches'
+fees the way a place taken off a booking is settled, and nothing twice:
+
+- **The lesson's sale stays as it was sold.** Its receipt keeps the coach and
+  fee it was sold with. What went back has a credit note of its own
+  (*Coaching with Cara Ong in place of Ana Lim, MS-…: the difference*), at the
+  tax the booking was sold at; a later cancellation gives back only the rest
+  (`paidPartLeft` leaves out `lesson_coach_changes.refunded`).
+- **Credit** goes back to the pots it came from, in proportion, as entries
+  marked with the change (`wallet_entries.coach_change_id`), apart from the
+  booking's own refund on cancelling.
+- **Online**, the amount is owed back on the payment, never more than it took,
+  and sent through the venue's refund path at once
+  ([refunds that are interrupted](#refunds-that-are-interrupted)).
+- **Paid at the counter**, the credit note is written and the venue's staff
+  give the money back.
+- **A dearer coach's difference** is owed, not charged: taken at the counter
+  on a receipt of its own (`lesson-coach:<id>`, under *Coaching* in the sales
+  journal). A lesson cancelled after it was taken has that receipt credited
+  too, and the money goes back by hand as it was taken; one cancelled before,
+  owes it no longer. It is not paid online, and the day's expected and
+  outstanding figures do not count it.
+- **Kept as paid** instead, nothing moves: the venue absorbs the difference
+  and the amount is recorded with the change.
+- Lessons paid with a lesson pack, with a deposit, or with shares others paid
+  are refused: cancel and book again.
+
+Tested in `tests/lesson-coach-changes.test.ts` on PGlite and Postgres,
+against a stand-in gateway for the online case.
+
 ## Stored credit
 
 Customers buy credit at a venue counter and spend it on bookings and classes by

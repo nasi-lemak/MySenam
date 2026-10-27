@@ -68,6 +68,10 @@ export function BookingsTab() {
   // A lesson being changed: the coach it goes with (its own unless staff choose another).
   const [changeCoach, setChangeCoach] = useState<number | null>(null);
   const otherCoach = changing?.coachId && changeCoach !== null && changeCoach !== changing.coachId ? changeCoach : null;
+  // A paid lesson to another coach: the manager's word on the money (lib/lesson-coaches.ts), asked before any time is offered.
+  const [coachMoney, setCoachMoney] = useState<"keep" | "adjust" | null>(null);
+  const coachBody = otherCoach !== null ? { coachId: otherCoach, ...(coachMoney ? { coachMoney } : {}) } : {};
+  const moneyAsked = otherCoach !== null && changing?.paymentStatus === "paid" && coachMoney === null;
   const changeOptionsUrl = useCallback(
     (day: string) =>
       `/api/admin/bookings/reschedule?code=${encodeURIComponent(changing?.code ?? "")}&date=${day}${otherCoach !== null ? `&coachId=${otherCoach}` : ""}`,
@@ -171,6 +175,26 @@ export function BookingsTab() {
     setMoving(null);
     setChanging(b);
     setChangeCoach(b.coachId ?? null);
+    setCoachMoney(null);
+  }
+
+  /** The difference owed for a dearer coach, taken at the counter (lib/lesson-coaches.ts): its own receipt. */
+  async function collectCoachDifference(b: AdminBookingRow, changeId: number, via: CounterMethod) {
+    setError(null);
+    setPaying(null);
+    try {
+      const res = await fetch("/api/admin/bookings/lesson-coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId: b.venueId, changeId, method: via }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("bk.paymentFailed")));
+      setNotice(t("co6.bk.owedTaken", { amount: money(data.amount), code: b.code }));
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("bk.paymentFailed"));
+    }
   }
 
   function openKit(b: AdminBookingRow, mode: "take" | "return") {
@@ -568,6 +592,7 @@ export function BookingsTab() {
     withdrawPerson,
     checkPlaceConcession,
     payWithPasses,
+    collectCoachDifference,
   };
 
   return (
@@ -711,10 +736,17 @@ export function BookingsTab() {
           coachId={changing.coachId}
           coachName={changing.coachName ?? ""}
           value={changeCoach ?? changing.coachId}
-          onChange={setChangeCoach}
+          onChange={(id) => {
+            setChangeCoach(id);
+            setCoachMoney(null);
+          }}
+          code={changing.code}
+          paid={changing.paymentStatus === "paid"}
+          money={coachMoney}
+          onMoney={setCoachMoney}
         />
       )}
-      {changing && (
+      {changing && !moneyAsked && (
         <ChangeTime
           key={changing.code}
           booking={changing}
@@ -725,14 +757,14 @@ export function BookingsTab() {
             fetch("/api/admin/bookings/reschedule", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...(otherCoach !== null ? { coachId: otherCoach } : {}), preview: true }),
+              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...coachBody, preview: true }),
             })
           }
           submit={(o, day, reason) =>
             fetch("/api/admin/bookings/reschedule", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...(otherCoach !== null ? { coachId: otherCoach } : {}), ...(reason ? { reason } : {}) }),
+              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...coachBody, ...(reason ? { reason } : {}) }),
             })
           }
           onDone={(booking) => {
@@ -1078,6 +1110,7 @@ interface Act {
   withdrawPerson: (b: AdminBookingRow, placeId: number | null, name: string | null) => void;
   checkPlaceConcession: (b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused", remember?: string) => void;
   payWithPasses: (code: string, passCodes: string[]) => Promise<string | null>;
+  collectCoachDifference: (b: AdminBookingRow, changeId: number, via: CounterMethod) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -1151,13 +1184,13 @@ function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
     return (
       <>
         {(b.players ?? 1) > 1 && <div className="mt-1 text-xs text-slate-600">👥 {t.plural("bk.players", b.players ?? 1)}</div>}
-        {b.coachName && <Coach b={b} />}
+        {b.coachName && <Coach b={b} act={act} />}
         <ConcessionCheck b={b} act={act} />
       </>
     );
   return (
     <div className="mt-1 text-xs text-slate-600">
-      {b.coachName && <Coach b={b} />}
+      {b.coachName && <Coach b={b} act={act} />}
       {(b.players ?? 1) > 1 && <div>👥 {t.plural("bk.players", b.players ?? 1)}</div>}
       🎒 {b.addons.map((a) => (a.kind === "rental" ? t("bk.addonHire", { qty: a.quantity, name: a.name }) : `${a.quantity} × ${a.name}`)).join(", ")}
       <ConcessionCheck b={b} act={act} />
@@ -1235,12 +1268,33 @@ function ConcessionCheck({ b, act }: { b: AdminBookingRow; act: Act }) {
   );
 }
 
-/** A lesson: the coach, and their fee inside the price. */
-function Coach({ b }: { b: AdminBookingRow }) {
+/** A lesson: the coach, and their fee inside the price; and what is still owed for a dearer coach, to take here. */
+function Coach({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
   return (
     <div className="mt-1 text-xs text-indigo-700">
       🎓 {t("bk.lesson", { coach: b.coachName ?? "", fee: money(b.coachFee ?? 0) })}
+      {b.status === "confirmed" &&
+        (b.coachOwed ?? []).map((o) =>
+          act.paying === `coach:${o.changeId}` ? (
+            <span key={o.changeId} className="mt-1 block">
+              <MethodPicker
+                label={t("co6.bk.owedTakeBy", { amount: money(o.amount) })}
+                onPick={(via) => act.collectCoachDifference(b, o.changeId, via)}
+                onCancel={() => act.setPaying(null)}
+              />
+            </span>
+          ) : (
+            <button
+              key={o.changeId}
+              onClick={() => act.setPaying(`coach:${o.changeId}`)}
+              title={t("co6.bk.owedTitle", { coach: o.coach })}
+              className="mt-1 block rounded bg-amber-50 px-2 py-0.5 text-left font-medium text-amber-800 ring-1 ring-amber-200"
+            >
+              {t("co6.bk.owed", { amount: money(o.amount), coach: o.coach })}
+            </button>
+          )
+        )}
     </div>
   );
 }

@@ -376,6 +376,15 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     .prepare("SELECT u.discount::float AS discount, p.code FROM promo_uses u JOIN promo_codes p ON p.id = u.promo_id WHERE u.booking_id = ?")
     .get(bookingId)) as { discount: number; code: string } | undefined;
 
+  // A paid lesson given to another coach since (lib/lesson-coaches.ts) keeps on its receipt the coach and fee it was sold with.
+  const sold = (await db
+    .prepare("SELECT from_fee::float AS fee, from_coach_name AS name FROM lesson_coach_changes WHERE booking_id = ? AND paid ORDER BY id LIMIT 1")
+    .get(bookingId)) as { fee: number; name: string } | undefined;
+  if (sold) {
+    b.coach_fee = Number(sold.fee);
+    b.coach_name = sold.name;
+  }
+
   const extrasTotal = extras.reduce((sum, e) => sum + e.quantity * e.unit_price, 0);
   // A concession price stands as a line of its own; charged in full when no proof was shown.
   const concession = b.concession_name && b.concession_check !== "refused" ? Number(b.concession_off) : 0;
@@ -595,6 +604,36 @@ export async function creditAccountPlace(credit: {
     tax_reg_no: rate ? tax!.regNo : null,
     paid_via: null,
     note: credit.why,
+  });
+}
+
+/**
+ * A paid lesson given to a cheaper coach, the difference given back
+ * (lib/lesson-coaches.ts): a credit note for it, at the tax the booking was
+ * sold at. The booking's receipt stays what was sold. Once per change.
+ */
+export async function creditBookingCoach(bookingId: number, changeId: number, what: string, amount: number): Promise<Document | null> {
+  const full = await bookingSale(bookingId);
+  if (!full || full.paymentStatus !== "paid" || amount <= 0) return null;
+  const total = roundMoney(amount);
+  const tax = full.taxRate ? await venueTax(full.venueId) : null;
+  return write({
+    venue_id: full.venueId,
+    kind: "credit_note",
+    source: `booking:${bookingId}:coach:${changeId}`,
+    credits_id: null,
+    credits_ref: full.code,
+    user_id: full.userId,
+    customer_name: full.name,
+    customer_phone: full.phone,
+    lines: JSON.stringify([{ description: `${what}, ${full.code}: the difference`, amount: total }]),
+    total,
+    tax_name: full.taxRate ? tax!.name : null,
+    tax_rate: full.taxRate,
+    tax_amount: full.taxRate ? taxIncluded(total, full.taxRate) : 0,
+    tax_reg_no: full.taxRate ? tax!.regNo : null,
+    paid_via: paidVia(full.paidVia),
+    note: "receipt.why.coachChanged",
   });
 }
 

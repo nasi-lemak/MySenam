@@ -60,6 +60,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "membership.cover_corrected": "mb6.act.coverCorrected",
   "checkin.membership_admitted": "mb6.act.memberAdmitted",
   "membership.flag_resolved": "mb6.act.flagResolved",
+  "lesson.coach_changed": "mb6.act.coachChanged",
+  "lesson.coach_difference_paid": "mb6.act.coachDifferencePaid",
   "membership.plan_added": "act.a.membershipPlanAdded",
   "membership.plan_retired": "act.a.membershipPlanRetired",
   "pass.sold": "act.a.passSold",

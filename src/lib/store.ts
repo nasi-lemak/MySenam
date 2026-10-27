@@ -3080,6 +3080,8 @@ export type RescheduleResult =
       preview?: true;
       /** Held only, for a game's proposal: the booking has not moved. */
       held?: true;
+      /** A lesson given to another coach (lib/lesson-coaches.ts): who from and to, and what it did to the money. */
+      coachChange?: import("./lesson-coaches").CoachChange;
     }
   | Refusal;
 
@@ -3167,14 +3169,17 @@ function bookedAtOf(booking: Booking): number | undefined {
  * move it somewhere dearer (they would be playing peak hours for an off-peak
  * price), and staff who do so have chosen not to charge the difference.
  *
- * A lesson moves with its coach (lib/coaching.ts), or, staff choosing
- * (`coachId`), to another active coach of the venue for its sport while
- * nothing has been paid on it: the coach must take lessons through the new
- * time (their hours, not on time off), which no manager's override passes,
- * and is claimed for it in the same transaction as the court, under the
- * constraint that keeps a coach in one lesson at a time. Another coach's fee
- * is theirs for its length, the price changing by the difference. The coach
- * is told (lib/coach-schedule.ts notifyLessonMoved).
+ * A lesson moves with its coach (lib/coaching.ts), or, a manager choosing
+ * (`coachId`), to another active coach of the venue for its sport: the coach
+ * must take lessons through the new time (their hours, not on time off),
+ * which no manager's override passes, and is claimed for it in the same
+ * transaction as the court, under the constraint that keeps a coach in one
+ * lesson at a time. Another coach's fee is theirs for its length. Not yet
+ * paid, the price changes by the difference; paid, `coachMoney` says whether
+ * the price stays as paid or the difference is owed or given back, settled in
+ * the same transaction under the booking's lock (lib/lesson-coaches.ts
+ * applyCoachChange). The coach is told (lib/coach-schedule.ts
+ * notifyLessonMoved).
  */
 async function rescheduleBookingOnce(
   code: string,
@@ -3199,6 +3204,10 @@ async function rescheduleBookingOnce(
     fromHold?: number;
     /** A lesson, staff only: to this coach of the venue instead of its own. */
     coachId?: number;
+    /** A paid lesson to another coach: keep the price as paid, or adjust it by the difference (lib/lesson-coaches.ts). */
+    coachMoney?: "keep" | "adjust";
+    /** Who gave it to another coach, for the record. */
+    changedBy?: { adminId: number | null; name: string };
   },
   by: "staff" | "customer"
 ): Promise<RescheduleResult> {
@@ -3231,10 +3240,12 @@ async function rescheduleBookingOnce(
   // A lesson keeps its coach unless staff choose another; an open game's proposal never holds a coach's time.
   if (to.coachId !== undefined && !booking.coachId) return refuse("COACH_NOT_FOUND");
   if (booking.coachId && (to.hold || to.fromHold !== undefined)) return refuse("RESCHEDULE_COACH");
-  if (booking.coachId && to.coachId !== undefined && to.coachId !== booking.coachId) {
+  const coachChanging = !!booking.coachId && to.coachId !== undefined && to.coachId !== booking.coachId;
+  if (coachChanging) {
     if (by === "customer") return refuse("RESCHEDULE_COACH");
-    // Money taken for one coach's lesson (a lesson pack for them, say) is not moved onto another's.
-    if (booking.paymentStatus === "paid" || booking.sharesPaid > 0.005) return refuse("RESCHEDULE_COACH_PAID");
+    // A lesson pack's entries are not moved onto another coach's lesson; a paid one needs the manager's word on the money.
+    const why = await (await import("./lesson-coaches")).coachChangeRefusal(booking, to.coachMoney);
+    if (why) return why;
   }
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
 
@@ -3255,13 +3266,14 @@ async function rescheduleBookingOnce(
   if (minutesUntil(to.date, span.start, zone) <= 0) return refuse("SLOT_PAST");
   if (await getVenueClosure(fromCourt.venueId, to.date)) return refuse("VENUE_CLOSED");
   // A lesson: its coach (or the one staff chose) takes lessons through the new time; whether they are free is the claim's to say.
-  let lesson: { coachId: number; name: string; fee: number } | null = null;
+  let lesson: { coachId: number; name: string; fee: number; fromName: string } | null = null;
   if (booking.coachId) {
     const { coachById, coachWorks } = await import("./coaching");
     const coach = await coachById(to.coachId ?? booking.coachId);
     if (!coach || !coach.active || coach.venueId !== fromCourt.venueId || !coach.sports.includes(booking.sport)) return refuse("COACH_NOT_FOUND");
     if (!coachWorks(coach, to.date, span)) return refuse("COACH_NOT_WORKING", { name: coach.name });
-    lesson = { coachId: coach.id, name: coach.name, fee: coach.id === booking.coachId ? (booking.coachFee ?? 0) : roundMoney((coach.rate * length) / 60) };
+    const fromName = coach.id === booking.coachId ? coach.name : ((await coachById(booking.coachId))?.name ?? "");
+    lesson = { coachId: coach.id, name: coach.name, fee: coach.id === booking.coachId ? (booking.coachFee ?? 0) : roundMoney((coach.rate * length) / 60), fromName };
   }
   const sameCoach = lesson === null || lesson.coachId === booking.coachId;
 
@@ -3366,6 +3378,7 @@ async function rescheduleBookingOnce(
     const feeChange = lesson ? lesson.fee - (booking.coachFee ?? 0) : 0;
     const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players).total - oldPrice + feeChange) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
+    let coachChange: import("./lesson-coaches").CoachChange | undefined;
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
     // A payment page open for the old price would settle it short.
     if (!paid && delta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
@@ -3377,7 +3390,8 @@ async function rescheduleBookingOnce(
       from,
       to: where,
       priceChange,
-      unchargedDifference: paid ? delta : 0,
+      // A paid lesson's coach fee is settled as the manager chose (lib/lesson-coaches.ts), not left uncharged here.
+      unchargedDifference: paid ? Math.round((delta - (coachChanging ? feeChange : 0)) * 100) / 100 : 0,
       ...(breaches.length > 0 ? { overrides: breaches } : {}),
     };
     try {
@@ -3385,12 +3399,16 @@ async function rescheduleBookingOnce(
         // Nothing changed since it was read: the game first, then the booking,
         // in the order every change to a game takes them (lib/games.ts).
         const g = live ? ((await db.prepare("SELECT status FROM open_games WHERE id = ? FOR UPDATE").get(game.id)) as { status: string }) : null;
-        const now = (await db.prepare("SELECT status, date, start_min, end_min, court_id, coach_id FROM bookings WHERE id = ? FOR UPDATE").get(booking.id)) as {
-          status: string; date: string; start_min: number; end_min: number; court_id: number; coach_id: number | null;
+        const now = (await db
+          .prepare("SELECT status, date, start_min, end_min, court_id, coach_id, payment_status, shares_paid::float AS shares_paid FROM bookings WHERE id = ? FOR UPDATE")
+          .get(booking.id)) as {
+          status: string; date: string; start_min: number; end_min: number; court_id: number; coach_id: number | null; payment_status: string; shares_paid: number;
         };
         if (now.status !== booking.status || now.date !== booking.date || now.start_min !== booking.startMin || now.end_min !== booking.endMin || now.court_id !== booking.courtId)
           throw new BookingChanged();
         if ((now.coach_id ?? null) !== (booking.coachId ?? null)) throw new BookingChanged();
+        // Paid (or part-paid) meanwhile: what was decided about the money no longer holds.
+        if (coachChanging && (now.payment_status !== booking.paymentStatus || Math.abs(Number(now.shares_paid) - booking.sharesPaid) > 0.005)) throw new BookingChanged();
         if (g && g.status !== "cancelled" && !to.game) {
           const again = await gameUnder(booking.id);
           if (again && (again.players > 0 || (again.pendingMove !== null && again.pendingMove !== to.hold?.moveId))) throw new BookingChanged();
@@ -3478,6 +3496,14 @@ async function rescheduleBookingOnce(
               throw err;
             }
             await db.prepare("UPDATE bookings SET coach_id = ?, coach_fee = ? WHERE id = ?").run(lesson.coachId, lesson.fee, booking.id);
+            // Another coach: on the record, and the money settled as the manager chose, under the booking's lock taken above.
+            if (coachChanging)
+              coachChange = await (await import("./lesson-coaches")).applyCoachChange(booking.id, {
+                from: { id: booking.coachId!, name: lesson.fromName, fee: roundMoney(booking.coachFee ?? 0) },
+                to: { id: lesson.coachId, name: lesson.name, fee: lesson.fee },
+                ...(to.coachMoney ? { money: to.coachMoney } : {}),
+                by: to.changedBy ?? null,
+              });
           }
           if (breaches.length > 0) await db.prepare("UPDATE bookings SET policy_override = true WHERE id = ?").run(booking.id);
           await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(priceChange, booking.id);
@@ -3492,7 +3518,7 @@ async function rescheduleBookingOnce(
         if (to.preview) throw new PreviewOnly();
       });
     } catch (err) {
-      if (err instanceof PreviewOnly) return { ...result, booking, preview: true };
+      if (err instanceof PreviewOnly) return { ...result, booking, preview: true, ...(coachChange ? { coachChange } : {}) };
       if (err instanceof BookingChanged) return refuse("RESCHEDULE_CHANGED");
       if (err instanceof CoachTaken) return refuse("COACH_TAKEN", { name: lesson?.name ?? "" });
       if (isConflict(err)) continue;
@@ -3507,7 +3533,7 @@ async function rescheduleBookingOnce(
     // invited or is waiting hears the new time. (A game with players moves
     // through lib/game-moves.ts, which tells them itself.)
     if (live && !to.game) await (await import("./games")).gameTimeChanged(game.id);
-    return { ...result, booking: (await getBookingById(booking.id))! };
+    return { ...result, booking: (await getBookingById(booking.id))!, ...(coachChange ? { coachChange } : {}) };
   }
   return firstRefusal ?? refuse("RESCHEDULE_TAKEN");
 }
@@ -4061,6 +4087,8 @@ export interface AdminBookingRow extends Booking {
   people: { placeId: number; name: string | null; customer: boolean; arrivedAt: string | null; noShow: boolean }[];
   /** One person's concession on their own place (lib/entitlements.ts), and where its proof stands. */
   placeConcessions?: { id: number; name: string | null; concessionName: string; concessionPreset: string | null; amount: number; check: "due" | "seen" | "refused" | null }[];
+  /** A paid lesson given to a dearer coach, the price adjusted: each difference still owed, to take at the counter (lib/lesson-coaches.ts). */
+  coachOwed?: { changeId: number; amount: number; coach: string }[];
 }
 
 export interface UserBookingRow extends Booking {
@@ -5525,6 +5553,8 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   }
   const extras = await addonsFor(rows.map((r) => r.id));
   const notes = await notesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
+  // What is owed for a dearer coach on a paid lesson, to take at the counter (lib/lesson-coaches.ts).
+  const coachOwed = await (await import("./lesson-coaches")).owedForCoachChanges(rows.filter((r) => r.coach_id).map((r) => r.id));
   // Each person taking part: the customer's own agreement, or each participant's (lib/participants.ts).
   const places = new Map<number, (number | null)[]>();
   // And who of them arrived, for the counter to say person by person (`markPlace`).
@@ -5653,6 +5683,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       waiverSigned: placesOf(r).every((p) => waivers.get(p !== null ? `${r.venue_id}:p${p}` : `${r.venue_id}:${phoneKey(booking.phone)}`) ?? true),
       people: (people.get(booking.id) ?? []).some((p) => !p.customer) ? people.get(booking.id)! : [],
       ...(placeConcessions.has(booking.id) ? { placeConcessions: placeConcessions.get(booking.id)! } : {}),
+      ...(coachOwed.has(booking.id) ? { coachOwed: coachOwed.get(booking.id)! } : {}),
     });
   }
   return list;
@@ -6353,9 +6384,9 @@ export async function refundBookingToWallet(bookingId: number, share = 1): Promi
   if (charges.length === 0) return { ok: false, error: "This booking was not paid from credit." };
 
   const db = getDb();
-  // Credit given back for a place taken off it (lib/place-withdrawals.ts) is not the booking's own refund.
+  // Credit given back for a place taken off it (lib/place-withdrawals.ts), or for a cheaper coach (lib/lesson-coaches.ts), is not the booking's own refund.
   const refunded = await db
-    .prepare("SELECT id FROM wallet_entries WHERE booking_id = ? AND amount > 0 AND withdrawal_id IS NULL")
+    .prepare("SELECT id FROM wallet_entries WHERE booking_id = ? AND amount > 0 AND withdrawal_id IS NULL AND coach_change_id IS NULL")
     .get(bookingId);
   if (refunded) return { ok: false, error: "This booking has already been refunded." };
 
@@ -6412,16 +6443,17 @@ export async function paymentPageOpen(bookingId: number): Promise<boolean> {
 
 /**
  * The part of a paid booking's price still on it: all of it, less places taken
- * off while it was paid (lib/place-withdrawals.ts), whose money was settled
- * then. What a cancellation gives back is of this part only. The booking's
- * own part, that is: what was settled from a deposit is the deposit's
- * (`depositGone`).
+ * off while it was paid (lib/place-withdrawals.ts) and what went back for a
+ * cheaper coach (lib/lesson-coaches.ts), whose money was settled then. What a
+ * cancellation gives back is of this part only. The booking's own part, that
+ * is: what was settled from a deposit is the deposit's (`depositGone`).
  */
 export async function paidPartLeft(bookingId: number): Promise<number> {
   const row = (await getDb()
     .prepare(
       `SELECT (b.total_price - b.shares_paid)::float AS base,
-              (SELECT COALESCE(SUM(w.price - w.deposit_part), 0) FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid)::float AS gone
+              ((SELECT COALESCE(SUM(w.price - w.deposit_part), 0) FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid)
+               + (SELECT COALESCE(SUM(l.refunded), 0) FROM lesson_coach_changes l WHERE l.booking_id = b.id AND l.paid))::float AS gone
          FROM bookings b WHERE b.id = ?`
     )
     .get(bookingId)) as { base: number; gone: number } | undefined;
@@ -6450,6 +6482,8 @@ async function refundBooking(bookingId: number, share = 1): Promise<void> {
   // A pass's spends are each given back once: a place taken off already settled its own.
   await refundBookingToPass(bookingId, share);
   await noteOnlineRefundDue(bookingId, share, left);
+  // A difference collected for a dearer coach is credited as the lesson is; one still owed no longer is.
+  await (await import("./lesson-coaches")).coachChangesCancelled(bookingId, share);
   // The customer never had the benefit, so a limited code is not poorer for it.
   await releasePromoUse(bookingId);
   // An open game on it goes too, and its players' shares are owed back.

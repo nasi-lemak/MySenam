@@ -29,6 +29,7 @@ import { coverStanding } from "@/lib/membership-purchases";
 import { guardianshipsOf } from "@/lib/participants";
 import { onlineTopUpsAllowed, renewalsFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
 import { listCoaches } from "@/lib/coaching";
+import { coachChoice } from "@/lib/lesson-coaches";
 import { sportLabel } from "@/lib/i18n";
 import { intlTag, money } from "@/lib/region";
 import JoinMembership, { type Dependant, type FamilyMembership, type JoinStanding } from "@/components/JoinMembership";
@@ -115,6 +116,9 @@ export default async function VenuePage({
   const online = await takesPaymentOnline(venue.id);
   const plans = online ? await listPlans(venue.id) : [];
   const coaches = await listCoaches(venue.id, { activeOnly: true });
+  // Who chooses the coach of a lesson here (lib/lesson-coaches.ts): the venue assigning, a lesson is booked by sport.
+  const venueAssigns = coaches.length > 0 && (await coachChoice(venue.id)) === "venue";
+  const lessonSports = [...new Set(coaches.flatMap((c) => c.sports))];
   // Gift vouchers sold online, where credit bought here stays here (lib/vouchers.ts).
   const gifts = online && onlineTopUpsAllowed() && access.access !== "private";
   let standing: JoinStanding = { kind: "signIn" };
@@ -317,6 +321,22 @@ export default async function VenuePage({
         <section className="rounded-xl border border-slate-200 bg-white px-4 py-3">
           <h2 className="font-semibold">🎓 {t("coach.title")}</h2>
           <p className="mt-0.5 text-xs text-slate-500">{t("coach.intro")}</p>
+          {venueAssigns && (
+            <div className="mt-2 space-y-2">
+              <p className="text-xs text-slate-500">{t("co6.assigns")}</p>
+              <div className="flex flex-wrap gap-2">
+                {lessonSports.map((s) => (
+                  <Link
+                    key={s}
+                    href={`/venue/${venue.id}/lesson?sport=${s}`}
+                    className="rounded-lg border border-teal-300 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+                  >
+                    {t("co6.bookSport", { sport: sportLabel(t, s) })}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
           <ul className="mt-2 divide-y divide-slate-100">
             {coaches.map((c) => (
               <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
@@ -325,12 +345,14 @@ export default async function VenuePage({
                   <span className="text-slate-500"> · {c.sports.map((s) => sportLabel(t, s)).join(", ")} · {t("coach.rate", { amount: money(c.rate) })}</span>
                   {c.bio && <span className="block text-xs text-slate-500">{c.bio}</span>}
                 </span>
-                <Link
-                  href={`/venue/${venue.id}/coach/${c.id}`}
-                  className="rounded-lg border border-teal-300 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
-                >
-                  {t("coach.book")}
-                </Link>
+                {!venueAssigns && (
+                  <Link
+                    href={`/venue/${venue.id}/coach/${c.id}`}
+                    className="rounded-lg border border-teal-300 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+                  >
+                    {t("coach.book")}
+                  </Link>
+                )}
               </li>
             ))}
           </ul>

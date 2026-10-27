@@ -70,6 +70,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "membership.cover_corrected": "Corrected whom a membership covers",
   "checkin.membership_admitted": "Admitted somebody whose membership did not cover the session",
   "membership.flag_resolved": "Decided a booking a membership no longer covers",
+  "lesson.coach_changed": "Gave a lesson to another coach",
+  "lesson.coach_difference_paid": "Took the difference for a dearer coach",
   "membership.plan_added": "Added a membership plan",
   "membership.plan_retired": "Retired a membership plan",
   "pass.sold": "Sold a pass",

@@ -272,6 +272,8 @@ const en = {
   "mb6.act.coverCorrected": "Corrected whom a membership covers",
   "mb6.act.memberAdmitted": "Admitted somebody whose membership did not cover the session",
   "mb6.act.flagResolved": "Decided a booking a membership no longer covers",
+  "mb6.act.coachChanged": "Gave a lesson to another coach",
+  "mb6.act.coachDifferencePaid": "Took the difference for a dearer coach",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -545,6 +547,8 @@ const ms: Record<keyof typeof en, string> = {
   "mb6.act.coverCorrected": "Membetulkan siapa yang dilindungi keahlian",
   "mb6.act.memberAdmitted": "Membenarkan masuk seseorang yang keahliannya tidak meliputi sesi itu",
   "mb6.act.flagResolved": "Memutuskan tempahan yang tidak lagi diliputi keahlian",
+  "mb6.act.coachChanged": "Memberikan pelajaran kepada jurulatih lain",
+  "mb6.act.coachDifferencePaid": "Menerima beza bayaran untuk jurulatih yang lebih mahal",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -818,6 +822,8 @@ const zh: Record<keyof typeof en, string> = {
   "mb6.act.coverCorrected": "更正了会员资格涵盖的人",
   "mb6.act.memberAdmitted": "允许会员资格未涵盖该场次的人进场",
   "mb6.act.flagResolved": "处理了会员资格不再涵盖的预订",
+  "mb6.act.coachChanged": "将课程改由另一位教练授课",
+  "mb6.act.coachDifferencePaid": "收取了更贵教练的差额",
 };
 
 const area = { en, ms, zh };
