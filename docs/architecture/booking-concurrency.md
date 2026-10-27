@@ -24,9 +24,23 @@ themselves are in [booking](../features/booking.md).
   claim's end (migration 0094), so under serializable checks two bookings at
   different venues do not see each other. Waiting-list offers past their
   time are let go only when a claim conflicts with one, not by a scan before
-  every claim. The one shared read left is the bookings index page a new
-  booking's claim checks its booking against: unrelated bookings at that
-  moment can make one of them retry (measured at 2 in 1,920).
+  every claim.
+- **Rows pointing at a booking are checked at commit** (migration 0206). A
+  claim, the people on a booking, a coach's claim and every other row that
+  points at a booking is checked against it when the transaction commits,
+  not as it is written. Checked at once, each read the page of the bookings
+  index every new booking is written to, and kept that read while the
+  transaction ran: three bookings with nothing in common, each writing to
+  that page after the one before had read it, made the middle one a pivot,
+  cancelled and run again. On a loaded server every transaction runs longer
+  and those retries came in runs (the whole suite on four busy cores once
+  counted 36 for 24 bookings on different courts of one venue, all booked in
+  the end). Checked at commit, the read comes after everything the
+  transaction writes. `tests/booking-references-deferred.test.ts` replays
+  that order of events on Postgres: checked at once, the middle booking is
+  cancelled every time; checked at commit, all three commit. A row pointing
+  at a missing booking still fails, at commit; what happens to those rows
+  when a booking is deleted is not deferred.
 - **Advisory locks, in one order.** Before claiming, a booking takes
   `pg_advisory_xact_lock` on each space it will hold, on a shared court, and
   on its coach (`lockAll` in `src/lib/claims.ts`), sorted, kinds in a fixed
@@ -58,7 +72,7 @@ themselves are in [booking](../features/booking.md).
 | Guarantee | Status | Evidence | Gaps |
 | --------- | ------ | -------- | ---- |
 | A minute of an exclusive court is sold once | Verified on Postgres | Exclusion constraint `claims_no_overlap` (migration 0089); raw SQL refused in `tests/capacity.test.ts` "is still the database that prevents overbooking"; `tests/concurrency.test.ts` "sells the last court to one person"; `tests/intervals.test.ts` "race for the same minutes, and only one gets them"; `tests/contention.test.ts`: 24 at once for one court, four rounds: one booked, the rest refused as taken (not busy), each round under 8 s, no claim left behind | Measured on one machine (four cores). The contention and concurrency files passed 20 runs in a row on Postgres 16, 7–8 s a run |
-| Independent bookings do not fail each other | Verified on Postgres | `tests/contention.test.ts`: 24 at once at 24 venues, and on 24 courts of one venue, four rounds each: all booked, at most two retries a round, none out of tries; the [benchmark](../development/testing.md#results): fifty at once at 400 venues, no errors | A booking can still be retried, rarely (above) |
+| Independent bookings do not fail each other | Verified on Postgres | `tests/contention.test.ts`: 24 at once at 24 venues, and on 24 courts of one venue, four rounds each: all booked, at most two retries a round, none out of tries; `tests/booking-references-deferred.test.ts`: the order of events that made one of three a pivot now commits all three; the [benchmark](../development/testing.md#results): fifty at once at 400 venues, no errors | Measured on one machine; a retry is still possible where two transactions really read what the other wrote |
 | A shared facility never holds more than its capacity | Verified on Postgres | Capacity trigger `claims_capacity` under a court-row lock, counting bookings, offers and partial blocks; raw SQL refused in `tests/capacity.test.ts`; "sells a shared floor's places once each"; `tests/intervals.test.ts` "fills a shared facility to its places at every moment"; `tests/contention.test.ts`: 24 at once for a floor of five, four rounds: five booked | — |
 | Linked courts take each other | Verified on Postgres | Shared spaces; `tests/court-links.test.ts` including a two-request race and two wholes over one part; `tests/intervals.test.ts` "holds the court over it too"; `tests/contention.test.ts`: a pitch and its three courts asked for three times each at once, four rounds: the pitch or its courts, never both | Linking is one level deep (a rule of the editor, not of storage). |
 | Nothing overlaps a block, class, outage, offer or buffer | Verified on Postgres | All are claims under the same constraint; `tests/outages.test.ts` "a booking made while a court is being taken out"; `tests/move.test.ts` "never leave a booking inside the block"; `tests/intervals.test.ts` buffers | — |

@@ -289,13 +289,13 @@ there):
   before and after B12–B14 were fixed; not in CI, so a slower query is
   noticed only when somebody runs it again. `tests/query-plans.test.ts`
   checks the indexes are used, not the timings (P2).
-- **Independent bookings are retried, rarely.** Inserting a claim checks
-  its booking exists, which reads the page of the bookings index every new
-  booking is written to, and Postgres's serializable checks work by the
-  page; two unrelated bookings committing at that moment can make one of
-  them run again. Measured at 2 retries in 1,920 bookings; a booking that
-  is still in conflict after ten tries is refused as busy (`BUSY`, 503 with
-  `Retry-After`), never half done ([booking concurrency](../architecture/booking-concurrency.md)) (P3).
+- **A booking is retried where it really collides.** Rows that point at a
+  booking are checked at commit (migration 0206), which removed the one
+  read unrelated bookings shared (see *fixed since the audit*, B30); a
+  booking that still collides with another is run again, and one still in
+  conflict after ten tries is refused as busy (`BUSY`, 503 with
+  `Retry-After`), never half done. Concurrency is measured on one machine,
+  not under production load ([booking concurrency](../architecture/booking-concurrency.md)) (P3).
 - **Staffed hours are whole hours** (`staffed_from`/`staffed_to`): a desk that
   shuts at 9:30 PM is entered as 9 PM or 10 PM. Whether a booking is staffed
   is judged by its whole time, and one staffed for only part of it gets the
@@ -541,6 +541,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | M17 | A percentage promo code was rounded half up before the documented round-down (15% of RM10.05 gave RM1.51) | `tests/discount-stacking.test.ts` |
 | S20 | A participant whose only link to a venue was a concession proof, a membership or a pass sold there was not known to that venue, so its staff could not find or act on them; those links now make them known to that venue and its business's branches only | `tests/participants-known-links.test.ts` |
 | B29 | Where the site could not check phone numbers, staff and guardians were still offered a code for a guardian recorded by name and number to take their relationship over, which could never succeed (the account must prove the recorded number); the code is now neither offered nor made there, and staff are told to invite the account as another guardian | `tests/guardian-contact.test.ts` |
+| B30 | Independent bookings retried each other under load: a claim (and every row pointing at a booking) checked its booking as it was written, reading the page of the bookings index every new booking goes to and keeping that read, so three unrelated bookings in a row made the middle one a pivot; on a loaded machine the retries came in runs (36 for 24 bookings on different courts of one venue in a full Postgres run, every booking made). Rows pointing at a booking are now checked at commit (migration 0206) | `tests/booking-references-deferred.test.ts` (on Postgres, the old order of events cancels the middle booking every time; now all three commit), `tests/contention.test.ts` |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number

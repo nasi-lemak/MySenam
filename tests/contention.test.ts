@@ -98,7 +98,7 @@ describe("independent bookings at the same moment", () => {
       // claim checks its booking exists, which reads the page of the bookings
       // index every new booking is written to, and Postgres's serializable
       // checks work by the page. Measured at 2 retries in 1,920 bookings.
-      expect(retried()).toBeLessThanOrEqual(2);
+      expect(retried(), JSON.stringify(transactionStats())).toBeLessThanOrEqual(2);
       expect(transactionStats().exhausted).toBe(0);
       expect(ms).toBeLessThan(QUICK_MS);
     }
@@ -117,7 +117,7 @@ describe("independent bookings at the same moment", () => {
         Promise.all(courts.map((c) => createBooking({ courtId: c.id, date, start: 18 * 60, end: 19 * 60, name: "Neighbour", phone: phone() })))
       );
       expect(results.filter((r) => !r.ok).map((r) => (r.ok ? "" : r.code)), JSON.stringify(transactionStats())).toEqual([]);
-      expect(retried()).toBeLessThanOrEqual(2);
+      expect(retried(), JSON.stringify(transactionStats())).toBeLessThanOrEqual(2);
       expect(transactionStats().exhausted).toBe(0);
       expect(ms).toBeLessThan(QUICK_MS);
     }
