@@ -768,6 +768,10 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
     (and joining the list), a class, and moving the booking to another date. A
     manager going past the booking rules may book without it, and it is
     recorded as an override (`lib/entitlements.ts`, `membersOnlyRefusal`).
+  - *A tournament entry or a league place* for a participant is theirs in the
+    same way: their own membership or a family one naming them, whoever
+    enters them, online or at the counter
+    ([who enters and how](tournaments.md#who-enters-and-how)).
 - **Private**: in no search, list, map, classes, games, tournaments or leagues
   page — not even on its own storefront's lists. Its page, availability and
   QR poster answer only its staff and the people on its list; somebody not

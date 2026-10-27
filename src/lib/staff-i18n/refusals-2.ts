@@ -637,4 +637,6 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
     zh: "审核日期早于这些期限最近一次更改：它不可能审核的是现行期限。",
   },
   "Give a reference to the written advice, kept outside MySenam.": { ms: "Berikan rujukan kepada nasihat bertulis, yang disimpan di luar MySenam.", zh: "请填写书面意见的参考编号（保存在 MySenam 之外）。" },
-};
+  "Give the player's phone number (or their guardian's).": { ms: "Berikan nombor telefon pemain (atau penjaganya).", zh: "请填写球员（或其监护人）的电话号码。" },
+  "Give the player's name.": { ms: "Berikan nama pemain.", zh: "请填写球员姓名。" },
+  "participantId must be a participant's id.": { ms: "participantId mestilah id peserta.", zh: "participantId 须为参与者的 id。" },};

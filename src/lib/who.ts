@@ -64,7 +64,20 @@ export async function categoryRefusal(
   pair: { partnerGender?: "woman" | "man" | null } | null
 ): Promise<Refusal | null> {
   if (category === "open") return null;
-  const gender = await playerGender(userId);
+  return categoryRefusalFor(await playerGender(userId), category, pair);
+}
+
+/**
+ * The same rule for a gender said some other way than on the player's own
+ * account: what a guardian declares for a participant they enter, or what
+ * staff are told at the counter. `GENDER_NEEDED` where it was not said.
+ */
+export function categoryRefusalFor(
+  gender: Gender | null,
+  category: Category,
+  pair: { partnerGender?: "woman" | "man" | null } | null
+): Refusal | null {
+  if (category === "open") return null;
   if (gender === null) return refuse("GENDER_NEEDED");
   if (pair && !pair.partnerGender) return refuse("PARTNER_GENDER");
   if (category === "mixed") {

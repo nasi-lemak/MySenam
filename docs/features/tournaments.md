@@ -18,8 +18,9 @@ Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-correcti
   events ([programmes](programmes.md#women-only-and-men-only)); persistent
   teams and matchmaking ([open games and matchmaking](matchmaking.md)).
 - **Who does what:** a venue's managers set up, correct, disqualify and
-  resolve; front-desk staff enter results and check entrants in; an
-  official enters results through a link; players enter, withdraw before the
+  resolve; front-desk staff enter results, check entrants in, and enter
+  players at the counter; an official enters results through a link;
+  players enter (themselves, or somebody they act for), withdraw before the
   draw, report and confirm their own results where the tournament allows it,
   and run their league matches themselves.
 
@@ -69,7 +70,9 @@ rules, which start from the sport's template
   Those hours are **held at once**: ordinary blocks with the tournament's
   name, so every booking path already treats them as taken. It will not hold
   over a booking already made, or a court out of service, and says which.
-- **Entries:** players enter with their account and pay the fee online to the
+- **Entries:** players enter with their account, a guardian enters somebody
+  they act for, or staff enter somebody at the counter
+  ([who enters and how](#who-enters-and-how)); the fee is paid online to the
   venue, or at its counter, where staff tick it off. Past the limit they go on
   a waiting list, and move up, and are told, when somebody withdraws. In a
   performance event they can give an entry time or mark to be seeded by.
@@ -94,7 +97,11 @@ rules, which start from the sport's template
     document is asked for or stored. The guardian's name is in the
     entrant's export and erased with their account. An event with no age
     range asks for no dates of birth, so minors in it are not detected.
-  - **Members only:** an active membership at the venue.
+  - **Members only:** the entrant's own active membership at the venue (or
+    its business), on the day of entry, or a family membership naming them;
+    never somebody else's: a guardian's membership does not make a child it
+    does not name a member ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)).
+    At the counter, the number given counts on staff's word.
   - Points by set score, where wanted, under *Scoring and ranking*: four
     numbers for a clear win, a deciding-set win, a deciding-set loss and a
     clear loss, in place of points per win.
@@ -414,6 +421,51 @@ The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
   walkover or the finish. They are queued in the [outbox](../integrations/messaging.md),
   so one that fails is retried.
 
+## Who enters and how
+
+One set of checks for every way in (`src/lib/competition-entrants.ts`;
+`enterAs` for a tournament, `joinAs` for a league):
+
+- **The account holder, for themself**, as always: their account's gender
+  for a women's, men's or mixed event, their own membership, the venue's
+  rule on who it is for (`src/lib/access.ts`).
+- **A guardian, for somebody they act for** (a participant,
+  [ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)),
+  from the same page, choosing who is entering. The participant is the
+  entrant: the age range, the category and a members-only rule are theirs.
+  The guardian declares the participant's date of birth and, in a women's,
+  men's or mixed event, their gender (recorded as said, never verified);
+  for a declared minor the guardian gives the agreement, under their own
+  name. Never somebody another adult manages. At a members-only venue the
+  participant needs their own membership or a family membership naming them
+  (the guardian need not be a member, as for a members' session); at a
+  private venue the guardian's account must be on the list. The guardian's
+  account acts for the entry: it pays, withdraws before the draw, reports
+  and answers results, is emailed (the email names who the entry is for),
+  and its number is what league box-mates are given. The entry is in the
+  participant's history. An account on both sides of a match (two children
+  of one guardian) reports for neither: staff enter that result.
+- **Staff at the counter** (front desk or a manager, as a counter booking):
+  *Enter somebody at the counter* in a tournament, *Add a player at the
+  counter* in a league. The number and name given are taken on staff's word;
+  or staff type a guardian's number and choose a participant the venue knows
+  with a live guardian on it (a number never makes anybody a guardian).
+  Everything the event asks is asked as online (a gender for a women's,
+  men's or mixed event, dates of birth, a guardian's agreement); a
+  participant at a members-only venue needs their own membership. There is
+  no account: the entry keeps the number to reach them (a contact, not proof
+  of who they are) and who entered it, shown to staff and in the activity
+  log; nobody is emailed. A league's box-mates are given that number, which
+  staff say to the player.
+
+Each person enters once: an account for itself, and each participant however
+many guardians act for them (unique indexes, migration 0178). A
+competition's cap on divisions counts per person: the participant, not the
+guardian's account; the scheduler keeps one person off two courts at once the
+same way. A guardian closing their account leaves the participant's entry in
+place, without the account; a participant's record erased takes them out of
+what is still to come and their name off every draw and box.
+
 ## Box leagues
 
 Venues run them from the dashboard's *Leagues* tab; players find them at
@@ -424,7 +476,11 @@ Venues run them from the dashboard's *Leagues* tab; players find them at
   6, default 4), one or two up and down, season length, a fee per season, and
   when the first season starts. Nothing is held: players book courts like
   anybody else.
-- **Joining**: with an account, at any time. A player joining mid-season goes
+- **Joining**: with an account, at any time, for themself or for somebody
+  they act for, or added by staff at the counter
+  ([who enters and how](#who-enters-and-how)). In a women's or men's league
+  of pairs the partner's gender is declared too, and checked as a
+  tournament's is. A player joining mid-season goes
   into a box at the next one. Joining says plainly that box-mates will see
   your name and phone number — that is how matches get arranged — and only
   box-mates in the season being played see them, with a WhatsApp link.
@@ -446,7 +502,18 @@ Venues run them from the dashboard's *Leagues* tab; players find them at
   who won; the other confirms it, or says it is wrong and why — staff are
   emailed and decide it. A report nobody answers stands after three days.
   Staff can also enter any result, give a walkover, strike a match, or put it
-  back to be played. Tables use the league's rules, as a tournament group's.
+  back to be played; both sides are then emailed what the venue decided, in
+  their own language, and it is in the activity log. Tables use the league's
+  rules, as a tournament group's.
+- **A result changes only as it was seen.** Every change to a match is one
+  transaction on its locked row, made only if its status and version are
+  still those read (migration 0177): a correction never lands on a result
+  confirmed, disputed or decided meanwhile, and a confirmation or a dispute
+  names the version the player saw, so one of a result corrected since is
+  refused (*the result changed*: look again). Staff decide on the version
+  they were shown, refused the same way if a player reported or answered
+  since. The version moves with every change, by whatever path (a walkover
+  on leaving, a report standing, the end of a season).
 - **Seasons start and end by themselves.** A season starts on its date if
   three or more have joined, and ends three days after its last day, for late
   results; staff can do either sooner, or move the start. At the end,
@@ -467,10 +534,9 @@ Venues run them from the dashboard's *Leagues* tab; players find them at
 **What leagues do not do**: they are box leagues of singles or doubles pairs
 only (no team leagues, no fixed fixture dates: players arrange their matches
 and book courts themselves); the level is shown, not enforced; a doubles
-partner is a name, and only the player who joins is held to a women-only or
-men-only rule; there is no ranking across seasons beyond the box a player
-carries into the next; players are not emailed when staff decide a disputed
-result or give a walkover.
+partner is a name, whose gender is declared, not checked; there is no
+ranking across seasons beyond the box a player carries into the next; and
+somebody added at the counter is not emailed (they have no account).
 
 The box arithmetic — sizes, who moves, the order for next season — is in
 `src/lib/boxes.ts`, apart from the database, and tested on its own.
@@ -486,7 +552,9 @@ The box arithmetic — sizes, who moves, the order for next season — is in
 - **Women's, men's and mixed** events and leagues use the shared
   self-declared rule ([programmes](programmes.md#women-only-and-men-only)).
 - **Players' data**: declared dates of birth, guardians' names, entries and
-  league places are in the data export and go with the account
+  league places are in the data export and go with the account (a
+  participant's are in their own record, in their guardian's export, and go
+  with that record)
   ([privacy](../architecture/privacy.md)).
 - **Results** entered by officials or confirmed by players go through the
   same `recordResult` as staff's; box leagues score and rank by the same
@@ -502,7 +570,8 @@ The box arithmetic — sizes, who moves, the order for next season — is in
 | Competitions with divisions, who may enter | `src/lib/competitions.ts` | `tests/divisions.test.ts`, `tests/components/tournament-entry.test.tsx` |
 | Performance events | `src/lib/performance-math.ts` | `tests/competitions.test.ts` |
 | Results by players and officials | `src/lib/match-reports.ts` | `tests/match-reports.test.ts`, `tests/components/official-page.test.tsx` |
-| Box leagues | `src/lib/leagues.ts`, `src/lib/boxes.ts` | `tests/leagues.test.ts`, `tests/boxes.test.ts` |
+| Box leagues | `src/lib/leagues.ts`, `src/lib/boxes.ts` | `tests/leagues.test.ts`, `tests/boxes.test.ts`, `tests/league-results-race.test.ts` (also against Postgres) |
+| Who enters: a guardian for a participant, staff at the counter, members only by the entrant's own membership | `src/lib/competition-entrants.ts`, `src/components/admin/CounterEntry.tsx` | `tests/competition-entrants.test.ts`, `tests/components/competition-entrants.test.tsx` |
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 
@@ -517,3 +586,9 @@ Which parts are verified, and how, is in
 - More formats, ranking rules, ratings and an enforced level, and tournament
   day announcements, are roadmap rows, not commitments
   ([roadmap](../roadmap/roadmap.md)).
+- Box-league results are checked and ranked by the same rules as a
+  tournament's (`scoreRefusal`, `standings`), but recorded by their own
+  functions in `src/lib/leagues.ts`, not by `recordResult`, which is a
+  tournament's (its progression, corrections and issues have no league
+  counterpart). `AGENTS.md` says box leagues use `recordResult`: which is
+  intended is the owner's to say.

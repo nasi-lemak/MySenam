@@ -8,8 +8,12 @@ import { rateLimit } from "@/lib/rate-limit";
 export const dynamic = "force-dynamic";
 
 /**
- * A player on one of their own matches: `{ action: "report", winner, score }`
- * (their games first), `{ action: "confirm" }`, or `{ action: "dispute", note }`.
+ * A player on one of their own matches (or one of somebody they entered):
+ * `{ action: "report", winner, score, version? }` (their games first),
+ * `{ action: "confirm", version }`, or `{ action: "dispute", note, version }`.
+ * `version` is the match's as the player saw it (`LeagueMatch.version`): an
+ * answer to a result that changed since is refused (code LG5_RESULT_CHANGED),
+ * and confirming or disputing needs it.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; matchId: string }> }) {
   const user = await getSessionUser(req);
@@ -26,15 +30,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (limited) return limited;
   const body = await jsonBody(req);
   if (body instanceof NextResponse) return body;
+  const version = Number.isInteger(body.version) ? (body.version as number) : undefined;
+  // An answer is to the result the player saw, so it names it.
+  if ((body.action === "confirm" || body.action === "dispute") && version === undefined)
+    return NextResponse.json({ error: "Say which result you are answering: version is needed." }, { status: 400 });
   const result =
     body.action === "report"
-      ? await reportResult(user.id, match.id, { winner: Number(body.winner), score: String(body.score ?? "") })
+      ? await reportResult(user.id, match.id, { winner: Number(body.winner), score: String(body.score ?? "") }, { version })
       : body.action === "confirm"
-        ? await confirmResult(user.id, match.id)
+        ? await confirmResult(user.id, match.id, { version })
         : body.action === "dispute"
-          ? await disputeResult(user.id, match.id, String(body.note ?? ""))
+          ? await disputeResult(user.id, match.id, String(body.note ?? ""), { version })
           : null;
   if (!result) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return NextResponse.json({ error: result.error, ...(result.code ? { code: result.code } : {}) }, { status: 409 });
   return NextResponse.json({ match: result.value });
 }

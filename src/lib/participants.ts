@@ -914,6 +914,23 @@ export async function eraseParticipant(id: number, why: string): Promise<void> {
   // A waiting-list entry for them is offered to nobody (lib/store.ts entryStillTheirs).
   await db.prepare("UPDATE waitlist_participants SET participant_id = NULL, name = NULL WHERE participant_id = ?").run(id);
   await db.prepare("UPDATE waiver_signatures SET managed_person_id = NULL WHERE managed_person_id = ?").run(id);
+  // Out of tournaments still to come and of their leagues, and their name off every draw and box (as an account's, lib/privacy.ts).
+  const { withdraw } = await import("./tournaments");
+  const entered = (await db
+    .prepare(
+      `SELECT e.id FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id
+        WHERE e.participant_id = ? AND e.status <> 'withdrawn' AND t.status IN ('open', 'closed', 'drawn')`
+    )
+    .all(id)) as { id: number }[];
+  for (const e of entered) await withdraw(e.id);
+  const { ANONYMOUS } = await import("./privacy");
+  await db
+    .prepare(
+      `UPDATE tournament_entries SET name = ?, partner_name = NULL, user_id = NULL, birth_date = NULL, partner_birth_date = NULL, guardian_name = NULL,
+              eligibility_checked_by = NULL, contact_phone = NULL, participant_id = NULL WHERE participant_id = ?`
+    )
+    .run(ANONYMOUS, id);
+  await (await import("./leagues")).forgetLeagueParticipant(id, ANONYMOUS);
   await db.prepare("DELETE FROM participants WHERE id = ?").run(id);
 }
 
@@ -943,6 +960,21 @@ async function participantRecord(id: number): Promise<Record<string, unknown>> {
       .prepare(
         `SELECT v.name AS venue, s.name AS agreed_by, s.signed_at FROM waiver_signatures s JOIN venue_waivers w ON w.id = s.waiver_id JOIN venues v ON v.id = w.venue_id
           WHERE s.managed_person_id = ? ORDER BY s.signed_at`
+      )
+      .all(id),
+    tournaments: await db
+      .prepare(
+        `SELECT t.name AS tournament, t.starts_on, v.name AS venue, e.name AS entered_as, e.status, e.paid_at,
+                e.birth_date AS declared_birth_date, e.guardian_consent_at, e.created_at
+           FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id JOIN venues v ON v.id = t.venue_id
+          WHERE e.participant_id = ? ORDER BY t.starts_on DESC`
+      )
+      .all(id),
+    leagues: await db
+      .prepare(
+        `SELECT l.name AS league, v.name AS venue, p.name AS playing_as, p.status, p.joined_at
+           FROM league_players p JOIN leagues l ON l.id = p.league_id JOIN venues v ON v.id = l.venue_id
+          WHERE p.participant_id = ? ORDER BY p.id`
       )
       .all(id),
   };

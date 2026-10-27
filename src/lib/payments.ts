@@ -1798,15 +1798,21 @@ export async function startSplitPayment(
 // ------------------------------------------------------------ tournament entry fees
 
 /** A player paying their tournament entry fee, online, to the venue running it. */
-export async function startEntryPayment(user: { id: number; name: string; phone: string; email: string }, tournamentId: number): Promise<StartResult> {
+export async function startEntryPayment(
+  user: { id: number; name: string; phone: string; email: string },
+  tournamentId: number,
+  /** One of the entries this account acts for (its own, or a participant's it made); its own when not given. */
+  entryId?: number
+): Promise<StartResult> {
   const db = getDb();
   const row = (await db
     .prepare(
       `SELECT e.id, e.status, e.paid_at, t.name, t.entry_fee::float AS fee, t.status AS t_status, t.venue_id, t.starts_on
          FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id
-        WHERE e.tournament_id = ? AND e.user_id = ? AND e.status <> 'withdrawn' ORDER BY e.id DESC LIMIT 1`
+        WHERE e.tournament_id = ? AND e.user_id = ? AND e.status <> 'withdrawn'
+          AND ${entryId === undefined ? "e.participant_id IS NULL" : "e.id = ?"} ORDER BY e.id DESC LIMIT 1`
     )
-    .get(tournamentId, user.id)) as
+    .get(...[tournamentId, user.id, ...(entryId === undefined ? [] : [entryId])])) as
     | { id: number; status: string; paid_at: string | null; name: string; fee: number; t_status: string; venue_id: number; starts_on: string }
     | undefined;
   if (!row) return { ok: false, error: "You have not entered.", status: 404 };
@@ -2018,7 +2024,12 @@ async function makePaidMembership(row: PaymentRow): Promise<number | null> {
 // ------------------------------------------------------------ league fees
 
 /** A player paying this season's league fee, online, to the venue running it. */
-export async function startLeaguePayment(user: { id: number; name: string; phone: string; email: string }, leagueId: number): Promise<StartResult> {
+export async function startLeaguePayment(
+  user: { id: number; name: string; phone: string; email: string },
+  leagueId: number,
+  /** One of the league places this account acts for (its own, or a participant's it holds); its own when not given. */
+  playerId?: number
+): Promise<StartResult> {
   const db = getDb();
   const row = (await db
     .prepare(
@@ -2027,9 +2038,9 @@ export async function startLeaguePayment(user: { id: number; name: string; phone
          JOIN league_seasons s ON s.id = lp.season_id AND s.status = 'running'
          JOIN league_players p ON p.id = lp.player_id
          JOIN leagues l ON l.id = s.league_id
-        WHERE l.id = ? AND p.user_id = ? AND p.status = 'active'`
+        WHERE l.id = ? AND p.user_id = ? AND p.status = 'active' AND ${playerId === undefined ? "p.participant_id IS NULL" : "p.id = ?"}`
     )
-    .get(leagueId, user.id)) as
+    .get(...[leagueId, user.id, ...(playerId === undefined ? [] : [playerId])])) as
     | { id: number; paid_at: string | null; withdrawn_at: string | null; number: number; name: string; fee: number; venue_id: number }
     | undefined;
   if (!row || row.withdrawn_at) return { ok: false, error: "You are not in a box this season.", status: 404 };

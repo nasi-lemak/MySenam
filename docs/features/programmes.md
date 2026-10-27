@@ -217,7 +217,12 @@ both ways.
   doubles the partner is the same. Mixed doubles is doubles only, and the
   entrant says whether their partner is a woman or a man — it must be one of
   each.
-- **Leagues** take the same choice as games.
+- **Leagues** take the same choice as games; in a league of pairs the
+  partner is the same, as declared by whoever joins.
+- **Somebody without an account of their own** — a participant a guardian
+  enters, or a player staff enter at the counter — has their gender
+  declared at entry, where the event or league asks it
+  ([who enters and how](tournaments.md#who-enters-and-how)).
 - **Classes.** A signed-in customer is checked by their account. A guest
   enrolling without one ticks "I am a woman: this class is for women only" —
   the same self-declaration an account makes. The waiting list asks the same.

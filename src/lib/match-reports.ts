@@ -95,8 +95,13 @@ async function matchSides(matchId: number): Promise<MatchSides | undefined> {
     .get(matchId)) as MatchSides | undefined;
 }
 
-/** The side this account plays in the match, or null. */
+/**
+ * The side this account plays in the match, or acts for (a participant it
+ * entered), or null. An account on both sides (a guardian whose two children
+ * meet) reports for neither: staff enter that result.
+ */
 function sideOf(m: MatchSides, userId: number): number | null {
+  if (m.user_a === userId && m.user_b === userId) return null;
   if (m.user_a === userId) return m.entry_a;
   if (m.user_b === userId) return m.entry_b;
   return null;
