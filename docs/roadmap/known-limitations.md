@@ -353,7 +353,7 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   lessons, open games, bookings on a company account, deposits, shared
   payments and open payment pages, which are cancelled whole; a class place
   is withdrawn by cancelling that child's enrolment; the notice is an email
-  only (no WhatsApp template); the waiting list is joined online only; QR
+  only (no WhatsApp template); QR
   self check-in and door codes check a booking in as a whole, though the
   door asks for each person's own eligibility ([taking one person off](../features/booking.md#taking-one-person-off-a-booking)) (P3).
 - **Benefits by scope have gaps** ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
