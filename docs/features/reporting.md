@@ -40,10 +40,17 @@ booking was taken, because that is how an operator thinks about a month.
   outage takes out for its time. Two kayaks of six blocked for an hour take
   two place-hours, not the hour; the cell says how many were taken out
   (`tests/partial-blocks.test.ts`, `tests/components/occupancy-tab.test.tsx`).
-  Its venue total adds the courts' lines together, so unlike the report it
-  neither counts a pitch's floor once nor keeps shared facilities apart.
+  A court's cell counts the hours it was in use, so a court under a booked
+  pitch shows that hour too. Below the courts each day has two totals,
+  measured exactly as the report measures that day (`measureUse` in
+  `src/lib/reports.ts`, shared by both): the courts' floor, counted once, and
+  the shared facilities' places, apart. They are not the cells added up: a
+  pitch over two courts booked for an hour is two hours of floor, not three,
+  and a busy gym does not move the courts' figure. A row is left out where
+  the venue has nothing of its kind (`tests/occupancy-totals.test.ts`).
 - **Utilisation is reported twice**, for exclusive courts and for shared floors
-  and pools (places sold against places offered), never blended. A forty-place gym offers more place-hours in a
+  and pools (places sold against places offered: a booking takes as many
+  places as it has players), never blended. A forty-place gym offers more place-hours in a
   fortnight than every court in the building put together, so one combined
   figure lets the gym decide the headline and teaches an owner nothing about
   either. The demo data is what made that obvious: courts read 13% while the

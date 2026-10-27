@@ -217,7 +217,6 @@ const en = {
   "occ.court": "Court",
   "occ.cell": "{booked}/{places} places booked",
   "occ.cellBlocked": "{booked}/{places} places booked; {out} more taken out of service",
-  "occ.venueTotal": "Venue total",
 
   // Needs attention
   "att.reach.unreachable": "No email or WhatsApp — call them",
@@ -469,6 +468,10 @@ const en = {
   "wl5.clickToQueue": "click to add a caller to its waiting list",
   "wl5.act.added": "Put somebody on a waiting list at the counter or through the API",
   "wl5.act.removed": "Took somebody the venue had queued off a waiting list",
+  "occ5.floor": "Courts, floor counted once",
+  "occ5.floorTitle": "{sold} of {sellable} hours of the courts' floor in use; a pitch and the courts under it counted once",
+  "occ5.shared": "Shared facilities",
+  "occ5.sharedTitle": "{sold} of {sellable} place-hours booked on shared facilities, measured apart from the courts",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -673,7 +676,6 @@ const ms: Record<keyof typeof en, string> = {
   "occ.court": "Gelanggang",
   "occ.cell": "{booked}/{places} tempat ditempah",
   "occ.cellBlocked": "{booked}/{places} tempat ditempah; {out} lagi dihentikan operasi",
-  "occ.venueTotal": "Jumlah pusat",
 
   "att.reach.unreachable": "Tiada e-mel atau WhatsApp — telefon mereka",
   "att.reach.failed": "Mesej gagal — telefon mereka",
@@ -922,6 +924,10 @@ const ms: Record<keyof typeof en, string> = {
   "wl5.clickToQueue": "klik untuk menambah pemanggil ke senarai menunggunya",
   "wl5.act.added": "Meletakkan seseorang dalam senarai menunggu di kaunter atau melalui API",
   "wl5.act.removed": "Mengeluarkan seseorang yang dimasukkan oleh pusat dari senarai menunggu",
+  "occ5.floor": "Gelanggang, ruang dikira sekali",
+  "occ5.floorTitle": "{sold} daripada {sellable} jam ruang gelanggang digunakan; padang dan gelanggang di bawahnya dikira sekali sahaja",
+  "occ5.shared": "Kemudahan dikongsi",
+  "occ5.sharedTitle": "{sold} daripada {sellable} jam tempat ditempah pada kemudahan dikongsi, diukur berasingan daripada gelanggang",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1126,7 +1132,6 @@ const zh: Record<keyof typeof en, string> = {
   "occ.court": "场地",
   "occ.cell": "已预订 {booked}/{places} 个名额",
   "occ.cellBlocked": "已预订 {booked}/{places} 个名额；另有 {out} 个停用",
-  "occ.venueTotal": "场馆合计",
 
   "att.reach.unreachable": "没有电邮或 WhatsApp — 请致电",
   "att.reach.failed": "消息发送失败 — 请致电",
@@ -1375,6 +1380,10 @@ const zh: Record<keyof typeof en, string> = {
   "wl5.clickToQueue": "点击将来电者加入其候补名单",
   "wl5.act.added": "在柜台或通过 API 将某人加入候补名单",
   "wl5.act.removed": "将场馆登记的某人移出候补名单",
+  "occ5.floor": "场地（同一场地只计一次）",
+  "occ5.floorTitle": "场地使用 {sold} / {sellable} 小时，大场与其下的小场只计一次",
+  "occ5.shared": "共享设施",
+  "occ5.sharedTitle": "共享设施已预订 {sold} / {sellable} 名额小时，与场地分开计算",
 };
 
 const area = { en, ms, zh };

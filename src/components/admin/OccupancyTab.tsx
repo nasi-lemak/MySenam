@@ -110,19 +110,31 @@ export function OccupancyTab({
                   })}
                 </tr>
               ))}
-              <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold">
-                <td className="px-3 py-2">{t("occ.venueTotal")}</td>
-                {report.days.map((d) => {
-                  const booked = d.perCourt.reduce((s, c) => s + c.booked, 0);
-                  const total = d.perCourt.reduce((sum, c) => sum + c.sellable, 0);
-                  const pct = total > 0 ? Math.round((booked / total) * 100) : 0;
-                  return (
-                    <td key={d.date} className="px-2 py-2 text-center text-teal-700">
-                      {pct}%
-                    </td>
-                  );
-                })}
-              </tr>
+              {/* The venue's totals as the reports measure them (B11): the courts' floor once, shared facilities apart. */}
+              {(["courts", "shared"] as const).map((kind, i) =>
+                report.days.some((d) => d.totals?.[kind]) ? (
+                  <tr
+                    key={kind}
+                    className={`bg-slate-50 font-semibold ${i === 0 || !report.days.some((d) => d.totals?.courts) ? "border-t-2 border-slate-200" : ""}`}
+                  >
+                    <td className="whitespace-nowrap px-3 py-2">{t(kind === "courts" ? "occ5.floor" : "occ5.shared")}</td>
+                    {report.days.map((d) => {
+                      const total = d.totals?.[kind];
+                      const sold = Math.round((total?.soldHours ?? 0) * 10) / 10;
+                      const sellable = Math.round((total?.sellableHours ?? 0) * 10) / 10;
+                      return (
+                        <td
+                          key={d.date}
+                          className="px-2 py-2 text-center text-teal-700"
+                          title={t(kind === "courts" ? "occ5.floorTitle" : "occ5.sharedTitle", { sold, sellable })}
+                        >
+                          {Math.round((total?.percent ?? 0) * 100)}%
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ) : null
+              )}
             </tbody>
           </table>
         </div>

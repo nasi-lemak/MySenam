@@ -103,6 +103,7 @@ import { phoneKey } from "./phone";
 import { hoursOn, parseWeekHours, validateUsualHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
+import { utilisationByDay, type UseSplit } from "./reports";
 import { cancelPolicy, cancelPolicyFor } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, issueReceipt, saidLine } from "./documents";
@@ -3676,6 +3677,13 @@ export interface OccupancyDay {
     /** Place-hours that could have been sold: the day's hours times capacity, less `blocked`; none on a closed day. */
     sellable: number;
   }[];
+  /**
+   * The venue's day as the reports measure it (lib/reports.ts `measureUse`):
+   * the courts' floor once, a pitch and the courts under it being the same
+   * floor (B11), and shared facilities' places apart, never blended; null
+   * where the venue has none of that kind. Not the sum of the lines above.
+   */
+  totals: { courts: UseSplit | null; shared: UseSplit | null };
 }
 
 export interface OccupancyReport {
@@ -3699,6 +3707,7 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
   ).map(toCourt);
   const dates = Array.from({ length: numDays }, (_, i) => addDays(start, i));
   const { openMin, closeMin, zone } = await venueHours(venueId);
+  const totals = await utilisationByDay(venueId, start, dates[dates.length - 1]);
   const days: OccupancyDay[] = [];
   for (const date of dates) {
     const held = await occupantsOn(courts, date, zone);
@@ -3724,6 +3733,7 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
           sellable: offered - blocked,
         };
       }),
+      totals: totals.get(date) ?? { courts: null, shared: null },
     });
   }
   return { totalSlotsPerDay: (closeMin - openMin) / 60, courts, days };

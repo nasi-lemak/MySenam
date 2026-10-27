@@ -214,7 +214,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/slots`            | `?venueId=&date=` → each court's day for staff: columns, and every booking, class, block, outage and buffer to the minute (`entries`) |
 | POST   | `/api/admin/blocks`           | `{courtId, date, start, end \| hours[], reason?, places?}` → block that time; what is booked in it stays, the rest is blocked |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, start, end \| hours[]}` → release blocked time |
-| GET    | `/api/admin/occupancy`        | `?venueId=&start=&days=` → per court and day, place-hours `booked`, `blocked` (every place a block or outage takes out) and `sellable` ([reporting](../features/reporting.md#reporting)) |
+| GET    | `/api/admin/occupancy`        | `?venueId=&start=&days=` → per court and day, place-hours `booked`, `blocked` (every place a block or outage takes out) and `sellable`; per day, `totals.courts` (the courts' floor counted once) and `totals.shared` (shared facilities' places), each `{ soldHours, sellableHours, percent }` as the period report measures that day, or null where the venue has none of that kind ([reporting](../features/reporting.md#reporting)) |
 | GET    | `/api/admin/reports`          | `?venueId=&from=&to=` → the period report            |
 | POST   | `/api/admin/courts`           | `{venueId, name \| count, sport, offPeakRate, peakRate, capacity?, deposit?, noun?, perPlayer?, maxPlayers?, setting?, also?}`: one resource, or `count` (1–20) numbered after `noun` (Lane 1…), filled in from the activity's template; `also` lists more activities it offers → `{court, courts}` |
 | GET    | `/api/admin/courts/:id`       | The court plus the door code staff may see for it    |
