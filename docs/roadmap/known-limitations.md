@@ -173,8 +173,8 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
-began on 24 October 2026, **82 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B28, M16, M17 and
+began on 24 October 2026, **83 now**. Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B29, M16, M17 and
 S12–S20, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (67
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -190,7 +190,9 @@ and, from the owner's decisions of 27 October 2026, the limits of taking one
 person off a booking, gaps in benefits by scope, guardians recorded by name
 and number, the off-site erasure ledger tested against a stand-in only, staff
 linking residents to a venue's list without phone checks, and what a waiting
-list asks again at the offer, each narrower than what it replaced. The owner's decisions of 24 October 2026 (the launch languages,
+list asks again at the offer, each narrower than what it replaced; and the
+language of a waiting-list offer's page and of times in Malay emails, found
+by the acceptance scenarios. The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
 In the table above, no row is a defect; one is partly of kind 3 (the
@@ -217,6 +219,10 @@ venue's list; after migration 0175 every existing entry is unlinked unless
 its number is proved ([migration note](../archive/migrations/legacy-installs.md#venue-lists-from-before-migration-0175)).
 A resident inviting a guest by email learns whether that email has an account
 (refused `GUEST_ACCOUNT_UNKNOWN`), within the guest-invite rate limit (P3).
+
+Also: a waiting-list offer's link opens in the browser's language, not the
+language of the email that carried it, and Malay emails write times in the
+12-hour English form (P3).
 
 Also: a waiting list asks again only the refused-number rule, the venue being
 open and, for an online entry, the venue's access when it offers a place and
@@ -534,6 +540,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | M16 | A person's concession and a promo code combined through the API only (the form and the counter allowed one): by the owner's decision of 27 October 2026, one rule on every path (the venue's stacking setting, one discount at a time by default, and whether the code combines), one order and rounding, each place's share of a code recorded and given back exactly on a withdrawal; a limited code's last use held by the database | `tests/discount-stacking.test.ts`, `tests/components/booking-form-discounts.test.tsx` |
 | M17 | A percentage promo code was rounded half up before the documented round-down (15% of RM10.05 gave RM1.51) | `tests/discount-stacking.test.ts` |
 | S20 | A participant whose only link to a venue was a concession proof, a membership or a pass sold there was not known to that venue, so its staff could not find or act on them; those links now make them known to that venue and its business's branches only | `tests/participants-known-links.test.ts` |
+| B29 | Where the site could not check phone numbers, staff and guardians were still offered a code for a guardian recorded by name and number to take their relationship over, which could never succeed (the account must prove the recorded number); the code is now neither offered nor made there, and staff are told to invite the account as another guardian | `tests/guardian-contact.test.ts` |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number

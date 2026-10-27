@@ -251,6 +251,13 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Email 1 | A booking's confirmation email is read from the server's log and its link opens My booking, showing that booking |
 | Email 2 | A waiting-list offer's emailed link claims the place, the claimed booking's confirmation follows, and the link then offers nothing; meanwhile the held place is refused to the person who gave it up |
 | Email 3 | A password-reset email's link sets a new password once; the old password is refused and the link then shows it has run out |
+| Discounts M | A manager allows a code with a concession and makes one that combines; one child's junior price and the code on a booking for three: each place's share, the counter and the receipt add up; a code that does not combine is refused (`STK_NOT_COMBINABLE`); with the setting turned back the form takes the code away and the API refuses it (`ONE_DISCOUNT`), the booking standing at the concession price |
+| Passes N | Each child's own pass chosen for her place on the booking form, and at the counter's payment step for another booking; balances fall one entry a place, the receipt shows the places paid by pass, and one child taken off gives back only her entry |
+| Membership O | A child's own membership and a family one bought online through the Billplz stand-in: price and dates first, nobody a member until paid, the receipt naming the child; the child books a members-only session; whom the family membership covers taken off and added back. Skipped against a deployment |
+| Guardians P | A child registered at the counter on her mother's name and number; another adult asks; the desk sends the mother a code (read from the server's log), she reads it back and the request completes; later she registers, proves her number and takes her relationship over with a staff code. Runs on a second server of its own with phone checks on; skipped against a deployment |
+| Access Q | A private venue's resident added by a typed number is refused online; linked to his account in the access editor he books; unlinked, refused again |
+| Waitlist R | The desk queues two callers for a full class, one to be told in Malay; the first caller's number is refused meanwhile and passed over without a message; the offer email goes in Malay and she claims the place |
+| Competition S | The desk enters a walk-in in a tournament at the counter; a guardian enters her child in a box league; staff decide a disputed result and both sides are emailed it; a confirmation of a result changed meanwhile is refused, then made on the new one |
 
 The acceptance server runs as a marketplace (`MYSENAM_MARKETPLACE=on`, in
 `tests/uat/setup.ts`), since only a marketplace has `/list-your-venue`; a
@@ -262,12 +269,16 @@ marked `UAT-HOLD-SCAN` until the scenario releases it, and takes
 I). It is not ClamAV and
 proves nothing about the engine (`tests/document-scanning-engine.test.ts`
 does); it is not used against a deployment, nor where `MYSENAM_CLAMD` is set,
-and *Documents E* and *I* are then skipped, as are *Email 1–3*, which read the emails from the acceptance server's log. The app's output is kept as
+and *Documents E* and *I* are then skipped, as are *Email 1–3*, which read the emails from the acceptance server's log. The server also loads a stand-in for Billplz's sandbox
+(`tests/uat/gateway.ts`, loaded by `tests/uat/gateway-preload.mjs`): it answers
+the collection check and bill creation, serves a payment page, and sends
+Billplz's signed callback and redirect. It is not Billplz and proves nothing
+about the live service; *Membership O* and *Guardians P* are skipped against a
+deployment. The app's output is kept as
 `server.log` beside the evidence (`E2E_SERVER_LOG`); the server sends with
 `MYSENAM_SEND=log`, so that file is where scenarios read the emails sent.
 
-Last run: all 38 of 38 against the production build on PGlite (27 October
-2026); 14 of 14, before
+Last run: see the newest [release record](#release-records); 14 of 14, before
 scenario H was added, against a staging deployment
 on Postgres 16 with seeded data. Not driven from
 a browser: an invitation or held place running out by itself, which needs the
