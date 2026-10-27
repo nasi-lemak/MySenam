@@ -77,7 +77,7 @@ recommendation, not a decision. A decision is recorded by changing the row to
 
 | Limitation | What happens today | Recommendation |
 | ---------- | ------------------ | -------------- |
-| Without WhatsApp or SMS no number can be proved ([production readiness](#production-readiness)) | A typed number grants nothing online any more; members, sign-offs, company accounts and members-only or private venues' list entries work online only once staff link them to the customer's account | Switch on WhatsApp phone checks once Meta approves the templates; until then staff link members' accounts when they sell or renew |
+| The counter and the venue's API are held to the house rules, the unpaid-bookings limit, no-show strikes and the guest surge, as online bookings are ([booking](../features/booking.md)) | The code (`customerMayBook`, the counter's branch) asks them of staff bookings; the feature document and the code's comments said staff were not held to them, and the refusals' wording ("call the venue", "at the counter only") suggests they should not be. The venue's API and staff- and API-made waiting-list claims now ask what the counter asks (`mayBookOn`) | Decide whether staff and the API are exempt from the house rules, strikes and the guest surge; if so, only the counter's branch of `customerMayBook` changes and the API and claims follow. Keep the refused-number check and the unpaid limit on every path |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
 
 ### Accepted
@@ -114,6 +114,21 @@ for documents and 365 for closed records as provisional defaults subject to
 legal review; supporting documents may be PDFs, checked and never rendered
 ([ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md),
 [ADR 0021](../architecture/decisions/0021-approval-retention-and-pdf-documents.md)).
+The owner's decisions of 27 October 2026, after the round of functional
+work: no discount stacking unless the venue and the code allow it; a paid
+lesson keeps its coach when moved, another coach only by a manager's
+explicit change, and customers choose a coach only where the venue offers it
+([programmes](../features/programmes.md#one-to-one-coaching)); the
+60-minute membership hold where the gateway fits it, and family dependants
+changed by the plan's policy, not freely
+([pricing](../features/pricing.md#changing-whom-a-family-membership-covers));
+a child named on the receipts their guardian is sent, the guardian the
+purchaser; phone checks recommended, not required, without them staff
+linking accounts and codes going to recorded numbers; booking privileges
+asked when booking and a members' place asked for the participation date
+([membership validity](../features/pricing.md#membership-validity)); the
+`mysenam_guardian_notice` template prepared but not submitted; box leagues
+on their own result functions with the shared rules (`AGENTS.md`).
 
 ### Not affecting the first launch
 
@@ -144,7 +159,7 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 | ---------- | ---- | -------------- | --------------------------------- |
 | [Email, WhatsApp, SMS, Billplz, Stripe, MyInvois, Google sign-in, off-site and photo buckets](#integrations-awaiting-live-verification-or-a-partner) never checked against the real service | 6 | Everyone, once the feature is on | Each passes its live check ([launch checklist](../operations/deployment.md#launch-integration-checklist)) |
 | [Email bounces not read back](#operations-and-security-s) | 6 | Venues whose customers' mail bounces | The owner reads bounces in the provider's dashboard weekly; a bounce webhook once a provider is chosen |
-| [Without WhatsApp or SMS, no number is proved](#decisions-the-owner-has-to-make): staff link each member's or resident's account before they book online | 6 | Members-only and private venues | Switch phone checks on |
+| [Without WhatsApp or SMS, no number is proved](#operations-and-security-s): staff link each member's or resident's account before they book online; the screens say so and recommend phone checks | 6 | Members-only and private venues | Phone checks recommended, not required (the owner, 27 October 2026); switched on per install once the templates are approved |
 | [Refunds by hand](#money-m) (every Billplz refund) depend on staff | 6 | Customers owed a refund at Billplz venues | A gateway with a refund API (HitPay is the candidate) |
 | [Reserve with Google, smart locks, Stripe Connect, InvoiceNow, web push, LINE, Zalo](#integrations-awaiting-live-verification-or-a-partner) | 6 / 8 | Venues wanting them | A partner approval or contract each |
 | [Remote staging](#production-readiness) never run; [load](#production-readiness) measured on one machine | 6 | The owner | An agreed spend for a droplet; re-run the benchmark on the production set-up |
@@ -160,23 +175,26 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 | [Ways some activities are sold](#activities): bowling by the game, gym entry without a session, day passes, launch windows, range officers, heats | 8 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
-| [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities) | 3 / 5 | Families, clubs | Kept until a venue needs more |
-| [Guardians recorded by name and number](#activities): notices by WhatsApp only | 6 | Families | The template approved |
+| [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities); [changing a lesson's coach has limits](#activities) | 5 / 6 | Families, clubs, coaching venues | Kept: deliberate restrictions with their reasons; the online parts wait on the gateways' live checks |
+| [Guardians recorded by name and number](#activities): notices by WhatsApp only | 6 | Families | The prepared `mysenam_guardian_notice` template submitted and approved, once the WhatsApp account exists |
 | [Country names for countries not sold in](#activities); [clock changes](#booking-and-availability-b) (handled, no such country) | 8 | — | When a country is added |
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
-| [A proposal holds a day](#booking-and-availability-b); [independent bookings retried](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
+| [A proposal holds a day](#booking-and-availability-b); [a booking retried where it really collides](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
 | [An operator's own activity](#activities) named in English unless given; [catalogue changes](#activities) take a minute; [`sport` column name](#activities); [integrity check](#activities) window | 5 | Operators | Kept |
 | [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional pending legal review, the off-site erasure ledger unverified against a real bucket | 5 / 7 / 3 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction |
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
+| [Counter and API held to the house rules and strikes](#decisions-the-owner-has-to-make) though the documents said staff were not | 7 | Venues | The owner decides whether staff and the API are exempt |
+| [Sign-up says an address is taken; email invitations cannot be withdrawn; timing tests on one machine](#operations-and-security-s) | 3 / 5 | Everyone | Sign-up by an emailed link when wanted (recommended); kept otherwise |
+| [Times on staff screens written the English way; a link's language reaches only the page it opens](#languages) | 3 | Staff; customers reading other languages | When staff screens are next localised |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
-began on 24 October 2026, **83 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B29, M16, M17 and
-S12–S20, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (67
+began on 24 October 2026, **85 now**. Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B35, M16–M18 and
+S12–S22, found and fixed in the same work) and
+[resolved without a number](#resolved-limitations-without-a-number) (75
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
@@ -190,13 +208,19 @@ and, from the owner's decisions of 27 October 2026, the limits of taking one
 person off a booking, gaps in benefits by scope, guardians recorded by name
 and number, the off-site erasure ledger tested against a stand-in only, staff
 linking residents to a venue's list without phone checks, and what a waiting
-list asks again at the offer, each narrower than what it replaced; and the
+list asks again at the offer, each narrower than what it replaced (the
 language of a waiting-list offer's page and of times in Malay emails, found
-by the acceptance scenarios. The owner's decisions of 24 October 2026 (the launch languages,
+by the acceptance scenarios, since resolved); and, from the owner's later
+decisions of 27 October 2026, what changing a lesson's coach, family
+dependants' policy, membership validity and the localised times left, the
+counter's checks the owner is to decide, and what the work on account
+enumeration found next to it (sign-up says an address is taken; email
+invitations cannot be withdrawn), each recorded rather than left unsaid. The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-In the table above, no row is a defect; one is partly of kind 3 (the
-limits of taking one person off a booking).
+In the table above, no row is a defect; two are partly of kind 3 (sign-up
+by an emailed link; times on staff screens), one a decision of kind 7 (the
+counter's checks).
 
 ## Suspected defects
 
@@ -217,20 +241,34 @@ Also: without phone checks, residents and members of a private or members-only
 venue book online only once staff link their account to their entry on the
 venue's list; after migration 0175 every existing entry is unlinked unless
 its number is proved ([migration note](../archive/migrations/legacy-installs.md#venue-lists-from-before-migration-0175)).
-A resident inviting a guest by email learns whether that email has an account
-(refused `GUEST_ACCOUNT_UNKNOWN`), within the guest-invite rate limit (P3).
+Phone checks stay recommended, not required (the owner, 27 October 2026):
+the access and participants screens say what they enable, what happens
+without them and recommend them where a venue relies on numbers; nothing is
+switched on by it ([venue operations](../features/venue-operations.md)).
 
-Also: a waiting-list offer's link opens in the browser's language, not the
-language of the email that carried it, and Malay emails write times in the
-12-hour English form (P3).
+Also: signing up says when an address already has an account (`409`), limited
+to 5 attempts an hour per client IP address, not per email, and answered
+before the password is hashed: anybody can check a few addresses an hour for
+whether they have an account, and learn nothing else about it. Recommended:
+sign-up by an emailed link, the form always answering "check your email" (P3).
+An invitation by email to a guest list, a game or a group cannot be withdrawn
+by whoever sent it; it lapses (a guest's visit, 48 hours or the game's start,
+7 days for a group) or is replaced by inviting the address again (P3). The
+tests that show sign-in and password reset take as long for an unknown
+address use generous bounds on one machine: they show an unknown address is
+not systematically faster, not equal timing in production (P3).
 
-Also: a waiting list asks again only the refused-number rule, the venue being
-open and, for an online entry, the venue's access when it offers a place and
-when it is claimed; house rules, the unpaid-bookings limit and no-show
-strikes are asked when joining only; a place freed while a venue was unlisted
-is offered when another place there frees; an offer message already queued
-before a number was refused may still go, though its claim is refused
-([booking](../features/booking.md)) (P3).
+Also: a waiting-list offer and claim ask what the booking would ask on the
+path the entry was made (a refused number, the venue open, an online entry's
+access, the house rules, the unpaid-bookings limit, no-show strikes, a
+members' place covered on its date), but not the venue's waiver, which no
+waiting-list join or claim online asks; the members' longer booking window is
+asked at the join, not again at the claim; joining a class's waiting list asks
+the house rules, which enrolling does not; a place freed while a venue was
+unlisted is offered when another place there frees; an offer to a number
+refused after it was made holds its place until its claim is refused or it
+runs out, and a message about it already sent stays sent (one not yet sent is
+withdrawn) ([booking](../features/booking.md#waitlists)) (P3).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -362,28 +400,50 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   answers to the questions in [privacy](../architecture/privacy.md); deleted rows
   stay in backups until those age out (about two weeks) (P3, kind 7).
 - **The erasure ledger off-site is tested against a stand-in only**: entries are copied off-site in signed segments within a minute and with every set, and a restore that cannot show the ledger complete (always after losing the server) is not served until acknowledged; an erasure made after its entry last left a lost server (normally under a minute, longer while copies fail, which raises `erasure-ledger-offsite`) is redone by hand; one the restored copy blocks (credit, a pass, a hold) is raised to the owners rather than forced; retention periods an activity shortened after the backup are not in the ledger (the install's, which bound them, are) ([backups](../operations/backups.md#after-a-restore)) (P3).
-- **Taking one person off a booking has limits**: it is refused for
-  lessons, open games, bookings on a company account, deposits, shared
-  payments and open payment pages, which are cancelled whole; a class place
-  is withdrawn by cancelling that child's enrolment; the notice is an email
-  only (no WhatsApp template); QR
-  self check-in and door codes check a booking in as a whole, though the
-  door asks for each person's own eligibility ([taking one person off](../features/booking.md#taking-one-person-off-a-booking)) (P3).
+- **Taking one person off a booking has limits**: shares other players paid
+  (a split share or an open game's), each worked out from the whole price,
+  refuse it, as does part of a booking paid online that is no deposit of the
+  booker's and a payment page open (the booking's or a friend's share); a
+  lesson is booked as one with its coach and an open game's players leave the
+  game; a class place is withdrawn by cancelling that child's enrolment; a
+  credit note on a company or school account waits for the account's next
+  invoice, so a closed account with nothing more to invoice keeps it until the
+  venue settles it by hand; the venue's API offers no withdrawal (staff do it
+  at the counter); the notice is an email only (no WhatsApp template); QR self
+  check-in and door codes check a booking in as a whole, though the door asks
+  for each person's own eligibility ([taking one person off](../features/booking.md#taking-one-person-off-a-booking)) (P3).
 - **Benefits by scope have gaps** ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
   memberships for a participant and family memberships bought online are
   verified only against stand-in gateways (a family membership is held by the
-  buying account; dependants change without proration; a purchase holds its
-  people for 60 minutes; overlapping cover is refused online but not at the
-  counter; a child's
-  name stays on the guardian's receipt); a last-minute price combines with no
-  discount, a moved booking keeps the discounts it had, and the venue's API
-  key books with none (P3).
+  buying account; a purchase holds its people for 60 minutes, a Stripe page
+  closing with the hold and a Billplz bill's late money made or owed back; a
+  Stripe Checkout session completed with its payment still processing
+  releases the hold at once, and money landing after another purchase for the
+  same people is owed back; a refund made in the gateway's own dashboard,
+  without cancelling the membership with a refund, is not seen, there being
+  no `charge.refunded` handling); changes of whom a family membership covers
+  made before migration 0192 were not recorded, so those terms count only
+  whom they cover now, and the cover history is not in the account's data
+  export; memberships have no suspended state (one stops early only by
+  cancellation or a chargeback); a court reserved whole while its booker was
+  a member is flagged, not barred, when the membership stops (a booking
+  privilege, checked when booked) (P3).
+- **Changing a lesson's coach has limits** ([one-to-one coaching](../features/programmes.md#one-to-one-coaching)):
+  the difference a dearer coach costs on a paid lesson is taken at the
+  counter only (no online payment page) and is not in the day's
+  expected and outstanding figures or on the customer's booking page, the
+  customer being told by email; a lesson paid with a lesson pack, a deposit
+  or others' shares cannot be given to another coach (cancel and book again)
+  (P3).
 - **Guardians recorded by name and number** agree, withdraw or have their
   number checked by a code staff send to it; where no code can be sent, a
   manager records an in-person agreement, flagged for review and recorded as
   no proof of authority. Their notices go only by WhatsApp to a number a code
   has come back from (the outbox has no SMS channel, and the
-  `mysenam_guardian_notice` template needs Meta's approval), otherwise a task
+  `mysenam_guardian_notice` template is prepared in four languages but not
+  submitted to Meta; a notice goes in the language of the code that came back,
+  or the install's first language for a guardian confirmed before migration
+  0198), otherwise a task
   for the venue (also when a notice is abandoned or reported undelivered). A guardian's relationship and
   authority remain their declaration, reviewed by staff only where an activity
   asks it, never verified ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)) (P3).
@@ -420,7 +480,14 @@ Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
   (alerts, credit lines, receipt lines, urgent notices, tournament
   corrections), printed receipts, and holiday names (P3).
 - **Not reviewed by a native speaker:** the Tamil dictionary, and the
-  built-in activity names in Malay and Chinese (machine-assisted) (P2).
+  built-in activity names in Malay and Chinese (machine-assisted), and the
+  times each language is written in (Malay's PG/PTG and Tamil's 24-hour clock,
+  from the common locale data) (P2).
+- **Times on the staff dashboard** and in staff-facing messages (urgent
+  notices, coaches' emails, staff calendars) are written the English way; a
+  customer's link opens its page in the message's language, but a page
+  reached from there by moving around the site falls back to the visitor's
+  chosen or the install's language ([regions](../product/regions-and-tax.md)) (P3).
 
 The launch promises English, Malay, simplified Chinese and Tamil to
 customers (the owner, 24 October 2026), so these reviews are a
@@ -542,6 +609,14 @@ IDs are not reused. Each fix came with the test recommended above.
 | S20 | A participant whose only link to a venue was a concession proof, a membership or a pass sold there was not known to that venue, so its staff could not find or act on them; those links now make them known to that venue and its business's branches only | `tests/participants-known-links.test.ts` |
 | B29 | Where the site could not check phone numbers, staff and guardians were still offered a code for a guardian recorded by name and number to take their relationship over, which could never succeed (the account must prove the recorded number); the code is now neither offered nor made there, and staff are told to invite the account as another guardian | `tests/guardian-contact.test.ts` |
 | B30 | Independent bookings retried each other under load: a claim (and every row pointing at a booking) checked its booking as it was written, reading the page of the bookings index every new booking goes to and keeping that read, so three unrelated bookings in a row made the middle one a pivot; on a loaded machine the retries came in runs (36 for 24 bookings on different courts of one venue in a full Postgres run, every booking made). Rows pointing at a booking are now checked at commit (migration 0206) | `tests/booking-references-deferred.test.ts` (on Postgres, the old order of events cancels the middle booking every time; now all three commit), `tests/contention.test.ts` |
+| B31 | A guardian relationship made by a manager's exception stayed on the managers' reminders after it was reviewed on its review date before 08:00 in Malaysia: the review's date was taken in the database's UTC, not the install's | `tests/guardian-contact.test.ts` ("a review made early on the review date…") |
+| B32 | A booking made through the venue's API key was not asked what the counter asks of the number: a number the venue had refused could be booked, and the house rules, the unpaid-bookings limit and no-show strikes were not applied, although the API's own waiting-list join refused that number | `tests/benefits-paths.test.ts` |
+| B33 | An offer of a waiting-list place made before the venue refused the number could still be written to the outbox and sent to that number afterwards; unsent offer messages are now withdrawn when the number is refused | `tests/benefits-paths.test.ts` |
+| B34 | A customer moving a booking got the members' longer booking window from the number typed on the booking alone, so a guest or another account booking on a member's number could move into it; a move is now asked the window with the booking's account and online trust | `tests/membership-validity.test.ts` ("a member books further ahead…") |
+| B35 | Withdrawing a company account's invoice while a booking on it was being changed could deadlock: the invoice's delete cascaded onto bookings another transaction held; the invoice now locks its bookings first | `tests/place-withdrawals-money.test.ts` ("a withdrawal racing the month's invoice…", Postgres) |
+| M18 | The venue's API key booked with no discount at all, though ADR 0025 and the pricing document said every path took them; it now takes `concessionId`, `placeConcessions` and `promoCode` through the one calculation the form and the counter use | `tests/benefits-paths.test.ts` |
+| S21 | A resident inviting a guest by email could learn whether an account held that address (`GUEST_ACCOUNT_UNKNOWN`, and an entry linked at once); the address is now never looked up, a single-use, hashed, expiring invitation is emailed either way, and it links only its entry to the account that accepts it signed in with that address | `tests/guest-invitations.test.ts`, `tests/components/guest-invitations.test.tsx` |
+| S22 | Inviting a player to a game or a group by email revealed whether the address had an account (the host's or organiser's roster named them at once, the daily invite counter counted only real accounts, and an email was queued only for one), and sign-in and password reset answered measurably faster for an unknown address; invitations are now emailed either way and accepted signed in, every attempt counts, and sign-in and reset do the same work either way | `tests/player-invitations.test.ts`, `tests/no-enumeration-timing.test.ts` |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number
@@ -618,6 +693,14 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The code sent to a guardian recorded by name and number was always in the install's first language | Staff choose the message's language, starting from their own site language | `tests/components/guardian-code-language.test.tsx` |
 | Nobody, staff included, could move a one-to-one lesson: it was cancelled and booked again | The customer moves it keeping the coach; staff also to another coach while unpaid; the coach's hours and other lessons checked, the coach claimed with the court | `tests/lesson-moves.test.ts`, `tests/coaching.test.ts` |
 | Only the platform owner could run the integrity check on demand | A manager runs it for their own venues, scoped in each query | `tests/integrity.test.ts`, `tests/components/owner-panels.test.tsx` |
+| A waiting-list offer's link opened in the browser's language, not the email's, and Malay, Chinese and Tamil emails and pages wrote times the English 12-hour way | Links MySenam sends carry the message's language (`?lang=`), used where the visitor has chosen none; times by one formatter per language in the venue's zone ([regions](../product/regions-and-tax.md)) | `tests/link-locale.test.ts`, `tests/message-times.test.ts` |
+| `AGENTS.md` said box leagues use `recordResult` | Corrected to the design the owner confirmed: the shared rules through the leagues' own result functions | `tests/leagues.test.ts`, `tests/league-results-race.test.ts` |
+| A membership sold at the counter could overlap one a participant already had; the API booked without the venue's discounts | The counter refuses the same overlap as buying online; the API takes the discounts through the one calculation | `tests/benefits-paths.test.ts` |
+| A waiting-list claim asked only the refused number, the venue being open and its access | It asks what the booking would ask on its path: house rules, the unpaid limit, strikes, a members' place by its date | `tests/benefits-paths.test.ts`, `tests/membership-validity.test.ts` |
+| A paid lesson could not be given to another coach | A manager gives it with the money effect shown first: kept as paid, or adjusted (owed at the counter, or back to credit, online or by hand with a credit note); the venue may assign coaches instead of customers choosing | `tests/lesson-coach-changes.test.ts`, `tests/lesson-venue-assigns.test.ts` |
+| Taking one person off a booking held by a deposit or charged to a company account was refused | Supported: off the balance first, then the deposit's part back; before the invoice off the charge, after it a credit note off the next invoice | `tests/place-withdrawals-money.test.ts` |
+| A family membership's dependants could be swapped freely and without limit during a term | Changes follow the plan's policy: places per term, replacements, the next term's list, a manager's correction with a reason, every change kept | `tests/membership-covers.test.ts` |
+| A members' place was checked against a membership active today, and the customer's own place not at the counter or through the API | Each person's cover is checked for the session's date on every path, again at check-in and the door, and a membership that stops flags bookings for staff | `tests/membership-validity.test.ts` |
 
 ## Production readiness
 
