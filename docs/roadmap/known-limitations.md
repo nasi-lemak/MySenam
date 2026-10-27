@@ -177,7 +177,7 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **82 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B22 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B23 and
 S12–S18, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (56
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -232,7 +232,7 @@ code); scripts need the response's nonce (resolved below).
 
 | ID | Defect | Evidence | Test to write first | Priority |
 | -- | ------ | -------- | ------------------- | -------- |
-| — | None open | | | |
+| B24 | The Occupancy tab's venue total adds each court's line, so the floor under a pitch counts once per court beneath it and shared facilities are blended with courts, contrary to the floor-once rule (B11) and [reporting](../features/reporting.md) | `src/components/admin/OccupancyTab.tsx` sums `perCourt`; the Reports tab (`src/lib/reports.ts`) counts each unit of floor once | A pitch over two courts booked for an hour counts that floor once; the grid's totals equal the Reports tab's for the same day | P3 (being fixed) |
 
 Also, in [tournaments](../features/tournaments.md):
 
@@ -526,6 +526,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B20 | Bookings and class enrolments made by staff at the counter for a members-only venue were refused with `MEMBERS_SIGN_IN`, though staff book anyone at the counter; now the account check does not apply at the counter, and every participant is still checked for their own membership | `tests/membership-scope.test.ts` ("the counter and the venue's own system are held to it too") |
 | B21 | The Reports tab could show one venue's figures under another's name: a late answer for the venue shown first overwrote the venue just chosen (also the activity log and coach payouts); stale answers are now dropped | `tests/components/reports-venue-switch.test.tsx` |
 | B22 | At the counter, one person's concession proof could be marked seen but never remembered (no "until when" was sent), so every visit asked again; the dashboard now offers next visit, month end, year end or 12 months, as for a booking-wide concession | `tests/components/bookings-tab.test.tsx`, `tests/uat/round4.uat.ts` (Places L) |
+| B23 | The Occupancy grid ignored places taken out of service: a partial block counted nothing, a whole block on a shared facility counted only its hours, the percentage never subtracted blocks, and it used the venue's usual hours rather than the day's, closed days counting as sellable; now blocks count by places and the percentage is of what that day could sell | `tests/partial-blocks.test.ts`, `tests/components/occupancy-tab.test.tsx` |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number
