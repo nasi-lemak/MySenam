@@ -23,10 +23,19 @@ import { resultSentence, scoreExample } from "@/lib/result-text";
 export default function TournamentPage() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
-  const [data, setData] = useState<{ tournament: TournamentDetail; mine: Entry | null; signedIn: boolean; reports?: MatchReport[] } | null>(null);
+  const [data, setData] = useState<{
+    tournament: TournamentDetail;
+    mine: Entry | null;
+    /** Entries this account made for people it acts for, and those people. */
+    managed?: Entry[];
+    people?: { id: number; name: string }[];
+    signedIn: boolean;
+    reports?: MatchReport[];
+  } | null>(null);
   const [missing, setMissing] = useState(false);
   const [partner, setPartner] = useState("");
   const [partnerGender, setPartnerGender] = useState<"woman" | "man" | "">("");
+  const [who, setWho] = useState<Who>({ id: "", gender: "" });
   const [team, setTeam] = useState<TeamForm>({ name: "", roster: "", mark: "", birth: "", partnerBirth: "", rosterOk: false, guardian: "", guardianOk: false });
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +87,13 @@ export default function TournamentPage() {
   const tally = x.rules.scoring.kind === "tally";
   const byPoints = x.rules.scoring.rankBy.includes("points");
   const formatLabel = x.format === "groups" ? t("tour.groups") : x.format === "round_robin" ? t("tour.roundRobin") : x.format === "performance" ? t("tour.performance") : t("tour.knockout");
+  // The side of a match this account answers for: its own entry, or one it made for somebody it acts for (never both).
+  const ours = new Set([...(data.mine ? [data.mine.id] : []), ...(data.managed ?? []).map((e) => e.id)]);
+  const ourSide = (m: Match): number | null => {
+    const a = m.a !== null && ours.has(m.a);
+    const b = m.b !== null && ours.has(m.b);
+    return a && b ? null : a ? m.a : b ? m.b : null;
+  };
 
   return (
     <div className="space-y-6">
@@ -111,6 +127,10 @@ export default function TournamentPage() {
         t={t}
         x={x}
         mine={data.mine}
+        managed={data.managed ?? []}
+        people={data.people ?? []}
+        who={who}
+        setWho={setWho}
         signedIn={data.signedIn}
         partner={partner}
         setPartner={setPartner}
@@ -203,8 +223,8 @@ export default function TournamentPage() {
                           ? `${m.score ?? ""} (${t("tour.drawn")})`
                           : m.score}
                   </span>
-                  {x.resultsBy === "players" && data.mine && m.status === "scheduled" && m.a !== null && m.b !== null && (m.a === data.mine.id || m.b === data.mine.id) && (
-                    <MyResult t={t} x={x} m={m} mine={data.mine.id} names={names} report={(data.reports ?? []).find((r) => r.matchId === m.id) ?? null} act={act} />
+                  {x.resultsBy === "players" && ourSide(m) !== null && m.status === "scheduled" && m.a !== null && m.b !== null && (
+                    <MyResult t={t} x={x} m={m} mine={ourSide(m)!} names={names} report={(data.reports ?? []).find((r) => r.matchId === m.id) ?? null} act={act} />
                   )}
                 </li>
               ))}
@@ -450,10 +470,47 @@ function eligibilityLine(t: T, x: TournamentDetail): string {
   return parts.join(" · ");
 }
 
+/** Who is entering: the account holder (`id` ""), or somebody they act for, with that person's gender as declared. */
+interface Who {
+  id: string;
+  gender: "woman" | "man" | "";
+}
+
+/** One entry the account holds, its own or one it made for somebody: its fee, and withdrawing it before the draw. */
+function HeldEntry({ t, x, e, label, entryId, act }: { t: T; x: TournamentDetail; e: Entry; label: string; entryId?: number; act: (body: object) => Promise<void> }) {
+  const button = "rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700";
+  return (
+    <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm">
+      <span className="font-medium text-teal-900">{label}</span>
+      <span className="flex flex-wrap items-center gap-3">
+        {e.status === "entered" && x.entryFee > 0 &&
+          (e.paid ? (
+            <span className="font-semibold text-emerald-700">{t("tour.feePaid")}</span>
+          ) : x.payOnline ? (
+            <button onClick={() => void act({ action: "pay", ...(entryId ? { entryId } : {}) })} className={button}>
+              {t("tour.payFee", { amount: x.entryFee.toFixed(2) })}
+            </button>
+          ) : (
+            <span>{t("tour.payAtVenue", { amount: x.entryFee.toFixed(2) })}</span>
+          ))}
+        {(x.status === "open" || x.status === "closed") && (
+          <button onClick={() => void act({ action: "withdraw", ...(entryId ? { entryId } : {}) })} className="text-slate-600 underline">
+            {t("tour.withdraw")}
+          </button>
+        )}
+      </span>
+    </section>
+  );
+}
+
 function EnterBox({
   t,
   x,
   mine,
+  managed,
+  people,
+  who,
+  setWho,
   signedIn,
   partner,
   setPartner,
@@ -466,6 +523,10 @@ function EnterBox({
   t: T;
   x: TournamentDetail;
   mine: Entry | null;
+  managed: Entry[];
+  people: { id: number; name: string }[];
+  who: Who;
+  setWho: (w: Who) => void;
   signedIn: boolean;
   partner: string;
   setPartner: (p: string) => void;
@@ -476,41 +537,34 @@ function EnterBox({
   act: (body: object) => Promise<void>;
 }) {
   const button = "rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700";
-  if (mine)
-    return (
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm">
-        <span className="font-medium text-teal-900">{mine.status === "waitlisted" ? t("tour.youWait") : t("tour.youreIn")}: {mine.name}</span>
-        <span className="flex flex-wrap items-center gap-3">
-          {mine.status === "entered" && x.entryFee > 0 &&
-            (mine.paid ? (
-              <span className="font-semibold text-emerald-700">{t("tour.feePaid")}</span>
-            ) : x.payOnline ? (
-              <button onClick={() => void act({ action: "pay" })} className={button}>
-                {t("tour.payFee", { amount: x.entryFee.toFixed(2) })}
-              </button>
-            ) : (
-              <span>{t("tour.payAtVenue", { amount: x.entryFee.toFixed(2) })}</span>
-            ))}
-          {(x.status === "open" || x.status === "closed") && (
-            <button onClick={() => void act({ action: "withdraw" })} className="text-slate-600 underline">
-              {t("tour.withdraw")}
-            </button>
-          )}
-        </span>
-      </section>
-    );
-  if (x.status !== "open") return null;
+  const held = (
+    <>
+      {mine && <HeldEntry t={t} x={x} e={mine} label={`${mine.status === "waitlisted" ? t("tour.youWait") : t("tour.youreIn")}: ${mine.name}`} act={act} />}
+      {managed.map((e) => (
+        <HeldEntry key={e.id} t={t} x={x} e={e} entryId={e.id} label={t(e.status === "waitlisted" ? "lg5.waiting" : "lg5.entered", { name: e.name })} act={act} />
+      ))}
+    </>
+  );
+  if (x.status !== "open") return held;
   if (!signedIn)
     return (
       <Link href={`/login?next=/tournaments/${x.id}`} className={`inline-block ${button}`}>
         {t("tour.signInToEnter")}
       </Link>
     );
+  // Who may still be entered: the account holder, unless entered, and each person they act for who is not.
+  const enteredFor = new Set(managed.map((e) => e.participantId));
+  const choices = [...(mine ? [] : [{ id: "", name: t("lg5.myself") }]), ...people.filter((p) => !enteredFor.has(p.id)).map((p) => ({ id: String(p.id), name: p.name }))];
+  if (choices.length === 0) return held;
+  const chosen = choices.some((c) => c.id === who.id) ? who.id : choices[0].id;
+  const forOther = chosen !== "";
   // A declared minor (or a team event for under-18s) enters with a parent or guardian's agreement.
   const minors =
     !!x.ageRange &&
     (minorOn(team.birth, x.startsOn) || (x.teamSize === 2 && minorOn(team.partnerBirth, x.startsOn)) || (x.entryKind === "team" && x.ageRange.max !== null && x.ageRange.max < 18));
   return (
+    <>
+    {held}
     <form
       onSubmit={(e) => {
         e.preventDefault();
@@ -518,6 +572,8 @@ function EnterBox({
         const pg = x.category === "women" ? "woman" : x.category === "men" ? "man" : partnerGender || undefined;
         void act({
           action: "enter",
+          // Somebody the account acts for: they are the entrant, their gender as declared here.
+          ...(forOther ? { participantId: Number(chosen), ...(x.category !== "open" ? { gender: who.gender || undefined } : {}) } : {}),
           partnerName: partner,
           partnerGender: pg,
           ...(x.entryKind === "team" ? { teamName: team.name, roster: team.roster.split("\n").map((n) => n.trim()).filter(Boolean) } : {}),
@@ -525,11 +581,44 @@ function EnterBox({
           ...(x.ageRange
             ? { birthDate: team.birth, ...(x.teamSize === 2 ? { partnerBirthDate: team.partnerBirth } : {}), ...(x.entryKind === "team" ? { rosterEligible: team.rosterOk } : {}) }
             : {}),
-          ...(minors ? { guardianName: team.guardian, guardianConsent: team.guardianOk } : {}),
+          // A guardian entering somebody they act for gives the agreement themself, under their own name.
+          ...(minors ? { guardianName: forOther ? undefined : team.guardian, guardianConsent: team.guardianOk } : {}),
         });
       }}
       className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
     >
+      {choices.length > 1 && (
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("lg5.whoEnters")}
+          <select
+            value={chosen}
+            onChange={(e) => setWho({ ...who, id: e.target.value })}
+            className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+          >
+            {choices.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {forOther && x.category !== "open" && (
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("lg5.theyAre")}
+          <select
+            required
+            value={who.gender}
+            onChange={(e) => setWho({ ...who, id: chosen, gender: e.target.value as Who["gender"] })}
+            className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+          >
+            <option value="">—</option>
+            <option value="woman">{t("who.partnerWoman")}</option>
+            <option value="man">{t("who.partnerMan")}</option>
+          </select>
+        </label>
+      )}
+      {forOther && <p className="w-full text-xs text-slate-500">{t("lg5.forThem")}</p>}
       {x.teamSize === 2 && (
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("tour.partner")}
@@ -625,16 +714,18 @@ function EnterBox({
       )}
       {minors && (
         <>
-          <label className="flex flex-col text-xs font-medium text-slate-500">
-            {t("tour.guardianName")}
-            <input
-              required
-              minLength={2}
-              value={team.guardian}
-              onChange={(e) => setTeam({ ...team, guardian: e.target.value })}
-              className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-            />
-          </label>
+          {!forOther && (
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("tour.guardianName")}
+              <input
+                required
+                minLength={2}
+                value={team.guardian}
+                onChange={(e) => setTeam({ ...team, guardian: e.target.value })}
+                className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+              />
+            </label>
+          )}
           <label className="flex items-center gap-2 text-xs text-slate-600">
             <input type="checkbox" required checked={team.guardianOk} onChange={(e) => setTeam({ ...team, guardianOk: e.target.checked })} />
             {t("tour.guardianConsent")}
@@ -647,5 +738,6 @@ function EnterBox({
         {x.waitlisted > 0 && ` · ${t("tour.waiting", { n: x.waitlisted })}`}
       </span>
     </form>
+    </>
   );
 }

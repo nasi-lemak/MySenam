@@ -20,7 +20,14 @@ export default function LeaguePage() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const [season, setSeason] = useState<number | null>(null);
-  const [data, setData] = useState<{ league: LeagueDetail; mine: MyLeague | null; signedIn: boolean } | null>(null);
+  const [data, setData] = useState<{
+    league: LeagueDetail;
+    mine: MyLeague | null;
+    /** Places this account holds for people it acts for, and those people. */
+    managed?: MyLeague[];
+    people?: { id: number; name: string }[];
+    signedIn: boolean;
+  } | null>(null);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,10 +61,15 @@ export default function LeaguePage() {
   if (!data) return null;
   const x = data.league;
   const mine = data.mine;
+  const managed = data.managed ?? [];
   const names = new Map(x.people.map((p) => [p.id, p.name]));
   const played = x.seasons.filter((s) => s.status !== "forming");
   const viewingCurrent = x.viewing?.status === "running";
   const button = "rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700";
+  // The places this account answers for: its own, and those it holds for people it acts for.
+  const held = [...(mine ? [mine] : []), ...managed];
+  const ours = new Set(viewingCurrent ? held.filter((p) => p.place).map((p) => p.playerId) : []);
+  const joinable = [...(mine ? [] : [{ id: "", name: t("lg5.myself") }]), ...(data.people ?? []).filter((p) => !managed.some((m) => m.participantId === p.id)).map((p) => ({ id: String(p.id), name: p.name }))];
 
   return (
     <div className="space-y-6">
@@ -91,63 +103,25 @@ export default function LeaguePage() {
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
-      {mine ? (
-        <section className="space-y-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="font-medium text-teal-900">
-              {mine.place ? t("leag.yourBox", { n: mine.place.boxNo }) : t("leag.youreIn")}
-              {!mine.place && <span className="block font-normal text-teal-800">{t("leag.waitNext")}</span>}
-            </span>
-            <span className="flex flex-wrap items-center gap-3">
-              {mine.place &&
-                x.fee > 0 &&
-                (mine.place.paid ? (
-                  <span className="font-semibold text-emerald-700">{t("leag.feePaid")}</span>
-                ) : x.payOnline ? (
-                  <button onClick={() => void post(`/api/leagues/${x.id}`, { action: "pay" })} className={button}>
-                    {t("leag.payFee", { amount: x.fee.toFixed(2) })}
-                  </button>
-                ) : (
-                  <span>{t("leag.payAtVenue", { amount: x.fee.toFixed(2) })}</span>
-                ))}
-              <button
-                onClick={() => {
-                  if (window.confirm(t("leag.leaveConfirm"))) void post(`/api/leagues/${x.id}`, { action: "leave" });
-                }}
-                className="text-slate-600 underline"
-              >
-                {t("leag.leave")}
-              </button>
-            </span>
-          </div>
-          {mine.contacts.length > 0 && (
-            <div>
-              <div className="font-medium text-teal-900">{t("leag.boxMates")}</div>
-              <ul className="mt-1 space-y-1">
-                {mine.contacts.map((c) => (
-                  <li key={c.playerId} className="flex flex-wrap gap-x-3">
-                    <span className="min-w-[8rem]">{c.name}</span>
-                    <a href={`tel:${c.phone}`} className="text-teal-700 underline">
-                      {c.phone}
-                    </a>
-                    <a href={`https://wa.me/${c.whatsapp}`} target="_blank" rel="noreferrer" className="text-teal-700 underline">
-                      WhatsApp
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-      ) : x.status === "running" ? (
-        data.signedIn ? (
-          <JoinForm t={t} teamSize={x.teamSize} onJoin={(partnerName) => post(`/api/leagues/${x.id}`, { action: "join", partnerName })} />
+      {held.map((p) => (
+        <PlaceCard key={p.playerId} t={t} x={x} p={p} own={p === mine} post={(body) => post(`/api/leagues/${x.id}`, body)} />
+      ))}
+      {x.status === "running" &&
+        (data.signedIn ? (
+          joinable.length > 0 && (
+            <JoinForm
+              t={t}
+              teamSize={x.teamSize}
+              who={x.who}
+              choices={joinable}
+              onJoin={(input) => post(`/api/leagues/${x.id}`, { action: "join", ...input })}
+            />
+          )
         ) : (
           <Link href={`/login?next=/leagues/${x.id}`} className={`inline-block ${button}`}>
             {t("leag.signInToJoin")}
           </Link>
-        )
-      ) : null}
+        ))}
 
       {played.length > 1 && (
         <nav className="flex flex-wrap gap-2">
@@ -175,7 +149,7 @@ export default function LeaguePage() {
           </h2>
           <div className="grid gap-3 md:grid-cols-2">
             {x.boxes.map((box) => {
-              const isMine = viewingCurrent && mine?.place?.boxNo === box.boxNo;
+              const isMine = viewingCurrent && held.some((p) => p.place?.boxNo === box.boxNo);
               return (
                 <div key={box.boxNo} className={`rounded-xl border bg-white p-4 shadow-sm ${isMine ? "border-teal-400" : "border-slate-200"}`}>
                   <h3 className="font-semibold">{t("leag.box", { n: box.boxNo })}</h3>
@@ -220,7 +194,7 @@ export default function LeaguePage() {
                           t={t}
                           m={m}
                           names={names}
-                          me={isMine ? mine!.playerId : null}
+                          me={isMine ? ourSide(m, ours) : null}
                           post={(body) => post(`/api/leagues/${x.id}/matches/${m.id}`, body)}
                         />
                       ))}
@@ -253,32 +227,146 @@ export default function LeaguePage() {
   );
 }
 
-function JoinForm({ t, teamSize, onJoin }: { t: T; teamSize: 1 | 2; onJoin: (partner: string) => Promise<boolean> }) {
+/** The side of a match this account answers for: one of the places it holds, never both. */
+function ourSide(m: LeagueMatch, ours: Set<number>): number | null {
+  const a = ours.has(m.a);
+  const b = ours.has(m.b);
+  return a && b ? null : a ? m.a : b ? m.b : null;
+}
+
+/** A place the account holds, its own or one for somebody it acts for: its box, its fee, leaving, and box-mates' numbers. */
+function PlaceCard({ t, x, p, own, post }: { t: T; x: LeagueDetail; p: MyLeague; own: boolean; post: (body: object) => Promise<boolean> }) {
+  const button = "rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700";
+  const which = own ? {} : { playerId: p.playerId };
+  return (
+    <section className="space-y-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="font-medium text-teal-900">
+          {own ? (p.place ? t("leag.yourBox", { n: p.place.boxNo }) : t("leag.youreIn")) : p.place ? t("lg5.inBox", { name: p.name, n: p.place.boxNo }) : t("lg5.inLeague", { name: p.name })}
+          {!p.place && <span className="block font-normal text-teal-800">{t("leag.waitNext")}</span>}
+        </span>
+        <span className="flex flex-wrap items-center gap-3">
+          {p.place &&
+            x.fee > 0 &&
+            (p.place.paid ? (
+              <span className="font-semibold text-emerald-700">{t("leag.feePaid")}</span>
+            ) : x.payOnline ? (
+              <button onClick={() => void post({ action: "pay", ...which })} className={button}>
+                {t("leag.payFee", { amount: x.fee.toFixed(2) })}
+              </button>
+            ) : (
+              <span>{t("leag.payAtVenue", { amount: x.fee.toFixed(2) })}</span>
+            ))}
+          <button
+            onClick={() => {
+              if (window.confirm(t("leag.leaveConfirm"))) void post({ action: "leave", ...which });
+            }}
+            className="text-slate-600 underline"
+          >
+            {t("leag.leave")}
+          </button>
+        </span>
+      </div>
+      {p.contacts.length > 0 && (
+        <div>
+          <div className="font-medium text-teal-900">{t("leag.boxMates")}</div>
+          <ul className="mt-1 space-y-1">
+            {p.contacts.map((c) => (
+              <li key={c.playerId} className="flex flex-wrap gap-x-3">
+                <span className="min-w-[8rem]">{c.name}</span>
+                <a href={`tel:${c.phone}`} className="text-teal-700 underline">
+                  {c.phone}
+                </a>
+                <a href={`https://wa.me/${c.whatsapp}`} target="_blank" rel="noreferrer" className="text-teal-700 underline">
+                  WhatsApp
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Joining: the account holder, or somebody they act for (then that person's
+ * gender, as declared, in a women's or men's league); in pairs, the partner's
+ * name and, in a women's or men's league, their declared gender, checked as a
+ * tournament's are.
+ */
+function JoinForm({
+  t,
+  teamSize,
+  who,
+  choices,
+  onJoin,
+}: {
+  t: T;
+  teamSize: 1 | 2;
+  who: LeagueDetail["who"];
+  choices: { id: string; name: string }[];
+  onJoin: (input: { partnerName?: string; partnerGender?: string; participantId?: number; gender?: string }) => Promise<boolean>;
+}) {
   const [partner, setPartner] = useState("");
+  const [partnerGender, setPartnerGender] = useState("");
+  const [picked, setPicked] = useState("");
+  const [gender, setGender] = useState("");
+  const chosen = choices.some((c) => c.id === picked) ? picked : choices[0].id;
+  const forOther = chosen !== "";
+  const field = "mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+  const genders = (value: string, set: (v: string) => void) => (
+    <select required value={value} onChange={(e) => set(e.target.value)} className={field}>
+      <option value="">—</option>
+      <option value="woman">{t("who.partnerWoman")}</option>
+      <option value="man">{t("who.partnerMan")}</option>
+    </select>
+  );
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        void onJoin(partner);
+        void onJoin({
+          ...(teamSize === 2 ? { partnerName: partner, ...(who !== "anyone" ? { partnerGender } : {}) } : {}),
+          ...(forOther ? { participantId: Number(chosen), ...(who !== "anyone" ? { gender } : {}) } : {}),
+        });
       }}
       className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
     >
       <div className="flex flex-wrap items-end gap-3">
+        {choices.length > 1 && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            {t("lg5.whoJoins")}
+            <select value={chosen} onChange={(e) => setPicked(e.target.value)} className={field}>
+              {choices.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {forOther && who !== "anyone" && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            {t("lg5.theyAre")}
+            {genders(gender, setGender)}
+          </label>
+        )}
         {teamSize === 2 && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
             {t("tour.partner")}
-            <input
-              required
-              minLength={2}
-              value={partner}
-              onChange={(e) => setPartner(e.target.value)}
-              className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-            />
+            <input required minLength={2} value={partner} onChange={(e) => setPartner(e.target.value)} className={field} />
+          </label>
+        )}
+        {teamSize === 2 && who !== "anyone" && (
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            {t("who.partner")}
+            {genders(partnerGender, setPartnerGender)}
           </label>
         )}
         <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">{t("leag.join")}</button>
       </div>
-      <p className="text-xs text-slate-500">{t("leag.shareNote")}</p>
+      <p className="text-xs text-slate-500">{t(forOther ? "lg5.shareNoteFor" : "leag.shareNote")}</p>
     </form>
   );
 }
@@ -352,7 +440,7 @@ function MatchRow({
           {m.status === "reported" && m.reportedBy !== me && (
             <>
               <span className="text-slate-500">{t("leag.reportedByThem", { name: names.get(them!) ?? "" })}</span>
-              <button onClick={() => void post({ action: "confirm" })} className={small}>
+              <button onClick={() => void post({ action: "confirm", version: m.version })} className={small}>
                 {t("leag.confirm")}
               </button>
               <button onClick={() => setMode("dispute")} className="text-red-700 underline">
@@ -366,7 +454,7 @@ function MatchRow({
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            if (await post({ action: "report", winner: won ? me : them, score })) setMode("idle");
+            if (await post({ action: "report", winner: won ? me : them, score, version: m.version })) setMode("idle");
           }}
           className="mt-2 flex flex-wrap items-center gap-2"
         >
@@ -393,7 +481,7 @@ function MatchRow({
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            if (await post({ action: "dispute", note })) setMode("idle");
+            if (await post({ action: "dispute", note, version: m.version })) setMode("idle");
           }}
           className="mt-2 flex flex-wrap items-center gap-2"
         >

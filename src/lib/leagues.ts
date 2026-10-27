@@ -1,13 +1,15 @@
 import { isActivity } from "./activities";
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
 import { receiptFee } from "./documents";
 import { boxSizes, intoBoxes, ladder, seasonMoves, type Move } from "./boxes";
 import { flipScore, scoreRefusal, standings, type Standing } from "./brackets";
 import { templateByKey, templateFor } from "./competition-templates";
 import { parseRules, readRules, type CompetitionRules } from "./tournament-rules";
 import { LEVELS, type Level } from "./games";
-import { isWho, whoRefusal, type Who } from "./who";
-import { accessRefusal } from "./access";
+import { isPartnerGender, isWho, type Who } from "./who";
+import { categoryOfWho, declaredGender, entrantCategoryRefusal, entrantParticipantId, entrantUserId, entrantVenueRefusal, recordEntered, selfEntrant, type Entrant } from "./competition-entrants";
+import { refuse } from "./entitlements";
+import { ACTS_FOR } from "./participants";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
 import { tellVenueStaff } from "./owner-alerts";
@@ -93,6 +95,10 @@ export interface LeaguePlayer {
   userId?: number | null;
   startBox?: number | null;
   level?: Level | null;
+  /** Only for staff: the participant who plays, where a guardian or the counter entered one (ADR 0023). */
+  participantId?: number | null;
+  /** Only for staff: added at the counter, by whom, and the number given (a contact, not proof of who they are). */
+  atCounter?: { by: string; phone: string | null } | null;
 }
 
 export interface Place {
@@ -115,6 +121,8 @@ export interface LeagueMatch {
   status: MatchStatus;
   reportedBy: number | null;
   reportedAt: string | null;
+  /** Goes up whenever the result changes: a player confirming or disputing, or staff deciding, names the one they saw. */
+  version: number;
   /** Only for staff. */
   disputeNote?: string | null;
 }
@@ -143,6 +151,8 @@ export interface MyLeague {
   place: Place | null;
   /** Box-mates, to arrange matches with. */
   contacts: { playerId: number; name: string; phone: string; whatsapp: string }[];
+  /** A place held for somebody the account acts for: the participant. */
+  participantId?: number;
 }
 
 const L_SELECT = `
@@ -299,12 +309,22 @@ export async function leagueDetail(id: number, opts: { season?: number; forStaff
   const people = (
     (await db
       .prepare(
-        `SELECT p.id, p.name, p.status, p.user_id, p.start_box, pl.level
+        `SELECT p.id, p.name, p.status, p.user_id, p.start_box, pl.level, p.participant_id, p.contact_phone, p.entered_by_name
            FROM league_players p
-           LEFT JOIN player_levels pl ON pl.user_id = p.user_id AND pl.sport = ?
+           LEFT JOIN player_levels pl ON pl.user_id = p.user_id AND p.participant_id IS NULL AND pl.sport = ?
           WHERE p.league_id = ? ORDER BY p.joined_at, p.id`
       )
-      .all(league.sport, id)) as { id: number; name: string; status: "active" | "left"; user_id: number | null; start_box: number | null; level: Level | null }[]
+      .all(league.sport, id)) as {
+      id: number;
+      name: string;
+      status: "active" | "left";
+      user_id: number | null;
+      start_box: number | null;
+      level: Level | null;
+      participant_id: number | null;
+      contact_phone: string | null;
+      entered_by_name: string | null;
+    }[]
   )
     .filter((p) => p.status === "active" || placed.has(p.id))
     .map((p) => ({
@@ -312,7 +332,14 @@ export async function leagueDetail(id: number, opts: { season?: number; forStaff
       name: p.name,
       status: p.status,
       level: p.level,
-      ...(opts.forStaff ? { userId: p.user_id, startBox: p.start_box } : {}),
+      ...(opts.forStaff
+        ? {
+            userId: p.user_id,
+            startBox: p.start_box,
+            participantId: p.participant_id,
+            atCounter: p.entered_by_name ? { by: p.entered_by_name, phone: p.contact_phone } : null,
+          }
+        : {}),
     }));
   return { ...league, seasons, viewing, boxes, places, matches, people };
 }
@@ -332,6 +359,7 @@ async function matchesOf(seasonId: number): Promise<LeagueMatch[]> {
       reported_by: number | null;
       reported_at: string | null;
       dispute_note: string | null;
+      version: number;
     }[]
   ).map((m) => ({
     id: m.id,
@@ -343,6 +371,7 @@ async function matchesOf(seasonId: number): Promise<LeagueMatch[]> {
     status: m.status,
     reportedBy: m.reported_by,
     reportedAt: m.reported_at,
+    version: Number(m.version ?? 0),
     disputeNote: m.dispute_note,
   }));
 }
@@ -363,7 +392,7 @@ function boxTable(places: Place[], matches: LeagueMatch[], scoring: CompetitionR
 
 // ------------------------------------------------------------ setting one up
 
-export type Result<T = League> = { ok: true; value: T } | { ok: false; error: string; code?: string };
+export type Result<T = League> = { ok: true; value: T } | { ok: false; error: string; code?: string; vars?: Record<string, string | number> };
 
 export interface LeagueInput {
   venueId: number;
@@ -473,52 +502,97 @@ export async function closeLeague(leagueId: number): Promise<Result> {
 
 // ------------------------------------------------------------ players
 
-export async function join(user: { id: number; name: string }, leagueId: number, input: { partnerName?: string } = {}): Promise<Result<LeaguePlayer>> {
+/** What joining says besides who joins: a doubles partner and their declared gender, and an entrant's own where they have no account. */
+export interface JoinInput {
+  partnerName?: string;
+  partnerGender?: string;
+  /** An entrant with no account of their own (a participant, or at the counter): their gender as declared, in a women's or men's league. */
+  gender?: string;
+}
+
+/** Join a league as the account holder, for themself (`joinAs`). */
+export async function join(user: { id: number; name: string }, leagueId: number, input: JoinInput = {}): Promise<Result<LeaguePlayer>> {
+  return joinAs(selfEntrant(user), leagueId, input);
+}
+
+/**
+ * Join a league: the account holder for themself, a guardian for a
+ * participant they manage, or staff at the counter
+ * (lib/competition-entrants.ts), one set of checks for each: the venue's
+ * rule on who it is for (a participant's own membership at a members-only
+ * venue, ADR 0025), and in a women's or men's league the player and, in
+ * pairs, the partner, as declared (lib/who.ts), as a tournament asks it.
+ */
+export async function joinAs(entrant: Entrant, leagueId: number, input: JoinInput = {}): Promise<Result<LeaguePlayer>> {
   const db = getDb();
   const league = await leagueById(leagueId);
   if (!league || league.status !== "running") return { ok: false, error: "That league is not taking players." };
   const open = (await db.prepare(`SELECT (${OPEN_TO_CUSTOMERS}) AS open FROM venues v WHERE v.id = ?`).get(league.venueId)) as { open: boolean };
   if (!open.open) return { ok: false, error: "That venue is not taking players at the moment." };
-  const notHere = await accessRefusal(league.venueId, user.id);
-  if (notHere) return { ok: false, error: notHere.error, code: notHere.code };
-  const notFor = await whoRefusal(user.id, league.who);
-  if (notFor) return { ok: false, error: notFor.error, code: notFor.code };
+  const notHere = await entrantVenueRefusal(league.venueId, entrant, todayISO());
+  if (notHere) return { ok: false, error: notHere.error, code: notHere.code, ...(notHere.vars ? { vars: notHere.vars } : {}) };
+  // A women's or men's league: the player, and a pair's partner too, as declared.
+  const category = categoryOfWho(league.who);
+  const partnerGender = league.teamSize === 2 && isPartnerGender(input.partnerGender) ? input.partnerGender : null;
+  const notFor = await entrantCategoryRefusal(entrant, category, league.teamSize === 2 ? { partnerGender } : null, input.gender);
+  if (notFor) return { ok: false, error: notFor.error, code: notFor.code, ...(notFor.vars ? { vars: notFor.vars } : {}) };
   const partner = input.partnerName?.trim() ?? "";
   if (league.teamSize === 2 && (partner.length < 2 || partner.length > 60)) return { ok: false, error: "Name your partner." };
-  const name = (league.teamSize === 2 ? `${user.name.trim()} / ${partner}` : user.name.trim()).slice(0, 130);
+  const name = (league.teamSize === 2 ? `${entrant.name} / ${partner}` : entrant.name).slice(0, 130);
+  const userId = entrantUserId(entrant);
+  const participantId = entrantParticipantId(entrant);
 
-  const before = (await db
-    .prepare("SELECT id, status FROM league_players WHERE league_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1")
-    .get(leagueId, user.id)) as { id: number; status: "active" | "left" } | undefined;
-  if (before?.status === "active") return { ok: false, error: "You are in this league already." };
+  // The same player back again: the account holder's own place, or the participant's, whoever enters them.
+  const before =
+    participantId !== null
+      ? ((await db.prepare("SELECT id, status FROM league_players WHERE league_id = ? AND participant_id = ? ORDER BY id DESC LIMIT 1").get(leagueId, participantId)) as
+          | { id: number; status: "active" | "left" }
+          | undefined)
+      : userId !== null
+        ? ((await db
+            .prepare("SELECT id, status FROM league_players WHERE league_id = ? AND user_id = ? AND participant_id IS NULL ORDER BY id DESC LIMIT 1")
+            .get(leagueId, userId)) as { id: number; status: "active" | "left" } | undefined)
+        : undefined;
+  if (before?.status === "active") return entrant.kind === "self" ? { ok: false, error: "You are in this league already." } : refuse("LG5_JOINED_ALREADY", { name: entrant.name });
+  const gender = declaredGender(entrant, category, input.gender);
+  const counter = entrant.kind === "counter" ? entrant : null;
   let id: number;
   if (before) {
     // Back again: the same player, so last season's finish still counts.
     await db
-      .prepare("UPDATE league_players SET status = 'active', left_at = NULL, name = ?, partner_name = ? WHERE id = ?")
-      .run(name, partner || null, before.id);
+      .prepare(
+        `UPDATE league_players SET status = 'active', left_at = NULL, name = ?, partner_name = ?, partner_gender = ?, user_id = ?, entrant_gender = ?,
+                contact_phone = ?, entered_by_admin_id = ?, entered_by_name = ? WHERE id = ?`
+      )
+      .run(name, partner || null, partnerGender, userId, gender, counter?.phone ?? null, counter?.adminId ?? null, counter?.adminName ?? null, before.id);
     id = before.id;
   } else {
     id = (
       await db
-        .prepare("INSERT INTO league_players (league_id, user_id, name, partner_name) VALUES (?, ?, ?, ?)")
-        .run(leagueId, user.id, name, partner || null)
+        .prepare(
+          `INSERT INTO league_players (league_id, user_id, name, partner_name, partner_gender, participant_id, entrant_gender, contact_phone, entered_by_admin_id, entered_by_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(leagueId, userId, name, partner || null, partnerGender, participantId, gender, counter?.phone ?? null, counter?.adminId ?? null, counter?.adminName ?? null)
     ).lastInsertRowid as number;
   }
+  await recordEntered(entrant, league.venueId, "league.joined", league.name);
   const next = league.current;
-  await tellPlayer(
-    user.id,
-    league,
-    (tr) => tr("mail.league.joined.s", { l: league.name }),
-    (tr) =>
-      sentences(
-        tr,
-        tr("mail.league.joined.b", { l: league.name, venue: league.venueName }),
-        next?.status === "forming" && tr("mail.league.joined.forming", { n: next.number, date: next.startsOn }),
-        next?.status === "running" && tr("mail.league.joined.running", { date: next.endsOn }),
-        league.fee > 0 && tr("mail.league.feeSeason", { fee: money(league.fee.toFixed(2)) })
-      )
-  );
+  if (userId !== null)
+    await tellPlayer(
+      userId,
+      league,
+      (tr) => tr("mail.league.joined.s", { l: league.name }),
+      (tr) =>
+        sentences(
+          tr,
+          entrant.kind === "participant" && tr("lg5.mail.placeFor", { name: entrant.name }),
+          tr("mail.league.joined.b", { l: league.name, venue: league.venueName }),
+          next?.status === "forming" && tr("mail.league.joined.forming", { n: next.number, date: next.startsOn }),
+          next?.status === "running" && tr("mail.league.joined.running", { date: next.endsOn }),
+          league.fee > 0 && tr("mail.league.feeSeason", { fee: money(league.fee.toFixed(2)) })
+        )
+    );
   return { ok: true, value: (await playerById(id))! };
 }
 
@@ -567,24 +641,40 @@ export async function leave(playerId: number): Promise<Result<LeaguePlayer>> {
 
 /** The player's own place in a league, if they are in it. */
 export async function myLeague(userId: number, leagueId: number): Promise<MyLeague | null> {
-  const db = getDb();
-  const p = (await db
-    .prepare("SELECT id, name FROM league_players WHERE league_id = ? AND user_id = ? AND status = 'active'")
+  const p = (await getDb()
+    .prepare("SELECT id, name FROM league_players WHERE league_id = ? AND user_id = ? AND participant_id IS NULL AND status = 'active'")
     .get(leagueId, userId)) as { id: number; name: string } | undefined;
-  if (!p) return null;
+  return p ? placeOf(leagueId, p) : null;
+}
+
+/** Places this account holds for people it still acts for (a guardian's), each with its box-mates to arrange matches with. */
+export async function managedLeague(userId: number, leagueId: number): Promise<MyLeague[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT lp.id, lp.name, lp.participant_id FROM league_players lp JOIN participants p ON p.id = lp.participant_id
+        WHERE lp.league_id = ? AND lp.user_id = ? AND lp.status = 'active' AND ${ACTS_FOR("p")} ORDER BY lp.id`
+    )
+    .all(leagueId, userId, userId, userId)) as { id: number; name: string; participant_id: number }[];
+  return Promise.all(rows.map(async (r) => ({ ...(await placeOf(leagueId, r)), participantId: r.participant_id })));
+}
+
+async function placeOf(leagueId: number, p: { id: number; name: string }): Promise<MyLeague> {
+  const db = getDb();
   const season = await currentSeason(leagueId);
   if (season?.status !== "running") return { playerId: p.id, name: p.name, place: null, contacts: [] };
   const place = (await db.prepare("SELECT * FROM league_places WHERE season_id = ? AND player_id = ?").get(season.id, p.id)) as
     | { id: number; box_no: number; finish: number | null; move: Move | null; paid_at: string | null; withdrawn_at: string | null }
     | undefined;
   if (!place) return { playerId: p.id, name: p.name, place: null, contacts: [] };
-  // Box-mates, still playing, and how to reach them: what joining agreed to.
+  // Box-mates, still playing, and how to reach them: what joining agreed to. A
+  // participant's is their guardian's number; one added at the counter, the number given there.
   const contacts = (await db
     .prepare(
-      `SELECT p.id, p.name, u.phone FROM league_places lp
+      `SELECT p.id, p.name, COALESCE(u.phone, p.contact_phone) AS phone FROM league_places lp
          JOIN league_players p ON p.id = lp.player_id
-         JOIN users u ON u.id = p.user_id
+         LEFT JOIN users u ON u.id = p.user_id
         WHERE lp.season_id = ? AND lp.box_no = ? AND lp.player_id <> ? AND lp.withdrawn_at IS NULL
+          AND COALESCE(u.phone, p.contact_phone) IS NOT NULL
         ORDER BY p.name`
     )
     .all(season.id, place.box_no, p.id)) as { id: number; name: string; phone: string }[];
@@ -651,10 +741,10 @@ export async function startSeason(leagueId: number, opts: { startsOn?: string; e
 
   const players = (await db
     .prepare(
-      `SELECT p.id, p.user_id, p.name, p.start_box, pl.level,
+      `SELECT p.id, p.user_id, p.name, p.start_box, pl.level, p.participant_id,
               last.box_no AS last_box, last.finish AS last_finish, last.move AS last_move
          FROM league_players p
-         LEFT JOIN player_levels pl ON pl.user_id = p.user_id AND pl.sport = ?
+         LEFT JOIN player_levels pl ON pl.user_id = p.user_id AND p.participant_id IS NULL AND pl.sport = ?
          LEFT JOIN league_places last ON last.player_id = p.id
               AND last.season_id = (SELECT id FROM league_seasons WHERE league_id = ? AND number = ?)
         WHERE p.league_id = ? AND p.status = 'active'
@@ -663,6 +753,7 @@ export async function startSeason(leagueId: number, opts: { startsOn?: string; e
     .all(league.sport, leagueId, season.number - 1, leagueId)) as {
     id: number;
     user_id: number | null;
+    participant_id: number | null;
     name: string;
     start_box: number | null;
     level: Level | null;
@@ -712,6 +803,7 @@ export async function startSeason(leagueId: number, opts: { startsOn?: string; e
         (tr) => tr("mail.league.started.s", { n: season.number, box: i + 1 }),
         (tr) =>
           [
+            p.participant_id !== null && tr("lg5.mail.placeFor", { name: p.name }),
             tr("mail.league.started.b", { n: season.number, l: league.name, from: startsOn, to: endsOn, box: i + 1, others }),
             tr("mail.league.started.how"),
             league.fee > 0 && tr(league.payOnline ? "mail.league.feeOnline" : "mail.league.feeVenue", { fee: money(league.fee.toFixed(2)) }),
@@ -779,6 +871,8 @@ export async function endSeason(leagueId: number, today = todayISO()): Promise<R
       (tr) =>
         sentences(
           tr,
+          // A place held for somebody the account acts for says whose it is.
+          p.participantId ? tr("lg5.mail.placeFor", { name: p.name }) : null,
           // English says "2nd"; the others write the number into their own phrase.
           tr("mail.league.over.b", { n: season.number, l: league.name, place: tr.locale === "en" ? ordinal(finish) : finish, box: place.boxNo, move: move(tr) }),
           next && tr("mail.league.next", { n: next.number, date: next.startsOn })
@@ -842,27 +936,49 @@ interface MatchRow {
   user_b: number | null;
   name_a: string;
   name_b: string;
+  version: number;
 }
 
-async function matchRow(matchId: number): Promise<MatchRow | undefined> {
-  return (await getDb()
+/**
+ * The match with its sides. `lock`: its row locked for the rest of the
+ * transaction, so nothing changes it between this read and the write that
+ * follows (migration 0177).
+ */
+async function matchRow(matchId: number, lock = false): Promise<MatchRow | undefined> {
+  const row = (await getDb()
     .prepare(
       `SELECT m.*, s.league_id, s.status AS season_status, pa.user_id AS user_a, pb.user_id AS user_b, pa.name AS name_a, pb.name AS name_b
          FROM league_matches m
          JOIN league_seasons s ON s.id = m.season_id
          JOIN league_players pa ON pa.id = m.player_a
          JOIN league_players pb ON pb.id = m.player_b
-        WHERE m.id = ?`
+        WHERE m.id = ?${lock ? " FOR UPDATE OF m" : ""}`
     )
     .get(matchId)) as MatchRow | undefined;
+  return row ? { ...row, version: Number(row.version ?? 0) } : undefined;
 }
 
-/** Which side the account is on, if either. */
+/**
+ * Which side the account acts for, if either: its own place, or a
+ * participant's it entered. An account on both sides (a guardian whose two
+ * children play each other) answers for neither: staff enter that result.
+ */
 function sideOf(m: MatchRow, userId: number): { me: number; them: number; theirUser: number | null } | null {
+  if (m.user_a === userId && m.user_b === userId) return null;
   if (m.user_a === userId) return { me: m.player_a, them: m.player_b, theirUser: m.user_b };
   if (m.user_b === userId) return { me: m.player_b, them: m.player_a, theirUser: m.user_a };
   return null;
 }
+
+/** What a stale answer gets: the result changed since it was read. */
+const changed = (): { ok: false; error: string; code: string } => ({
+  ok: false,
+  error: "The result changed while you were looking at it. Look at it again, then answer.",
+  code: "LG5_RESULT_CHANGED",
+});
+
+/** Was a version given that is not the one the match has now? */
+const stale = (m: MatchRow, expected: { version?: number }) => expected.version !== undefined && expected.version !== m.version;
 
 /** Why a score cannot stand for this winner, by the league's rules (first-named side's score first), or null. */
 function checkScore(winner: number, a: number, b: number, score: string, scoring: CompetitionRules["scoring"]): string | null {
@@ -872,27 +988,44 @@ function checkScore(winner: number, a: number, b: number, score: string, scoring
 
 export { flipScore };
 
-/** A player says how their match went. They can put it right until the other side answers. */
-export async function reportResult(userId: number, matchId: number, input: { winner: number; score: string }): Promise<Result<LeagueMatch>> {
-  const m = await matchRow(matchId);
-  const side = m ? sideOf(m, userId) : null;
-  if (!m || !side) return { ok: false, error: "That is not your match." };
-  if (m.season_status !== "running") return { ok: false, error: "That season is over." };
-  if (m.status === "reported" && m.reported_by !== side.me) return { ok: false, error: "They have reported it: confirm it, or say it is wrong." };
-  if (m.status === "disputed") return { ok: false, error: "The venue is deciding this one." };
-  if (m.status !== "unplayed" && m.status !== "reported") return { ok: false, error: "This result is settled. Ask the venue if it is wrong." };
-  // A player writes their own games first; it is kept with the first-named side's first.
-  const typed = input.score.trim();
-  const score = side.me === m.player_a ? typed : flipScore(typed);
-  const rules = (await leagueById(m.league_id))!.rules;
-  const wrong = checkScore(input.winner, m.player_a, m.player_b, score, rules.scoring);
-  if (wrong) return { ok: false, error: wrong };
-  await getDb()
-    .prepare(
-      `UPDATE league_matches SET status = 'reported', winner = ?, score = ?, reported_by = ?, reported_at = datetime('now'),
-              updated_at = datetime('now') WHERE id = ?`
-    )
-    .run(input.winner, score, side.me, matchId);
+/**
+ * A player says how their match went. They can put it right until the other
+ * side answers. One transaction on the match's locked row: a report never
+ * lands on a result that was confirmed, disputed or decided meanwhile.
+ * `expected.version`, where given: the result as the player last saw it.
+ */
+export async function reportResult(
+  userId: number,
+  matchId: number,
+  input: { winner: number; score: string },
+  expected: { version?: number } = {}
+): Promise<Result<LeagueMatch>> {
+  const done = await withTransaction(async (): Promise<{ ok: false; error: string; code?: string } | { ok: true; m: MatchRow; side: NonNullable<ReturnType<typeof sideOf>>; typed: string }> => {
+    const m = await matchRow(matchId, true);
+    const side = m ? sideOf(m, userId) : null;
+    if (!m || !side) return { ok: false, error: "That is not your match." };
+    if (m.season_status !== "running") return { ok: false, error: "That season is over." };
+    if (m.status === "reported" && m.reported_by !== side.me) return { ok: false, error: "They have reported it: confirm it, or say it is wrong." };
+    if (m.status === "disputed") return { ok: false, error: "The venue is deciding this one." };
+    if (m.status !== "unplayed" && m.status !== "reported") return { ok: false, error: "This result is settled. Ask the venue if it is wrong." };
+    if (stale(m, expected)) return changed();
+    // A player writes their own games first; it is kept with the first-named side's first.
+    const typed = input.score.trim();
+    const score = side.me === m.player_a ? typed : flipScore(typed);
+    const rules = (await leagueById(m.league_id))!.rules;
+    const wrong = checkScore(input.winner, m.player_a, m.player_b, score, rules.scoring);
+    if (wrong) return { ok: false, error: wrong };
+    const wrote = await getDb()
+      .prepare(
+        `UPDATE league_matches SET status = 'reported', winner = ?, score = ?, reported_by = ?, reported_at = datetime('now'),
+                updated_at = datetime('now') WHERE id = ? AND version = ? AND status IN ('unplayed', 'reported')`
+      )
+      .run(input.winner, score, side.me, matchId, m.version);
+    if (wrote.changes !== 1) return changed();
+    return { ok: true, m, side, typed };
+  });
+  if (!done.ok) return done;
+  const { m, side, typed } = done;
   if (side.theirUser) {
     const league = (await leagueById(m.league_id))!;
     const me = side.me === m.player_a ? m.name_a : m.name_b;
@@ -911,27 +1044,57 @@ export async function reportResult(userId: number, matchId: number, input: { win
   return { ok: true, value: (await matchesOf(m.season_id)).find((x) => x.id === matchId)! };
 }
 
-/** The other side agrees. */
-export async function confirmResult(userId: number, matchId: number): Promise<Result<LeagueMatch>> {
-  const m = await matchRow(matchId);
-  const side = m ? sideOf(m, userId) : null;
-  if (!m || !side) return { ok: false, error: "That is not your match." };
-  if (m.status !== "reported" || m.reported_by === side.me) return { ok: false, error: "There is nothing for you to confirm." };
-  await getDb().prepare("UPDATE league_matches SET status = 'confirmed', updated_at = datetime('now') WHERE id = ? AND status = 'reported'").run(matchId);
-  return { ok: true, value: (await matchesOf(m.season_id)).find((x) => x.id === matchId)! };
+/**
+ * The other side's answer to a report, on the match's locked row: it stands
+ * only on the result they saw (`expected.version`; a correction made since
+ * is refused as changed), and only while it is still a report.
+ */
+async function answerReport(
+  userId: number,
+  matchId: number,
+  to: "confirmed" | "disputed",
+  note: string | null,
+  expected: { version?: number }
+): Promise<{ ok: false; error: string; code?: string } | { ok: true; m: MatchRow; side: NonNullable<ReturnType<typeof sideOf>> }> {
+  return withTransaction(async () => {
+    const m = await matchRow(matchId, true);
+    const side = m ? sideOf(m, userId) : null;
+    if (!m || !side) return { ok: false, error: "That is not your match." };
+    if (m.status !== "reported" || m.reported_by === side.me)
+      return stale(m, expected) ? changed() : { ok: false, error: to === "confirmed" ? "There is nothing for you to confirm." : "There is nothing for you to dispute." };
+    if (stale(m, expected)) return changed();
+    const wrote = await getDb()
+      .prepare(
+        `UPDATE league_matches SET status = ?, dispute_note = COALESCE(?, dispute_note), updated_at = datetime('now')
+          WHERE id = ? AND status = 'reported' AND version = ?`
+      )
+      .run(to, note, matchId, m.version);
+    if (wrote.changes !== 1) return changed();
+    return { ok: true, m, side };
+  });
 }
 
-/** The other side says it did not go like that: the venue decides. */
-export async function disputeResult(userId: number, matchId: number, note: string): Promise<Result<LeagueMatch>> {
-  const m = await matchRow(matchId);
-  const side = m ? sideOf(m, userId) : null;
-  if (!m || !side) return { ok: false, error: "That is not your match." };
-  if (m.status !== "reported" || m.reported_by === side.me) return { ok: false, error: "There is nothing for you to dispute." };
+/** The other side agrees, with the result they saw (`expected.version`). */
+export async function confirmResult(userId: number, matchId: number, expected: { version?: number } = {}): Promise<Result<LeagueMatch>> {
+  const done = await answerReport(userId, matchId, "confirmed", null, expected);
+  if (!done.ok) return done;
+  return { ok: true, value: (await matchesOf(done.m.season_id)).find((x) => x.id === matchId)! };
+}
+
+/** The other side says it did not go like that, about the result they saw: the venue decides. */
+export async function disputeResult(userId: number, matchId: number, note: string, expected: { version?: number } = {}): Promise<Result<LeagueMatch>> {
   const why = note.trim().slice(0, 500);
-  if (why.length < 3) return { ok: false, error: "Say what really happened." };
-  await getDb()
-    .prepare("UPDATE league_matches SET status = 'disputed', dispute_note = ?, updated_at = datetime('now') WHERE id = ? AND status = 'reported'")
-    .run(why, matchId);
+  if (why.length < 3) {
+    // Said too little; but a match that is not theirs, or not theirs to answer, says so first.
+    const m = await matchRow(matchId);
+    const side = m ? sideOf(m, userId) : null;
+    if (!m || !side) return { ok: false, error: "That is not your match." };
+    if (m.status !== "reported" || m.reported_by === side.me) return { ok: false, error: "There is nothing for you to dispute." };
+    return { ok: false, error: "Say what really happened." };
+  }
+  const done = await answerReport(userId, matchId, "disputed", why, expected);
+  if (!done.ok) return done;
+  const { m, side } = done;
   const league = (await leagueById(m.league_id))!;
   await tellVenueStaff(
     league.venueId,
@@ -942,35 +1105,81 @@ export async function disputeResult(userId: number, matchId: number, note: strin
   return { ok: true, value: (await matchesOf(m.season_id)).find((x) => x.id === matchId)! };
 }
 
-/** Staff decide a result — a dispute, a walkover, a correction — or strike it, or clear it to be played. */
+/**
+ * Staff decide a result — a dispute, a walkover, a correction — or strike
+ * it, or clear it to be played: on the match's locked row, and, where
+ * `expected.version` is given, only on the result staff were looking at (a
+ * player's report or answer since is refused as changed, to be looked at
+ * again). Both sides are then emailed what the venue decided, in their own
+ * language, through the outbox.
+ */
 export async function decideResult(
   matchId: number,
   adminId: number,
-  input: { winner: number; score?: string; walkover?: boolean } | { void: true } | { clear: true }
+  input: { winner: number; score?: string; walkover?: boolean } | { void: true } | { clear: true },
+  expected: { version?: number } = {}
 ): Promise<Result<LeagueMatch>> {
   const db = getDb();
-  const m = await matchRow(matchId);
-  if (!m) return { ok: false, error: "Match not found." };
-  if (m.season_status !== "running") return { ok: false, error: "That season is over." };
-  if ("void" in input || "clear" in input) {
-    await db
-      .prepare(
-        `UPDATE league_matches SET status = ?, winner = NULL, score = NULL, reported_by = NULL, reported_at = NULL,
-                decided_by = ?, updated_at = datetime('now') WHERE id = ?`
-      )
-      .run("void" in input ? "void" : "unplayed", adminId, matchId);
-  } else {
-    const score = input.score?.trim() || null;
-    if (score) {
-      const wrong = checkScore(input.winner, m.player_a, m.player_b, score, (await leagueById(m.league_id))!.rules.scoring);
-      if (wrong) return { ok: false, error: wrong };
-    } else if (!input.walkover) return { ok: false, error: "Give the score, or mark it a walkover." };
-    else if (input.winner !== m.player_a && input.winner !== m.player_b) return { ok: false, error: "The winner has to be one of the two." };
-    await db
-      .prepare("UPDATE league_matches SET status = ?, winner = ?, score = ?, decided_by = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(score ? "confirmed" : "walkover", input.winner, score, adminId, matchId);
-  }
-  return { ok: true, value: (await matchesOf(m.season_id)).find((x) => x.id === matchId)! };
+  const done = await withTransaction(async (): Promise<{ ok: false; error: string; code?: string } | { ok: true; m: MatchRow; score: string | null }> => {
+    const m = await matchRow(matchId, true);
+    if (!m) return { ok: false, error: "Match not found." };
+    if (m.season_status !== "running") return { ok: false, error: "That season is over." };
+    if (stale(m, expected)) return changed();
+    let wrote;
+    let score: string | null = null;
+    if ("void" in input || "clear" in input) {
+      wrote = await db
+        .prepare(
+          `UPDATE league_matches SET status = ?, winner = NULL, score = NULL, reported_by = NULL, reported_at = NULL,
+                  decided_by = ?, updated_at = datetime('now') WHERE id = ? AND version = ?`
+        )
+        .run("void" in input ? "void" : "unplayed", adminId, matchId, m.version);
+    } else {
+      score = input.score?.trim() || null;
+      if (score) {
+        const wrong = checkScore(input.winner, m.player_a, m.player_b, score, (await leagueById(m.league_id))!.rules.scoring);
+        if (wrong) return { ok: false, error: wrong };
+      } else if (!input.walkover) return { ok: false, error: "Give the score, or mark it a walkover." };
+      else if (input.winner !== m.player_a && input.winner !== m.player_b) return { ok: false, error: "The winner has to be one of the two." };
+      wrote = await db
+        .prepare("UPDATE league_matches SET status = ?, winner = ?, score = ?, decided_by = ?, updated_at = datetime('now') WHERE id = ? AND version = ?")
+        .run(score ? "confirmed" : "walkover", input.winner, score, adminId, matchId, m.version);
+    }
+    if (wrote.changes !== 1) return changed();
+    return { ok: true, m, score };
+  });
+  if (!done.ok) return done;
+  await tellDecision(done.m, input, done.score);
+  return { ok: true, value: (await matchesOf(done.m.season_id)).find((x) => x.id === matchId)! };
+}
+
+/** Both sides of a match, told what the venue's staff decided about it (once each, where one account acts for both). */
+async function tellDecision(
+  m: MatchRow,
+  input: { winner: number; score?: string; walkover?: boolean } | { void: true } | { clear: true },
+  score: string | null
+): Promise<void> {
+  const league = (await leagueById(m.league_id))!;
+  const vars = { l: league.name, a: m.name_a, b: m.name_b };
+  const said: Written =
+    "void" in input
+      ? (tr) => tr("lg5.mail.void.b", vars)
+      : "clear" in input
+        ? (tr) => tr("lg5.mail.cleared.b", vars)
+        : (tr) =>
+            tr(score ? "lg5.mail.decided.b" : "lg5.mail.walkover.b", {
+              ...vars,
+              winner: input.winner === m.player_a ? m.name_a : m.name_b,
+              score: score ?? "",
+            });
+  for (const userId of new Set([m.user_a, m.user_b]))
+    if (userId !== null)
+      await tellPlayer(
+        userId,
+        league,
+        (tr) => tr("lg5.mail.decided.s", vars),
+        (tr) => sentences(tr, said(tr), tr("lg5.mail.decided.ask"))
+      );
 }
 
 // ------------------------------------------------------------ telling people
@@ -982,10 +1191,26 @@ async function tellPlayer(userId: number, league: League, subject: Written, body
 
 // ------------------------------------------------------------ their own data
 
-/** Out of every league, and off every box, past or not, by name. */
+/**
+ * Out of every league, and off every box, past or not, by name. A place
+ * held for a participant the account acted for stays the participant's: only
+ * the account comes off it (their record is erased on its own,
+ * `forgetLeagueParticipant`, when nobody else acts for them).
+ */
 export async function forgetLeaguePlayer(userId: number, anonymous: string): Promise<void> {
   const db = getDb();
-  const rows = (await db.prepare("SELECT id FROM league_players WHERE user_id = ? AND status = 'active'").all(userId)) as { id: number }[];
+  const rows = (await db.prepare("SELECT id FROM league_players WHERE user_id = ? AND participant_id IS NULL AND status = 'active'").all(userId)) as { id: number }[];
   for (const r of rows) await leave(r.id);
+  await db.prepare("UPDATE league_players SET user_id = NULL WHERE user_id = ? AND participant_id IS NOT NULL").run(userId);
   await db.prepare("UPDATE league_players SET name = ?, partner_name = NULL, user_id = NULL WHERE user_id = ?").run(anonymous, userId);
+}
+
+/** A participant's record erased (lib/participants.ts): out of their leagues, and their name off every box. */
+export async function forgetLeagueParticipant(participantId: number, anonymous: string): Promise<void> {
+  const db = getDb();
+  const rows = (await db.prepare("SELECT id FROM league_players WHERE participant_id = ? AND status = 'active'").all(participantId)) as { id: number }[];
+  for (const r of rows) await leave(r.id);
+  await db
+    .prepare("UPDATE league_players SET name = ?, partner_name = NULL, user_id = NULL, contact_phone = NULL, participant_id = NULL WHERE participant_id = ?")
+    .run(anonymous, participantId);
 }

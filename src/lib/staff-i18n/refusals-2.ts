@@ -677,4 +677,7 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   },
   "Say never, or promotion (where the code allows it).": { ms: "Nyatakan never (tidak sama sekali), atau promotion (jika kod membenarkannya).", zh: "请填写 never（不允许），或 promotion（在优惠码允许时）。" },
   "passCodes must be a list of pass codes.": { ms: "passCodes mestilah senarai kod pas.", zh: "passCodes 须为次卡代码列表。" },
+  "Give the player's phone number (or their guardian's).": { ms: "Berikan nombor telefon pemain (atau penjaganya).", zh: "请填写球员（或其监护人）的电话号码。" },
+  "Give the player's name.": { ms: "Berikan nama pemain.", zh: "请填写球员姓名。" },
+  "participantId must be a participant's id.": { ms: "participantId mestilah id peserta.", zh: "participantId 须为参与者的 id。" },
 };

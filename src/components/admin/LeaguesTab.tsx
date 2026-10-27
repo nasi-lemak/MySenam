@@ -11,6 +11,7 @@ import type { CompetitionTemplate } from "@/lib/competition-templates";
 import { money, currencySymbol } from "@/lib/region";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { CounterEntry } from "./CounterEntry";
 import { sportLabel } from "@/lib/i18n";
 import { levelLabel } from "./TournamentsTab";
 
@@ -472,6 +473,8 @@ function Manage({
                 <span className="flex-1">
                   {p.name}
                   {p.level && <span className="text-slate-500"> · {levelLabel(t, p.level)}</span>}
+                  {p.atCounter && <span className="block text-xs text-slate-500">{t("lg5.atCounter", { by: p.atCounter.by })}</span>}
+                  {!p.atCounter && p.participantId && <span className="block text-xs text-slate-500">{t("lg5.forParticipant")}</span>}
                 </span>
                 <label className="flex items-center gap-1 text-xs text-slate-500">
                   {t("lg.startInBox")}
@@ -498,6 +501,15 @@ function Manage({
               </li>
             ))}
         </ul>
+        {l.status === "running" && (
+          <CounterEntry
+            venueId={l.venueId}
+            kind="league"
+            teamSize={l.teamSize}
+            category={l.who === "anyone" ? "open" : l.who}
+            submit={(body) => post(`${base}/players`, body)}
+          />
+        )}
       </section>
     </div>
   );
@@ -533,17 +545,18 @@ function Decide({
         <option value={m.b}>{t("tn.nameWon", { name: names.get(m.b) ?? "" })}</option>
       </select>
       <input value={score} onChange={(e) => setScore(e.target.value)} placeholder="21-15, 21-18" className={`w-32 ${small}`} />
-      <button onClick={() => void post({ winner, score })} className="rounded-md bg-teal-600 px-2 py-1 text-xs font-semibold text-white">
+      {/* Each decision is on the result as shown here (its version): one a player changed since is refused, to look at again. */}
+      <button onClick={() => void post({ winner, score, version: m.version })} className="rounded-md bg-teal-600 px-2 py-1 text-xs font-semibold text-white">
         {t("c.save")}
       </button>
-      <button onClick={() => void post({ winner, walkover: true })} className={small}>
+      <button onClick={() => void post({ winner, walkover: true, version: m.version })} className={small}>
         {t("lg.walkover")}
       </button>
-      <button onClick={() => void post({ void: true })} className={small}>
+      <button onClick={() => void post({ void: true, version: m.version })} className={small}>
         {t("lg.dontCount")}
       </button>
       {m.status !== "unplayed" && (
-        <button onClick={() => void post({ clear: true })} className={small}>
+        <button onClick={() => void post({ clear: true, version: m.version })} className={small}>
           {t("lg.toBePlayed")}
         </button>
       )}

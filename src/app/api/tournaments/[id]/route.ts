@@ -5,8 +5,10 @@ import { getSessionUser } from "@/lib/auth";
 import { mayShowVenue } from "@/lib/listing";
 import { startEntryPayment } from "@/lib/payments";
 import { rateLimit } from "@/lib/rate-limit";
-import { enter, myEntry, tournamentById, tournamentDetail, withdraw } from "@/lib/tournaments";
+import { enter, enterAs, managedEntries, myEntry, tournamentById, tournamentDetail, withdraw } from "@/lib/tournaments";
 import { answerReport, openReports, reportResult } from "@/lib/match-reports";
+import { guardianEntrant, isEntrantRefusal } from "@/lib/competition-entrants";
+import { listManaged } from "@/lib/managed-people";
 
 export const dynamic = "force-dynamic";
 
@@ -16,22 +18,30 @@ async function visible(req: NextRequest, id: number) {
   return (await mayShowVenue(t.venueId, req)).show ? t : null;
 }
 
-/** The draw, the groups, the bracket and the times; and, signed in, your entry and the results waiting on your matches. */
+/**
+ * The draw, the groups, the bracket and the times; and, signed in, your entry, the entries you made for people you
+ * act for (`managed`), those people (`people`, to enter one), and the results waiting on those matches.
+ */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const t = await visible(req, Number((await params).id));
   if (!t) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const user = await getSessionUser(req);
   const detail = (await tournamentDetail(t.id))!;
   const mine = user ? await myEntry(user.id, t.id) : null;
-  // Reports on the player's own matches only: who reported, and what.
-  const myMatches = new Set(mine ? detail.matches.filter((m) => m.a === mine.id || m.b === mine.id).map((m) => m.id) : []);
-  const reports = mine && t.resultsBy === "players" ? (await openReports(t.id)).filter((r) => myMatches.has(r.matchId)).map((r) => ({ ...r, disputeNote: undefined })) : [];
-  return NextResponse.json({ tournament: detail, mine, signedIn: user !== null, reports });
+  const managed = user ? await managedEntries(user.id, t.id) : [];
+  const people = user ? (await listManaged(user.id)).map((p) => ({ id: p.id, name: p.displayName })) : [];
+  // Reports on the player's own matches (and those of the people they entered) only: who reported, and what.
+  const ours = new Set([...(mine ? [mine.id] : []), ...managed.map((e) => e.id)]);
+  const myMatches = new Set(detail.matches.filter((m) => (m.a !== null && ours.has(m.a)) || (m.b !== null && ours.has(m.b))).map((m) => m.id));
+  const reports = ours.size > 0 && t.resultsBy === "players" ? (await openReports(t.id)).filter((r) => myMatches.has(r.matchId)).map((r) => ({ ...r, disputeNote: undefined })) : [];
+  return NextResponse.json({ tournament: detail, mine, managed, people, signedIn: user !== null, reports });
 }
 
 /**
  * `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark? }` (a team's name and roster of
- * names; a performance event's entry time or mark), `{ action: "withdraw" }` (before the draw), or `{ action: "pay" }`.
+ * names; a performance event's entry time or mark); with `participantId`, somebody the account acts for is entered
+ * (their declared `gender` where the event is women's, men's or mixed). `{ action: "withdraw", entryId? }` (before
+ * the draw), or `{ action: "pay", entryId? }` — the account's own entry, or one it made for somebody it acts for.
  * Where players enter results: `{ action: "report", matchId, winner, score?, walkover? }` (`winner: null` for a draw),
  * `{ action: "confirm", matchId }` or `{ action: "dispute", matchId, note }` by the other side.
  */
@@ -63,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (body.action === "pay") {
     const limited = await rateLimit(req, "payment");
     if (limited) return limited;
-    const paying = await startEntryPayment(user, t.id);
+    const paying = await startEntryPayment(user, t.id, Number.isInteger(body.entryId) ? (body.entryId as number) : undefined);
     if (!paying.ok) return NextResponse.json({ error: paying.error }, { status: paying.status });
     return NextResponse.json({ url: paying.url });
   }
@@ -72,7 +82,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (limited) return limited;
     const noPhone = await phoneRefusal(user.id);
     if (noPhone) return refusal(noPhone, 403);
-    const result = await enter(user, t.id, {
+    // Somebody this account acts for, entered by it: the participant is the entrant (lib/competition-entrants.ts).
+    const forSomebody = body.participantId !== undefined && body.participantId !== null;
+    const entrant = forSomebody ? await guardianEntrant(user, body.participantId) : null;
+    if (isEntrantRefusal(entrant)) return NextResponse.json({ error: entrant.error, code: entrant.code }, { status: entrant.status ?? 403 });
+    const input = {
       partnerName: typeof body.partnerName === "string" ? body.partnerName : undefined,
       partnerGender: typeof body.partnerGender === "string" ? body.partnerGender : undefined,
       teamName: typeof body.teamName === "string" ? body.teamName : undefined,
@@ -83,12 +97,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       rosterEligible: body.rosterEligible === true,
       guardianName: typeof body.guardianName === "string" ? body.guardianName : undefined,
       guardianConsent: body.guardianConsent === true,
-    });
-    if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.code ? 403 : 409 });
-    return NextResponse.json({ mine: result.value }, { status: 201 });
+      gender: typeof body.gender === "string" ? body.gender : undefined,
+    };
+    const result = entrant ? await enterAs(entrant, t.id, input) : await enter(user, t.id, input);
+    if (!result.ok)
+      return NextResponse.json({ error: result.error, code: result.code, ...(result.vars ? { vars: result.vars } : {}) }, { status: result.code ? 403 : 409 });
+    return NextResponse.json(entrant ? { entry: result.value } : { mine: result.value }, { status: 201 });
   }
   if (body.action === "withdraw") {
-    const mine = await myEntry(user.id, t.id);
+    // The account's own entry, or one it made for somebody it still acts for.
+    const mine = Number.isInteger(body.entryId)
+      ? [await myEntry(user.id, t.id), ...(await managedEntries(user.id, t.id))].find((e) => e?.id === body.entryId) ?? null
+      : await myEntry(user.id, t.id);
     if (!mine) return NextResponse.json({ error: "You have not entered." }, { status: 404 });
     if (t.status === "drawn") return NextResponse.json({ error: "The draw is made: ask the venue to withdraw you." }, { status: 409 });
     const result = await withdraw(mine.id);

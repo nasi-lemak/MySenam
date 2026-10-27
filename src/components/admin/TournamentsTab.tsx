@@ -18,6 +18,7 @@ import { currencySymbol, money } from "@/lib/region";
 import type { RefusalBody } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { CounterEntry } from "./CounterEntry";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
 
@@ -1160,6 +1161,8 @@ function Manage({
                     </div>
                   )}
                   {e.eligibilityChecked && <div className="text-xs text-emerald-700">{t("tn.eligibilityChecked", { by: e.eligibilityChecked.by })}</div>}
+                  {e.atCounter && <div className="text-xs text-slate-500">{t("lg5.atCounter", { by: e.atCounter.by })}</div>}
+                  {!e.atCounter && e.participantId && <div className="text-xs text-slate-500">{t("lg5.forParticipant")}</div>}
                 </td>
                 <td className="text-slate-500">{e.status === "waitlisted" ? t("tn.entryWaiting") : ""}</td>
                 <td className="space-x-1 whitespace-nowrap">
@@ -1229,6 +1232,19 @@ function Manage({
                 .join(", "),
             })}
           </p>
+        )}
+        {tn.status === "open" && (
+          <CounterEntry
+            venueId={tn.venueId}
+            kind="tournament"
+            teamSize={tn.teamSize}
+            category={tn.category}
+            ageRange={tn.ageRange}
+            startsOn={tn.startsOn}
+            team={tn.entryKind === "team"}
+            mark={tn.format === "performance"}
+            submit={(body) => post(`${base}/entries`, body)}
+          />
         )}
       </section>
 

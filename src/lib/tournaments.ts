@@ -21,16 +21,18 @@ import {
 } from "./brackets";
 import { aggregate, formatMark, parseMark, rankPerformances, seedHeats, type Ranked } from "./performance-math";
 import { templateByKey, templateFor, type EntryKind } from "./competition-templates";
-import { accessRefusal, accountPhone } from "./access";
+import { entrantCategoryRefusal, entrantParticipantId, entrantUserId, entrantVenueRefusal, declaredGender, membersOnlyEntrantRefusal, PERSON_OF, recordEntered, selfEntrant, type Entrant } from "./competition-entrants";
+import { refuse } from "./entitlements";
+import { ACTS_FOR } from "./participants";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
-import { activeMembership, memberNumberTrusted, blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
+import { blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./store";
 import { venueZoneOf } from "./zones";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { formatMinute, hoursOf, instantOf, minutesOf } from "./interval";
 import { type Sport } from "./types";
 import type { Level } from "./games";
-import { categoryRefusal, isCategory, isPartnerGender, type Category } from "./who";
+import { isCategory, isPartnerGender, type Category } from "./who";
 import { money } from "./region";
 import { groupResultsVoid, parseRules, readRules, type CompetitionRules, type OutReason, type OutStage } from "./tournament-rules";
 import { englishOf, joinSaid, readStaffText, said, type StaffText, type StaffValue } from "./staff-text";
@@ -142,6 +144,10 @@ export interface Entry {
   eligibilityChecked?: { at: string; by: string } | null;
   /** Only for staff: the ages declared (date of birth), never verified by the app. */
   declaredBirthDate?: string | null;
+  /** Only for staff (and the guardian): the participant entered, where it is one a guardian manages (ADR 0023). */
+  participantId?: number | null;
+  /** Only for staff: entered at the counter, by whom, and the number given (a contact, not proof of who they are). */
+  atCounter?: { by: string; phone: string | null } | null;
 }
 
 /** A line of a group's table: who is out is shown where their results put them, never ranked to go through. */
@@ -388,7 +394,7 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
     (await db
       .prepare(
         `SELECT id, name, status, seed, paid_at, user_id, out_reason, out_stage, roster, entry_mark, checked_in_at,
-                guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date FROM tournament_entries
+                guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date, participant_id, contact_phone, entered_by_name FROM tournament_entries
           WHERE tournament_id = ? ORDER BY status = 'entered' DESC, seed NULLS LAST, id`
       )
       .all(id)) as EntryRow[]
@@ -469,6 +475,9 @@ interface EntryRow {
   eligibility_checked_at?: string | null;
   eligibility_checked_by?: string | null;
   birth_date?: string | null;
+  participant_id?: number | null;
+  contact_phone?: string | null;
+  entered_by_name?: string | null;
 }
 
 function toEntry(e: EntryRow, forStaff: boolean): Entry {
@@ -485,6 +494,8 @@ function toEntry(e: EntryRow, forStaff: boolean): Entry {
           guardian: e.guardian_name && e.guardian_consent_at ? { name: e.guardian_name, consentAt: e.guardian_consent_at } : null,
           eligibilityChecked: e.eligibility_checked_at ? { at: e.eligibility_checked_at, by: e.eligibility_checked_by ?? "" } : null,
           declaredBirthDate: e.birth_date ?? null,
+          participantId: e.participant_id ?? null,
+          atCounter: e.entered_by_name ? { by: e.entered_by_name, phone: e.contact_phone ?? null } : null,
         }
       : {}),
     out: e.status === "withdrawn" ? { reason: e.out_reason ?? "withdrawn", stage: e.out_stage } : null,
@@ -605,7 +616,7 @@ async function matchesOf(tournamentId: number, defaultMinutes: number): Promise<
 
 // ------------------------------------------------------------ setting one up
 
-export type Result<T = Tournament> = { ok: true; value: T } | { ok: false; error: string; clashes?: number; code?: string };
+export type Result<T = Tournament> = { ok: true; value: T } | { ok: false; error: string; clashes?: number; code?: string; vars?: Record<string, string | number> };
 
 export interface TournamentInput {
   venueId: number;
@@ -1042,40 +1053,51 @@ export function ageText(range: { min: number | null; max: number | null }): stri
   return range.min !== null && range.max !== null ? `${range.min} to ${range.max}` : range.min !== null ? `${range.min} and over` : `${range.max} and under`;
 }
 
+/** What an entry says besides who enters: a partner, a team, a mark, declared dates of birth, a guardian's agreement. */
+export interface EntryInput {
+  partnerName?: string;
+  partnerGender?: string;
+  teamName?: string;
+  roster?: unknown;
+  entryMark?: string;
+  birthDate?: string;
+  partnerBirthDate?: string;
+  rosterEligible?: boolean;
+  /** For a declared minor: a parent or guardian's name, and that they agree. */
+  guardianName?: string;
+  guardianConsent?: boolean;
+  /** An entrant with no account of their own (a participant, or at the counter): their gender as declared, where the event asks. */
+  gender?: string;
+}
+
+/** Enter a tournament as the account holder, for themself (`enterAs`). */
+export async function enter(user: { id: number; name: string }, tournamentId: number, input: EntryInput = {}): Promise<Result<Entry>> {
+  return enterAs(selfEntrant(user), tournamentId, input);
+}
+
 /**
- * Enter a tournament, as a player with an account (naming a partner, or a
- * team and its roster). Who may enter is the tournament's to say: entries
- * close after their last day; an age range is checked on the first day
- * against the dates of birth the entrant declares (for themselves and a
- * partner; a captain declares their roster within it); members only means an
- * active membership at the venue; a competition may cap how many of its
- * divisions one player enters.
+ * Enter a tournament: the account holder for themself, a guardian for a
+ * participant they manage, or staff at the counter (lib/competition-entrants.ts),
+ * one set of checks for each. Who may enter is the tournament's to say:
+ * entries close after their last day; an age range is checked on the first
+ * day against the dates of birth declared for the entrant and a partner (a
+ * captain declares their roster within it); a declared minor needs a parent
+ * or guardian's agreement; members only means the entrant's own membership
+ * at the venue, or a family membership naming them (ADR 0025); a competition
+ * may cap how many of its divisions one player enters.
  */
-export async function enter(
-  user: { id: number; name: string },
-  tournamentId: number,
-  input: {
-    partnerName?: string;
-    partnerGender?: string;
-    teamName?: string;
-    roster?: unknown;
-    entryMark?: string;
-    birthDate?: string;
-    partnerBirthDate?: string;
-    rosterEligible?: boolean;
-    /** For a declared minor: a parent or guardian's name, and that they agree. */
-    guardianName?: string;
-    guardianConsent?: boolean;
-  } = {}
-): Promise<Result<Entry>> {
+export async function enterAs(entrant: Entrant, tournamentId: number, input: EntryInput = {}): Promise<Result<Entry>> {
   const db = getDb();
   const t = await tournamentById(tournamentId);
   if (!t || t.status !== "open") return { ok: false, error: "Entries are not open." };
-  if (t.entriesCloseOn && todayISO((await venueHours(t.venueId)).zone) > t.entriesCloseOn) return { ok: false, error: `Entries closed on ${t.entriesCloseOn}.` };
+  const today = todayISO((await venueHours(t.venueId)).zone);
+  if (t.entriesCloseOn && today > t.entriesCloseOn) return { ok: false, error: `Entries closed on ${t.entriesCloseOn}.` };
+  const userId = entrantUserId(entrant);
+  const participantId = entrantParticipantId(entrant);
+  // The entrant's own membership, or a family one naming them; never a guardian's (ADR 0025).
   if (t.membersOnly) {
-    const phone = await accountPhone(user.id);
-    // The account's own number, proved or linked to the membership (lib/store.ts, memberNumberTrusted).
-    if (!phone || !(await activeMembership(t.venueId, phone)) || !(await memberNumberTrusted(phone, { userId: user.id, by: "customer" }))) return { ok: false, error: "This is for the venue's members: join, then enter.", code: "ENTRY_MEMBERS_ONLY" };
+    const notMember = await membersOnlyEntrantRefusal(t.venueId, entrant, today);
+    if (notMember) return notMember;
   }
   let birthDate: string | null = null;
   let partnerBirthDate: string | null = null;
@@ -1097,32 +1119,35 @@ export async function enter(
     (partnerBirthDate !== null && ageOn(partnerBirthDate, t.startsOn) < GUARDIAN_AGE) ||
     (t.entryKind === "team" && t.ageRange !== null && t.ageRange.max !== null && t.ageRange.max < GUARDIAN_AGE);
   if (minor) {
-    guardianName = input.guardianName?.trim() ?? "";
+    // A guardian entering somebody they manage is the one agreeing: their name unless they give another.
+    guardianName = input.guardianName?.trim() || (entrant.kind === "participant" ? entrant.guardianName : "");
     if (guardianName.length < 2 || guardianName.length > 80 || input.guardianConsent !== true)
       return { ok: false, error: `Entrants under ${GUARDIAN_AGE} need a parent or guardian's agreement: give their name and confirm they agree.`, code: "GUARDIAN_CONSENT" };
   }
   if (t.competition) {
     const cap = (await db.prepare("SELECT max_divisions_per_player AS cap FROM competitions WHERE id = ?").get(t.competition.id)) as { cap: number | null };
-    if (cap.cap !== null) {
+    // Counted per person: the account holder's own entries, or the participant's however they were entered.
+    const person = participantId !== null ? -participantId : userId;
+    if (cap.cap !== null && person !== null) {
       const { n } = (await db
         .prepare(
           `SELECT COUNT(*)::int AS n FROM tournament_entries e JOIN tournaments d ON d.id = e.tournament_id
-            WHERE d.competition_id = ? AND d.id <> ? AND d.status <> 'cancelled' AND e.user_id = ? AND e.status <> 'withdrawn'`
+            WHERE d.competition_id = ? AND d.id <> ? AND d.status <> 'cancelled' AND ${PERSON_OF("e")} = ? AND e.status <> 'withdrawn'`
         )
-        .get(t.competition.id, t.id, user.id)) as { n: number };
+        .get(t.competition.id, t.id, person)) as { n: number };
       if (n >= cap.cap) return { ok: false, error: `One player may enter ${cap.cap} division${cap.cap === 1 ? "" : "s"} of ${t.competition.name}, and you have.`, code: "DIVISION_LIMIT" };
     }
   }
   // A women's event takes women; mixed doubles, a woman and a man.
   const partnerGender = isPartnerGender(input.partnerGender) ? input.partnerGender : null;
-  const notFor = await categoryRefusal(user.id, t.category, t.teamSize === 2 ? { partnerGender } : null);
-  if (notFor) return { ok: false, error: notFor.error, code: notFor.code };
+  const notFor = await entrantCategoryRefusal(entrant, t.category, t.teamSize === 2 ? { partnerGender } : null, input.gender);
+  if (notFor) return { ok: false, error: notFor.error, code: notFor.code, ...(notFor.vars ? { vars: notFor.vars } : {}) };
   const open = (await db
     .prepare(`SELECT (${OPEN_TO_CUSTOMERS}) AS open FROM venues v WHERE v.id = ?`)
     .get(t.venueId)) as { open: boolean };
   if (!open.open) return { ok: false, error: "That venue is not taking entries at the moment." };
-  const notHere = await accessRefusal(t.venueId, user.id);
-  if (notHere) return { ok: false, error: notHere.error, code: notHere.code };
+  const notHere = await entrantVenueRefusal(t.venueId, entrant, today);
+  if (notHere) return { ok: false, error: notHere.error, code: notHere.code, ...(notHere.vars ? { vars: notHere.vars } : {}) };
   const partner = input.partnerName?.trim() ?? "";
   if (t.teamSize === 2 && (partner.length < 2 || partner.length > 60)) return { ok: false, error: "Name your partner." };
   // A team: its name, and its roster of names (the one entering among them, as captain).
@@ -1149,19 +1174,25 @@ export async function enter(
     if (mark === undefined || mark === null) return { ok: false, error: t.rules.performance!.measure === "time" ? "Give an entry time like 1:02.35, or leave it empty." : "Give your entry mark as a number, or leave it empty." };
     entryMark = mark;
   }
-  if (await db.prepare("SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND user_id = ? AND status <> 'withdrawn'").get(tournamentId, user.id))
-    return { ok: false, error: "You have entered already." };
+  // Once each: the account holder for themself, and each participant however many enter them.
+  const already =
+    participantId !== null
+      ? await db.prepare("SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND participant_id = ? AND status <> 'withdrawn'").get(tournamentId, participantId)
+      : userId !== null
+        ? await db.prepare("SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND user_id = ? AND participant_id IS NULL AND status <> 'withdrawn'").get(tournamentId, userId)
+        : undefined;
+  if (already) return entrant.kind === "self" ? { ok: false, error: "You have entered already." } : refuse("LG5_ENTERED_ALREADY", { name: entrant.name });
   const status: EntryStatus = t.entered >= t.maxEntries ? "waitlisted" : "entered";
-  const name = t.entryKind === "team" ? teamName : t.teamSize === 2 ? `${user.name.trim()} / ${partner}` : user.name.trim();
+  const name = t.entryKind === "team" ? teamName : t.teamSize === 2 ? `${entrant.name} / ${partner}` : entrant.name;
   const info = await db
     .prepare(
       `INSERT INTO tournament_entries (tournament_id, user_id, name, partner_name, partner_gender, status, team_name, roster, entry_mark, birth_date, partner_birth_date,
-                                       guardian_name, guardian_consent_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${guardianName ? "datetime('now')" : "NULL"})`
+                                       guardian_name, guardian_consent_at, participant_id, entrant_gender, contact_phone, entered_by_admin_id, entered_by_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${guardianName ? "datetime('now')" : "NULL"}, ?, ?, ?, ?, ?)`
     )
     .run(
       tournamentId,
-      user.id,
+      userId,
       name.slice(0, 130),
       partner || null,
       t.teamSize === 2 ? partnerGender : null,
@@ -1171,22 +1202,29 @@ export async function enter(
       entryMark,
       birthDate,
       partnerBirthDate,
-      guardianName
+      guardianName,
+      participantId,
+      declaredGender(entrant, t.category, input.gender),
+      entrant.kind === "counter" ? entrant.phone : null,
+      entrant.kind === "counter" ? entrant.adminId : null,
+      entrant.kind === "counter" ? entrant.adminName : null
     );
-  await tellEntrant(
-    user.id,
-    t,
-    (tr) => tr(status === "entered" ? "mail.tour.entered.s" : "mail.tour.waiting.s", { t: t.name }),
-    (tr) =>
-      status === "entered"
-        ? sentences(
-            tr,
-            tr("mail.tour.entered.b", { t: t.name, venue: t.venueName, date: t.startsOn }),
-            t.entryFee > 0 && tr(t.payOnline ? "mail.tour.feeOnline" : "mail.tour.feeVenue", { fee: money(t.entryFee.toFixed(2)) }),
-            tr("mail.tour.entered.next")
-          )
-        : tr("mail.tour.waiting.b", { t: t.name })
-  );
+  await recordEntered(entrant, t.venueId, "tournament.entered", t.name);
+  if (userId !== null)
+    await tellEntrant(
+      userId,
+      t,
+      (tr) => tr(status === "entered" ? "mail.tour.entered.s" : "mail.tour.waiting.s", { t: t.name }),
+      (tr) =>
+        sentences(
+          tr,
+          entrant.kind === "participant" && tr("lg5.mail.entryFor", { name: entrant.name }),
+          status === "entered" && tr("mail.tour.entered.b", { t: t.name, venue: t.venueName, date: t.startsOn }),
+          status === "entered" && t.entryFee > 0 && tr(t.payOnline ? "mail.tour.feeOnline" : "mail.tour.feeVenue", { fee: money(t.entryFee.toFixed(2)) }),
+          status === "entered" && tr("mail.tour.entered.next"),
+          status !== "entered" && tr("mail.tour.waiting.b", { t: t.name })
+        )
+    );
   return { ok: true, value: (await entryById(info.lastInsertRowid as number))! };
 }
 
@@ -1194,7 +1232,7 @@ async function entryById(id: number): Promise<Entry | null> {
   const r = (await getDb()
     .prepare(
       `SELECT id, name, status, seed, paid_at, user_id, out_reason, out_stage, roster, entry_mark, checked_in_at,
-              guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date FROM tournament_entries WHERE id = ?`
+              guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date, participant_id, contact_phone, entered_by_name FROM tournament_entries WHERE id = ?`
     )
     .get(id)) as EntryRow | undefined;
   return r ? toEntry(r, true) : null;
@@ -1203,9 +1241,20 @@ async function entryById(id: number): Promise<Entry | null> {
 /** The player's own entry in a tournament, if they have one. */
 export async function myEntry(userId: number, tournamentId: number): Promise<Entry | null> {
   const r = (await getDb()
-    .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND user_id = ? AND status <> 'withdrawn' ORDER BY id DESC LIMIT 1")
+    .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND user_id = ? AND participant_id IS NULL AND status <> 'withdrawn' ORDER BY id DESC LIMIT 1")
     .get(tournamentId, userId)) as { id: number } | undefined;
   return r ? await entryById(r.id) : null;
+}
+
+/** Entries this account made for people it still acts for (a guardian's), not withdrawn. */
+export async function managedEntries(userId: number, tournamentId: number): Promise<Entry[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT e.id FROM tournament_entries e JOIN participants p ON p.id = e.participant_id
+        WHERE e.tournament_id = ? AND e.user_id = ? AND e.status <> 'withdrawn' AND ${ACTS_FOR("p")} ORDER BY e.id`
+    )
+    .all(tournamentId, userId, userId, userId)) as { id: number }[];
+  return (await Promise.all(rows.map((r) => entryById(r.id)))).filter((e): e is Entry => e !== null);
 }
 
 /**
@@ -1617,11 +1666,11 @@ async function siblingMatches(competitionId: number, exceptTournamentId: number,
     .prepare(
       `SELECT m.id, m.tournament_id, m.status, m.court_id, m.date, m.start_min, COALESCE(m.minutes, d.match_minutes) AS match_minutes,
               m.next_match_id, m.next_slot, m.loser_next_match_id, m.loser_next_slot,
-              (SELECT e.user_id FROM tournament_entries e WHERE e.id = m.entry_a) AS user_a,
-              (SELECT e.user_id FROM tournament_entries e WHERE e.id = m.entry_b) AS user_b,
+              (SELECT ${PERSON_OF("e")} FROM tournament_entries e WHERE e.id = m.entry_a) AS user_a,
+              (SELECT ${PERSON_OF("e")} FROM tournament_entries e WHERE e.id = m.entry_b) AS user_b,
               m.entry_a IS NULL AS open_a, m.entry_b IS NULL AS open_b, m.stage,
-              ARRAY(SELECT e.user_id FROM tournament_performances p JOIN tournament_entries e ON e.id = p.entry_id
-                     WHERE p.match_id = m.id AND e.user_id IS NOT NULL) AS lane_users
+              ARRAY(SELECT ${PERSON_OF("e")} FROM tournament_performances p JOIN tournament_entries e ON e.id = p.entry_id
+                     WHERE p.match_id = m.id AND ${PERSON_OF("e")} IS NOT NULL) AS lane_users
          FROM tournament_matches m JOIN tournaments d ON d.id = m.tournament_id
         WHERE d.competition_id = ? AND ${which} AND d.status <> 'cancelled'`
     )
@@ -1648,8 +1697,8 @@ async function siblingMatches(competitionId: number, exceptTournamentId: number,
   const entered = new Map<number, number[]>();
   for (const e of (await getDb()
     .prepare(
-      `SELECT e.tournament_id, e.user_id FROM tournament_entries e JOIN tournaments d ON d.id = e.tournament_id
-        WHERE d.competition_id = ? AND ${which} AND e.status = 'entered' AND e.user_id IS NOT NULL`
+      `SELECT e.tournament_id, ${PERSON_OF("e")} AS user_id FROM tournament_entries e JOIN tournaments d ON d.id = e.tournament_id
+        WHERE d.competition_id = ? AND ${which} AND e.status = 'entered' AND ${PERSON_OF("e")} IS NOT NULL`
     )
     .all(competitionId, exceptTournamentId)) as { tournament_id: number; user_id: number }[])
     entered.set(e.tournament_id, [...(entered.get(e.tournament_id) ?? []), e.user_id]);
@@ -1684,7 +1733,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
   const t = await tournamentById(tournamentId);
   if (!t || (t.status !== "open" && t.status !== "closed")) return { ok: false, error: "The draw is made already, or it is over." };
   const entries = (await db
-    .prepare("SELECT id, seed, entry_mark, user_id FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' ORDER BY seed NULLS LAST, id")
+    .prepare(`SELECT id, seed, entry_mark, ${PERSON_OF("tournament_entries")} AS user_id FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' ORDER BY seed NULLS LAST, id`)
     .all(tournamentId)) as { id: number; seed: number | null; entry_mark: number | string | null; user_id: number | null }[];
   const minimum = t.format === "groups" ? 3 : 2;
   if (entries.length < minimum) return { ok: false, error: `At least ${minimum} entries are needed.` };
@@ -2522,7 +2571,7 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
     if (elsewhere.some((o) => o.courtId === slot.courtId)) return `A match of another division is on ${court.name} then.`;
     // Its sides, and for a side still to be decided everybody who could reach it.
     const sides = (await getDb()
-      .prepare(`SELECT user_id FROM tournament_entries WHERE id IN (${[match.a ?? 0, match.b ?? 0].join(",")}) AND user_id IS NOT NULL`)
+      .prepare(`SELECT ${PERSON_OF("tournament_entries")} AS user_id FROM tournament_entries WHERE id IN (${[match.a ?? 0, match.b ?? 0].join(",")}) AND ${PERSON_OF("tournament_entries")} IS NOT NULL`)
       .all()) as { user_id: number }[];
     const players = [...sides.map((p) => p.user_id), ...((await siblingMatches(t.competition.id, t.id, true)).find((o) => o.id === match.id)?.userIds ?? [])];
     if (elsewhere.some((o) => o.userIds.some((u) => players.includes(u)))) return "One of the sides plays in another division then.";

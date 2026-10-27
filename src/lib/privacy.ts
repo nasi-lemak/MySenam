@@ -989,10 +989,12 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
     const entered = (await db
       .prepare(
         `SELECT e.id FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id
-          WHERE e.user_id = ? AND e.status <> 'withdrawn' AND t.status IN ('open', 'closed', 'drawn')`
+          WHERE e.user_id = ? AND e.participant_id IS NULL AND e.status <> 'withdrawn' AND t.status IN ('open', 'closed', 'drawn')`
       )
       .all(userId)) as { id: number }[];
     for (const e of entered) await withdraw(e.id);
+    // An entry they made for a participant stays the participant's: only the account (and its name, as guardian) comes off it.
+    await db.prepare("UPDATE tournament_entries SET user_id = NULL, guardian_name = NULL WHERE user_id = ? AND participant_id IS NOT NULL").run(userId);
     await db
       .prepare("UPDATE tournament_entries SET name = ?, partner_name = NULL, user_id = NULL, birth_date = NULL, partner_birth_date = NULL, guardian_name = NULL, eligibility_checked_by = NULL WHERE user_id = ?")
       .run(ANONYMOUS, userId);

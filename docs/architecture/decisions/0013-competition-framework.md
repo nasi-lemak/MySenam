@@ -1,6 +1,6 @@
 # ADR 0013: One competition engine, configured by sport templates
 
-- **Status:** current. Built in migrations 0100
+- **Status:** current (see *Changes*). Built in migrations 0100
   (`0100_competition_framework.sql`), 0104 (`0104_competition_divisions.sql`)
   and 0105 (`0105_results_by_players_and_officials.sql`). Extends
   [ADR 0012](0012-competition-rules-and-corrections.md). What organisers and
@@ -67,3 +67,18 @@
   ([roadmap](../../roadmap/roadmap.md)). Ranking by
   set or point ratios and a bouldering count of tops and zones still need a
   rule kind of their own when wanted.
+- **Changes:**
+  - 2026-10-27: *who may enter* is the entrant's, however they enter
+    (migrations 0177–0178; [who enters and how](../../features/tournaments.md#who-enters-and-how)).
+    Besides the account holder for themself, a guardian enters a participant
+    they act for ([ADR 0023](0023-participants-apart-from-accounts.md)), and
+    staff enter somebody at the counter on the number and name given, both
+    through the same checks (`src/lib/competition-entrants.ts`). Members only
+    is the entrant's own membership or a family membership naming them,
+    never a guardian's ([ADR 0025](0025-benefits-and-privileges-by-scope.md));
+    a women's or men's league holds a pair's partner to its rule, declared,
+    as a tournament does. A box-league result is changed only as it was
+    seen: each change is one transaction on the match's locked row, against
+    its version; staff decisions on league results are emailed to both
+    sides. League results still use their own functions with the shared
+    rules, not `recordResult` (see the feature document's open decisions).
