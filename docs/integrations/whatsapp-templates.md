@@ -533,28 +533,59 @@ Tamil (`ta`) — {{1}} name, {{2}} phone, {{3}} where, {{4}} when, {{5}} code, {
 
 ### `mysenam_guardian_notice`
 
-To a guardian a venue recorded by name and number only, at a number a code has come back from: who acts for a child changed ([guardian notices](messaging.md#guardian-notices)). The venue's name only, never the child's.
+**Status: prepared, not submitted to Meta** (27 October 2026). Nobody has
+submitted or approved it; until Meta approves it a notice sent on an install
+with WhatsApp set up fails, and the guardian becomes the venue's task, as any
+undelivered notice does ([guardian notices](messaging.md#guardian-notices)).
 
-English (`en`) — {{1}} venue
+To a guardian a venue recorded by name and number only, at a number a code
+has come back from, in the language of that code: what changed in who acts
+for a child they are recorded as a guardian of. The venue's name, what
+changed, and the venue's page (its number and address) in that language;
+never the child's name, date of birth or anything else about them, nor the
+other adult's.
+
+Category **Utility**. Variables, with the sample values Meta asks for when it
+is submitted:
+
+| Variable | What it is | Sample |
+| -------- | ---------- | ------ |
+| {{1}} venue | The venue's name | `Pusat Sukan Bangsar` |
+| {{2}} change | What changed: one of the four texts below, in the template's language | `another guardian has been added` |
+| {{3}} link | The venue's page, in the template's language | `https://book.example.my/venue/12?lang=en` |
+
+What {{2}} says, by change (phrases `lo6.notice.*`):
+
+| Change | English | Malay | Chinese | Tamil |
+| ------ | ------- | ----- | ------- | ----- |
+| Another guardian added | another guardian has been added | seorang lagi penjaga telah ditambah | 新增了一名监护人 | மற்றொரு பாதுகாவலர் சேர்க்கப்பட்டுள்ளார் |
+| A guardian's relationship ended | a guardian has stopped acting for them | seorang penjaga tidak lagi bertindak bagi pihaknya | 一名监护人已不再代其行事 | ஒரு பாதுகாவலர் அவர் சார்பாகச் செயல்படுவதை நிறுத்தியுள்ளார் |
+| Another adult asked to become a guardian | another adult has asked to become their guardian; nothing changes unless a guardian agrees or the venue's manager records an exception | seorang dewasa lain telah meminta untuk menjadi penjaganya; tiada apa-apa berubah melainkan seorang penjaga bersetuju atau pengurus pusat merekodkan pengecualian | 另一名成年人申请成为其监护人；除非有监护人同意或场馆经理记录例外，否则不会有任何变动 | மற்றொரு வயது வந்தவர் அவருடைய பாதுகாவலராக ஆகக் கோரியுள்ளார்; ஒரு பாதுகாவலர் ஒப்புக்கொள்ளாவிட்டால் அல்லது மையத்தின் மேலாளர் விதிவிலக்கைப் பதிவு செய்யாவிட்டால் எதுவும் மாறாது |
+| A guardian recorded by name and number took it over with an account | a guardian the venue recorded by name and number now uses their own account; nobody new acts for them | seorang penjaga yang direkodkan oleh pusat dengan nama dan nombor kini menggunakan akaunnya sendiri; tiada orang baharu bertindak bagi pihaknya | 场馆以姓名和号码登记的一名监护人现已使用自己的账户；没有新的人代其行事 | மையம் பெயர் மற்றும் எண்ணால் பதிவு செய்த ஒரு பாதுகாவலர் இப்போது தமது சொந்தக் கணக்கைப் பயன்படுத்துகிறார்; புதிதாக யாரும் அவர் சார்பாகச் செயல்படவில்லை |
+
+English (`en`) — {{1}} venue, {{2}} change, {{3}} link
 
 ```text
-This is {{1}}. There has been a change to who acts for a child you are recorded as a guardian of. Please ask at the counter, or sign in to see it.
+This is {{1}}, about a child you are recorded as a guardian of: {{2}}. Our details are at {{3}}; please ask at the counter or call us to find out more.
 ```
 
-Malay (`ms`) — {{1}} venue
+Malay (`ms`) — {{1}} venue, {{2}} change, {{3}} link
 
 ```text
-Ini {{1}}. Terdapat perubahan tentang siapa yang bertindak bagi pihak seorang kanak-kanak yang anda direkodkan sebagai penjaganya. Sila tanya di kaunter, atau log masuk untuk melihatnya.
+Ini {{1}}, berkenaan seorang kanak-kanak yang anda direkodkan sebagai penjaganya: {{2}}. Butiran kami ada di {{3}}; sila tanya di kaunter atau hubungi kami untuk mengetahui lanjut.
 ```
 
-Chinese (`zh_CN`) — {{1}} venue
+Chinese (`zh_CN`) — {{1}} venue, {{2}} change, {{3}} link
 
 ```text
-这里是 {{1}}。您被登记为监护人的一名孩子，其代理人有所变动。请到柜台询问，或登录查看。
+这里是 {{1}}，关于一名您被登记为其监护人的孩子：{{2}}。我们的联系方式见 {{3}}；如需了解详情，请到柜台询问或致电我们。
 ```
 
-Tamil (`ta`) — {{1}} venue
+Tamil (`ta`) — {{1}} venue, {{2}} change, {{3}} link
 
 ```text
-இது {{1}}. நீங்கள் பாதுகாவலராகப் பதிவு செய்யப்பட்டுள்ள ஒரு குழந்தைக்காக யார் செயல்படுகிறார்கள் என்பதில் மாற்றம் ஏற்பட்டுள்ளது. முன் மேசையில் கேளுங்கள், அல்லது உள்நுழைந்து பாருங்கள்.
+இது {{1}}, நீங்கள் பாதுகாவலராகப் பதிவு செய்யப்பட்டுள்ள ஒரு குழந்தை பற்றியது: {{2}}. எங்கள் தொடர்பு விவரங்கள் {{3}} இல் உள்ளன; மேலும் அறிய முன் மேசையில் கேளுங்கள் அல்லது எங்களை அழையுங்கள்.
 ```
+
+Taking one person off a booking (`ent.msg.withdrawn`) is told by email only,
+so it has no WhatsApp template.

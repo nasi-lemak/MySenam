@@ -445,6 +445,41 @@ fees the way a place taken off a booking is settled, and nothing twice:
 Tested in `tests/lesson-coach-changes.test.ts` on PGlite and Postgres,
 against a stand-in gateway for the online case.
 
+### Receipts for a guardian
+
+A guardian paying for children (ADR 0023; [booking for somebody
+else](booking.md#booking-for-somebody-else)) is the purchaser: the receipt
+is billed to the booking's customer, the account that booked and paid, and
+the children are named only to say which place is whose.
+
+- **One booking for several children.** The court-time line says whom its
+  places are for, in the order they were put on the booking (*Pool
+  (Swimming), … 9:00 AM–10:00 AM, 2 players, for Alya, Bilal*; the customer
+  too where they take part). Each child's own price is a line of its own
+  naming them (*Child (under 12) price, Bilal*), and a booking-wide code
+  stays one line; the lines add up to the total. How much of the court time
+  is each place's is the one calculation in `placeShares`
+  (`src/lib/entitlements.ts`), which a withdrawal gives back
+  ([refunds for one person's place](#refunds-for-one-persons-place)).
+- **A booking each** (a class enrolment each, or a court each): each
+  receipt names its own child and never the other.
+- **An adult's own booking** names nobody, and reads as it always did.
+- **Sent to the payer only.** The receipt email goes to the booking's email
+  address, nobody else's: another guardian of the same child is not sent
+  it (no notification rule says so). It names whom the booking is for, as
+  the confirmation does.
+- **Nothing more about the children than their names**: no birth year,
+  date of birth or anything else they were recorded with.
+- **In the reader's language.** The line's words and hours are said in the
+  language of whoever opens the receipt, and the receipt email, its link
+  opening in that language, in the language the booking was made in
+  ([regions](../product/regions-and-tax.md)); the amounts, the line as
+  stored and the books are the same for everybody.
+
+Tests: `tests/guardian-receipts.test.ts` (two children on one booking with
+one child's concession, a booking each, an adult's own; the payer, the
+recipient, no birth year, the four languages), on PGlite and Postgres.
+
 ## Stored credit
 
 Customers buy credit at a venue counter and spend it on bookings and classes by

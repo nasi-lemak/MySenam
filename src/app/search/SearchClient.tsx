@@ -274,7 +274,7 @@ export default function SearchClient({
                 >
                   {HOURS.slice(0, -1).map((h) => (
                     <option key={h} value={h}>
-                      {formatHour(h)}
+                      {formatHour(h, t.locale)}
                     </option>
                   ))}
                 </select>
@@ -284,7 +284,7 @@ export default function SearchClient({
                 <select value={toHour} onChange={(e) => setToHour(Number(e.target.value))} className={selectClass}>
                   {HOURS.filter((h) => h >= fromHour).map((h) => (
                     <option key={h} value={h}>
-                      {formatHour(h)}
+                      {formatHour(h, t.locale)}
                     </option>
                   ))}
                 </select>
@@ -397,9 +397,9 @@ export default function SearchClient({
                       className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-teal-400"
                     >
                       <div className="w-32 shrink-0 font-semibold text-teal-700">
-                        {formatMinute(g.startMin)}
+                        {formatMinute(g.startMin, t.locale)}
                         <div className="text-xs font-normal text-slate-400">
-                          {t("search.to", { time: formatMinute(g.endMin) })}
+                          {t("search.to", { time: formatMinute(g.endMin, t.locale) })}
                         </div>
                       </div>
                       {covers[g.venueId] && (
@@ -519,7 +519,7 @@ function KindGroups({
         <div key={g.heading} className="text-sm" data-testid={`group-${g.heading}`}>
           <span className="font-medium text-slate-700">
             {t("grp.choose", { heading: g.heading })}
-            {withTime && ` · ${formatMinute(result.startMin)}`}
+            {withTime && ` · ${formatMinute(result.startMin, t.locale)}`}
           </span>
           <ul className="mt-1 flex flex-wrap gap-1.5">
             {g.kinds.map((k) => {
@@ -630,7 +630,7 @@ function VenueResults({
                     href={bookHref(r)}
                     className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-sm font-medium text-teal-800 hover:border-teal-500"
                   >
-                    {formatMinute(r.startMin)}{" "}
+                    {formatMinute(r.startMin, t.locale)}{" "}
                     <span className="font-normal text-teal-700">
                       · {money(r.totalPrice)}
                       {r.court.perPlayer && ` ${t("search.perPlayer")}`}

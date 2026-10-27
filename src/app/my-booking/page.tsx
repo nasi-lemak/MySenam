@@ -263,7 +263,7 @@ export default function MyBookingPage() {
               [t("mine.court"), result.court.name],
               ...((b.players ?? 1) > 1 ? [[t("done.players"), String(b.players)]] : []),
               [t("mine.date"), b.date],
-              [t("mine.time"), `${formatHour(b.startHour)} – ${formatHour(b.endHour)}`],
+              [t("mine.time"), `${formatHour(b.startHour, t.locale)} – ${formatHour(b.endHour, t.locale)}`],
               // Who takes part, where the booking is for somebody else (a child; ADR 0023).
               [t("mine.bookedBy"), b.participantName ? `${b.name} · ${t("guard.forLine", { name: b.participantName })}` : b.name],
               ...(result.addons?.length

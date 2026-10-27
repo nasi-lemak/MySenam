@@ -193,7 +193,7 @@ export default function AccountPage() {
                     {activityIcon(b.sport)} {b.venueName}
                   </p>
                   <p className="truncate text-slate-600">
-                    {b.courtName} · {formatHour(b.startHour)}–{formatHour(b.endHour)}
+                    {b.courtName} · {formatHour(b.startHour, t.locale)}–{formatHour(b.endHour, t.locale)}
                   </p>
                 </div>
                 <BookAgain code={b.code} />
@@ -323,7 +323,7 @@ export default function AccountPage() {
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">{b.date}</td>
                     <td className="whitespace-nowrap px-3 py-2">
-                      {formatHour(b.startHour)} – {formatHour(b.endHour)}
+                      {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
                     </td>
                     <td className="px-3 py-2">{b.totalPrice === 0 ? t("price.free") : `${money(b.totalPrice)}`}</td>
                     <td className="px-3 py-2">
@@ -570,7 +570,7 @@ function BookingCard({
           {b.venueName} ({b.venueArea})
         </div>
         <div className="text-slate-600">
-          📅 {b.date} · {formatHour(b.startHour)} – {formatHour(b.endHour)}
+          📅 {b.date} · {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
         </div>
         <div className="font-medium">
           {b.totalPrice === 0 ? t("price.free") : `${money(b.totalPrice)}`}{" "}

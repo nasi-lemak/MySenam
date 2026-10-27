@@ -2,7 +2,7 @@
 // to the install (lib/region.ts); calendar formats want UTC.
 import { DEFAULT_SITE_NAME } from "./site";
 import { money } from "./region";
-import { slotStartsAt } from "./time";
+import { formatHour, slotStartsAt } from "./time";
 
 export interface BookingShareInfo {
   /** The venue's time zone, which the times are in; the install's if not given. */
@@ -121,19 +121,11 @@ export function googleCalendarUrl(b: BookingShareInfo): string {
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
-function formatHour12(hour: number): string {
-  const whole = Math.floor(hour);
-  const h = whole % 24;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const display = h % 12 === 0 ? 12 : h % 12;
-  return `${display}:${String(Math.round((hour - whole) * 60)).padStart(2, "0")} ${suffix}`;
-}
-
 export function whatsappShareUrl(b: BookingShareInfo): string {
   const text =
     `🏸 Court booked on ${b.siteName ?? DEFAULT_SITE_NAME}!\n\n` +
     `${b.courtName} @ ${b.venueName}\n` +
-    `📅 ${b.date}, ${formatHour12(b.startHour)} – ${formatHour12(b.endHour)}\n` +
+    `📅 ${b.date}, ${formatHour(b.startHour)} – ${formatHour(b.endHour)}\n` +
     `💰 ${money(b.totalPrice)}\n` +
     `🎟️ Code: ${b.code}\n\nSee you there!`;
   return `https://wa.me/?text=${encodeURIComponent(text)}`;

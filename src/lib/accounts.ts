@@ -11,6 +11,7 @@ import { venueHours } from "./store";
 import { taxIncluded } from "./tax";
 import { addDays, todayISO } from "./time";
 import { COUNTER_METHODS, type CounterMethod, type Refusal } from "./types";
+import { linkIn } from "./link-locale";
 
 /**
  * Company and school accounts: an organisation that books through the month
@@ -445,7 +446,7 @@ async function emailInvoice(invoice: AccountInvoice, account: Account): Promise<
       // What the account pays: the total less the credit notes taken off it.
       total: invoice.due,
       due: invoice.dueOn,
-      link: `${await venueBaseUrl(invoice.venueId)}/account-invoice/${invoice.token}`,
+      link: linkIn(`${await venueBaseUrl(invoice.venueId)}/account-invoice/${invoice.token}`, account.locale),
       site: siteName(),
     },
   });

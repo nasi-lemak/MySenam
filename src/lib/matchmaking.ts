@@ -383,7 +383,7 @@ export async function sendMatchNotices(): Promise<{ checked: number; emailed: nu
     const { formatHour } = await import("./time");
     const lines = (tr: Parameters<Written>[0]) =>
       fresh
-        .map((g) => `- ${g.date} ${formatHour(g.startHour)}, ${g.venueName} (${g.courtName})${g.share > 0 ? `, ${tr("mail.match.share", { share: g.share.toFixed(2) })}` : ""}`)
+        .map((g) => `- ${g.date} ${formatHour(g.startHour, tr.locale)}, ${g.venueName} (${g.courtName})${g.share > 0 ? `, ${tr("mail.match.share", { share: g.share.toFixed(2) })}` : ""}`)
         .join("\n");
     await emailPlayer({
       venueId: fresh[0].venueId,

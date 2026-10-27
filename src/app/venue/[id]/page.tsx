@@ -255,7 +255,7 @@ export default async function VenuePage({
                   {dayName(l.from)}
                   {l.to !== l.from && `–${dayName(l.to)}`}
                 </span>{" "}
-                {l.hours === "closed" ? t("venue.closedDay") : `${formatMinute(l.hours.open)} – ${formatMinute(l.hours.close)}`}
+                {l.hours === "closed" ? t("venue.closedDay") : `${formatMinute(l.hours.open, t.locale)} – ${formatMinute(l.hours.close, t.locale)}`}
               </li>
             ))}
           </ul>
@@ -264,8 +264,8 @@ export default async function VenuePage({
           {!variesByDay(venue.weekHours) && (
             <>
               {t("venue.openDaily", {
-                from: formatMinute(venue.openMin),
-                to: formatMinute(venue.closeMin),
+                from: formatMinute(venue.openMin, t.locale),
+                to: formatMinute(venue.closeMin, t.locale),
               })}{" "}
               ·{" "}
             </>

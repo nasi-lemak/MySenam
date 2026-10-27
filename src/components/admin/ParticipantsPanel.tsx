@@ -5,6 +5,7 @@ import { useT } from "@/components/Language";
 import { LOCALE_NAMES, offeredLocales, type Locale } from "@/lib/i18n";
 import type { ManagedVenue } from "./shared";
 import { useStaffT } from "./StaffLanguage";
+import { PhoneCheckAdvice } from "./PhoneCheckAdvice";
 import { startingLanguage } from "./WaitlistJoin";
 
 type Flag = "counter-shortcut" | "reported" | "exception" | "in-person-agreement";
@@ -293,7 +294,11 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-sm text-emerald-700">{notice}</p>}
       {found !== null && !codesPossible && !everywhere && <p className="mt-2 text-xs text-amber-700">{t("gw5.pp.noCodes")}</p>}
-      {found !== null && !claimsPossible && !everywhere && <p className="mt-2 text-xs text-amber-700">{t("gw5b.pp.noClaim")}</p>}
+      {found !== null && !claimsPossible && !everywhere && (
+        <div className="mt-2">
+          <PhoneCheckAdvice on={false} where="guardians" />
+        </div>
+      )}
       {found !== null && found.length > 0 && codesPossible && !everywhere && offered.length > 1 && (
         <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
           {t("fin5.pp.codeLanguage")}

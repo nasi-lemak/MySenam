@@ -371,6 +371,13 @@ const en = {
   "pol.turnoverUnit": "Each place: the longer of setup or cleaning and the gap",
   "pol.turnoverFacility": "The whole facility, cleared between sessions",
   "pol.inheritsTurnover": "inherits: {mode}",
+  // Phone checks: recommended where a venue relies on numbers, never required (lo6.)
+  "lo6.pc.title": "Phone checks are recommended here, not required",
+  "lo6.pc.enables": "With phone checks on, a customer proves their number with a one-time code (by WhatsApp or SMS), and a proved number then counts by itself: a resident or member on your list books online from their own account, a resident's guest proves theirs, and a guardian you recorded by name and number can take the relationship over with an account.",
+  "lo6.pc.withoutAccess": "Without them, a number typed on an account proves nothing and lets nobody in: you link each resident's or member's account to their entry yourself (by their email or the number on their account), a resident's guest counts online only when invited with their account email or once you link them, and anyone not linked is booked at the counter on your word.",
+  "lo6.pc.withoutGuardians": "Without them, a guardian recorded by name and number cannot take the relationship over with an account: invite their account as another guardian instead. A code can still be sent to a recorded number where SMS or WhatsApp is set up; where nothing can send one, a manager records the guardian's agreement given in person, flagged for review.",
+  "lo6.pc.recommend": "Where you rely on phone numbers (a members-only or private venue, residents' guests, guardians recorded at the counter), ask whoever runs this site to switch phone checks on: they need WhatsApp or an SMS provider set up. Nothing is switched on for you, and until then all of the above still works through your staff.",
+  "lo6.pc.on": "Phone checks are on: a number proved with a one-time code counts online by itself; a number only typed on an account still counts for nothing.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -738,6 +745,13 @@ const ms: Record<keyof typeof en, string> = {
   "pol.turnoverUnit": "Setiap tempat: yang lebih panjang antara persediaan atau pembersihan dan jarak",
   "pol.turnoverFacility": "Seluruh kemudahan, dikosongkan antara sesi",
   "pol.inheritsTurnover": "ikut atas: {mode}",
+  // Semakan telefon: disyorkan, bukan diwajibkan (lo6.)
+  "lo6.pc.title": "Semakan telefon disyorkan di sini, bukan diwajibkan",
+  "lo6.pc.enables": "Dengan semakan telefon dihidupkan, pelanggan mengesahkan nombornya dengan kod sekali guna (melalui WhatsApp atau SMS), dan nombor yang disahkan kemudian dikira dengan sendirinya: penduduk atau ahli dalam senarai anda menempah dalam talian dari akaunnya sendiri, tetamu penduduk mengesahkan nombornya sendiri, dan penjaga yang anda rekodkan dengan nama dan nombor boleh mengambil alih hubungan itu dengan akaun.",
+  "lo6.pc.withoutAccess": "Tanpanya, nombor yang ditaip pada akaun tidak membuktikan apa-apa dan tidak membenarkan sesiapa masuk: anda sendiri memautkan akaun setiap penduduk atau ahli kepada entrinya (dengan e-mel mereka atau nombor pada akaun mereka), tetamu penduduk dikira dalam talian hanya apabila dijemput dengan e-mel akaunnya atau selepas anda memautkannya, dan sesiapa yang tidak dipautkan ditempah di kaunter atas pertimbangan anda.",
+  "lo6.pc.withoutGuardians": "Tanpanya, penjaga yang direkodkan dengan nama dan nombor tidak boleh mengambil alih hubungan itu dengan akaun: jemput akaun mereka sebagai penjaga lain. Kod masih boleh dihantar ke nombor yang direkodkan jika SMS atau WhatsApp disediakan; jika tiada apa-apa yang boleh menghantarnya, pengurus merekodkan persetujuan penjaga yang diberikan secara bersemuka, ditandakan untuk semakan.",
+  "lo6.pc.recommend": "Jika anda bergantung pada nombor telefon (pusat untuk ahli sahaja atau persendirian, tetamu penduduk, penjaga yang direkodkan di kaunter), minta pihak yang mengendalikan laman ini menghidupkan semakan telefon: ia memerlukan WhatsApp atau penyedia SMS disediakan. Tiada apa-apa dihidupkan untuk anda, dan sehingga itu semua di atas masih berfungsi melalui kakitangan anda.",
+  "lo6.pc.on": "Semakan telefon dihidupkan: nombor yang disahkan dengan kod sekali guna dikira dalam talian dengan sendirinya; nombor yang hanya ditaip pada akaun masih tidak dikira.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1105,6 +1119,13 @@ const zh: Record<keyof typeof en, string> = {
   "pol.turnoverUnit": "每个名额：取布置或清洁与间隔中较长者",
   "pol.turnoverFacility": "整个设施，场次之间清场",
   "pol.inheritsTurnover": "沿用：{mode}",
+  // 电话验证：建议开启，并非必需（lo6.）
+  "lo6.pc.title": "此处建议开启电话验证，但并非必需",
+  "lo6.pc.enables": "开启电话验证后，顾客用一次性验证码（通过 WhatsApp 或短信）证明自己的号码，已验证的号码即可单独生效：名单上的住户或会员可用自己的账户在线预订，住户的访客可自行验证号码，您以姓名和号码登记的监护人也可以用账户接管其关系。",
+  "lo6.pc.withoutAccess": "未开启时，账户上输入的号码不能证明任何事，也不能让任何人进入：您需要自行将每位住户或会员的账户关联到其名单条目（按其电子邮件或其账户上的号码）；住户的访客只有在以其账户电子邮件受邀、或经您关联后，才可在线生效；未关联的人由您自行判断在前台为其预订。",
+  "lo6.pc.withoutGuardians": "未开启时，以姓名和号码登记的监护人无法用账户接管其关系：请改为邀请其账户成为另一位监护人。若已设置短信或 WhatsApp，仍可向登记的号码发送验证码；若无法发送，由经理记录监护人当面给出的同意，并标记待审核。",
+  "lo6.pc.recommend": "如果您依赖电话号码（仅限会员或私人场馆、住户的访客、在前台登记的监护人），请让本站的运营方开启电话验证：需要先设置 WhatsApp 或短信服务商。系统不会替您开启任何服务；在此之前，以上各项仍可由您的员工处理。",
+  "lo6.pc.on": "电话验证已开启：以一次性验证码验证的号码可单独在线生效；仅在账户上输入的号码仍然无效。",
 };
 
 const area = { en, ms, zh };

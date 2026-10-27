@@ -1300,11 +1300,11 @@ export async function remindPlayers(now = new Date()): Promise<number> {
     await emailUser(
       r.user_id,
       game.venueId,
-      (tr) => tr("mail.game.reminder.s", { venue: game.venueName, when: when(game) }),
+      (tr) => tr("mail.game.reminder.s", { venue: game.venueName, when: when(game, tr.locale) }),
       (tr) =>
         sentences(
           tr,
-          tr("mail.game.reminder.b", { host: game.hostName, court: game.courtName, venue: game.venueName, when: when(game) }),
+          tr("mail.game.reminder.b", { host: game.hostName, court: game.courtName, venue: game.venueName, when: when(game, tr.locale) }),
           share(tr),
           tr("mail.game.reminder.leave")
         ),
@@ -1317,7 +1317,8 @@ export async function remindPlayers(now = new Date()): Promise<number> {
 
 // ------------------------------------------------------------ telling people
 
-const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour)}–${formatHour(g.endHour)}`;
+/** A game's date and hours, in the reader's language. */
+const when = (g: OpenGame, locale = "en") => `${g.date} ${formatHour(g.startHour, locale)}–${formatHour(g.endHour, locale)}`;
 
 async function emailUser(userId: number, venueId: number, subject: Written, body: Written, dedupeKey?: string): Promise<void> {
   await emailPlayer({ venueId, userId, subject, body, link: `${baseUrl()}/games`, dedupeKey });
@@ -1330,13 +1331,13 @@ async function tellPlayer(
   what: "accepted" | "declined" | "removed" | "cancelled" | "calledOff" | "offered" | "invited" | "moved",
   opts: { by?: string; dedupeKey?: string } = {}
 ): Promise<void> {
-  const at = { venue: g.venueName, when: when(g) };
-  const game = (tr: T) => tr("mail.game.where", { court: g.courtName, venue: g.venueName, when: when(g) });
+  const at = (tr: T) => ({ venue: g.venueName, when: when(g, tr.locale) });
+  const game = (tr: T) => tr("mail.game.where", { court: g.courtName, venue: g.venueName, when: when(g, tr.locale) });
   const share = money(g.share.toFixed(2));
   const by = opts.by ?? g.hostName;
   const lines: Record<typeof what, [Written, Written]> = {
     accepted: [
-      (tr) => tr("mail.game.accepted.s", at),
+      (tr) => tr("mail.game.accepted.s", at(tr)),
       (tr) =>
         sentences(
           tr,
@@ -1344,14 +1345,14 @@ async function tellPlayer(
           g.share > 0 && tr(g.payOnline ? "mail.game.shareOnline" : "mail.game.shareVenue", { share })
         ),
     ],
-    declined: [(tr) => tr("mail.game.declined.s", at), (tr) => tr("mail.game.declined.b", { host: g.hostName, game: game(tr) })],
-    removed: [(tr) => tr("mail.game.removed.s", at), (tr) => sentences(tr, tr("mail.game.removed.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
-    cancelled: [(tr) => tr("mail.game.calledOff.s", at), (tr) => sentences(tr, tr("mail.game.cancelled.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
-    calledOff: [(tr) => tr("mail.game.calledOff.s", at), (tr) => sentences(tr, tr("mail.game.calledOff.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
-    offered: [(tr) => tr("mail.game.offered.s", at), (tr) => tr("mail.game.offered.b", { host: g.hostName, game: game(tr), hours: OFFER_MINUTES / 60 })],
-    moved: [(tr) => tr("mail.game.moved.s", at), (tr) => tr("mail.game.moved.b", { host: g.hostName, game: game(tr) })],
+    declined: [(tr) => tr("mail.game.declined.s", at(tr)), (tr) => tr("mail.game.declined.b", { host: g.hostName, game: game(tr) })],
+    removed: [(tr) => tr("mail.game.removed.s", at(tr)), (tr) => sentences(tr, tr("mail.game.removed.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
+    cancelled: [(tr) => tr("mail.game.calledOff.s", at(tr)), (tr) => sentences(tr, tr("mail.game.cancelled.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
+    calledOff: [(tr) => tr("mail.game.calledOff.s", at(tr)), (tr) => sentences(tr, tr("mail.game.calledOff.b", { host: g.hostName, game: game(tr) }), tr("mail.refundShare"))],
+    offered: [(tr) => tr("mail.game.offered.s", at(tr)), (tr) => tr("mail.game.offered.b", { host: g.hostName, game: game(tr), hours: OFFER_MINUTES / 60 })],
+    moved: [(tr) => tr("mail.game.moved.s", at(tr)), (tr) => tr("mail.game.moved.b", { host: g.hostName, game: game(tr) })],
     invited: [
-      (tr) => tr("mail.game.invited.s", { by, ...at }),
+      (tr) => tr("mail.game.invited.s", { by, ...at(tr) }),
       (tr) =>
         sentences(
           tr,
@@ -1367,6 +1368,6 @@ async function tellPlayer(
 
 /** An email to a game's host, in their language. */
 async function tellHost(g: OpenGame, what: "asked" | "joined" | "left"): Promise<void> {
-  const at = { venue: g.venueName, when: when(g) };
-  await emailUser(g.hostId, g.venueId, (tr) => tr(`mail.game.${what}.s`, at), (tr) => tr(`mail.game.${what}.b`, at));
+  const at = (tr: T) => ({ venue: g.venueName, when: when(g, tr.locale) });
+  await emailUser(g.hostId, g.venueId, (tr) => tr(`mail.game.${what}.s`, at(tr)), (tr) => tr(`mail.game.${what}.b`, at(tr)));
 }

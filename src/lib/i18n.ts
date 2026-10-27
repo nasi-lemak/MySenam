@@ -2418,7 +2418,7 @@ const EN = {
   "mbo.err.MBO_NOT_YOURS": "That is not one of your memberships.",
   "mbo.err.MBO_ENDED": "This membership has ended.",
   "gw5.sms.code": "Code {code} from {venue}. Give it only to the venue's staff, and only if you agree to what they asked you.",
-  "gw5.msg.notice": "This is {venue}. There has been a change to who acts for a child you are recorded as a guardian of. Please ask at the counter, or sign in to see it.",
+  "gw5.msg.notice": "This is {venue}, about a child you are recorded as a guardian of: {change}. Our details are at {link}; please ask at the counter or call us to find out more.",
   "gw5.mail.claimedSubject": "{name}: a guardian now signs in with their own account",
   "gw5.mail.claimed": "On {when}, a guardian of {name} whom the venue had recorded by name and number took that relationship over with their own account. Nobody new acts for {name}.",
   "gw5.accept.claimed": "Done: you now act for {name} with this account, as the guardian the venue recorded.",
@@ -2564,6 +2564,13 @@ const EN = {
   "co6.noneFree": "No coach is free that day. Try another.",
   "co6.confirm": "Book a {length} lesson at {time}",
   "co6.yourCoach": "Your coach: {name}",
+  // Messages in the reader's language: what changed for a guardian recorded by name and number, a booking's line on a receipt (lo6.)
+  "lo6.notice.added": "another guardian has been added",
+  "lo6.notice.ended": "a guardian has stopped acting for them",
+  "lo6.notice.request": "another adult has asked to become their guardian; nothing changes unless a guardian agrees or the venue's manager records an exception",
+  "lo6.notice.claimed": "a guardian the venue recorded by name and number now uses their own account; nobody new acts for them",
+  "lo6.rcpt.slot": "{court} ({activity}), {date} {from}–{to}",
+  "lo6.rcpt.players": "{line}, {n} players",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4935,7 +4942,7 @@ const MS: Record<Phrase, string> = {
   "mbo.err.MBO_NOT_YOURS": "Itu bukan salah satu keahlian anda.",
   "mbo.err.MBO_ENDED": "Keahlian ini telah tamat.",
   "gw5.sms.code": "Kod {code} daripada {venue}. Berikan hanya kepada kakitangan pusat, dan hanya jika anda bersetuju dengan apa yang mereka minta.",
-  "gw5.msg.notice": "Ini {venue}. Terdapat perubahan tentang siapa yang bertindak bagi pihak seorang kanak-kanak yang anda direkodkan sebagai penjaganya. Sila tanya di kaunter, atau log masuk untuk melihatnya.",
+  "gw5.msg.notice": "Ini {venue}, berkenaan seorang kanak-kanak yang anda direkodkan sebagai penjaganya: {change}. Butiran kami ada di {link}; sila tanya di kaunter atau hubungi kami untuk mengetahui lanjut.",
   "gw5.mail.claimedSubject": "{name}: seorang penjaga kini log masuk dengan akaunnya sendiri",
   "gw5.mail.claimed": "Pada {when}, seorang penjaga {name} yang direkodkan oleh pusat dengan nama dan nombor telah mengambil alih hubungan itu dengan akaunnya sendiri. Tiada orang baharu bertindak bagi pihak {name}.",
   "gw5.accept.claimed": "Selesai: anda kini bertindak bagi pihak {name} dengan akaun ini, sebagai penjaga yang direkodkan oleh pusat.",
@@ -5081,6 +5088,13 @@ const MS: Record<Phrase, string> = {
   "co6.noneFree": "Tiada jurulatih yang lapang pada hari itu. Cuba hari lain.",
   "co6.confirm": "Tempah kelas {length} pada {time}",
   "co6.yourCoach": "Jurulatih anda: {name}",
+  // Mesej dalam bahasa pembaca (lo6.)
+  "lo6.notice.added": "seorang lagi penjaga telah ditambah",
+  "lo6.notice.ended": "seorang penjaga tidak lagi bertindak bagi pihaknya",
+  "lo6.notice.request": "seorang dewasa lain telah meminta untuk menjadi penjaganya; tiada apa-apa berubah melainkan seorang penjaga bersetuju atau pengurus pusat merekodkan pengecualian",
+  "lo6.notice.claimed": "seorang penjaga yang direkodkan oleh pusat dengan nama dan nombor kini menggunakan akaunnya sendiri; tiada orang baharu bertindak bagi pihaknya",
+  "lo6.rcpt.slot": "{court} ({activity}), {date}, {from}–{to}",
+  "lo6.rcpt.players": "{line}, {n} pemain",
 };
 
 /** Exported so a test can hold the two languages against each other. */

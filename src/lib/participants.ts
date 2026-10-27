@@ -1,7 +1,7 @@
 import { createHash, randomInt } from "crypto";
 import { getDb, withTransaction } from "./db";
 import { phoneKey } from "./phone";
-import { todayISO } from "./time";
+import { installZone, todayISO } from "./time";
 
 /**
  * Participants: the people who take part, apart from the accounts that sign
@@ -466,10 +466,11 @@ export async function participantsForVenue(venueId: number, phone: string): Prom
 /**
  * SQL: relationship `g` was made by an exception whose date to look at it
  * again (`?`, today as YYYY-MM-DD) has come, and nobody has reviewed it since
- * that date: a manager's reminder (lib/contact-guardians.ts guardianAttention).
+ * that date (the install's date, as `today` is, not the database's UTC one):
+ * a manager's reminder (lib/contact-guardians.ts guardianAttention).
  */
 export const REVIEW_DATE_DUE = `EXISTS (SELECT 1 FROM guardian_requests rq WHERE rq.id = g.request_id AND rq.exception_review_on IS NOT NULL
-    AND rq.exception_review_on <= ?::date AND (g.reviewed_at IS NULL OR g.reviewed_at::date < rq.exception_review_on))`;
+    AND rq.exception_review_on <= ?::date AND (g.reviewed_at IS NULL OR (g.reviewed_at AT TIME ZONE '${installZone()}')::date < rq.exception_review_on))`;
 
 const GUARDIAN_COLUMNS = `g.id, COALESCE(u.name, g.contact_name) AS name, g.relationship, g.provenance, g.user_id IS NOT NULL AS account,
   g.suspended_at IS NOT NULL AS suspended, CASE WHEN g.reviewed_at IS NULL THEN g.review_reason END AS review,

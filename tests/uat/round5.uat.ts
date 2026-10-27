@@ -718,9 +718,9 @@ describe.skipIf(!serverLog)("a class's waiting list at the counter", () => {
       expect(await roster.locator("li").filter({ hasText: "Zul Hakim" }).count()).toBe(0);
     });
 
-    await s.step(siti, "opens the link, reads the page in Malay, and claims the place", async () => {
+    await s.step(siti, "opens the link, reads the page in Malay without choosing it (the email's language), and claims the place", async () => {
       await siti.page.goto(offer);
-      await siti.page.getByTitle("Bahasa Malaysia", { exact: true }).click();
+      expect(new URL(offer).searchParams.get("lang")).toBe("ms");
       await siti.page.getByRole("heading", { name: "Ada tempat kosong" }).waitFor();
       await siti.page.getByRole("button", { name: "Tuntut tempat saya" }).click();
       await siti.page.getByText("Tempat ini milik anda").waitFor();

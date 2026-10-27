@@ -13,7 +13,9 @@ import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession } from "../src/li
 import { listActivity } from "../src/lib/activity";
 import { createApiKey } from "../src/lib/api-keys";
 import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
-import { claimRelationship, confirmContactCode, guardianReviews, openNoticeTasks } from "../src/lib/contact-guardians";
+import { claimRelationship, confirmContactCode, guardianReviews, noticeContactGuardians, openNoticeTasks } from "../src/lib/contact-guardians";
+import { translator } from "../src/lib/i18n";
+import { templateText } from "../src/lib/transports";
 import { getDb } from "../src/lib/db";
 import { setHouseRules } from "../src/lib/house-rules";
 import { listManaged } from "../src/lib/managed-people";
@@ -515,6 +517,44 @@ describe("telling a guardian recorded by name and number", () => {
     await requested(kid.id, dad2);
     expect(await openNoticeTasks([venue], [kid.id])).toEqual([expect.objectContaining({ change: "request", why: "no_channel" })]);
   });
+
+  it("in the language of the code that came back, saying what changed, with the venue's page; the template's three values and nothing about the child", async () => {
+    smsOn();
+    const kid = await walkIn("Melati");
+    // Staff send the code in Malay; once it comes back, Malay is the language this guardian is written to in.
+    await contact(desk, kid.id, { action: "sendCode", guardianId: kid.mumGuardian, purpose: "verify", locale: "ms" });
+    expect(await json(await contact(desk, kid.id, { action: "confirmCode", guardianId: kid.mumGuardian, purpose: "verify", code: lastCode() }))).toEqual({ ok: true });
+    expect(await getDb().prepare("SELECT contact_locale FROM participant_guardians WHERE id = ?").get(kid.mumGuardian)).toEqual({ contact_locale: "ms" });
+    whatsappOn();
+    const dad = await adult("Encik Megat");
+    await requested(kid.id, dad);
+    // Each other change, as the guardian-change notices send it (lib/guardian-requests.ts notifyGuardianChange).
+    for (const [i, change] of (["added", "ended", "claimed"] as const).entries())
+      expect(await noticeContactGuardians(kid.id, change, { venueId: venue, about: 9000 + i, exceptGuardianshipIds: [] })).toBe(1);
+    const notices = (await getDb()
+      .prepare("SELECT locale, body, params FROM messages WHERE kind = 'guardian_notice' AND phone_key(recipient) = phone_key(?) ORDER BY id")
+      .all(kid.mumPhone)) as { locale: string; body: string; params: string }[];
+    expect(notices).toHaveLength(4);
+    const ms = translator("ms");
+    expect(notices.map((m) => m.body)).toEqual(
+      (["request", "added", "ended", "claimed"] as const).map((change) =>
+        ms("gw5.msg.notice", { venue: "Guardian Centre", change: ms(`lo6.notice.${change}`), link: `https://book.example.my/venue/${venue}?lang=ms` })
+      )
+    );
+    expect(notices[0].body).toContain("seorang dewasa lain telah meminta untuk menjadi penjaganya");
+    for (const m of notices) {
+      expect(m.locale).toBe("ms");
+      // WhatsApp sends exactly the template's values, in its order: the venue, what changed, the venue's page.
+      expect(Object.keys(JSON.parse(m.params))).toEqual(templateText("guardian_notice", "ms").params);
+      for (const secret of ["Melati", "Megat", "2016", "Puan Aminah"]) expect(m.body).not.toContain(secret);
+    }
+    // The template neither starts nor ends with a value (Meta refuses one that does), in every language.
+    for (const locale of ["en", "ms", "zh", "ta"] as const) {
+      const t = templateText("guardian_notice", locale);
+      expect(t.params).toEqual(["venue", "change", "link"]);
+      expect(t.body.trim()).not.toMatch(/^\{\{\d+\}\}|\{\{\d+\}\}[.。]?$/);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------- disputes and withdrawal
@@ -611,6 +651,22 @@ describe("a manager's reminders, and the platform owner", () => {
     // Looked at again: the reminder goes.
     expect((await patch(manager, kid.id, { venueId: venue, action: "confirmGuardian", guardianId: dadRel.id, reason: "Reviewed on the date" })).status).toBe(200);
     expect((await guardianReviews([venue]))[0]?.datesDue ?? 0).toBe(before);
+  });
+
+  it("a review made early on the review date, before midnight in UTC, clears the reminder (the install's date, not the database's)", async () => {
+    const kid = await walkIn("Puspa");
+    const dad = await adult("Encik Puspa");
+    const request = await requested(kid.id, dad);
+    await patch(manager, kid.id, { venueId: venue, action: "exception", requestId: request.id, category: "guardian_unavailable", reason: "Mother abroad", reviewOn: addDays(todayISO(), 30) });
+    const rel = (await getDb().prepare("SELECT id FROM participant_guardians WHERE participant_id = ? AND user_id = ?").get(kid.id, dad.id)) as { id: number };
+    const due = async () => ((await reviewQueue({ venueId: venue })).find((p) => p.id === kid.id)?.guardians.find((g) => g.id === rel.id) as { reviewDue?: boolean } | undefined)?.reviewDue ?? false;
+    // The review date is 1 June, Malaysian time; reviewed at 01:00 that day, which is still 31 May in UTC.
+    await getDb().prepare("UPDATE guardian_requests SET exception_review_on = '2026-06-01'::date WHERE id = ?").run(request.id);
+    await getDb().prepare("UPDATE participant_guardians SET reviewed_at = '2026-05-31T17:00:00Z'::timestamptz WHERE id = ?").run(rel.id);
+    expect(await due()).toBe(false);
+    // Reviewed the evening before, Malaysian time: still due.
+    await getDb().prepare("UPDATE participant_guardians SET reviewed_at = '2026-05-31T15:59:00Z'::timestamptz WHERE id = ?").run(rel.id);
+    expect(await due()).toBe(true);
   });
 
   it("the platform owner sees what waits for review for a participant no venue knows, and acts on it", async () => {

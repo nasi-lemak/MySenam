@@ -236,7 +236,8 @@ describe("staff start a request; the adult accepts on their own account; an exis
     const mumAsked = (await messagesTo(mum.email)).at(-1)!;
     expect(mumAsked.subject).toContain("Irfan");
     expect(mumAsked.body).toContain("asked to become Irfan's guardian");
-    expect(mumAsked.body).toContain("https://book.example.my/account#people");
+    // In the language the email is written in (lib/link-locale.ts).
+    expect(mumAsked.body).toContain("https://book.example.my/account?lang=en#people");
     expect(mumAsked.body).toContain("Guardian Centre");
     expect(mumAsked.body).not.toContain("Rahman");
     expect(mumAsked.body).not.toContain(dad.phone);
@@ -273,7 +274,7 @@ describe("staff start a request; the adult accepts on their own account; an exis
     const granTold = await messagesTo(gran.email);
     expect(granTold.map((m) => m.subject)).toEqual([expect.stringContaining("another adult asked"), expect.stringContaining("another guardian added")]);
     expect(granTold[1].body).toContain("Another guardian was added for Irfan on");
-    expect(granTold[1].body).toContain("/account#people");
+    expect(granTold[1].body).toContain("/account?lang=en#people");
     expect(granTold[1].body).toContain("Guardian Centre on 0312350501");
     for (const m of granTold) {
       expect(m.body).not.toContain("Rahman");

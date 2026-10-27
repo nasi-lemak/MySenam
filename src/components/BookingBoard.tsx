@@ -436,7 +436,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     });
   }
 
-  const startLabel = (minute: number) => formatMinute(minute).replace(":00 ", " ").replace(" ", "");
+  // Short, for the grid: "6PM" in English, "6 PTG" in Malay; Chinese and Tamil as written.
+  const startLabel = (minute: number) => {
+    const full = formatMinute(minute, t.locale).replace(":00 ", " ");
+    return t.locale === "en" ? full.replace(" ", "") : full;
+  };
 
   return (
     <div className="space-y-5">
@@ -543,7 +547,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                           title={
                             slot.available
                               ? t.plural("board.anyFree", slot.courts, {
-                                  time: formatMinute(slot.minute),
+                                  time: formatMinute(slot.minute, t.locale),
                                   rate: slot.rate,
                                 })
                               : t("board.anyNone")
@@ -628,14 +632,14 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                                     : t("board.unavailable")
                                 : shared
                                   ? t("board.sharedSlot", {
-                                      time: formatMinute(slot.minute),
+                                      time: formatMinute(slot.minute, t.locale),
                                       rate: slot.rate,
                                       left,
                                       capacity: slot.capacity,
                                       level: t(`busy.${level}` as Phrase),
                                     })
                                   : t("board.plainSlot", {
-                                      time: formatMinute(slot.minute),
+                                      time: formatMinute(slot.minute, t.locale),
                                       rate: slot.rate,
                                     })
                           }
@@ -1079,7 +1083,7 @@ function BookingForm({
         <div className="min-w-[12rem] flex-1">
           <div className="font-semibold text-teal-700">{court.heading ? `${court.heading} · ${court.name}` : court.name}</div>
           <div className="text-sm text-slate-600">
-            {date} · {formatMinute(start)} – {formatMinute(end)} · {lengthLabel(t, length)} ·{" "}
+            {date} · {formatMinute(start, t.locale)} – {formatMinute(end, t.locale)} · {lengthLabel(t, length)} ·{" "}
             <span className="font-semibold text-slate-900">
               {withExtras === null ? t("quote.loading") : withExtras === 0 ? t("price.free") : `${money(withExtras)}`}
             </span>
@@ -1528,7 +1532,7 @@ function TimePicker({
           >
             {starts.map((s) => (
               <option key={s.minute} value={s.minute}>
-                {formatMinute(s.minute)}
+                {formatMinute(s.minute, t.locale)}
               </option>
             ))}
           </select>
@@ -1616,7 +1620,7 @@ function ConfirmationModal({
           </h2>
           {holdUntil ? (
             <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
-              {t("hold.body", { time: localTimeOf(holdUntil, venue.timeZone) })}
+              {t("hold.body", { time: localTimeOf(holdUntil, venue.timeZone, t.locale) })}
             </p>
           ) : isGroup ? null : (
             <p className="mt-1 text-sm text-slate-600">
@@ -1639,7 +1643,7 @@ function ConfirmationModal({
             ...(isSeries
               ? ([] as [string, string][])
               : ([[t("done.date"), booking.date]] as [string, string][])),
-            [t("done.time"), `${formatMinute(booking.startMin)} – ${formatMinute(booking.endMin)}`],
+            [t("done.time"), `${formatMinute(booking.startMin, t.locale)} – ${formatMinute(booking.endMin, t.locale)}`],
             ...((booking.players ?? 1) > 1 ? ([[t("done.players"), String(booking.players)]] as [string, string][]) : ([] as [string, string][])),
             ...(confirmation.addons?.length
               ? ([
@@ -1868,7 +1872,7 @@ function SlotWaitlistModal({
               {t("queue.onBody", {
                 position,
                 court: court.name,
-                time: formatMinute(minute),
+                time: formatMinute(minute, t.locale),
               })}
             </p>
             {forIds.length > 0 && (
@@ -1892,7 +1896,7 @@ function SlotWaitlistModal({
           <>
             <h2 className="text-lg font-bold">{court.name}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {date} · {formatMinute(minute)} – {formatMinute(minute + length)}
+              {date} · {formatMinute(minute, t.locale)} – {formatMinute(minute + length, t.locale)}
             </p>
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               {t("queue.taken")}

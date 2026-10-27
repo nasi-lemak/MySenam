@@ -611,7 +611,7 @@ export async function notifyWithdrawn(booking: Booking, withdrawal: WithdrawOutc
       who,
       code: booking.code,
       where: t("msg.where", { court: court.name, venue: venue.name }),
-      when: t("msg.when", { date: booking.date, ...hourRange(booking.startHour, booking.endHour) }),
+      when: t("msg.when", { date: booking.date, ...hourRange(booking.startHour, booking.endHour, locale) }),
       money: withdrawMoney(locale, withdrawal),
     },
   });

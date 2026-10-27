@@ -56,7 +56,7 @@ export default function OfficialPage() {
           {waiting.map((m) => (
             <li key={m.id} className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
               <div className="text-slate-500">
-                {m.date} {m.minute !== null ? formatMinute(m.minute) : ""}, {m.courtName}
+                {m.date} {m.minute !== null ? formatMinute(m.minute, t.locale) : ""}, {m.courtName}
               </div>
               <div className="font-medium">
                 {names.get(m.a!)} v {names.get(m.b!)}

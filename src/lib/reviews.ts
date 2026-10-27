@@ -10,6 +10,7 @@ import { findBookingByCode, getCourt, getVenue } from "./store";
 import { addDays, slotStartsAt, todayISO } from "./time";
 import { MAX_REVIEW_BODY, type Booking, type Refusal } from "./types";
 import { venueZoneOf } from "./zones";
+import { linkIn } from "./link-locale";
 
 /**
  * Stars and a few words about a venue, from somebody who played there.
@@ -350,7 +351,7 @@ export async function askForReviews(now = new Date()): Promise<number> {
         venue: r.venue,
         court: r.court,
         date: r.date,
-        link: `${await venueBaseUrl(r.venue_id)}${reviewPath(r.code)}`,
+        link: linkIn(`${await venueBaseUrl(r.venue_id)}${reviewPath(r.code)}`, locale),
         site: siteName(),
       },
     });

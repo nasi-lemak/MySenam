@@ -24,8 +24,10 @@ import {
 } from "./participants";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
-import { addDays, installZone, todayISO } from "./time";
+import { addDays, installZone, localDateOf, todayISO } from "./time";
+import { clockTime } from "./region";
 import { venueZoneOf } from "./zones";
+import { linkIn } from "./link-locale";
 
 /**
  * Another guardian by verified consent (ADR 0023, amended 27 October 2026;
@@ -812,10 +814,9 @@ export async function accountRequests(userId: number): Promise<AccountRequests> 
 
 // ------------------------------------------------------------------ telling the other guardians
 
-function moment(at: Date, zone: string): string {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
-  const p = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
-  return `${p("year")}-${p("month")}-${p("day")} ${p("hour")}:${p("minute")}`;
+/** A moment as the zone's YYYY-MM-DD and the time as the reader's language writes one (lib/region.ts `clockTime`). */
+function moment(at: Date, zone: string, locale: string): string {
+  return `${localDateOf(at.toISOString(), zone)} ${clockTime(at, zone, locale)}`;
 }
 
 /**
@@ -869,17 +870,18 @@ export async function notifyGuardianChange(
           | { name: string; phone: string | null; time_zone: string | null; lat: number | null; lng: number | null }
           | undefined)
       : undefined;
-    const when = moment(new Date(), venue ? venueZoneOf(venue) : installZone());
+    const now = new Date();
+    const zone = venue ? venueZoneOf(venue) : installZone();
     const link = `${opts.venueId && venue ? await venueBaseUrl(opts.venueId) : baseUrl()}/account#people`;
     const ids: number[] = [];
     for (const r of to) {
       const locale = await accountLocale(r.id);
       const t = translator(locale, siteName());
-      const vars = { name: p.display_name, when };
+      const vars = { name: p.display_name, when: moment(now, zone, locale) };
       const key = change === "claimed" ? "gw5.mail.claimed" : (`gv.mail.${change}` as const);
       const parts = [
         t(key, vars),
-        t("gv.mail.mistake", { link }),
+        t("gv.mail.mistake", { link: linkIn(link, locale) }),
         venue ? (venue.phone ? t("gv.mail.venue", { venue: venue.name, phone: venue.phone }) : t("gv.mail.venueNoPhone", { venue: venue.name })) : t("gv.mail.platform"),
       ];
       const text = `${t("mail.hi", { name: r.name.split(/\s+/)[0] })}\n\n${parts.join("\n\n")}\n\n${siteName()}`;

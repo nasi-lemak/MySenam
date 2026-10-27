@@ -157,7 +157,7 @@ export default function GamesPage() {
           <h2 className="text-sm font-semibold text-teal-900">{t("games.shared")}</h2>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-sm">
             <span>
-              {activityIcon(shared.game.sport)} {dayLabel(shared.game.date)}, {formatHour(shared.game.startHour)}–{formatHour(shared.game.endHour)} ·{" "}
+              {activityIcon(shared.game.sport)} {dayLabel(shared.game.date)}, {formatHour(shared.game.startHour, t.locale)}–{formatHour(shared.game.endHour, t.locale)} ·{" "}
               {shared.game.venueName} · {t("games.hostedBy", { name: shared.game.hostName })}
             </span>
             <JoinButton t={t} g={shared.game} signedIn={signedIn} act={act} link={shared.link} />
@@ -259,7 +259,7 @@ export default function GamesPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-semibold">
-                    {activityIcon(g.sport)} {dayLabel(g.date)}, {formatHour(g.startHour)}–{formatHour(g.endHour)}
+                    {activityIcon(g.sport)} {dayLabel(g.date)}, {formatHour(g.startHour, t.locale)}–{formatHour(g.endHour, t.locale)}
                   </div>
                   <div className="text-sm text-slate-600">
                     <Link href={`/venue/${g.venueId}`} className="underline">
@@ -379,7 +379,7 @@ function MyGames({
   refresh: () => Promise<void>;
   say: (msg: string | null, error?: string) => void;
 }) {
-  const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour)}–${formatHour(g.endHour)}`;
+  const when = (g: OpenGame) => `${g.date} ${formatHour(g.startHour, t.locale)}–${formatHour(g.endHour, t.locale)}`;
   // Local time, whatever the phone's own clock is set to.
   const started = (g: OpenGame) => slotStartsAt(g.date, g.startHour, g.timeZone) <= new Date();
   const small = "rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium hover:border-teal-500";
@@ -598,7 +598,7 @@ function OpenOne({
             <select value={chosen?.code} onChange={(e) => setCode(e.target.value)} className={input}>
               {upcoming.map((b) => (
                 <option key={b.code} value={b.code}>
-                  {b.venueName}, {b.courtName}, {b.date} {formatHour(b.startHour)}
+                  {b.venueName}, {b.courtName}, {b.date} {formatHour(b.startHour, t.locale)}
                 </option>
               ))}
             </select>

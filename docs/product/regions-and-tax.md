@@ -52,6 +52,30 @@ table in `src/lib/region.ts`:
   against the English, so a phrase missing from any does not compile, and the
   tests check each fills the same placeholders. Dates are formatted for
   `zh-Hans`; WhatsApp templates go to Meta as `zh_CN` and `ta`.
+- **A link in a message opens in the message's language.** The language is
+  a cookie, set only by the switch, so a link opened in a browser that has
+  never been to the site would open in the install's first language. Every
+  link MySenam sends a customer carries the message's language as a fixed
+  parameter (`?lang=ms`, `src/lib/link-locale.ts`): one of the four
+  languages, added to an address MySenam built, never a URL from a request,
+  so it cannot redirect anywhere; the link keeps its token and expiry as
+  they were. The middleware passes it to the page only after checking it
+  against the four (dropping any such header a browser sent), and the page
+  uses it only where the person has not chosen a language: a choice made
+  with the switch wins. Nothing is stored; the next page without it is in
+  their own language again ([which links](../integrations/messaging.md#messages-to-customers);
+  `tests/link-locale.test.ts`).
+- **Times** are written by one formatter (`Intl.DateTimeFormat`, through
+  `clockTime` in `src/lib/region.ts`; `formatHour` and `formatMinute` use
+  it), on customers' pages and in messages alike: English *6:30 PM*, as the
+  pages always wrote it; Malay *6:30 PTG* (*PG* before noon); Chinese
+  *下午6:30*; Tamil on the 24-hour clock, *18:30*, because its 12-hour form
+  differs between the server's CLDR data (*6:30 PM*) and browsers'
+  (*பிற்பகல் 6:30*) and a page must read the same on both. A booking's
+  hours are the venue's wall clock and written as they stand; a moment (a
+  guardian change, a payment deadline) is read in the venue's time zone.
+  The staff dashboard's own screens still write times the English way
+  (`tests/message-times.test.ts`).
 - **The staff dashboard** is in English, Malay and Chinese, not Tamil (the
   owner's decision of 24 October 2026): the install's languages less Tamil,
   and the language switch on the dashboard offers only those. Its phrases are
@@ -90,8 +114,8 @@ table in `src/lib/region.ts`:
   tournament corrections from before migration 0120 show their English. New
   ones keep their phrase beside the English (migration 0120; a receipt's
   line and a progression issue's affected matches inside their own JSON).
-  A receipt itself, as printed, says its lines' English, except a built-in
-  concession's price ([receipts](#tax-sst-and-gst)).
+  A receipt itself, as printed, says its lines' English, except a booking's
+  court time and a built-in concession's price ([receipts](#tax-sst-and-gst)).
 - **The Tamil is a machine translation awaiting a native speaker's review**
   before a venue relies on it: in particular the words chosen for venue
   (மையம்) and court (கோர்ட்), sports terms such as walkover and bye, and the
@@ -145,7 +169,12 @@ details → Tax* (managers only).
   shows the amount before tax, the tax at its rate, the total and the venue's
   registration number. The receipt email links to it and says how much tax
   the payment included; My Booking links to it too. Its headings are in the
-  reader's language and its lines as written, except the price of a built-in
+  reader's language and its lines as written, except two. A booking's court
+  time (`slot` on the line) reads in the reader's language: the activity's
+  name, the hours as the language writes them and how many places, with
+  whom the places are for where the booking names anybody other than its
+  customer (*…, for Alya, Bilal*; [receipts for a guardian](../features/payments-and-credit.md#receipts-for-a-guardian)).
+  And the price of a built-in
   concession (student, senior, child, OKU; [pricing](../features/pricing.md#concession-prices)):
   that line keeps the concession's key beside its words (`concessionPreset`
   on the line), and the receipt says it in the reader's language (*Student

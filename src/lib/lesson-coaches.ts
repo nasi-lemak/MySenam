@@ -450,7 +450,7 @@ export async function notifyCoachChanged(booking: Booking, change: CoachChange, 
       from: change.fromCoach.name,
       to: change.toCoach.name,
       where: t("msg.where", { court: court.name, venue: venue.name }),
-      when: t("msg.when", { date: booking.date, ...hourRange(booking.startHour, booking.endHour) }),
+      when: t("msg.when", { date: booking.date, ...hourRange(booking.startHour, booking.endHour, locale) }),
       money: coachChangeMoney(locale, change, booking.totalPrice),
     },
   });

@@ -40,6 +40,16 @@ export interface Line {
    * `description` stays as written, for the books.
    */
   place?: { kind: "membership" | "concession"; name: string | null };
+  /**
+   * A booking's court time, so the receipt says it in the reader's language
+   * (lib/receipts.ts `receiptLineText`): the court, the activity, the day and
+   * hours, how many places, and whom the places are for where the booking
+   * names somebody other than its customer (a guardian's children, in the
+   * order they were put on it; the customer too where they take part).
+   * Names only: nothing else about them. `description` stays as written, for
+   * the books.
+   */
+  slot?: { court: string; sport: string; date: string; startMin: number; endMin: number; players: number; for: string[] };
 }
 
 /** A line MySenam words: the receipt's English, with its phrase kept beside it. */
@@ -397,6 +407,12 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     )
     .all(bookingId)) as { kind: string; concession_name: string | null; concession_preset: string | null; amount: number; name: string | null }[];
   const placeOff = perPlace.reduce((sum, p) => sum + Number(p.amount), 0);
+  // Whom the places are for, where the booking names anybody other than its customer (lib/entitlements.ts placesOf).
+  const people = (await db.prepare("SELECT takes_part_as, name FROM booking_participants WHERE booking_id = ? ORDER BY id").all(bookingId)) as {
+    takes_part_as: string;
+    name: string | null;
+  }[];
+  const forNames = people.some((p) => p.takes_part_as === "participant") ? people.flatMap((p) => (p.name ? [p.name] : [])) : [];
   const discount = (promo?.discount ?? 0) + concession + placeOff;
   // A built-in one is said in the reader's language; the venue's own name stays as typed.
   const preset = derivedPreset({
@@ -410,6 +426,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
         Number(b.players) > 1 ? `, ${b.players} players` : ""
       }`,
       amount: roundMoney(b.total_price - extrasTotal + discount - b.coach_fee),
+      slot: { court: b.court_name, sport: b.sport, date: b.date, startMin: b.start_min, endMin: b.end_min, players: Number(b.players), for: forNames },
     },
     ...(b.coach_fee > 0 ? [{ description: `Coaching with ${b.coach_name ?? "a coach"}`, amount: b.coach_fee }] : []),
     ...extras.map((e) => ({ description: `${e.quantity} × ${e.name}`, amount: roundMoney(e.quantity * e.unit_price) })),

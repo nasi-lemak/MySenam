@@ -189,7 +189,7 @@ function RequestCard({
       {r.revoked && r.revokeReason && <p className="rounded-lg bg-red-50 p-2 text-red-800">{t("apr.revokedWhy", { reason: r.revokeReason })}</p>}
       {r.slot && (
         <p className="text-slate-600">
-          {t("apr.slotLine", { slot: slotText(r) })} · {slotState(t, r)}
+          {t("apr.slotLine", { slot: slotText(r, t.locale) })} · {slotState(t, r)}
           {r.bookingCode && (
             <>
               {" · "}

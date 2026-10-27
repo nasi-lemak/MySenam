@@ -247,9 +247,9 @@ export async function hostMove(hostId: number, gameId: number, to: To): Promise<
               tr,
               tr("mail.move.ask.b", {
                 host: game.hostName,
-                from: when(preview.preview.from),
+                from: when(preview.preview.from, tr.locale),
                 fromCourt: preview.preview.from.courtName,
-                to: when(r.to),
+                to: when(r.to, tr.locale),
                 toCourt: r.to.courtName,
                 venue: game.venueName,
               }),
@@ -342,8 +342,8 @@ export async function settleMove(gameId: number): Promise<void> {
     await tell(
       p.user_id,
       moved,
-      (tr) => tr("mail.move.done.s", { venue: moved.venueName, when: when(outcome.to) }),
-      (tr) => tr("mail.move.done.b", { host: moved.hostName, when: when(outcome.to), court: outcome.to.courtName, venue: moved.venueName }),
+      (tr) => tr("mail.move.done.s", { venue: moved.venueName, when: when(outcome.to, tr.locale) }),
+      (tr) => tr("mail.move.done.b", { host: moved.hostName, when: when(outcome.to, tr.locale), court: outcome.to.courtName, venue: moved.venueName }),
       `game-moved:${moveId}:${p.user_id}`
     );
   await gameTimeChanged(gameId);
@@ -373,7 +373,7 @@ export async function endMove(gameId: number, status: "withdrawn" | "expired" | 
     .all(ended.id)) as { user_id: number }[];
   const told = new Set([...asked, ...answered].map((p) => p.user_id));
   const subject: Written = (tr) =>
-    tr("mail.move.stays.s", { venue: game.venueName, when: when({ date: game.date, startMin: game.startHour * 60, endMin: game.endHour * 60 }) });
+    tr("mail.move.stays.s", { venue: game.venueName, when: when({ date: game.date, startMin: game.startHour * 60, endMin: game.endHour * 60 }, tr.locale) });
   const where = { host: game.hostName, court: game.courtName, venue: game.venueName, date: game.date };
   const body: Written = (tr) =>
     status === "withdrawn"
@@ -451,11 +451,11 @@ export async function staffMove(
         await tell(
           p.user_id,
           moved,
-          (tr) => tr("mail.move.venue.s", { venue: moved.venueName, when: when(r.to) }),
+          (tr) => tr("mail.move.venue.s", { venue: moved.venueName, when: when(r.to, tr.locale) }),
           (tr) =>
             sentences(
               tr,
-              tr("mail.move.venue.b", { venue: moved.venueName, host: moved.hostName, from: when(r.from), to: when(r.to), court: r.to.courtName, why }),
+              tr("mail.move.venue.b", { venue: moved.venueName, host: moved.hostName, from: when(r.from, tr.locale), to: when(r.to, tr.locale), court: r.to.courtName, why }),
               moved.share > 0 ? tr("mail.move.venue.askRefund", { share: money(moved.share.toFixed(2)) }) : tr("mail.move.venue.ask")
             ),
           `game-venue-move:${made.id}:${p.id}`
@@ -472,7 +472,7 @@ export async function staffMove(
 
 // ------------------------------------------------------------ telling people
 
-const when = (d: { date: string; startMin: number; endMin: number }) => `${d.date} ${formatMinute(d.startMin)}–${formatMinute(d.endMin)}`;
+const when = (d: { date: string; startMin: number; endMin: number }, locale = "en") => `${d.date} ${formatMinute(d.startMin, locale)}–${formatMinute(d.endMin, locale)}`;
 
 /** How each language writes the date a proposal must be answered by. */
 const DATE_LOCALE: Record<string, string> = { en: "en-GB", ms: "ms-MY", zh: "zh-CN", ta: "ta-IN" };
