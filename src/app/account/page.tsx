@@ -22,6 +22,7 @@ import { GuestInvites } from "@/components/GuestInvites";
 import ManagedPeople from "@/components/ManagedPeople";
 import { useT } from "@/components/Language";
 import { SeriesCancel } from "@/components/SeriesCancel";
+import { WithdrawPeople } from "@/components/WithdrawPeople";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
 import type { RefundStatus } from "@/lib/payments";
@@ -279,6 +280,10 @@ export default function AccountPage() {
                 onCancelSeries={
                   b.seriesCode ? () => cancelSeries(b.seriesCode!) : undefined
                 }
+                onChanged={(message) => {
+                  setNotice(message);
+                  load();
+                }}
               />
             ))}
           </div>
@@ -517,11 +522,14 @@ function BookingCard({
   booking: b,
   onCancel,
   onCancelSeries,
+  onChanged,
 }: {
   t: T;
   booking: UserBookingRow;
   onCancel: () => void;
   onCancelSeries?: () => void;
+  /** Somebody was taken off it (lib/place-withdrawals.ts): what happened, to show, and the list read again. */
+  onChanged?: (message: string) => void;
 }) {
   const shareInfo = {
     code: b.code,
@@ -605,6 +613,10 @@ function BookingCard({
           ⬇️ .ics
         </button>
       </div>
+      {/* Several people on it: one can be taken off, the others staying booked. */}
+      {onChanged && b.classId === null && (b.participantName || (b.players ?? 1) > 1) && (
+        <WithdrawPeople source={{ bookingId: b.id }} onDone={(_booking, message) => onChanged(message)} />
+      )}
       <div className={`mt-2 grid gap-2 ${onCancelSeries ? "grid-cols-2" : ""}`}>
         <button
           onClick={onCancel}

@@ -23,7 +23,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ plans: await listPlans(venueId), online: await takesPaymentOnline(venueId) });
 }
 
-/** `{ venueId, name, months, price, ratePercent?, aheadDays? }`: offer a new plan, a tier with its own benefits where given. */
+/**
+ * `{ venueId, name, months, price, ratePercent?, aheadDays?, scope? }`: offer a new plan, a tier with its own
+ * benefits where given. `scope`: the member's price for the whole booking (`booking`, the default) or for the
+ * members' own places only (`participant`; lib/entitlements.ts).
+ */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -39,6 +43,7 @@ export async function POST(req: NextRequest) {
     price: body.price,
     ratePercent: body.ratePercent,
     aheadDays: body.aheadDays,
+    scope: body.scope,
   });
   if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 });
   await logAction(admin, {
@@ -64,7 +69,10 @@ export async function DELETE(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-/** `{ venueId, id, ratePercent, aheadDays }`: a plan's benefits, each null for the venue's. Memberships on it get them from now. */
+/**
+ * `{ venueId, id, ratePercent, aheadDays, scope? }`: a plan's benefits, each null for the venue's; `scope` left
+ * out keeps what the price covers. Memberships on it get them from now.
+ */
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -74,12 +82,14 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "venueId and id are required." }, { status: 400 });
   const denied = denyVenue(admin, venueId as number);
   if (denied) return denied;
-  const set = await setPlanBenefits(venueId as number, body.id as number, { ratePercent: body.ratePercent, aheadDays: body.aheadDays });
+  const set = await setPlanBenefits(venueId as number, body.id as number, { ratePercent: body.ratePercent, aheadDays: body.aheadDays, scope: body.scope });
   if (!set.ok) return NextResponse.json({ error: set.error }, { status: 400 });
   await logAction(admin, {
     venueId: venueId as number,
     action: "membership.plan_added",
-    detail: `${set.plan.name}: ${set.plan.ratePercent ?? "member rates"}${set.plan.ratePercent ? "% of the price" : ""}, ${set.plan.aheadDays ?? "the venue's"} days ahead`,
+    detail: `${set.plan.name}: ${set.plan.ratePercent ?? "member rates"}${set.plan.ratePercent ? "% of the price" : ""}, ${set.plan.aheadDays ?? "the venue's"} days ahead${
+      set.plan.scope === "participant" ? ", members' own places only" : ""
+    }`,
   });
   return NextResponse.json({ plan: set.plan });
 }

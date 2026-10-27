@@ -43,7 +43,18 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   ([security](../architecture/security.md#malware-scanning)). The owner's
   *Supporting documents* panel shows the scanner's state, the failed
   documents and the action to scan one again
-  ([deployment](deployment.md#the-malware-scanner)).
+  ([deployment](deployment.md#the-malware-scanner)). Where clamd is started
+  on demand, a clamd stopped because nothing waits is not "not answering"
+  (its signatures' age is read from disk), and the same alert also covers a
+  start that failed or a clamd that stopped by itself (until a start
+  succeeds) and a start held back for over 30 minutes.
+- **the malware scanner could not be started on demand**
+  (`document-scanner-ondemand`, at once): clamd did not answer within its
+  start limit and was stopped, exited before answering, or stopped by itself
+  while running; or documents have waited 30 minutes while a start was held
+  back (too little free memory, freshclam running, another process holding
+  its lock). Documents stay in quarantine, unopened; the start is tried again
+  after a pause ([deployment](deployment.md#choosing-how-clamd-runs)).
 - **after a restore**, an erasure could not be applied again
   (`erasure-reapply`), or the erasure ledger could not be written beside the
   backups (`erasure-ledger`) ([backups](backups.md#after-a-restore)).

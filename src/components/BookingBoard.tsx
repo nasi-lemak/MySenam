@@ -107,6 +107,8 @@ interface Concession {
   offPeakOnly: boolean;
   /** Built in and unchanged: its name and proof in the reader's language (lib/concessions-shared.ts). */
   preset?: string | null;
+  /** The whole booking, or one person's place on a booking priced by the place (lib/entitlements.ts). */
+  scope?: "booking" | "participant";
 }
 
 /** Cell colour by how full a shared facility is — the crowd signal. */
@@ -844,6 +846,9 @@ function BookingForm({
   const persons = split ? Math.max(1, namedOn(split[0])) : named.length + (named.length === 0 || customerTakesPart ? 1 : 0);
   // Booked only for others: a membership does not price it (docs/features/pricing.md#memberships-and-member-rates).
   const forOthers = named.length > 0 && (split ? !customerAnywhere(split) : !customerTakesPart);
+  // The people a booking online names, for its quote: one court, the account's own people.
+  const peopleKey =
+    !atCounter && !split && named.length > 0 ? `&participantIds=${named.join(",")}${customerTakesPart ? "&customerTakesPart=1" : ""}` : "";
   // The price, as the server will charge it: worked out there, shown before booking.
   const [quote, setQuote] = useState<Quote | null>(null);
   const moreKey = moreChosen.map((c) => (c.capacity > 1 ? `${c.id}:${countOf(c)}` : String(c.id))).join(",");
@@ -854,7 +859,10 @@ function BookingForm({
     const where = court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}&sport=${court.sport}`;
     const timer = setTimeout(() => {
       fetch(
-        `/api/quote?${where}&date=${date}&start=${start}&end=${end}${counted ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}${forOthers ? "&forOthers=1" : ""}`,
+        `/api/quote?${where}&date=${date}&start=${start}&end=${end}${counted ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}${
+          // Who takes part, so each person's own membership prices their place as the booking will (lib/entitlements.ts).
+          peopleKey ? peopleKey : forOthers ? "&forOthers=1" : ""
+        }`,
         { cache: "no-store" }
       )
         .then((res) => res.json())
@@ -865,12 +873,21 @@ function BookingForm({
       live = false;
       clearTimeout(timer);
     };
-  }, [court.id, court.venueId, court.sport, counted, date, start, end, players, moreKey, forOthers]);
+  }, [court.id, court.venueId, court.sport, counted, date, start, end, players, moreKey, forOthers, peopleKey]);
   const othersTotal = (quote?.others ?? []).filter((o) => more.includes(o.courtId)).reduce((sum, o) => sum + o.total, 0);
-  const off = (concession?.percent ?? 0) / 100;
+  // A concession for one person's place (lib/entitlements.ts): whose, among those taking part; off their place's share alone.
+  const onePlace = concession?.scope === "participant";
+  const whoCanHave: { id: number | null; name: string }[] = [
+    ...(customerTakesPart || named.length === 0 ? [{ id: null, name: t("ent.form.mine") }] : []),
+    ...named.map((id) => ({ id, name: (atCounter ? counterPeople.find((p) => p.id === id) : people.find((p) => p.id === id))?.displayName ?? "" })),
+  ];
+  const [concessionFor, setConcessionFor] = useState<number | null | undefined>(undefined);
+  const concessionPerson = whoCanHave.some((w) => w.id === concessionFor) ? concessionFor! : (whoCanHave[0]?.id ?? null);
+  const off = onePlace ? 0 : (concession?.percent ?? 0) / 100;
+  const placeOff = onePlace && quote && pricedByQuantity(court) ? ((quote.court / Math.max(1, players)) * (concession?.percent ?? 0)) / 100 : 0;
   // A concession is off the court time, not a setup or cleanup fee.
   const totalPrice = quote
-    ? Math.round((quote.court * (1 - off) + quote.fees + othersTotal * (1 - off)) * 100) / 100
+    ? Math.round((quote.court * (1 - off) - placeOff + quote.fees + othersTotal * (1 - off)) * 100) / 100
     : null;
   const optionAt = starts.find((s) => s.minute === start);
   const lengths = optionAt ? startLengths(policy, optionAt) : lengthsUpTo(policy, length);
@@ -880,7 +897,10 @@ function BookingForm({
   const [promoCode, setPromoCode] = useState("");
   const [myPasses, setMyPasses] = useState<Pass[]>([]);
   const chosenPass = myPasses.find((p) => p.code === passCode) ?? null;
-  const passSpend = chosenPass ? passCost(chosenPass, length) : null;
+  // A pass spent per place (`places`, lib/entitlements.ts) spends for each place the booking takes.
+  const perPlace = chosenPass ? passCost(chosenPass, length) : null;
+  const passSpend =
+    perPlace && perPlace.ok && chosenPass?.scope === "places" ? { ...perPlace, units: perPlace.units * Math.max(1, counted ? players : persons) } : perPlace;
   // Company or school accounts here this customer may charge to (lib/accounts.ts).
   const [accounts, setAccounts] = useState<{ id: number; name: string }[]>([]);
   const [chargeTo, setChargeTo] = useState<number | null>(null);
@@ -1008,7 +1028,11 @@ function BookingForm({
           promoCode: promoCode.trim() || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
-          ...(concession ? { concessionId: concession.id } : {}),
+          ...(concession
+            ? onePlace
+              ? { placeConcessions: [{ participantId: concessionPerson, concessionId: concession.id }] }
+              : { concessionId: concession.id }
+            : {}),
           ...(counted ? { players } : {}),
         }),
       });
@@ -1191,6 +1215,23 @@ function BookingForm({
               ))}
             </select>
           </label>
+          {onePlace && whoCanHave.length > 1 && (
+            <label className="mt-1 flex flex-wrap items-center gap-2">
+              {t("ent.form.whose")}
+              <select
+                value={concessionPerson === null ? "" : String(concessionPerson)}
+                onChange={(e) => setConcessionFor(e.target.value === "" ? null : Number(e.target.value))}
+                className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+              >
+                {whoCanHave.map((w) => (
+                  <option key={w.id ?? "me"} value={w.id === null ? "" : String(w.id)}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {onePlace && <p className="mt-1 text-slate-500">{t("ent.form.placeOnly")}</p>}
           {concession && <p className="mt-1 font-medium text-amber-800">{t("form.concessionProof", { proof: concessionWords(t, concession).proof })}</p>}
         </div>
       )}

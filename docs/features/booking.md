@@ -282,10 +282,13 @@ taking part in the same way, and books them through the same engine
   asks for everybody's ([venue operations](venue-operations.md#resources-nobody-is-standing-next-to)).
 - **Money.** The customer (the guardian) pays, is held to pay where the venue
   holds bookings until paid, and is refunded on cancelling, as for any
-  booking. A membership prices only a booking its holder takes part in
-  ([pricing](pricing.md#memberships-and-member-rates)). A booking is cancelled whole: one
-  child cannot be taken off a booking of two (book them separately where that
-  matters; class enrolments are already one each).
+  booking. A membership prices a booking its holder, or a person it names,
+  takes part in, by the scope of its benefit; one person's own pass,
+  concession or membership covers their own place
+  ([pricing](pricing.md#what-a-benefit-applies-to)). One child can be taken
+  off a booking of several, the others staying booked
+  ([taking one person off a booking](#taking-one-person-off-a-booking));
+  class enrolments are already one each.
 - **Several courts.** In a booking of several courts each court has its own
   people (`moreCourts: [{ courtId, participantIds, customerTakesPart }]`): a
   child is on one court of the group at most, and the guardian is not on
@@ -638,6 +641,64 @@ refunds and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
   refused.
 
 
+### Taking one person off a booking
+
+A guardian can withdraw one child without cancelling the others; a customer
+can stop taking part themself while the people they booked for still go; a
+group can give up a place nobody is named on
+([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md);
+`lib/place-withdrawals.ts`). *Take somebody off* on `/my-booking` and on each
+booking on the account page lists who is on it, what taking each off would
+do to the money, or why it cannot be done; staff do it from the day's
+bookings (✕ beside a name, *−1 place*), with a reason if they give one.
+
+- **Where the activity allows it.** A booking rule, *One person taken off a
+  booking* (`separatePlaces`, inherited like the others), is yes unless the
+  venue sells the places together; then nobody can be taken off on their own
+  (`ENT_WITHDRAW_SOLD_WHOLE`).
+- **What it does depends on what was booked.**
+  - A place on a shared session (a pool, a gym floor, kayaks): the place is
+    released (the booking holds one fewer) and offered to whoever has waited
+    longest for it.
+  - A place priced by the place (each place on a facility not priced flat,
+    each player on a court priced per player): that place's share of the
+    court time as charged comes off ([pricing](pricing.md#what-a-benefit-applies-to)).
+    Not yet paid, it comes off what is owed. Paid, it goes back the way it was
+    paid on the venue's cancellation terms (a late withdrawal keeps the
+    venue's share, as a late cancellation does), with a credit note of its own
+    ([refunds for one person's place](payments-and-credit.md#refunds-for-one-persons-place)).
+    The person's own concession or member's price goes with their place, a
+    pass spent for their place gives back its entries, and benefits for the
+    whole booking stay with it.
+  - A court or room hired whole: the person is no longer named on it. The
+    court stays booked and paid as it was, and nothing is refunded: there is
+    nothing priced per person.
+  - Places nobody is named on (a group of four becoming three): as a place
+    above, one at a time.
+- **Refused, with the reason.** The last person on a booking (cancel it
+  instead); a lesson, booked as one with the coach's fee; a class place
+  (each is already its own enrolment: cancel it); an open game; a booking
+  other players paid shares of, one with a deposit paid, or one charged to
+  a company or school account (the venue can change those); a payment page
+  open; kit still out; somebody already marked at the door, whose place stays
+  on the record; past the venue's cutoff, as for cancelling.
+- **Staff at the counter** may take somebody off until the booking has
+  been played, in full, as a staff cancellation is; it is in the activity log
+  (*Took one person off a booking*) with the reason.
+- **On record and told.** `place_withdrawals` keeps who it was, what their
+  place cost, what went back and how, what was kept, the pass entries
+  returned, who did it and why; the participant's history says so; the
+  person's row leaves the booking, so the door, the roster and every check
+  no longer count them. The customer is told by email, naming who is off and
+  what happened to the money. Two withdrawals at once, or one racing the
+  booking's cancellation or the last place, are settled under the booking's
+  lock: the money goes back once, and never more places are held than there
+  are.
+
+Tests: `tests/place-withdrawals.test.ts` (each case, the money each way it
+is paid, refusals, and races on Postgres) and
+`tests/components/withdraw-people.test.tsx` (the customer's screen).
+
 ### Telling customers before they book
 
 Every booking form, and the lesson form, has a **Before you book** box
@@ -691,7 +752,22 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
   note (how to join, who to ask), and search results carry the badge. Booking,
   enrolling in a class, joining its waitlist, an open game, a tournament or a
   league all need an account that is eligible. Staff still book anyone at the
-  counter.
+  counter. Each rule is the scope it is about
+  ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
+  - *Reserving a court or room whole* is the account's privilege: a member
+    books one for their children, who need no membership of their own to
+    play on it.
+  - *A place on a shared session* (a pool's places, a gym floor, a class) is
+    each person's own to hold: the customer's place is the account's, as
+    above; each participant needs their own membership, or a family
+    membership naming them, on every date booked
+    (`ENT_MEMBERS_PLACE` names who lacks one). A parent's membership does not
+    cover a child it does not name, and a parent who is not a member may book
+    their member child's place. This one check is made on every path: online,
+    the counter, the venue's API key, a group of courts, a waiting-list offer
+    (and joining the list), a class, and moving the booking to another date. A
+    manager going past the booking rules may book without it, and it is
+    recorded as an override (`lib/entitlements.ts`, `membersOnlyRefusal`).
 - **Private**: in no search, list, map, classes, games, tournaments or leagues
   page — not even on its own storefront's lists. Its page, availability and
   QR poster answer only its staff and the people on its list; somebody not
@@ -752,7 +828,8 @@ venue's fair-use limits for online bookings, each blank for none:
   (*Who a venue is for*) shares one allowance: a family in B-07-2 gets two
   bookings a week between them, not two each. Anybody else is counted by the
   number on the booking **and** the account making it, so typing a different
-  number does not buy another booking.
+  number does not buy another booking. These are the account's limits:
+  bookings it makes for the people it books for count with its own.
 - Only court bookings count; a class place is limited by the class.
 - Checked when a customer books (every week of a weekly series), and when
   they move a booking to another day. Staff at the counter are not held to
@@ -765,6 +842,10 @@ venue's fair-use limits for online bookings, each blank for none:
   another branch of its business). Booking online, that is an account the
   membership is linked to, or whose verified number holds it — not a number
   typed on the booking ([a phone number is not identity](../architecture/privacy.md#a-phone-number-is-not-identity)).
+  It is the account's privilege: a member books further ahead for their
+  children too, and a child's own membership on the parent's number does not
+  give the parent the members' window
+  ([pricing](pricing.md#memberships-and-member-rates)).
   Inside the members' window everybody else is told how far ahead
   they may book, and that members may book further. The members' window is
   also the outer edge for staff at the counter, for moving a booking and for

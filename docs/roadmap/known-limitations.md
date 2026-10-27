@@ -162,23 +162,23 @@ changes; 6 to 8 name what they wait for. As of 26 October 2026: no defect
 | [Ways some activities are sold](#activities): bowling by the game, gym entry without a session, day passes, launch windows, range officers, heats | 8 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
-| [Several people on one booking changed as a whole; pass entries and concessions per booking](#activities); [rules counted for the booker](#activities) | 3 / 7 / 5 | Families, clubs | The owner decides passes and concessions per person; removing one person from a booking when a venue needs it |
-| [Guardians not told of another guardian; coaches see the child's name; search shows only the account's own applications](#activities) | 5 / 7 | Families | The owner confirms the coach rule; kept otherwise |
+| [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities) | 3 / 5 | Families, clubs | Kept until a venue needs more |
+| [Another guardian's consent rests on accounts](#activities): guardians with only a number, participants no venue knows, no reminders of review dates | 5 | Families | Kept until a venue needs more |
 | [Country names for countries not sold in](#activities); [clock changes](#booking-and-availability-b) (handled, no such country) | 8 | — | When a country is added |
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
 | [A proposal holds a day](#booking-and-availability-b); [independent bookings retried](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
 | [An operator's own activity](#activities) named in English unless given; [catalogue changes](#activities) take a minute; [`sport` column name](#activities); [integrity check](#activities) window | 5 | Operators | Kept |
-| [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional pending legal review, failed scans not re-queued, the erasure ledger kept on the server only | 5 / 7 / 3 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction |
+| [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional pending legal review, the off-site erasure ledger unverified against a real bucket | 5 / 7 / 3 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction |
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
-began on 24 October 2026, **84 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B19 and
+began on 24 October 2026, **81 now**. Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B20 and
 S12–S17, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (48
+[resolved without a number](#resolved-limitations-without-a-number) (56
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
@@ -187,16 +187,15 @@ left unsaid: the access list matching a typed number; the native review of
 newly translated text; what the owner's decisions of 25 and 26 October 2026
 left when built (exact shared separation on fungible places, gaps across a
 change of the clocks, the provisional retention periods); and what building
-participants and scanning left (a booking for several people changed as a
-whole, pass entries and concessions per booking, rules counted for the
-booker, guardians not told of another guardian, coaches seeing the child's
-name, search showing only the account's own applications, failed scans not
-re-queued, the erasure ledger kept on the server, ClamAV's production set-up
-unverified). The owner's decisions of 24 October 2026 (the launch languages,
+participants and scanning left (ClamAV's production set-up unverified);
+and, from the owner's decisions of 27 October 2026, the limits of taking one
+person off a booking, gaps in benefits by scope, another guardian's consent
+resting on accounts and the off-site erasure ledger tested against a
+stand-in only, each narrower than what it replaced. The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-In the table above, no row is a defect; one is partly of kind 3 (removing
-one person from a booking for several).
+In the table above, no row is a defect; one is partly of kind 3 (the
+limits of taking one person off a booking).
 
 ## Suspected defects
 
@@ -341,42 +340,36 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   refused or unscannable documents 7, product policy the owner accepted, not
   legal requirements; the platform owner can change them within bounds, and
   the dashboard and privacy notice say they are provisional until a legal
-  review is recorded, which needs a Malaysian and a Singaporean lawyer's
+  review is recorded (per jurisdiction, with the reviewer's role, firm,
+  periods covered and a reference to the written advice; recorded by the
+  owner, not verified by MySenam), which needs a Malaysian and a Singaporean lawyer's
   answers to the questions in [privacy](../architecture/privacy.md); deleted rows
   stay in backups until those age out (about two weeks) (P3, kind 7).
-- **A document that failed malware scanning cannot be re-queued**: after
-  seven tries over about 20 hours it is `failed`, never released, and the
-  applicant is asked to send it again ([security](../architecture/security.md#malware-scanning)) (P3).
-- **The erasure ledger is not copied off-site**: after a restore the app
-  erases again accounts erased since the backup, from the ledger kept on the
-  server beside the backup sets; if the server itself is lost, erasures since
-  the last off-site set must be redone by hand, and one the restored copy
-  blocks (credit, a pass, a hold) is raised to the owners rather than forced
-  ([backups](../operations/backups.md#after-a-restore)) (P3).
-- **A booking for several people is changed as a whole**: one person cannot
-  be taken off it with their share refunded (cancel it and book again); a
-  pass entry pays for a booking, not per person on it, and a concession is
-  declared per booking, not per participant (both for the owner to decide);
-  the waiting list is joined online only; QR self check-in and door codes
-  check a booking in as a whole, though the door asks for each person's own
-  eligibility ([booking for somebody else](../features/booking.md#booking-for-somebody-else)) (P3).
-- **Rules counted for the booker stay the booker's**: members-only access,
-  a member's longer booking window and house-rule limits per number follow
-  whoever books, not each participant (P3, by design until a venue needs
-  otherwise).
-- **Guardians are not told when another adult becomes a guardian** (by code,
-  or at the counter on the adult's declaration); one with an account sees
-  the count of other guardians rise. A guardian's relationship and authority
-  are their declaration, reviewed by staff only where an activity asks it,
-  never verified (P3; by design for verification).
-- **Coaches see the participant's name as the student** of a lesson booked
-  for a child (with the guardian's number to reach): ADR 0023 keeps
-  participants out of discovery and other venues' records; the lesson's own
-  coach is taken to need the name (for the owner to confirm) (P3).
-- **Search shows only applications the signed-in account itself made**: a
-  second guardian sees *approval required* while another guardian's
-  application for the same child waits; the booking and the door check again
-  ([who is taking part](../features/discovery.md#who-is-taking-part)) (P3).
+- **The erasure ledger off-site is tested against a stand-in only**: entries are copied off-site in signed segments within a minute and with every set, and a restore that cannot show the ledger complete (always after losing the server) is not served until acknowledged; an erasure made after its entry last left a lost server (normally under a minute, longer while copies fail, which raises `erasure-ledger-offsite`) is redone by hand; one the restored copy blocks (credit, a pass, a hold) is raised to the owners rather than forced; retention periods an activity shortened after the backup are not in the ledger (the install's, which bound them, are) ([backups](../operations/backups.md#after-a-restore)) (P3).
+- **Taking one person off a booking has limits**: it is refused for
+  lessons, open games, bookings on a company account, deposits, shared
+  payments and open payment pages, which are cancelled whole; a class place
+  is withdrawn by cancelling that child's enrolment; the notice is an email
+  only (no WhatsApp template); the waiting list is joined online only; QR
+  self check-in and door codes check a booking in as a whole, though the
+  door asks for each person's own eligibility ([taking one person off](../features/booking.md#taking-one-person-off-a-booking)) (P3).
+- **Benefits by scope have gaps** ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
+  the booking form spends one pass per booking (several passes are paid
+  through the API only); a place concession's receipt line is in English
+  with the person's name; memberships held for a participant, and family
+  memberships, are sold at the counter only; a tournament's members-only
+  rule still checks the entrant's account, not each player's membership;
+  a participant's remembered concession proof is not yet in the account's
+  data export (P3).
+- **Another guardian's consent rests on accounts**: agreement comes from an
+  existing guardian with an account, so a child whose only guardians are a
+  name and number at a venue (or a linked adult participant) gets another
+  guardian only by a manager's recorded exception, and such guardians are not
+  told by email; participants no venue knows are reviewed by the platform
+  owner through the API only; nothing reminds managers of flagged
+  relationships or of an exception's review date. A guardian's relationship
+  and authority remain their declaration, reviewed by staff only where an
+  activity asks it, never verified ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)) (P3).
 - **A catalogue change** made on one instance reaches the others within a
   minute (the cache), and the browser on its next page (P3).
 - **Country names exist for countries the app is not yet sold in** (sepak
@@ -517,6 +510,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B18 | A competition's draw scheduled each division around the others' matches by the players already in them, so a final or third-place match still to be decided counted as nobody's: a player in two divisions could be put on court in one at the time of a final they could reach in the other. A side still to be decided now counts as everybody who could still reach it, in the draw and when a fixture is moved or replayed. Found writing the tournament browser scenarios | `tests/divisions.test.ts` |
 | S17 | A child's unstaffed access rested on the adult's induction: inductions were one per venue and phone number, staff could record one only for the number's holder, and the door checked the booking's number, so a child (or a sibling) booked on a parent's number opened on the parent's induction. Inductions now belong to the person inducted, the number holder's own or a participant's; the door asks for each person taking part; older family inductions stay the number holder's, flagged where ambiguous, and are given to a participant only by a manager with a reason ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)). Found investigating the owner's report | `tests/participants.test.ts`, `tests/participants-migration.test.ts`, `tests/guardian-applications.test.ts` |
 | B19 | The staff bookings tab could show one day's list under another day's heading: a slower answer for an earlier date overwrote the newer one, so it read *No bookings* over a day that had them. Stale answers are now dropped. Found by the acceptance scenarios (*Participants C*, and *Change time 1* and *3* in two runs) | `tests/components/bookings-tab.test.tsx` |
+| B20 | Bookings and class enrolments made by staff at the counter for a members-only venue were refused with `MEMBERS_SIGN_IN`, though staff book anyone at the counter; now the account check does not apply at the counter, and every participant is still checked for their own membership | `tests/membership-scope.test.ts` ("the counter and the venue's own system are held to it too") |
 
 ### Resolved limitations without a number
 
@@ -564,15 +558,23 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A heading over kinds of kit showed on the grid but not in search | Search lists each kind under its heading as itself (price, places left, sign-off need), links to the venue's grid with the heading marked, with no extra queries | `tests/search-groups.test.ts`, `tests/components/search-groups.test.tsx` |
 | A tournament's set-up and draw, and corrections, were not driven in a browser | Acceptance scenarios *Tournament 3–6*: set-up from a template with divisions (refused to another venue's manager), entries and draws with the public fixtures checked, results by the desk and an official through the final and third place, and a correction after the third-place match held under review until the organiser lets it stand | `tests/uat/competition.uat.ts` |
 | A parent could not apply for a child from their own account: a minor applied from their own, typing a guardian's name | People an adult manages, held minimally under the adult's account; applications, sign-offs, bookings, door codes and waivers per person, the child's eligibility never the parent's or a sibling's, nor the parent's the child's ([ADR 0022](../architecture/decisions/0022-children-managed-from-an-adults-account.md)) | `tests/guardian-applications.test.ts` |
-| Supporting documents were checked by their structure but not scanned for malware | Each document is quarantined and scanned by ClamAV's clamd before anybody can open it, never released unscanned, refused or unscannable files wiped; uploads refused where no scanner is configured unless the operator explicitly opts out, visibly ([ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)) | `tests/document-scanning.test.ts`, `tests/document-scanning-engine.test.ts` |
+| Supporting documents were checked by their structure but not scanned for malware | Each document is quarantined and scanned by ClamAV's clamd before anybody can open it, never released unscanned, refused or unscannable files wiped; with no scanner, uploads wait in quarantine and nothing is released; there is no opt-out ([ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)) | `tests/document-scanning.test.ts`, `tests/document-scanning-engine.test.ts` |
 | A restore brought back accounts erased since the backup, and records retention had already deleted | Erasures are kept in a ledger and re-applied, and retention re-run, before the app serves after a restore | `tests/backup-scripts.test.ts` |
 | Booking for a child worked on the approval's slot and one court online only; the waiting list, the counter, the venue's API key and several courts booked for the adult | Every booking path names the people taking part, each a place and checked on their own; waiting lists keep who and how many; the counter books only for a participant the venue knows with a guardian on the number; an API key never creates a participant ([booking for somebody else](../features/booking.md#booking-for-somebody-else)) | `tests/participant-bookings.test.ts`, `tests/people-per-court.test.ts` |
-| A second adult at the counter for a child the venue knew could only be handled by recording the child again | Staff add the adult as a guardian on their declaration, to the same participant, recorded and audited; an account only by a manager with a reason | `tests/counter-guardians.test.ts` |
+| A second adult at the counter for a child the venue knew could only be handled by recording the child again | Staff start an invitation for the same participant; the adult accepts it signed in, and an existing guardian agrees or a manager records an exception, all recorded and audited | `tests/counter-guardians.test.ts` |
 | Search and the venue's grid said a resource needs a sign-off whoever was looking | Each person chosen as taking part sees their own status, privately, in one batched query; nobody chosen or signed out, the requirement only | `tests/search-eligibility.test.ts`, `tests/components/who-takes-part.test.tsx` |
 | Answers to the venue's grid for a signed-in account (member rates, staff-only rooms) carried no cache rule | Private and never kept by a shared cache, every answer varying by cookie | `tests/search-eligibility.test.ts` |
 | A guardian's own pages (bookings on the account, *My booking*, a waiting-list offer), the booking confirmation and the waiting-list dialog did not say which child a booking was for | Each names the participant | `tests/components/participant-named.test.tsx`, `tests/components/booking-board.test.tsx` |
 | A refusal for want of a sign-off did not say which of several people lacked one, and told a guardian to sign in as the child | It names the participant, on booking, a change of time and the waiting list, in four languages | `tests/participant-bookings.test.ts`, `tests/uat/participants.uat.ts` |
 | Nine kinds of activity-log entry showed staff a raw name (`tournament.match_moved` and others), and the choice of who takes part was a 16-pixel tap target on a phone | Each has words in English, Malay and Chinese, a test failing on any logged action without; the choices are at least 24 pixels | `tests/activity-labels.test.ts`, `tests/components/participant-named.test.tsx` |
+| A document that failed malware scanning could not be re-queued | One waiting for a scanner goes back to quarantine by itself once a scanner answers; the platform owner may have a failed one scanned again, its bytes checked against the stored hash, at most three times, each request recorded, never released by it | `tests/document-scanning.test.ts`, `tests/document-scan-migration.test.ts` |
+| The erasure ledger was kept on the server only: losing the server lost erasures since the last off-site set | Entries go off-site in signed, chained segments within a minute and with every set; a restore replays them, and blocks until acknowledged where it cannot show the ledger complete | `tests/erasure-ledger.test.ts`, `tests/erasure-ledger-restore.test.ts` |
+| Guardians were not told when another adult became a guardian, and staff could add one on the adult's declaration alone | Another guardian only by invitation and agreement or a manager's recorded exception; the other guardians are told through the outbox; a guardian may report a relationship for review (pause, keep, revoke) | `tests/counter-guardians.test.ts`, `tests/components/guardian-requests.test.tsx` |
+| Coaches saw the participant's name on a lesson with no stated limit | The owner confirmed it: a coach sees a child's name only on lessons assigned to them while their coach record is active; no venue-wide list, guardian records or documents | `tests/coach-scope.test.ts` |
+| Search showed only the signed-in account's own applications: a second guardian saw *approval required* while another's waited | Each participant's status counts their applications whoever made them; answers and documents stay with the applicant, staff and reviewers | `tests/guardian-eligibility.test.ts` |
+| A booking for several people was changed as a whole: one person could not be taken off with their share refunded | Where the activity sells places separately, one person is taken off: the place released and offered to the waiting list, its price off what is owed or refunded on the venue's terms with its own credit note, passes and concessions given back; a group gives up a place; a court hired whole only un-names; anything else refused with its reason | `tests/place-withdrawals.test.ts`, `tests/components/withdraw-people.test.tsx` |
+| A pass entry paid for a booking, not a person on it, and a concession was declared per booking | Passes and concessions carry a scope (booking, resource, one person's place, a number of places), redeemed once per place under a database guard; everything issued before keeps booking scope | `tests/entitlements.test.ts` |
+| Members-only access, a member's longer window and house-rule limits followed whoever booked | Account privileges (booking earlier, limits) stay with the account; a members-only session needs each participant's own membership or a family membership naming them, one check on every path | `tests/membership-scope.test.ts` |
 
 ## Production readiness
 
@@ -609,7 +611,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | Stripe Checkout, webhooks, refunds, disputes, renewals | Needs test-mode verification | A Singapore install; renewals; the platform's invoices through Stripe |
 | WhatsApp Cloud API (templates must be approved by Meta) | Needs approval and a live send | Only where switched on: email works without it |
 | Email (SMTP), including SPF/DKIM and calendar invites | Needs a live send | Any launch: confirmations go by email |
-| Malware scanner (ClamAV's clamd and freshclam on the droplet) | Tested with ClamAV 1.5.4 in the build container against a locally generated test signature only; the official signatures could not be downloaded there, and the kit, memory, start-up and scan time are unmeasured on a real droplet, which needs 4 GB (USD 24 a month, USD 12 more than now) | Any install taking supporting documents: without a scanner, uploads are refused |
+| Malware scanner (ClamAV, always-on or started on demand) | Verified in the development container with the official signatures, always-on and started on demand (start to answer 10.3–10.6 s, peak 972 MiB); not verified on a real Droplet: the kit's set-up in either mode, free memory with the app and Postgres running, clamd's load time on a shared vCPU, and the freshclam timer over days. On demand, the first document after an idle spell waits up to about a minute plus clamd's load before release | Any install taking supporting documents: without a scanner, documents wait in quarantine, unopened |
 | SMS (Twilio or HTTP gateway) for phone codes | Needs a live send | Only where phone checks use SMS |
 | LHDN MyInvois | Needs sandbox (preprod) verification | Only for venues (or a platform) that must e-invoice |
 | Google sign-in | Needs a registered redirect URI | Only where switched on: password sign-in works |

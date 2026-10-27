@@ -43,6 +43,19 @@ the adult and names each child; their [waiver](venue-operations.md#waivers)
 is agreed for each. A full class's waiting list keeps the same people
 ([waitlists](booking.md#waitlists)).
 
+**One child withdrawn, the others staying.** Each person's enrolment is a
+booking of its own, so a guardian withdraws one child by cancelling that
+child's enrolment, on the venue's cancellation terms; the sibling's stays,
+and the freed place is offered to the class's waiting list. Taking somebody
+off an enrolment as if it were a booking of several is refused with that
+reason (`ENT_WITHDRAW_CLASS`; [taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
+
+**A class at a members-only venue** is a members' session: each child
+enrolled needs their own membership, or a family membership naming them, on
+the class's date (`ENT_MEMBERS_PLACE`), and so does joining its waiting
+list for them; a parent who is not a member may enrol their member child
+([who a venue is for](booking.md#who-a-venue-is-for-public-members-only-private)).
+
 
 ### Terms
 
@@ -107,7 +120,12 @@ Lessons with Ana Lim*, `passes.coach_id`, migration 0061). It spends as any
 otherwise, or court time to the minute) on lessons with that coach, court and
 coach fee together, and it pays nothing else. A court pass no longer pays a lesson, since the coach's fee
 would go unpaid; the customer is told to use a lesson pack or pay another way.
-The pack's receipt is filed under *Coaching* in the sales journal.
+The pack's receipt is filed under *Coaching* in the sales journal. A pack for
+one person (*One use covers: One person's place*, held for a child the
+holder acts for) pays only that person's lessons
+([what a benefit applies to](pricing.md#what-a-benefit-applies-to)). A
+lesson is booked as one, the coach's fee included, so nobody is taken off a
+lesson on their own: it is cancelled whole.
 
 ### A coach's own schedule (no account needed)
 

@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { accessRefusal } from "./access";
+import { accessRefusal, accessSettings } from "./access";
 import { houseRuleRefusal } from "./house-rules";
 import { venueIsOpen } from "./listing";
 import { errorText, translator } from "./i18n";
@@ -85,11 +85,28 @@ export async function customerMayBook(input: {
   preview?: boolean;
   /** The venue takes payment online, so a struck-out number can pay to book rather than be refused. */
   canPayOnline?: boolean;
+  /**
+   * Places on a shared-capacity session taken only by people the account books
+   * for, not by the account itself. At a members-only venue each of them must
+   * be a member (lib/entitlements.ts `membersOnlyRefusal`, asked by the
+   * booking engine), so the account need not be one itself: a parent who is
+   * not a member books their member child's swim session.
+   */
+  placesForOthers?: boolean;
+  /**
+   * The venue's own staff booking at its counter: who may book a members-only
+   * or private venue is not asked of them (staff book anyone, as
+   * docs/features/booking.md says); each participant's own membership for a
+   * members' session still is, by the booking engine.
+   */
+  atCounter?: boolean;
 }): Promise<Refusal | null> {
   if (!input.preview && !(await venueIsOpen(input.venueId))) return venueNotOpen();
   if (!input.preview) {
-    const notHere = await accessRefusal(input.venueId, input.userId ?? null);
-    if (notHere) return notHere;
+    const notHere = input.atCounter ? null : await accessRefusal(input.venueId, input.userId ?? null);
+    const theirsToHold =
+      notHere !== null && input.placesForOthers === true && (input.userId ?? null) !== null && (await accessSettings(input.venueId)).access === "members";
+    if (notHere && !theirsToHold) return notHere;
     if (input.dates) {
       const tooMany = await houseRuleRefusal({ venueId: input.venueId, phone: input.phone, userId: input.userId, dates: input.dates, online: true });
       if (tooMany) return tooMany;

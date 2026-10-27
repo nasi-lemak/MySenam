@@ -4,7 +4,8 @@ import { errorText, translator, type ErrorCode } from "./i18n";
 import { inSameBusiness } from "./branches";
 import { normalisePhone } from "./store";
 import { addDays, todayISO } from "./time";
-import type { Refusal } from "./types";
+import type { BenefitScope, Refusal } from "./types";
+import { isScope, PLAN_SCOPES } from "./entitlements";
 import { money, region, isAmount } from "./region";
 
 /**
@@ -29,6 +30,12 @@ export interface MembershipPlan {
    */
   ratePercent: number | null;
   aheadDays: number | null;
+  /**
+   * What the member's price covers (ADR 0025, lib/entitlements.ts): the
+   * booking its member takes part in (`booking`, every plan before), or the
+   * members' own places only on a session priced by the place (`participant`).
+   */
+  scope: BenefitScope;
 }
 
 export const MAX_PLAN_MONTHS = 12;
@@ -49,6 +56,7 @@ interface PlanRow {
   price: number;
   rate_percent: number | null;
   ahead_days: number | null;
+  scope: string | null;
 }
 
 const toPlan = (r: PlanRow): MembershipPlan => ({
@@ -59,9 +67,10 @@ const toPlan = (r: PlanRow): MembershipPlan => ({
   price: Number(r.price),
   ratePercent: r.rate_percent ?? null,
   aheadDays: r.ahead_days ?? null,
+  scope: isScope(r.scope, PLAN_SCOPES) ? r.scope : "booking",
 });
 
-const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days";
+const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope";
 
 /** The plans a venue has on offer, cheapest first. */
 export async function listPlans(venueId: number): Promise<MembershipPlan[]> {
@@ -84,28 +93,37 @@ export async function planById(id: number, opts: { retired?: boolean } = {}): Pr
 
 export type PlanResult = { ok: true; plan: MembershipPlan } | { ok: false; error: string };
 
-/** A tier's benefits as given: each null for the venue's. */
-function readBenefits(input: { ratePercent?: unknown; aheadDays?: unknown }): { ratePercent: number | null; aheadDays: number | null } | string {
+/** A tier's benefits as given: each null for the venue's; what the price covers, the whole booking unless said. */
+function readBenefits(input: {
+  ratePercent?: unknown;
+  aheadDays?: unknown;
+  scope?: unknown;
+}): { ratePercent: number | null; aheadDays: number | null; scope: BenefitScope } | string {
   const rate = input.ratePercent ?? null;
   if (rate !== null && (!Number.isInteger(rate) || (rate as number) < 10 || (rate as number) > 99))
     return "Members on a plan pay 10–99% of the public price, or each court's member rate.";
   const ahead = input.aheadDays ?? null;
   if (ahead !== null && (!Number.isInteger(ahead) || (ahead as number) < 1 || (ahead as number) > 90))
     return "Members on a plan book 1–90 days ahead, or the venue's members' window.";
-  return { ratePercent: rate as number | null, aheadDays: ahead as number | null };
+  const scope = input.scope ?? "booking";
+  if (!isScope(scope, PLAN_SCOPES)) return "A member's price is for the whole booking, or for the members' own places.";
+  return { ratePercent: rate as number | null, aheadDays: ahead as number | null, scope };
 }
 
 /** Change a plan's benefits. Memberships already on it get them from now. */
 export async function setPlanBenefits(
   venueId: number,
   planId: number,
-  input: { ratePercent?: unknown; aheadDays?: unknown }
+  input: { ratePercent?: unknown; aheadDays?: unknown; scope?: unknown }
 ): Promise<PlanResult> {
   const benefits = readBenefits(input);
   if (typeof benefits === "string") return { ok: false, error: benefits };
+  // Not said: what the price covers stays as it is.
   const done = await getDb()
-    .prepare("UPDATE membership_plans SET rate_percent = ?, ahead_days = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL")
-    .run(benefits.ratePercent, benefits.aheadDays, planId, venueId);
+    .prepare(
+      "UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope) WHERE id = ? AND venue_id = ? AND retired_at IS NULL"
+    )
+    .run(benefits.ratePercent, benefits.aheadDays, input.scope === undefined || input.scope === null ? null : benefits.scope, planId, venueId);
   if (done.changes !== 1) return { ok: false, error: "That plan is not offered here." };
   return { ok: true, plan: (await planById(planId))! };
 }
@@ -120,7 +138,7 @@ export async function longestPlanWindow(venueId: number): Promise<number | null>
 
 export async function createPlan(
   venueId: number,
-  input: { name: unknown; months: unknown; price: unknown; ratePercent?: unknown; aheadDays?: unknown }
+  input: { name: unknown; months: unknown; price: unknown; ratePercent?: unknown; aheadDays?: unknown; scope?: unknown }
 ): Promise<PlanResult> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (name.length < 2 || name.length > 60) return { ok: false, error: "Give the plan a name of 2–60 characters." };
@@ -133,8 +151,8 @@ export async function createPlan(
   const benefits = readBenefits(input);
   if (typeof benefits === "string") return { ok: false, error: benefits };
   const info = await getDb()
-    .prepare("INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays);
+    .prepare("INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days, scope) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays, benefits.scope);
   return { ok: true, plan: (await planById(Number(info.lastInsertRowid)))! };
 }
 
@@ -188,7 +206,7 @@ export async function joinTerms(
   const held = (await getDb()
     .prepare(
       `SELECT m.holder_phone, m.expires_on FROM memberships m
-        WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.expires_on >= ?`
+        WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.expires_on >= ? AND m.holder_kind = 'customer'`
     )
     .all(plan.venueId, today)) as { holder_phone: string; expires_on: string }[];
   const digits = normalisePhone(phone);

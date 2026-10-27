@@ -85,6 +85,7 @@ function toForm(s: PolicySettings): Form {
   form.weekHours = s.weekHours ? JSON.stringify(s.weekHours) : "";
   form.signOff = s.signOff === true ? "yes" : s.signOff === false ? "no" : "";
   form.certification = s.certification === true ? "yes" : s.certification === false ? "no" : "";
+  form.separatePlaces = s.separatePlaces === true ? "yes" : s.separatePlaces === false ? "no" : "";
   return form;
 }
 
@@ -118,6 +119,7 @@ function fromForm(form: Form, t: StaffT): Record<string, unknown> {
   out.weekHours = form.weekHours.trim() === "" ? null : JSON.parse(form.weekHours);
   out.signOff = form.signOff === "" ? null : form.signOff === "yes";
   out.certification = form.certification === "" ? null : form.certification === "yes";
+  out.separatePlaces = form.separatePlaces === "" ? null : form.separatePlaces === "yes";
   return out;
 }
 
@@ -341,6 +343,15 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
                 <option value="no">{t("pol.notNeeded")}</option>
               </select>
               <span className="mt-0.5 block font-normal text-slate-400">{t("pol.certificationNote")}</span>
+            </label>
+            <label className="block text-xs font-medium text-slate-600">
+              {t("ent.pol.separatePlaces")}
+              <select value={form.separatePlaces} onChange={(e) => setForm({ ...form, separatePlaces: e.target.value })} className={input}>
+                <option value="">{hint("separatePlaces") === "false" ? t("ent.pol.inheritsTogether") : t("ent.pol.inheritsSeparate")}</option>
+                <option value="yes">{t("ent.pol.separate")}</option>
+                <option value="no">{t("ent.pol.together")}</option>
+              </select>
+              <span className="mt-0.5 block font-normal text-slate-400">{t("ent.pol.separateNote")}</span>
             </label>
           </div>
           {level.level === "court" && (

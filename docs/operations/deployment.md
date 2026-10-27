@@ -46,59 +46,131 @@ clamd, before anybody can open them
 ([security](../architecture/security.md#malware-scanning);
 [ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)).
 The app talks to it over TCP at `MYSENAM_CLAMD` (`127.0.0.1:3310`); it needs no
-npm package and no paid service, and no document leaves the machine.
+npm package and no paid service, and no document leaves the machine. Every
+guarantee is the same however clamd runs: documents wait in quarantine, only a
+real scan with the official signatures releases one, the result is bound to
+the exact bytes, and nothing is released because a scanner was missing or
+could not start.
 
+### Choosing how clamd runs
+
+| Mode (`setup.sh --scanner=`) | For | What runs | A document sent while nothing is scanning |
+| --- | --- | --- | --- |
+| `on-demand`: the default below 3.5 GB of memory | **The 2 GB Droplet** (the owner's choice, 27 October 2026: no upgrade) | The app starts clamd itself (`MYSENAM_CLAMD_ONDEMAND`) when documents wait and no scanner answers, and stops it after `MYSENAM_CLAMD_IDLE_MINUTES` (5) with nothing waiting; freshclam runs from a timer, never beside it | Waits for the scheduler's next tick (up to a minute), clamd's start (about 10–16 s measured; longer on a slower CPU) and the scan; documents sent while clamd is up are scanned at once |
+| `always-on`: the default from 3.5 GB | A 4 GB Droplet or larger, or a separate scanner machine (any clamd the app reaches at `MYSENAM_CLAMD`, such as the official `clamav/clamav` image) | Ubuntu's `clamav-daemon` all the time, and `clamav-freshclam` hourly | Scanned at once, in the upload |
+| `none` | No documents to take yet | Nothing | Waits in quarantine, unopened, until a scanner is set up |
+
+Choose `on-demand` on the 2 GB Droplet, where clamd kept running beside the
+app and Postgres would leave no room for freshclam, a deploy's build or a
+burst (below). Choose `always-on` where memory allows, or where documents must
+be released within seconds of arriving. Switching is running `setup.sh` again
+with the other `--scanner`; it adds the settings it needs, and says which to
+remove.
+
+### Running and watching it
+
+- **The on-demand scanner.** clamd runs as the app's own user, in the
+  foreground, as a child of the app, from `/etc/mysenam/clamd-ondemand.conf`
+  (loopback only: clamd has no authentication; no settings or secrets in its
+  environment). One at a time: the scheduler's lease makes one instance the
+  scheduler, and a lock file in `/var/lib/mysenam/scanner/` names the app
+  process, its clamd and the boot, so a second process does not start
+  another. It is started only while `MemAvailable` is above
+  `MYSENAM_CLAMD_MIN_MEMORY_MB` (1,200 MiB) and no freshclam runs (a process
+  of that name, or the timer's lock file); otherwise documents keep waiting,
+  and the owners are told after 30 minutes. clamd must answer PING within
+  `MYSENAM_CLAMD_START_SECONDS` (120 s), or it is stopped (SIGTERM, then
+  SIGKILL after 10 s) and tried again after 1, 2, 5, 10 and 30 minutes, then
+  hourly; a clamd that exits by itself, mid-scan or not, is recorded as a
+  crash, the document it was scanning stays `pending` and is tried again, and
+  the owners are told. Children are always waited for (no zombies). When the
+  app stops, its clamd stops too: the app tells it to, and systemd stops
+  every process in the service. A clamd left running by an app process that
+  died elsewhere is stopped by its exact pid (checked against its command
+  line) at the next tick.
 - **Installing it.** The DigitalOcean kit's `setup.sh` installs Ubuntu's
-  `clamav-daemon` and `clamav-freshclam`, has clamd listen on the loopback
-  only (a systemd socket drop-in) beside its local socket, sets
-  `ConcurrentDatabaseReload no`, `StreamMaxLength 12M` and `MaxThreads 2`,
-  and writes `MYSENAM_CLAMD=127.0.0.1:3310` into `/etc/mysenam/env` on a new
-  machine (add it by hand on one set up before). `--no-scanner` leaves it out.
-  Elsewhere, any clamd the app can reach works, including the official
-  `clamav/clamav` container image, which runs clamd and freshclam together.
+  `clamav-daemon` and `clamav-freshclam` (`--scanner=always-on` or
+  `on-demand`), and sets `ConcurrentDatabaseReload no`, `StreamMaxLength 12M`
+  and `MaxThreads 2`. Always-on: clamd listens on the loopback only (a systemd
+  socket drop-in) beside its local socket, and `MYSENAM_CLAMD=127.0.0.1:3310`
+  goes into `/etc/mysenam/env`. On demand: the packaged services are disabled;
+  it writes `/etc/mysenam/clamd-ondemand.conf`, lets the `mysenam` user read
+  the signatures (group `clamav`), installs `mysenam-freshclam` with its timer,
+  fetches the first signatures, and adds `MYSENAM_CLAMD` and
+  `MYSENAM_CLAMD_ONDEMAND` to `/etc/mysenam/env`. `--scanner=none` (or the
+  older `--no-scanner`) leaves the scanner out. It also adds a 2 GB swap file:
+  a safety net against an out-of-memory kill, not capacity; nothing is sized
+  to run in it.
 - **Memory and disk.** ClamAV's own documentation gives "upwards of 1.2 GiB
   of RAM simply to load the signature definitions", recommends a minimum of
   3 GiB and preferably 4 GiB for the machine, and puts its container with the
   signature database at about 300 MB compressed, 456 MB uncompressed
-  ([ClamAV: Docker](https://docs.clamav.net/manual/Installing/Docker.html)).
-  Measured in the development container on 27 October 2026 with the
-  official signatures (daily 28165, main 63, bytecode 339; ClamAV 1.5.4,
-  the kit's settings): clamd's resident memory was **969 MiB** once loaded
-  (15.5 s to load), and its peak **1,038 MiB** through a reload in place;
-  freshclam's own peak while fetching the full set was **about 700 MiB**
-  with `TestDatabases yes` (it loads each new database once to test it;
-  14 s) and **about 320 MiB** with `TestDatabases no` (4 s). freshclam
-  tests before clamd reloads, so the two peaks do not coincide: about
-  1.7 GiB for both at the worst moment, besides the app (about 250 MB) and
-  Postgres (about 300 MB). A routine update tests only the database that
-  changed (usually the smaller daily one), so the full download is the
-  upper bound. The 4 GB Droplet (USD 24 a month instead of USD 12;
-  [kit](../../deploy/digitalocean/README.md#what-it-costs)) stays the
-  recommendation: 2 GB would leave no headroom for a build or a burst. These
-  are one container's figures, not a Droplet's. Reloading signatures in
-  place, rather than beside the old ones, keeps it to one copy in memory at
-  the price of scans pausing during a reload: documents wait in quarantine
-  and are retried.
-- **`TestDatabases`.** The kit leaves freshclam's default, `yes`: a new
-  database is loaded once by freshclam before clamd is told to reload, so a
-  database that is corrupt or that this engine cannot load is caught there
+  ([ClamAV: Docker](https://docs.clamav.net/manual/Installing/Docker.html));
+  that is for a clamd kept running. Measured in the development container on
+  27 October 2026 with the official signatures (daily 28165, main 63,
+  bytecode 339; ClamAV 1.5.4, the kit's settings; **one container's figures,
+  not a Droplet's**): clamd's resident memory was **969–972 MiB** once
+  loaded, and its peak **1,038 MiB** through a reload in place; freshclam's
+  own peak while fetching the full set was **about 700 MiB** with
+  `TestDatabases yes` (it loads each new database once to test it; 14 s) and
+  **about 310–320 MiB** with `TestDatabases no` (4 s); the production app
+  about **334 MiB** (proportional set size) and Postgres about **100 MiB**
+  at rest (configured for up to about 300 MB). App, Postgres and clamd come
+  to about **1.45 GiB**: on a 2 GB Droplet (about 1.9 GiB usable, ESTIMATE)
+  that fits only if clamd is not resident while freshclam runs, nor while
+  nothing waits. The on-demand mode is built on exactly that: clamd only
+  while documents wait, freshclam (about 700 MiB beside about 0.45 GiB) only
+  while clamd is stopped, and a start only while 1,200 MiB is free (clamd's
+  peak and about 200 MiB to spare), which also keeps clamd from starting in
+  the middle of a deploy's build. Always-on, freshclam tests before clamd
+  reloads, so the two peaks do not coincide: about 1.7 GiB for both at the
+  worst moment, which is why always-on wants 4 GB. A routine update tests
+  only the database that changed (usually the smaller daily one), so the full
+  download is the upper bound. Reloading signatures in place, rather than
+  beside the old ones, keeps it to one copy in memory at the price of scans
+  pausing during a reload: documents wait in quarantine and are retried.
+- **Measured on demand** (the development container, 27 October 2026,
+  `tests/clamd-on-demand-engine.test.ts`, official signatures, three runs):
+  clamd started by the app answered PING after **10.3–10.6 s** (11.3 s with
+  clamd held to one CPU); a document sent while clamd was stopped was
+  released **10.4–10.7 s** after it arrived, when the scheduler's tick came at
+  once (in production add up to a minute for the next tick); clamd's peak
+  resident memory (`VmHWM`) was **972 MiB**. A Droplet's shared vCPU may be
+  slower: measure there (launch check below).
+- **`TestDatabases`.** The kit leaves freshclam's default, `yes`, in both
+  modes: a new database is loaded once by freshclam before clamd uses it, so
+  a database that is corrupt or that this engine cannot load is caught there
   and clamd keeps the one it has. `no` saves about 380 MiB at the update's
   peak and some seconds; freshclam still checks each database's digital
   signature (a `.cvd` is signed by ClamAV), but an unloadable database would
-  then reach clamd, whose reload could fail and leave documents waiting in
-  quarantine until it is fixed. Keep `yes` unless memory forces otherwise.
-- **Signatures.** `clamav-freshclam` fetches the official signatures from
-  ClamAV's mirrors and checks for new ones every hour (Ubuntu's default
-  `Checks 24`); clamd reloads them by itself. A signature database more than
-  48 hours old, or one that does not say its date, is raised to the owners.
-  clamd does not start until freshclam has the first signatures, a few
-  minutes on a new machine; until then documents wait in quarantine.
+  then reach clamd, whose load could fail and leave documents waiting in
+  quarantine until it is fixed. On demand, `yes` fits, because freshclam
+  never runs beside clamd. Keep `yes` unless memory forces otherwise.
+- **Signatures.** Always-on, `clamav-freshclam` fetches the official
+  signatures from ClamAV's mirrors and checks for new ones every hour
+  (Ubuntu's default `Checks 24`); clamd reloads them by itself. On demand,
+  `mysenam-freshclam.timer` runs freshclam twice a day (04:17, after the
+  nightly backup, and 16:17, Malaysia and Singapore time), through
+  `mysenam-freshclam`, which marks that it runs and waits (up to an hour) for
+  the app's clamd to stop first, or skips that update; the app, in turn, does
+  not start clamd while freshclam runs. clamd loads the newest signatures at
+  each start. A signature database more than 48 hours old, or one that does
+  not say its date, is raised to the owners; while the on-demand clamd is
+  stopped its date is read from the database's header on disk. clamd cannot
+  scan until freshclam has the first signatures, a few minutes on a new
+  machine; until then documents wait in quarantine.
 - **Health.** The owner's *Supporting documents* panel shows whether clamd
   answers, its engine and signature version and age, and documents waiting,
-  refused or failed; the scheduler raises `document-scanner` every hour while
-  something is wrong ([monitoring](monitoring.md)). systemd restarts clamd if
-  it stops. `/api/health` does not include it: a scanner that is down holds
-  documents back, it does not take the site down.
+  refused or failed; on demand, also whether clamd is running, its last
+  start (when, how long it took to answer, its peak memory), its last stop
+  and why, the memory free now against the threshold, why a start is held
+  back, and the last failure. The scheduler raises `document-scanner` every
+  hour while something is wrong, and `document-scanner-ondemand` as soon as
+  an on-demand start fails or clamd crashes, and once a start has been held
+  back for 30 minutes ([monitoring](monitoring.md)). An on-demand clamd
+  stopped on purpose is not reported as "not answering". Always-on, systemd
+  restarts clamd if it stops. `/api/health` does not include it: a scanner
+  that is down holds documents back, it does not take the site down.
 - **Failure and recovery.** While clamd is away, documents stay `pending`
   (never openable) and are retried after 1, 5, 30, 120, 360 and 720 minutes.
   After the seventh try, about 20 hours on, a document whose last try found
@@ -123,8 +195,9 @@ npm package and no paid service, and no document leaves the machine.
   approved, until a scanner is configured and passes them. There is no
   setting to release documents unscanned: `MYSENAM_DOCUMENT_SCAN=off` was
   withdrawn on 27 October 2026 and is ignored, with a start-up warning where
-  it is still set. A production start without `MYSENAM_CLAMD` warns too, and
-  the hourly check tells the owners once documents are waiting.
+  it is still set. A production start without `MYSENAM_CLAMD` (or a usable
+  `MYSENAM_CLAMD_ONDEMAND`) warns too, and the hourly check tells the owners
+  once documents are waiting.
 - **Upgrading to migrations 0159–0160.** Documents taken unscanned under the
   withdrawn setting go back into quarantine and are scanned; until then
   nobody can open them. Documents stored before scanning existed, or that
@@ -143,8 +216,14 @@ EICAR test file as `Eicar-Test-Signature` and released a plain PDF through the
 app (`tests/document-scanning-engine.test.ts` with `MYSENAM_TEST_CLAMD`), with
 the memory above. The official signatures find the EICAR file only as the
 EICAR standard defines it (the string at the start of the file), not inside a
-PDF. **Not verified**: the kit's scanner set-up and memory on a real Droplet,
-and signature updates over days. Each is a launch check below.
+PDF. The on-demand scanner started that clamd itself with the official
+signatures, scanned a plain PDF clean and refused the EICAR file, and stopped
+it when idle (`tests/clamd-on-demand-engine.test.ts`, the measurements above);
+every guard path runs against a stand-in clamd (`tests/clamd-on-demand.test.ts`,
+including the kit's `freshclam.sh` against a stand-in freshclam). **Not
+verified**: the kit's scanner set-up (either mode), its memory and clamd's
+start time on a real Droplet, the freshclam timer, and signature updates over
+days. Each is a launch check below.
 
 ## Upgrading
 
@@ -226,12 +305,16 @@ these once with a real account, in its sandbox where it has one:
       agreement ([launch providers](../integrations/launch-providers.md#operating-company-and-jurisdictions)).
 - [ ] **The scheduler**: `/api/health` shows its heartbeat a minute old at
       most, so holds, reminders, offers and backups happen on time.
-- [ ] **The malware scanner**: on the 4 GB Droplet, `clamav-freshclam` has
-      fetched the official signatures, the *Supporting documents* panel shows
-      clamd answering with signatures under a day old, `clamdscan --stream`
-      finds the EICAR test file as `Eicar-Test-Signature`, a plain PDF sent
-      with an application is released, and the memory clamd takes and the
-      time a 10 MB PDF takes are noted ([the malware scanner](#the-malware-scanner)).
+- [ ] **The malware scanner**: on the 2 GB Droplet with `--scanner=on-demand`
+      (or a 4 GB one, always-on), freshclam has fetched the official
+      signatures (`journalctl -u mysenam-freshclam`), a plain PDF sent with an
+      application is released, the *Supporting documents* panel shows the
+      last start with its load time and peak memory and, a few minutes later,
+      clamd stopped as idle with signatures under a day old; the EICAR test
+      file is refused; `MemAvailable` before a start, clamd's load time and
+      the time a 10 MB PDF takes are noted, and a timer run of
+      `mysenam-freshclam` is seen to wait for clamd to stop
+      ([the malware scanner](#the-malware-scanner)).
 - [ ] **Retention periods reviewed**: a lawyer in each country has answered
       the [open questions](../architecture/privacy.md#open-questions-for-professional-review-retention-and-documents),
       the install's periods are set accordingly, and the review is recorded
@@ -270,7 +353,7 @@ the result is recorded there with the date.
 | Legal review | A lawyer in each country | The open points in [privacy](../architecture/privacy.md#backups-held-abroad) answered before `OFFSITE_TRANSFER_APPROVED` is set (Backblaze's terms as the transfer contract, the TIA, roles, breach notice); the terms, privacy notice and venue agreement reviewed; whether a venue's refund period meets consumer law; what guardian consent the law asks for | Nothing: the app refuses the transfer until it is declared, and records consent as declared |
 | Continuous integration | GitHub Actions able to start runners on the repository (the account's billing or spending limit) | A CI and a Docs run on the commit being launched start, run every step and pass | Every run since 16 October 2026 ended before a runner was assigned ([known limitations](../roadmap/known-limitations.md)); the suites have been run by hand only |
 | Staging on DigitalOcean (optional) | A DigitalOcean team used for nothing else, a custom-scoped token (droplets, tags, registry read), a read-only registry credential, and an agreed spend per run | `scripts/stage-remote.mjs up --approve-usd …` serves the image on `sslip.io`, its tests pass, `down` leaves nothing billable | `tests/stage-remote.test.ts` (stand-in API) |
-| Malware scanner (ClamAV) | The 4 GB Droplet (the owner's decision: USD 12 a month more) and outbound access to ClamAV's signature mirrors | freshclam fetches the official signatures; the EICAR test file is found and a plain PDF released through the app; the hourly check stays quiet; clamd's memory and scan time measured on the Droplet | `tests/document-scanning.test.ts` (stand-in scanner and stand-in sockets), `tests/document-scanning-engine.test.ts` (real clamd 1.5.4: with a locally generated test signature, and, in the development container on 27 October 2026, with the official signatures) |
+| Malware scanner (ClamAV) | The Droplet set up with `--scanner=on-demand` (2 GB, the owner's choice) or `always-on` (4 GB), and outbound access to ClamAV's signature mirrors | freshclam fetches the official signatures; the EICAR test file is found and a plain PDF released through the app; on demand, clamd starts when a document waits, stops when idle, and the freshclam timer waits for it; the hourly check stays quiet; clamd's memory, load time and scan time measured on the Droplet | `tests/document-scanning.test.ts` (stand-in scanner and stand-in sockets), `tests/clamd-on-demand.test.ts` (stand-in clamd and freshclam: every guard path), `tests/document-scanning-engine.test.ts` and `tests/clamd-on-demand-engine.test.ts` (real clamd 1.5.4: with a locally generated test signature, and, in the development container on 27 October 2026, with the official signatures, started on demand) |
 | Performance under production-like conditions | A managed database across a real network, a production-size pool, two or more app instances | The [benchmark](../development/testing.md#results) re-run there, with the targets in the roadmap | One machine, database beside the app |
 | Monitoring and alerts | An error-tracking DSN (`SENTRY_DSN`) and an owner email that receives alerts | A deliberate error reaches the tracker; a failed backup or off-site copy, and a `refund_failed` integrity problem, email the owners; `/api/health` is polled by an uptime monitor | `tests/alerts.test.ts`, `tests/integrity.test.ts` |
 

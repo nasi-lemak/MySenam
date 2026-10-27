@@ -219,9 +219,11 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   try {
     // Supporting documents waiting in quarantine: scanned when their next try is due (lib/document-scanning.ts).
     const scanning = await import("./document-scanning");
+    // Where clamd is started on demand: started when documents wait (scanning them once it answers), stopped when idle.
+    const onDemand = await scanning.tickOnDemandScanner();
     // Documents that failed only because no scanner answered go back into quarantine once one does.
     await scanning.requeueWaitingDocuments();
-    await scanning.scanDueDocuments();
+    await scanning.scanDueDocuments(20, { waitingForScanner: onDemand === "running" });
     // Once an hour: is the scanner there, are its signatures fresh, is anything stuck?
     if (now.getUTCMinutes() === 0) await scanning.checkScanner(now.getTime());
   } catch (err) {

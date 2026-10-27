@@ -4,6 +4,8 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { findAccountByEmail, listMembershipsForVenue, sellMembership } from "@/lib/store";
 import { logAction } from "@/lib/activity";
 import { money, region, isAmount } from "@/lib/region";
+import { selectionAtVenue } from "@/lib/participant-bookings";
+import { isRefusal } from "@/lib/participants";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +70,24 @@ export async function POST(req: NextRequest) {
     tierId = plan.id;
   }
 
+  // Whose it is, and whom else it covers (ADR 0025): participants the venue knows, each with a
+  // guardian on the holder's number, named as it is sold. Never inferred from a number or a surname.
+  const named = (raw: unknown): number[] | null =>
+    raw === undefined || raw === null ? [] : Array.isArray(raw) && raw.every((x) => Number.isInteger(x) && x > 0) ? (raw as number[]) : null;
+  const holder = named(input.holderParticipantId === undefined || input.holderParticipantId === null ? null : [input.holderParticipantId]);
+  const covered = named(input.covers);
+  if (holder === null || covered === null)
+    return NextResponse.json({ error: "holderParticipantId is a participant's id, and covers a list of them." }, { status: 400 });
+  let people: { id: number; name: string }[] = [];
+  if (holder.length + covered.length > 0) {
+    const known = await selectionAtVenue(venueId as number, input.holderPhone as string, [...holder, ...covered], false);
+    if (isRefusal(known)) return NextResponse.json({ error: known.error, code: known.code, ...(known.vars ? { vars: known.vars } : {}) }, { status: known.status });
+    people = known.participants;
+  }
+
   const result = await sellMembership({
+    holderParticipantId: holder[0] ?? null,
+    covers: covered,
     tierId,
     venueId: venueId as number,
     holderName: input.holderName as string,
@@ -83,7 +102,9 @@ export async function POST(req: NextRequest) {
   await logAction(admin, {
     venueId: venueId as number,
     action: "membership.sold",
-    detail: `${input.holderName as string}, ${money(input.price as number)}, ${input.startsOn as string} to ${input.expiresOn as string}`,
+    detail: `${input.holderName as string}${
+      holder.length > 0 ? ` for ${people.find((p) => p.id === holder[0])?.name ?? "a participant"}` : ""
+    }${covered.length > 0 ? `, covering ${people.filter((p) => covered.includes(p.id)).map((p) => p.name).join(", ")}` : ""}, ${money(input.price as number)}, ${input.startsOn as string} to ${input.expiresOn as string}`,
   });
   return NextResponse.json({ membership: result.membership }, { status: 201 });
 }

@@ -5,6 +5,9 @@ import { findAccountByEmail, issuePass, listPassesForVenue } from "@/lib/store";
 import { MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Sport } from "@/lib/types";
 import { logAction } from "@/lib/activity";
 import { money, region, isAmount } from "@/lib/region";
+import { isScope, PASS_SCOPES } from "@/lib/entitlements";
+import { selectionAtVenue } from "@/lib/participant-bookings";
+import { isRefusal } from "@/lib/participants";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +89,23 @@ export async function POST(req: NextRequest) {
     userId = account.id;
   }
 
+  // What one use covers (lib/entitlements.ts): the booking as a whole unless said.
+  const scope = input.scope === undefined || input.scope === null || input.scope === "" ? "booking" : input.scope;
+  if (!isScope(scope, PASS_SCOPES))
+    return NextResponse.json({ error: "scope must be booking, resource, participant or places." }, { status: 400 });
+  // One person's pass, held for a participant the venue knows, with a guardian on the holder's number.
+  let holderParticipantId: number | null = null;
+  if (input.holderParticipantId !== undefined && input.holderParticipantId !== null) {
+    if (scope !== "participant")
+      return NextResponse.json({ error: "Only a pass for one person's place is held for somebody else." }, { status: 400 });
+    const known = await selectionAtVenue(venueId as number, input.holderPhone as string, [input.holderParticipantId as number], false);
+    if (isRefusal(known)) return NextResponse.json({ error: known.error, code: known.code, ...(known.vars ? { vars: known.vars } : {}) }, { status: known.status });
+    holderParticipantId = known.participants[0].id;
+  }
+
   const result = await issuePass({
+    scope,
+    holderParticipantId,
     venueId: venueId as number,
     sport,
     name: input.name as string,

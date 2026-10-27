@@ -1,0 +1,15 @@
+# ClamAV signature updates for the on-demand scanner: twice a day, Malaysia
+# and Singapore time, the first in the quiet hour after the 03:00 backup.
+# Installed by setup.sh (--scanner=on-demand). Signatures more than 48 hours
+# old are raised to the owners, so one missed run is tolerated.
+
+[Unit]
+Description=ClamAV signature updates for MySenam's on-demand scanner
+
+[Timer]
+OnCalendar=*-*-* 04,16:17:00 Asia/Kuala_Lumpur
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
