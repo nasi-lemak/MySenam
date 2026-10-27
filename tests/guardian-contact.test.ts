@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 process.env.MYSENAM_URL = "https://book.example.my";
@@ -365,6 +365,16 @@ describe("a guardian recorded by name and number agrees through staff, by a code
 // ---------------------------------------------------------------------- registering later
 
 describe("a guardian recorded by name and number registers later", () => {
+  // Claiming needs the recorded number proved on the account, which only phone checks allow (lib/contact-guardians.ts).
+  const before = process.env.MYSENAM_PHONE_CHECK;
+  beforeEach(() => {
+    process.env.MYSENAM_PHONE_CHECK = "on";
+  });
+  afterEach(() => {
+    if (before === undefined) delete process.env.MYSENAM_PHONE_CHECK;
+    else process.env.MYSENAM_PHONE_CHECK = before;
+  });
+
   it("takes the same relationship over with a proved number and a code from staff; neither alone is enough", async () => {
     const kid = await walkIn("Hana");
     const rows = await count("SELECT COUNT(*)::int AS n FROM participant_guardians WHERE participant_id = ?", kid.id);
@@ -430,6 +440,25 @@ describe("a guardian recorded by name and number registers later", () => {
     const mum2 = await adult("Puan Aminah", kid2.mumPhone);
     expect((await json(await accept(mum2, { code: given.code, authority: true }))).code).toBe("PTC_INVITE_INVALID");
     expect(await listManaged(mum2.id)).toEqual([]);
+  });
+
+  it("is not offered where the site cannot check phone numbers, since nobody could prove the number recorded", async () => {
+    const kid = await walkIn("Kirana");
+    process.env.MYSENAM_PHONE_CHECK = "off";
+    {
+      // Staff are told why, and no claim code is made by staff or by another guardian.
+      const found = (await json(
+        await participantsRoute.GET(req(`http://localhost/api/admin/participants?venueId=${venue}&phone=${kid.mumPhone}`, "GET", desk.cookie))
+      )) as { claimsPossible: boolean };
+      expect(found.claimsPossible).toBe(false);
+      const issued = await contact(desk, kid.id, { action: "claimCode", guardianId: kid.mumGuardian });
+      expect(issued.status).toBe(409);
+      expect((await json(issued)).code).toBe("GW5_NO_PHONE_CHECKS");
+      // A guardian with an account is refused the same way, before anything about the child is looked at.
+      const dad = await adult("Encik Khalid");
+      expect(await createInvite(dad, kid.id, "claim")).toMatchObject({ ok: false, code: "GW5_NO_PHONE_CHECKS" });
+      expect(await count("SELECT COUNT(*)::int AS n FROM participant_invites WHERE participant_id = ? AND purpose = 'claim'", kid.id)).toBe(0);
+    }
   });
 });
 

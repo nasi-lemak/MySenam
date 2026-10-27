@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
-import { contactCodesAvailable, openNoticeTasks } from "@/lib/contact-guardians";
+import { contactCodesAvailable, openNoticeTasks, claimsPossible } from "@/lib/contact-guardians";
 import { openRequestsFor } from "@/lib/guardian-requests";
 import { createAtVenue, participantsForVenue, reviewQueue, type VenueParticipant } from "@/lib/participants";
 import { getVenue } from "@/lib/store";
@@ -40,16 +40,16 @@ export async function GET(req: NextRequest) {
   if (review && admin.role === "desk")
     return NextResponse.json({ error: "Front-desk accounts cannot change this. Ask a manager.", code: "MANAGER_ONLY" }, { status: 403 });
   if (review &&!req.nextUrl.searchParams.get("venueId") && isOwner(admin))
-    return NextResponse.json({ participants: await withRequests(await reviewQueue({ owner: true }), null), codesPossible: contactCodesAvailable() }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ participants: await withRequests(await reviewQueue({ owner: true }), null), codesPossible: contactCodesAvailable(), claimsPossible: claimsPossible() }, { headers: { "Cache-Control": "no-store" } });
   const venueId = Number(req.nextUrl.searchParams.get("venueId"));
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  if (review) return NextResponse.json({ participants: await withRequests(await reviewQueue({ venueId }), [venueId]), codesPossible: contactCodesAvailable() }, { headers: { "Cache-Control": "no-store" } });
+  if (review) return NextResponse.json({ participants: await withRequests(await reviewQueue({ venueId }), [venueId]), codesPossible: contactCodesAvailable(), claimsPossible: claimsPossible() }, { headers: { "Cache-Control": "no-store" } });
   const phone = req.nextUrl.searchParams.get("phone") ?? "";
   if (phone.replace(/\D/g, "").length < 7) return NextResponse.json({ error: "phone is required." }, { status: 400 });
   return NextResponse.json(
-    { participants: await withRequests(await participantsForVenue(venueId, phone), [venueId]), codesPossible: contactCodesAvailable() },
+    { participants: await withRequests(await participantsForVenue(venueId, phone), [venueId]), codesPossible: contactCodesAvailable(), claimsPossible: claimsPossible() },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

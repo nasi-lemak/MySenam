@@ -80,6 +80,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
   const [found, setFound] = useState<Found[] | null>(null);
   const [lastLook, setLastLook] = useState<"phone" | "review" | "everywhere">("phone");
   const [codesPossible, setCodesPossible] = useState(true);
+  const [claimsPossible, setClaimsPossible] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const input = "rounded-md border border-slate-300 px-3 py-2 text-sm";
@@ -117,6 +118,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
       if (!res.ok) throw new Error(t.err(data));
       setFound(data.participants);
       setCodesPossible(data.codesPossible !== false);
+      setClaimsPossible(data.claimsPossible !== false);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
     }
@@ -291,6 +293,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-sm text-emerald-700">{notice}</p>}
       {found !== null && !codesPossible && !everywhere && <p className="mt-2 text-xs text-amber-700">{t("gw5.pp.noCodes")}</p>}
+      {found !== null && !claimsPossible && !everywhere && <p className="mt-2 text-xs text-amber-700">{t("gw5b.pp.noClaim")}</p>}
       {found !== null && found.length > 0 && codesPossible && !everywhere && offered.length > 1 && (
         <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
           {t("fin5.pp.codeLanguage")}
@@ -350,7 +353,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
                             {t("gw5.pp.withdraw")}
                           </button>
                         )}
-                        {!g.suspended && (
+                        {claimsPossible && !g.suspended && (
                           <button type="button" onClick={() => void claimCode(p, g)} className={link_}>
                             {t("gw5.pp.claim")}
                           </button>

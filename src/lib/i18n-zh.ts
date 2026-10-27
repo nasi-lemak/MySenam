@@ -2273,6 +2273,7 @@ export const ZH: Record<Phrase, string> = {
   "gw5.err.GW5_PHONE_UNPROVEN": "请先验证您账户上的电话号码（在账户页面），然后再次输入代码。",
   "gw5.err.GW5_NOT_THEIR_NUMBER": "您账户上已验证的号码不是为这位监护人登记的号码。请询问场馆。",
   "gw5.err.GW5_NO_RECORDED_GUARDIAN": "没有以场馆登记的姓名和电话为其代理的人。",
+  "gw5.err.GW5_NO_PHONE_CHECKS": "本网站无法验证电话号码，因此监护人无法用账户接管其关系：请改为邀请其账户成为另一位监护人。",
   "err.STK_NOT_COMBINABLE": "此优惠码不能与优惠价同时使用。请按优惠价预订，或只使用优惠码。",
   "err.STK_USED_UP": "此优惠码已被领完。",
   "stk.form.oneDiscount": "本场馆每次只能使用一种优惠：优惠码不能与优惠价同时使用。",

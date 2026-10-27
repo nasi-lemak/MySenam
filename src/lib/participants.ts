@@ -644,6 +644,10 @@ export async function createInvite(
   purpose: unknown
 ): Promise<{ ok: true; code: string; expiresAt: string } | ParticipantRefusal> {
   if (purpose !== "guardian" && purpose !== "link" && purpose !== "claim") return refused("PTC_PURPOSE", "A code for another guardian, or for their own login.");
+  if (purpose === "claim") {
+    const { claimsPossible, claimNeedsPhoneChecks } = await import("./contact-guardians");
+    if (!claimsPossible()) return claimNeedsPhoneChecks();
+  }
   const mine = await guardianshipOf(user.id, participantId, { live: true });
   if (!mine) return refused("GUARD_NOT_FOUND", "Not one of the people you manage.", 404);
   if (purpose === "link" && mine.participant.linked) return refused("PTC_ALREADY_LINKED", "They already have their own login linked.", 409);

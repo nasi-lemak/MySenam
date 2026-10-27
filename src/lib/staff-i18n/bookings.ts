@@ -543,6 +543,7 @@ const en = {
   "fin6.bk.coach": "Coach",
   "fin6.bk.coachAsBooked": "{name} (as booked)",
   "fin6.bk.coachHelp": "The times shown are when this coach takes lessons and is free. Another coach only while nothing has been paid on the lesson; the coaches are told.",
+  "gw5b.pp.noClaim": "Without phone checks a guardian recorded here cannot take their relationship over with an account (they cannot prove the number). Invite their account as another guardian instead.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1070,6 +1071,7 @@ const ms: Record<keyof typeof en, string> = {
   "fin6.bk.coach": "Jurulatih",
   "fin6.bk.coachAsBooked": "{name} (seperti ditempah)",
   "fin6.bk.coachHelp": "Masa yang ditunjukkan ialah ketika jurulatih ini mengajar dan lapang. Jurulatih lain hanya selagi belum ada bayaran bagi kelas ini; jurulatih akan dimaklumkan.",
+  "gw5b.pp.noClaim": "Tanpa semakan telefon, penjaga yang direkodkan di sini tidak boleh mengambil alih hubungan mereka dengan akaun (mereka tidak dapat mengesahkan nombor). Jemput akaun mereka sebagai penjaga lain.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1597,6 +1599,7 @@ const zh: Record<keyof typeof en, string> = {
   "fin6.bk.coach": "教练",
   "fin6.bk.coachAsBooked": "{name}（原预订）",
   "fin6.bk.coachHelp": "显示的时间为该教练授课且有空的时段。仅在课程尚未付款时可更换教练；教练会收到通知。",
+  "gw5b.pp.noClaim": "未开启电话验证时，此处记录的监护人无法用账户接管其关系（无法验证号码）。请改为邀请其账户成为另一位监护人。",
 };
 
 const area = { en, ms, zh };

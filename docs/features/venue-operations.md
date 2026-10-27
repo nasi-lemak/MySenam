@@ -241,7 +241,10 @@ desk included):
   number staff recorded kept as how it began; no new participant and no new
   relationship. The other guardians are told. A code from a guardian who
   has since stopped acting, or for a relationship since ended or paused, is
-  void.
+  void. Where the site cannot check phone numbers (no SMS or WhatsApp),
+  nobody can prove the number, so neither code is offered or made
+  (`GW5_NO_PHONE_CHECKS`) and the panel says why: staff invite the
+  guardian's account as another guardian instead.
 - **Told of changes.** When a guardian is added or ends, a request waits for
   agreement, or a guardian takes theirs over with an account, a guardian
   recorded by name and number is sent a WhatsApp notice only at a number a

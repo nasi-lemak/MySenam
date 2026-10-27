@@ -680,4 +680,5 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Give the player's phone number (or their guardian's).": { ms: "Berikan nombor telefon pemain (atau penjaganya).", zh: "请填写球员（或其监护人）的电话号码。" },
   "Give the player's name.": { ms: "Berikan nama pemain.", zh: "请填写球员姓名。" },
   "participantId must be a participant's id.": { ms: "participantId mestilah id peserta.", zh: "participantId 须为参与者的 id。" },
+  "This site cannot check phone numbers, so a guardian cannot take their relationship over with an account: invite their account as another guardian instead.": { ms: "Laman ini tidak dapat mengesahkan nombor telefon, jadi penjaga tidak boleh mengambil alih hubungan mereka dengan akaun: jemput akaun mereka sebagai penjaga lain.", zh: "本网站无法验证电话号码，因此监护人无法用账户接管其关系：请改为邀请其账户成为另一位监护人。" },
 };

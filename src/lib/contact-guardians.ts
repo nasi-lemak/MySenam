@@ -23,7 +23,7 @@ import {
   type ParticipantRefusal,
   type ParticipantRow,
 } from "./participants";
-import { MAX_TRIES, SENDS_PER_NUMBER_PER_DAY, phoneMethods, phoneNumber, sendCodeToNumber } from "./phone-check";
+import { MAX_TRIES, SENDS_PER_NUMBER_PER_DAY, phoneChecksOn, phoneMethods, phoneNumber, sendCodeToNumber } from "./phone-check";
 import { keyedHash } from "./secrets";
 import { siteName } from "./site";
 import { todayISO } from "./time";
@@ -85,6 +85,24 @@ export type StaffAt = { venueId: number; admin: { id: number | null; name: strin
 export function contactCodesAvailable(): boolean {
   return phoneMethods().code;
 }
+
+/**
+ * Whether a guardian a venue recorded by name and number can take their
+ * relationship over with an account here: that needs the account to prove the
+ * recorded number, which only phone checks allow. Without them the claim code
+ * is refused (and not offered), so nobody is sent round in a circle: staff
+ * invite the guardian's account as another guardian instead.
+ */
+export function claimsPossible(): boolean {
+  return phoneChecksOn();
+}
+
+export const claimNeedsPhoneChecks = (): ParticipantRefusal =>
+  refused(
+    "GW5_NO_PHONE_CHECKS",
+    "This site cannot check phone numbers, so a guardian cannot take their relationship over with an account: invite their account as another guardian instead.",
+    409
+  );
 
 const reasonOf = (v: unknown): string | null => {
   const r = typeof v === "string" ? v.trim().replace(/\s+/g, " ").slice(0, 300) : "";
@@ -357,6 +375,7 @@ export async function issueClaimCode(
   at: StaffAt,
   input: { participantId: unknown; guardianshipId: unknown }
 ): Promise<{ ok: true; code: string; expiresAt: string } | ParticipantRefusal> {
+  if (!claimsPossible()) return claimNeedsPhoneChecks();
   const { shown, hash } = newInviteCode();
   return withTransaction(async () => {
     const p = await participantAtVenue(at.venueId, input.participantId);
