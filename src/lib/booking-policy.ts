@@ -80,6 +80,7 @@ interface Row {
   cleanup_fee: number | string | null;
   sign_off: boolean | null;
   needs_certification: boolean | null;
+  separate_places?: boolean | null;
 }
 
 const numbers = (raw: string | null): number[] | null => {
@@ -128,6 +129,7 @@ function toSettings(r: Row): PolicySettings {
     cleanupFee: money(r.cleanup_fee),
     signOff: r.sign_off,
     certification: r.needs_certification,
+    separatePlaces: r.separate_places ?? null,
   };
 }
 
@@ -302,6 +304,10 @@ export function validateSettings(input: Record<string, unknown>): { ok: true; se
         if (typeof v !== "boolean") return { ok: false, error: "A sign-off is needed, or not." };
         set(key, v);
         break;
+      case "separatePlaces":
+        if (typeof v !== "boolean") return { ok: false, error: "One person can be taken off a booking here, or not." };
+        set(key, v);
+        break;
       case "minCharge":
       case "setupFee":
       case "cleanupFee":
@@ -361,11 +367,12 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     settings.cleanupFee ?? null,
     settings.signOff ?? null,
     settings.certification ?? null,
+    settings.separatePlaces ?? null,
   ];
   const cols = `start_every = ?, start_offset = ?, start_times = ?, length_step = ?, min_length = ?, max_length = ?, lengths = ?,
     default_length = ?, buffer_before = ?, buffer_after = ?, operational_before = ?, operational_after = ?, turnover = ?, week_hours = ?,
     notice_minutes = ?, rate_mode = ?, bill_step = ?,
-    min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, needs_certification = ?, updated_at = datetime('now')`;
+    min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, needs_certification = ?, separate_places = ?, updated_at = datetime('now')`;
   const done = await db.prepare(`UPDATE booking_policies SET ${cols} WHERE ${where.sql}`).run(...values, ...where.params);
   if (done.changes > 0) return;
   const scopeCols =
@@ -381,8 +388,8 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
       `INSERT INTO booking_policies (business_id, venue_id, sport, court_id, start_every, start_offset, start_times, length_step,
          min_length, max_length, lengths, default_length, buffer_before, buffer_after, operational_before, operational_after,
          turnover, week_hours, notice_minutes, rate_mode, bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee,
-         sign_off, needs_certification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         sign_off, needs_certification, separate_places)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(scopeCols.business, scopeCols.venue, scopeCols.sport, scopeCols.court, ...values);
 }

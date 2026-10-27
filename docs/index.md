@@ -90,7 +90,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0021 Approval retention by purpose; PDF documents](architecture/decisions/0021-approval-retention-and-pdf-documents.md) ·
 [0022 Children managed from an adult's account](architecture/decisions/0022-children-managed-from-an-adults-account.md) ·
 [0023 Participants apart from accounts](architecture/decisions/0023-participants-apart-from-accounts.md) ·
-[0024 Supporting documents scanned before release; retention by configured purpose](architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)
+[0024 Supporting documents scanned before release; retention by configured purpose](architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md) ·
+[0025 Benefits and privileges by the scope they apply to](architecture/decisions/0025-benefits-and-privileges-by-scope.md)
 
 ## Integrations
 

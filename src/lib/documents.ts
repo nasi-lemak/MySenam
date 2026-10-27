@@ -371,7 +371,16 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
   const extrasTotal = extras.reduce((sum, e) => sum + e.quantity * e.unit_price, 0);
   // A concession price stands as a line of its own; charged in full when no proof was shown.
   const concession = b.concession_name && b.concession_check !== "refused" ? Number(b.concession_off) : 0;
-  const discount = (promo?.discount ?? 0) + concession;
+  // One person's concession or member price on their own place (lib/entitlements.ts): a line each, naming them.
+  const perPlace = (await db
+    .prepare(
+      `SELECT pb.kind, pb.concession_name, pb.amount::float AS amount, bp.name
+         FROM place_benefits pb LEFT JOIN booking_participants bp ON bp.id = pb.place_id
+        WHERE pb.booking_id = ? AND pb.reversed_at IS NULL AND pb.amount > 0 ORDER BY pb.id`
+    )
+    .all(bookingId)) as { kind: string; concession_name: string | null; amount: number; name: string | null }[];
+  const placeOff = perPlace.reduce((sum, p) => sum + Number(p.amount), 0);
+  const discount = (promo?.discount ?? 0) + concession + placeOff;
   // A built-in one is said in the reader's language; the venue's own name stays as typed.
   const preset = derivedPreset({
     concessionName: b.concession_name,
@@ -397,6 +406,10 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
           },
         ]
       : []),
+    ...perPlace.map((p) => ({
+      description: `${p.kind === "membership" ? "Member price" : `${p.concession_name ?? "Concession"} price`}${p.name ? `, ${p.name}` : ""}`,
+      amount: -roundMoney(Number(p.amount)),
+    })),
     ...(b.deposit_paid > 0 ? [{ description: "Deposit paid online, on its own receipt", amount: -b.deposit_paid }] : []),
     ...(b.shares_paid - b.deposit_paid > 0.005
       ? [{ description: "Paid by other players, on their own receipts", amount: -roundMoney(b.shares_paid - b.deposit_paid) }]
@@ -452,17 +465,31 @@ export async function keepBookingReceipt(bookingId: number, source: string, paid
  * A paid booking cancelled: a credit note for what its receipt showed, so
  * the tax on it comes off the venue's books. Once only.
  */
-export async function creditBooking(bookingId: number, why: string, share = 1): Promise<Document | null> {
+export async function creditBooking(
+  bookingId: number,
+  why: string,
+  share = 1,
+  /**
+   * What is left of the booking's price once places taken off it while it was
+   * paid are left out (lib/place-withdrawals.ts): each has its own credit note.
+   */
+  remaining = 1
+): Promise<Document | null> {
   const full = await bookingSale(bookingId);
-  if (!full || full.paymentStatus !== "paid" || full.total <= 0 || share <= 0) return null;
+  if (!full || full.paymentStatus !== "paid" || full.total <= 0 || share <= 0 || remaining <= 0) return null;
   // A late cancellation gives back only part: the credit note is for that part, the fee kept stays sold.
+  const amount = roundMoney(full.total * share * remaining);
   const sale =
-    share >= 1
+    share >= 1 && remaining >= 1
       ? full
       : {
           ...full,
-          total: roundMoney(full.total * share),
-          lines: [saidLine(said("srv.line.lateShare", { pct: Math.round(share * 100), code: full.code }), roundMoney(full.total * share))],
+          total: amount,
+          lines: [
+            share < 1
+              ? saidLine(said("srv.line.lateShare", { pct: Math.round(share * 100), code: full.code }), amount)
+              : { description: `${full.code}, the places still on it`, amount },
+          ],
         };
   const tax = sale.taxRate ? await venueTax(sale.venueId) : null;
   return write({
@@ -481,6 +508,37 @@ export async function creditBooking(bookingId: number, why: string, share = 1): 
     tax_amount: sale.taxRate ? taxIncluded(sale.total, sale.taxRate) : 0,
     tax_reg_no: sale.taxRate ? tax!.regNo : null,
     paid_via: paidVia(sale.paidVia),
+    note: why,
+  });
+}
+
+/**
+ * A place taken off a paid booking (lib/place-withdrawals.ts): a credit note
+ * for what went back for it, at the tax the booking was sold at. The
+ * booking's receipt stays what was sold; the fee kept on a late withdrawal
+ * stays sold. Once per withdrawal.
+ */
+export async function creditBookingPlace(bookingId: number, withdrawalId: number, who: string, amount: number, why: string): Promise<Document | null> {
+  const full = await bookingSale(bookingId);
+  if (!full || full.paymentStatus !== "paid" || amount <= 0) return null;
+  const total = roundMoney(amount);
+  const tax = full.taxRate ? await venueTax(full.venueId) : null;
+  return write({
+    venue_id: full.venueId,
+    kind: "credit_note",
+    source: `booking:${bookingId}:place:${withdrawalId}`,
+    credits_id: null,
+    credits_ref: full.code,
+    user_id: full.userId,
+    customer_name: full.name,
+    customer_phone: full.phone,
+    lines: JSON.stringify([{ description: `${who}, taken off ${full.code}`, amount: total }]),
+    total,
+    tax_name: full.taxRate ? tax!.name : null,
+    tax_rate: full.taxRate,
+    tax_amount: full.taxRate ? taxIncluded(total, full.taxRate) : 0,
+    tax_reg_no: full.taxRate ? tax!.regNo : null,
+    paid_via: paidVia(full.paidVia),
     note: why,
   });
 }

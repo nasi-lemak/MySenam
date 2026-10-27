@@ -1,6 +1,7 @@
 import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
-import { applyConcession, concessionById } from "@/lib/concessions";
+import { applyConcession, applyPlaceConcession, concessionById } from "@/lib/concessions";
+import { placeFor, readPlaceConcessions } from "@/lib/entitlements";
 import { phoneRefusal } from "@/lib/phone-check";
 import { readTime, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
@@ -17,7 +18,7 @@ import {
   getCourt,
   getVenue,
   payBookingFromWallet,
-  payBookingWithPass,
+  payBookingWithPasses,
   policyForCourt,
   requestedSpan,
 } from "@/lib/store";
@@ -58,8 +59,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override } =
+  const { courtId, venueId, sport, date, name, phone, email, weeks, skipConflicts, payFromWallet, payWithPass, promoCode, addons, coachId, marketing, moreCourts, concessionId, players, chargeTo, agreeWaiver, override, placeConcessions, payWithPasses } =
     (body ?? {}) as Record<string, unknown>;
+  // One person's own concession on their place, and one person's own pass for each place (lib/entitlements.ts).
+  const perPlace = readPlaceConcessions(placeConcessions);
+  if (perPlace === null)
+    return NextResponse.json({ error: "placeConcessions must be a list of { participantId (null for yourself), concessionId }." }, { status: 400 });
+  if (payWithPasses !== undefined && payWithPasses !== null && (!Array.isArray(payWithPasses) || payWithPasses.length > 13 || !payWithPasses.every((c) => typeof c === "string")))
+    return NextResponse.json({ error: "payWithPasses must be a list of pass codes." }, { status: 400 });
+  const passCodes = [...(Array.isArray(payWithPasses) ? (payWithPasses as string[]) : []), ...(typeof payWithPass === "string" ? [payWithPass] : [])].filter((c) => c.trim() !== "");
 
   // Either name a court, or name a venue and sport and let us pick the
   // cheapest one that is free.
@@ -215,6 +223,10 @@ export async function POST(req: NextRequest) {
           : undefined,
       preview: (await mayShowVenue(venueOfBooking, req)).preview,
       canPayOnline: await takesPaymentOnline(venueOfBooking),
+      // The venue's staff at its counter book anyone, as the venue's own rules say; each participant's membership is still asked.
+      atCounter: byStaff,
+      // Places on a shared session for people the account books for, not itself: each their own member (lib/entitlements.ts).
+      placesForOthers: !customerTakesPart && named.length > 0 && !anyCourt && !group && ((await getCourt(courtId as number))?.capacity ?? 1) > 1,
     });
     if (refused) return refusal(refused);
     // The venue's waiver, agreed to once per version (lib/waivers.ts): for everybody taking part, each their own.
@@ -248,7 +260,7 @@ export async function POST(req: NextRequest) {
   // Extras are checked before anything is held, so a racket that has run out
   // is said now, while the customer can still change their mind.
   if (chosen.length > 0) {
-    if (typeof payWithPass === "string" && payWithPass.trim() !== "")
+    if (passCodes.length > 0)
       return refusal({ ok: false, error: "A pass pays for court time only. Pay for a booking with extras another way.", code: "PASS_NOT_FOR_EXTRAS" });
     const court = anyCourt ? null : await getCourt(courtId as number);
     if (venueOfBooking !== undefined && (anyCourt || court)) {
@@ -352,6 +364,23 @@ export async function POST(req: NextRequest) {
       Object.assign(booking, (await getBookingById(booking.id)) ?? {});
     }
   }
+  // Each person's own concession, on their own place (a child's price for one child of three).
+  // On several courts, on the court that person is on.
+  for (const asked of perPlace) {
+    let applied = false;
+    for (const booking of result.bookings) {
+      if (!(await placeFor(booking.id, asked.participantId))) continue;
+      const done = await applyPlaceConcession(booking.id, asked.concessionId, asked.participantId);
+      if (!done.ok) {
+        if (!concessionError) concessionError = { error: done.error, code: done.code, vars: done.vars };
+        applied = true;
+        continue;
+      }
+      applied = true;
+      Object.assign(booking, (await getBookingById(booking.id)) ?? {});
+    }
+    if (!applied && !concessionError) concessionError = { error: "That person is not taking part in this booking.", code: "ENT_NOT_ON_BOOKING" };
+  }
 
   // A code is claimed before anything is settled, so paying from credit or a
   // pass charges the discounted figure. Like paying, it is best-effort: a code
@@ -403,11 +432,12 @@ export async function POST(req: NextRequest) {
   const payErrors: string[] = [];
   if (account) {
     // Paid on the invoice.
-  } else if (typeof payWithPass === "string" && payWithPass.trim() !== "") {
+  } else if (passCodes.length > 0) {
     // The pass itself proves entitlement: it must match the booking's phone
-    // number, which payBookingWithPass checks.
+    // number, which payBookingWithPasses checks. One person's pass pays that
+    // person's place, so a booking for several is paid by one such pass each.
     for (const booking of result.bookings) {
-      const paid = await payBookingWithPass(booking.id, payWithPass);
+      const paid = await payBookingWithPasses(booking.id, passCodes, { skipAbsent: group !== null });
       if (!paid.ok) payErrors.push(paid.error);
       else booking.paymentStatus = "paid";
     }

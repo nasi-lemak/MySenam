@@ -126,6 +126,44 @@ its own uses the court's. The price of a booking is worked out at its
 activity's rates, under its activity's peak hours and booking rules
 ([activities](activities.md#one-resource-several-activities)).
 
+## What a benefit applies to
+
+A pass, a concession and a membership plan's price each say what one use of
+them covers (`lib/entitlements.ts`;
+[ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)),
+chosen by staff when it is set up:
+
+| Covers | What one use pays or takes off | For example |
+| ------ | ------------------------------ | ----------- |
+| **The whole booking** (`booking`) | The reservation, whoever is on it | A court pass, a promotion, a venue's voucher, a member reserving a court |
+| **A resource hired whole** (`resource`, passes) | The resource's time, never places sold one by one | Ten hours of the hall |
+| **One person's place** (`participant`) | That person's place alone | A child's swim pass, one child's concession, a coaching pack for one person, a child's own membership |
+| **Each place** (`places`, passes) | Every place the booking takes, each one using it | A family pass spent per person |
+
+What it is good for stays said apart, as before: one sport, a lesson pack's
+coach. Promo codes and gift vouchers are always for the whole booking.
+Everything sold before this was set up is for the whole booking, and does
+exactly what it did.
+
+- **One person's place** has a price only where the booking is priced by
+  the place: places on a shared facility, players on a court priced per
+  player. Its share is the booking's court time as charged, split between
+  its places (fees, a coach's fee and extras stay with the booking; a
+  booking-wide discount is shared between the places). A guardian booking
+  three children on a pool at RM10 a place, one of them on a 50% child's
+  price, pays RM25. On a court hired whole nothing is priced per person:
+  one person's concession does not apply there, and the booking says why.
+- **Each redemption is kept per place** (`place_benefits`, and a pass's
+  spends name their place) and is made once: a second concession for one
+  place, a second spend for one place, or one spend given back twice is
+  refused by the database, however many requests arrive at once and from
+  wherever (the booking form, the counter, the venue's API key, a group of
+  courts).
+- **On the booking form** a concession for one person asks whose it is,
+  among those taking part. Through the API, `placeConcessions` names each
+  person's own, and `payWithPasses` pays with each one's own pass
+  ([HTTP API](../architecture/http-api.md)).
+
 ## Concession prices
 
 A student, senior, child or OKU price, under *Courts → Concession prices*
@@ -153,6 +191,14 @@ student card"), and optionally one sport or off-peak hours only.
   one discount: not with a promo code or a last-minute price. Where it does not
   apply (another sport, a peak hour), the booking stands at the full price and
   says why.
+- **For the whole booking, or one person's place.** Staff say which under
+  *Applies to* ([what a benefit applies to](#what-a-benefit-applies-to)).
+  One for one person's place comes off that person's share alone, on a
+  booking priced by the place; several people on one booking may each have
+  their own. Its proof is that person's: staff check it person by person
+  (*Student price for Alya: check their proof*), a proof seen is remembered
+  for that participant (`participant_concession_proofs`), and no proof
+  charges that place alone in full. The receipt names whose price it was.
 - **At the counter:** the booking shows *Student price (RM10 off): check proof*.
   Staff look at the card and press *Proof seen* (and say until when not to ask
   again: next visit, month end, year end or twelve months) or *No proof*. No
@@ -222,14 +268,35 @@ with a 20% code pays RM16.
 Cancelling a membership stops future discounts; bookings already made keep the
 price they were given.
 
-**A membership is its holder's.** It prices a booking its holder takes part
-in. A booking made only for somebody else on the member's number (a parent
-booking their child, [booking for somebody else](booking.md#booking-for-somebody-else))
-is at the public rate: a membership held against a number never covers a
-participant who is not its holder. Where the member takes part alongside
-others, the booking is at the member rate as before (a member's court, their
-guests on it). Who may book a members-only venue, and how far ahead a member
-may book, stay the booker's.
+**A membership is its holder's**, and of the people it names
+([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
+
+- **Whose.** The number's holder's own, as every membership sold before; or
+  a participant's own, sold at the counter on their guardian's number (a
+  child's swim-club membership; *Whose membership* under *Credit & passes →
+  Memberships*). A participant's membership is theirs alone: it never gives
+  the number's holder a member's price, window or entry.
+- **Whom else.** A family membership names the dependants it covers (*A
+  family membership also covers*), each a participant the venue knows with a
+  guardian on the holder's number. Nothing is inferred from a shared number
+  or surname, and the holder's own membership covers nobody it does not name.
+- **What its price covers**, the plan's (*and the price covers*, under *Plans
+  and tiers*): the whole booking its member takes part in (as every plan
+  before: a member reserving a court pays the member's price whoever else
+  plays), or the members' own places only, on a session priced by the place
+  (two places at RM10, the member's at their plan's 50%: RM15). A membership
+  on no plan is for the whole booking. On a court hired whole, a price for
+  members' own places applies only where the member is the only one on it.
+- A booking made only for people who are not members (a parent booking a
+  child the membership does not name,
+  [booking for somebody else](booking.md#booking-for-somebody-else)) is at
+  the public rate, whoever's number it is on. The quote says the same as the
+  booking, for the people named on it.
+
+Who may book a members-only venue, and how far ahead a member may book, are
+the account's: a member books a court for their children further ahead. A
+place on a members' session is each person's own to hold
+([who a venue is for](booking.md#who-a-venue-is-for-public-members-only-private)).
 
 ### Joining online
 
@@ -335,7 +402,15 @@ cannot spend the same entry:
   compared on digits with the country code folded away, so `+60 12-345 6789`
   and `012-345 6789` are the same person. The holder spends it on bookings
   they make, as they would credit: on a booking for their child, the holder
-  pays with it. An entry pays for the booking, not for each person on it;
+  pays with it;
+- what it covers fits the booking ([what a benefit applies to](#what-a-benefit-applies-to)):
+  a pass for the whole booking spends once for the booking, not for each
+  person on it (every pass sold before); one for a resource hired whole pays
+  no places sold one by one; one spent per place spends for each place the
+  booking takes; and one for one person's place (sold for the holder, or for
+  a participant they act for, *Whose place it pays*) pays only that person's
+  place, so a booking for several is paid by such passes only when each
+  place has its own. Each spend names its place and is given back once;
 - the booking is no longer than the pass allows, and enough remains for the
   whole of it. A pass pays in full or not at all — there is no part-paying a
   booking and owing the rest.
@@ -347,7 +422,10 @@ every cancellation path — by code, from an account, a whole series, an admin
 cancellation, and the enrolments released when a class is cancelled — and
 refunding twice is refused, so a double cancellation cannot mint entries. An
 expired pass is still credited: the ledger stays honest even when the entries
-can no longer be spent.
+can no longer be spent. Taking one person off a booking gives back their
+place's entries where the pass was spent per place, and nothing where it paid
+for the booking as a whole
+([taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
 
 Voiding a pass stops further spending but leaves spent entries spent; it is not
 a refund. Customers see their passes with a used/remaining meter on `/account`,

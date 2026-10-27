@@ -17,6 +17,8 @@ interface Concession {
   offPeakOnly: boolean;
   /** A built-in one used unchanged: customers read it in their own language. */
   preset: ConcessionPreset | null;
+  /** The whole booking, or one person's place on a booking priced by the place (lib/entitlements.ts). */
+  scope?: "booking" | "participant";
 }
 
 /**
@@ -34,9 +36,15 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
   const nameOf = (c: Concession) => (c.preset ? t(`con.preset.${c.preset}`) : c.name);
   const proofOf = (c: Concession) => (c.preset ? t(`con.proof.${c.preset}`) : c.proof);
   const [list, setList] = useState<Concession[] | null>(null);
-  const [form, setForm] = useState<{ name: string; percent: string; proof: string; sport: string; offPeakOnly: boolean; preset: ConcessionPreset | null }>(
-    { name: "", percent: "20", proof: "", sport: "", offPeakOnly: false, preset: null }
-  );
+  const [form, setForm] = useState<{
+    name: string;
+    percent: string;
+    proof: string;
+    sport: string;
+    offPeakOnly: boolean;
+    preset: ConcessionPreset | null;
+    scope: "booking" | "participant";
+  }>({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false, preset: null, scope: "booking" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -63,7 +71,7 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data));
-      setForm({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false, preset: null });
+      setForm({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false, preset: null, scope: "booking" });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
@@ -94,7 +102,8 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
               <span className="text-slate-600">
                 {t("con.percentOff", { percent: c.percent })}
                 {c.sport ? `, ${t("con.sportOnly", { sport: sportLabel(t.customer, c.sport) })}` : ""}
-                {c.offPeakOnly ? `, ${t("con.offPeakOnly")}` : ""} · {t("con.bring", { proof: proofOf(c) })}
+                {c.offPeakOnly ? `, ${t("con.offPeakOnly")}` : ""}
+                {c.scope === "participant" ? `, ${t("ent.con.onePlace")}` : ""} · {t("con.bring", { proof: proofOf(c) })}
               </span>
               <button onClick={() => void withdraw(c)} className="text-xs font-semibold text-red-600 underline">
                 {t("con.withdraw")}
@@ -162,6 +171,17 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
         <label className="flex items-center gap-1.5 pb-1.5 text-xs text-slate-600">
           <input type="checkbox" checked={form.offPeakOnly} onChange={(e) => setForm({ ...form, offPeakOnly: e.target.checked })} />
           {t("con.offPeakOnlyLabel")}
+        </label>
+        <label className="text-xs text-slate-600">
+          {t("ent.con.scope")}
+          <select
+            value={form.scope}
+            onChange={(e) => setForm({ ...form, scope: e.target.value === "participant" ? "participant" : "booking" })}
+            className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm"
+          >
+            <option value="booking">{t("ent.con.wholeBooking")}</option>
+            <option value="participant">{t("ent.con.onePlace")}</option>
+          </select>
         </label>
         <button
           disabled={busy || form.name.trim() === ""}
