@@ -303,6 +303,9 @@ const en = {
   "apr.retx2.formNote": "Record only what the reviewer's written advice says. One review is recorded for each jurisdiction ticked; a period or jurisdiction left out stays provisional.",
   "apr.retx2.hintProvisional": "Provisional where no review is recorded for {jurisdiction}.",
   "apr.retx2.hintRecorded": "A review is recorded for {jurisdiction} (by the platform owner, not verified by MySenam).",
+  "apr.scan3.retriedClean": "Scanned again: it passed, and can now be opened.",
+  "apr.scan3.retriedRejected": "Scanned again: the scan refused it, and its content was removed.",
+  "apr.scan3.retriedFailed": "Scanned again: it still could not be scanned.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -602,6 +605,9 @@ const ms: Record<keyof typeof en, string> = {
   "apr.retx2.formNote": "Rekodkan hanya apa yang dinyatakan dalam nasihat bertulis penyemak. Satu semakan direkodkan bagi setiap bidang kuasa yang ditanda; tempoh atau bidang kuasa yang tidak dipilih kekal sementara.",
   "apr.retx2.hintProvisional": "Sementara jika tiada semakan direkodkan bagi {jurisdiction}.",
   "apr.retx2.hintRecorded": "Semakan direkodkan bagi {jurisdiction} (oleh pemilik platform, tidak disahkan oleh MySenam).",
+  "apr.scan3.retriedClean": "Diimbas semula: ia lulus, dan kini boleh dibuka.",
+  "apr.scan3.retriedRejected": "Diimbas semula: imbasan menolaknya, dan kandungannya telah dibuang.",
+  "apr.scan3.retriedFailed": "Diimbas semula: ia masih tidak dapat diimbas.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -901,6 +907,9 @@ const zh: Record<keyof typeof en, string> = {
   "apr.retx2.formNote": "只记录审核人书面意见中所写的内容。每勾选一个司法管辖区就记录一项审核；未选的期限或司法管辖区仍为暂定。",
   "apr.retx2.hintProvisional": "{jurisdiction} 未记录审核的部分仍为暂定。",
   "apr.retx2.hintRecorded": "已为 {jurisdiction} 记录审核（由平台所有者记录，未经 MySenam 核实）。",
+  "apr.scan3.retriedClean": "已重新扫描：已通过，现在可以打开。",
+  "apr.scan3.retriedRejected": "已重新扫描：扫描拒绝了该文件，其内容已删除。",
+  "apr.scan3.retriedFailed": "已重新扫描：仍然无法扫描。",
 };
 
 const area = { en, ms, zh };

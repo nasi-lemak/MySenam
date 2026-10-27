@@ -10,11 +10,16 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
   const t = useStaffT();
   const [payouts, setPayouts] = useState<CoachPayout[] | null>(null);
   useEffect(() => {
+    // Only the latest venue and period asked for: an earlier answer arriving later is dropped.
+    let live = true;
     setPayouts(null);
     void fetch(`/api/admin/coach-payouts?venueId=${venueId}&from=${from}&to=${to}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { payouts: [] }))
-      .then((d) => setPayouts(d.payouts ?? []))
-      .catch(() => setPayouts([]));
+      .then((d) => live && setPayouts(d.payouts ?? []))
+      .catch(() => live && setPayouts([]));
+    return () => {
+      live = false;
+    };
   }, [venueId, from, to]);
   if (!payouts || payouts.length === 0) return null;
   return (

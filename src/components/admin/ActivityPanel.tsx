@@ -121,12 +121,17 @@ export function ActivityPanel({ venueId, from, to }: { venueId: number; from: st
   const [query, setQuery] = useState("");
 
   useEffect(() => {
+    // Only the latest venue and period asked for: an earlier answer arriving later is dropped.
+    let live = true;
     setActions(null);
     const params = new URLSearchParams({ venueId: String(venueId), from, to, limit: "300" });
     if (query) params.set("code", query);
     void fetch(`/api/admin/activity?${params}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { actions: [] }))
-      .then((d: { actions?: StaffAction[] }) => setActions(d.actions ?? []));
+      .then((d: { actions?: StaffAction[] }) => live && setActions(d.actions ?? []));
+    return () => {
+      live = false;
+    };
   }, [venueId, from, to, query]);
 
   return (
