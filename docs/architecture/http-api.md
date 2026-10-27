@@ -149,7 +149,7 @@ Account endpoints (session cookie):
 | GET    | `/api/my/bookings/withdraw` | `?bookingId` → who is on one of the account's bookings and whether each can be taken off now, as `GET /api/bookings/withdraw` |
 | POST   | `/api/my/bookings/withdraw` | `{bookingId, participantId \| customer: true \| unnamed: n}` → take them off one of the account's bookings, as `POST /api/bookings/withdraw` |
 | GET    | `/api/bookings/reschedule` | `?code&phone&date` → free start times that day; `409` (`RESCHEDULE_CUTOFF`, `RESCHEDULE_STARTED`) with no times once the booking may no longer be changed |
-| POST   | `/api/bookings/reschedule` | `{code, phone, date, start}` → change it   |
+| POST   | `/api/bookings/reschedule` | `{code, phone, date, start}` → change it (a lesson keeps its coach, who is told) |
 | GET    | `/api/my/venues`          | Private and members-only venues whose list counts this account: an entry linked to it, or on its proved number |
 | GET    | `/api/bookings/again`     | `?code` (own, signed in) or `?code&phone` → `{url}` |
 
@@ -171,8 +171,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/bookings/withdraw` | `{code, placeId \| participantId \| customer: true \| unnamed: n, reason?}` → take them off at the counter (up to the end of the booking, in full, online money back now as on a staff cancellation), the others staying booked; in the activity log (`booking.place_withdrawn`) and the participant's history; the customer is told by email |
 | GET    | `/api/admin/bookings/move`    | `?code=` → courts this booking could move to         |
 | POST   | `/api/admin/bookings/move`    | `{code, courtId}` → move it, keeping code and payment |
-| GET    | `/api/admin/bookings/reschedule` | `?code&date` → free start times that day          |
-| POST   | `/api/admin/bookings/reschedule` | `{code, date, start, courtId?, override?, preview?, reason?}` → change it; customer told; `override` (managers) outside the rules, recorded. `preview: true` → what it would do, changing nothing. A booking whose open game has players moves only with a manager's `reason`, which its players are told (403 for the front desk, 400 without one) ([moving a game](../features/matchmaking.md#moving-a-game-to-another-time)) |
+| GET    | `/api/admin/bookings/reschedule` | `?code&date&coachId?` → free start times that day (a lesson: when its coach, or `coachId`, is free) |
+| POST   | `/api/admin/bookings/reschedule` | `{code, date, start, courtId?, coachId?, override?, preview?, reason?}` → change it; customer told; a lesson moves with its coach, or to `coachId` while unpaid, the coaches told ([moving a lesson](../features/programmes.md#moving-a-lesson)); `override` (managers) outside the rules, recorded. `preview: true` → what it would do, changing nothing. A booking whose open game has players moves only with a manager's `reason`, which its players are told (403 for the front desk, 400 without one) ([moving a game](../features/matchmaking.md#moving-a-game-to-another-time)) |
 | GET    | `/api/admin/booking-link`     | `?venueId` → the venue's booking link                |
 | GET    | `/api/admin/activity`         | `?venueId&from&to&code` → the staff activity log (managers) |
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
@@ -485,7 +485,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/strikes` | `{ venueId, phone }`: this number's strikes here stop counting |
 | POST | `/api/admin/suspensions` | `{ venueId \| businessId, action: "suspend" \| "lift", reason? }` — the platform owner taking a venue or a whole business off the marketplace, or putting it back |
 | GET | `/api/admin/system` | What has gone wrong lately, for the platform owner |
-| GET | `/api/admin/integrity` | Platform owner: do bookings and the court time they hold agree, now? → `{ok, problems}` ([monitoring](../operations/monitoring.md)) |
+| GET | `/api/admin/integrity` | Do bookings and the court time they hold agree, now? The platform owner: every venue; a manager: their own venues only; front desk refused (`MANAGER_ONLY`) → `{ok, problems}` ([monitoring](../operations/monitoring.md)) |
 | GET | `/api/admin/activities` | `?venueId` → the activities that venue may offer, its own included; the platform owner may leave it out for the whole catalogue |
 | POST | `/api/admin/activities` | `{venueId, names: {en, ms?, zh?, ta?}, category, model, noun, icon?, aliases?, capacity?, perPlayer?, maxPlayers?}`: a venue's or business's own activity (managers; the platform owner adds to the catalogue); recorded |
 | PATCH | `/api/admin/activities` | `{key, …}`: change or retire (`active: false`) one's own activity; built-ins can only be retired, by the platform owner; recorded |

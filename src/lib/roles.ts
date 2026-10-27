@@ -72,6 +72,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   // and deciding whose an older induction is: a manager's, with a reason (ADR 0023).
   { path: /^\/api\/admin\/participants\/\d+$/, methods: ["PATCH"] },
   { path: /^\/api\/admin\/inductions\/\d+$/, methods: ["PATCH"] },
+  // Asking now whether bookings and court time agree at their venues: a manager's (lib/integrity.ts).
+  { path: /^\/api\/admin\/integrity$/, methods: "all" },
 ];
 
 export type StaffRole = "manager" | "desk";

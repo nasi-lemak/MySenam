@@ -246,6 +246,55 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
   return sent;
 }
 
+/**
+ * A lesson moved to another time (lib/store.ts rescheduleBooking): its coach,
+ * where they have an email, is told the old time and the new. Moved to
+ * another coach, the new one is told of a lesson booked with them and the
+ * one before that it is no longer theirs. Only once the coach had heard of
+ * the lesson (`coach-new:<id>`): before that, `notifyCoaches` tells whoever
+ * has it now, at its time now. Returns how many were queued.
+ */
+export async function notifyLessonMoved(bookingId: number, was: { date: string; startMin: number; endMin: number; coachId: number }): Promise<number> {
+  const db = getDb();
+  const r = (await db
+    .prepare(
+      `SELECT b.id, b.code, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.coach_id, b.demo,
+              c.name AS court, v.id AS venue_id, v.name AS venue,
+              EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id) AS told
+         FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id WHERE b.id = ?`
+    )
+    .get(bookingId)) as
+    | { id: number; code: string; date: string; start_min: number; end_min: number; name: string; coach_id: number | null; demo: number; court: string; venue_id: number; venue: string; told: boolean }
+    | undefined;
+  if (!r || r.coach_id === null || !r.told || r.demo) return 0;
+  const coaches = (await db.prepare("SELECT id, name, email FROM coaches WHERE id IN (?, ?)").all(r.coach_id, was.coachId)) as { id: number; name: string; email: string | null }[];
+  const coach = (id: number) => coaches.find((k) => k.id === id);
+  const when = (start: number, end: number) => `${formatHour(hoursOf(start))}–${formatHour(hoursOf(end))}`;
+  const common = { student: r.name, court: r.court, venue: r.venue, code: r.code };
+  const tell = async (to: { name: string; email: string | null } | undefined, subject: "fin6.msg.coachMovedSubject" | "msg.coachNewSubject" | "fin6.msg.coachHandedOverSubject", body: "fin6.msg.coachMoved" | "msg.coachNew" | "fin6.msg.coachHandedOver", vars: Record<string, string>) => {
+    if (!to?.email) return 0;
+    await enqueue({
+      venueId: r.venue_id,
+      bookingId: r.id,
+      kind: "coach_lesson",
+      channel: "email",
+      recipient: to.email,
+      locale: "en",
+      subject,
+      body,
+      vars: { name: to.name.split(/\s+/)[0], ...common, ...vars },
+    });
+    return 1;
+  };
+  const now = { date: r.date, time: when(r.start_min, r.end_min) };
+  if (r.coach_id === was.coachId)
+    return tell(coach(r.coach_id), "fin6.msg.coachMovedSubject", "fin6.msg.coachMoved", { ...now, was: `${was.date}, ${when(was.startMin, was.endMin)}` });
+  return (
+    (await tell(coach(r.coach_id), "msg.coachNewSubject", "msg.coachNew", now)) +
+    (await tell(coach(was.coachId), "fin6.msg.coachHandedOverSubject", "fin6.msg.coachHandedOver", { date: was.date, time: when(was.startMin, was.endMin) }))
+  );
+}
+
 // ------------------------------------------------------------ what coaches are owed
 
 export interface CoachPayout {

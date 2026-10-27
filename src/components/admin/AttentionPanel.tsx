@@ -131,7 +131,7 @@ export function AttentionPanel() {
                   <a href={`tel:${task.phone}`} className="text-teal-700 underline">
                     {task.phone}
                   </a>{" "}
-                  ({t(`gw5.att.why.${task.why}`)})
+                  ({task.why === "not_delivered" ? t("fin6.att.why.not_delivered") : t(`gw5.att.why.${task.why}`)})
                 </span>
                 <button type="button" onClick={() => void guardianTold(task.id)} className="font-semibold text-teal-700 underline">
                   {t("gw5.att.told")}

@@ -539,6 +539,10 @@ const en = {
   "stk.bk.failed": "Could not pay with those passes.",
   "stk.bk.tooLong": "That pass pays for bookings up to {len}.",
   "fin5.pp.codeLanguage": "Language of the code message",
+  "fin6.att.why.not_delivered": "the WhatsApp notice did not reach them",
+  "fin6.bk.coach": "Coach",
+  "fin6.bk.coachAsBooked": "{name} (as booked)",
+  "fin6.bk.coachHelp": "The times shown are when this coach takes lessons and is free. Another coach only while nothing has been paid on the lesson; the coaches are told.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1062,6 +1066,10 @@ const ms: Record<keyof typeof en, string> = {
   "stk.bk.failed": "Tidak dapat membayar dengan pas itu.",
   "stk.bk.tooLong": "Pas itu hanya untuk tempahan sehingga {len}.",
   "fin5.pp.codeLanguage": "Bahasa mesej kod",
+  "fin6.att.why.not_delivered": "notis WhatsApp tidak sampai kepada mereka",
+  "fin6.bk.coach": "Jurulatih",
+  "fin6.bk.coachAsBooked": "{name} (seperti ditempah)",
+  "fin6.bk.coachHelp": "Masa yang ditunjukkan ialah ketika jurulatih ini mengajar dan lapang. Jurulatih lain hanya selagi belum ada bayaran bagi kelas ini; jurulatih akan dimaklumkan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1585,6 +1593,10 @@ const zh: Record<keyof typeof en, string> = {
   "stk.bk.failed": "无法用这些次卡付款。",
   "stk.bk.tooLong": "该次卡只能支付最长{len}的预订。",
   "fin5.pp.codeLanguage": "验证码短信的语言",
+  "fin6.att.why.not_delivered": "WhatsApp 通知未能送达",
+  "fin6.bk.coach": "教练",
+  "fin6.bk.coachAsBooked": "{name}（原预订）",
+  "fin6.bk.coachHelp": "显示的时间为该教练授课且有空的时段。仅在课程尚未付款时可更换教练；教练会收到通知。",
 };
 
 const area = { en, ms, zh };

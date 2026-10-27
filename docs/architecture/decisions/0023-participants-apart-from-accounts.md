@@ -203,8 +203,10 @@
     with a guardian named by contact details only, the staff member who
     recorded the declaration, and the venue. A participant is visible to a
     venue that added them or has a booking, application, sign-off,
-    induction or waiver for them (the business's other branches too, as
-    sign-offs are shared), to their guardians and to their own login; never
+    induction or waiver for them (amended 27 October 2026: or a concession
+    proof seen there, or a membership or pass sold there that they hold or
+    that names them; [privacy](../privacy.md)) (the business's other
+    branches too, as sign-offs are shared), to their guardians and to their own login; never
     to other venues. Staff find participants only by a guardian's number,
     as candidates to choose from (`participantsForVenue`), never by
     browsing, and never as a match that decides anything.

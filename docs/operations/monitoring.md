@@ -21,10 +21,14 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   coach, or a booking for an activity its court no longer offers. It looks
   from yesterday on. Every write keeps the two together, so this finds
   nothing unless something went round the code (a hand-edited row, half a
-  restore). `GET /api/admin/integrity` asks again now, for the platform
-  owner, after putting it right; the owner's dashboard runs it from
+  restore). `GET /api/admin/integrity` asks again now, after putting it
+  right: for the platform owner, every venue; for a manager (a branch's, or
+  a business's), their own venues only, each kind looked for there alone, so
+  another venue's problems are never shown (a payment with no venue is the
+  owner's alone); front desk is refused. The dashboard runs it from
   *Booking integrity check* (`src/components/admin/IntegrityCheck.tsx`),
-  beside the system health and errors panels, listing each problem by kind,
+  beside the system health and errors panels for the owner, saying for a
+  manager that only their venues are checked, listing each problem by kind,
   venue and booking or class with the server's own description of it
   (in English, as the check writes it).
   The same check raises **refunds that are stuck**: one asked of the gateway

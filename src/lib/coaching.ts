@@ -223,13 +223,27 @@ export function coachWorks(coach: Coach, date: string, span: Span): boolean {
   return coach.hours.some((w) => w.weekday === weekdayOf(date) && span.start >= w.from && span.end <= w.until);
 }
 
-/** The time this coach is already in lessons on a date, in that day's minutes. */
-async function coachBusy(coachId: number, date: string, zone: string): Promise<Span[]> {
+/** The time this coach is already in lessons on a date, in that day's minutes (not counting booking `except`'s). */
+async function coachBusy(coachId: number, date: string, zone: string, except?: number): Promise<Span[]> {
   const day = `[${instantOf(date, -24 * 60, zone).toISOString()},${instantOf(date, LATEST_MINUTE + 24 * 60, zone).toISOString()})`;
   const rows = (await getDb()
-    .prepare(`SELECT lower(during) AS lo, upper(during) AS hi FROM coach_claims WHERE coach_id = ? AND active AND during && ?::tstzrange`)
-    .all(coachId, day)) as { lo: Date; hi: Date }[];
+    .prepare(
+      `SELECT lower(during) AS lo, upper(during) AS hi FROM coach_claims WHERE coach_id = ? AND active AND during && ?::tstzrange${except === undefined ? "" : " AND booking_id <> ?"}`
+    )
+    .all(coachId, day, ...(except === undefined ? [] : [except]))) as { lo: Date; hi: Date }[];
   return rows.map((r) => ({ start: minuteOfDay(new Date(r.lo), date, zone), end: minuteOfDay(new Date(r.hi), date, zone) }));
+}
+
+/**
+ * When this coach could take a lesson on a date, in that day's minutes: their
+ * hours that weekday, none on time off, less their other lessons (not
+ * `except`, a lesson being moved, whose own time counts as free). What a
+ * lesson may move to (lib/store.ts rescheduleOptions); the claim decides.
+ */
+export async function coachFreeSpans(coach: Coach, date: string, zone: string, except?: number): Promise<Span[]> {
+  if (coach.timeOff.some((o) => date >= o.from && date <= o.until)) return [];
+  const busy = await coachBusy(coach.id, date, zone, except);
+  return coach.hours.filter((w) => w.weekday === weekdayOf(date)).flatMap((w) => freeWithin({ start: w.from, end: w.until }, busy));
 }
 
 /**

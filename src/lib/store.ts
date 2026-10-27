@@ -60,6 +60,7 @@ import {
   isMinute,
   minutesOf,
   overlaps,
+  rangeLiteral,
   type Span,
 } from "./interval";
 import {
@@ -69,6 +70,7 @@ import {
   fits,
   inTheWayOf,
   isConflict,
+  lockCoach,
   lockCourts,
   occupantsOn,
   occupiedFor,
@@ -3108,6 +3110,8 @@ async function gameSharesPaid(bookingId: number): Promise<number> {
 class BookingChanged extends Error {}
 /** A preview: everything done, then undone. */
 class PreviewOnly extends Error {}
+/** A lesson's coach was booked for the new time while it was being moved. */
+class CoachTaken extends Error {}
 
 /** The parts of `span` that `taken` does not cover. */
 function outside(span: Span, taken: Span): Span[] {
@@ -3160,6 +3164,15 @@ function bookedAtOf(booking: Booking): number | undefined {
  * time's rate, up or down. A paid one keeps what was paid — a customer may not
  * move it somewhere dearer (they would be playing peak hours for an off-peak
  * price), and staff who do so have chosen not to charge the difference.
+ *
+ * A lesson moves with its coach (lib/coaching.ts), or, staff choosing
+ * (`coachId`), to another active coach of the venue for its sport while
+ * nothing has been paid on it: the coach must take lessons through the new
+ * time (their hours, not on time off), which no manager's override passes,
+ * and is claimed for it in the same transaction as the court, under the
+ * constraint that keeps a coach in one lesson at a time. Another coach's fee
+ * is theirs for its length, the price changing by the difference. The coach
+ * is told (lib/coach-schedule.ts notifyLessonMoved).
  */
 async function rescheduleBookingOnce(
   code: string,
@@ -3182,6 +3195,8 @@ async function rescheduleBookingOnce(
     hold?: { moveId: number; expiresAt: Date };
     /** Moving onto the time this proposal held. */
     fromHold?: number;
+    /** A lesson, staff only: to this coach of the venue instead of its own. */
+    coachId?: number;
   },
   by: "staff" | "customer"
 ): Promise<RescheduleResult> {
@@ -3211,8 +3226,14 @@ async function rescheduleBookingOnce(
   // who can square it with them. A game's players are asked themselves.
   const friendsPaid = booking.sharesPaid - (booking.depositPaid ?? 0) - (live ? await gameSharesPaid(booking.id) : 0);
   if (by === "customer" && friendsPaid > 0.005) return refuse("RESCHEDULE_SHARED");
-  // A coach's time is not the court's: moving it is a conversation with the venue.
-  if (booking.coachId) return refuse("RESCHEDULE_COACH");
+  // A lesson keeps its coach unless staff choose another; an open game's proposal never holds a coach's time.
+  if (to.coachId !== undefined && !booking.coachId) return refuse("COACH_NOT_FOUND");
+  if (booking.coachId && (to.hold || to.fromHold !== undefined)) return refuse("RESCHEDULE_COACH");
+  if (booking.coachId && to.coachId !== undefined && to.coachId !== booking.coachId) {
+    if (by === "customer") return refuse("RESCHEDULE_COACH");
+    // Money taken for one coach's lesson (a lesson pack for them, say) is not moved onto another's.
+    if (booking.paymentStatus === "paid" || booking.sharesPaid > 0.005) return refuse("RESCHEDULE_COACH_PAID");
+  }
   if (await hasOpenHire(booking.id)) return refuse("KIT_STILL_OUT");
 
   const fromCourt = await bookedCourt(booking);
@@ -3231,6 +3252,16 @@ async function rescheduleBookingOnce(
   if (by === "customer" && !isBookableDate(to.date, zone, await venueAheadDays(fromCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
   if (minutesUntil(to.date, span.start, zone) <= 0) return refuse("SLOT_PAST");
   if (await getVenueClosure(fromCourt.venueId, to.date)) return refuse("VENUE_CLOSED");
+  // A lesson: its coach (or the one staff chose) takes lessons through the new time; whether they are free is the claim's to say.
+  let lesson: { coachId: number; name: string; fee: number } | null = null;
+  if (booking.coachId) {
+    const { coachById, coachWorks } = await import("./coaching");
+    const coach = await coachById(to.coachId ?? booking.coachId);
+    if (!coach || !coach.active || coach.venueId !== fromCourt.venueId || !coach.sports.includes(booking.sport)) return refuse("COACH_NOT_FOUND");
+    if (!coachWorks(coach, to.date, span)) return refuse("COACH_NOT_WORKING", { name: coach.name });
+    lesson = { coachId: coach.id, name: coach.name, fee: coach.id === booking.coachId ? (booking.coachFee ?? 0) : roundMoney((coach.rate * length) / 60) };
+  }
+  const sameCoach = lesson === null || lesson.coachId === booking.coachId;
 
   // The courts it could go to, its own first.
   let candidates: Court[];
@@ -3256,8 +3287,8 @@ async function rescheduleBookingOnce(
     ];
   }
   const sameTime = to.date === booking.date && span.start === booking.startMin;
-  if (sameTime && candidates.length === 1 && candidates[0].id === fromCourt.id) return refuse("RESCHEDULE_SAME");
-  if (sameTime && to.courtId === undefined) return refuse("RESCHEDULE_SAME");
+  if (sameTime && sameCoach && candidates.length === 1 && candidates[0].id === fromCourt.id) return refuse("RESCHEDULE_SAME");
+  if (sameTime && sameCoach && to.courtId === undefined) return refuse("RESCHEDULE_SAME");
 
   const days = await courtDays(candidates, to.date);
   // Moved by the customer, re-priced on the same terms as booking online: a member's rate for their own proved or linked number.
@@ -3325,7 +3356,9 @@ async function rescheduleBookingOnce(
       continue;
     }
     if (notMember) breaches.push("MEMBERSHIP");
-    const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players).total - oldPrice) * 100) / 100;
+    // Another coach's fee in place of the one on it.
+    const feeChange = lesson ? lesson.fee - (booking.coachFee ?? 0) : 0;
+    const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players).total - oldPrice + feeChange) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
     // A payment page open for the old price would settle it short.
@@ -3346,11 +3379,12 @@ async function rescheduleBookingOnce(
         // Nothing changed since it was read: the game first, then the booking,
         // in the order every change to a game takes them (lib/games.ts).
         const g = live ? ((await db.prepare("SELECT status FROM open_games WHERE id = ? FOR UPDATE").get(game.id)) as { status: string }) : null;
-        const now = (await db.prepare("SELECT status, date, start_min, end_min, court_id FROM bookings WHERE id = ? FOR UPDATE").get(booking.id)) as {
-          status: string; date: string; start_min: number; end_min: number; court_id: number;
+        const now = (await db.prepare("SELECT status, date, start_min, end_min, court_id, coach_id FROM bookings WHERE id = ? FOR UPDATE").get(booking.id)) as {
+          status: string; date: string; start_min: number; end_min: number; court_id: number; coach_id: number | null;
         };
         if (now.status !== booking.status || now.date !== booking.date || now.start_min !== booking.startMin || now.end_min !== booking.endMin || now.court_id !== booking.courtId)
           throw new BookingChanged();
+        if ((now.coach_id ?? null) !== (booking.coachId ?? null)) throw new BookingChanged();
         if (g && g.status !== "cancelled" && !to.game) {
           const again = await gameUnder(booking.id);
           if (again && (again.players > 0 || (again.pendingMove !== null && again.pendingMove !== to.hold?.moveId))) throw new BookingChanged();
@@ -3425,6 +3459,20 @@ async function rescheduleBookingOnce(
           if (to.fromHold !== undefined) await unclaim({ kind: "move", moveId: to.fromHold });
           // The claims are what decide: a booking, class, block, waiting-list offer or held move there refuses it.
           await reclaimBooking(booking, court, to.date, span, zone, day.policy);
+          if (lesson) {
+            // The coach for the new time, after the courts (the order every claim locks in): taken, and the move is refused.
+            await lockCoach(lesson.coachId);
+            await db.prepare("DELETE FROM coach_claims WHERE booking_id = ?").run(booking.id);
+            try {
+              await db
+                .prepare("INSERT INTO coach_claims (coach_id, booking_id, during) VALUES (?, ?, ?::tstzrange)")
+                .run(lesson.coachId, booking.id, rangeLiteral(to.date, span.start, span.end, zone));
+            } catch (err) {
+              if (isConflict(err)) throw new CoachTaken();
+              throw err;
+            }
+            await db.prepare("UPDATE bookings SET coach_id = ?, coach_fee = ? WHERE id = ?").run(lesson.coachId, lesson.fee, booking.id);
+          }
           if (breaches.length > 0) await db.prepare("UPDATE bookings SET policy_override = true WHERE id = ?").run(booking.id);
           await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(priceChange, booking.id);
           // A called-off game keeps where and when it was, not where its booking went.
@@ -3440,10 +3488,13 @@ async function rescheduleBookingOnce(
     } catch (err) {
       if (err instanceof PreviewOnly) return { ...result, booking, preview: true };
       if (err instanceof BookingChanged) return refuse("RESCHEDULE_CHANGED");
+      if (err instanceof CoachTaken) return refuse("COACH_TAKEN", { name: lesson?.name ?? "" });
       if (isConflict(err)) continue;
       throw err;
     }
     if (to.hold) return { ...result, booking, held: true };
+    // The coach hears of it: the new time, or (another coach) the lesson now theirs and no longer the other's.
+    if (lesson) await (await import("./coach-schedule")).notifyLessonMoved(booking.id, { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, coachId: booking.coachId! });
     // The time it left may now be free for somebody waiting on it.
     await offerSlotPlace(fromCourt.id, booking.date);
     // A game with nobody in it yet went with its booking: whoever asked, was
@@ -3459,7 +3510,9 @@ async function rescheduleBookingOnce(
  * The start times a booking could be changed to on a date: each start a
  * court of its sport allows where it is free for the booking's whole length,
  * its own court first, with what the court time would cost and how that
- * compares with now.
+ * compares with now. A lesson's, only while its coach (or `coachId`, another
+ * staff may choose) takes lessons and is in no other; the difference then
+ * includes that coach's fee in place of the one on it.
  */
 export interface RescheduleOption {
   startMin: number;
@@ -3472,14 +3525,26 @@ export interface RescheduleOption {
   difference: number;
 }
 
-export async function rescheduleOptions(code: string, date: string): Promise<RescheduleOption[]> {
+export async function rescheduleOptions(code: string, date: string, opts: { coachId?: number } = {}): Promise<RescheduleOption[]> {
   const booking = await bookingByCode(code);
   if (!booking || booking.status === "cancelled" || booking.classId !== null) return [];
+  if (opts.coachId !== undefined && !booking.coachId) return [];
   const court = await bookedCourt(booking);
   if (!court) return [];
   const { zone } = await venueHours(court.venueId);
   if (!isBookableDate(date, zone, await venueAheadDays(court.venueId)) || (await getVenueClosure(court.venueId, date))) return [];
   const length = booking.endMin - booking.startMin;
+  // A lesson: when its coach (or the one chosen) is free to take it, its own time counting as free.
+  let coachFree: Span[] | null = null;
+  let feeChange = 0;
+  const otherCoach = booking.coachId && opts.coachId !== undefined && opts.coachId !== booking.coachId;
+  if (booking.coachId) {
+    const { coachById, coachFreeSpans } = await import("./coaching");
+    const coach = await coachById(opts.coachId ?? booking.coachId);
+    if (!coach || !coach.active || coach.venueId !== court.venueId || !coach.sports.includes(booking.sport)) return [];
+    coachFree = await coachFreeSpans(coach, date, zone, booking.id);
+    if (otherCoach) feeChange = roundMoney((coach.rate * length) / 60) - (booking.coachFee ?? 0);
+  }
   const member = await memberPricing(court.venueId, booking.phone, date);
   const rules = await peakRules(court.venueId);
   const players = booking.players ?? 1;
@@ -3502,10 +3567,11 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
     const day = days.get(c.id)!;
     if (day.closed) continue;
     for (const start of startsWithin(day.policy, day.openMin, day.closeMin - length + 1)) {
-      if (options.has(start) || (date === booking.date && start === booking.startMin)) continue;
+      if (options.has(start) || (date === booking.date && start === booking.startMin && !otherCoach)) continue;
       if (minutesUntil(date, start, zone) <= 0) continue;
       const span = { start, end: start + length };
       if (policyBreaches(day.policy, span, day, minutesUntil(date, start, zone)).length > 0) continue;
+      if (coachFree && !coachFree.some((f) => f.start <= span.start && span.end <= f.end)) continue;
       if (!fits(held.get(c.id)!, c.capacity, span, policyBuffers(day.policy), own, players)) continue;
       const price = quoteBooking(c, day.policy, date, span, member, rules, undefined, players).total;
       options.set(start, {
@@ -3514,7 +3580,7 @@ export async function rescheduleOptions(code: string, date: string): Promise<Res
         courtId: c.id,
         courtName: c.name,
         price,
-        difference: Math.round((price - now) * 100) / 100,
+        difference: Math.round((price - now + feeChange) * 100) / 100,
       });
     }
   }

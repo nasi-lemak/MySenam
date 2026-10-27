@@ -268,7 +268,8 @@ export default function AdminPage() {
 
       {isOwner && <SystemHealth />}
       {isOwner && <ErrorsPanel />}
-      {isOwner && <IntegrityCheck venues={venues} />}
+      {/* The owner for every venue; a manager for their own (front desk is refused). */}
+      {!desk && <IntegrityCheck venues={venues} own={!isOwner} />}
       {isOwner && <PlayerReportsPanel />}
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
       {/* One for each branch still being set up; each disappears once its branch is ready. */}

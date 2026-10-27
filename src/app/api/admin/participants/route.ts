@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
  * Participants at the counter (lib/participants.ts; ADR 0023).
  *
  * `?venueId&phone`: the participants this venue knows (added here, or with a
- * booking, application, sign-off, induction or waiver here or at another
- * branch of its business) whose guardian is on that number, for staff to
+ * booking, application, sign-off, induction, waiver, concession proof,
+ * membership or pass here or at another branch of its business) whose guardian is on that number, for staff to
  * choose from: a child to induct or sign off, never a match that decides
  * anything by itself. A number is needed: no browsing. Each with the
  * guardian requests still open for them (lib/guardian-requests.ts).

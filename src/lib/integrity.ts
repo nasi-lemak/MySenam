@@ -46,19 +46,32 @@ export interface IntegrityProblem {
 /** At most this many of each kind: enough to act on, never a page that will not load. */
 const EACH = 50;
 
-export async function checkIntegrity(): Promise<IntegrityProblem[]> {
+/**
+ * Everything wrong, or (`venueIds`, a venue manager's own venues) only what
+ * is wrong at those venues: each kind looked for there alone, so another
+ * venue's problems neither show nor crowd theirs out of the 50. A problem
+ * with no venue (a payment for none) is the platform owner's alone.
+ */
+export async function checkIntegrity(venueIds: number[] | null = null): Promise<IntegrityProblem[]> {
   const db = getDb();
   const from = addDays(todayISO(), -1);
   const problems: IntegrityProblem[] = [];
+  if (venueIds !== null && venueIds.length === 0) return problems;
+  /** SQL: `column` is one of the venues asked about (nothing to add for every venue), with its arguments. */
+  const at = (column: string): [string, number[]] =>
+    venueIds === null ? ["", []] : [` AND ${column} IN (${venueIds.map(() => "?").join(",")})`, venueIds];
+  const [courtAt, courtArgs] = at("c.venue_id");
+  const [claimAt, claimArgs] = at("cl.venue_id");
+  const [payAt, payArgs] = at("p.venue_id");
 
   const unheld = (await db
     .prepare(
       `SELECT b.id, c.venue_id, b.code, b.date FROM bookings b JOIN courts c ON c.id = b.court_id
-        WHERE b.status = 'confirmed' AND b.class_id IS NULL AND b.date >= ?
+        WHERE b.status = 'confirmed' AND b.class_id IS NULL AND b.date >= ?${courtAt}
           AND NOT EXISTS (SELECT 1 FROM claims cl WHERE cl.booking_id = b.id AND cl.active)
         ORDER BY b.date, b.id LIMIT ${EACH}`
     )
-    .all(from)) as { id: number; venue_id: number; code: string; date: string }[];
+    .all(from, ...courtArgs)) as { id: number; venue_id: number; code: string; date: string }[];
   for (const b of unheld)
     problems.push({ kind: "booking_unheld", venueId: b.venue_id, bookingId: b.id, detail: `${b.code} on ${b.date} holds no court time` });
 
@@ -71,10 +84,10 @@ export async function checkIntegrity(): Promise<IntegrityProblem[]> {
          JOIN courts c ON c.id = b.court_id
          JOIN claims cl ON cl.booking_id = b.id AND cl.active
          JOIN venues v ON v.id = c.venue_id
-        WHERE b.status = 'confirmed' AND b.class_id IS NULL AND b.date >= ?
+        WHERE b.status = 'confirmed' AND b.class_id IS NULL AND b.date >= ?${courtAt}
         ORDER BY b.date, b.id`
     )
-    .all(from)) as {
+    .all(from, ...courtArgs)) as {
     id: number;
     venue_id: number;
     code: string;
@@ -109,49 +122,49 @@ export async function checkIntegrity(): Promise<IntegrityProblem[]> {
   const orphaned = (await db
     .prepare(
       `SELECT DISTINCT b.id, cl.venue_id, b.code, b.date FROM claims cl JOIN bookings b ON b.id = cl.booking_id
-        WHERE cl.active AND b.status <> 'confirmed' AND b.date >= ? ORDER BY b.date, b.id LIMIT ${EACH}`
+        WHERE cl.active AND b.status <> 'confirmed' AND b.date >= ?${claimAt} ORDER BY b.date, b.id LIMIT ${EACH}`
     )
-    .all(from)) as { id: number; venue_id: number; code: string; date: string }[];
+    .all(from, ...claimArgs)) as { id: number; venue_id: number; code: string; date: string }[];
   for (const b of orphaned)
     problems.push({ kind: "claim_orphaned", venueId: b.venue_id, bookingId: b.id, detail: `${b.code} on ${b.date} is cancelled but still holds its court` });
 
   const notOffered = (await db
     .prepare(
       `SELECT b.id, c.venue_id, b.code, b.date, b.sport, c.name FROM bookings b JOIN courts c ON c.id = b.court_id
-        WHERE b.status = 'confirmed' AND b.date >= ?
+        WHERE b.status = 'confirmed' AND b.date >= ?${courtAt}
           AND NOT EXISTS (SELECT 1 FROM court_activities ca WHERE ca.court_id = b.court_id AND ca.sport = b.sport)
         ORDER BY b.date, b.id LIMIT ${EACH}`
     )
-    .all(from)) as { id: number; venue_id: number; code: string; date: string; sport: string; name: string }[];
+    .all(from, ...courtArgs)) as { id: number; venue_id: number; code: string; date: string; sport: string; name: string }[];
   for (const b of notOffered)
     problems.push({ kind: "activity_not_offered", venueId: b.venue_id, bookingId: b.id, detail: `${b.code} on ${b.date} is ${b.sport}, which ${b.name} no longer offers` });
 
   const coach = (await db
     .prepare(
       `SELECT DISTINCT b.id, c.venue_id, b.code, b.date FROM coach_claims cc JOIN bookings b ON b.id = cc.booking_id JOIN courts c ON c.id = b.court_id
-        WHERE cc.active AND b.status <> 'confirmed' AND b.date >= ? ORDER BY b.date, b.id LIMIT ${EACH}`
+        WHERE cc.active AND b.status <> 'confirmed' AND b.date >= ?${courtAt} ORDER BY b.date, b.id LIMIT ${EACH}`
     )
-    .all(from)) as { id: number; venue_id: number; code: string; date: string }[];
+    .all(from, ...courtArgs)) as { id: number; venue_id: number; code: string; date: string }[];
   for (const b of coach)
     problems.push({ kind: "coach_orphaned", venueId: b.venue_id, bookingId: b.id, detail: `${b.code} on ${b.date} is cancelled but still holds its coach` });
 
   const classUnheld = (await db
     .prepare(
       `SELECT k.id, c.venue_id, k.name AS title, k.date FROM classes k JOIN courts c ON c.id = k.court_id
-        WHERE k.status = 'scheduled' AND k.date >= ?
+        WHERE k.status = 'scheduled' AND k.date >= ?${courtAt}
           AND NOT EXISTS (SELECT 1 FROM claims cl WHERE cl.class_id = k.id AND cl.active)
         ORDER BY k.date, k.id LIMIT ${EACH}`
     )
-    .all(from)) as { id: number; venue_id: number; title: string; date: string }[];
+    .all(from, ...courtArgs)) as { id: number; venue_id: number; title: string; date: string }[];
   for (const k of classUnheld)
     problems.push({ kind: "class_unheld", venueId: k.venue_id, classId: k.id, detail: `${k.title} on ${k.date} holds no court time` });
 
   const classOrphaned = (await db
     .prepare(
       `SELECT DISTINCT k.id, cl.venue_id, k.name AS title, k.date FROM claims cl JOIN classes k ON k.id = cl.class_id
-        WHERE cl.active AND k.status <> 'scheduled' AND k.date >= ? ORDER BY k.date, k.id LIMIT ${EACH}`
+        WHERE cl.active AND k.status <> 'scheduled' AND k.date >= ?${claimAt} ORDER BY k.date, k.id LIMIT ${EACH}`
     )
-    .all(from)) as { id: number; venue_id: number; title: string; date: string }[];
+    .all(from, ...claimArgs)) as { id: number; venue_id: number; title: string; date: string }[];
   for (const k of classOrphaned)
     problems.push({ kind: "class_orphaned", venueId: k.venue_id, classId: k.id, detail: `${k.title} on ${k.date} is cancelled but still holds its court` });
 
@@ -161,24 +174,24 @@ export async function checkIntegrity(): Promise<IntegrityProblem[]> {
     .prepare(
       `SELECT p.id, COALESCE(p.venue_id, 0) AS venue_id, p.bill_id, r.amount::float AS amount, r.created_at FROM online_refunds r
          JOIN online_payments p ON p.id = r.payment_id
-        WHERE r.provider_ref LIKE 'claim:%' AND r.created_at < datetime('now', '-60 minutes') ORDER BY r.id LIMIT ${EACH}`
+        WHERE r.provider_ref LIKE 'claim:%' AND r.created_at < datetime('now', '-60 minutes')${payAt} ORDER BY r.id LIMIT ${EACH}`
     )
-    .all()) as { id: number; venue_id: number; bill_id: string; amount: number; created_at: string }[];
+    .all(...payArgs)) as { id: number; venue_id: number; bill_id: string; amount: number; created_at: string }[];
   for (const r of unanswered)
     problems.push({ kind: "refund_unanswered", venueId: r.venue_id, detail: `A refund of ${r.amount.toFixed(2)} on payment ${r.bill_id}, asked for at ${r.created_at}, has had no answer from the gateway` });
   const overdue = (await db
     .prepare(
       `SELECT p.id, COALESCE(p.venue_id, 0) AS venue_id, p.bill_id, (p.refund_due - p.refunded)::float AS owed FROM online_payments p
-        WHERE p.refund_due > p.refunded AND COALESCE(p.paid_at, p.created_at) < datetime('now', '-7 days') ORDER BY p.id LIMIT ${EACH}`
+        WHERE p.refund_due > p.refunded AND COALESCE(p.paid_at, p.created_at) < datetime('now', '-7 days')${payAt} ORDER BY p.id LIMIT ${EACH}`
     )
-    .all()) as { id: number; venue_id: number; bill_id: string; owed: number }[];
+    .all(...payArgs)) as { id: number; venue_id: number; bill_id: string; owed: number }[];
   const failed = (await db
     .prepare(
       `SELECT COALESCE(p.venue_id, 0) AS venue_id, p.bill_id, r.amount::float AS amount, r.failed_at FROM online_refunds r
          JOIN online_payments p ON p.id = r.payment_id
-        WHERE r.failed_at > datetime('now', '-30 days') AND p.refund_due > p.refunded ORDER BY r.id LIMIT ${EACH}`
+        WHERE r.failed_at > datetime('now', '-30 days') AND p.refund_due > p.refunded${payAt} ORDER BY r.id LIMIT ${EACH}`
     )
-    .all()) as { venue_id: number; bill_id: string; amount: number; failed_at: string }[];
+    .all(...payArgs)) as { venue_id: number; bill_id: string; amount: number; failed_at: string }[];
   for (const r of failed)
     problems.push({ kind: "refund_failed", venueId: r.venue_id, detail: `A refund of ${r.amount.toFixed(2)} on payment ${r.bill_id} failed at the gateway on ${r.failed_at}; the money is owed again` });
   for (const r of overdue)

@@ -39,7 +39,8 @@ import { todayISO } from "./time";
  *
  * Who sees a participant: their guardians (live relationships), their linked
  * account, and venues they have dealings with (created there, or a booking,
- * application, sign-off, induction or waiver there; the business's other
+ * application, sign-off, induction, waiver, concession proof, membership or
+ * pass there: `KNOWN_TO`; the business's other
  * branches too, as sign-offs are shared) — never other venues, other
  * customers or opponents, and never discovery or matchmaking. A coach sees a
  * child only in their own lessons and the applications they review
@@ -373,7 +374,13 @@ export async function createAtVenue(input: {
 /** SQL: the venues whose staff see what venue `?` sees: it, and its business's other branches. */
 const SCOPE = `(SELECT v2.id FROM venues v2 WHERE v2.id = ? OR (v2.business_id IS NOT NULL AND v2.business_id = (SELECT v3.business_id FROM venues v3 WHERE v3.id = ?)))`;
 
-/** SQL: participant `p` is known to venue `?` (thirteen times the venue's id, in order: `knownArgs`). */
+/**
+ * SQL: participant `p` is known to venue `?` (the venue's id `KNOWN_TO_ARGS`
+ * times: `knownArgs`): recorded there, or linked to it (or a branch of its
+ * business) by a booking, an approval, a sign-off, an induction, a waiver, a
+ * concession proof seen there, or a membership or pass sold there that they
+ * hold or are named on.
+ */
 export const KNOWN_TO = `(p.venue_id IN ${SCOPE}
   OR EXISTS (SELECT 1 FROM booking_participants bp JOIN bookings b ON b.id = bp.booking_id JOIN courts c ON c.id = b.court_id
               WHERE bp.participant_id = p.id AND c.venue_id IN ${SCOPE})
@@ -382,8 +389,14 @@ export const KNOWN_TO = `(p.venue_id IN ${SCOPE}
               AND (s.venue_id IN ${SCOPE} OR s.business_id = (SELECT v4.business_id FROM venues v4 WHERE v4.id = ?)))
   OR EXISTS (SELECT 1 FROM inductions i WHERE i.participant_id = p.id AND i.venue_id IN ${SCOPE})
   OR EXISTS (SELECT 1 FROM waiver_signatures ws JOIN venue_waivers w ON w.id = ws.waiver_id
-              WHERE ws.managed_person_id = p.id AND w.venue_id IN ${SCOPE}))`;
-export const knownArgs = (venueId: number) => [venueId, venueId, venueId, venueId, venueId, venueId, venueId, venueId, venueId, venueId, venueId, venueId, venueId];
+              WHERE ws.managed_person_id = p.id AND w.venue_id IN ${SCOPE})
+  OR EXISTS (SELECT 1 FROM participant_concession_proofs cp WHERE cp.participant_id = p.id AND cp.venue_id IN ${SCOPE})
+  OR EXISTS (SELECT 1 FROM memberships m WHERE m.holder_participant_id = p.id AND m.venue_id IN ${SCOPE})
+  OR EXISTS (SELECT 1 FROM membership_participants mp JOIN memberships m2 ON m2.id = mp.membership_id
+              WHERE mp.participant_id = p.id AND m2.venue_id IN ${SCOPE})
+  OR EXISTS (SELECT 1 FROM passes ps WHERE ps.holder_participant_id = p.id AND ps.venue_id IN ${SCOPE}))`;
+const KNOWN_TO_ARGS = 21;
+export const knownArgs = (venueId: number) => Array<number>(KNOWN_TO_ARGS).fill(venueId);
 
 /** May this venue's staff see (and act at the counter for) this participant? */
 export async function visibleToVenue(venueId: number, participantId: number): Promise<boolean> {

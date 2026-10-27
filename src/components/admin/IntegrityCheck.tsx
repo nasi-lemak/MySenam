@@ -6,13 +6,14 @@ import { localTime, type ManagedVenue } from "./shared";
 import { useStaffT } from "./StaffLanguage";
 
 /**
- * The platform owner asks now whether bookings and the court time they hold
- * agree, and whether refunds are stuck (`GET /api/admin/integrity`,
- * lib/integrity.ts): the same check the scheduler makes once a day and
- * raises as an alert, to run again after putting something right
- * (docs/operations/monitoring.md).
+ * Ask now whether bookings and the court time they hold agree, and whether
+ * refunds are stuck (`GET /api/admin/integrity`, lib/integrity.ts): the same
+ * check the scheduler makes once a day and raises as an alert, to run again
+ * after putting something right (docs/operations/monitoring.md). The
+ * platform owner's covers every venue; a manager's (`own`) only their own
+ * venues, which the server decides.
  */
-export function IntegrityCheck({ venues }: { venues: ManagedVenue[] }) {
+export function IntegrityCheck({ venues, own = false }: { venues: ManagedVenue[]; own?: boolean }) {
   const t = useStaffT();
   const [problems, setProblems] = useState<IntegrityProblem[] | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
@@ -49,6 +50,7 @@ export function IntegrityCheck({ venues }: { venues: ManagedVenue[] }) {
         )}
       </summary>
       <p className="mt-2 text-slate-600">{t("ow5.int.intro")}</p>
+      {own && <p className="mt-1 text-xs text-slate-500">{t("fin6.int.own")}</p>}
       <button
         onClick={() => void check()}
         disabled={busy}

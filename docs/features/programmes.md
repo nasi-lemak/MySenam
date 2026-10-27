@@ -100,9 +100,9 @@ booking is paid.
 - **Weekly lessons**, for a signed-in customer, as with a weekly court:
   *Repeat* on the lesson form books the same time for up to 8 weeks
   (`MAX_RECUR_WEEKS`), and a week the coach or every court is already taken
-  is skipped and listed (`skipConflicts`). Nobody can move a lesson to
-  another time, staff included (`RESCHEDULE_COACH`): it is cancelled and
-  booked again. Staff can move it to another court at the same time.
+  is skipped and listed (`skipConflicts`). A lesson can be moved to another
+  time, by the customer or staff ([moving a lesson](#moving-a-lesson)),
+  and staff can move it to another court at the same time.
 - **For somebody else.** A lesson can be booked for people the adult manages
   (or by staff for a child the venue knows), as any booking
   ([booking for somebody else](booking.md#booking-for-somebody-else)): the
@@ -111,6 +111,50 @@ booking is paid.
   part (the booking's participants), with the adult's number to reach them.
 - Staff see *🎓 Lesson with Ana Lim* on the booking, and the staff calendar
   feed names the coach. *Stop* retires a coach; lessons already booked stand.
+
+### Moving a lesson
+
+A lesson moves the way any booking changes its date or time
+([changing the date or time](booking.md#changing-the-date-or-time),
+`rescheduleBooking` in `src/lib/store.ts`), with its coach:
+
+- **Its coach goes with it.** Only times the coach takes lessons through
+  (their week's hours, not on time off) and is in no other lesson are
+  offered (`rescheduleOptions`, `coachFreeSpans` in `src/lib/coaching.ts`),
+  as well as times a court of the sport is free; its own time counts as
+  free. The coach's time is claimed again with the court's, in the same
+  transaction, under the constraint that keeps a coach in one lesson at a
+  time: a lesson or a move that took that time first, at the same moment,
+  refuses this one (*Ana Lim has just been booked*, `COACH_TAKEN`), and the
+  lesson stays where it was. The coach's hours are never passed, not even
+  with a manager's override of the court's rules (`COACH_NOT_WORKING`).
+- **The customer** moves their own from `/my-booking` up to the venue's
+  cancellation cutoff, as any booking; the panel says the lesson keeps its
+  coach. They cannot choose another coach (`RESCHEDULE_COACH`).
+- **Staff** use *Change time*: front desk or a manager, keeping the coach,
+  or choosing another active coach of the venue for the sport (*Coach* above
+  the times, `coachId`), whose hours and lessons then decide the times
+  offered. Another coach only while nothing is paid on the lesson
+  (`RESCHEDULE_COACH_PAID`: a payment or a lesson pack was for the coach
+  booked; cancel and book again instead); the new coach's fee for its
+  length replaces the old one, and the price changes by the difference,
+  shown before it is made. A retired coach, or one who does not coach the
+  sport, is refused (`COACH_NOT_FOUND`). The activity log names the new
+  coach.
+- **The price** follows the court time as for any booking: unpaid, repriced
+  at the new time; paid, kept, the customer unable to move somewhere dearer.
+  The coach's fee stays as booked with the same coach.
+- **The coach is told** by email, where they have one, once they had heard
+  of the lesson (`notifyLessonMoved` in `src/lib/coach-schedule.ts`): the
+  old time and the new; given to another coach, the new one hears of a
+  lesson booked with them and the old one that it is no longer theirs.
+  Before the coach had heard of it, the scheduler's *new lesson* email tells
+  whoever has it, at its time then. Their schedule link and calendar feed
+  always show it where it is now.
+
+Tests: `tests/lesson-moves.test.ts` (with the coach, refusals, another coach,
+paid, the coach told, and a move racing a new lesson for the coach's time),
+`tests/coaching.test.ts`, `tests/components/lesson-coach.test.tsx`.
 
 ### Lesson packs
 

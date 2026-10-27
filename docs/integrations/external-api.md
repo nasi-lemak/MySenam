@@ -49,8 +49,9 @@ approvals, as the venue's own staff would check them. What a key can do is
 bounded so that it never stands in for a guardian:
 
 - Only participants the venue already knows (added at its counter, or with a
-  booking, application, sign-off, induction or waiver there or at another
-  branch of its business); anybody else is *not found* (404). A key creates
+  booking, application, sign-off, induction, waiver, concession proof,
+  membership or pass there or at another branch of its business; see
+  [privacy](../architecture/privacy.md)); anybody else is *not found* (404). A key creates
   no participant and reaches no other venue's.
 - `phone` must be a live guardian's of every participant named (their
   account's number, or the number staff recorded with the guardian's

@@ -1622,7 +1622,7 @@ const EN = {
   "err.COACH_NOT_WORKING": "{name} does not take lessons at that time. Pick one of the times shown.",
   "err.COACH_TAKEN": "{name} has just been booked for that time. Pick another.",
   "err.COACH_ONE_WEEK": "Book lessons one at a time.",
-  "err.RESCHEDULE_COACH": "A lesson with a coach is moved by the venue. Please call them.",
+  "err.RESCHEDULE_COACH": "A lesson's coach is changed by the venue. Please ask them.",
   "coach.title": "Coaching",
   "coach.intro": "One-to-one lessons. The court is found for you; the coach's fee goes on top of its price.",
   "coach.rate": "{amount} an hour, plus the court",
@@ -2483,6 +2483,12 @@ const EN = {
   "fin5.who.partnerOf": "{name}'s partner is",
   "fin5.tour.payFeeFor": "Pay {name}'s {cur}{amount} entry",
   "fin5.leag.payFeeFor": "Pay {name}'s {cur}{amount} fee",
+  "err.RESCHEDULE_COACH_PAID": "A lesson already paid for keeps its coach. To change the coach, cancel it and book again.",
+  "fin6.msg.coachMovedSubject": "Moved: lesson now on {date}, {time}",
+  "fin6.msg.coachMoved": "Hi {name}, the lesson with {student} has moved from {was} to {date}, {time} ({court}, {venue}). Booking {code}.\n\nYour whole schedule is at the private link the venue gave you.",
+  "fin6.msg.coachHandedOverSubject": "No longer yours: lesson on {date}, {time}",
+  "fin6.msg.coachHandedOver": "Hi {name}, the lesson with {student} on {date}, {time} ({court}, {venue}) is now with another coach, and no longer in your schedule. Booking {code}.",
+  "fin6.lessonKeepsCoach": "Your lesson keeps its coach: the times shown are when they take lessons and are free. To change the coach, ask the venue.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4056,7 +4062,7 @@ const MS: Record<Phrase, string> = {
   "err.COACH_NOT_WORKING": "{name} tidak mengambil kelas pada masa itu. Pilih salah satu masa yang ditunjukkan.",
   "err.COACH_TAKEN": "{name} baru sahaja ditempah untuk masa itu. Pilih masa lain.",
   "err.COACH_ONE_WEEK": "Tempah kelas satu demi satu.",
-  "err.RESCHEDULE_COACH": "Kelas dengan jurulatih dipindahkan oleh pusat. Sila hubungi mereka.",
+  "err.RESCHEDULE_COACH": "Jurulatih bagi kelas ditukar oleh pusat. Sila tanya mereka.",
   "coach.title": "Kejurulatihan",
   "coach.intro": "Kelas satu-dengan-satu. Gelanggang dicarikan untuk anda; bayaran jurulatih ditambah pada harganya.",
   "coach.rate": "{amount} sejam, tambah gelanggang",
@@ -4919,6 +4925,12 @@ const MS: Record<Phrase, string> = {
   "fin5.who.partnerOf": "Pasangan {name}",
   "fin5.tour.payFeeFor": "Bayar yuran {cur}{amount} untuk {name}",
   "fin5.leag.payFeeFor": "Bayar yuran {cur}{amount} untuk {name}",
+  "err.RESCHEDULE_COACH_PAID": "Kelas yang telah dibayar kekal dengan jurulatihnya. Untuk menukar jurulatih, batalkan dan tempah semula.",
+  "fin6.msg.coachMovedSubject": "Dipindahkan: kelas kini pada {date}, {time}",
+  "fin6.msg.coachMoved": "Hai {name}, kelas bersama {student} telah dipindahkan dari {was} ke {date}, {time} ({court}, {venue}). Tempahan {code}.\n\nJadual penuh anda ada di pautan peribadi yang diberikan oleh tempat ini.",
+  "fin6.msg.coachHandedOverSubject": "Bukan lagi milik anda: kelas pada {date}, {time}",
+  "fin6.msg.coachHandedOver": "Hai {name}, kelas bersama {student} pada {date}, {time} ({court}, {venue}) kini bersama jurulatih lain, dan tiada lagi dalam jadual anda. Tempahan {code}.",
+  "fin6.lessonKeepsCoach": "Kelas anda kekal dengan jurulatihnya: masa yang ditunjukkan ialah ketika mereka mengajar dan lapang. Untuk menukar jurulatih, tanya pusat.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

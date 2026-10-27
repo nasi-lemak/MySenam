@@ -4,6 +4,7 @@ import { activityIcon } from "@/lib/activity-registry";
 import { AttentionPanel } from "./AttentionPanel";
 import { EnquiriesPanel } from "./EnquiriesPanel";
 import { ChangeTime } from "@/components/ChangeTime";
+import { LessonCoach } from "./LessonCoach";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import { COUNTER_METHODS, HIRE_CONDITIONS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS } from "@/lib/types";
@@ -64,9 +65,13 @@ export function BookingsTab() {
   const [paying, setPaying] = useState<string | null>(null);
   // The booking being changed to another day or time.
   const [changing, setChanging] = useState<AdminBookingRow | null>(null);
+  // A lesson being changed: the coach it goes with (its own unless staff choose another).
+  const [changeCoach, setChangeCoach] = useState<number | null>(null);
+  const otherCoach = changing?.coachId && changeCoach !== null && changeCoach !== changing.coachId ? changeCoach : null;
   const changeOptionsUrl = useCallback(
-    (day: string) => `/api/admin/bookings/reschedule?code=${encodeURIComponent(changing?.code ?? "")}&date=${day}`,
-    [changing?.code]
+    (day: string) =>
+      `/api/admin/bookings/reschedule?code=${encodeURIComponent(changing?.code ?? "")}&date=${day}${otherCoach !== null ? `&coachId=${otherCoach}` : ""}`,
+    [changing?.code, otherCoach]
   );
   // The hire being handed over or taken back at the desk.
   const [kit, setKit] = useState<{
@@ -165,6 +170,7 @@ export function BookingsTab() {
     setNotice(null);
     setMoving(null);
     setChanging(b);
+    setChangeCoach(b.coachId ?? null);
   }
 
   function openKit(b: AdminBookingRow, mode: "take" | "return") {
@@ -663,6 +669,16 @@ export function BookingsTab() {
         </div>
       )}
 
+      {changing?.coachId && (
+        <LessonCoach
+          venueId={changing.venueId}
+          sport={changing.sport}
+          coachId={changing.coachId}
+          coachName={changing.coachName ?? ""}
+          value={changeCoach ?? changing.coachId}
+          onChange={setChangeCoach}
+        />
+      )}
       {changing && (
         <ChangeTime
           key={changing.code}
@@ -674,14 +690,14 @@ export function BookingsTab() {
             fetch("/api/admin/bookings/reschedule", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, preview: true }),
+              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...(otherCoach !== null ? { coachId: otherCoach } : {}), preview: true }),
             })
           }
           submit={(o, day, reason) =>
             fetch("/api/admin/bookings/reschedule", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...(reason ? { reason } : {}) }),
+              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...(otherCoach !== null ? { coachId: otherCoach } : {}), ...(reason ? { reason } : {}) }),
             })
           }
           onDone={(booking) => {

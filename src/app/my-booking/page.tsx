@@ -459,11 +459,11 @@ export default function MyBookingPage() {
                 })()}
               </div>
               {changed && <p role="status" className="mt-3 text-sm font-medium text-teal-700">{changed}</p>}
-              {b.coachId && <p className="mt-3 text-xs text-slate-500">{t("err.RESCHEDULE_COACH")}</p>}
               {b.classId === null &&
-                !b.coachId &&
                 (changing ? (
                   <div className="mt-3">
+                    {/* A lesson moves with its coach, to times they take lessons and are free (lib/store.ts rescheduleOptions). */}
+                    {b.coachId && <p className="mb-2 text-xs text-slate-500">{t("fin6.lessonKeepsCoach")}</p>}
                     <ChangeTime
                       booking={b}
                       lastDate={result.venue.lastDate}
