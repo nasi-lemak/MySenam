@@ -15,6 +15,7 @@ export const billplz: PaymentGateway = {
   ],
   setup: englishOf(said("srv.gw.billplz.setup")),
   setupPhrase: said("srv.gw.billplz.setup"),
+  // No `pageExpiry`: a Billplz bill stays payable until it is paid, so nothing here can close one at a set time.
 
   checkCredentials(c) {
     return /^[\w-]{3,40}$/.test(c.collectionId) ? null : "That does not look like a Billplz collection ID.";

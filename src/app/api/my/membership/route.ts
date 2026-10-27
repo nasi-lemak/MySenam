@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { listMembershipsFor } from "@/lib/store";
 import { startMembershipPayment, stopRenewal } from "@/lib/payments";
-import { changeCovers, pendingPurchasesFor, readPurchaseRequest } from "@/lib/membership-purchases";
+import { changeCovers, pendingPurchasesFor, readPurchaseRequest, setNextCovers } from "@/lib/membership-purchases";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -43,18 +43,27 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * `{ membershipId, covers }`: whom a family membership bought online covers
- * besides the customer, from now: added within its plan's limit, or removed.
- * The price stays as it was sold.
+ * `{ membershipId, covers, at? }`: whom a family membership bought online
+ * covers besides the customer. From now (the default): taken off at once,
+ * put on within its plan's limit and the term's places
+ * (lib/membership-purchases.ts `changeCovers`). `at: "renewal"`: whom its next
+ * term covers, where it renews by itself (`setNextCovers`). The price stays
+ * as it was sold. Answers the membership and where it stands (`standing`:
+ * places left this term, whether it renews, whom the next term names).
  */
 export async function PATCH(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-  const body = (await req.json().catch(() => null)) as { membershipId?: unknown; covers?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { membershipId?: unknown; covers?: unknown; at?: unknown } | null;
   if (!body || !Number.isInteger(body.membershipId)) return NextResponse.json({ error: "membershipId is required." }, { status: 400 });
-  const changed = await changeCovers(user.id, body.membershipId as number, body.covers);
+  if (body.at !== undefined && body.at !== "now" && body.at !== "renewal")
+    return NextResponse.json({ error: "at is now or renewal.", code: "MBO_REQUEST" }, { status: 400 });
+  const changed =
+    body.at === "renewal"
+      ? await setNextCovers(user.id, body.membershipId as number, body.covers)
+      : await changeCovers(user.id, body.membershipId as number, body.covers);
   if (!changed.ok) return NextResponse.json({ error: changed.error, code: changed.code, vars: changed.vars }, { status: changed.status });
-  return NextResponse.json({ membership: changed.membership });
+  return NextResponse.json({ membership: changed.membership, standing: changed.standing });
 }
 
 /** `?renewal=<id>` → stop renewing: the membership runs to its end, and nothing more is charged. */

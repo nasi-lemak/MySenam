@@ -208,6 +208,47 @@ when that is unset, one generated into `secret.key` in the data folder —
 never in the database. A backup restored onto another machine without that key asks
 for the venue's payment keys to be entered again instead of handing them over.
 
+### A membership paid online
+
+A membership is made only when its payment settles
+([joining online](pricing.md#joining-online)); until then the purchase
+waits and holds the people it names for an hour (`HOLD_MINUTES` in
+`src/lib/membership-purchases.ts`). That hour is fitted to each gateway's
+payment page (the owner's decision of 27 October 2026), as each gateway's
+adapter says it can (`pageExpiry` in `src/lib/gateways/types.ts`):
+
+| Gateway | Its page | The hold |
+| ------- | -------- | -------- |
+| **Stripe** | Asked to close when the hold ends (`expires_at`; Stripe allows 30 minutes to 24 hours, so the hour fits) | Kept until the page closes (`page_closes_at`, migration 0194), never shorter |
+| **Billplz** | Cannot be closed at a set time: a bill stays payable until it is paid | The hour all the same: plans have no cap on members, so the hold reserves nothing scarce, and keeping it as long as the bill could be paid would hold the people it names for good |
+
+A gateway whose page could only close later than the hour would have the
+hold kept until it does; one that cannot close pages keeps the hour.
+
+- **The hold lapses on its own**, on the scheduler's tick (and whenever a
+  new purchase is made): the purchase is *released* and holds nobody. It
+  never makes a membership: only money coming in does.
+- **Money after the hold** (a Billplz bill paid later, or a Stripe payment
+  method that confirms after the page closed, reported by
+  `checkout.session.async_payment_succeeded`) is settled like any other: the
+  people and dates are checked again, and the membership is made if it still
+  can be. If it cannot (another purchase for the same people was paid
+  meanwhile, the account no longer acts for them, or the account was
+  deleted), the payment is *owed back*: listed under *Refunds owed*, refunded
+  through Stripe in one click or in Billplz's dashboard and marked done,
+  once ([refunds](#paying-online)). A Stripe page completed with the money
+  still on its way releases the hold at once; the money, if it comes,
+  settles as above.
+- **Reported twice** (the callback and the customer's return, each
+  repeated), it makes one membership, or is owed back once.
+- **Refunded**: a manager cancelling a membership bought online can owe its
+  payment back in the same change, in full; a chargeback lost cancels it
+  ([chargebacks](#paying-online)). A refund made in the gateway's own
+  dashboard without either is not seen here.
+
+Tested against stand-ins for Stripe's and Billplz's APIs and signed callbacks
+(`tests/membership-purchase-holds.test.ts`), never against the real gateways.
+
 ### Refunds that are interrupted
 
 A refund through a gateway passes through steps, each written down before the

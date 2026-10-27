@@ -114,6 +114,8 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   try {
     // Bookings held for payment that never came: free for somebody else.
     await releaseExpiredHolds();
+    // Membership purchases whose hold lapsed with no payment: holding nobody (lib/membership-purchases.ts).
+    await (await import("./membership-purchases")).releaseLapsedPurchases();
   } catch (err) {
     console.error("[mysenam] letting go of unpaid holds failed:", err);
     await raiseAlert("scheduler:letting-go-of-unpaid-holds-failed", failed("srv.work.unpaidHolds"), err instanceof Error ? err.stack ?? err.message : String(err));

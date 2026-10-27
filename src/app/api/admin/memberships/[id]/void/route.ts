@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { membershipById, voidMembership } from "@/lib/store";
-import { stopRenewalOf } from "@/lib/payments";
+import { oweBackMembership, stopRenewalOf } from "@/lib/payments";
 import { logAction } from "@/lib/activity";
+import { withTransaction } from "@/lib/db";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Cancel a membership (managers). `{ refund: true }`: what an online payment
+ * took for it is owed back too, listed under *Refunds owed* (lib/payments.ts
+ * `oweBackMembership`); left out, nothing is owed back, as before.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,7 +30,13 @@ export async function POST(
   const denied = denyVenue(admin, existing.venueId);
   if (denied) return denied;
 
-  const result = await voidMembership(membershipId);
+  const body = (await req.json().catch(() => null)) as { refund?: unknown } | null;
+  const refund = body?.refund === true;
+  // Voided and owed back together, or neither.
+  const { result, owed } = await withTransaction(async () => {
+    const voided = await voidMembership(membershipId);
+    return { result: voided, owed: voided.ok && refund ? await oweBackMembership(membershipId) : null };
+  });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   // One that renews itself stops charging too; if the gateway will not say so, staff are told to stop it there.
   const renewal = await stopRenewalOf(membershipId);
@@ -32,7 +45,12 @@ export async function POST(
   await logAction(admin, {
     venueId: existing.venueId,
     action: "membership.voided",
-    detail: `Membership ${membershipId}${flagged > 0 ? `; ${flagged} booking(s) flagged for staff` : ""}`,
+    detail: `Membership ${membershipId}${owed !== null ? `, ${money(owed)} paid online owed back` : ""}${flagged > 0 ? `; ${flagged} booking(s) flagged for staff` : ""}`,
   });
-  return NextResponse.json({ membership: result.membership, flagged, ...(renewal ? { warning: `It still renews at the gateway: ${renewal}` } : {}) });
+  return NextResponse.json({
+    membership: result.membership,
+    flagged,
+    ...(owed !== null ? { owedBack: owed } : {}),
+    ...(renewal ? { warning: `It still renews at the gateway: ${renewal}` } : {}),
+  });
 }

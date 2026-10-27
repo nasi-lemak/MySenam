@@ -547,10 +547,17 @@ venue. Staff see it in the list tagged *online*.
   purchase naming any of them is refused until the first is paid, fails or
   lapses. A payment that fails or expires (Stripe's
   `checkout.session.expired` or `async_payment_failed`, or a return saying
-  it was not paid) *releases* it; so does an hour with no word. Money that
-  still arrives for a released purchase makes the membership where it can,
-  or is owed back. The gateway's callback and the customer's return, each
-  repeated, make one membership.
+  it was not paid) *releases* it; so does the hour running out, on the
+  scheduler's tick. How the hour fits each gateway's payment page, and what
+  happens to money that arrives after it, is in
+  [a membership paid online](payments-and-credit.md#a-membership-paid-online):
+  in short, a Stripe page closes when the hold does, and a Billplz page,
+  which cannot be closed, can still be paid after it, when the membership is
+  made if it still can be and the money is owed back otherwise. The
+  gateway's callback and the customer's return, each repeated, make one
+  membership. Plans have no cap on how many members they take, so a hold
+  reserves nothing scarce: it only stops a second purchase naming the same
+  people.
 
 #### For somebody you look after, or a family
 
@@ -592,19 +599,81 @@ under *Plans and tiers*; `membership_plans.offered_for`, migration 0167;
   per person as above. The account's data export lists each membership with
   whom it is for and covers, and each purchase as chosen and what became of
   it.
-- **Changing whom a family membership covers**: the account that bought it
-  adds people it looks after, up to the plan's limit, or takes people off,
-  on the venue page (`PATCH /api/my/membership`). The price stays as paid:
-  no plan is prorated, so nothing is charged for adding somebody and nothing
-  is refunded for taking somebody off. Somebody taken off is no longer a
-  member through it from then on; bookings already made keep their price, and
-  their places on members' sessions it no longer covers are flagged for staff
-  ([when a membership stops](#when-a-membership-stops)). A
-  membership sold at the counter, or one that is not a family plan's, is the
-  venue's to change.
+- **Changing whom a family membership covers** is limited by the plan's
+  policy ([below](#changing-whom-a-family-membership-covers)). Somebody taken
+  off is no longer a member through it from then on; bookings already made
+  keep their price, and their places on members' sessions it no longer covers
+  are flagged for staff ([when a membership stops](#when-a-membership-stops)).
 - **Cancelling** is as for any membership: the customer can stop it renewing;
-  the venue cancels it (*Void*), with a credit note on its receipt, which also
-  stops its renewal.
+  a manager cancels it (*Void*), with a credit note on its receipt, which also
+  stops its renewal. For one bought online the manager is asked whether the
+  money goes back too: if so, what its payment took is owed back in the same
+  change, in full (nothing is prorated), and refunded from *Refunds owed*
+  ([refunds](payments-and-credit.md#paying-online)); if not, nothing is owed
+  back, as before.
+
+#### Changing whom a family membership covers
+
+Dependants are not freely swappable (the owner's decision of 27 October
+2026; `src/lib/membership-purchases.ts`). Each family membership is one
+**term**, and a term has a number of **places** for the people it covers:
+the plan's limit, plus the plan's **replacements per term** (*put on in
+place of others per term*, under *Plans and tiers*; `cover_swaps`,
+migration 0191: none unless the venue sets it, at most 12). The limit and
+replacements are kept with the membership as it was sold (`cover_limit`,
+`cover_swaps`), so a plan changed later does not change a term already paid
+for; a membership sold before this has the plan's limit and no
+replacements.
+
+| Change | Who | When | Money |
+| ------ | --- | ---- | ----- |
+| **Adding** somebody the account looks after, within the limit | The account that bought it, on the venue page (`PATCH /api/my/membership`) | At once, while the term has places left | None: a family plan's price is the same however many it covers |
+| **Removing** somebody | The same account | At once | Nothing back; the place they used stays used |
+| **Replacing** somebody taken off with somebody else | The same account | At once only while the term has places left (the limit plus the plan's replacements); otherwise from the next term | None |
+| **Renewing with a different list**, within the limit | The same account | From the next term: chosen now where it renews by itself (`at: "renewal"`), or named when it is bought again | The next term's price |
+| **Correcting** a person entered wrongly | A manager, with the reason (*Who it covered* on the membership, under *Credit & passes → Memberships*; `POST /api/admin/memberships/:id/covers`) | At once | None; uses no place |
+
+- **Every person put on uses a place for the rest of the term**, the people
+  named when it was sold included, and taking somebody off gives none back.
+  So a family covering four, with no replacements, can add up to four, take
+  any of them off, and put nobody new on (nor the person taken off back)
+  until the next term; with one replacement it can put one more on, once.
+  Taking the same person off and putting them back uses a place each time.
+  Past its places a change is refused whole (`MBO_NO_PLACES_LEFT`), and the
+  page offers the next term instead.
+- **The limit always holds**: never more people covered at once than the
+  plan's limit, whatever the order of changes; two changes at once are made
+  one after the other under the membership's lock, each counted against
+  the places the other left.
+- **Nobody covered twice**: somebody another membership holds or covers for
+  any of the days left is refused, with the day it ends, however they are
+  put on (added, named for the next term, or corrected).
+- **Benefits are not reset by a change.** A membership counts no visits,
+  hours or bookings of its own (its benefits are prices, booking windows and
+  members-only places), so there is nothing per person or per term a swap
+  could restart; the places a term has used are the one thing it counts, and
+  only ever go up. Bookings already made keep the people they were made for
+  and the price they were given: somebody taken off keeps what they booked as
+  a member, and pays the public price for anything booked after.
+- **The next term** of one that renews by itself names the list chosen for
+  it (`membership_next_covers`, migration 0193), less anybody the account no
+  longer acts for when the charge comes, or, if none was chosen, whom it
+  covers then; it starts with places of its own. One that does not renew by
+  itself is renewed by buying it again, naming whom it should cover.
+- **A manager's correction** takes the person entered wrongly off, and puts
+  the right one on in their place where given: somebody the buying account
+  acts for now, or, for one sold at the counter, a participant the venue
+  knows with a guardian on the holder's number. It uses no place, and a
+  person taken off with nobody in their place gives theirs back. The reason
+  is required, and it is in the activity log (*Corrected whom a membership
+  covers*) and in each person's history. The desk can read the history but
+  not correct it.
+- **Who was covered when** is kept as records, never overwritten
+  (`membership_cover_changes`, migration 0192): named, added, removed,
+  corrected, with when, by whom and why. *Who it covered* shows them to
+  staff, with the term's places. A person whose record is erased stays
+  counted, unnamed. Memberships sold before this keep whom they cover now as
+  named when they were added (changes made before were not recorded).
 
 #### Renewing automatically
 
@@ -622,8 +691,9 @@ charges every 3 months), on the venue's own account:
   checkout session already settled it.
 - **A child's or a family membership** renews for the same holder, naming
   the dependants the membership it runs on from names when the charge comes
-  (so a change to whom it covers carries on), less anybody the account no
-  longer acts for then. A child's own membership whose guardian no longer
+  (so a change to whom it covers carries on), or the list its buyer chose for
+  the next term ([above](#changing-whom-a-family-membership-covers)), less
+  anybody the account no longer acts for then. A child's own membership whose guardian no longer
   acts for them buys nothing: the charge is owed back and the subscription
   cancelled, as below. Each renewing membership is listed on the venue page
   with whose it is, and stopped on its own.
@@ -655,6 +725,14 @@ set under *Credit → Plans and tiers*:
   bought on. Changing a tier's benefits applies to its members from then on;
   bookings already made keep their price.
 - The venue page lists each plan's benefits beside its price.
+- **Changing plan** (upgrading or downgrading) takes effect at renewal,
+  never mid-term and never silently unprorated: the new plan is bought in
+  the renewal window and starts the day after the current membership ends,
+  at the new plan's price, while the current one runs to its end as paid. A
+  membership that renews by itself is stopped first (*Stop renewing*);
+  buying another plan for the same holder while it still renews is refused
+  (`MBO_RENEWS`), so the next term is never bought twice. Nothing changes a
+  membership's plan mid-term, online or at the counter.
 
 ## Multi-visit passes
 

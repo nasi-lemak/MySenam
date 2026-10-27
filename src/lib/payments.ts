@@ -18,7 +18,7 @@ import { tellOwners, tellVenueStaff } from "./owner-alerts";
 import { siteName } from "./site";
 import { seal, unseal } from "./secrets";
 import { findBooking, getCourt, getVenue, membershipById } from "./store";
-import { attachPayment, holdPurchase, membershipForPayment, purchaseTerms, releaseForPayment, releasePurchase } from "./membership-purchases";
+import { attachPayment, HOLD_MINUTES, holdPurchase, membershipForPayment, purchaseTerms, releaseForPayment, releasePurchase } from "./membership-purchases";
 import { accessSettings, accountPhone } from "./access";
 import { toWhatsAppNumber } from "./transports";
 import { baseUrl } from "./outbox";
@@ -2004,6 +2004,10 @@ export async function startMembershipPayment(
   if ("reuse" in held) return { ok: true, url: held.reuse, amount: plan.price, reused: true };
   // Whom it is for, on the page: the participant's or the family's names (never more about them).
   const whom = holder ? ` for ${holder.name}` : covers.length > 0 ? ` for ${[user.name, ...covers.map((c) => c.name)].join(", ")}` : "";
+  // Where the gateway can close its page at a set time, it closes when the hold ends (or as soon after as the
+  // gateway allows, the hold kept until then), so it cannot be paid once the hold has let go; where it cannot
+  // (Billplz), the page stays payable and late money is settled as such (lib/membership-purchases.ts).
+  const pageMinutes = membershipPageMinutes(gatewayFor(account.provider));
   let bill;
   try {
     bill = await openCheckout(account, {
@@ -2015,6 +2019,7 @@ export async function startMembershipPayment(
       redirectUrl: `${await venueBaseUrl(plan.venueId)}/payments/return`,
       reference: { label: "Membership", value: `U${user.id}` },
       ...(autoRenew ? { recurring: { months: plan.months } } : {}),
+      ...(pageMinutes !== null ? { expiresInMinutes: pageMinutes } : {}),
     });
   } catch (err) {
     await releasePurchase(held.purchaseId, "checkout_failed");
@@ -2026,8 +2031,39 @@ export async function startMembershipPayment(
        VALUES (?, ?, ?, ?, ?, ?, ?, 'membership', ?, ?, ?)`
     )
     .run(account.provider, bill.id, bill.url, plan.venueId, plan.price, user.name, phone, user.id, plan.id, autoRenew ? 1 : 0);
-  await attachPayment(held.purchaseId, Number(info.lastInsertRowid));
+  await attachPayment(held.purchaseId, Number(info.lastInsertRowid), pageMinutes);
   return { ok: true, url: bill.url, amount: plan.price, reused: false };
+}
+
+/**
+ * How long a membership's payment page should stay open on this gateway:
+ * the purchase's hold, within what the gateway allows (Stripe: 30 minutes to
+ * a day). Null where the gateway cannot close a page at a set time (Billplz).
+ */
+export function membershipPageMinutes(gateway: Pick<PaymentGateway, "pageExpiry"> | null | undefined): number | null {
+  const bounds = gateway?.pageExpiry;
+  if (!bounds) return null;
+  return Math.min(bounds.maxMinutes, Math.max(bounds.minMinutes, HOLD_MINUTES));
+}
+
+/**
+ * Staff cancelling a membership bought online and giving the money back:
+ * what its payment took is owed back (`refund_due`), listed under *Refunds
+ * owed* and refunded the usual way (through Stripe in one click, or in
+ * Billplz's dashboard and marked done), once. Nothing is prorated: the whole
+ * amount, or nothing (the default, as before). Call it in the transaction
+ * that voids it. The amount owed back, or null when no online payment made it.
+ */
+export async function oweBackMembership(membershipId: number): Promise<number | null> {
+  const row = (await getDb()
+    .prepare(
+      `UPDATE online_payments SET refund_due = amount
+        WHERE id = (SELECT id FROM online_payments WHERE membership_id = ? AND purpose = 'membership' AND status = 'paid' ORDER BY id LIMIT 1)
+          AND refund_due < amount
+        RETURNING (amount - refunded)::float AS owed`
+    )
+    .get(membershipId)) as { owed: number } | undefined;
+  return row ? Number(row.owed) : null;
 }
 
 /**

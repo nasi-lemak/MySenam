@@ -236,3 +236,22 @@
     approval does (ADR 0020; migration 0195); nothing paid is cancelled.
     Memberships have no suspended state; none was added
     ([membership validity](../../features/pricing.md#membership-validity)).
+  - 2026-10-27 (amendment, the owner's decision on membership purchase
+    holds and family dependants): the hour a purchase holds its people is
+    fitted to each gateway's page: a Stripe page is closed when the hold
+    ends and the hold kept until it does; a Billplz page cannot be closed, so
+    the hold lapses after the hour (it reserves nothing scarce: plans have no
+    cap on members) and money that comes in later makes the membership if it
+    still can and is owed back otherwise
+    ([a membership paid online](../../features/payments-and-credit.md#a-membership-paid-online)).
+    Family dependants are no longer freely swappable: each term has places
+    (the plan's limit plus its replacements per term, none by default), every
+    person put on uses one and removing gives none back, other changes wait
+    for the next term, a manager corrects a wrongly entered person with a
+    reason, and every change is a record of its own
+    ([changing whom it covers](../../features/pricing.md#changing-whom-a-family-membership-covers)).
+    A change of plan takes effect at renewal, at the new plan's price, never
+    prorated mid-term; one that renews by itself is stopped first. A manager
+    cancelling a membership bought online may owe its payment back in full.
+    Memberships count no visits or hours, so a change of whom one covers has
+    no allowance to reset. Migrations 0191–0194.

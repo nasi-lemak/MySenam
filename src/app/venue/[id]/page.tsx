@@ -25,6 +25,7 @@ import { NoticeBar } from "@/components/NoticeBar";
 import { showingFor } from "@/lib/notices";
 import { venuePhotos } from "@/lib/photos";
 import { joinTerms, listPlans, planById } from "@/lib/membership-plans";
+import { coverStanding } from "@/lib/membership-purchases";
 import { guardianshipsOf } from "@/lib/participants";
 import { onlineTopUpsAllowed, renewalsFor, renewsByItself, takesPaymentOnline } from "@/lib/payments";
 import { listCoaches } from "@/lib/coaching";
@@ -138,7 +139,14 @@ export default async function VenuePage({
       if (m.venueId !== venue.id || m.status !== "active" || m.expiresOn < todayISO() || m.holderParticipantId !== null || !m.tierId) continue;
       const plan = await planById(m.tierId, { retired: true });
       if (plan?.offeredFor === "family" && plan.familyLimit !== null)
-        families.push({ id: m.id, code: m.code, expiresOn: m.expiresOn, limit: plan.familyLimit, covers: m.covers ?? [] });
+        families.push({
+          id: m.id,
+          code: m.code,
+          expiresOn: m.expiresOn,
+          limit: plan.familyLimit,
+          covers: m.covers ?? [],
+          ...(await coverStanding(m.id).then((s) => (s ? { standing: { left: s.left, renews: s.renews, nextCovers: s.nextCovers } } : {}))),
+        });
     }
   }
 

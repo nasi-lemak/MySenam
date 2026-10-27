@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ venueId, name, months, price, ratePercent?, aheadDays?, scope?, offeredFor?, familyLimit? }`: offer a new plan,
+ * `{ venueId, name, months, price, ratePercent?, aheadDays?, scope?, offeredFor?, familyLimit?, coverSwaps? }`: offer a new plan,
  * a tier with its own benefits where given. `scope`: the member's price for the whole booking (`booking`, the
  * default) or for the members' own places only (`participant`; lib/entitlements.ts). `offeredFor`: whom customers
  * buy it for online (`account`, the default; `participant`, `individual`, or `family` with its `familyLimit`;
@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
     scope: body.scope,
     offeredFor: body.offeredFor,
     familyLimit: body.familyLimit,
+    coverSwaps: body.coverSwaps,
   });
   if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 });
   await logAction(admin, {
@@ -74,7 +75,7 @@ export async function DELETE(req: NextRequest) {
 }
 
 /**
- * `{ venueId, id, ratePercent, aheadDays, scope?, offeredFor?, familyLimit? }`: a plan's benefits, each null for the
+ * `{ venueId, id, ratePercent, aheadDays, scope?, offeredFor?, familyLimit?, coverSwaps? }`: a plan's benefits, each null for the
  * venue's; `scope` left out keeps what the price covers, `offeredFor` whom it is sold to online. Memberships on it
  * get the benefits from now; those already sold keep whom they cover.
  */
@@ -93,6 +94,7 @@ export async function PATCH(req: NextRequest) {
     scope: body.scope,
     offeredFor: body.offeredFor,
     familyLimit: body.familyLimit,
+    coverSwaps: body.coverSwaps,
   });
   if (!set.ok) return NextResponse.json({ error: set.error }, { status: 400 });
   await logAction(admin, {
@@ -100,7 +102,11 @@ export async function PATCH(req: NextRequest) {
     action: "membership.plan_added",
     detail: `${set.plan.name}: ${set.plan.ratePercent ?? "member rates"}${set.plan.ratePercent ? "% of the price" : ""}, ${set.plan.aheadDays ?? "the venue's"} days ahead${
       set.plan.scope === "participant" ? ", members' own places only" : ""
-    }, sold online for ${set.plan.offeredFor === "family" ? `a family of up to ${set.plan.familyLimit} besides the holder` : set.plan.offeredFor}`,
+    }, sold online for ${
+      set.plan.offeredFor === "family"
+        ? `a family of up to ${set.plan.familyLimit} besides the holder, ${set.plan.coverSwaps} put on in place of others per term`
+        : set.plan.offeredFor
+    }`,
   });
   return NextResponse.json({ plan: set.plan });
 }

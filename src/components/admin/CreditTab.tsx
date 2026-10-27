@@ -10,6 +10,7 @@ import { MAX_HOURS_PER_BOOKING, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PAS
 import type { BenefitScope, Membership, Pass, PromoCode, WalletEntry } from "@/lib/types";
 import type { OfferedFor } from "@/lib/membership-plans";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
+import { MembershipCovers } from "./MembershipCovers";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { money, region } from "@/lib/region";
@@ -1051,13 +1052,23 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
 
   async function cancel(m: Membership) {
     if (!window.confirm(t("cr.memberCancelConfirm", { name: m.holderName, code: m.code }))) return;
+    // Bought online: the money goes back only where staff say so (lib/payments.ts oweBackMembership).
+    const refund = m.online && window.confirm(t("mb6.cr.refundConfirm", { code: m.code }));
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch(`/api/admin/memberships/${m.id}/void`, { method: "POST" });
+      const res = await fetch(`/api/admin/memberships/${m.id}/void`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refund }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("cr.memberCancelFailed")));
-      setNotice(t("cr.memberCancelled", { code: m.code }));
+      setNotice(
+        typeof data.owedBack === "number"
+          ? `${t("cr.memberCancelled", { code: m.code })} ${t("mb6.cr.owedBack", { amount: money(data.owedBack) })}`
+          : t("cr.memberCancelled", { code: m.code })
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cr.memberCancelFailed"));
@@ -1257,6 +1268,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                   {m.covers && m.covers.length > 0 && (
                     <span className="block text-xs text-slate-600">{t("ent.cr.coversNames", { names: m.covers.map((c) => c.name).join(", ") })}</span>
                   )}
+                  {m.covers && m.covers.length > 0 && <MembershipCovers membership={m} venueId={venueId} onChanged={load} />}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">
                   {m.startsOn} → {m.expiresOn}
@@ -1314,6 +1326,8 @@ interface Plan {
   /** Whom customers buy it for online (lib/membership-purchases.ts), and a family plan's limit besides its holder. */
   offeredFor?: OfferedFor;
   familyLimit?: number | null;
+  /** A family plan's people put on in place of others per term (none by default; lib/membership-purchases.ts). */
+  coverSwaps?: number;
 }
 
 const OFFERED_FOR: OfferedFor[] = ["account", "participant", "individual", "family"];
@@ -1386,7 +1400,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
 
   async function benefits(
     plan: Plan,
-    change: { ratePercent?: number | null; aheadDays?: number | null; scope?: BenefitScope; offeredFor?: OfferedFor; familyLimit?: number | null }
+    change: { ratePercent?: number | null; aheadDays?: number | null; scope?: BenefitScope; offeredFor?: OfferedFor; familyLimit?: number | null; coverSwaps?: number }
   ) {
     setError(null);
     const res = await fetch("/api/admin/membership-plans", {
@@ -1490,6 +1504,19 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                       {Array.from({ length: MAX_MEMBERSHIP_COVERS }, (_, i) => i + 1).map((n) => (
                         <option key={n} value={n}>
                           {t.plural("mbo.cr.upTo", n)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {p.offeredFor === "family" && (
+                    <select
+                      value={p.coverSwaps ?? 0}
+                      onChange={(e) => benefits(p, { coverSwaps: Number(e.target.value) })}
+                      className="rounded border border-slate-300 px-1 py-0.5"
+                    >
+                      {Array.from({ length: MAX_MEMBERSHIP_COVERS + 1 }, (_, i) => i).map((n) => (
+                        <option key={n} value={n}>
+                          {n === 0 ? t("mb6.cr.noSwaps") : t.plural("mb6.cr.swaps", n)}
                         </option>
                       ))}
                     </select>

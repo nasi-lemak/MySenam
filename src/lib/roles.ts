@@ -50,6 +50,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/tournaments\/\d+\/issues\/\d+$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(memberships|passes|promos|vouchers|counter-sales)\/\d+\/void$/, methods: ["POST"] },
   { path: /^\/api\/admin\/memberships\/\d+\/extend$/, methods: ["POST"] },
+  // Correcting a person entered wrongly on a membership, with a reason (lib/membership-purchases.ts correctCover).
+  { path: /^\/api\/admin\/memberships\/\d+\/covers$/, methods: ["POST"] },
   { path: /^\/api\/admin\/promos$/, methods: ["POST"] },
   // Whether a concession price and a promo code go together here (lib/discounts.ts).
   { path: /^\/api\/admin\/promos\/stacking$/, methods: ["POST"] },

@@ -467,15 +467,18 @@ describe("at the same moment", () => {
     expect(await count("SELECT COUNT(*)::int AS n FROM membership_purchases WHERE user_id = ? AND status = 'pending'", parent.id)).toBe(1);
   });
 
-  it("two changes to whom a family membership covers at once: each applied whole, one after the other, never past the limit", async () => {
+  it("two changes to whom a family membership covers at once: each applied whole or refused, one after the other, never past the limit or the term's places", async () => {
     const parent = await adult("Adder");
     const [a, b, c] = [await child(parent, "Uma"), await child(parent, "Vin"), await child(parent, "Wan")];
     const bought = await buy(parent, { planId: plans.family, covers: [a.id] });
     await webhook(completed(bought.session!));
     const [m] = await listMembershipsFor(parent.id);
     const both = await Promise.all([changeCovers(parent.id, m.id, [a.id, b.id]), changeCovers(parent.id, m.id, [a.id, c.id])]);
-    expect(both.filter((r) => r.ok)).toHaveLength(2);
-    // Each replaced the list as its caller saw it: never more than the plan's limit at once.
+    // One after the other under the membership's lock: the first fills the term's last place, so the
+    // second (taking the first's person off to put another on) has none left (the owner's decision of 27 October 2026).
+    expect(both.filter((r) => r.ok)).toHaveLength(1);
+    expect(both.filter((r) => !r.ok).map((r) => !r.ok && r.code)).toEqual(["MBO_NO_PLACES_LEFT"]);
+    // Never more than the plan's limit at once.
     expect(await count("SELECT COUNT(*)::int AS n FROM membership_participants WHERE membership_id = ?", m.id)).toBe(2);
     const three = await Promise.all([changeCovers(parent.id, m.id, [a.id, b.id, c.id]), changeCovers(parent.id, m.id, [a.id, c.id, b.id])]);
     expect(three.every((r) => !r.ok && r.code === "MBO_FAMILY_LIMIT")).toBe(true);

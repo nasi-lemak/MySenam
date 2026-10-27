@@ -2530,6 +2530,17 @@ const EN = {
   "mv6.renew": "Renew or buy a membership",
   "mv6.askVenue": "Ask the venue to renew it at the counter.",
   "mv6.until": "Your membership here runs until {until}. Sessions after that need it renewed first.",
+  // Family memberships: places per term, the next term's list, changing plan at renewal (lib/membership-purchases.ts)
+  "mb6.noPlaces": "No places left this term for anybody new: taking somebody off does not give one back. You can name them for the next term.",
+  "mb6.placesLeft_one": "{n} more person can be put on it this term.",
+  "mb6.placesLeft_other": "{n} more people can be put on it this term.",
+  "mb6.nextTerm": "From its next term it covers {names}.",
+  "mb6.nextTermNone": "From its next term it covers nobody besides you.",
+  "mb6.nextOn": "Add {name} from the next term",
+  "mb6.nextOff": "Take {name} off from the next term",
+  "mb6.err.MBO_NO_PLACES_LEFT": "Nobody new can be put on this membership this term: its places are used, and taking somebody off does not give one back. You can name them for its next term.",
+  "mb6.err.MBO_NOT_RENEWING": "This membership does not renew by itself: choose whom it covers when you renew it.",
+  "mb6.err.MBO_RENEWS": "That membership renews by itself. To change its plan, stop it renewing first: the new plan then starts the day after it ends.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5013,6 +5024,17 @@ const MS: Record<Phrase, string> = {
   "mv6.renew": "Perbaharui atau beli keahlian",
   "mv6.askVenue": "Minta pusat memperbaharuinya di kaunter.",
   "mv6.until": "Keahlian anda di sini sah hingga {until}. Sesi selepas itu memerlukan pembaharuan dahulu.",
+  // Family memberships: places per term, the next term's list, changing plan at renewal (lib/membership-purchases.ts)
+  "mb6.noPlaces": "Tiada lagi tempat bagi tempoh ini untuk orang baharu: mengeluarkan seseorang tidak memulangkan tempat. Anda boleh menamakan mereka untuk tempoh seterusnya.",
+  "mb6.placesLeft_one": "{n} orang lagi boleh ditambah padanya bagi tempoh ini.",
+  "mb6.placesLeft_other": "{n} orang lagi boleh ditambah padanya bagi tempoh ini.",
+  "mb6.nextTerm": "Mulai tempoh seterusnya ia melindungi {names}.",
+  "mb6.nextTermNone": "Mulai tempoh seterusnya ia tidak melindungi sesiapa selain anda.",
+  "mb6.nextOn": "Tambah {name} mulai tempoh seterusnya",
+  "mb6.nextOff": "Keluarkan {name} mulai tempoh seterusnya",
+  "mb6.err.MBO_NO_PLACES_LEFT": "Tiada orang baharu boleh ditambah pada keahlian ini bagi tempoh ini: tempatnya telah digunakan, dan mengeluarkan seseorang tidak memulangkan tempat. Anda boleh menamakan mereka untuk tempoh seterusnya.",
+  "mb6.err.MBO_NOT_RENEWING": "Keahlian ini tidak diperbaharui secara automatik: pilih siapa yang dilindunginya apabila anda memperbaharuinya.",
+  "mb6.err.MBO_RENEWS": "Keahlian itu diperbaharui secara automatik. Untuk menukar pelannya, hentikan pembaharuan automatik dahulu: pelan baharu kemudian bermula sehari selepas ia tamat.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

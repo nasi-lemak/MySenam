@@ -6775,10 +6775,15 @@ export async function sellMembership(input: {
         participantHolder === null ? "customer" : "participant", participantHolder
       );
     // The dependants a family membership covers, named as it is sold.
-    for (const participantId of covers)
+    for (const participantId of covers) {
       await db
         .prepare("INSERT INTO membership_participants (membership_id, participant_id, added_by_admin_id) VALUES (?, ?, ?)")
         .run(info.lastInsertRowid, participantId, input.adminId ?? null);
+      // Who it covered when (migration 0192; lib/membership-purchases.ts): named from the sale on.
+      await db
+        .prepare("INSERT INTO membership_cover_changes (membership_id, participant_id, change, by_user_id, by_admin_id) VALUES (?, ?, 'named', ?, ?)")
+        .run(info.lastInsertRowid, participantId, input.adminId ? null : (input.userId ?? null), input.adminId ?? null);
+    }
     const membership = (await membershipById(Number(info.lastInsertRowid)))!;
     await issueReceipt({
       source: `membership:${membership.id}`,
