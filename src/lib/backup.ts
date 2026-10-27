@@ -97,6 +97,11 @@ export interface BackupManifest {
   database: { file: string; bytes: number; sha256: string };
   photos: { file: string; bytes: number; sha256: string; count: number } | null;
   bookings: number;
+  /**
+   * The erasure ledger's newest entry when the set was made (lib/erasure-ledger.ts): a record, off the
+   * server with the set, of how far the ledger had reached, which a restore checks the ledger against.
+   */
+  erasureLedger?: { seq: number; hash: string };
 }
 
 const sha256Of = (file: string) =>
@@ -120,6 +125,10 @@ function partsPresent(snapshot: string): boolean {
 /** Written last, once every part is in place: a manifest beside a snapshot means the set is whole. */
 async function writeManifest(snapshot: string, info: { engine: BackupManifest["engine"]; bookings: number; photos: number }): Promise<string> {
   const archive = photosArchiveOf(snapshot);
+  // The ledger beside the backups is there from the first backup on, so a restore on this server knows it is whole.
+  const ledger = await import("./erasure-ledger.ts");
+  ledger.ensureLedgerFile();
+  const head = await ledger.ledgerHead().catch(() => null);
   const manifest: BackupManifest = {
     version: 1,
     createdAt: new Date().toISOString(),
@@ -130,6 +139,7 @@ async function writeManifest(snapshot: string, info: { engine: BackupManifest["e
         ? { file: path.basename(archive), bytes: fs.statSync(archive).size, sha256: await sha256Of(archive), count: info.photos }
         : null,
     bookings: info.bookings,
+    ...(head ? { erasureLedger: { seq: head.seq, hash: head.hash } } : {}),
   };
   const file = manifestOf(snapshot);
   const temporary = path.join(path.dirname(file), `.tmp-${path.basename(file)}`);

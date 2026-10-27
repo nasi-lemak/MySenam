@@ -624,4 +624,17 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Nothing about this relationship is waiting for a review.": { ms: "Tiada apa-apa tentang hubungan ini yang menunggu semakan.", zh: "此关系没有待复核的事项。" },
   "action is revokeGuardian, suspendGuardian, confirmGuardian, exception, closeRequest or link.": { ms: "action ialah revokeGuardian, suspendGuardian, confirmGuardian, exception, closeRequest atau link.", zh: "action 须为 revokeGuardian、suspendGuardian、confirmGuardian、exception、closeRequest 或 link。" },
   "coachId must be a coach's id.": { ms: "coachId mestilah id jurulatih.", zh: "coachId 须为教练的 id。" },
+  "Say which jurisdiction the review covers: Malaysia (MY), Singapore (SG), or each.": {
+    ms: "Nyatakan bidang kuasa yang diliputi semakan itu: Malaysia (MY), Singapura (SG), atau kedua-duanya.",
+    zh: "请说明审核涵盖的司法管辖区：马来西亚（MY）、新加坡（SG），或两者。",
+  },
+  "Say which periods the review covers.": { ms: "Nyatakan tempoh yang diliputi semakan itu.", zh: "请说明审核涵盖哪些期限。" },
+  "Give the reviewer's name.": { ms: "Berikan nama penyemak.", zh: "请填写审核人姓名。" },
+  "Give the reviewer's role or qualification, as they state it.": { ms: "Berikan peranan atau kelayakan penyemak, seperti yang dinyatakannya.", zh: "请填写审核人的职务或资格（以其本人所述为准）。" },
+  "Give the reviewer's firm or organisation.": { ms: "Berikan firma atau organisasi penyemak.", zh: "请填写审核人所属的事务所或机构。" },
+  "The review is dated before the periods were last changed: it cannot have reviewed these periods.": {
+    ms: "Tarikh semakan itu sebelum tempoh ini terakhir ditukar: ia tidak mungkin menyemak tempoh ini.",
+    zh: "审核日期早于这些期限最近一次更改：它不可能审核的是现行期限。",
+  },
+  "Give a reference to the written advice, kept outside MySenam.": { ms: "Berikan rujukan kepada nasihat bertulis, yang disimpan di luar MySenam.", zh: "请填写书面意见的参考编号（保存在 MySenam 之外）。" },
 };

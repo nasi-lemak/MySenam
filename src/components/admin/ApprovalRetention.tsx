@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ApprovalRequirement } from "@/lib/approvals";
 import type { HoldBasis, RetentionHold } from "@/lib/approval-retention";
+import type { RetentionPolicy } from "@/lib/retention-policy";
 import { sportLabel } from "@/lib/i18n";
 import { useStaffT } from "./StaffLanguage";
 
@@ -51,8 +52,8 @@ export function DocumentPurposeField({ value, onChange }: { value: RetentionForm
 /** The activity's own, shorter retention periods; blank for the install's. */
 export function RetentionFields({ value, onChange }: { value: RetentionForm; onChange: (f: RetentionForm) => void }) {
   const t = useStaffT();
-  // The install's own periods (lib/retention-policy.ts), and whether a review of them is recorded.
-  const [install, setInstall] = useState<{ documentDays: number; reviewDays: number; recordDays: number; review: { reviewedOn: string } | null } | null>(null);
+  // The install's own periods (lib/retention-policy.ts), and whether a review of them is recorded for the install's country.
+  const [install, setInstall] = useState<Pick<RetentionPolicy, "documentDays" | "reviewDays" | "recordDays" | "provisional" | "home" | "coverage"> | null>(null);
   useEffect(() => {
     fetch("/api/admin/document-policy", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
@@ -75,7 +76,8 @@ export function RetentionFields({ value, onChange }: { value: RetentionForm; onC
       </div>
       <p className="text-xs text-slate-400">
         {t("apr.ret.hint", { review: install?.reviewDays ?? 30, docs: install?.documentDays ?? 90, record: install?.recordDays ?? 365 })}{" "}
-        {install && (install.review ? t("apr.retx.hintReviewed", { date: install.review.reviewedOn }) : t("apr.retx.hintProvisional"))}
+        {install && install.coverage[install.home].reviews.length > 0 && `${t("apr.retx2.hintRecorded", { jurisdiction: t(`apr.retx2.${install.home}`) })} `}
+        {install?.provisional && t("apr.retx2.hintProvisional", { jurisdiction: t(`apr.retx2.${install.home}`) })}
       </p>
     </fieldset>
   );

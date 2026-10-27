@@ -2152,6 +2152,15 @@ export const ZH: Record<Phrase, string> = {
   "gv.err.GV_REQUEST_CLOSED": "此申请已不再等待答复。",
   "gv.err.GV_ANSWER_NEEDED": "请说明您是否同意。",
   "gv.err.GV_CHANGE_NOT_FOUND": "您无法报告该变更。",
+  "apr.retx2.privacyRecorded": "平台所有者已记录：{name}（{role}，{firm}）于 {date} 审核了{country}的{classes}期限。MySenam 未予核实，这也不是法律上的批准。",
+  "apr.retx2.privacyStill": "仍为暂定：{classes}。",
+  "apr.retx2.clsDocuments": "决定后的文件",
+  "apr.retx2.clsReview": "为复核保留的文件",
+  "apr.retx2.clsRecords": "已结束的申请",
+  "apr.retx2.clsQuarantine": "被拒或无法扫描的文件",
+  "apr.retx2.MY": "马来西亚",
+  "apr.retx2.SG": "新加坡",
+  "apr.retx2.privacyLedger": "为了在服务器本身丢失时也能做到这一点，每次删除的记录（仅账户编号及其创建时间）也会像备份一样保存在本服务器之外。在服务器丢失前最后片刻所做的删除可能尚未进入该记录，届时会以人工方式重新删除。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

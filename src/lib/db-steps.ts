@@ -1,6 +1,7 @@
 import { venueZoneOf } from "./zones.ts";
 import { minuteOfDay } from "./interval.ts";
 import { syncBuiltinActivities } from "./activities.ts";
+import { GENESIS, entryHash, type LedgerKind } from "./erasure-chain.ts";
 
 /**
  * Work a migration needs from the application, run straight after that
@@ -21,6 +22,8 @@ const STEPS: Record<string, (db: StepRunner) => Promise<void>> = {
   "0090_interval_claims": verifyClaims,
   // The built-ins in full, over the stand-ins 0092 wrote for whatever was named already.
   "0092_activities": syncBuiltinActivities,
+  // The erasure ledger's entries made before it was chained, hashed in the order 0161 numbered them.
+  "0161_erasure_ledger_chain": chainLegacyLedger,
 };
 
 export async function runStep(version: string, db: StepRunner): Promise<void> {
@@ -133,4 +136,35 @@ async function verifyClaims(db: StepRunner): Promise<void> {
     `SELECT COUNT(*)::int AS n FROM court_outages o WHERE NOT EXISTS (SELECT 1 FROM claims c WHERE c.outage_id = o.id)`
   );
   if (Number(outages[0].n) > 0) throw new Error(`${outages[0].n} outages hold no court`);
+}
+
+/** Hash the erasure ledger's existing entries in order, and note the newest as the chain's head (lib/erasure-chain.ts). */
+async function chainLegacyLedger(db: StepRunner): Promise<void> {
+  const rows = (await db.query("SELECT seq, id, kind, subject_id, subject_created_at, erased_at, detail FROM erasure_ledger ORDER BY seq", [])).rows as {
+    seq: number | string;
+    id: string;
+    kind: LedgerKind;
+    subject_id: number | null;
+    subject_created_at: string | null;
+    erased_at: Date | string;
+    detail: string | null;
+  }[];
+  let prev = GENESIS;
+  let seq = 0;
+  for (const r of rows) {
+    seq = Number(r.seq);
+    const fields = {
+      seq,
+      id: r.id,
+      kind: r.kind,
+      subjectId: r.subject_id === null ? null : Number(r.subject_id),
+      subjectCreatedAt: r.subject_created_at,
+      erasedAt: new Date(r.erased_at).toISOString(),
+      detail: r.detail,
+    };
+    const hash = entryHash(prev, fields);
+    await db.query("UPDATE erasure_ledger SET prev_hash = $1, hash = $2 WHERE id = $3", [prev, hash, r.id]);
+    prev = hash;
+  }
+  await db.query("UPDATE erasure_ledger_head SET seq = $1, hash = $2 WHERE id = 1", [seq, prev]);
 }

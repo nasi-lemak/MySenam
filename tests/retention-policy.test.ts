@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import fs from "fs";
+import path from "path";
 
 process.env.MYSENAM_DB = ":memory:";
 
@@ -76,7 +78,9 @@ afterAll(() => setDocumentScanner(null));
 describe("the install's periods", () => {
   it("start as the owner's provisional defaults, with no review recorded, and say so in the privacy notice", async () => {
     const p = await retentionPolicy();
-    expect(p).toMatchObject({ documentDays: 90, reviewDays: 30, recordDays: 365, quarantineDays: 7, review: null, provisional: true });
+    expect(p).toMatchObject({ documentDays: 90, reviewDays: 30, recordDays: 365, quarantineDays: 7, provisional: true });
+    expect(p.coverage.MY.reviews).toEqual([]);
+    expect(p.coverage.SG.reviews).toEqual([]);
     expect(p).toMatchObject(DEFAULT_POLICY);
     const html = renderToStaticMarkup(await PrivacyPage());
     expect(html).toContain("These periods are provisional: they have not yet been reviewed by a lawyer.");
@@ -92,28 +96,88 @@ describe("the install's periods", () => {
     expect(await retentionPolicy()).toMatchObject({ documentDays: 90, reviewDays: 30, recordDays: 365 });
   });
 
-  it("record a review with who, when and on what basis; a change lapses it, and both are kept", async () => {
-    expect(await recordPolicyReview(owner, { reviewedOn: addDays(todayISO(), 1), reviewedBy: "A. Lawyer, Firm", basis: "Reviewed against the PDPA 2010 retention principle." })).toMatchObject({ ok: false });
-    expect(await recordPolicyReview(owner, { reviewedOn: todayISO(), reviewedBy: "", basis: "Reviewed against the retention principle." })).toMatchObject({ ok: false });
-    expect(await recordPolicyReview(manager, { reviewedOn: todayISO(), reviewedBy: "A. Lawyer, Firm", basis: "Reviewed against the retention principle." })).toMatchObject({ ok: false, status: 403 });
-    const reviewed = await policyRoute.POST(req("POST", ownerCookie, { action: "review", reviewedOn: todayISO(), reviewedBy: "Aisha Rahman, Rahman & Co", basis: "Reviewed against the retention principle for these purposes." }));
+  it("record a review only with its provenance, per jurisdiction and period, as the owner's record, never as approval; a change lapses it, and all is kept", async () => {
+    const full = {
+      jurisdictions: ["MY"],
+      scope: ["documentDays", "reviewDays", "recordDays", "quarantineDays"],
+      reviewedOn: todayISO(),
+      reviewerName: "Aisha Rahman",
+      reviewerRole: "Advocate & Solicitor, High Court of Malaya",
+      firm: "Rahman & Co",
+      adviceReference: "Letter RC/2026/114",
+      basis: "Reviewed against the retention principle for these purposes.",
+    };
+    // A name and a day are not a review: each part of its provenance is required.
+    for (const [missing, error] of [
+      [{ jurisdictions: [] }, "Say which jurisdiction"],
+      [{ jurisdictions: ["MY", "ID"] }, "Say which jurisdiction"],
+      [{ scope: [] }, "Say which periods"],
+      [{ scope: ["documentDays", "erasureLedger"] }, "Say which periods"],
+      [{ reviewerName: "" }, "reviewer's name"],
+      [{ reviewerRole: "" }, "role or qualification"],
+      [{ firm: "" }, "firm or organisation"],
+      [{ adviceReference: "" }, "written advice"],
+      [{ basis: "ok" }, "based on"],
+      [{ reviewedOn: addDays(todayISO(), 1) }, "today or earlier"],
+    ] as const)
+      expect(await recordPolicyReview(owner, { ...full, ...missing }), JSON.stringify(missing)).toMatchObject({ ok: false, error: expect.stringContaining(error) });
+    expect(await recordPolicyReview(manager, full)).toMatchObject({ ok: false, status: 403 });
+    expect(await retentionPolicy()).toMatchObject({ provisional: true, home: "MY" });
+
+    // Malaysia, every period; Singapore, the documents only: each recorded and shown on its own.
+    const reviewed = await policyRoute.POST(req("POST", ownerCookie, { action: "review", ...full }));
     expect(reviewed.status).toBe(200);
-    expect(await retentionPolicy()).toMatchObject({ provisional: false, review: { reviewedBy: "Aisha Rahman, Rahman & Co", recordedBy: owner.name } });
+    expect((await recordPolicyReview(owner, { ...full, jurisdictions: ["SG"], scope: ["documentDays"], reviewerName: "Tan Wei Ming", reviewerRole: "Advocate & Solicitor (Singapore)", firm: "Tan LLP", adviceReference: "Memo TL-88" })).ok).toBe(true);
+    const policy = await retentionPolicy();
+    expect(policy).toMatchObject({ provisional: false, home: "MY" });
+    expect(policy.coverage.MY).toMatchObject({ provisional: [], reviews: [{ reviewerName: "Aisha Rahman", reviewerRole: full.reviewerRole, firm: "Rahman & Co", adviceReference: "Letter RC/2026/114", recordedBy: owner.name, periods: "90/30/365/7" }] });
+    expect(policy.coverage.SG).toMatchObject({ covered: ["documentDays"], provisional: ["reviewDays", "recordDays", "quarantineDays"] });
     const html = renderToStaticMarkup(await PrivacyPage());
-    expect(html).toContain(`These periods were reviewed on ${todayISO()} by Aisha Rahman, Rahman &amp; Co.`);
-    // Changing a period: provisional again.
+    expect(html).toContain("The platform owner has recorded a review of the periods for documents after the decision, documents kept for a review, closed applications, refused or unscannable documents in Malaysia by Aisha Rahman (Advocate &amp; Solicitor, High Court of Malaya, Rahman &amp; Co)");
+    expect(html).toContain("MySenam has not verified it, and it is not a legal approval.");
+    expect(html).not.toMatch(/legally approved|have been approved|were approved/i);
+    // Singapore's review is not the Malaysian install's; on a Singapore install, what it leaves out stays provisional.
+    expect(html).not.toContain("Tan Wei Ming");
+    process.env.MYSENAM_COUNTRY = "SG";
+    try {
+      expect(await retentionPolicy()).toMatchObject({ home: "SG", provisional: true });
+      const sg = renderToStaticMarkup(await PrivacyPage());
+      expect(sg).toContain("Tan Wei Ming");
+      expect(sg).toContain("Still provisional: documents kept for a review, closed applications, refused or unscannable documents.");
+    } finally {
+      delete process.env.MYSENAM_COUNTRY;
+    }
+    // Changing a period: every review lapses, and the periods are provisional again; a review dated before cannot be of them.
     const changed = await setRetentionPolicy(owner, { documentDays: 20, reviewDays: 10, recordDays: 120, quarantineDays: 3 });
-    expect(changed).toMatchObject({ ok: true, policy: { documentDays: 20, reviewDays: 10, recordDays: 120, quarantineDays: 3, review: null, provisional: true, changedBy: owner.name } });
+    expect(changed).toMatchObject({ ok: true, policy: { documentDays: 20, reviewDays: 10, recordDays: 120, quarantineDays: 3, provisional: true, changedBy: owner.name } });
+    expect((await retentionPolicy()).coverage.MY.reviews).toEqual([]);
+    expect(((await getDb().prepare("SELECT COUNT(*)::int AS n FROM retention_policy_reviews WHERE lapsed_at IS NOT NULL").get()) as { n: number }).n).toBe(2);
+    expect(await recordPolicyReview(owner, { ...full, reviewedOn: addDays(todayISO(), -1) })).toMatchObject({ ok: false, error: expect.stringContaining("before the periods were last changed") });
     const events = await policyEvents();
-    expect(events.map((e) => e.kind)).toEqual(["changed", "reviewed"]);
+    expect(events.map((e) => e.kind)).toEqual(["changed", "reviewed", "reviewed"]);
     expect(events[0].detail).toContain("was 90, 30, 365, 7");
+    expect(events[2].detail).toContain("not verified by MySenam");
     // Anybody on the staff reads the periods; only the owner sees the scanner and the record.
     const asManager = (await (await policyRoute.GET(req("GET", managerCookie))).json()) as Record<string, unknown>;
     expect(asManager).toMatchObject({ policy: { documentDays: 20 } });
     expect(asManager.scanner).toBeUndefined();
     const asOwner = (await (await policyRoute.GET(req("GET", ownerCookie))).json()) as Record<string, unknown>;
     expect(asOwner.scanner).toMatchObject({ mode: "scanner" });
-    expect(asOwner.events).toHaveLength(2);
+    expect(asOwner.events).toHaveLength(3);
+  });
+
+  it("lapse a review recorded before provenance was required (migration 0162), keeping the record of it", async () => {
+    const db = getDb();
+    await db
+      .prepare("UPDATE retention_policy SET reviewed_on = ?, reviewed_by = 'Old Name, Old Firm', review_basis = 'A basis only, no provenance.', review_recorded_by_name = 'Pat Owner', review_recorded_at = now() WHERE id = 1")
+      .run(todayISO());
+    await db.exec(fs.readFileSync(path.join(__dirname, "..", "db", "migrations", "0162_retention_review_provenance.sql"), "utf8"));
+    const row = (await db.prepare("SELECT reviewed_on FROM retention_policy WHERE id = 1").get()) as { reviewed_on: string | null };
+    expect(row.reviewed_on).toBeNull();
+    const [lapsed] = await policyEvents(1);
+    expect(lapsed).toMatchObject({ kind: "lapsed", by: "Migration 0162" });
+    expect(lapsed.detail).toContain("Old Name, Old Firm");
+    expect((await retentionPolicy()).provisional).toBe(true);
   });
 
   it("bound what an activity may set, and are what the retention run applies", async () => {

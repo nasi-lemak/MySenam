@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Supporting documents: the install's retention periods for applications
- * (lib/retention-policy.ts), provisional until a review is recorded, and the
+ * (lib/retention-policy.ts), provisional wherever no review is recorded, and the
  * malware scanner's state (lib/document-scanning.ts).
  *
  * GET: any staff account reads the periods (an activity's own may only be
@@ -34,13 +34,15 @@ export async function GET(req: NextRequest) {
 
 /**
  * The platform owner only. `{ action: "set", documentDays, reviewDays,
- * recordDays, quarantineDays }` sets the install's periods (lapsing a recorded
- * review); `{ action: "review", reviewedOn, reviewedBy, basis }` records who
- * reviewed them, when and on what basis; `{ action: "retry", documentId,
- * reason }` has a failed document scanned again (its same bytes back in
- * quarantine, never released by this; refused with a code when its content
- * is gone or changed, it did not fail, or it was retried too often:
- * lib/document-scanning.ts retryDocumentScan).
+ * recordDays, quarantineDays }` sets the install's periods (lapsing every
+ * recorded review); `{ action: "review", jurisdictions, scope, reviewerName,
+ * reviewerRole, firm, reviewedOn, adviceReference, basis }` records a review,
+ * one per jurisdiction: the platform owner's record of what a reviewer
+ * advised, not verified by MySenam (lib/retention-policy.ts); `{ action:
+ * "retry", documentId, reason }` has a failed document scanned again (its
+ * same bytes back in quarantine, never released by this; refused with a code
+ * when its content is gone or changed, it did not fail, or it was retried too
+ * often: lib/document-scanning.ts retryDocumentScan).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);

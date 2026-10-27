@@ -519,6 +519,9 @@ export async function copyOffsite(
   if (!config) return null;
   const paused = offsiteTransferCheck();
   if (paused) return await rememberCopy(backup, { ok: false, error: paused }, Boolean(manifest), false);
+  // The erasure ledger's entries not yet off-site go first, so the off-site ledger reaches as far as this set's
+  // manifest says it had (lib/erasure-ledger-offsite.ts). Its own failure is noted and told there; the set still goes.
+  await (await import("./erasure-ledger-offsite.ts")).shipLedger().catch(() => null);
   // Encrypted before it leaves, where a public key is given: the database and photos as `<name>.enc`; the
   // manifest (hashes and counts, no personal data) stays readable, marked so a restore knows to decrypt.
   const publicKey = readKeyFile(process.env.OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE);
@@ -688,7 +691,7 @@ export async function listOffsiteVersions(config: OffsiteConfig): Promise<Offsit
 const unescapeXml = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
 
 /** Each name's first upload, and whether anything came after it. */
-function firstVersions(versions: OffsiteVersion[]): Map<string, { first: OffsiteVersion | null; rewritten: boolean }> {
+export function firstVersions(versions: OffsiteVersion[]): Map<string, { first: OffsiteVersion | null; rewritten: boolean }> {
   const byName = new Map<string, OffsiteVersion[]>();
   for (const v of versions) byName.set(v.name, [...(byName.get(v.name) ?? []), v]);
   return new Map(

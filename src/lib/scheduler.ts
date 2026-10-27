@@ -297,6 +297,16 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Erasure-ledger entries not yet off-site, copied (tried again each minute until accepted); once an hour,
+    // the owners told of one still waiting (lib/erasure-ledger-offsite.ts).
+    const ledger = await import("./erasure-ledger-offsite");
+    await ledger.shipLedger(now);
+    if (now.getUTCMinutes() === 0) await ledger.checkLedgerShipping(now.getTime());
+  } catch (err) {
+    console.error("[mysenam] copying the erasure ledger off-site failed:", err);
+  }
+
+  try {
     // Once an hour, and after each backup: is there a copy recent enough to recover from?
     if (result.backup !== null || now.getUTCMinutes() === 0) await checkBackupHealth(now);
   } catch (err) {
