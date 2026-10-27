@@ -189,3 +189,20 @@
     passes, one per person, by the engine's own plan. A percentage code is
     now rounded down to the sen as documented (it had been rounded half up
     first). Migrations 0163–0165.
+  - 2026-10-27 (the owner's decision on taking one person off a booking):
+    the deliberate commercial restrictions stay (a court hired whole gives
+    nothing back when one person leaves; a lesson is booked as one with the
+    coach; an open game's players leave the game; a class place is its own
+    enrolment; shares other players paid, each worked out from the whole
+    price, a payment page open, kit out, a place marked at the door and the
+    cutoff refuse it), and the cases that were refused only for want of the
+    money path are built on the same withdrawal: a booking held by a deposit
+    (the place off the balance still owed first, then what was paid beyond
+    the new total back to the deposit's payment on the cancellation terms,
+    with a credit note; `place_withdrawals.deposit_part`, migration 0200)
+    and a booking charged to a company or school account (off its charge
+    before the month's invoice; after it the invoice stays as issued and the
+    place is a credit note on the account, taken off its next invoice;
+    `account_credits`, migration 0201). A split nobody has paid a share of
+    is worked out again on the new price
+    ([taking one person off a booking](../../features/booking.md#taking-one-person-off-a-booking)).

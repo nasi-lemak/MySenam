@@ -555,6 +555,49 @@ export async function creditBookingPlace(bookingId: number, withdrawalId: number
   });
 }
 
+/**
+ * A place taken off a booking charged to a company or school account after
+ * its invoice was issued (lib/place-withdrawals.ts, lib/accounts.ts): a
+ * credit note to the account, against that invoice, at the tax the booking
+ * was invoiced at. The invoice stays as it was issued; the credit comes off
+ * the account's next one. Once per credit.
+ */
+export async function creditAccountPlace(credit: {
+  creditId: number;
+  venueId: number;
+  accountName: string;
+  invoiceNumber: string | null;
+  code: string;
+  who: string;
+  amount: number;
+  taxRate: number | null;
+  why: string;
+}): Promise<Document | null> {
+  const total = roundMoney(credit.amount);
+  if (total <= 0) return null;
+  // At the rate the booking was invoiced at, as the invoice's own lines were.
+  const rate = credit.taxRate;
+  const tax = rate ? await venueTax(credit.venueId) : null;
+  return write({
+    venue_id: credit.venueId,
+    kind: "credit_note",
+    source: `account-credit:${credit.creditId}`,
+    credits_id: null,
+    credits_ref: credit.invoiceNumber ?? credit.code,
+    user_id: null,
+    customer_name: credit.accountName,
+    customer_phone: null,
+    lines: JSON.stringify([{ description: `${credit.who}, taken off ${credit.code}`, amount: total }]),
+    total,
+    tax_name: rate ? tax!.name : null,
+    tax_rate: rate,
+    tax_amount: rate ? taxIncluded(total, rate) : 0,
+    tax_reg_no: rate ? tax!.regNo : null,
+    paid_via: null,
+    note: credit.why,
+  });
+}
+
 /** What a tournament entry or league season sold: for its receipt, however it was paid. */
 interface FeeSale {
   venueId: number;

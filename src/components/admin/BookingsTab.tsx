@@ -288,11 +288,16 @@ export function BookingsTab() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("ent.bk.takeOffFailed")));
-      const w = data.withdrawal as { name: string | null; refund: number; owedLess: number; units: number; price: number };
+      const w = data.withdrawal as { name: string | null; refund: number; owedLess: number; units: number; price: number; how: string; deposit?: number };
+      // On an account already invoiced, the booker's part is a credit note on the account; a deposit's part goes back as paid.
+      const onAccount = w.how === "account" ? Math.round((w.refund - (w.deposit ?? 0)) * 100) / 100 : 0;
       setNotice(
         [
           w.name ? t("ent.bk.tookOff", { name: w.name }) : t("ent.bk.gaveUp"),
-          w.refund > 0 ? t("ent.bk.refunded", { amount: money(w.refund) }) : w.owedLess > 0 ? t("ent.bk.owedLess", { amount: money(w.owedLess) }) : w.units > 0 ? "" : t("ent.bk.noPrice"),
+          w.owedLess > 0 ? t("ent.bk.owedLess", { amount: money(w.owedLess) }) : "",
+          onAccount > 0 ? t("pw6.bk.toAccount", { amount: money(onAccount) }) : "",
+          w.refund - onAccount > 0 ? t("ent.bk.refunded", { amount: money(w.refund - onAccount) }) : "",
+          w.refund <= 0 && w.owedLess <= 0 && w.units <= 0 ? t("ent.bk.noPrice") : "",
           w.units > 0 ? t("ent.bk.unitsBack", { n: w.units }) : "",
         ]
           .filter(Boolean)

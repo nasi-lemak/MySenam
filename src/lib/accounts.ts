@@ -50,8 +50,10 @@ export interface Account {
   bookers: AccountBooker[];
   /** Played or booked on it, not yet invoiced. */
   uninvoiced: number;
-  /** On invoices not yet paid. */
+  /** On invoices not yet paid, less the credit notes taken off them. */
   owing: number;
+  /** Credit notes on the account waiting to come off its next invoice (places taken off bookings already invoiced). */
+  credit: number;
 }
 
 export interface InvoiceLine {
@@ -75,9 +77,20 @@ export interface AccountInvoice {
   dueOn: string;
   total: number;
   taxAmount: number;
+  /** Credit notes on the account taken off this invoice (`account_credits.applied_invoice_id`). */
+  credited: number;
+  /** What the account pays on it: the total less the credit notes taken off. */
+  due: number;
   token: string;
   paidOn: string | null;
   paidVia: CounterMethod | null;
+}
+
+/** A credit note on the account taken off an invoice, as the invoice lists it. */
+export interface InvoiceCredit {
+  number: string;
+  code: string | null;
+  amount: number;
 }
 
 export const MAX_TERMS_DAYS = 90;
@@ -128,8 +141,19 @@ async function withTotals(rows: AccountRow[]): Promise<Account[]> {
         GROUP BY b.account_id`
     )
     .all(...ids)) as { account_id: number; uninvoiced: number; owing: number }[];
+  // Credit notes: taken off an invoice not yet paid (less owing on it), or waiting for the next one.
+  const credits = (await db
+    .prepare(
+      `SELECT c.account_id,
+              COALESCE(SUM(CASE WHEN c.applied_invoice_id IS NOT NULL AND i.paid_on IS NULL THEN c.amount END), 0)::float AS applied,
+              COALESCE(SUM(CASE WHEN c.applied_invoice_id IS NULL THEN c.amount END), 0)::float AS waiting
+         FROM account_credits c LEFT JOIN account_invoices i ON i.id = c.applied_invoice_id
+        WHERE c.account_id IN (${marks}) GROUP BY c.account_id`
+    )
+    .all(...ids)) as { account_id: number; applied: number; waiting: number }[];
   return rows.map((r) => {
     const s = sums.find((x) => x.account_id === r.id);
+    const c = credits.find((x) => x.account_id === r.id);
     return {
       id: r.id,
       venueId: r.venue_id,
@@ -143,7 +167,8 @@ async function withTotals(rows: AccountRow[]): Promise<Account[]> {
       locale: invoiceLocale(r.locale),
       bookers: bookers.filter((b) => b.account_id === r.id).map((b) => ({ name: b.name, phone: b.phone })),
       uninvoiced: roundMoney(Number(s?.uninvoiced ?? 0)),
-      owing: roundMoney(Number(s?.owing ?? 0)),
+      owing: roundMoney(Math.max(0, Number(s?.owing ?? 0) - Number(c?.applied ?? 0))),
+      credit: roundMoney(Number(c?.waiting ?? 0)),
     };
   });
 }
@@ -313,12 +338,15 @@ interface InvoiceRow {
   due_on: string;
   total: number | string;
   tax_amount: number | string;
+  credited: number | string | null;
   token: string;
   paid_on: string | null;
   paid_via: CounterMethod | null;
 }
 
-const INVOICE_SELECT = `SELECT i.*, a.name AS account_name FROM account_invoices i JOIN venue_accounts a ON a.id = i.account_id`;
+const INVOICE_SELECT = `SELECT i.*, a.name AS account_name,
+    (SELECT COALESCE(SUM(c.amount), 0) FROM account_credits c WHERE c.applied_invoice_id = i.id)::float AS credited
+  FROM account_invoices i JOIN venue_accounts a ON a.id = i.account_id`;
 
 const toInvoice = (r: InvoiceRow): AccountInvoice => ({
   id: r.id,
@@ -331,6 +359,8 @@ const toInvoice = (r: InvoiceRow): AccountInvoice => ({
   dueOn: r.due_on,
   total: Number(r.total),
   taxAmount: Number(r.tax_amount),
+  credited: roundMoney(Number(r.credited ?? 0)),
+  due: roundMoney(Math.max(0, Number(r.total) - Number(r.credited ?? 0))),
   token: r.token,
   paidOn: r.paid_on,
   paidVia: r.paid_via,
@@ -376,6 +406,21 @@ export async function issueInvoice(accountId: number, period: string, opts: { em
       id: number;
     };
     await db.prepare(`UPDATE bookings SET account_invoice_id = ? WHERE id IN (${rows.map(() => "?").join(",")})`).run(made.id, ...rows.map((r) => r.id));
+    // Credit notes waiting on the account come off it, whole and oldest first, as far as its total goes.
+    const waiting = (await db
+      .prepare("SELECT id, amount::float AS amount FROM account_credits WHERE account_id = ? AND applied_invoice_id IS NULL ORDER BY id FOR UPDATE")
+      .all(accountId)) as { id: number; amount: number }[];
+    let room = total;
+    const applied: number[] = [];
+    for (const c of waiting) {
+      if (Number(c.amount) > room + 1e-9) break;
+      room = roundMoney(room - Number(c.amount));
+      applied.push(c.id);
+    }
+    if (applied.length > 0)
+      await db
+        .prepare(`UPDATE account_credits SET applied_invoice_id = ? WHERE applied_invoice_id IS NULL AND id IN (${applied.map(() => "?").join(",")})`)
+        .run(made.id, ...applied);
     return (await invoiceById(made.id))!;
   });
   if (invoice && opts.email !== false) await emailInvoice(invoice, account);
@@ -397,7 +442,8 @@ async function emailInvoice(invoice: AccountInvoice, account: Account): Promise<
       account: invoice.accountName,
       venue: venue.name,
       number: invoice.number,
-      total: invoice.total,
+      // What the account pays: the total less the credit notes taken off it.
+      total: invoice.due,
       due: invoice.dueOn,
       link: `${await venueBaseUrl(invoice.venueId)}/account-invoice/${invoice.token}`,
       site: siteName(),
@@ -444,6 +490,63 @@ export async function invoiceLines(invoiceId: number): Promise<InvoiceLine[]> {
   }));
 }
 
+/** The credit notes on the account taken off this invoice, oldest first. */
+export async function invoiceCredits(invoiceId: number): Promise<InvoiceCredit[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT r.number, b.code, c.amount::float AS amount FROM account_credits c
+         LEFT JOIN receipts r ON r.id = c.receipt_id LEFT JOIN bookings b ON b.id = c.booking_id
+        WHERE c.applied_invoice_id = ? ORDER BY c.id`
+    )
+    .all(invoiceId)) as { number: string | null; code: string | null; amount: number }[];
+  return rows.map((r) => ({ number: r.number ?? "", code: r.code, amount: roundMoney(Number(r.amount)) }));
+}
+
+/**
+ * One place taken off a booking on this account after its invoice was issued
+ * (lib/place-withdrawals.ts, inside the withdrawal's transaction, under the
+ * booking's lock): the invoice stays as issued; `amount` becomes a credit note
+ * on the account against it, which comes off the account's next invoice.
+ */
+export async function creditAccountForPlace(input: {
+  bookingId: number;
+  withdrawalId: number;
+  who: string;
+  amount: number;
+  why: string;
+}): Promise<{ id: number; number: string | null } | null> {
+  const amount = roundMoney(input.amount);
+  if (amount <= 0) return null;
+  const db = getDb();
+  const b = (await db
+    .prepare(
+      `SELECT b.code, b.tax_rate, b.account_id, b.account_invoice_id, a.venue_id, a.name AS account_name
+         FROM bookings b JOIN venue_accounts a ON a.id = b.account_id WHERE b.id = ?`
+    )
+    .get(input.bookingId)) as
+    | { code: string; tax_rate: number | string | null; account_id: number; account_invoice_id: number | null; venue_id: number; account_name: string }
+    | undefined;
+  if (!b) return null;
+  const invoice = b.account_invoice_id === null ? null : await invoiceById(b.account_invoice_id);
+  const made = (await db
+    .prepare("INSERT INTO account_credits (account_id, venue_id, booking_id, withdrawal_id, invoice_id, amount) VALUES (?, ?, ?, ?, ?, ?) RETURNING id")
+    .get(b.account_id, b.venue_id, input.bookingId, input.withdrawalId, b.account_invoice_id, amount)) as { id: number };
+  const { creditAccountPlace } = await import("./documents");
+  const note = await creditAccountPlace({
+    creditId: made.id,
+    venueId: b.venue_id,
+    accountName: b.account_name,
+    invoiceNumber: invoice?.number ?? null,
+    code: b.code,
+    who: input.who,
+    amount,
+    taxRate: b.tax_rate === null ? null : Number(b.tax_rate),
+    why: input.why,
+  });
+  if (note) await db.prepare("UPDATE account_credits SET receipt_id = ? WHERE id = ?").run(note.id, made.id);
+  return { id: made.id, number: note?.number ?? null };
+}
+
 /** Paid: and with it, each booking on it, by the same means. */
 export async function markInvoicePaid(venueId: number, invoiceId: number, via: unknown): Promise<{ ok: true; invoice: AccountInvoice } | { ok: false; error: string }> {
   if (!COUNTER_METHODS.includes(via as CounterMethod)) return { ok: false, error: "Say how it was paid." };
@@ -465,8 +568,14 @@ export async function markInvoicePaid(venueId: number, invoiceId: number, via: u
 
 /** Withdrawn, as if never issued: its bookings wait to be invoiced again. Not once paid. */
 export async function withdrawInvoice(venueId: number, invoiceId: number): Promise<boolean> {
-  const done = await getDb().prepare("DELETE FROM account_invoices WHERE id = ? AND venue_id = ? AND paid_on IS NULL").run(invoiceId, venueId);
-  return done.changes > 0;
+  return withTransaction(async () => {
+    const db = getDb();
+    // Its bookings first, as everything else takes them (a booking, then what it refers to): a change to one
+    // of them under way (somebody taken off it) finishes first, rather than deadlocking with the delete.
+    await db.prepare("SELECT id FROM bookings WHERE account_invoice_id = ? ORDER BY id FOR UPDATE").all(invoiceId);
+    const done = await db.prepare("DELETE FROM account_invoices WHERE id = ? AND venue_id = ? AND paid_on IS NULL").run(invoiceId, venueId);
+    return done.changes > 0;
+  });
 }
 
 /**

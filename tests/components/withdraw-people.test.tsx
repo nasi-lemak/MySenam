@@ -93,4 +93,19 @@ describe("who is on a booking, and taking one of them off", () => {
     expect(withdrawMoneyLine(t, { price: 10, refund: 0, units: 0, how: "pass" })).toBe("It was paid for as a whole, so nothing goes back for one person.");
     expect(withdrawMoneyLine(t, { price: 10, units: 1, how: "pass" })).toBe("1 back on the pass (entries, or minutes on a time pass).");
   });
+
+  it("says where a deposit's part goes, and a credit note on a company or school account, as the email does", () => {
+    const t = translator("en");
+    // Off the balance first, then out of the deposit.
+    expect(withdrawMoneyLine(t, { price: 10, owedLess: 5, refund: 5, deposit: 5, kept: 0, units: 0, how: "online" })).toBe(
+      "RM5 less to pay. RM5 of the deposit goes back to the card or account it was paid with."
+    );
+    // Paid at the counter after the deposit: the counter's part by hand, then the deposit's.
+    expect(withdrawMoneyLine(t, { price: 10, owedLess: 0, refund: 10, deposit: 5, kept: 0, units: 0, how: "hand" })).toBe(
+      "The venue gives back RM5: ask at the counter. RM5 of the deposit goes back to the card or account it was paid with."
+    );
+    expect(withdrawMoneyLine(translator("ms"), { price: 10, owedLess: 0, refund: 10, deposit: 0, kept: 0, units: 0, how: "account" })).toBe(
+      "RM10 menjadi nota kredit pada akaun yang dicaj untuk tempahan ini, ditolak daripada invoisnya yang seterusnya."
+    );
+  });
 });

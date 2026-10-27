@@ -2176,8 +2176,8 @@ export const ZH: Record<Phrase, string> = {
   "err.ENT_WITHDRAW_CLASS": "课堂中的每个名额都是单独的预订：请改为取消该人在课堂中的名额。",
   "err.ENT_WITHDRAW_GAME": "本预订是公开球局：请改为让球员退出球局。",
   "err.ENT_WITHDRAW_ACCOUNT": "本预订记在账户上。请让场馆为您移除某人。",
-  "err.ENT_WITHDRAW_DEPOSIT": "已为保留本预订支付订金。请让场馆为您移除某人。",
-  "err.ENT_WITHDRAW_SHARED": "其他球员已分摊本预订的费用。请让场馆更改参加人员。",
+  "err.ENT_WITHDRAW_DEPOSIT": "本预订有一部分款项是在订金以外在线支付的，无法区分某一人名额的费用。请取消预订，或询问场馆。",
+  "err.ENT_WITHDRAW_SHARED": "其他球员已分摊本预订的费用，每份均按总价计算，因此不能单独移除任何人。请取消预订，或询问场馆。",
   "err.ENT_WITHDRAW_PAGE_OPEN": "本预订正在付款中。请先完成付款，或等待付款页面关闭。",
   "err.ENT_WITHDRAW_SOLD_WHOLE": "场馆将这些名额作为整体出售，因此不能单独移除一人。请取消预订，或询问场馆。",
   "err.ENT_WITHDRAW_STARTED": "本预订已开始，现在不能移除任何人。",
@@ -2330,6 +2330,10 @@ export const ZH: Record<Phrase, string> = {
   "fin6.msg.coachHandedOverSubject": "已转给其他教练：{date}，{time} 的课程",
   "fin6.msg.coachHandedOver": "{name}，您好，{student} 于 {date}，{time}（{court}，{venue}）的课程已转给另一位教练，不再列入您的日程。预订编号 {code}。",
   "fin6.lessonKeepsCoach": "您的课程保留原教练：显示的时间为该教练授课且有空的时段。如需更换教练，请联系场馆。",
+  "pw6.msg.toAccount": "{amount}作为贷记单记入本预订所挂的账户，从其下一张发票中扣除。",
+  "pw6.msg.depositBack": "订金中的{amount}将退回到支付订金所用的卡或账户。",
+  "pw6.inv.credit": "贷记单 {number}，{code}",
+  "pw6.inv.toPay": "应付金额",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

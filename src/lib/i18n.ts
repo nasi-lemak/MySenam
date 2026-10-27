@@ -2336,8 +2336,8 @@ const EN = {
   "err.ENT_WITHDRAW_CLASS": "Each place in a class is its own booking: cancel that person's place in the class instead.",
   "err.ENT_WITHDRAW_GAME": "This booking is an open game: players leave the game instead.",
   "err.ENT_WITHDRAW_ACCOUNT": "This booking is charged to an account. Ask the venue to take somebody off it.",
-  "err.ENT_WITHDRAW_DEPOSIT": "A deposit was paid to hold this booking. Ask the venue to take somebody off it.",
-  "err.ENT_WITHDRAW_SHARED": "Other players paid shares of this booking. Ask the venue to change who takes part.",
+  "err.ENT_WITHDRAW_DEPOSIT": "Part of this booking was paid online apart from its deposit, so what one person's place cost cannot be told apart. Cancel the booking, or ask the venue.",
+  "err.ENT_WITHDRAW_SHARED": "Other players paid shares of this booking, each worked out from its whole price, so nobody can be taken off it on their own. Cancel the booking, or ask the venue.",
   "err.ENT_WITHDRAW_PAGE_OPEN": "A payment for this booking is under way. Finish paying, or wait for the payment page to close, first.",
   "err.ENT_WITHDRAW_SOLD_WHOLE": "The venue sells these places together, so one person cannot be taken off. Cancel the booking, or ask the venue.",
   "err.ENT_WITHDRAW_STARTED": "This booking has started, so nobody can be taken off it now.",
@@ -2490,6 +2490,10 @@ const EN = {
   "fin6.msg.coachHandedOverSubject": "No longer yours: lesson on {date}, {time}",
   "fin6.msg.coachHandedOver": "Hi {name}, the lesson with {student} on {date}, {time} ({court}, {venue}) is now with another coach, and no longer in your schedule. Booking {code}.",
   "fin6.lessonKeepsCoach": "Your lesson keeps its coach: the times shown are when they take lessons and are free. To change the coach, ask the venue.",
+  "pw6.msg.toAccount": "{amount} is a credit note on the account this booking is charged to, taken off its next invoice.",
+  "pw6.msg.depositBack": "{amount} of the deposit goes back to the card or account it was paid with.",
+  "pw6.inv.credit": "Credit note {number}, {code}",
+  "pw6.inv.toPay": "To pay",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4779,8 +4783,8 @@ const MS: Record<Phrase, string> = {
   "err.ENT_WITHDRAW_CLASS": "Setiap tempat dalam kelas ialah tempahan tersendiri: batalkan tempat orang itu dalam kelas.",
   "err.ENT_WITHDRAW_GAME": "Tempahan ini ialah permainan terbuka: pemain keluar daripada permainan itu.",
   "err.ENT_WITHDRAW_ACCOUNT": "Tempahan ini dicaj kepada akaun. Minta pusat mengeluarkan seseorang daripadanya.",
-  "err.ENT_WITHDRAW_DEPOSIT": "Deposit telah dibayar untuk menahan tempahan ini. Minta pusat mengeluarkan seseorang daripadanya.",
-  "err.ENT_WITHDRAW_SHARED": "Pemain lain telah membayar bahagian tempahan ini. Minta pusat menukar siapa yang menyertai.",
+  "err.ENT_WITHDRAW_DEPOSIT": "Sebahagian tempahan ini dibayar dalam talian selain depositnya, jadi harga tempat seseorang tidak dapat diasingkan. Batalkan tempahan, atau tanya pusat.",
+  "err.ENT_WITHDRAW_SHARED": "Pemain lain telah membayar bahagian tempahan ini, setiap satu dikira daripada harga penuhnya, jadi tiada sesiapa boleh dikeluarkan seorang diri. Batalkan tempahan, atau tanya pusat.",
   "err.ENT_WITHDRAW_PAGE_OPEN": "Pembayaran untuk tempahan ini sedang berjalan. Selesaikan pembayaran, atau tunggu halaman pembayaran ditutup, dahulu.",
   "err.ENT_WITHDRAW_SOLD_WHOLE": "Pusat menjual tempat-tempat ini bersama, jadi seorang tidak boleh dikeluarkan. Batalkan tempahan, atau tanya pusat.",
   "err.ENT_WITHDRAW_STARTED": "Tempahan ini sudah bermula, jadi tiada sesiapa boleh dikeluarkan sekarang.",
@@ -4933,6 +4937,10 @@ const MS: Record<Phrase, string> = {
   "fin6.msg.coachHandedOverSubject": "Bukan lagi milik anda: kelas pada {date}, {time}",
   "fin6.msg.coachHandedOver": "Hai {name}, kelas bersama {student} pada {date}, {time} ({court}, {venue}) kini bersama jurulatih lain, dan tiada lagi dalam jadual anda. Tempahan {code}.",
   "fin6.lessonKeepsCoach": "Kelas anda kekal dengan jurulatihnya: masa yang ditunjukkan ialah ketika mereka mengajar dan lapang. Untuk menukar jurulatih, tanya pusat.",
+  "pw6.msg.toAccount": "{amount} menjadi nota kredit pada akaun yang dicaj untuk tempahan ini, ditolak daripada invoisnya yang seterusnya.",
+  "pw6.msg.depositBack": "{amount} daripada deposit dikembalikan ke kad atau akaun yang digunakan untuk membayarnya.",
+  "pw6.inv.credit": "Nota kredit {number}, {code}",
+  "pw6.inv.toPay": "Perlu dibayar",
 };
 
 /** Exported so a test can hold the two languages against each other. */

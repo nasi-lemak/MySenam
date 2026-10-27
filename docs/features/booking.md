@@ -772,29 +772,69 @@ bookings (✕ beside a name, *−1 place*), with a reason if they give one.
     nothing priced per person.
   - Places nobody is named on (a group of four becoming three): as a place
     above, one at a time.
-- **Refused, with the reason.** The last person on a booking (cancel it
-  instead); a lesson, booked as one with the coach's fee; a class place
-  (each is already its own enrolment: cancel it); an open game; a booking
-  other players paid shares of, one with a deposit paid, or one charged to
-  a company or school account (the venue can change those); a payment page
-  open; kit still out; somebody already marked at the door, whose place stays
-  on the record; past the venue's cutoff, as for cancelling.
+- **Whoever paid what.** The place's price comes off the booker's own part
+  first, then a deposit's:
+  - *Held by a deposit paid online*: it comes off what the booking costs,
+    off the balance still owed first; only what was paid beyond the new
+    total goes back, to the deposit's payment, on the venue's cancellation
+    terms, with a credit note on the deposit's receipt. A booking paid in
+    full after its deposit settles the place from the part paid last (the
+    rest, the way it was paid) and then from the deposit. A later
+    cancellation gives back only the deposit left
+    ([refunds for one person's place](payments-and-credit.md#refunds-for-one-persons-place)).
+  - *Charged to a company or school account*: before the month's invoice is
+    issued, the place's price comes off the booking's charge; after, the
+    invoice stays as issued and the place's price (on the venue's
+    cancellation terms) is a credit note on the account, taken off its next
+    invoice ([company and school accounts](payments-and-credit.md#company-and-school-accounts)).
+  - *Split with friends* ([splitting the cost](payments-and-credit.md#splitting-the-cost-with-friends)):
+    while no friend has paid a share, the place comes off and each share is
+    worked out again on the new price, as changing the number of ways is.
+- **Refused, with the reason, and why.** These are deliberate, and the same
+  for the customer and the counter:
+  - the last person on a booking: that is cancelling it;
+  - a lesson: booked as one product with the coach's fee, not by the head;
+  - a class place: each is already its own enrolment, so cancelling it is
+    the withdrawal;
+  - an open game: its players leave the game, whose shares are the game's;
+  - a booking other players paid shares of (a split share paid, or a game's):
+    each share was worked out from the whole price and paid to the venue by
+    somebody who holds no place of their own, so no one person's part can
+    be told apart (`ENT_WITHDRAW_SHARED`); the booking can be cancelled, or
+    the venue settles it by hand;
+  - part of it paid online that is no deposit of the booker's (a share handed
+    back, a disputed payment), for the same reason (`ENT_WITHDRAW_DEPOSIT`);
+  - a payment page open, the booking's or a friend's share: the amount on
+    it was fixed from the price when it was opened;
+  - kit still out: as for cancelling, the hire is settled first;
+  - somebody already marked at the door: their place was used and stays on
+    the record;
+  - past the venue's cutoff, as for cancelling;
+  - a court or room hired whole is never refused, but nothing comes off: it
+    was sold whole, not by the person.
 - **Staff at the counter** may take somebody off until the booking has
   been played, in full, as a staff cancellation is; it is in the activity log
-  (*Took one person off a booking*) with the reason.
+  (*Took one person off a booking*) with the reason. The venue's API
+  (`/api/v1`) offers no withdrawal: its system cancels the booking or the
+  venue's staff take somebody off at the counter.
 - **On record and told.** `place_withdrawals` keeps who it was, what their
   place cost, what went back and how, what was kept, the pass entries
   returned, who did it and why; the participant's history says so; the
   person's row leaves the booking, so the door, the roster and every check
   no longer count them. The customer is told by email, naming who is off and
   what happened to the money. Two withdrawals at once, or one racing the
-  booking's cancellation or the last place, are settled under the booking's
-  lock: the money goes back once, and never more places are held than there
-  are.
+  booking's cancellation, the last place or the account's invoice being
+  issued, are settled under the booking's lock: the money goes back once,
+  the place comes off the charge before the invoice or is a credit note
+  after (never both), and never more places are held than there are.
 
 Tests: `tests/place-withdrawals.test.ts` (each case, the money each way it
-is paid, refusals, and races on Postgres) and
-`tests/components/withdraw-people.test.tsx` (the customer's screen).
+is paid, refusals, and races on Postgres),
+`tests/place-withdrawals-money.test.ts` (a deposit under- and over-paid,
+late, and paid in full after it; an account before and after its invoice; a
+split; races with a second withdrawal, the cancellation and the invoice, on
+Postgres) and `tests/components/withdraw-people.test.tsx` (the customer's
+screen).
 
 ### Telling customers before they book
 
