@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { accountRequests } from "@/lib/guardian-requests";
 import { addManaged, editManaged, endManaging, listManaged, ownParticipant, type ManagedRefusal } from "@/lib/managed-people";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -10,14 +11,21 @@ export const dynamic = "force-dynamic";
  * often (lib/managed-people.ts; ADR 0022, ADR 0023): `?archived=1` includes
  * those no longer managed. Only those this account acts for, never anybody
  * else's; `own` is the participant this account is linked to as their own
- * login, if any.
+ * login, if any. `requests` (lib/guardian-requests.ts): another adult's
+ * requests waiting for this guardian's answer, this account's own still
+ * pending (that one is pending, for whom, nothing more), its relationships
+ * paused for a manager's review, and recent changes to who acts for the
+ * people it manages, which it may report as a mistake.
  */
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   const people = await listManaged(user.id, { archived: req.nextUrl.searchParams.get("archived") === "1" });
   const own = await ownParticipant(user.id);
-  return NextResponse.json({ people, own: own ? { id: own.id, displayName: own.displayName } : null }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(
+    { people, own: own ? { id: own.id, displayName: own.displayName } : null, requests: await accountRequests(user.id) },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 const refusal = (r: ManagedRefusal) => NextResponse.json({ error: r.error, code: r.code, ...(r.vars ? { vars: r.vars } : {}) }, { status: r.status });

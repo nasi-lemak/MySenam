@@ -111,4 +111,9 @@ export const ACTION_LABELS: Record<string, string> = {
   "induction.kept": "Confirmed an induction is the number holder's own",
   "booking.for_participant": "Booked for a participant at the counter",
   "class.enrol_participant": "Enrolled a participant in a class at the counter",
+  "participant.guardian_requested": "Invited an adult to become a participant's guardian",
+  "participant.guardian_exception": "Recorded an exception to a guardian's agreement",
+  "participant.guardian_request_closed": "Closed a request to become a guardian",
+  "participant.guardian_suspended": "Paused a participant's guardian for review",
+  "participant.guardian_confirmed": "Kept a participant's guardian after review",
 };

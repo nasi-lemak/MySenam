@@ -129,13 +129,35 @@ On each coach under *Coaches* (`lib/coach-schedule.ts`):
   a coach the venue names to review those does so signed in to their own
   MySenam account, which a manager links to the coach record.
 
+### Which children a coach sees
+
+A coach sees the children they supervise and no others (ADR 0023, amended
+27 October 2026): the participants taking part in their own lessons
+(`bookings.coach_id`), on their schedule page, its calendar feed, their
+lesson emails and their own lessons file, with the booker's number to reach
+them; and the children whose applications they are the named reviewer for,
+at the venue that named them, while their coach record is active
+(`/api/my/reviews`, [approval reviewers](activities.md#registering-online-for-approval)),
+with the documents of those applications only (`/api/my/reviews/document`,
+each opening recorded under the coach's name). Not every child at the
+venue, not another coach's students, nothing at another venue, no
+guardian's other records, and no document beyond what the review route
+already allows. Classes name their instructor as text, not a coach record,
+so no class roster reaches a coach; the product holds no emergency or
+medical details, and none are collected for coaches. Tests:
+`tests/coach-scope.test.ts` (own lesson's child named, others not; the
+calendar feed, emails and the one-coach file; reviews and documents at the
+coach's venue only, not to another coach, not once inactive).
+
 ### What coaches are owed
 
 *Reports* shows *Coaches: lessons and fees* for the period: per coach, lessons
 that went ahead and their hours, the coach's fees on those paid and on those
 not yet paid, and no-shows apart (whether a coach is paid for those is the
 venue's call). *Every lesson (CSV)* has one row per lesson for the venue's
-books and the coach's records (`/api/admin/coach-payouts`, managers only).
+books (`/api/admin/coach-payouts`, managers only); *Their lessons (CSV)*
+beside each coach (`coachId`) holds that coach's own lessons only, the file
+to hand to the coach, naming no other coach's students.
 Lessons cancelled late are listed apart, with the coach's fee times the share
 the venue kept, for the venue to decide whether the coach is paid for them.
 The report says what is owed; paying the coach happens outside MySenam.

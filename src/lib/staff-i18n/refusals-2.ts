@@ -615,4 +615,13 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
     zh: "该文件已重新扫描 {0} 次：申请人需要重新发送。",
   },
   "action is set, review or retry.": { ms: "action ialah set, review atau retry.", zh: "action 须为 set、review 或 retry。" },
+  "Give the adult's name, or the email of their MySenam account.": { ms: "Berikan nama orang dewasa itu, atau e-mel akaun MySenam mereka.", zh: "请填写该成年人的姓名，或其 MySenam 账户的电子邮箱。" },
+  "No such request.": { ms: "Tiada permintaan sedemikian.", zh: "没有这项申请。" },
+  "This request is no longer waiting for an answer.": { ms: "Permintaan ini tidak lagi menunggu jawapan.", zh: "此申请已不再等待答复。" },
+  "Choose why: a custody dispute, a guardian who cannot agree, or another safeguarding reason.": { ms: "Pilih sebabnya: pertikaian hak penjagaan, penjaga yang tidak dapat bersetuju, atau sebab perlindungan lain.", zh: "请选择原因：监护权纠纷、监护人无法同意，或其他保护原因。" },
+  "Give a date within the next year to look at it again.": { ms: "Berikan tarikh dalam tempoh setahun akan datang untuk menyemaknya semula.", zh: "请填写一年内的复核日期。" },
+  "This relationship is already paused.": { ms: "Hubungan ini sudah digantung.", zh: "此关系已暂停。" },
+  "Nothing about this relationship is waiting for a review.": { ms: "Tiada apa-apa tentang hubungan ini yang menunggu semakan.", zh: "此关系没有待复核的事项。" },
+  "action is revokeGuardian, suspendGuardian, confirmGuardian, exception, closeRequest or link.": { ms: "action ialah revokeGuardian, suspendGuardian, confirmGuardian, exception, closeRequest atau link.", zh: "action 须为 revokeGuardian、suspendGuardian、confirmGuardian、exception、closeRequest 或 link。" },
+  "coachId must be a coach's id.": { ms: "coachId mestilah id jurulatih.", zh: "coachId 须为教练的 id。" },
 };

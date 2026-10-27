@@ -43,7 +43,16 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
         <tbody>
           {payouts.map((p) => (
             <tr key={p.coachId} className="border-t border-slate-100">
-              <td className="py-1 font-medium">{p.coach}</td>
+              <td className="py-1 font-medium">
+                {p.coach}{" "}
+                {/* That coach's own lessons only: the file to hand to them, naming no other coach's students. */}
+                <a
+                  href={`/api/admin/coach-payouts?venueId=${venueId}&from=${from}&to=${to}&format=csv&coachId=${p.coachId}`}
+                  className="text-xs font-normal text-teal-700 underline"
+                >
+                  {t("gv.cpay.csvOne")}
+                </a>
+              </td>
               <td className="py-1 text-right tabular-nums">{p.lessons}</td>
               <td className="py-1 text-right tabular-nums">{p.hours}</td>
               <td className="py-1 text-right tabular-nums">{money(p.paidFees)}</td>

@@ -475,7 +475,13 @@ stays, and can still be withdrawn or cancelled) and bring them back.
 gives a code (good once, for a week; only its hash is kept) that another
 adult enters under *Have a code?* on their own account, declaring their own
 relationship and authority: both then manage the child, each with their own
-relationship. *Hand over to their own login* gives a code the person enters
+relationship, and the child's other guardians are told by email. An adult
+asking at a venue's counter is given a code by staff instead, and acts for
+the child only once an existing guardian agrees on their people page or a
+manager records an exception; until then they see only that their request
+is pending ([another guardian by invitation](venue-operations.md#another-guardian-by-invitation)).
+A change to who acts for a child can be reported as a mistake from the same
+page, for a manager to review. *Hand over to their own login* gives a code the person enters
 on their own account: from then on that account is theirs (one participant
 per account), keeping every booking, sign-off, induction and waiver they
 had, and its own eligibility includes theirs; their guardians carry on
@@ -539,7 +545,9 @@ suggestions, profiles and invitations cannot reach them
 Not built: a coach's lesson asked for with an application (a slot is court
 time; a lesson is booked once approved); previews of PDFs (a PDF is
 downloaded, never shown in the app); another guardian seeing an
-application the first one made (each guardian sees their own). Booking for
+application the first one made (each guardian sees their own; the other
+guardians see its status only, in search and on the venue's grid:
+[who is taking part](discovery.md#who-is-taking-part)). Booking for
 a participant on every path is in
 [booking for somebody else](booking.md#booking-for-somebody-else).
 

@@ -299,7 +299,9 @@ participant record: their account and its own records are them.
 | ------------ | --- | -------- |
 | A first name or what the family calls them; a birth year, only if given because an activity needs an age; where it came from (an account online, or a venue's counter, which venue and which member of staff) (`participants`) | To book, apply, induct, sign off and agree to waivers for somebody without a login of their own, and to keep their eligibility theirs | While anybody acts for them or their own login is linked; then 365 days, once nothing rests on them ([retention](#retention)) |
 | Each guardian's relationship: the account, or (added at a venue's counter) a name and a number to reach them; the relationship and the authority as declared, when, how it was established (online, at the counter to named staff, or reviewed by staff), which member of staff and venue recorded one made at the counter, and when and why it ended (`participant_guardians`) | To know who may act for them, and to keep that history when it is corrected or revoked | With the participant; an account's relationships go with the account |
-| Codes one guardian gave another, or the participant's own login, to accept: their hash, purpose, who gave and who used them (`participant_invites`) | So both sides agree to a second guardian or to a login taking them over | With the participant |
+| Codes one guardian gave another, or the participant's own login, to accept, or a venue's staff gave an adult asking to become a guardian: their hash, purpose, who gave (an account, or staff by name) and who used them (`participant_invites`) | So both sides agree to a second guardian or to a login taking them over | With the participant |
+| Requests to become a guardian (`guardian_requests`, migration 0152): who started it (a guardian, or staff by name and venue), the adult as staff named them and optionally their account, which account accepted with its declared relationship and when, who agreed or the manager's exception (a category, a reason, a date to look at it again, whether the other guardians were told), who refused or closed it | So another guardian is made only with verified consent, and who did what can be shown | With the participant; a request goes with the account that accepted it |
+| On a relationship: a pause while a manager reviews it, and a flag for review (reported as a mistake by another guardian, made by an exception, or made by the earlier counter shortcut) with who reviewed it, when and the outcome (`participant_guardians`) | To correct a mistaken or disputed guardian, and to show how | With the relationship |
 | Who did what to the record, on whose behalf, at which venue (`participant_events`) | Accountability | With the participant |
 | The participant on bookings (`booking_participants`), applications, sign-offs, inductions and waiver signatures | To keep their eligibility theirs alone, and the venue's records straight | As each of those records is kept (above); a booking's places stop naming anybody when the booking does |
 | The participants a waiting-list entry is for (`waitlist_participants`, migration 0146), and who of a booking's people arrived or did not (`place_attendance`, 0147) | To offer a place to the people it was asked for, never somebody else; to say who came | With the entry (its queue's retention); an arrival with the booking's check-in, a no-show as long as the booking's own no-show flag; an erased participant's entry stops naming them and is offered to nobody |
@@ -326,16 +328,20 @@ account chooses to be (matchmaking stays opt-in and for declared adults,
 
 Whether somebody may book an activity that needs approval is shown in
 search only to the signed-in account that chose them as taking part, and
-only for itself and participants it acts for: a status per person, never an
-application's details, declarations or documents, sent marked private so no
-shared cache keeps it. The choice stays in that browser tab; nothing about it
+only for itself and participants it acts for now: a status per person
+(for a participant, from their own sign-offs and applications, whichever
+guardian made them), never an application's details, declarations or
+documents, which stay the applicant's, the venue's staff's and its named
+reviewers'; sent marked private so no shared cache keeps it. The choice stays in that browser tab; nothing about it
 is stored ([who is taking part](../features/discovery.md#who-is-taking-part)).
 
 An account's export holds the participants it manages (`managedPeople`: what
 is held, its relationship, and their sign-offs, inductions, places on
 bookings and waivers), the relationships it ended (`guardianshipsEnded`,
 the relationship alone), and, where it is a participant's own login, that
-participant's record (`asParticipant`). A venue's export by phone number
+participant's record (`asParticipant`). A request it accepted to become a
+guardian, still waiting, appears only as that a request is pending
+(`guardianRequestsPending`), nothing about the participant. A venue's export by phone number
 lists inductions recorded on that number, marking those that are a
 participant's.
 
@@ -346,14 +352,19 @@ participant (usually a child) from their own account
 ([applying for somebody you manage](../features/activities.md#applying-for-somebody-you-manage);
 [ADR 0022](decisions/0022-children-managed-from-an-adults-account.md)). They
 add them online, declaring the relationship and their authority; another
-adult becomes a guardian too by accepting a code the first one gave,
-declaring their own, or by declaring it in person at the counter of a venue
-that knows the participant: as a name and number (front desk or a manager;
-reaching the participant only through that venue's staff), or as their
-account (a manager, with a reason; the account then sees the participant
-as any guardian does) ([a second guardian at the counter](../features/venue-operations.md#a-second-guardian-at-the-counter)).
-The existing guardians are not told. A code also hands the participant over
-to their own login. Ending a relationship (the guardian's own choice, or staff revoking
+adult becomes a guardian too only by invitation: a code a guardian gave
+(their agreement), or one a venue's staff gave at the adult's request,
+accepted signed in to the adult's own account with their own declaration;
+a request staff started becomes a relationship only once an existing
+guardian agrees online or a manager records a narrow exception, and grants
+nothing before that ([another guardian by invitation](../features/venue-operations.md#another-guardian-by-invitation)).
+The other guardians with an account are told by email that a guardian was
+added or ended, and when, never who or anything private
+([guardian notices](../integrations/messaging.md#guardian-notices)), and
+may report it as a mistake for a manager to review; an exception may
+require that they are not told. A coach sees a child only in their own
+lessons and the applications they review ([which children a coach sees](../features/programmes.md#which-children-a-coach-sees)).
+A code also hands the participant over to their own login. Ending a relationship (the guardian's own choice, or staff revoking
 it with a reason) stops that adult acting for them, withdraws their
 applications for them still waiting, and deletes nothing. An application
 made for a participant follows the

@@ -22,17 +22,25 @@ import type { Sport } from "./types";
  * itself, and participants it acts for now (a guardian whose relationship is
  * not revoked, or their own login). Nobody chosen, nothing is worked out:
  * the account holder's own eligibility is not assumed to be the one that
- * matters. Statuses come from what is already recorded (sign-offs and this
- * account's applications), never stored, and say no more than that: no
- * application details, declarations or documents.
+ * matters. Statuses come from what is already recorded, never stored, and
+ * follow the participant, not who applied (ADR 0023, amended 27 October
+ * 2026): a participant's own sign-offs, and the participant's applications
+ * still open whichever of their guardians made them, so a second guardian
+ * sees "approved" or "pending" on the first one's application. Who applied,
+ * who assessed and who may see the status stay apart: the status says no
+ * more than that, never the application's details, answers or documents,
+ * which stay the applicant's, the venue's staff's and its named reviewers'.
+ * Seeing it at all needs the account to act for the participant now; an
+ * adult whose guardian request still waits sees nothing.
  */
 
 export const ELIGIBILITY_STATUSES = ["eligible", "required", "pending", "info", "inPerson", "expired"] as const;
 /**
  * `eligible`: a sign-off (or certification) holds on the day; `pending`,
- * `info`, `inPerson`: an application this account made is waiting for review,
- * for an answer, or for the in-person step; `expired`: one ran out before the
- * day; `required`: none (including one taken back).
+ * `info`, `inPerson`: an application for that person is waiting for review,
+ * for an answer, or for the in-person step (for the account holder, one they
+ * made; for a participant, one any of their guardians made); `expired`: one
+ * ran out before the day; `required`: none (including one taken back).
  */
 export type EligibilityStatus = (typeof ELIGIBILITY_STATUSES)[number];
 
@@ -91,7 +99,8 @@ interface Row {
 /**
  * Everybody chosen, at every venue asked about, in one query: the
  * participants the account acts for, their sign-offs in scope there for the
- * activity, and this account's applications still open there. Search calls it
+ * activity, the account holder's own applications still open there, and
+ * those of each participant it acts for, whoever made them. Search calls it
  * once for the venues on the page that ask for anything.
  */
 export async function eligibilityAt(input: { taking: Taking; sport: Sport; date: string; venueIds: number[] }): Promise<EligibilityAt> {
@@ -132,18 +141,25 @@ export async function eligibilityAt(input: { taking: Taking; sport: Sport; date:
     );
     args.push(...venues, user, user, user, input.sport, ...who.args);
   }
-  // This account's own applications still open (another guardian's are theirs to see).
-  const forWhom = [
-    ...(taking.self ? ["r.managed_person_id IS NULL"] : []),
-    ...(taking.participants.length > 0 ? [`r.managed_person_id IN (${pMarks})`] : []),
-  ].join(" OR ");
-  parts.push(
-    `SELECT 'app' AS part, COALESCE(r.managed_person_id, 0) AS pid, r.venue_id AS venue_id, q.kind AS kind, r.status AS state, NULL::text AS until
-       FROM approval_requests r JOIN approval_requirements q ON q.id = r.requirement_id
-      WHERE r.user_id = ? AND r.venue_id IN (${vMarks}) AND r.sport = ?
-        AND r.status IN ('pending', 'info_requested', 'in_person_due') AND (${forWhom})`
-  );
-  args.push(user, ...venues, input.sport, ...taking.participants);
+  // The account holder's own applications still open; and each participant's, whichever guardian made it,
+  // for a participant this account acts for now (the status only: never the application itself).
+  const live = "r.status IN ('pending', 'info_requested', 'in_person_due')";
+  if (taking.self) {
+    parts.push(
+      `SELECT 'app' AS part, 0 AS pid, r.venue_id AS venue_id, q.kind AS kind, r.status AS state, NULL::text AS until
+         FROM approval_requests r JOIN approval_requirements q ON q.id = r.requirement_id
+        WHERE r.user_id = ? AND r.managed_person_id IS NULL AND r.venue_id IN (${vMarks}) AND r.sport = ? AND ${live}`
+    );
+    args.push(user, ...venues, input.sport);
+  }
+  if (taking.participants.length > 0) {
+    parts.push(
+      `SELECT 'app' AS part, r.managed_person_id AS pid, r.venue_id AS venue_id, q.kind AS kind, r.status AS state, NULL::text AS until
+         FROM approval_requests r JOIN approval_requirements q ON q.id = r.requirement_id JOIN participants ap ON ap.id = r.managed_person_id
+        WHERE r.managed_person_id IN (${pMarks}) AND r.venue_id IN (${vMarks}) AND r.sport = ? AND ${live} AND ${ACTS_FOR("ap")}`
+    );
+    args.push(...taking.participants, ...venues, input.sport, user, user);
+  }
 
   const rows = (await getDb().prepare(parts.join("\nUNION ALL\n")).all(...args)) as Row[];
 

@@ -256,16 +256,20 @@ taking part in the same way, and books them through the same engine
   participant is never re-entered at each booking: they are chosen from the
   people the adult manages (online) or the venue knows (at the counter).
 - **Who may name them.** Online, only people the signed-in account acts for
-  now (a live relationship, not archived; anybody else's is refused
-  `GUARD_NOT_FOUND`). At the counter and through the venue's API key, only
-  participants the venue knows (`participantAtVenue`) with a live guardian on
-  the booking's number: the booking is made with, and told to, somebody who
-  acts for them. A number typed in never makes anybody a guardian
-  (`PBK_NOT_GUARDIAN`); somebody new is recorded first with the guardian's
-  declaration to the member of staff ([inductions](venue-operations.md#inductions)),
-  and an adult not yet on record for a child the venue knows is added as a
-  guardian of that same child on their own declaration
-  ([a second guardian at the counter](venue-operations.md#a-second-guardian-at-the-counter)).
+  now (a live relationship, not archived, and not paused for a manager's
+  review; anybody else's is refused `GUARD_NOT_FOUND`). At the counter and
+  through the venue's API key, only participants the venue knows
+  (`participantAtVenue`) with such a guardian on the booking's number: the
+  booking is made with, and told to, somebody who acts for them. A number
+  typed in never makes anybody a guardian (`PBK_NOT_GUARDIAN`); somebody new
+  is recorded first with the guardian's declaration to the member of staff
+  ([inductions](venue-operations.md#inductions)). An adult not yet on record
+  for a child the venue knows is invited to become a guardian of that same
+  child: a code they accept on their own account, then an existing
+  guardian's agreement or a manager's exception
+  ([another guardian by invitation](venue-operations.md#another-guardian-by-invitation)).
+  Until then their request grants nothing: they book for the child neither
+  online nor at the counter.
 - **Places.** Each person takes a place: a parent booking two children on a
   shared facility takes two, and takes a third only when ticked as taking
   part; a court booked whole is one booking whoever plays. The same person

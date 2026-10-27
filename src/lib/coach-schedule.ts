@@ -17,8 +17,11 @@ import { venueZoneOf } from "./zones";
  *
  * - **Their schedule** at a private link, `/coach/<token>`, and the same as a
  *   calendar feed for their phone. A manager turns it on, which makes the
- *   link, and can replace or withdraw it. It shows each student's name and
- *   number, so the coach can reach them; nothing else of the venue's. The
+ *   link, and can replace or withdraw it. It shows the coach's own lessons
+ *   only (`bookings.coach_id`), with each student's name (the participants
+ *   taking part, a child among them) and the booker's number, so the coach
+ *   can reach them; nothing else of the venue's: no other coach's students,
+ *   no other child at the venue, no guardian records. The
  *   link is shown once, when made: only its hash is kept, and it lapses after
  *   `LINK_DAYS` unless replaced. It sets the coach's own hours and days off,
  *   each change recorded in the venue's activity log under the coach's name;
@@ -314,17 +317,21 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
     .filter((p) => p.lessons > 0 || p.noShows > 0 || p.lateCancels > 0);
 }
 
-/** The same, one row per lesson, for the venue's books and the coach's own records. */
-export async function coachPayoutsCsv(venueId: number, from: string, to: string): Promise<string> {
+/**
+ * The same, one row per lesson: every coach's, for the venue's books; or
+ * (`coachId`) one coach's own, to hand to that coach, naming only the
+ * students in their own lessons, never another coach's (a child among them).
+ */
+export async function coachPayoutsCsv(venueId: number, from: string, to: string, coachId?: number): Promise<string> {
   const rows = (await getDb()
     .prepare(
       `SELECT k.name AS coach, b.date, b.start_min, b.end_min, b.code, COALESCE(b.participant_name, b.name) AS student, c.name AS court,
               b.coach_fee::float AS fee, b.payment_status, b.no_show
          FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id
-        WHERE k.venue_id = ? AND b.status = 'confirmed' AND b.demo = 0 AND b.date BETWEEN ? AND ?
+        WHERE k.venue_id = ? AND b.status = 'confirmed' AND b.demo = 0 AND b.date BETWEEN ? AND ?${coachId !== undefined ? " AND k.id = ?" : ""}
         ORDER BY k.name, b.date, b.start_min`
     )
-    .all(venueId, from, to)) as {
+    .all(venueId, from, to, ...(coachId !== undefined ? [coachId] : []))) as {
     coach: string;
     date: string;
     start_min: number;

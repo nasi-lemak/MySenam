@@ -93,14 +93,22 @@ holder's own, or a participant's own, online only for an account that acts
 for them now; in the scope booking uses: the branch that gave it, or every
 branch of its business where it was given for all of them; for that
 activity (or anything there); of the kind the resource asks for (a sign-off
-does not meet a certification). Otherwise an application this account made
-that is still open at that venue for that activity (one another guardian
-made stays theirs to see). Otherwise *expired* where one ran out before the
-day, and *required*. Nothing from one venue counts at another, nothing for
-one activity counts for another, and a participant the account does not
-act for (another family's, or after a guardian's relationship was revoked)
-gets no line at all. The answer is a status per person per resource only:
-never an application's details, declarations or documents.
+does not meet a certification). Otherwise an application still open at that
+venue for that activity: for the account holder, one they made; for a
+participant, the participant's own, whichever of their guardians made it.
+The status follows the participant, not who applied: guardian A applies and
+the venue approves, and guardian B, who acts for the same child, sees
+*approved*; A's application still waiting reads *application pending* for B
+too. Otherwise *expired* where one ran out before the day, and *required*.
+Nothing from one venue counts at another, nothing for one activity counts
+for another, and a participant the account does not act for now (another
+family's; after a guardian's relationship was revoked or while it is paused
+for review; or an adult whose request to become a guardian still waits)
+gets no line at all. Who applied, who assessed, who holds the sign-off, who
+may see the status and who may open the documents stay apart: the answer is
+a status per person per resource only, never an application's details,
+answers, declarations or documents, which stay the applicant's, the venue's
+staff's and its named reviewers' ([sign-offs](activities.md#sign-offs)).
 
 It is a guide. Booking, the door code and every other path check again at
 the time, so a badge that said *approved* before the sign-off ran out or was
@@ -118,8 +126,13 @@ search without `taking` is the public one, as before
 `tests/search-eligibility.test.ts` (every status, guardians and several
 children, recognition by venue and business, a stale badge refused at
 booking, cache isolation, query count and index use, on PGlite and
-Postgres) and `tests/components/who-takes-part.test.tsx` (the choice and the
-badges, the grid's label, each language).
+Postgres), `tests/guardian-eligibility.test.ts` (the other guardian sees
+pending, more information, approved, expired and taken back on the first
+one's application, on the grid and in search, privately, one query; never
+the application or its documents; nothing for an adult whose request
+waits, a stranger or an ended guardian) and
+`tests/components/who-takes-part.test.tsx` (the choice and the badges, the
+grid's label, each language).
 
 ## Courts near me
 

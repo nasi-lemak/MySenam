@@ -81,7 +81,9 @@ export async function selectionForAccount(userId: number, ids: number[], custome
 
 /**
  * Does somebody act for this participant, now, on this number: a guardian
- * whose account or recorded contact is on it, not revoked or archived?
+ * whose account or recorded contact is on it, not revoked, archived or
+ * paused for a review? An adult whose guardian request is still waiting is
+ * nobody's guardian (lib/guardian-requests.ts).
  */
 async function guardianOnNumber(participantId: number, phone: string): Promise<boolean> {
   const key = phoneKey(phone);
@@ -89,7 +91,7 @@ async function guardianOnNumber(participantId: number, phone: string): Promise<b
   return !!(await getDb()
     .prepare(
       `SELECT 1 FROM participant_guardians g LEFT JOIN users u ON u.id = g.user_id
-        WHERE g.participant_id = ? AND g.revoked_at IS NULL AND g.archived_at IS NULL
+        WHERE g.participant_id = ? AND g.revoked_at IS NULL AND g.archived_at IS NULL AND g.suspended_at IS NULL
           AND (phone_key(u.phone) = ? OR phone_key(g.contact_phone) = ?)
         LIMIT 1`
     )
