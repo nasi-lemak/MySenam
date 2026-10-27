@@ -2273,6 +2273,20 @@ export const ZH: Record<Phrase, string> = {
   "gw5.err.GW5_PHONE_UNPROVEN": "请先验证您账户上的电话号码（在账户页面），然后再次输入代码。",
   "gw5.err.GW5_NOT_THEIR_NUMBER": "您账户上已验证的号码不是为这位监护人登记的号码。请询问场馆。",
   "gw5.err.GW5_NO_RECORDED_GUARDIAN": "没有以场馆登记的姓名和电话为其代理的人。",
+  "err.STK_NOT_COMBINABLE": "此优惠码不能与优惠价同时使用。请按优惠价预订，或只使用优惠码。",
+  "err.STK_USED_UP": "此优惠码已被领完。",
+  "stk.form.oneDiscount": "本场馆每次只能使用一种优惠：优惠码不能与优惠价同时使用。",
+  "stk.form.codeWithConcession": "只有在优惠码允许的情况下，才可与优惠价同时使用。",
+  "stk.pass.each": "每人各用一张次卡",
+  "stk.pass.title": "哪张次卡为谁付款",
+  "stk.pass.none": "不用次卡",
+  "stk.pass.option": "{name} · 剩 {n} 次",
+  "stk.pass.optionTime": "{name} · 剩余{len}",
+  "stk.pass.uses": "使用 {n} 次（剩 {left} 次）",
+  "stk.pass.usesTime": "使用{len}（剩余{left}）",
+  "stk.pass.short": "此次卡余额不足。",
+  "stk.pass.noneFor": "{name}在此没有次卡：请用其他方式支付本预订。",
+  "stk.pass.ready": "每个名额都由其本人的次卡支付。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

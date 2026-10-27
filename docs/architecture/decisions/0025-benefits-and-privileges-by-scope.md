@@ -1,7 +1,10 @@
 # ADR 0025: Benefits and privileges by the scope they apply to
 
 - **Status:** current, decided 2026-10-27 by the product owner (an approved
-  business and architectural decision). Extends
+  business and architectural decision). Amended the same day (the owner's
+  decision on discounts together, M16: one configurable rule and one order
+  on every path, and several passes chosen on the booking form and at the
+  counter; see *Changes*). Extends
   [ADR 0023](0023-participants-apart-from-accounts.md): of the things it
   left assuming the account (or number) is the person, passes,
   concessions and memberships now say whom they are for, and a booking of
@@ -38,7 +41,39 @@
     stays as it was, apart from the scope. Promo codes and gift vouchers
     stay booking-wide and need no column. No pricing engine was added: a
     place's share is the booking's court time as charged split between its
-    places (`placeShare`), and prices are still `lib/pricing.ts`.
+    places (`placeShares`), and prices are still `lib/pricing.ts`.
+  - **What each benefit is, and which go together** (`lib/discounts.ts`).
+    A price is not a discount: the public rate, a member's rate (for the
+    booking or a member's own place) and a last-minute price. A discount is
+    a concession (the booking's, or one person's place's) or a promo code.
+    A means of paying changes no price and comes after it: stored credit, a
+    gift voucher (it becomes credit), a pass, a payment. A concession and a
+    code go together only where the venue allows discounts together
+    (`venues.discount_stacking`: `never`, the default, or `promotion`) and
+    the code says it may (`promo_codes.combinable`, off unless staff tick
+    it); otherwise the second one asked for is refused, with the same code
+    on every path (`ONE_DISCOUNT` where the venue gives one discount at a
+    time, `STK_NOT_COMBINABLE` where the code does not combine; migration
+    0163). A member's rate goes with either; a last-minute price takes
+    neither; two concessions never cover one place.
+  - **One order, in whole sen, whatever came first.** Each place's share of
+    the court time at the public price, split evenly with the earlier places
+    taking the odd sen; its member price; its concession (a share of what the
+    place costs then, half up); then the code on the court time after all of
+    those (a percentage rounded down, a fixed amount never more than the
+    court time), shared between the places in proportion to what each costs
+    by then, by largest remainder, each named place's share recorded
+    (`promo_place_shares`, migration 0164); then tax, inside the price; then
+    the means of paying. Fees, a coach's fee and extras are never
+    discounted, and no price goes below nothing. A concession added or
+    refused after the code works the code out again, so the order holds
+    whichever was asked first. The form, the counter (the same route as
+    staff), the API, several courts at once and lessons all reach it through
+    `applyConcession`, `applyPlaceConcession` and `applyPromo`; a class
+    enrolment takes neither. A move keeps the discounts as they were given;
+    a cancellation gives the code's use back with its shares. A limited
+    code's last use is counted on the code's own row, where the database
+    refuses one past the limit (migration 0165).
   - **Whose a benefit is.** A pass or a membership is the number's holder's
     own (`holder_kind = 'customer'`, everything issued before), or a
     participant's they act for (`holder_participant_id`): sold at the counter
@@ -92,8 +127,9 @@
     kept, the pass entries returned, who did it and why. A place on a shared
     session is released and offered to the waiting list; a place priced by
     the place comes off what is owed, or goes back the way it was paid on the
-    venue's cancellation terms, with the place's own benefits; booking-wide
-    benefits stay with the booking; a player taken off a court hired whole is
+    venue's cancellation terms, with the place's own benefits and its
+    recorded share of a code (kept on the withdrawal, `promo_share`);
+    booking-wide benefits stay with the booking; a player taken off a court hired whole is
     no longer named on it, the court booked and paid as it was. A paid
     booking's price stays as sold: the place has its own credit note and is
     left out of a later cancellation's refund. Refused with the reason: a
@@ -110,13 +146,17 @@
   for a child on a parent's membership; and one child can be withdrawn. A
   withdrawal's notice goes by email only (WhatsApp would need a template of
   its own approved). The customer's booking form offers one person's
-  concession for one person; paying a booking for several with each one's
-  own pass is through the API (`payWithPasses`) and the counter, not yet a
-  choice on the form. Memberships for a participant and family memberships
+  concession for one person, and says which pass pays for whom: one for the
+  whole booking or each person's own for their place, with what each spends
+  of what it has left; the counter can pay a booking so at the payment step
+  (`/api/admin/bookings/passes`), both by the plan the booking engine pays by
+  (`planPassSpends`). Memberships for a participant and family memberships
   were sold at the counter only when this was decided (online since; see
   *Changes*). A late withdrawal of an unpaid place
-  takes its price off without a strike. A booking-wide amount promo is
-  shared between the places a withdrawal leaves.
+  takes its price off without a strike. A place withdrawn takes exactly its
+  recorded share of a booking-wide code; bookings made before shares were
+  recorded share their code evenly between their places, as before, and
+  keep every stored amount.
 - **Alternatives considered:** a per-person benefits engine beside the
   booking's price (two prices of one booking to keep in step); a universal
   per-booking rule, or a universal per-person one (each wrong for half the
@@ -138,3 +178,14 @@
     changed online within its limit, with no proration. The model of whose a
     membership is and whom it covers is unchanged
     ([for somebody you look after, or a family](../../features/pricing.md#for-somebody-you-look-after-or-a-family)).
+  - 2026-10-27 (amendment, the owner's decision on M16): a person's
+    concession and a promo code had combined through the API only (the
+    concession first) while the booking form hid the code and the counter
+    refused a concession after a code. Now one rule, configurable per venue
+    and per code, refuses or allows them the same way on every path, in one
+    order with one rounding; each place's share of a code is recorded, so a
+    withdrawn place takes exactly its share; a limited code's last use is
+    held by the database; the booking form and the counter choose several
+    passes, one per person, by the engine's own plan. A percentage code is
+    now rounded down to the sen as documented (it had been rounded half up
+    first). Migrations 0163–0165.

@@ -675,4 +675,6 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
     ms: "action ialah sendCode, confirmCode, inPerson, claimCode atau report.",
     zh: "action 须为 sendCode、confirmCode、inPerson、claimCode 或 report。",
   },
+  "Say never, or promotion (where the code allows it).": { ms: "Nyatakan never (tidak sama sekali), atau promotion (jika kod membenarkannya).", zh: "请填写 never（不允许），或 promotion（在优惠码允许时）。" },
+  "passCodes must be a list of pass codes.": { ms: "passCodes mestilah senarai kod pas.", zh: "passCodes 须为次卡代码列表。" },
 };

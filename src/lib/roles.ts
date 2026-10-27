@@ -51,6 +51,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/(memberships|passes|promos|vouchers|counter-sales)\/\d+\/void$/, methods: ["POST"] },
   { path: /^\/api\/admin\/memberships\/\d+\/extend$/, methods: ["POST"] },
   { path: /^\/api\/admin\/promos$/, methods: ["POST"] },
+  // Whether a concession price and a promo code go together here (lib/discounts.ts).
+  { path: /^\/api\/admin\/promos\/stacking$/, methods: ["POST"] },
   { path: /^\/api\/admin\/membership-plans$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/notices(\/\d+)?$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/online-payments$/, methods: ["POST"] },

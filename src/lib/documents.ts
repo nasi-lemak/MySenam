@@ -396,7 +396,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     },
     ...(b.coach_fee > 0 ? [{ description: `Coaching with ${b.coach_name ?? "a coach"}`, amount: b.coach_fee }] : []),
     ...extras.map((e) => ({ description: `${e.quantity} × ${e.name}`, amount: roundMoney(e.quantity * e.unit_price) })),
-    ...(promo ? [{ description: `Promo ${promo.code}`, amount: -promo.discount }] : []),
+    // Each discount a line of its own, in the order they were worked out (lib/discounts.ts): concessions and member prices, then the code.
     ...(concession > 0
       ? [
           {
@@ -410,6 +410,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
       description: `${p.kind === "membership" ? "Member price" : `${p.concession_name ?? "Concession"} price`}${p.name ? `, ${p.name}` : ""}`,
       amount: -roundMoney(Number(p.amount)),
     })),
+    ...(promo ? [{ description: `Promo ${promo.code}`, amount: -promo.discount }] : []),
     ...(b.deposit_paid > 0 ? [{ description: "Deposit paid online, on its own receipt", amount: -b.deposit_paid }] : []),
     ...(b.shares_paid - b.deposit_paid > 0.005
       ? [{ description: "Paid by other players, on their own receipts", amount: -roundMoney(b.shares_paid - b.deposit_paid) }]

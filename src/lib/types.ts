@@ -520,6 +520,11 @@ export interface PromoCode {
   maxPerCustomer: number | null;
   used: number;
   status: PromoStatus;
+  /**
+   * May go on a booking with a concession price, where the venue allows
+   * discounts together (lib/discounts.ts). Optional for older callers; absent is no.
+   */
+  combinable?: boolean;
   /** Why it cannot be used today, if it cannot. */
   unusableReason?: string;
   /** The same, as a phrase a staff screen says in the staff language. */

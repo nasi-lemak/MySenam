@@ -2,6 +2,7 @@ import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createPromoCode, listPromoCodes } from "@/lib/store";
+import { discountStacking } from "@/lib/discounts";
 import { MAX_HOURS_PER_BOOKING, PromoKind, Sport } from "@/lib/types";
 import { logAction } from "@/lib/activity";
 
@@ -17,7 +18,8 @@ export async function GET(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
 
-  return NextResponse.json({ promos: await listPromoCodes(venueId) });
+  // With the venue's rule on a concession and a code together (lib/discounts.ts).
+  return NextResponse.json({ promos: await listPromoCodes(venueId), stacking: await discountStacking(venueId) });
 }
 
 export async function POST(req: NextRequest) {
@@ -73,9 +75,11 @@ export async function POST(req: NextRequest) {
     validTo: input.validTo as string,
     maxUses: Number.isInteger(input.maxUses) ? (input.maxUses as number) : null,
     maxPerCustomer: Number.isInteger(input.maxPerCustomer) ? (input.maxPerCustomer as number) : null,
+    // May go with a concession price, where the venue allows discounts together.
+    combinable: input.combinable === true,
     adminId: admin.id,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-  await logAction(admin, { venueId: result.promo.venueId, action: "promo.created", detail: result.promo.code });
+  await logAction(admin, { venueId: result.promo.venueId, action: "promo.created", detail: `${result.promo.code}${result.promo.combinable ? ", goes with a concession price" : ""}` });
   return NextResponse.json({ promo: result.promo }, { status: 201 });
 }

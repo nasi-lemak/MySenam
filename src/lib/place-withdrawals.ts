@@ -1,7 +1,7 @@
 import { policyFor } from "./booking-policy";
 import { getDb, withTransaction } from "./db";
 import { creditBookingPlace } from "./documents";
-import { placeShare, placesOf, refuse, soldByPlace, type BookingPlace } from "./entitlements";
+import { placeShares, placesOf, refuse, soldByPlace, type BookingPlace } from "./entitlements";
 import { isLocale, translator, type Locale } from "./i18n";
 import { hasBeenLive } from "./listing";
 import { enqueue, hourRange } from "./outbox";
@@ -90,6 +90,8 @@ interface Assessed {
   place: BookingPlace | null;
   share: number;
   paid: boolean;
+  /** The part of a booking-wide promo code the places taken off had (lib/entitlements.ts `placeShares`). */
+  promoShare: number;
 }
 
 async function storeModule() {
@@ -180,8 +182,11 @@ async function assess(booking: Booking, court: Court, what: WithdrawWhat, by: Wi
       return refuse("ENT_WITHDRAW_ATTENDED", { name: place.name ?? booking.name });
   }
   // The place's price, where places are priced; a court hired whole has none apart from the court.
-  const share = soldByPlace(court) ? await placeShare(booking.id, place ? place.placeId : -1) : null;
-  const price = share ? roundMoney(place ? share.net : share.gross * count) : 0;
+  // Its own share, part by part (lib/entitlements.ts `placeShares`): what its benefits and its part of a code took off go with it.
+  const lines = soldByPlace(court) ? (await placeShares(booking.id)).lines : [];
+  const taken = place ? lines.filter((l) => l.placeId === place!.placeId).slice(0, 1) : lines.filter((l) => l.placeId === -1).slice(-count);
+  const price = roundMoney(taken.reduce((s, l) => s + l.net, 0));
+  const promoShare = roundMoney(taken.reduce((s, l) => s + l.promo, 0));
   const paid = booking.paymentStatus === "paid";
   const via = booking.paidVia ?? null;
   const spends = paid && via === "pass" ? await openSpends(booking.id, place, count) : [];
@@ -193,6 +198,7 @@ async function assess(booking: Booking, court: Court, what: WithdrawWhat, by: Wi
     place,
     share: terms.share,
     paid,
+    promoShare,
     outcome: {
       name: place ? (place.customer ? (place.name ?? booking.name) : place.name) : null,
       participantId: place?.participantId ?? null,
@@ -274,8 +280,8 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
       const w = (await db
         .prepare(
           `INSERT INTO place_withdrawals (booking_id, place_id, takes_part_as, participant_id, name, places, price, paid, refunded, kept, late, kept_percent,
-             units_returned, released, by_kind, by_user_id, by_admin_id, by_name, reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+             units_returned, released, by_kind, by_user_id, by_admin_id, by_name, reason, promo_share)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
         )
         .get(
           booking.id,
@@ -296,15 +302,16 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
           by.kind === "customer" ? by.userId : null,
           by.kind === "staff" ? by.adminId : null,
           by.name,
-          reason?.trim().slice(0, 300) || null
+          reason?.trim().slice(0, 300) || null,
+          a.promoShare
         )) as { id: number };
 
       // The money, the way it was paid; or, not yet paid, the price comes off what is owed.
       if (!a.paid) {
         if (o.price > 0) {
-          // A booking-wide discount is shared between the places: the part that went with this place goes with it.
+          // A booking-wide discount is shared between the places: exactly the part that went with this place goes with it.
           const before = Math.max(1, booking.players ?? 1);
-          await db.prepare("UPDATE promo_uses SET discount = discount - ROUND(discount * ? / ?, 2) WHERE booking_id = ?").run(o.places, before, booking.id);
+          if (a.promoShare > 0) await db.prepare("UPDATE promo_uses SET discount = GREATEST(0, discount - ?) WHERE booking_id = ?").run(a.promoShare, booking.id);
           await db
             .prepare("UPDATE bookings SET concession_off = concession_off - ROUND(concession_off * ? / ?, 2) WHERE id = ? AND concession_check IS DISTINCT FROM 'refused'")
             .run(o.places, before, booking.id);
@@ -351,15 +358,22 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
         }
 
       if (a.place && a.place.placeId !== null) {
-        // The place's own benefits go with it; booking-wide ones stay.
+        // The place's own benefits go with it, and its part of a code; booking-wide ones stay.
         await db
           .prepare("UPDATE place_benefits SET reversed_at = now(), reversed_why = 'withdrawn' WHERE booking_id = ? AND place_id = ? AND reversed_at IS NULL")
+          .run(booking.id, a.place.placeId);
+        await db
+          .prepare("UPDATE promo_place_shares SET reversed_at = now(), reversed_why = 'withdrawn' WHERE booking_id = ? AND place_id = ? AND reversed_at IS NULL")
           .run(booking.id, a.place.placeId);
         await db.prepare("DELETE FROM booking_participants WHERE id = ?").run(a.place.placeId);
         // The customer left on their own takes the booking alone, as a booking naming nobody does.
         const rest = (await db.prepare("SELECT id, takes_part_as FROM booking_participants WHERE booking_id = ?").all(booking.id)) as { id: number; takes_part_as: string }[];
         if (rest.length === 1 && rest[0].takes_part_as === "customer") {
           await db.prepare("UPDATE place_benefits SET place_id = NULL WHERE booking_id = ? AND place_id = ?").run(booking.id, rest[0].id);
+          // Their part of a code is then simply what is left of it (lib/entitlements.ts `placeShares`).
+          await db
+            .prepare("UPDATE promo_place_shares SET reversed_at = now(), reversed_why = 'repriced' WHERE booking_id = ? AND place_id = ? AND reversed_at IS NULL")
+            .run(booking.id, rest[0].id);
           await db.prepare("UPDATE pass_entries SET place_id = NULL WHERE booking_id = ? AND place_id = ?").run(booking.id, rest[0].id);
           await db.prepare("DELETE FROM booking_participants WHERE id = ?").run(rest[0].id);
         }

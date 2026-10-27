@@ -16,6 +16,10 @@ import { localTime, todayLocal } from "./shared";
 import { money } from "@/lib/region";
 import { isConcessionPreset } from "@/lib/concessions-shared";
 import { useStaffT } from "./StaffLanguage";
+import PassAllocation, { passCodesOf, type AllocPass } from "@/components/PassAllocation";
+import type { PlanPlace } from "@/lib/pass-rules";
+import { errorText } from "@/lib/i18n";
+import { lengthLabel } from "@/lib/length-label";
 
 /* ---------------- Bookings tab ---------------- */
 
@@ -352,6 +356,25 @@ export function BookingsTab() {
     load();
   }
 
+  /** Paid with passes, one for the booking or one person's own for each place (lib/pass-rules.ts): the refusal, or null once paid. */
+  async function payWithPasses(code: string, passCodes: string[]): Promise<string | null> {
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/bookings/passes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, passCodes }),
+      });
+      const data = await res.json();
+      if (!res.ok) return t.err(data, t("stk.bk.failed"));
+      setPaying(null);
+      load();
+      return null;
+    } catch {
+      return t("stk.bk.failed");
+    }
+  }
+
   async function togglePaid(code: string, paid: boolean, via?: CounterMethod) {
     setError(null);
     setPaying(null);
@@ -503,6 +526,7 @@ export function BookingsTab() {
     paperWaiver,
     withdrawPerson,
     checkPlaceConcession,
+    payWithPasses,
   };
 
   return (
@@ -1002,6 +1026,7 @@ interface Act {
   paperWaiver: (b: AdminBookingRow) => void;
   withdrawPerson: (b: AdminBookingRow, placeId: number | null, name: string | null) => void;
   checkPlaceConcession: (b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused", remember?: string) => void;
+  payWithPasses: (code: string, passCodes: string[]) => Promise<string | null>;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -1230,11 +1255,17 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   const asking = act.paying === b.code || (b.seriesCode !== null && act.paying === `series:${b.seriesCode}`);
   if (!paid && asking) {
     const series = act.paying !== b.code;
-    return <MethodPicker
-      label={series ? t("bk.seriesPaidBy", { series: b.seriesCode ?? "" }) : t("bk.paidBy")}
-      onPick={(via) => (series ? act.paySeries(b.seriesCode!, via) : act.togglePaid(b.code, true, via))}
-      onCancel={() => act.setPaying(null)}
-    />;
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <MethodPicker
+          label={series ? t("bk.seriesPaidBy", { series: b.seriesCode ?? "" }) : t("bk.paidBy")}
+          onPick={(via) => (series ? act.paySeries(b.seriesCode!, via) : act.togglePaid(b.code, true, via))}
+          onCancel={() => act.setPaying(null)}
+        />
+        {/* Or with passes: one for the booking, or each person's own for their place. Not a booking with extras. */}
+        {!series && !b.addons?.length && <CounterPassPay code={b.code} act={act} />}
+      </span>
+    );
   }
   return (
     <button
@@ -1312,6 +1343,93 @@ function AccountChip({ b, act }: { b: AdminBookingRow; act: Act }) {
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * Paying at the counter with passes (ADR 0025): the passes this number holds
+ * here, and which pays for whom, as the booking engine will spend them
+ * (components/PassAllocation.tsx, lib/pass-rules.ts); refused with the reason.
+ */
+function CounterPassPay({ code, act }: { code: string; act: Act }) {
+  const t = useStaffT();
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<{
+    booking: { name: string; players: number };
+    places: PlanPlace[];
+    passes: AllocPass[];
+    soldByPlace: boolean;
+    minutes: number;
+  } | null>(null);
+  const [codes, setCodes] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function show() {
+    setOpen(true);
+    setError(null);
+    const res = await fetch(`/api/admin/bookings/passes?code=${encodeURIComponent(code)}`, { cache: "no-store" });
+    const body = await res.json();
+    if (!res.ok) return setError(t.err(body, t("stk.bk.failed")));
+    setData(body);
+  }
+  if (!open)
+    return (
+      <button type="button" onClick={show} className={`${CHIP} bg-sky-50 text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100`}>
+        {t("stk.bk.passes")}
+      </button>
+    );
+  const chosen = passCodesOf(codes);
+  const len = (minutes: number) => lengthLabel(t.customer, minutes);
+  return (
+    <span className="mt-1 block w-full rounded-md border border-sky-200 bg-sky-50 p-2" data-testid="counter-pass-pay">
+      <span className="block text-xs font-semibold text-sky-800">{t("stk.bk.passesTitle")}</span>
+      {data && data.passes.length === 0 && <span className="block text-xs text-slate-500">{t("stk.bk.none")}</span>}
+      {data && data.passes.length > 0 && (
+        <PassAllocation
+          places={data.places}
+          passes={data.passes}
+          players={data.booking.players}
+          minutes={data.minutes}
+          soldByPlace={data.soldByPlace}
+          bookerName={data.booking.name}
+          codes={codes}
+          onChange={setCodes}
+          words={{
+            title: t("stk.bk.passesTitle"),
+            whole: t("stk.bk.wholeBooking"),
+            each: t("stk.bk.each"),
+            none: t("stk.bk.noPass"),
+            option: (p) => (p.kind === "time" ? t("stk.bk.optionTime", { name: p.name, len: len(p.remaining) }) : t("stk.bk.option", { name: p.name, n: p.remaining })),
+            uses: (p, units) =>
+              p.kind === "time" ? t("stk.bk.usesTime", { len: len(units), left: len(p.remaining) }) : t("stk.bk.uses", { n: units, left: p.remaining }),
+            short: t("stk.bk.short"),
+            ready: t("stk.bk.ready"),
+            explain: (plan) => (plan.code === "PASS_TOO_LONG" ? t("stk.bk.tooLong", { len: len(plan.maxMinutes) }) : errorText(t.customer, plan.code, plan.vars)),
+          }}
+        />
+      )}
+      {error && <span className="block text-xs font-medium text-red-700">{error}</span>}
+      <span className="mt-1 flex gap-1">
+        {chosen.length > 0 && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              const refused = await act.payWithPasses(code, chosen);
+              setBusy(false);
+              if (refused) setError(refused);
+            }}
+            className={`${CHIP} bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50`}
+          >
+            {t("stk.bk.pay")}
+          </button>
+        )}
+        <button type="button" onClick={() => setOpen(false)} aria-label={t("c.cancel")} className="px-1 text-xs text-slate-400 hover:text-slate-600">
+          ✕
+        </button>
+      </span>
+    </span>
   );
 }
 
