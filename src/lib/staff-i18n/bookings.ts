@@ -469,6 +469,8 @@ const en = {
   "wl5.clickToQueue": "click to add a caller to its waiting list",
   "wl5.act.added": "Put somebody on a waiting list at the counter or through the API",
   "wl5.act.removed": "Took somebody the venue had queued off a waiting list",
+  "wl5b.language": "Language for the offer",
+  "wl5b.offerIn": "offer in {language}",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -922,6 +924,8 @@ const ms: Record<keyof typeof en, string> = {
   "wl5.clickToQueue": "klik untuk menambah pemanggil ke senarai menunggunya",
   "wl5.act.added": "Meletakkan seseorang dalam senarai menunggu di kaunter atau melalui API",
   "wl5.act.removed": "Mengeluarkan seseorang yang dimasukkan oleh pusat dari senarai menunggu",
+  "wl5b.language": "Bahasa untuk tawaran",
+  "wl5b.offerIn": "tawaran dalam {language}",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1375,6 +1379,8 @@ const zh: Record<keyof typeof en, string> = {
   "wl5.clickToQueue": "点击将来电者加入其候补名单",
   "wl5.act.added": "在柜台或通过 API 将某人加入候补名单",
   "wl5.act.removed": "将场馆登记的某人移出候补名单",
+  "wl5b.language": "通知所用语言",
+  "wl5b.offerIn": "以{language}通知",
 };
 
 const area = { en, ms, zh };

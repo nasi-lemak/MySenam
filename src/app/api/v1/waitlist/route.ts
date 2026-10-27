@@ -31,6 +31,8 @@ function apiEntry(e: WaitlistEntry): Record<string, unknown> {
     customerTakesPart: e.customerTakesPart !== false,
     participants: e.participantNames ?? [],
     madeBy: e.madeBy ?? "customer",
+    // The language the offer goes in.
+    locale: e.locale,
     createdAt: e.createdAt,
   };
 }

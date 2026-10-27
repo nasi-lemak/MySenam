@@ -2,12 +2,24 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ClockField } from "@/components/ClockField";
+import { useT } from "@/components/Language";
+import { isLocale, LOCALE_NAMES, offeredLocales, type Locale } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
 import type { WaitlistEntry } from "@/lib/types";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 import { useStaffT } from "./StaffLanguage";
 
 const input = "rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none";
+
+/**
+ * The language the offer goes in, to start with: the customer language this
+ * member of staff reads the site in (the language switch), where the install
+ * offers it, else English (else the install's first).
+ */
+function startingLanguage(site: Locale, offered: Locale[]): Locale {
+  if (offered.includes(site)) return site;
+  return offered.includes("en") ? "en" : (offered[0] ?? "en");
+}
 
 /** What the queue is for: a class, or a stretch of time on one resource. */
 export type WaitlistTarget = { classId: number; who?: "anyone" | "women" | "men" } | { courtId: number; date: string; start: number; end: number };
@@ -18,7 +30,8 @@ export type WaitlistTarget = { classId: number; who?: "anyone" | "women" | "men"
  * name and number on staff's word, as a counter booking; the people it is
  * for are the number holder and those the venue knows with a guardian on
  * that number (ParticipantPicker). The same rules as joining online; the
- * offer goes to them by message when a place frees.
+ * offer goes to them by message when a place frees, in the language staff
+ * chose for them here.
  */
 export function WaitlistJoin({
   venueId,
@@ -36,8 +49,12 @@ export function WaitlistJoin({
   onClose?: () => void;
 }) {
   const t = useStaffT();
+  const offered = offeredLocales();
+  const firstLanguage = startingLanguage(useT().locale, offered);
   const [open, setOpen] = useState(onClose !== undefined);
   const [form, setForm] = useState({ name: "", phone: "", email: "" });
+  // The caller's language, asked: the offer reaches them later, in it (lib/notify.ts `notifyPendingOffers`).
+  const [language, setLanguage] = useState<Locale>(firstLanguage);
   const [span, setSpan] = useState("courtId" in target ? { start: target.start, end: target.end } : null);
   const [people, setPeople] = useState<PickedParticipant[]>([]);
   const [holderToo, setHolderToo] = useState(false);
@@ -62,6 +79,7 @@ export function WaitlistJoin({
           name: form.name,
           phone: form.phone,
           ...(form.email.trim() ? { email: form.email.trim() } : {}),
+          locale: language,
           ...(people.length > 0 ? { participantIds: people.map((p) => p.id), customerTakesPart: holderToo } : {}),
           ...(who !== "anyone" ? { confirmWho } : {}),
         }),
@@ -70,6 +88,7 @@ export function WaitlistJoin({
       if (!res.ok) throw new Error(t.err(data, t("wl5.failed")));
       setNotice(t("wl5.added", { n: data.position }));
       setForm({ name: "", phone: "", email: "" });
+      setLanguage(firstLanguage);
       setPeople([]);
       setHolderToo(false);
       setConfirmWho(false);
@@ -105,6 +124,15 @@ export function WaitlistJoin({
         <input required minLength={2} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("wl5.name")} aria-label={t("wl5.name")} className={input} />
         <input required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder={t("wl5.phone")} aria-label={t("wl5.phone")} className={input} />
         <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={t("wl5.email")} aria-label={t("wl5.email")} className={input} />
+        {offered.length > 1 && (
+          <select value={language} onChange={(e) => setLanguage(e.target.value as Locale)} aria-label={t("wl5b.language")} title={t("wl5b.language")} className={input}>
+            {offered.map((code) => (
+              <option key={code} value={code}>
+                {LOCALE_NAMES[code]}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <ParticipantPicker
         venueId={venueId}
@@ -208,6 +236,8 @@ export function WaitlistQueue({
   }
 
   const entries = (given ?? fetched ?? []).filter((e) => classId === undefined || e.classId === classId);
+  // Which language each offer goes in, where there is more than one.
+  const multilingual = offeredLocales().length > 1;
   if (entries.length === 0 && !error) return null;
   return (
     <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm">
@@ -228,6 +258,7 @@ export function WaitlistQueue({
               <span className="ml-2 text-xs opacity-70">
                 {w.madeBy === "staff" ? t("wl5.madeCounter", { name: w.madeByName ?? "" }) : w.madeBy === "api" ? t("wl5.madeApi") : t("wl5.madeOnline")}
               </span>
+              {multilingual && isLocale(w.locale) && <span className="ml-2 text-xs opacity-70">{t("wl5b.offerIn", { language: LOCALE_NAMES[w.locale] })}</span>}
             </span>
             <span className="flex items-center gap-2">
               {w.status === "offered" && <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold">{t("cls.offered")}</span>}

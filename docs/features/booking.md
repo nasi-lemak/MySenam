@@ -496,6 +496,33 @@ Joining the queue goes through the same checks as booking
 (`customerMayBook()`): a refused number, a members-only venue, the house rules
 and the unpaid-bookings limit all apply, so a queue is not a way round them.
 
+Some of the venue's say is asked again when a place is offered and when it
+is claimed, for every entry however it was made (online, at the counter,
+through the API; `entryRefused()` in `src/lib/store.ts`):
+
+- **A number the venue refuses now** (refused after it joined): the entry is
+  passed over at the offer and leaves the queue, and the place goes to the
+  next; an offer already out cannot be claimed (`PHONE_BLOCKED`), nothing is
+  booked, the entry leaves and the place passes on. Lifting the refusal later
+  does not bring the entry back. Nothing is sent to the number.
+- **The venue not open to customers** (a draft, or unlisted): nobody is
+  offered a place while it is so, and a live offer cannot be claimed
+  (`VENUE_NOT_OPEN`); that entry goes back to waiting in its place, its hold
+  let go. Nobody loses their place; a place freed while the venue was closed
+  is offered when the next one frees, or bookable directly once it is open.
+- **For an entry made online, the venue's access no longer admitting the
+  account** (members only, a private list; as at the join, a parent queuing
+  only their member children at a members-only venue need not be a member):
+  the entry is passed over at the offer and keeps its place, as one whose
+  sign-off lapsed does; at the claim it is refused (`MEMBERS_ONLY`,
+  `PRIVATE_VENUE`), goes back to waiting and the place passes on. Who may
+  book a members-only or private venue is not asked of an entry the counter
+  or the API made, as it is not at their join.
+
+The house rules, the unpaid-bookings limit and the no-show strikes are asked
+at the join only; the booking the claim makes is held until paid where the
+venue asks that, as any booking is.
+
 Claiming is deliberately a tap rather than automatic on page load, because
 unlike check-in it creates a booking that costs money. Claiming enrols the
 holder at the class price (or makes an ordinary booking for the court time,
@@ -552,17 +579,28 @@ button (`src/components/admin/WaitlistJoin.tsx`).
 - **Checked and booked the way it was made**: sign-offs on the entry's number,
   as the counter checks them; at the offer and again at the claim, each
   participant still one the venue knows with a guardian on that number
-  (otherwise the entry leaves the queue and the place goes to the next). The
+  (otherwise the entry leaves the queue and the place goes to the next), and
+  the number not refused since and the venue open, as for any entry
+  ([above](#waitlists)). The
   booking claimed from it is made as the counter (or the API) would make it,
   with the member of staff on record as having put each participant on it.
-- **Told as usual**: the offer goes to that number and email by the usual
-  messages, in the language given (English if none), and is claimed by its
-  link; the customer sees the entry on their number, and can leave it.
+- **Told as usual, in the caller's language**: the offer goes to that number
+  and email by the usual messages, in the language kept on the entry, and is
+  claimed by its link; the customer sees the entry on their number, and can
+  leave it. The counter form asks the caller's language among the customer
+  languages the install offers (English, Bahasa Malaysia, Chinese, Tamil in
+  Malaysia), starting from the one this member of staff reads the site in
+  (the language switch) where the install offers it, else English; the
+  day's queues show each entry's language. Through the API it is `locale`
+  (English if not given).
 - **Seen and taken off by staff**: the day's queues under the schedule, and a
   class's on its roster, say who made each entry (online, at the counter and
   by whom, through the API). Staff take off an entry the venue made; one the
   customer made online is theirs to leave. Taking off a live offer passes it
-  to the next in line. Each join and removal is in the staff activity log
+  to the next in line. Taking an entry off **sends the caller nothing**: the
+  venue takes it off because they asked it to (the confirmation staff see
+  says so), and an offer already sent stops working (its link says the offer
+  is no longer valid). Each join and removal is in the staff activity log
   (`waitlist.added`, `waitlist.removed`).
 
 ## Moving a booking
