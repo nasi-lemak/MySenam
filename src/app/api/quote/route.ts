@@ -7,6 +7,8 @@ import { rateLimit } from "@/lib/rate-limit";
 import { courtsForAnyBooking, getCourt, quoteFor } from "@/lib/store";
 import { MAX_GROUP_COURTS, type Sport } from "@/lib/types";
 import { isValidDateString } from "@/lib/time";
+import { MAX_NAMED, selectionForAccount } from "@/lib/participant-bookings";
+import { isRefusal } from "@/lib/participants";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,9 @@ export const dynamic = "force-dynamic";
  * billed, and each part's rate (`lines`). Member rates for a signed-in
  * member, unless `forOthers=1`: a booking only for people the member books
  * for is at the public rate (docs/features/pricing.md#memberships-and-member-rates).
+ * `participantIds=1,2[&customerTakesPart=1]` (people the signed-in account
+ * acts for) prices it as the booking naming them will be: each person's own
+ * membership, or a family one naming them, by the scope of its benefit.
  * `allowed` says whether the court's booking rules take that time;
  * when not, `error` says why. Whether it is free is found by booking it.
  */
@@ -58,7 +63,24 @@ export async function GET(req: NextRequest) {
   const activity = q.get("sport") ? (q.get("sport") as Sport) : undefined;
   // A membership prices only a booking its holder takes part in.
   const memberPhone = q.get("forOthers") === "1" ? null : (user?.phone ?? null);
-  const priced = await quoteFor({ courtId, date, ...time.when, phone: memberPhone, userId: user?.id ?? null, by: "customer", players, ...(activity ? { sport: activity } : {}) });
+  // The people the booking would name, from those this account acts for: priced as the booking will be,
+  // each membership by its scope (a member's own place at the member's price; lib/entitlements.ts).
+  const ids = (q.get("participantIds") ?? "").split(",").filter((s) => /^\d+$/.test(s)).map(Number);
+  const customerTakesPart = q.get("customerTakesPart") === "1";
+  const chosen = user && ids.length > 0 ? await selectionForAccount(user.id, ids.slice(0, MAX_NAMED), customerTakesPart) : null;
+  if (chosen && isRefusal(chosen)) return NextResponse.json({ error: chosen.error, code: chosen.code }, { status: chosen.status });
+  const people = chosen ? { participants: chosen.participants, customerTakesPart: chosen.customerTakesPart } : undefined;
+  const priced = await quoteFor({
+    courtId,
+    date,
+    ...time.when,
+    phone: people ? (user?.phone ?? null) : memberPhone,
+    userId: user?.id ?? null,
+    by: "customer",
+    players,
+    ...(activity ? { sport: activity } : {}),
+    ...(people ? { people } : {}),
+  });
   if (!priced.ok) return refusal(priced, 400);
 
   // Other courts at the same venue, for the same time.

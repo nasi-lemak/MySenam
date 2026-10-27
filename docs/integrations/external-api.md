@@ -57,7 +57,11 @@ bounded so that it never stands in for a guardian:
   participant must already be on record: a key cannot give it
   (`WAIVER_NEEDED`, 409). A missing sign-off or approval is refused as for
   any booking (`SIGN_OFF_NEEDED`, `CERTIFICATION_NEEDED`); eligibility is the
-  participant's own, never the customer's or anybody else's.
+  participant's own, never the customer's or anybody else's. So is a
+  membership: at a members-only venue, a participant taking a place on a
+  shared session needs their own membership, or a family membership naming
+  them (`ENT_MEMBERS_PLACE`, 409, `vars.name`;
+  [who a venue is for](../features/booking.md#who-a-venue-is-for-public-members-only-private)).
 - The booking is recorded as made by the venue's system: in each
   participant's history as the key (`API key <id>`), and on each place.
 

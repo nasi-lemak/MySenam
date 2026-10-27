@@ -9,6 +9,7 @@ import { ChangeTime } from "@/components/ChangeTime";
 import { BookAgain } from "@/components/BookAgain";
 import PayOnline from "@/components/PayOnline";
 import { SplitCost } from "@/components/SplitCost";
+import { WithdrawPeople } from "@/components/WithdrawPeople";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
@@ -499,6 +500,17 @@ export default function MyBookingPage() {
                     {t("resched.button")}
                   </button>
                 ))}
+              {/* Several people on it: one can be taken off, the others staying booked (lib/place-withdrawals.ts). */}
+              {b.classId === null && (b.participantName || (b.players ?? 1) > 1) && (
+                <WithdrawPeople
+                  source={{ code, phone }}
+                  onDone={async (_booking, message) => {
+                    setChanged(message);
+                    const res = await fetch(`/api/bookings?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}`, { cache: "no-store" });
+                    if (res.ok) setResult(await res.json());
+                  }}
+                />
+              )}
               <button
                 onClick={cancel}
                 disabled={busy}

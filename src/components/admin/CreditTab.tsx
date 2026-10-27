@@ -7,7 +7,8 @@ import { CounterSalesPanel } from "./CounterSalesPanel";
 import { AccountsPanel } from "./AccountsPanel";
 import { useCallback, useEffect, useState } from "react";
 import { MAX_HOURS_PER_BOOKING, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, MAX_TOP_UP } from "@/lib/types";
-import type { Membership, Pass, PromoCode, WalletEntry } from "@/lib/types";
+import type { BenefitScope, Membership, Pass, PromoCode, WalletEntry } from "@/lib/types";
+import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { money, region } from "@/lib/region";
@@ -244,7 +245,11 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
     accountEmail: "",
     expiresOn: "",
     coachId: "",
+    // What one use covers (lib/entitlements.ts): the booking, a resource hired whole, one person's place, each place.
+    scope: "booking" as BenefitScope,
   });
+  // A pass for one person's place, held for a participant the holder acts for; null: the holder themself.
+  const [passFor, setPassFor] = useState<PickedParticipant | null>(null);
   const [coaches, setCoaches] = useState<{ id: number; name: string; active: boolean }[]>([]);
 
   const venue = venues.find((v) => v.id === venueId) ?? null;
@@ -289,12 +294,15 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           accountEmail: form.accountEmail.trim() || undefined,
           expiresOn: form.expiresOn,
           coachId: form.coachId ? Number(form.coachId) : null,
+          scope: form.scope,
+          ...(form.scope === "participant" && passFor ? { holderParticipantId: passFor.id } : {}),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("cr.passIssueFailed")));
-      setNotice(t("cr.passSold", { code: data.pass.code, name: data.pass.holderName }));
+      setNotice(t("cr.passSold", { code: data.pass.code, name: data.pass.holderParticipantName ?? data.pass.holderName }));
       setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
+      setPassFor(null);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cr.passIssueFailed"));
@@ -407,6 +415,19 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           </select>
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("ent.cr.covers")}
+          <select
+            value={form.scope}
+            onChange={(e) => setForm({ ...form, scope: e.target.value as BenefitScope })}
+            className={`mt-1 w-56 ${inputClass}`}
+          >
+            <option value="booking">{t("ent.cr.scopeBooking")}</option>
+            <option value="resource">{t("ent.cr.scopeResource")}</option>
+            <option value="participant">{t("ent.cr.scopeParticipant")}</option>
+            <option value="places">{t("ent.cr.scopePlaces")}</option>
+          </select>
+        </label>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
           {form.kind === "time" ? t("cr.hoursOfCourtTime") : t("cr.entries")}
           <input
             type="number"
@@ -498,6 +519,12 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-48 ${inputClass}`}
           />
         </label>
+        {form.scope === "participant" && venueId > 0 && (
+          <div className="w-full text-xs font-medium text-slate-500">
+            {t("ent.cr.passFor")}
+            <ParticipantPicker venueId={venueId} phone={form.holderPhone} guardianName={form.holderName} value={passFor} onChange={setPassFor} />
+          </div>
+        )}
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
@@ -529,10 +556,12 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                   <span className="ml-1 text-xs text-slate-400">
                     {pass.sport ? activityIcon(pass.sport) : t("cr.allSports")}
                     {pass.coachName && ` · ${t("cr.passLessonsWith", { name: pass.coachName })}`}
+                    {pass.scope && pass.scope !== "booking" && ` · ${scopeLabel(t, pass.scope)}`}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   {pass.holderName}
+                  {pass.holderParticipantName && <span className="block text-xs text-slate-600">{t("ent.cr.forName", { name: pass.holderParticipantName })}</span>}
                   <span className="block text-xs text-slate-400">{pass.holderPhone}</span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
@@ -898,6 +927,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
     price: "300",
     tierId: "",
   });
+  // Whose it is (a participant the holder acts for, or the holder themself), and the dependants a family one names.
+  const [memberFor, setMemberFor] = useState<PickedParticipant | null>(null);
+  const [covers, setCovers] = useState<PickedParticipant[]>([]);
+  const [coverPick, setCoverPick] = useState<PickedParticipant | null>(null);
   // The venue's plans, to put a membership sold here on one for its benefits.
   const [tiers, setTiers] = useState<Plan[]>([]);
 
@@ -932,12 +965,16 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           expiresOn: form.expiresOn,
           price: Number(form.price),
           ...(form.tierId ? { tierId: Number(form.tierId) } : {}),
+          ...(memberFor ? { holderParticipantId: memberFor.id } : {}),
+          ...(covers.length > 0 ? { covers: covers.map((c) => c.id) } : {}),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("cr.memberSellFailed")));
-      setNotice(t("cr.memberSold", { code: data.membership.code, name: data.membership.holderName }));
+      setNotice(t("cr.memberSold", { code: data.membership.code, name: data.membership.holderParticipantName ?? data.membership.holderName }));
       setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
+      setMemberFor(null);
+      setCovers([]);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cr.memberSellFailed"));
@@ -1098,6 +1135,41 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-48 ${inputClass}`}
           />
         </label>
+        {venueId > 0 && (
+          <div className="grid w-full gap-2 text-xs font-medium text-slate-500 sm:grid-cols-2">
+            <div>
+              {t("ent.cr.memberFor")}
+              <ParticipantPicker venueId={venueId} phone={form.holderPhone} guardianName={form.holderName} value={memberFor} onChange={setMemberFor} />
+            </div>
+            <div>
+              {t("ent.cr.alsoCovers")}
+              <ParticipantPicker venueId={venueId} phone={form.holderPhone} guardianName={form.holderName} value={coverPick} onChange={setCoverPick} />
+              <button
+                type="button"
+                disabled={!coverPick || covers.some((c) => c.id === coverPick.id) || coverPick.id === memberFor?.id}
+                onClick={() => {
+                  if (coverPick) setCovers([...covers, coverPick]);
+                  setCoverPick(null);
+                }}
+                className="mt-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {t("ent.cr.addCovered")}
+              </button>
+              {covers.length > 0 && (
+                <ul className="mt-1 flex flex-wrap gap-1">
+                  {covers.map((c) => (
+                    <li key={c.id} className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">
+                      {c.displayName}{" "}
+                      <button type="button" onClick={() => setCovers(covers.filter((x) => x.id !== c.id))} aria-label={t("ent.cr.removeCovered", { name: c.displayName })}>
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
@@ -1131,6 +1203,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                     {m.holderPhone}
                     {m.tierName && ` · ${m.tierName}`}
                   </span>
+                  {m.holderParticipantName && <span className="block text-xs text-slate-600">{t("ent.cr.forName", { name: m.holderParticipantName })}</span>}
+                  {m.covers && m.covers.length > 0 && (
+                    <span className="block text-xs text-slate-600">{t("ent.cr.coversNames", { names: m.covers.map((c) => c.name).join(", ") })}</span>
+                  )}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">
                   {m.startsOn} → {m.expiresOn}
@@ -1183,6 +1259,13 @@ interface Plan {
   /** A tier's own benefits (lib/membership-plans.ts): this share of the public price, and how far ahead; null: the venue's. */
   ratePercent: number | null;
   aheadDays: number | null;
+  /** What the member's price covers: the whole booking its member takes part in, or the members' own places only. */
+  scope?: BenefitScope;
+}
+
+/** What a pass, a concession or a plan's price covers, in a few words (lib/entitlements.ts). */
+function scopeLabel(t: StaffT, scope: BenefitScope): string {
+  return t(scope === "resource" ? "ent.cr.scopeResource" : scope === "participant" ? "ent.cr.scopeParticipant" : scope === "places" ? "ent.cr.scopePlaces" : "ent.cr.scopeBooking");
 }
 
 const RATE_CHOICES = [95, 90, 85, 80, 75, 70, 60, 50];
@@ -1238,7 +1321,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
     await load();
   }
 
-  async function benefits(plan: Plan, change: { ratePercent?: number | null; aheadDays?: number | null }) {
+  async function benefits(plan: Plan, change: { ratePercent?: number | null; aheadDays?: number | null; scope?: BenefitScope }) {
     setError(null);
     const res = await fetch("/api/admin/membership-plans", {
       method: "PATCH",
@@ -1307,6 +1390,15 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                         {t("cr.daysAhead", { days: d })}
                       </option>
                     ))}
+                  </select>
+                  {t("ent.cr.planScope")}
+                  <select
+                    value={p.scope ?? "booking"}
+                    onChange={(e) => benefits(p, { scope: e.target.value as BenefitScope })}
+                    className="rounded border border-slate-300 px-1 py-0.5"
+                  >
+                    <option value="booking">{t("ent.cr.planScopeBooking")}</option>
+                    <option value="participant">{t("ent.cr.planScopeOwn")}</option>
                   </select>
                 </span>
               </span>

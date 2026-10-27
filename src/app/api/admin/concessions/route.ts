@@ -21,9 +21,11 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ venueId, id?, name, percent, proof, sport?, offPeakOnly?, preset? }`: offer one, or
+ * `{ venueId, id?, name, percent, proof, sport?, offPeakOnly?, preset?, scope? }`: offer one, or
  * change it (managers). `preset` (student, senior, child, oku) is kept while the name
  * and proof are that preset's own words, so customers read it in their language.
+ * `scope`: `booking` (the whole booking, the default) or `participant` (one
+ * person's place on a booking priced by the place; lib/entitlements.ts).
  */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
   await logFromRequest(req, {
     venueId,
     action: "settings.changed",
-    detail: `Concession price: ${c.name}, ${c.percent}% off${c.sport ? ` (${c.sport})` : ""}${c.offPeakOnly ? ", off-peak only" : ""}`,
+    detail: `Concession price: ${c.name}, ${c.percent}% off${c.sport ? ` (${c.sport})` : ""}${c.offPeakOnly ? ", off-peak only" : ""}${c.scope === "participant" ? ", one person's place" : ""}`,
   });
   return NextResponse.json({ concession: c });
 }

@@ -116,4 +116,5 @@ export const ACTION_LABELS: Record<string, string> = {
   "participant.guardian_request_closed": "Closed a request to become a guardian",
   "participant.guardian_suspended": "Paused a participant's guardian for review",
   "participant.guardian_confirmed": "Kept a participant's guardian after review",
+  "booking.place_withdrawn": "Took one person off a booking, the others staying booked",
 };

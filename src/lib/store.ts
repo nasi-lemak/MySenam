@@ -27,9 +27,10 @@ import {
 import { creditScope } from "./mode";
 import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
+import { isDuplicateSpend, memberPrices, membersOnlyRefusal, PASS_SCOPES, placesOf as placeRows, refuse as refuseEnt, soldByPlace, type BenefitScope } from "./entitlements";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
-import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -474,7 +475,7 @@ function offersSql(alias = "c"): string {
 }
 
 /** The court a booking is on, as offered for what was booked. */
-async function bookedCourt(booking: Pick<Booking, "courtId" | "sport">): Promise<Court | null> {
+export async function bookedCourt(booking: Pick<Booking, "courtId" | "sport">): Promise<Court | null> {
   const court = await getCourt(booking.courtId);
   return court ? courtFor(court, booking.sport) : null;
 }
@@ -1845,6 +1846,13 @@ export async function quoteFor(input: {
   /** Who is asking, online: a member's price only for the account's own proved or linked number. */
   userId?: number | null;
   by?: SignOffChannel;
+  /**
+   * Who takes part, where the booking names people (checked by the caller as
+   * the booking route checks them): priced as the booking would be, each
+   * member's own place at the member's price where their benefit is for
+   * their place alone (lib/entitlements.ts `memberPrices`).
+   */
+  people?: { participants: { id: number }[]; customerTakesPart: boolean };
 } & WhenInput): Promise<{ ok: true; span: Span; quote: Quote; allowed: true } | { ok: true; span: Span; quote: Quote; allowed: false; refusal: Refusal } | Refusal> {
   const found = await getCourt(input.courtId);
   if (!found) return refuse("COURT_NOT_FOUND");
@@ -1856,8 +1864,31 @@ export async function quoteFor(input: {
   if (!asked.ok) return asked;
   const span = asked.span;
   const players = Math.min(Math.max(1, input.players ?? 1), placesPerBooking(court));
-  const member = input.phone ? await memberPricing(court.venueId, input.phone, input.date, input.by ? { userId: input.userId, by: input.by } : undefined) : false;
-  const quote = quoteBooking(court, day.policy, input.date, span, member, await peakRules(court.venueId), Date.now(), players);
+  const rules = await peakRules(court.venueId);
+  let quote: Quote;
+  if (input.people && input.phone) {
+    // As the booking will be priced: by who takes part, each membership by its scope.
+    const members = await memberPrices({
+      venueId: court.venueId,
+      court,
+      booker: { phone: input.phone, userId: input.userId, ...(input.by ? { by: input.by } : {}) },
+      participants: input.people.participants,
+      customerTakesPart: input.people.customerTakesPart || input.people.participants.length === 0,
+      date: input.date,
+    });
+    const now = Date.now();
+    quote = quoteBooking(court, day.policy, input.date, span, members.booking?.level ?? false, rules, now, players);
+    const off = roundMoney(
+      members.places.reduce(
+        (s, p) => s + Math.max(0, roundMoney((quote.court - quoteBooking(court, day.policy, input.date, span, p.level, rules, now, players).court) / players)),
+        0
+      )
+    );
+    if (off > 0) quote = { ...quote, court: roundMoney(quote.court - off), total: roundMoney(quote.total - off) };
+  } else {
+    const member = input.phone ? await memberPricing(court.venueId, input.phone, input.date, input.by ? { userId: input.userId, by: input.by } : undefined) : false;
+    quote = quoteBooking(court, day.policy, input.date, span, member, rules, Date.now(), players);
+  }
   const breaches = policyBreaches(day.policy, span, day, minutesUntil(input.date, span.start, day.zone));
   if (day.closed) return { ok: true, span, quote, allowed: false, refusal: refuse("VENUE_CLOSED") };
   if (breaches.length > 0) return { ok: true, span, quote, allowed: false, refusal: breachRefusal(day.policy, span, breaches[0]) };
@@ -1937,7 +1968,7 @@ function breachRefusal(policy: BookingPolicy, span: Span, breach: PolicyBreach):
   if (breach === "HOURS") return refuse("HOURS_OUTSIDE_OPENING");
   if (breach === "CLOCK") return refuse("CLOCK_CHANGE");
   // Checked apart from the court's rules, by who is booking (createBookingSeries).
-  if (breach === "SIGN_OFF") throw new Error("A sign-off is not one of the court's time rules.");
+  if (breach === "SIGN_OFF" || breach === "MEMBERSHIP") throw new Error("A sign-off or a membership is not one of the court's time rules.");
   const code = ({ START: "POLICY_START", LENGTH: "POLICY_LENGTH", NOTICE: "POLICY_NOTICE" } as const)[breach];
   return refuse(code, { rule: breachMessage(policy, breach) });
 }
@@ -2087,6 +2118,18 @@ export async function createBookingSeries(
     // One person's sign-off is for one person: places for others are booked where staff see them.
     if (held && channel === "customer" && players > Math.max(1, persons) && !override) return refuse("SIGN_OFF_EACH", { sport: activityName(court.sport) });
   }
+  // A place on a members' session is each person's own to hold (lib/entitlements.ts, ADR 0025): a
+  // participant needs their own membership or a family one naming them, on every week booked. A
+  // manager going past the rules may book without, and it is recorded as an override.
+  const notMember = await membersOnlyRefusal({
+    venueId: court.venueId,
+    court,
+    classId: input.classId ?? null,
+    participants: named,
+    dates: Array.from({ length: weeks }, (_, w) => addDays(date, 7 * w)),
+  });
+  if (notMember && !override) return notMember;
+  if (notMember) breaches.push("MEMBERSHIP");
 
   const db = getDb();
   const seriesCode = weeks > 1 ? generateSeriesCode() : null;
@@ -2094,11 +2137,20 @@ export async function createBookingSeries(
   // on: a membership that lapses part-way through a weekly series discounts
   // the weeks it covers and no more.
   // Online (`by: "customer"`, as the booking route says) a member's number counts only when it is the account's own, proved or linked.
-  // A membership prices a booking its holder takes part in: one made only for
-  // others (a parent booking their children) is at the public rate, whoever's
-  // number it is on (docs/features/pricing.md#memberships-and-member-rates).
-  const memberOn = async (weekDate: string): Promise<MemberPricing> =>
-    customerPlays ? memberPricing(court.venueId, phone, weekDate, input.by ? { userId, by: input.by } : undefined) : false;
+  // A membership prices a booking its member takes part in, by the scope of its
+  // benefit (lib/entitlements.ts `memberPrices`): the whole booking, or only its
+  // members' own places on a session priced by the place. One made only for
+  // others who are not members (a parent booking their children) is at the
+  // public rate, whoever's number it is on (docs/features/pricing.md#memberships-and-member-rates).
+  const membersOn = (weekDate: string) =>
+    memberPrices({
+      venueId: court.venueId,
+      court,
+      booker: { phone, userId, ...(input.by ? { by: input.by } : {}) },
+      participants: named,
+      customerTakesPart: customerPlays,
+      date: weekDate,
+    });
   const rules = await peakRules(court.venueId);
   // A last-minute price is for time nobody wanted, not for a number that
   // cancelled at this venue on this day and is booking again at the lower price.
@@ -2145,8 +2197,20 @@ export async function createBookingSeries(
         const weekDate = addDays(date, week * 7);
         let reason: string | null = null;
         if (week > 0 && (await getVenueClosure(court.venueId, weekDate))) reason = "venue closed";
-        const member = await memberOn(weekDate);
+        const members = await membersOn(weekDate);
+        const member: MemberPricing = members.booking?.level ?? false;
         const quote = quoteBooking(court, policy, weekDate, span, member, rules, bookedAt, players);
+        // A member's own place at the member's price, the others' at the public one: each place's share of the court time.
+        // (A class is priced at the class's rate instead.)
+        const memberPlaces = input.classId
+          ? []
+          : members.places
+              .map((p) => ({
+                ...p,
+                amount: roundMoney((quote.court - quoteBooking(court, policy, weekDate, span, p.level, rules, bookedAt, players).court) / players),
+              }))
+              .filter((p) => p.amount > 0);
+        const placeOff = roundMoney(memberPlaces.reduce((s, p) => s + p.amount, 0));
         let bookingId: number | null = null;
         if (!reason) {
           try {
@@ -2160,7 +2224,7 @@ export async function createBookingSeries(
                 .get(
                   generateCode(), courtId, court.sport, weekDate, span.start, span.end,
                   instantOf(weekDate, span.start, zone).toISOString(), instantOf(weekDate, span.end, zone).toISOString(),
-                  name, phone, email ?? null, quote.total, quote.fees,
+                  name, phone, email ?? null, roundMoney(quote.total - placeOff), quote.fees,
                   userId ?? null, seriesCode, randomBytes(16).toString("hex"),
                   input.classId ?? null, players, breaches.length > 0,
                   quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total ? 1 : 0
@@ -2172,6 +2236,17 @@ export async function createBookingSeries(
                 customerName: name,
                 addedBy: input.addedBy ?? { userId: userId ?? null },
               });
+              // Each member's own place at the member's price, kept per place (lib/entitlements.ts).
+              if (memberPlaces.length > 0) {
+                const places = await placeRows(id.id);
+                for (const p of memberPlaces) {
+                  const place = places.find((x) => (p.participantId === null ? x.customer : x.participantId === p.participantId));
+                  if (!place) continue;
+                  await db
+                    .prepare("INSERT INTO place_benefits (booking_id, place_id, participant_id, kind, membership_id, amount) VALUES (?, ?, ?, 'membership', ?, ?)")
+                    .run(id.id, place.placeId, p.participantId, p.membershipId, p.amount);
+                }
+              }
               // An enrolment holds a place in its class; the class holds the court.
               if (!input.classId)
                 await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, places: players, ...claimBuffers(policy) });
@@ -2256,7 +2331,7 @@ export interface SeriesWeek {
 }
 
 /** How a late cancel of this booking goes, if the venue allows one; null where it is free or not allowed. */
-async function lateTerms(booking: Booking): Promise<{ late: boolean; share: number; keptPercent: number | null; allowed: boolean }> {
+export async function lateTerms(booking: Booking): Promise<{ late: boolean; share: number; keptPercent: number | null; allowed: boolean }> {
   const cutoff = await cancelCutoffForBooking(booking.id);
   const zone = await courtZone(booking.courtId);
   if (isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone)) return { late: false, share: 1, keptPercent: null, allowed: true };
@@ -2293,7 +2368,9 @@ export async function seriesCancelPlan(
     const booking = toBooking(row);
     const terms = await lateTerms(booking);
     const paid =
-      booking.paymentStatus === "paid" ? roundMoney(booking.totalPrice - (booking.sharesPaid ?? 0)) : roundMoney(booking.depositPaid ?? 0);
+      booking.paymentStatus === "paid"
+        ? roundMoney((booking.totalPrice - (booking.sharesPaid ?? 0)) * (await paidPartLeft(booking.id)))
+        : roundMoney(booking.depositPaid ?? 0);
     const kit = await hasOpenHire(booking.id);
     const outcome = kit || !terms.allowed ? "stays" : terms.late ? "late" : "free";
     const kept = outcome === "stays" ? 0 : roundMoney(paid * (1 - terms.share));
@@ -2413,7 +2490,7 @@ export type CancelResult =
   | Refusal;
 
 /** The cancellation cutoff of the venue a booking belongs to. */
-async function cancelCutoffForBooking(bookingId: number): Promise<number> {
+export async function cancelCutoffForBooking(bookingId: number): Promise<number> {
   const row = await getDb()
     .prepare(`
       SELECT COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS hours FROM bookings b
@@ -2501,7 +2578,7 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   else await offerSlotPlace(booking.courtId, booking.date);
   const kept =
     booking.paymentStatus === "paid"
-      ? roundMoney((booking.totalPrice - (booking.sharesPaid ?? 0)) * (1 - share))
+      ? roundMoney((booking.totalPrice - (booking.sharesPaid ?? 0)) * (await paidPartLeft(booking.id)) * (1 - share))
       : roundMoney((booking.depositPaid ?? 0) * (1 - share));
   return { ok: true, booking: { ...booking, status: "cancelled" }, ...(late ? { kept } : {}) };
 }
@@ -3001,7 +3078,7 @@ export type RescheduleResult =
   | Refusal;
 
 /** An open game on a booking, as moving the booking needs it (lib/game-moves.ts). */
-async function gameUnder(bookingId: number): Promise<{ id: number; status: string; players: number; pendingMove: number | null } | null> {
+export async function gameUnder(bookingId: number): Promise<{ id: number; status: string; players: number; pendingMove: number | null } | null> {
   const row = (await getDb()
     .prepare(
       `SELECT g.id, g.status,
@@ -3234,6 +3311,18 @@ async function rescheduleBookingOnce(
       }
       if (!held) breaches.push("SIGN_OFF");
     }
+    // A members' session: each participant still a member on the new date (lib/entitlements.ts).
+    const notMember = await membersOnlyRefusal({
+      venueId: court.venueId,
+      court,
+      participants: (await bookingPlaces(booking.id)).flatMap((p) => (!p.customer && p.participantId !== null ? [{ id: p.participantId, name: p.name ?? "" }] : [])),
+      dates: [to.date],
+    });
+    if (notMember && !(by === "staff" && to.override === true)) {
+      firstRefusal ??= notMember;
+      continue;
+    }
+    if (notMember) breaches.push("MEMBERSHIP");
     const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players).total - oldPrice) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
@@ -3868,6 +3957,8 @@ export interface AdminBookingRow extends Booking {
    * a booking its customer takes alone.
    */
   people: { placeId: number; name: string | null; customer: boolean; arrivedAt: string | null; noShow: boolean }[];
+  /** One person's concession on their own place (lib/entitlements.ts), and where its proof stands. */
+  placeConcessions?: { id: number; name: string | null; concessionName: string; concessionPreset: string | null; amount: number; check: "due" | "seen" | "refused" | null }[];
 }
 
 export interface UserBookingRow extends Booking {
@@ -5269,6 +5360,31 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       ]);
     }
   }
+  // One person's concession on their own place, for the desk to check their proof (lib/entitlements.ts).
+  const placeConcessions = new Map<number, NonNullable<AdminBookingRow["placeConcessions"]>>();
+  if (rows.length > 0) {
+    const live = (await db
+      .prepare(
+        `SELECT pb.id, pb.booking_id, pb.concession_name, pb.concession_preset, pb.amount::float AS amount, pb.proof_check, bp.name
+           FROM place_benefits pb LEFT JOIN booking_participants bp ON bp.id = pb.place_id
+          WHERE pb.booking_id IN (${rows.map(() => "?").join(",")}) AND pb.kind = 'concession' AND (pb.reversed_at IS NULL OR pb.proof_check = 'refused')
+          ORDER BY pb.id`
+      )
+      .all(...rows.map((r) => r.id))) as {
+      id: number;
+      booking_id: number;
+      concession_name: string | null;
+      concession_preset: string | null;
+      amount: number;
+      proof_check: "due" | "seen" | "refused" | null;
+      name: string | null;
+    }[];
+    for (const c of live)
+      placeConcessions.set(c.booking_id, [
+        ...(placeConcessions.get(c.booking_id) ?? []),
+        { id: c.id, name: c.name, concessionName: c.concession_name ?? "", concessionPreset: c.concession_preset, amount: Number(c.amount), check: c.proof_check },
+      ]);
+  }
   const placesOf = (r: { id: number }) => places.get(r.id) ?? [null];
   const waivers = await signaturesFor(
     rows.flatMap((r) => placesOf(r).map((p) => ({ venueId: r.venue_id, phone: r.phone, participant: p })))
@@ -5337,6 +5453,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       staffNote: notes.get(`${r.venue_id}:${phoneKey(booking.phone)}`) ?? null,
       waiverSigned: placesOf(r).every((p) => waivers.get(p !== null ? `${r.venue_id}:p${p}` : `${r.venue_id}:${phoneKey(booking.phone)}`) ?? true),
       people: (people.get(booking.id) ?? []).some((p) => !p.customer) ? people.get(booking.id)! : [],
+      ...(placeConcessions.has(booking.id) ? { placeConcessions: placeConcessions.get(booking.id)! } : {}),
     });
   }
   return list;
@@ -5644,7 +5761,8 @@ async function enrolPeopleOnce(input: {
         ...(person ? { participants: [person], addedBy: input.addedBy ?? { userId: input.userId ?? null } } : {}),
       });
       // One place not had takes the others back with it (the transaction).
-      if (!result.ok) throw new EnrolRefused({ ok: false, error: result.error });
+      // Its code and values ride along, so a refusal (a member's place, say) is said in the reader's language.
+      if (!result.ok) throw new EnrolRefused({ ok: false, error: result.error, ...("code" in result && result.code ? { code: result.code } : {}), ...("vars" in result && result.vars ? { vars: result.vars } : {}) });
 
       // Price the enrolment at the class rate, not the court's.
       await getDb()
@@ -6036,8 +6154,9 @@ export async function refundBookingToWallet(bookingId: number, share = 1): Promi
   if (charges.length === 0) return { ok: false, error: "This booking was not paid from credit." };
 
   const db = getDb();
+  // Credit given back for a place taken off it (lib/place-withdrawals.ts) is not the booking's own refund.
   const refunded = await db
-    .prepare("SELECT id FROM wallet_entries WHERE booking_id = ? AND amount > 0")
+    .prepare("SELECT id FROM wallet_entries WHERE booking_id = ? AND amount > 0 AND withdrawal_id IS NULL")
     .get(bookingId);
   if (refunded) return { ok: false, error: "This booking has already been refunded." };
 
@@ -6082,7 +6201,7 @@ export async function settleCancelled(bookingId: number): Promise<void> {
 }
 
 /** Is a payment page for this booking still open, unpaid, within the day a page lasts? */
-async function paymentPageOpen(bookingId: number): Promise<boolean> {
+export async function paymentPageOpen(bookingId: number): Promise<boolean> {
   return !!(await getDb()
     .prepare(
       `SELECT 1 FROM online_payments p JOIN online_payment_bookings pb ON pb.payment_id = p.id
@@ -6092,12 +6211,32 @@ async function paymentPageOpen(bookingId: number): Promise<boolean> {
     .get(bookingId));
 }
 
+/**
+ * The part of a paid booking's price still on it: all of it, less places taken
+ * off while it was paid (lib/place-withdrawals.ts), whose money was settled
+ * then. What a cancellation gives back is of this part only.
+ */
+export async function paidPartLeft(bookingId: number): Promise<number> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT (b.total_price - b.shares_paid)::float AS base,
+              (SELECT COALESCE(SUM(w.price), 0) FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid)::float AS gone
+         FROM bookings b WHERE b.id = ?`
+    )
+    .get(bookingId)) as { base: number; gone: number } | undefined;
+  if (!row || Number(row.gone) <= 0 || Number(row.base) <= 0) return 1;
+  return Math.max(0, (Number(row.base) - Number(row.gone)) / Number(row.base));
+}
+
 async function refundBooking(bookingId: number, share = 1): Promise<void> {
+  // Places already taken off it while paid were settled then: only what is left goes back now.
+  const left = await paidPartLeft(bookingId);
   // A paid booking's receipt is reversed, whoever gives the money back and how.
-  await creditBooking(bookingId, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share);
-  await refundBookingToWallet(bookingId, share);
+  await creditBooking(bookingId, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share, left);
+  await refundBookingToWallet(bookingId, share * left);
+  // A pass's spends are each given back once: a place taken off already settled its own.
   await refundBookingToPass(bookingId, share);
-  await noteOnlineRefundDue(bookingId, share);
+  await noteOnlineRefundDue(bookingId, share * left);
   // The customer never had the benefit, so a limited code is not poorer for it.
   await releasePromoUse(bookingId);
   // An open game on it goes too, and its players' shares are owed back.
@@ -6168,14 +6307,23 @@ interface MembershipRow {
   tier_name?: string | null;
   tier_rate?: number | null;
   tier_ahead?: number | null;
+  tier_scope?: BenefitScope | null;
+  holder_kind?: "customer" | "participant";
+  holder_participant_id?: number | null;
+  holder_participant_name?: string | null;
+  covers?: { id: number; name: string }[] | string | null;
 }
 
 const MEMBERSHIP_SELECT = `
   SELECT m.id, m.code, m.venue_id, v.name AS venue_name, m.holder_name, m.holder_phone,
          m.starts_on, m.expires_on, m.price, m.status, m.plan_id,
-         m.tier_id, t.name AS tier_name, t.rate_percent AS tier_rate, t.ahead_days AS tier_ahead
+         m.tier_id, t.name AS tier_name, t.rate_percent AS tier_rate, t.ahead_days AS tier_ahead, t.scope AS tier_scope,
+         m.holder_kind, m.holder_participant_id, hp.display_name AS holder_participant_name,
+         (SELECT json_agg(json_build_object('id', cp.id, 'name', cp.display_name) ORDER BY cp.id)
+            FROM membership_participants mp JOIN participants cp ON cp.id = mp.participant_id WHERE mp.membership_id = m.id) AS covers
   FROM memberships m JOIN venues v ON v.id = m.venue_id
   LEFT JOIN membership_plans t ON t.id = m.tier_id
+  LEFT JOIN participants hp ON hp.id = m.holder_participant_id
 `;
 
 function toMembership(r: MembershipRow): Membership {
@@ -6195,6 +6343,11 @@ function toMembership(r: MembershipRow): Membership {
     tierName: r.tier_name ?? null,
     ratePercent: r.tier_rate ?? null,
     aheadDays: r.tier_ahead ?? null,
+    scope: r.tier_scope ?? "booking",
+    // A participant's membership whose participant has gone covers nobody: -1, never the number's holder.
+    holderParticipantId: r.holder_kind === "participant" ? (r.holder_participant_id ?? -1) : null,
+    holderParticipantName: r.holder_kind === "participant" ? (r.holder_participant_name ?? null) : null,
+    covers: (typeof r.covers === "string" ? (JSON.parse(r.covers) as { id: number; name: string }[]) : r.covers) ?? [],
   };
   const reason = membershipBlocked(m);
   return reason ? { ...m, unusableReason: englishOf(reason), unusablePhrase: reason } : m;
@@ -6218,6 +6371,10 @@ function membershipBlocked(m: Membership): StaffText | null {
  * Membership is held against the phone number, not an account, so someone who
  * booked as a guest still gets their rate. The date checked is the booking's,
  * not today's: a membership that lapses before the session does not discount it.
+ *
+ * The number holder's own only: a participant's own membership sold on their
+ * guardian's number is the participant's (`participantMembership`), and never
+ * makes the number's holder a member (ADR 0025).
  */
 export async function activeMembership(
   venueId: number,
@@ -6228,8 +6385,10 @@ export async function activeMembership(
   if (digits.length < 6) return null;
   const date = onDate ?? todayISO();
   const rows = await getDb()
-    .prepare(`${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active'`)
-    .all(venueId) as MembershipRow[];
+    .prepare(
+      `${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.holder_kind = 'customer' AND phone_key(m.holder_phone) = phone_key(?)`
+    )
+    .all(venueId, phone) as MembershipRow[];
   const match = rows.find(
     (r) =>
       normalisePhone(r.holder_phone) === digits &&
@@ -6237,6 +6396,24 @@ export async function activeMembership(
       r.expires_on >= date
   );
   return match ? toMembership(match) : null;
+}
+
+/**
+ * The live membership a participant has here on this date (ADR 0025): their
+ * own (`holder_participant_id`), or a family membership that names them
+ * (`membership_participants`). Never their guardian's own: a parent's
+ * membership does not make a child a member unless it names the child.
+ */
+export async function participantMembership(venueId: number, participantId: number, onDate?: string): Promise<Membership | null> {
+  const date = onDate ?? todayISO();
+  const row = (await getDb()
+    .prepare(
+      `${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.starts_on <= ? AND m.expires_on >= ?
+         AND (m.holder_participant_id = ? OR EXISTS (SELECT 1 FROM membership_participants mp WHERE mp.membership_id = m.id AND mp.participant_id = ?))
+       ORDER BY COALESCE(m.holder_participant_id = ?, false) DESC, m.id LIMIT 1`
+    )
+    .get(venueId, date, date, participantId, participantId, participantId)) as MembershipRow | undefined;
+  return row ? toMembership(row) : null;
 }
 
 /** Every membership a phone number holds, newest first. */
@@ -6282,7 +6459,19 @@ export async function sellMembership(input: {
   tierId?: number;
   /** How it was paid, for its receipt: "Online (Stripe)". At the counter when staff sell it. */
   paidVia?: string;
+  /**
+   * A participant's own membership, sold on their guardian's number (a child's
+   * swim-club membership): the caller checked the venue knows them with a
+   * guardian on `holderPhone`. It is theirs alone (ADR 0025).
+   */
+  holderParticipantId?: number | null;
+  /** A family membership: the participants it covers besides its holder, checked by the caller as above. */
+  covers?: number[];
 }): Promise<MembershipResult> {
+  const covers = [...new Set(input.covers ?? [])];
+  if (input.holderParticipantId && covers.includes(input.holderParticipantId))
+    return { ok: false, error: "The holder is covered by their own membership already." };
+  if (covers.length > MAX_MEMBERSHIP_COVERS) return { ok: false, error: `A family membership covers up to ${MAX_MEMBERSHIP_COVERS} people besides its holder.` };
   return withTransaction(async () => {
     const db = getDb();
     if (!await db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId))
@@ -6308,21 +6497,26 @@ export async function sellMembership(input: {
 
     // Overlapping memberships would make "which rate?" ambiguous — at one
     // venue, or anywhere in its business, where one membership covers all.
+    // One holder's: the number's holder's own, or one participant's own.
+    const participantHolder = input.holderParticipantId ?? null;
     const clash = (
       await db
         .prepare(`${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active'`)
         .all(input.venueId) as MembershipRow[]
     ).find(
       (r) =>
-        normalisePhone(r.holder_phone) === normalisePhone(holderPhone) &&
+        (participantHolder === null
+          ? (r.holder_kind ?? "customer") === "customer" && normalisePhone(r.holder_phone) === normalisePhone(holderPhone)
+          : r.holder_participant_id === participantHolder) &&
         r.starts_on <= input.expiresOn &&
         r.expires_on >= input.startsOn
     );
     if (clash)
       return {
         ok: false,
-        error:
-          clash.venue_id === input.venueId
+        error: participantHolder !== null
+          ? `${clash.holder_participant_name ?? "That person"} already has a membership until ${clash.expires_on}.`
+          : clash.venue_id === input.venueId
             ? `That number already has a membership here until ${clash.expires_on}.`
             : `That number already has a membership at ${clash.venue_name}, which covers this venue too, until ${clash.expires_on}.`,
       };
@@ -6330,14 +6524,20 @@ export async function sellMembership(input: {
     const info = await db
       .prepare(`
         INSERT INTO memberships (code, venue_id, holder_name, holder_phone, user_id,
-                                 starts_on, expires_on, price, admin_id, plan_id, tier_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 starts_on, expires_on, price, admin_id, plan_id, tier_id, holder_kind, holder_participant_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         randomCode("MB-"), input.venueId, holderName, holderPhone, input.userId ?? null,
         input.startsOn, input.expiresOn, input.price, input.adminId ?? null, input.planId ?? null,
-        input.tierId ?? input.planId ?? null
+        input.tierId ?? input.planId ?? null,
+        participantHolder === null ? "customer" : "participant", participantHolder
       );
+    // The dependants a family membership covers, named as it is sold.
+    for (const participantId of covers)
+      await db
+        .prepare("INSERT INTO membership_participants (membership_id, participant_id, added_by_admin_id) VALUES (?, ?, ?)")
+        .run(info.lastInsertRowid, participantId, input.adminId ?? null);
     const membership = (await membershipById(Number(info.lastInsertRowid)))!;
     await issueReceipt({
       source: `membership:${membership.id}`,
@@ -6729,14 +6929,20 @@ interface PassRow {
   spent: number | null;
   coach_id: number | null;
   coach_name: string | null;
+  scope: BenefitScope;
+  holder_kind: "customer" | "participant";
+  holder_participant_id: number | null;
+  holder_participant_name: string | null;
 }
 
 const PASS_SELECT = `
   SELECT p.id, p.code, p.venue_id, v.name AS venue_name, p.sport, p.name,
          p.kind, p.entry_minutes, p.max_minutes, p.entries, p.price, p.holder_name, p.holder_phone, p.expires_on,
          p.status, p.created_at, p.coach_id, k.name AS coach_name,
+         p.scope, p.holder_kind, p.holder_participant_id, hp.display_name AS holder_participant_name,
          (SELECT COALESCE(SUM(delta), 0) FROM pass_entries e WHERE e.pass_id = p.id) AS spent
   FROM passes p JOIN venues v ON v.id = p.venue_id LEFT JOIN coaches k ON k.id = p.coach_id
+  LEFT JOIN participants hp ON hp.id = p.holder_participant_id
 `;
 
 function toPass(r: PassRow): Pass {
@@ -6758,6 +6964,10 @@ function toPass(r: PassRow): Pass {
     price: r.price,
     holderName: r.holder_name,
     holderPhone: r.holder_phone,
+    scope: r.scope ?? "booking",
+    // A participant's pass whose participant has gone covers nobody: -1, never the holder.
+    holderParticipantId: r.holder_kind === "participant" ? (r.holder_participant_id ?? -1) : null,
+    holderParticipantName: r.holder_kind === "participant" ? r.holder_participant_name : null,
     expiresOn: r.expires_on,
     status: r.status,
     createdAt: r.created_at,
@@ -6864,7 +7074,20 @@ export async function issuePass(input: {
   userId?: number;
   /** A pack of lessons with this coach. */
   coachId?: number | null;
+  /** What one use covers (lib/entitlements.ts); the booking as a whole if not said. */
+  scope?: BenefitScope;
+  /**
+   * A pass for one person's place held for a participant the holder acts for
+   * (a child's swim pass, bought by the parent): the caller checked the venue
+   * knows them with a guardian on the holder's number.
+   */
+  holderParticipantId?: number | null;
 }): Promise<PassResult> {
+  const scope = input.scope ?? "booking";
+  if (!PASS_SCOPES.includes(scope)) return { ok: false, error: "A pass covers a booking, a resource hired whole, one person's place, or each place." };
+  // Only a pass for one person's place is somebody else's to use.
+  if (input.holderParticipantId !== undefined && input.holderParticipantId !== null && scope !== "participant")
+    return { ok: false, error: "Only a pass for one person's place is held for somebody you act for." };
   return withTransaction(async () => {
     const db = getDb();
     const venue = await db.prepare("SELECT id FROM venues WHERE id = ?").get(input.venueId);
@@ -6916,8 +7139,8 @@ export async function issuePass(input: {
     const info = await db
       .prepare(`
         INSERT INTO passes (code, venue_id, sport, name, kind, entry_minutes, max_minutes, entries, price, holder_name,
-                            holder_phone, user_id, expires_on, admin_id, coach_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            holder_phone, user_id, expires_on, admin_id, coach_id, scope, holder_kind, holder_participant_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         randomCode("PS-"),
@@ -6934,7 +7157,10 @@ export async function issuePass(input: {
         input.userId ?? null,
         input.expiresOn,
         input.adminId,
-        input.coachId ?? null
+        input.coachId ?? null,
+        scope,
+        input.holderParticipantId ? "participant" : "customer",
+        input.holderParticipantId ?? null
       );
     const pass = (await passById(Number(info.lastInsertRowid)))!;
     await issueReceipt({
@@ -7003,6 +7229,31 @@ export type PassPayResult =
  * cannot spend the same entry.
  */
 export async function payBookingWithPass(bookingId: number, passCode: string): Promise<PassPayResult> {
+  return payBookingWithPasses(bookingId, [passCode]);
+}
+
+/**
+ * Settle a booking with one pass, or with one person's pass for each place
+ * (ADR 0025): all or nothing, never part-paid.
+ *
+ * What a pass spends follows its scope (lib/entitlements.ts): a `booking` or
+ * `resource` pass spends `passCost` once for the booking as a whole (a
+ * `resource` pass only on a resource hired whole); a `places` pass spends it
+ * for each place the booking takes, one ledger line a place; a `participant`
+ * pass pays one person's place, its holder's, so a booking is paid by such
+ * passes only when every place on it is covered by its own person's pass.
+ * Each line names the place it was spent for, so taking that place off the
+ * booking gives back exactly that. The balances are re-read inside the
+ * transaction, the booking is claimed paid once, and the database refuses a
+ * second spend for one place: concurrent requests, the counter and the
+ * customer cannot spend the same entry or pay the same place twice.
+ */
+export async function payBookingWithPasses(
+  bookingId: number,
+  passCodes: string[],
+  /** Courts of a group, each with its own people: a person's pass pays where they are and is passed over elsewhere. */
+  opts: { skipAbsent?: boolean } = {}
+): Promise<PassPayResult> {
   const db = getDb();
   const row = await db
     .prepare(
@@ -7017,39 +7268,88 @@ export async function payBookingWithPass(bookingId: number, passCode: string): P
   // A pass is for court time; rackets and drinks on the booking are paid another way.
   if (await hasAddons(booking.id)) return refuse("PASS_NOT_FOR_EXTRAS");
 
-  const pass = await getPass(passCode);
-  if (!pass) return refuse("PASS_NOT_FOUND");
-  const scope = await passScopeError(pass, booking);
-  if (scope) return { ok: false, error: scope };
+  const codes = [...new Set(passCodes.map((c) => c.trim().toUpperCase()).filter((c) => c !== ""))];
+  if (codes.length === 0) return refuse("PASS_NOT_FOUND");
+  const passes: Pass[] = [];
+  for (const code of codes) {
+    const pass = await getPass(code);
+    if (!pass) return refuse("PASS_NOT_FOUND");
+    const scope = await passScopeError(pass, booking);
+    if (scope) return { ok: false, error: scope };
+    // A pass is the holder's to spend, so it has to be their booking.
+    if (normalisePhone(pass.holderPhone) !== normalisePhone(booking.phone)) return refuse("PASS_WRONG_PHONE");
+    passes.push(pass);
+  }
+  const court = await getCourt(booking.courtId);
+  if (!court) return refuse("COURT_NOT_FOUND");
+  const minutes = booking.endMin - booking.startMin;
 
-  // A pass is the holder's to spend, so it has to be their booking.
-  if (normalisePhone(pass.holderPhone) !== normalisePhone(booking.phone))
-    return refuse("PASS_WRONG_PHONE");
-
-  const cost = passCost(pass, booking.endMin - booking.startMin);
-  if (!cost.ok) return { ok: false, error: `That pass pays for bookings up to ${formatLength(cost.maxMinutes)}.` };
-  const units = cost.units;
+  // What each pass spends, and for which place (null: the booking as a whole, or a place nobody is named on).
+  const spends: { pass: Pass; placeId: number | null; units: number }[] = [];
+  const costOf = (pass: Pass): number | Refusal => {
+    const cost = passCost(pass, minutes);
+    return cost.ok ? cost.units : { ok: false, error: `That pass pays for bookings up to ${formatLength(cost.maxMinutes)}.` };
+  };
+  const oneEach = passes.every((p) => p.scope === "participant");
+  if (passes.length > 1 && !oneEach) return refuseEnt("ENT_PASS_MIX");
+  if (!oneEach) {
+    const pass = passes[0];
+    // A package of a resource's hours pays for the resource hired whole, not for places sold one by one.
+    if (pass.scope === "resource" && soldByPlace(court)) return refuseEnt("ENT_PASS_RESOURCE");
+    const units = costOf(pass);
+    if (typeof units !== "number") return units;
+    if (pass.scope === "places") {
+      const named = (await placeRows(booking.id)).filter((p) => p.placeId !== null);
+      for (const place of named) spends.push({ pass, placeId: place.placeId, units });
+      for (let i = named.length; i < Math.max(1, booking.players ?? 1); i++) spends.push({ pass, placeId: null, units });
+    } else spends.push({ pass, placeId: null, units });
+  } else {
+    // Each a person's own: every place on the booking covered by its own person's pass, once.
+    const places = await placeRows(booking.id);
+    if ((booking.players ?? 1) > places.length) return refuseEnt("ENT_PASS_UNNAMED");
+    const covered = new Set<number>();
+    for (const pass of passes) {
+      const place = places.find((p) => (pass.holderParticipantId ? p.participantId === pass.holderParticipantId : p.customer));
+      if (!place && opts.skipAbsent) continue;
+      if (!place) return refuseEnt("ENT_PASS_NOT_ON_BOOKING", { name: pass.holderParticipantName ?? pass.holderName });
+      if (covered.has(place.placeId ?? 0)) return refuseEnt("ENT_PASS_TWICE", { name: place.name ?? pass.holderName });
+      covered.add(place.placeId ?? 0);
+      const units = costOf(pass);
+      if (typeof units !== "number") return units;
+      spends.push({ pass, placeId: place.placeId, units });
+    }
+    const uncovered = places.filter((p) => !covered.has(p.placeId ?? 0));
+    if (uncovered.length > 0)
+      return refuseEnt("ENT_PASS_UNCOVERED", { names: uncovered.map((p) => (p.customer ? booking.name : p.name ?? "?")).join(", ") });
+  }
 
   try {
     await db.transaction(async () => {
-      const fresh = (await passById(pass.id))!;
-      const blocked = passBlockedReason(fresh);
-      if (blocked) throw new Error(`BLOCKED:${blocked}`);
-      if (fresh.remaining < units)
-        throw new Error(`BLOCKED:This pass has ${passAmount(fresh, fresh.remaining)} left, and this booking needs ${passAmount(fresh, units)}.`);
-      await db.prepare(
-        "INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)"
-      ).run(pass.id, -units, `Booking ${booking.code}`, booking.id);
+      const needed = new Map<number, number>();
+      for (const s of spends) needed.set(s.pass.id, (needed.get(s.pass.id) ?? 0) + s.units);
+      for (const [passId, units] of needed) {
+        const fresh = (await passById(passId))!;
+        const blocked = passBlockedReason(fresh);
+        if (blocked) throw new Error(`BLOCKED:${blocked}`);
+        if (fresh.remaining < units)
+          throw new Error(`BLOCKED:This pass has ${passAmount(fresh, fresh.remaining)} left, and this booking needs ${passAmount(fresh, units)}.`);
+      }
+      for (const s of spends)
+        await db
+          .prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id, place_id) VALUES (?, ?, ?, ?, ?)")
+          .run(s.pass.id, -s.units, `Booking ${booking.code}`, booking.id, s.placeId);
       if (!await claimPayment(booking.id, "pass")) throw new Error("RACED");
     })();
   } catch (err) {
     if (err instanceof Error && err.message === "RACED") return refuse("ALREADY_PAID");
+    if (isDuplicateSpend(err)) return refuse("ALREADY_PAID");
     if (err instanceof Error && err.message.startsWith("BLOCKED:"))
       return { ok: false, error: err.message.slice("BLOCKED:".length) };
     throw err;
   }
 
-  return { ok: true, pass: (await passById(pass.id))!, spent: units };
+  const first = spends[0].pass;
+  return { ok: true, pass: (await passById(first.id))!, spent: spends.filter((s) => s.pass.id === first.id).reduce((n, s) => n + s.units, 0) };
 }
 
 /** "3 entries", "1 h 30 min": an amount of what a pass holds. */
@@ -7086,28 +7386,38 @@ export function normalisePhone(phone: string): string {
 export async function refundBookingToPass(bookingId: number, share = 1): Promise<PassPayResult> {
   return withTransaction(async () => {
     const db = getDb();
-    const charge = await db
+    // Every spend on the booking: one for a booking paid as a whole, one a place for a pass spent per place.
+    const charges = (await db
       .prepare(
-        "SELECT pass_id, delta FROM pass_entries WHERE booking_id = ? AND delta < 0 ORDER BY id LIMIT 1"
+        `SELECT e.id, e.pass_id, e.delta, e.place_id,
+                EXISTS (SELECT 1 FROM pass_entries r WHERE r.settles_entry_id = e.id) AS settled
+           FROM pass_entries e WHERE e.booking_id = ? AND e.delta < 0 ORDER BY e.id`
       )
-      .get(bookingId) as { pass_id: number; delta: number } | undefined;
-    if (!charge) return { ok: false, error: "This booking was not paid with a pass." };
+      .all(bookingId)) as { id: number; pass_id: number; delta: number; place_id: number | null; settled: boolean }[];
+    if (charges.length === 0) return { ok: false, error: "This booking was not paid with a pass." };
 
+    // Given back before spends were matched to their refunds (every refund until migration 0155).
     const refunded = await db
-      .prepare("SELECT id FROM pass_entries WHERE booking_id = ? AND delta > 0")
+      .prepare("SELECT id FROM pass_entries WHERE booking_id = ? AND delta > 0 AND settles_entry_id IS NULL")
       .get(bookingId);
     if (refunded) return { ok: false, error: "This booking has already been refunded." };
+    // Each spend is given back once: a place taken off the booking already settled its own.
+    const open = charges.filter((c) => !c.settled);
+    if (open.length === 0) return { ok: false, error: "This booking has already been refunded." };
 
     const code = (await db.prepare("SELECT code FROM bookings WHERE id = ?").get(bookingId) as
       | { code: string }
       | undefined)?.code;
-    // Whole entries (or minutes) only: a late cancellation's share is rounded down.
-    const back = Math.floor(-charge.delta * share);
-    if (back > 0)
-      await db.prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id) VALUES (?, ?, ?, ?)")
-        .run(charge.pass_id, back, `Refund for ${code ?? "booking"}`, bookingId);
+    for (const charge of open) {
+      // Whole entries (or minutes) only: a late cancellation's share is rounded down.
+      const back = Math.floor(-charge.delta * share);
+      if (back > 0)
+        await db
+          .prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id, place_id, settles_entry_id) VALUES (?, ?, ?, ?, ?, ?)")
+          .run(charge.pass_id, back, `Refund for ${code ?? "booking"}`, bookingId, charge.place_id, charge.id);
+    }
 
-    return { ok: true, pass: (await passById(charge.pass_id))!, spent: charge.delta };
+    return { ok: true, pass: (await passById(open[0].pass_id))!, spent: open.reduce((n, c) => n + c.delta, 0) };
   });
 }
 

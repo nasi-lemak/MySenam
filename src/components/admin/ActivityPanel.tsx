@@ -107,6 +107,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "participant.guardian_request_closed": "gv.act.closed",
   "participant.guardian_suspended": "gv.act.suspended",
   "participant.guardian_confirmed": "gv.act.confirmed",
+  "booking.place_withdrawn": "ent.act.placeWithdrawn",
 };
 
 /**

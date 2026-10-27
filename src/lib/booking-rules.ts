@@ -108,6 +108,12 @@ export interface BookingPolicy {
   signOff: boolean;
   /** Customers need a recorded certification for it (a qualification the law or a governing body asks for), not only a sign-off. */
   certification: boolean;
+  /**
+   * One person may be taken off a booking of several, leaving the others
+   * booked (lib/place-withdrawals.ts). Yes unless the venue sells the places
+   * here as one package.
+   */
+  separatePlaces: boolean;
   pricing: PricingPolicy;
 }
 
@@ -137,6 +143,7 @@ export type PolicySettings = {
   cleanupFee?: number | null;
   signOff?: boolean | null;
   certification?: boolean | null;
+  separatePlaces?: boolean | null;
 };
 
 export const SETTING_KEYS = [
@@ -164,6 +171,7 @@ export const SETTING_KEYS = [
   "cleanupFee",
   "signOff",
   "certification",
+  "separatePlaces",
 ] as const satisfies readonly (keyof PolicySettings)[];
 
 /** The platform's: on the hour, an hour at a time, up to four hours. */
@@ -192,6 +200,7 @@ export const PLATFORM_POLICY: Required<{ [K in keyof PolicySettings]: NonNullabl
   cleanupFee: 0,
   signOff: false,
   certification: false,
+  separatePlaces: true,
 };
 
 /** How long a game or session usually is, in minutes (the activity catalogue's, lib/activity-registry.ts). */
@@ -239,6 +248,7 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
     noticeMinutes: pick("noticeMinutes")!,
     signOff: pick("signOff") === true,
     certification: pick("certification") === true,
+    separatePlaces: pick("separatePlaces") !== false,
     pricing: {
       rateMode: pick("rateMode")!,
       billStep: pick("billStep"),
@@ -369,7 +379,7 @@ export function policyHoursOn(
 }
 
 /** One rule a request does not keep to. */
-export type PolicyBreach = "START" | "LENGTH" | "HOURS" | "NOTICE" | "SIGN_OFF" | "CLOCK";
+export type PolicyBreach = "START" | "LENGTH" | "HOURS" | "NOTICE" | "SIGN_OFF" | "CLOCK" | "MEMBERSHIP";
 
 /**
  * The rules a booking from `start` to `end` breaks. Customers are refused on
@@ -413,6 +423,8 @@ export function breachMessage(policy: BookingPolicy, breach: PolicyBreach): stri
       return policy.certification ? "This needs a recorded certification." : "This needs a staff sign-off.";
     case "CLOCK":
       return "The clocks change during that time: pick a time before or after.";
+    case "MEMBERSHIP":
+      return "A place on this session is for members, each their own.";
   }
 }
 

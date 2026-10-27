@@ -463,6 +463,16 @@ export interface Pass {
   price: number;
   holderName: string;
   holderPhone: string;
+  /**
+   * What one use covers (lib/entitlements.ts, ADR 0025): the booking
+   * (`booking`, every pass sold before), a resource hired whole for its time
+   * (`resource`), one person's place (`participant`), or each place a booking
+   * takes (`places`). Optional for older callers; absent is `booking`.
+   */
+  scope?: BenefitScope;
+  /** Whose place a `participant` pass covers: a participant the holder acts for; null: the holder themself. */
+  holderParticipantId?: number | null;
+  holderParticipantName?: string | null;
   /** Inclusive — the pass is still good on this date. */
   expiresOn: string;
   status: PassStatus;
@@ -475,6 +485,8 @@ export interface Pass {
 
 export type PassStatus = "active" | "void";
 export type PassKind = "session" | "time";
+/** What one use of a pass, a concession or a membership's benefit covers (lib/entitlements.ts, ADR 0025). */
+export type BenefitScope = "booking" | "resource" | "participant" | "places";
 
 /** One movement of entries. Spends are negative, refunds positive. */
 export interface PassEntry {
@@ -538,6 +550,17 @@ export interface Membership {
   /** The tier's benefits: this share of the public price, and how far ahead (null: the venue's). */
   ratePercent?: number | null;
   aheadDays?: number | null;
+  /**
+   * What its price benefit covers (ADR 0025): the booking its holder (or a
+   * person it covers) takes part in (`booking`, every membership before), or
+   * only those people's own places (`participant`). The tier's; `booking` without one.
+   */
+  scope?: BenefitScope;
+  /** Whose it is: a participant the holder acts for (a child's own membership); null: the holder themself. */
+  holderParticipantId?: number | null;
+  holderParticipantName?: string | null;
+  /** Participants a family membership covers besides its holder (`membership_participants`). */
+  covers?: { id: number; name: string }[];
   /** Why it is not giving member rates today, if it is not. */
   unusableReason?: string;
   /** The same, as a phrase a staff screen says in the staff language. */
@@ -548,6 +571,8 @@ export type MembershipStatus = "active" | "void";
 
 /** How far ahead a membership may be sold. */
 export const MAX_MEMBERSHIP_MONTHS = 24;
+/** How many dependants one family membership may name besides its holder. */
+export const MAX_MEMBERSHIP_COVERS = 12;
 
 export const MAX_PROMO_PERCENT = 100;
 export const MAX_PROMO_AMOUNT = 500;

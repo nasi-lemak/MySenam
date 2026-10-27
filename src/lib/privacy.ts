@@ -218,6 +218,15 @@ const RULES: Rule[] = [
     set: "name = NULL",
   },
   {
+    what: said("ptc.ret.placeNames"),
+    days: RETENTION.bookingIdentityDays,
+    action: "anonymised",
+    // Who was taken off a booking (lib/place-withdrawals.ts), by name, goes with the booking's names; what it cost stays.
+    table: "place_withdrawals",
+    where: "name IS NOT NULL AND booking_id IN (SELECT id FROM bookings WHERE date < ?)",
+    set: "name = NULL",
+  },
+  {
     what: said("srv.ret.receiptNames"),
     days: RETENTION.bookingIdentityDays,
     action: "anonymised",
@@ -974,6 +983,10 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
       .prepare("DELETE FROM venue_reviews WHERE user_id = ? OR booking_id IN (SELECT id FROM bookings WHERE user_id = ?)")
       .run(userId, userId);
 
+    // Their own name on a place they gave up (lib/place-withdrawals.ts) goes with the booking's.
+    await db
+      .prepare("UPDATE place_withdrawals SET name = NULL WHERE takes_part_as = 'customer' AND booking_id IN (SELECT id FROM bookings WHERE user_id = ?)")
+      .run(userId);
     const result = await db
       .prepare(
         `UPDATE bookings SET name = ?, phone = '', email = NULL, check_in_token = NULL, user_id = NULL

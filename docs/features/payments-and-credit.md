@@ -306,6 +306,42 @@ Where staff refund by hand (Billplz, or a venue that chose *Staff refund it*):
 Tested in `tests/manual-refunds.test.ts` on PGlite and Postgres, against a
 stand-in gateway.
 
+### Refunds for one person's place
+
+Taking one person off a paid booking, the others staying booked
+([taking one person off a booking](booking.md#taking-one-person-off-a-booking);
+`lib/place-withdrawals.ts`), gives back that place's price as charged, on
+the venue's cancellation terms (a late withdrawal keeps the venue's share),
+through the paths a cancellation uses, and nothing twice:
+
+- **The booking's sale stays as it was sold.** Its receipt is drawn from the
+  booking and does not change; what went back for the place has a credit
+  note of its own (*Alya, taken off MS-…*), at the tax the booking was sold
+  at. The place's price is recorded with the withdrawal
+  (`place_withdrawals.price`), and a later cancellation of the booking gives
+  back only the rest: its credit note, credit and online refund are of what
+  is left (`paidPartLeft`), never more than was paid.
+- **Credit** goes back to the pots it came from, in proportion, as entries
+  marked with the withdrawal (`wallet_entries.withdrawal_id`), apart from the
+  booking's own refund on cancelling.
+- **Online**, the amount is owed back on the payment, never more than it
+  took, and sent through the venue's refund path at once
+  ([refunds that are interrupted](#refunds-that-are-interrupted)): to the card
+  through Stripe, to credit, or owed by staff, as the venue chose.
+- **Paid at the counter**, the credit note is written and the venue's staff
+  give the money back.
+- **A pass** spent for that place gives back its entries (whole entries,
+  rounded down on a late withdrawal); one that paid for the booking as a
+  whole gives back nothing for one person.
+- **Not yet paid**, the place's price comes off what is owed instead, its
+  share of a booking-wide discount with it.
+- Bookings others paid shares of, held by a deposit, charged to an account,
+  or with a payment page open are refused: the venue can change those
+  ([taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
+
+Tested in `tests/place-withdrawals.test.ts` on PGlite and Postgres, against
+a stand-in gateway for the online case.
+
 ## Stored credit
 
 Customers buy credit at a venue counter and spend it on bookings and classes by
