@@ -997,7 +997,7 @@ export async function cancelTournament(id: number): Promise<Result> {
   })();
   // Whoever is waiting for one of those courts is offered it.
   for (const day of freed) await offerSlotPlace(day.court_id, day.date);
-  for (const userId of await entrants(id)) await tellEntrant(userId, t, (tr) => tr("mail.tour.calledOff.s", { t: t.name }), (tr) => tr("mail.tour.calledOff.b", { t: t.name, venue: t.venueName }));
+  for (const entryId of await entrants(id)) await tellEntry(entryId, t, (tr) => tr("mail.tour.calledOff.s", { t: t.name }), (tr) => tr("mail.tour.calledOff.b", { t: t.name, venue: t.venueName }));
   // A division: the competition's time it would have used goes back once nothing else needs it.
   if (t.competition) await releaseCompetitionTime(t.competition.id);
   return { ok: true, value: (await tournamentById(id))! };
@@ -1388,7 +1388,7 @@ async function takeOutOnce(entryId: number, reason: OutReason, note?: string): P
       .get(t.id)) as { id: number; user_id: number | null } | undefined;
     if (next) {
       await db.prepare("UPDATE tournament_entries SET status = 'entered' WHERE id = ?").run(next.id);
-      if (next.user_id) await tellEntrant(next.user_id, t, (tr) => tr("mail.tour.promoted.s", { t: t.name }), (tr) => tr("mail.tour.promoted.b", { t: t.name, venue: t.venueName }));
+      if (next.user_id) await tellEntry(next.id, t, (tr) => tr("mail.tour.promoted.s", { t: t.name }), (tr) => tr("mail.tour.promoted.b", { t: t.name, venue: t.venueName }));
     }
   }
   return { ok: true, value: (await entryById(entryId))! };
@@ -2664,10 +2664,9 @@ export async function moveMatch(matchId: number, to: MatchSlot & { minutes?: num
   const d = result.value.detail;
   const m = d.matches.find((x) => x.id === matchId)!;
   for (const entryId of [m.a, m.b]) {
-    const userId = entryId === null ? null : ((await getDb().prepare("SELECT user_id FROM tournament_entries WHERE id = ?").get(entryId)) as { user_id: number | null } | undefined)?.user_id;
-    if (userId)
-      await tellEntrant(
-        userId,
+    if (entryId !== null)
+      await tellEntry(
+        entryId,
         d,
         (tr) => tr("mail.tour.moved.s", { t: d.name }),
         (tr) => tr("mail.tour.moved.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!), court: m.courtName ?? "" })
@@ -2775,10 +2774,9 @@ export async function resolveIssue(
     const d = result.value.detail;
     for (const m of d.matches.filter((x) => x.status === "scheduled" && x.date !== null && result.value.changes.some((c) => c.startsWith(matchName(d, x))))) {
       for (const entryId of [m.a, m.b]) {
-        const userId = entryId === null ? null : ((await getDb().prepare("SELECT user_id FROM tournament_entries WHERE id = ?").get(entryId)) as { user_id: number | null } | undefined)?.user_id;
-        if (userId)
-          await tellEntrant(
-            userId,
+        if (entryId !== null)
+          await tellEntry(
+            entryId,
             d,
             (tr) => tr("mail.tour.replay.s", { t: d.name }),
             (tr) => tr("mail.tour.replay.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!), court: m.courtName ?? "" })
@@ -2908,10 +2906,10 @@ async function fillKnockout(tournamentId: number): Promise<void> {
     const userOf = new Map(accounts.filter((a) => stillIn.has(a.id)).map((a) => [a.id, a.user_id]));
     for (const id of after)
       if (!before.has(id) && userOf.get(id))
-        await tellEntrant(userOf.get(id)!, t, (tr) => tr("mail.tour.through.s", { t: t.name }), (tr) => tr("mail.tour.through.b", { t: t.name }));
+        await tellEntry(id, t, (tr) => tr("mail.tour.through.s", { t: t.name }), (tr) => tr("mail.tour.through.b", { t: t.name }));
     for (const id of before)
       if (!after.has(id) && userOf.get(id))
-        await tellEntrant(userOf.get(id)!, t, (tr) => tr("mail.tour.notThrough.s", { t: t.name }), (tr) => tr("mail.tour.notThrough.b", { t: t.name }));
+        await tellEntry(id, t, (tr) => tr("mail.tour.notThrough.s", { t: t.name }), (tr) => tr("mail.tour.notThrough.b", { t: t.name }));
   }
   for (let i = 0; i < firstRoundMatches.length; i++) {
     const [a, b] = pairs[i];
@@ -3083,9 +3081,9 @@ async function releaseHeld(
 async function entrants(tournamentId: number): Promise<number[]> {
   return (
     (await getDb()
-      .prepare("SELECT user_id FROM tournament_entries WHERE tournament_id = ? AND status <> 'withdrawn' AND user_id IS NOT NULL")
-      .all(tournamentId)) as { user_id: number }[]
-  ).map((r) => r.user_id);
+      .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND status <> 'withdrawn' AND user_id IS NOT NULL")
+      .all(tournamentId)) as { id: number }[]
+  ).map((r) => r.id);
 }
 
 /** An email to an entrant, written in their language (subject and body take the lookup). */
@@ -3093,12 +3091,30 @@ export async function tellEntrant(userId: number, t: Tournament, subject: Writte
   await emailPlayer({ venueId: t.venueId, userId, subject, body, link: `${baseUrl()}/tournaments/${t.id}` });
 }
 
+/**
+ * An email about one entry, to the account that holds it: one made for
+ * somebody the account acts for says whose it is first (*This entry is for
+ * Alya.*), as league emails do, so a guardian with several entered knows
+ * which. Nothing with no account to tell.
+ */
+export async function tellEntry(entryId: number, t: Tournament, subject: Written, body: Written): Promise<void> {
+  const e = (await getDb()
+    .prepare(
+      `SELECT e.user_id, e.participant_id, p.display_name FROM tournament_entries e
+         LEFT JOIN participants p ON p.id = e.participant_id WHERE e.id = ?`
+    )
+    .get(entryId)) as { user_id: number | null; participant_id: number | null; display_name: string | null } | undefined;
+  if (!e?.user_id) return;
+  const forName = e.participant_id !== null ? e.display_name : null;
+  await tellEntrant(e.user_id, t, subject, (tr) => sentences(tr, forName && tr("lg5.mail.entryFor", { name: forName }), body(tr)));
+}
+
 async function tellFirstMatches(d: TournamentDetail): Promise<void> {
   const db = getDb();
   const names = new Map(d.entries.map((e) => [e.id, e.name]));
   const rows = (await db
-    .prepare("SELECT id, user_id FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' AND user_id IS NOT NULL")
-    .all(d.id)) as { id: number; user_id: number }[];
+    .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' AND user_id IS NOT NULL")
+    .all(d.id)) as { id: number }[];
   for (const r of rows) {
     const heat = d.performance
       ? d.matches.find((m) => m.stage === "heat" && d.performance!.lines[m.id]?.some((l) => l.entryId === r.id))
@@ -3120,6 +3136,6 @@ async function tellFirstMatches(d: TournamentDetail): Promise<void> {
           : bye
             ? tr("mail.tour.draw.bye", { t: d.name })
             : tr("mail.tour.draw.made", { t: d.name });
-    await tellEntrant(r.user_id, d, (tr) => tr("mail.tour.draw.s", { t: d.name }), text);
+    await tellEntry(r.id, d, (tr) => tr("mail.tour.draw.s", { t: d.name }), text);
   }
 }

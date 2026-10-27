@@ -252,7 +252,7 @@ function PlaceCard({ t, x, p, own, post }: { t: T; x: LeagueDetail; p: MyLeague;
               <span className="font-semibold text-emerald-700">{t("leag.feePaid")}</span>
             ) : x.payOnline ? (
               <button onClick={() => void post({ action: "pay", ...which })} className={button}>
-                {t("leag.payFee", { amount: x.fee.toFixed(2) })}
+                {own ? t("leag.payFee", { amount: x.fee.toFixed(2) }) : t("fin5.leag.payFeeFor", { name: p.name, amount: x.fee.toFixed(2) })}
               </button>
             ) : (
               <span>{t("leag.payAtVenue", { amount: x.fee.toFixed(2) })}</span>
@@ -314,6 +314,8 @@ function JoinForm({
   const [gender, setGender] = useState("");
   const chosen = choices.some((c) => c.id === picked) ? picked : choices[0].id;
   const forOther = chosen !== "";
+  // Joining somebody they act for: their partner is asked about by their name, not "your".
+  const theirName = forOther ? (choices.find((c) => c.id === chosen)?.name ?? "") : null;
   const field = "mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
   const genders = (value: string, set: (v: string) => void) => (
     <select required value={value} onChange={(e) => set(e.target.value)} className={field}>
@@ -354,13 +356,13 @@ function JoinForm({
         )}
         {teamSize === 2 && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            {t("tour.partner")}
+            {theirName ? t("fin5.tour.partnerOf", { name: theirName }) : t("tour.partner")}
             <input required minLength={2} value={partner} onChange={(e) => setPartner(e.target.value)} className={field} />
           </label>
         )}
         {teamSize === 2 && who !== "anyone" && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
-            {t("who.partner")}
+            {theirName ? t("fin5.who.partnerOf", { name: theirName }) : t("who.partner")}
             {genders(partnerGender, setPartnerGender)}
           </label>
         )}

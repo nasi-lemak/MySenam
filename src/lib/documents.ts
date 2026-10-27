@@ -7,7 +7,7 @@ import { hoursOf } from "./interval";
 import { PAID_VIA_LABELS, type PaidVia } from "./types";
 import { englishOf, said, type StaffText } from "./staff-text";
 import { derivedPreset } from "./concession-presets";
-import type { ConcessionPreset } from "./concessions-shared";
+import { isConcessionPreset, type ConcessionPreset } from "./concessions-shared";
 
 /**
  * Receipts and credit notes kept as documents (migration 0040): one for each
@@ -32,6 +32,14 @@ export interface Line {
    * `receiptLineText`). `description` stays as written, for the books.
    */
   concessionPreset?: ConcessionPreset;
+  /**
+   * One person's own price on their place (lib/entitlements.ts): a member's
+   * price or a concession's (its key in `concessionPreset` where it is a
+   * built-in one), and whose place it was, so the receipt says it in the
+   * reader's language with their name (lib/receipts.ts `receiptLineText`).
+   * `description` stays as written, for the books.
+   */
+  place?: { kind: "membership" | "concession"; name: string | null };
 }
 
 /** A line MySenam words: the receipt's English, with its phrase kept beside it. */
@@ -374,11 +382,11 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
   // One person's concession or member price on their own place (lib/entitlements.ts): a line each, naming them.
   const perPlace = (await db
     .prepare(
-      `SELECT pb.kind, pb.concession_name, pb.amount::float AS amount, bp.name
+      `SELECT pb.kind, pb.concession_name, pb.concession_preset, pb.amount::float AS amount, bp.name
          FROM place_benefits pb LEFT JOIN booking_participants bp ON bp.id = pb.place_id
         WHERE pb.booking_id = ? AND pb.reversed_at IS NULL AND pb.amount > 0 ORDER BY pb.id`
     )
-    .all(bookingId)) as { kind: string; concession_name: string | null; amount: number; name: string | null }[];
+    .all(bookingId)) as { kind: string; concession_name: string | null; concession_preset: string | null; amount: number; name: string | null }[];
   const placeOff = perPlace.reduce((sum, p) => sum + Number(p.amount), 0);
   const discount = (promo?.discount ?? 0) + concession + placeOff;
   // A built-in one is said in the reader's language; the venue's own name stays as typed.
@@ -409,6 +417,9 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     ...perPlace.map((p) => ({
       description: `${p.kind === "membership" ? "Member price" : `${p.concession_name ?? "Concession"} price`}${p.name ? `, ${p.name}` : ""}`,
       amount: -roundMoney(Number(p.amount)),
+      // Its key and whose place, so the receipt says it in the reader's language; a concession the venue named stays as typed.
+      ...(p.kind === "concession" && isConcessionPreset(p.concession_preset) ? { concessionPreset: p.concession_preset } : {}),
+      place: { kind: p.kind === "membership" ? ("membership" as const) : ("concession" as const), name: p.name },
     })),
     ...(promo ? [{ description: `Promo ${promo.code}`, amount: -promo.discount }] : []),
     ...(b.deposit_paid > 0 ? [{ description: "Deposit paid online, on its own receipt", amount: -b.deposit_paid }] : []),

@@ -3,7 +3,7 @@ import { getDb } from "./db";
 import { flipScore, scoreRefusal } from "./brackets";
 import { sentences } from "./outbox";
 import { tellVenueStaff } from "./owner-alerts";
-import { recordResult, tellEntrant, tournamentById, tournamentDetail, type Result, type ResultInput, type TournamentDetail } from "./tournaments";
+import { recordResult, tellEntry, tournamentById, tournamentDetail, type Result, type ResultInput, type TournamentDetail } from "./tournaments";
 import { venueHours } from "./store";
 import { isValidDateString, todayISO } from "./time";
 
@@ -148,12 +148,10 @@ export async function reportResult(userId: number, matchId: number, input: { win
     )
     .get(m.tournament_id, matchId, mine, userId, input.winner, input.walkover ? null : score, input.walkover ? 1 : 0)) as ReportRow;
   // The other side is asked, and told that silence lets it stand.
-  const theirs = (await db.prepare("SELECT user_id FROM tournament_entries WHERE id = ?").get(mine === m.entry_a ? m.entry_b : m.entry_a)) as
-    | { user_id: number | null }
-    | undefined;
-  if (theirs?.user_id)
-    await tellEntrant(
-      theirs.user_id,
+  const theirs = mine === m.entry_a ? m.entry_b : m.entry_a;
+  if (theirs !== null)
+    await tellEntry(
+      theirs,
       t,
       (tr) => tr("mail.report.s", { t: t.name }),
       (tr) =>

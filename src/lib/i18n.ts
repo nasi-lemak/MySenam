@@ -2471,6 +2471,18 @@ const EN = {
   "lg5.inBox": "{name}: box {n}",
   "lg5.inLeague": "{name}: in the league",
   "lg5.shareNoteFor": "Their box-mates will see their name and your phone number, so you can arrange their matches.",
+  "fin5.memberPrice": "Member price",
+  "fin5.placeFor": "{price}, {name}",
+  "fin5.memberFor.title": "{name} is a member",
+  "fin5.memberFor.body": "{name}'s membership {code} at {venue} runs from {from} to {until}.",
+  "fin5.memberCovers": "It covers {names} too.",
+  "fin5.tour.birthDateOf": "{name}'s date of birth",
+  "fin5.tour.partnerOf": "{name}'s partner's name",
+  "fin5.tour.partnerBirthDateOf": "{name}'s partner's date of birth",
+  "fin5.tour.entryMarkOf": "{name}'s entry time or mark (optional, for seeding)",
+  "fin5.who.partnerOf": "{name}'s partner is",
+  "fin5.tour.payFeeFor": "Pay {name}'s {cur}{amount} entry",
+  "fin5.leag.payFeeFor": "Pay {name}'s {cur}{amount} fee",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4895,6 +4907,18 @@ const MS: Record<Phrase, string> = {
   "lg5.inBox": "{name}: kotak {n}",
   "lg5.inLeague": "{name}: dalam liga",
   "lg5.shareNoteFor": "Rakan sekotaknya akan melihat namanya dan nombor telefon anda, supaya anda boleh mengatur perlawanannya.",
+  "fin5.memberPrice": "Harga ahli",
+  "fin5.placeFor": "{price}, {name}",
+  "fin5.memberFor.title": "{name} kini ahli",
+  "fin5.memberFor.body": "Keahlian {code} untuk {name} di {venue} sah dari {from} hingga {until}.",
+  "fin5.memberCovers": "Keahlian ini juga meliputi {names}.",
+  "fin5.tour.birthDateOf": "Tarikh lahir {name}",
+  "fin5.tour.partnerOf": "Nama pasangan {name}",
+  "fin5.tour.partnerBirthDateOf": "Tarikh lahir pasangan {name}",
+  "fin5.tour.entryMarkOf": "Masa atau catatan penyertaan {name} (pilihan, untuk penyusunan)",
+  "fin5.who.partnerOf": "Pasangan {name}",
+  "fin5.tour.payFeeFor": "Bayar yuran {cur}{amount} untuk {name}",
+  "fin5.leag.payFeeFor": "Bayar yuran {cur}{amount} untuk {name}",
 };
 
 /** Exported so a test can hold the two languages against each other. */

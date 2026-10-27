@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
-import type { T } from "@/lib/i18n";
+import type { Phrase, T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
 
 import type { Entry, Match, TournamentDetail } from "@/lib/tournaments";
@@ -477,7 +477,24 @@ interface Who {
 }
 
 /** One entry the account holds, its own or one it made for somebody: its fee, and withdrawing it before the draw. */
-function HeldEntry({ t, x, e, label, entryId, act }: { t: T; x: TournamentDetail; e: Entry; label: string; entryId?: number; act: (body: object) => Promise<void> }) {
+function HeldEntry({
+  t,
+  x,
+  e,
+  label,
+  entryId,
+  forName,
+  act,
+}: {
+  t: T;
+  x: TournamentDetail;
+  e: Entry;
+  label: string;
+  entryId?: number;
+  /** An entry made for somebody the account acts for: their name, so its fee says whose it is. */
+  forName?: string;
+  act: (body: object) => Promise<void>;
+}) {
   const button = "rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700";
   return (
     <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm">
@@ -488,7 +505,7 @@ function HeldEntry({ t, x, e, label, entryId, act }: { t: T; x: TournamentDetail
             <span className="font-semibold text-emerald-700">{t("tour.feePaid")}</span>
           ) : x.payOnline ? (
             <button onClick={() => void act({ action: "pay", ...(entryId ? { entryId } : {}) })} className={button}>
-              {t("tour.payFee", { amount: x.entryFee.toFixed(2) })}
+              {forName ? t("fin5.tour.payFeeFor", { name: forName, amount: x.entryFee.toFixed(2) }) : t("tour.payFee", { amount: x.entryFee.toFixed(2) })}
             </button>
           ) : (
             <span>{t("tour.payAtVenue", { amount: x.entryFee.toFixed(2) })}</span>
@@ -541,7 +558,16 @@ function EnterBox({
     <>
       {mine && <HeldEntry t={t} x={x} e={mine} label={`${mine.status === "waitlisted" ? t("tour.youWait") : t("tour.youreIn")}: ${mine.name}`} act={act} />}
       {managed.map((e) => (
-        <HeldEntry key={e.id} t={t} x={x} e={e} entryId={e.id} label={t(e.status === "waitlisted" ? "lg5.waiting" : "lg5.entered", { name: e.name })} act={act} />
+        <HeldEntry
+          key={e.id}
+          t={t}
+          x={x}
+          e={e}
+          entryId={e.id}
+          forName={people.find((p) => p.id === e.participantId)?.name ?? e.name}
+          label={t(e.status === "waitlisted" ? "lg5.waiting" : "lg5.entered", { name: e.name })}
+          act={act}
+        />
       ))}
     </>
   );
@@ -558,6 +584,9 @@ function EnterBox({
   if (choices.length === 0) return held;
   const chosen = choices.some((c) => c.id === who.id) ? who.id : choices[0].id;
   const forOther = chosen !== "";
+  // Entering somebody they act for: the form asks about that person by name, not "your".
+  const theirName = forOther ? (choices.find((c) => c.id === chosen)?.name ?? "") : null;
+  const label = (own: Phrase, of: Phrase) => (theirName ? t(of, { name: theirName }) : t(own));
   // A declared minor (or a team event for under-18s) enters with a parent or guardian's agreement.
   const minors =
     !!x.ageRange &&
@@ -621,7 +650,7 @@ function EnterBox({
       {forOther && <p className="w-full text-xs text-slate-500">{t("lg5.forThem")}</p>}
       {x.teamSize === 2 && (
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("tour.partner")}
+          {label("tour.partner", "fin5.tour.partnerOf")}
           <input
             required
             minLength={2}
@@ -633,7 +662,7 @@ function EnterBox({
       )}
       {x.teamSize === 2 && x.category === "mixed" && (
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("who.partner")}
+          {label("who.partner", "fin5.who.partnerOf")}
           <select
             required
             value={partnerGender}
@@ -673,7 +702,7 @@ function EnterBox({
       )}
       {x.format === "performance" && (
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("tour.entryMark")}
+          {label("tour.entryMark", "fin5.tour.entryMarkOf")}
           <input
             value={team.mark}
             onChange={(e) => setTeam({ ...team, mark: e.target.value })}
@@ -684,7 +713,7 @@ function EnterBox({
       )}
       {x.ageRange && (
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("tour.birthDate")}
+          {label("tour.birthDate", "fin5.tour.birthDateOf")}
           <input
             type="date"
             required
@@ -696,7 +725,7 @@ function EnterBox({
       )}
       {x.ageRange && x.teamSize === 2 && (
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("tour.partnerBirthDate")}
+          {label("tour.partnerBirthDate", "fin5.tour.partnerBirthDateOf")}
           <input
             type="date"
             required

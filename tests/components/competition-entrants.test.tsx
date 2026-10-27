@@ -90,7 +90,7 @@ describe("a guardian on a tournament's page", () => {
     render(<TournamentPage />);
     await act(async () => {});
     expect(screen.getByText("Hana: entered")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Pay my/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Pay Hana's/ }));
     await act(async () => {});
     expect(posts.at(-1)).toEqual({ action: "pay", entryId: 9 });
     // Hana is entered already: the choice is the guardian, or Aina.

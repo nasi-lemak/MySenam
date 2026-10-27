@@ -431,7 +431,10 @@ One set of checks for every way in (`src/lib/competition-entrants.ts`;
   rule on who it is for (`src/lib/access.ts`).
 - **A guardian, for somebody they act for** (a participant,
   [ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)),
-  from the same page, choosing who is entering. The participant is the
+  from the same page, choosing who is entering; the form then asks about
+  that person by name (*Aina's date of birth*, *Aina's partner's name*, their
+  entry mark), and the fee of an entry or league place held for them says
+  whose it is (*Pay Aina's RM10.00 entry*). The participant is the
   entrant: the age range, the category and a members-only rule are theirs.
   The guardian declares the participant's date of birth and, in a women's,
   men's or mixed event, their gender (recorded as said, never verified);
@@ -441,8 +444,13 @@ One set of checks for every way in (`src/lib/competition-entrants.ts`;
   (the guardian need not be a member, as for a members' session); at a
   private venue the guardian's account must be on the list. The guardian's
   account acts for the entry: it pays, withdraws before the draw, reports
-  and answers results, is emailed (the email names who the entry is for),
-  and its number is what league box-mates are given. The entry is in the
+  and answers results, is emailed, and its number is what league box-mates
+  are given. Every email about the entry or place opens by naming whose it
+  is (*This entry is for Aina.*): a tournament's entry, waiting-list place,
+  draw, match moved or replayed, knockout place gained or lost, result to
+  confirm and calling off (`tellEntry` in `src/lib/tournaments.ts`); a
+  league's joining, season-start and end-of-season emails (*This place is
+  for Aina.*). A league's result emails name both sides of the match. The entry is in the
   participant's history. An account on both sides of a match (two children
   of one guardian) reports for neither: staff enter that result.
 - **Staff at the counter** (front desk or a manager, as a counter booking):

@@ -333,7 +333,17 @@ export interface OnlinePayment {
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
   purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split";
   /** The membership a paid membership fee made. */
-  membership?: { code: string; venueId: number; venueName: string; startsOn: string; expiresOn: string };
+  membership?: {
+    code: string;
+    venueId: number;
+    venueName: string;
+    startsOn: string;
+    expiresOn: string;
+    /** Whose it is, when it is a participant's own (a child's): their name. Null: the buyer's own. */
+    holderName: string | null;
+    /** The people a family membership covers besides its holder, by name. */
+    covers: string[];
+  };
   /** On a refund owed (`refundsOwed`): since when, the date the customer was told, and whether that has passed. */
   owed?: RefundClock;
 }
@@ -390,7 +400,17 @@ async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
 
 async function membershipSummary(id: number): Promise<OnlinePayment["membership"]> {
   const m = await membershipById(id);
-  return m ? { code: m.code, venueId: m.venueId, venueName: m.venueName, startsOn: m.startsOn, expiresOn: m.expiresOn } : undefined;
+  return m
+    ? {
+        code: m.code,
+        venueId: m.venueId,
+        venueName: m.venueName,
+        startsOn: m.startsOn,
+        expiresOn: m.expiresOn,
+        holderName: m.holderParticipantId ? (m.holderParticipantName ?? null) : null,
+        covers: (m.covers ?? []).map((c) => c.name),
+      }
+    : undefined;
 }
 
 export async function paymentByBill(billId: string): Promise<OnlinePayment | null> {

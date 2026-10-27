@@ -2314,6 +2314,18 @@ export const TA: Record<Phrase, string> = {
   "lg5.inBox": "{name}: குழு {n}",
   "lg5.inLeague": "{name}: லீக்கில் உள்ளார்",
   "lg5.shareNoteFor": "அவரது குழுவினர் அவரது பெயரையும் உங்கள் தொலைபேசி எண்ணையும் பார்ப்பார்கள், இதனால் நீங்கள் அவரது ஆட்டங்களை ஏற்பாடு செய்யலாம்.",
+  "fin5.memberPrice": "உறுப்பினர் விலை",
+  "fin5.placeFor": "{price}, {name}",
+  "fin5.memberFor.title": "{name} இப்போது உறுப்பினர்",
+  "fin5.memberFor.body": "{venue} இல் {name} அவர்களின் உறுப்பினர் சந்தா {code}, {from} முதல் {until} வரை செல்லுபடியாகும்.",
+  "fin5.memberCovers": "இது {names} அவர்களையும் உள்ளடக்கும்.",
+  "fin5.tour.birthDateOf": "{name} அவர்களின் பிறந்த தேதி",
+  "fin5.tour.partnerOf": "{name} அவர்களின் இணையாட்டக்காரரின் பெயர்",
+  "fin5.tour.partnerBirthDateOf": "{name} அவர்களின் இணையின் பிறந்த தேதி",
+  "fin5.tour.entryMarkOf": "{name} அவர்களின் நுழைவு நேரம் அல்லது அளவு (விருப்பம், வரிசைப்படுத்த)",
+  "fin5.who.partnerOf": "{name} அவர்களின் இணையாட்டக்காரர்",
+  "fin5.tour.payFeeFor": "{name} அவர்களின் {cur}{amount} நுழைவுக் கட்டணத்தைச் செலுத்து",
+  "fin5.leag.payFeeFor": "{name} அவர்களின் {cur}{amount} கட்டணத்தைச் செலுத்து",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

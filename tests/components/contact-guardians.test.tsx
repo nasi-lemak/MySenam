@@ -91,7 +91,8 @@ describe("the participants panel at the front desk", () => {
     expect(calls.find((c) => c.method === "POST")).toEqual({
       url: "/api/admin/participants/41/contact-guardians",
       method: "POST",
-      body: { venueId: 3, action: "sendCode", guardianId: 5, purpose: "agree", requestId: 9 },
+      // In the language staff chose for the message: here the one they read the site in (English).
+      body: { venueId: 3, action: "sendCode", guardianId: 5, purpose: "agree", locale: "en", requestId: 9 },
     });
     await act(async () => void fireEvent.change(screen.getByLabelText("The code they read out"), { target: { value: "123456" } }));
     await act(async () => void fireEvent.click(screen.getByText("Enter the code")));

@@ -210,7 +210,10 @@ desk included):
   the same limits as a customer's own codes (five a day to one number, the
   site's daily ceiling) and three an hour for one guardian. The message
   carries the code and the venue's name, never the child's name or anything
-  about them. The guardian reads it back, present or on the phone, and staff
+  about them, in the customer language staff choose for it on the screen
+  (one the install offers, starting from the language the member of staff
+  reads the site in, as the waiting-list counter form does; sent without
+  one, through the API, it is in the install's first). The guardian reads it back, present or on the phone, and staff
   enter it. It is then, as asked: their **agreement** to a request for
   another adult to become a guardian (recorded on the request as
   `staff_assisted_phone_code`, with the member of staff who entered it and

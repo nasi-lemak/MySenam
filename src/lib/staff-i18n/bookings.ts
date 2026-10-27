@@ -538,6 +538,7 @@ const en = {
   "stk.bk.none": "No pass on this number can pay for it.",
   "stk.bk.failed": "Could not pay with those passes.",
   "stk.bk.tooLong": "That pass pays for bookings up to {len}.",
+  "fin5.pp.codeLanguage": "Language of the code message",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1060,6 +1061,7 @@ const ms: Record<keyof typeof en, string> = {
   "stk.bk.none": "Tiada pas pada nombor ini boleh membayarnya.",
   "stk.bk.failed": "Tidak dapat membayar dengan pas itu.",
   "stk.bk.tooLong": "Pas itu hanya untuk tempahan sehingga {len}.",
+  "fin5.pp.codeLanguage": "Bahasa mesej kod",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1582,6 +1584,7 @@ const zh: Record<keyof typeof en, string> = {
   "stk.bk.none": "此号码没有可支付本预订的次卡。",
   "stk.bk.failed": "无法用这些次卡付款。",
   "stk.bk.tooLong": "该次卡只能支付最长{len}的预订。",
+  "fin5.pp.codeLanguage": "验证码短信的语言",
 };
 
 const area = { en, ms, zh };
