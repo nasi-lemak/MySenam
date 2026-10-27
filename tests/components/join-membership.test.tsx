@@ -169,6 +169,45 @@ describe("a family membership bought here", () => {
     expect(JSON.parse(String((fetch.mock.calls[1][1] as RequestInit).body))).toEqual({ membershipId: 90, covers: [42] });
   });
 
+  it("offers nobody new once the term's places are used, and names people for the next term where it renews by itself", async () => {
+    render(
+      <JoinMembership
+        venueId={1}
+        plans={forPeople}
+        standing={{ kind: "renew", until: "2027-10-26" }}
+        people={people}
+        families={[
+          {
+            id: 91,
+            code: "MB-FULL",
+            expiresOn: "2027-10-26",
+            limit: 2,
+            covers: [{ id: 41, name: "Alya" }],
+            standing: { left: 0, renews: true, nextCovers: null },
+          },
+        ]}
+      />
+    );
+    // A place is free under the limit, but none is left this term: no Add, and said why.
+    expect(screen.queryByRole("button", { name: "Add Bilal" })).toBeNull();
+    expect(screen.getByText(/No places left this term for anybody new/)).toBeTruthy();
+    expect(screen.getByText("From its next term it covers Alya.")).toBeTruthy();
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        membership: { covers: [{ id: 41, name: "Alya" }] },
+        standing: { left: 0, renews: true, nextCovers: [{ id: 41, name: "Alya" }, { id: 42, name: "Bilal" }] },
+      })
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add Bilal from the next term" }));
+    });
+    expect(JSON.parse(String((fetch.mock.calls[0][1] as RequestInit).body))).toEqual({ membershipId: 91, covers: [41, 42], at: "renewal" });
+    expect(screen.getByText("From its next term it covers Alya, Bilal.")).toBeTruthy();
+    // The next term is full too: only taking somebody off it is offered.
+    expect(screen.queryByRole("button", { name: "Add Chen from the next term" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Take Bilal off from the next term" })).toBeTruthy();
+  });
+
   it("lists each membership renewing by itself, with whose it is", () => {
     render(
       <JoinMembership

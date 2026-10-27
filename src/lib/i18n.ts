@@ -2490,6 +2490,17 @@ const EN = {
   "fin6.msg.coachHandedOverSubject": "No longer yours: lesson on {date}, {time}",
   "fin6.msg.coachHandedOver": "Hi {name}, the lesson with {student} on {date}, {time} ({court}, {venue}) is now with another coach, and no longer in your schedule. Booking {code}.",
   "fin6.lessonKeepsCoach": "Your lesson keeps its coach: the times shown are when they take lessons and are free. To change the coach, ask the venue.",
+  // Family memberships: places per term, the next term's list, changing plan at renewal (lib/membership-purchases.ts)
+  "mb6.noPlaces": "No places left this term for anybody new: taking somebody off does not give one back. You can name them for the next term.",
+  "mb6.placesLeft_one": "{n} more person can be put on it this term.",
+  "mb6.placesLeft_other": "{n} more people can be put on it this term.",
+  "mb6.nextTerm": "From its next term it covers {names}.",
+  "mb6.nextTermNone": "From its next term it covers nobody besides you.",
+  "mb6.nextOn": "Add {name} from the next term",
+  "mb6.nextOff": "Take {name} off from the next term",
+  "mb6.err.MBO_NO_PLACES_LEFT": "Nobody new can be put on this membership this term: its places are used, and taking somebody off does not give one back. You can name them for its next term.",
+  "mb6.err.MBO_NOT_RENEWING": "This membership does not renew by itself: choose whom it covers when you renew it.",
+  "mb6.err.MBO_RENEWS": "That membership renews by itself. To change its plan, stop it renewing first: the new plan then starts the day after it ends.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4933,6 +4944,17 @@ const MS: Record<Phrase, string> = {
   "fin6.msg.coachHandedOverSubject": "Bukan lagi milik anda: kelas pada {date}, {time}",
   "fin6.msg.coachHandedOver": "Hai {name}, kelas bersama {student} pada {date}, {time} ({court}, {venue}) kini bersama jurulatih lain, dan tiada lagi dalam jadual anda. Tempahan {code}.",
   "fin6.lessonKeepsCoach": "Kelas anda kekal dengan jurulatihnya: masa yang ditunjukkan ialah ketika mereka mengajar dan lapang. Untuk menukar jurulatih, tanya pusat.",
+  // Family memberships: places per term, the next term's list, changing plan at renewal (lib/membership-purchases.ts)
+  "mb6.noPlaces": "Tiada lagi tempat bagi tempoh ini untuk orang baharu: mengeluarkan seseorang tidak memulangkan tempat. Anda boleh menamakan mereka untuk tempoh seterusnya.",
+  "mb6.placesLeft_one": "{n} orang lagi boleh ditambah padanya bagi tempoh ini.",
+  "mb6.placesLeft_other": "{n} orang lagi boleh ditambah padanya bagi tempoh ini.",
+  "mb6.nextTerm": "Mulai tempoh seterusnya ia melindungi {names}.",
+  "mb6.nextTermNone": "Mulai tempoh seterusnya ia tidak melindungi sesiapa selain anda.",
+  "mb6.nextOn": "Tambah {name} mulai tempoh seterusnya",
+  "mb6.nextOff": "Keluarkan {name} mulai tempoh seterusnya",
+  "mb6.err.MBO_NO_PLACES_LEFT": "Tiada orang baharu boleh ditambah pada keahlian ini bagi tempoh ini: tempatnya telah digunakan, dan mengeluarkan seseorang tidak memulangkan tempat. Anda boleh menamakan mereka untuk tempoh seterusnya.",
+  "mb6.err.MBO_NOT_RENEWING": "Keahlian ini tidak diperbaharui secara automatik: pilih siapa yang dilindunginya apabila anda memperbaharuinya.",
+  "mb6.err.MBO_RENEWS": "Keahlian itu diperbaharui secara automatik. Untuk menukar pelannya, hentikan pembaharuan automatik dahulu: pelan baharu kemudian bermula sehari selepas ia tamat.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

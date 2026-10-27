@@ -29,6 +29,12 @@ export interface FamilyMembership {
   expiresOn: string;
   limit: number;
   covers: Dependant[];
+  /**
+   * Its places this term (lib/membership-purchases.ts `coverStanding`): how
+   * many more people can be put on before the next term, whether it renews by
+   * itself, and whom its next term names where that was chosen.
+   */
+  standing?: { left: number; renews: boolean; nextCovers: Dependant[] | null };
 }
 
 /** A membership here that renews itself, and whose it is (null: this account's own, or its family's). */
@@ -48,6 +54,7 @@ type Choice = { planId: number; participantId: number | null; covers: number[] }
 /** A refusal about buying a membership, in the customer's language: by its code where it has one. */
 function explain(t: T, body: { error?: string; code?: string; vars?: Record<string, string | number> } | null): string {
   if (body?.code && hasPhrase(`mbo.err.${body.code}`)) return t(`mbo.err.${body.code}` as Phrase, body.vars);
+  if (body?.code && hasPhrase(`mb6.err.${body.code}`)) return t(`mb6.err.${body.code}` as Phrase, body.vars);
   return translateError(t, body as { error: string }) || t("pay.failed");
 }
 
@@ -161,19 +168,20 @@ export default function JoinMembership({
     }
   }
 
-  async function changeCovers(f: FamilyMembership, covers: number[]) {
+  /** Whom a family membership covers from now, or (`at: "renewal"`) from its next term. */
+  async function changeCovers(f: FamilyMembership, covers: number[], at: "now" | "renewal" = "now") {
     setError(null);
     setSaved(null);
     try {
       const res = await fetch("/api/my/membership", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ membershipId: f.id, covers }),
+        body: JSON.stringify({ membershipId: f.id, covers, ...(at === "renewal" ? { at } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(explain(t, data));
       const now = (data.membership?.covers ?? []) as Dependant[];
-      setFamily(family.map((x) => (x.id === f.id ? { ...x, covers: now } : x)));
+      setFamily(family.map((x) => (x.id === f.id ? { ...x, covers: now, ...(data.standing ? { standing: data.standing } : {}) } : x)));
       setSaved(f.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("pay.failed"));
@@ -371,6 +379,9 @@ export default function JoinMembership({
       {stopped && <p className="mt-2 text-emerald-700">{t("member.stopped")}</p>}
       {family.map((f) => {
         const others = people.filter((x) => !f.covers.some((c) => c.id === x.id));
+        // This term's places (lib/membership-purchases.ts): taking somebody off gives none back.
+        const left = f.standing?.left ?? f.limit;
+        const next = f.standing?.nextCovers ?? f.covers;
         return (
           <div key={f.id} className="mt-3 rounded-lg border border-violet-100 p-3">
             <p className="font-medium text-slate-800">{t("mbo.familyTitle", { code: f.code, until: f.expiresOn })}</p>
@@ -392,7 +403,7 @@ export default function JoinMembership({
                 ))}
               </ul>
             )}
-            {f.covers.length < f.limit && others.length > 0 ? (
+            {f.covers.length < f.limit && others.length > 0 && left > 0 ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {others.map((x) => (
                   <button
@@ -404,8 +415,31 @@ export default function JoinMembership({
                   </button>
                 ))}
               </div>
+            ) : f.covers.length >= f.limit ? (
+              <p className="mt-1 text-xs text-slate-500">{t("mbo.familyFull", { n: f.limit })}</p>
             ) : (
-              f.covers.length >= f.limit && <p className="mt-1 text-xs text-slate-500">{t("mbo.familyFull", { n: f.limit })}</p>
+              others.length > 0 && <p className="mt-1 text-xs text-slate-500">{t("mb6.noPlaces")}</p>
+            )}
+            {f.standing && left > 0 && <p className="mt-1 text-xs text-slate-500">{t.plural("mb6.placesLeft", left)}</p>}
+            {f.standing?.renews && (
+              <div className="mt-2 text-xs text-slate-600">
+                <p>{next.length > 0 ? t("mb6.nextTerm", { names: next.map((x) => x.name).join(", ") }) : t("mb6.nextTermNone")}</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {people.map((x) => {
+                    const on = next.some((c) => c.id === x.id);
+                    if (!on && next.length >= f.limit) return null;
+                    return (
+                      <button
+                        key={x.id}
+                        onClick={() => changeCovers(f, on ? next.filter((c) => c.id !== x.id).map((c) => c.id) : [...next.map((c) => c.id), x.id], "renewal")}
+                        className="rounded border border-violet-200 px-2 py-0.5 text-violet-800 hover:bg-violet-50"
+                      >
+                        {on ? t("mb6.nextOff", { name: x.name }) : t("mb6.nextOn", { name: x.name })}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
             <p className="mt-1 text-xs text-slate-500">{t("mbo.familyPrice")}</p>
             {saved === f.id && <p className="mt-1 text-xs text-emerald-700">{t("mbo.familySaved")}</p>}

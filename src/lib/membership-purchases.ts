@@ -1,11 +1,11 @@
 import { getDb, withTransaction } from "./db";
 import { inSameBusiness } from "./branches";
 import { errorText, translator } from "./i18n";
-import { joinTerms, planById, type JoinTerms } from "./membership-plans";
-import { guardianshipOf, participantEvent, refused, type ParticipantRefusal } from "./participants";
-import type { Named } from "./participant-bookings";
+import { addMonths, joinTerms, planById, type JoinTerms, type MembershipPlan } from "./membership-plans";
+import { guardianshipOf, isRefusal, participantEvent, refused, type ParticipantRefusal } from "./participants";
+import { selectionAtVenue, type Named } from "./participant-bookings";
 import { membershipById, sellMembership } from "./store";
-import { todayISO } from "./time";
+import { addDays, todayISO } from "./time";
 import { MAX_MEMBERSHIP_COVERS, type Membership } from "./types";
 
 /**
@@ -34,15 +34,36 @@ import { MAX_MEMBERSHIP_COVERS, type Membership } from "./types";
  * - **Price and dates before paying**, and **never active unpaid**: the
  *   membership is made when the money is in, its dates worked out then; a
  *   purchase waits `pending`, holding the people it names for
- *   `HOLD_MINUTES`, and is `released` when the payment fails or the hold
- *   lapses. Settling twice makes one membership.
+ *   `HOLD_MINUTES` (or until the gateway's page closes by itself, where it
+ *   can only close later: `attachPayment`), and is `released` when the
+ *   payment fails or the hold lapses (`releaseLapsedPurchases`, on the
+ *   scheduler's tick). A page that stays payable after that (Billplz) can
+ *   still be paid: the money makes the membership if it still can, and is
+ *   owed back otherwise. Settling twice makes one membership.
+ * - **No scarce places are held**: plans have no cap on how many members
+ *   they take, so a hold reserves nothing anybody else could buy; it only
+ *   keeps a second purchase from naming the same people while the first is
+ *   paid.
  * - **Renewing by itself** names the same holder and dependants again, as the
  *   membership it runs on from names them then, less anybody the account no
  *   longer acts for.
- * - **Dependants changed** on a family membership: added within the plan's
- *   limit, or removed, by the account that bought it. A family plan's price
- *   is the same however many it covers, and nothing is prorated: no charge
- *   for adding, nothing back for removing.
+ * - **Dependants changed** on a family membership, by the plan's policy
+ *   (the owner's decision of 27 October 2026; `changeCovers`): within one
+ *   term the account that bought it may add people while the term has places
+ *   left (its limit, plus the plan's `coverSwaps` for people put on in place
+ *   of others, none by default), and take people off at any time; every
+ *   person added uses a place for the rest of the term, so removing and
+ *   re-adding cannot rotate more people through it. Anything else waits for
+ *   the next term: named for it now where it renews by itself
+ *   (`setNextCovers`), or chosen when it is renewed. A family plan's price is
+ *   the same however many it covers, so adding within the places is free and
+ *   nothing goes back for removing. A manager corrects a wrongly entered
+ *   person with a reason (`correctCover`), using no place. Every change is a
+ *   record of its own (`membership_cover_changes`), never an overwrite.
+ * - **Another plan** (a tier change) takes effect at renewal: bought in the
+ *   renewal window, it starts the day after the current one ends, at the new
+ *   plan's price; nothing is prorated mid-term. One that renews by itself is
+ *   stopped first, so the next term is not bought twice.
  */
 
 /** How long a purchase waiting on its payment holds the people it names. */
@@ -152,6 +173,15 @@ export async function purchaseTerms(
   }
   if (covers.length > MAX_MEMBERSHIP_COVERS)
     return refused("MBO_FAMILY_LIMIT", `This plan covers up to ${MAX_MEMBERSHIP_COVERS} people besides you.`, 409, { n: MAX_MEMBERSHIP_COVERS });
+  // Another plan, or the same one again, for somebody whose membership renews by itself: its
+  // next term is already being bought, so a second would be bought twice. A change of plan
+  // takes effect at renewal: stop it renewing, then buy the new plan, which starts when it ends.
+  if (!opts.paid && (await renewsItself(userId, plan.venueId, pid)))
+    return refused(
+      "MBO_RENEWS",
+      "That membership renews by itself. To change its plan, stop it renewing first: the new plan then starts the day after it ends.",
+      409
+    );
 
   let holder: Named | null = null;
   if (pid !== null) {
@@ -190,6 +220,19 @@ export async function purchaseTerms(
   return { ok: true, terms: { ...joining.terms, holder, covers: covered, price: plan.price } };
 }
 
+/** The membership this account bought for this holder here (the account's own: null) renews by itself. */
+async function renewsItself(userId: number, venueId: number, participantId: number | null): Promise<boolean> {
+  const row = await getDb()
+    .prepare(
+      `SELECT 1 FROM membership_subscriptions s JOIN memberships m ON m.id = s.membership_id
+        WHERE s.status = 'active' AND s.user_id = ? AND m.status = 'active' AND ${inSameBusiness("m.venue_id")}
+          AND ${participantId === null ? "m.holder_kind = 'customer'" : "m.holder_kind = 'participant' AND m.holder_participant_id = ?"}
+        LIMIT 1`
+    )
+    .get(userId, venueId, ...(participantId === null ? [] : [participantId]));
+  return Boolean(row);
+}
+
 interface PurchaseRow {
   id: number;
   payment_id: number | null;
@@ -221,9 +264,7 @@ export async function holdPurchase(
 ): Promise<Result<{ reuse: string } | { purchaseId: number }>> {
   return withTransaction(async () => {
     const db = getDb();
-    await db
-      .prepare("UPDATE membership_purchases SET status = 'released', why = 'expired', settled_at = now() WHERE status = 'pending' AND hold_until <= now()")
-      .run();
+    await releaseLapsedPurchases();
     const people = [...(terms.holder ? [terms.holder.id] : []), ...terms.covers.map((c) => c.id)];
     const marks = people.map(() => "?").join(", ");
     const clash = (await db
@@ -273,9 +314,41 @@ export async function holdPurchase(
   });
 }
 
-/** The payment page a purchase is paid on, once it is open. */
-export async function attachPayment(purchaseId: number, paymentId: number): Promise<void> {
-  await getDb().prepare("UPDATE membership_purchases SET payment_id = ? WHERE id = ?").run(paymentId, purchaseId);
+/**
+ * The payment page a purchase is paid on, once it is open. `pageMinutes`:
+ * the gateway was asked to close the page that long after it opened it
+ * (lib/payments.ts `startMembershipPayment`); the hold is kept at least until
+ * then, so the page cannot be paid after the hold has let the people it
+ * names go. Null: the page stays payable until it is paid (Billplz), and the
+ * hold lapses after `HOLD_MINUTES` all the same: it reserves nothing scarce,
+ * and money that still comes in is settled as late money (`membershipForPayment`).
+ */
+export async function attachPayment(purchaseId: number, paymentId: number, pageMinutes: number | null = null): Promise<void> {
+  if (pageMinutes === null) {
+    await getDb().prepare("UPDATE membership_purchases SET payment_id = ? WHERE id = ?").run(paymentId, purchaseId);
+    return;
+  }
+  const minutes = Math.max(1, Math.round(pageMinutes));
+  await getDb()
+    .prepare(
+      `UPDATE membership_purchases SET payment_id = ?, page_closes_at = now() + interval '${minutes} minutes',
+              hold_until = GREATEST(hold_until, now() + interval '${minutes} minutes')
+        WHERE id = ?`
+    )
+    .run(paymentId, purchaseId);
+}
+
+/**
+ * Purchases whose hold has lapsed with no word from the gateway: released,
+ * holding nobody. Never a membership: one is made only when money comes in,
+ * which can still happen on a page that stays payable (it is then settled as
+ * late money). On the scheduler's tick, and before any new hold.
+ */
+export async function releaseLapsedPurchases(): Promise<number> {
+  const done = await getDb()
+    .prepare("UPDATE membership_purchases SET status = 'released', why = 'expired', settled_at = now() WHERE status = 'pending' AND hold_until <= now()")
+    .run();
+  return done.changes;
 }
 
 /** A purchase that holds nobody any more: its page could not be opened, or its payment failed or lapsed. */
@@ -294,21 +367,24 @@ export async function releaseForPayment(paymentId: number, why = "not_paid"): Pr
 
 /**
  * Who a renewal charge is for: the holder and dependants of the membership
- * its subscription made last, as that membership names them now. Null when
- * there is nobody it can be for (the participant's record was erased).
+ * its subscription made last, as that membership names them now, or as its
+ * buyer chose for the next term (`setNextCovers`). Null when there is nobody
+ * it can be for (the participant's record was erased).
  */
 async function renewalRequest(subscriptionId: string): Promise<{ participantId: number | null; covers: number[] } | null> {
   const row = (await getDb()
     .prepare(
-      `SELECT m.id, m.holder_kind, m.holder_participant_id FROM membership_subscriptions s JOIN memberships m ON m.id = s.membership_id
+      `SELECT m.id, m.holder_kind, m.holder_participant_id, m.next_covers_at FROM membership_subscriptions s JOIN memberships m ON m.id = s.membership_id
         WHERE s.subscription_id = ?`
     )
-    .get(subscriptionId)) as { id: number; holder_kind: string; holder_participant_id: number | null } | undefined;
+    .get(subscriptionId)) as { id: number; holder_kind: string; holder_participant_id: number | null; next_covers_at: unknown } | undefined;
   // Every subscription before memberships named anybody: the account holder's own.
   if (!row) return { participantId: null, covers: [] };
   if (row.holder_kind === "participant" && row.holder_participant_id === null) return null;
   const covers = (await getDb()
-    .prepare("SELECT participant_id FROM membership_participants WHERE membership_id = ? ORDER BY participant_id")
+    .prepare(
+      `SELECT participant_id FROM ${row.next_covers_at ? "membership_next_covers" : "membership_participants"} WHERE membership_id = ? ORDER BY participant_id`
+    )
     .all(row.id)) as { participant_id: number }[];
   return { participantId: row.holder_kind === "participant" ? row.holder_participant_id : null, covers: covers.map((c) => c.participant_id) };
 }
@@ -367,6 +443,9 @@ export async function membershipForPayment(
   });
   if (!sold.ok) return owed(sold.code ?? sold.error.slice(0, 200));
   const membership = sold.membership;
+  // A family membership keeps its plan's limit and replacements as sold, for the term it paid for.
+  if (plan.offeredFor === "family" && plan.familyLimit !== null)
+    await db.prepare("UPDATE memberships SET cover_limit = ?, cover_swaps = ? WHERE id = ?").run(plan.familyLimit, plan.coverSwaps, membership.id);
   if (purchase)
     await db
       .prepare("UPDATE membership_purchases SET status = 'made', why = NULL, membership_id = ?, settled_at = now() WHERE id = ?")
@@ -380,39 +459,149 @@ export async function membershipForPayment(
   return membership.id;
 }
 
+/** A membership as a change to whom it covers needs it, locked for the change. */
+interface TermRow {
+  id: number;
+  code: string;
+  venue_id: number;
+  user_id: number | null;
+  holder_kind: string;
+  holder_phone: string;
+  holder_participant_id: number | null;
+  status: string;
+  expires_on: string;
+  plan: number | null;
+  cover_limit: number | null;
+  cover_swaps: number | null;
+}
+const TERM_COLUMNS =
+  "id, code, venue_id, user_id, holder_kind, holder_phone, holder_participant_id, status, expires_on, COALESCE(plan_id, tier_id) AS plan, cover_limit, cover_swaps";
+
 /**
- * Change whom a family membership covers, by the account that bought it:
- * the dependants it should name from now (added within its plan's limit,
- * each somebody the account acts for now and not covered elsewhere for the
- * days left; removed, whoever they are). The price stays as it was sold:
- * nothing is charged for adding, and nothing goes back for removing.
+ * The places a family membership's term has for the people it covers: its
+ * limit, plus the plan's replacements (`coverSwaps`) as it was sold, less
+ * every person named or put on in the term so far. Taking somebody off gives
+ * no place back; a manager's correction uses none.
  */
-export async function changeCovers(userId: number, membershipId: number, wanted: unknown): Promise<Result<{ membership: Membership }>> {
+export interface CoverPlaces {
+  limit: number;
+  swaps: number;
+  used: number;
+  left: number;
+}
+
+async function placesOf(term: Pick<TermRow, "id" | "cover_limit" | "cover_swaps">, planLimit: number): Promise<CoverPlaces> {
+  const limit = term.cover_limit ?? planLimit;
+  // Sold before plans had replacements: none.
+  const swaps = term.cover_swaps ?? 0;
+  const row = (await getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN change IN ('named', 'added', 'corrected_in') THEN 1 WHEN change = 'corrected_out' THEN -1 ELSE 0 END), 0)::int AS used
+         FROM membership_cover_changes WHERE membership_id = ?`
+    )
+    .get(term.id)) as { used: number };
+  const used = Number(row.used);
+  return { limit, swaps, used, left: Math.max(0, limit + swaps - used) };
+}
+
+type CoverChange = "named" | "added" | "removed" | "corrected_out" | "corrected_in";
+
+/** One change to whom a membership covers, as a record of its own (`membership_cover_changes`). */
+async function recordCover(
+  membershipId: number,
+  participantId: number,
+  change: CoverChange,
+  by: { userId?: number | null; adminId?: number | null },
+  reason: string | null = null
+): Promise<void> {
+  await getDb()
+    .prepare("INSERT INTO membership_cover_changes (membership_id, participant_id, change, by_user_id, by_admin_id, reason) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(membershipId, participantId, change, by.userId ?? null, by.adminId ?? null, reason);
+}
+
+const coveredNow = async (membershipId: number): Promise<number[]> =>
+  ((await getDb().prepare("SELECT participant_id FROM membership_participants WHERE membership_id = ?").all(membershipId)) as { participant_id: number }[]).map(
+    (r) => r.participant_id
+  );
+
+type FamilyPlan = MembershipPlan & { familyLimit: number };
+
+/** A family membership bought online by this account, locked for a change: or why it cannot be changed here. */
+async function familyTerm(userId: number, membershipId: number): Promise<Result<{ term: TermRow; plan: FamilyPlan }>> {
+  // One change to a membership's cover at a time: two at once would each count the others out.
+  const m = (await getDb().prepare(`SELECT ${TERM_COLUMNS} FROM memberships WHERE id = ? AND user_id = ? FOR UPDATE`).get(membershipId, userId)) as
+    | TermRow
+    | undefined;
+  if (!m) return refused("MBO_NOT_YOURS", "That is not one of your memberships.", 404);
+  const plan = m.plan ? await planById(m.plan, { retired: true }) : null;
+  if (m.holder_kind !== "customer" || !plan || plan.offeredFor !== "family" || plan.familyLimit === null)
+    return refused("MBO_NOT_CHANGEABLE", "Only a family membership bought online names people you can change. Ask the venue.", 409);
+  if (m.status !== "active" || m.expires_on < todayISO()) return refused("MBO_ENDED", "This membership has ended.", 409);
+  return { ok: true, term: m, plan: { ...plan, familyLimit: plan.familyLimit } };
+}
+
+/** Where a family membership stands for changes: its places this term, whether it renews by itself, and whom its next term names if chosen. */
+export interface CoverStanding extends CoverPlaces {
+  renews: boolean;
+  /** Whom the next term covers, where its buyer chose for it (`setNextCovers`); null: whom it covers then. */
+  nextCovers: Named[] | null;
+}
+
+export async function coverStanding(membershipId: number): Promise<CoverStanding | null> {
+  const db = getDb();
+  const m = (await db.prepare(`SELECT ${TERM_COLUMNS}, next_covers_at FROM memberships WHERE id = ?`).get(membershipId)) as
+    | (TermRow & { next_covers_at: unknown })
+    | undefined;
+  const plan = m?.plan ? await planById(m.plan, { retired: true }) : null;
+  if (!m || !plan || plan.offeredFor !== "family" || plan.familyLimit === null) return null;
+  const places = await placesOf(m, plan.familyLimit);
+  const renews = Boolean(await db.prepare("SELECT 1 FROM membership_subscriptions WHERE membership_id = ? AND status = 'active'").get(m.id));
+  const next = m.next_covers_at
+    ? ((await db
+        .prepare("SELECT p.id, p.display_name AS name FROM membership_next_covers n JOIN participants p ON p.id = n.participant_id WHERE n.membership_id = ? ORDER BY p.id")
+        .all(m.id)) as Named[])
+    : null;
+  return { ...places, renews, nextCovers: next };
+}
+
+/** A list of participant ids, each once: or why not. */
+function readCovers(wanted: unknown): number[] | ParticipantRefusal {
   if (!Array.isArray(wanted) || !wanted.every((x) => Number.isInteger(x) && x > 0) || new Set(wanted).size !== wanted.length)
     return refused("MBO_REQUEST", "covers is a list of participant ids, each once.");
-  const ids = wanted as number[];
+  return wanted as number[];
+}
+
+/**
+ * Change whom a family membership covers from now, by the account that
+ * bought it (the owner's decision of 27 October 2026): `wanted` is the list
+ * it should name. People taken off go at once, with nothing back. People put
+ * on must be somebody the account acts for now, not covered elsewhere for the
+ * days left, within the plan's limit, and within the term's places: each
+ * person put on uses one for the rest of the term, and taking somebody off
+ * gives none back, so a family covering four cannot be rotated through many
+ * people, nor the same person taken off and put back without limit. Past the
+ * places, refused whole: they are named for the next term instead
+ * (`setNextCovers`, or when it is renewed). The price stays as sold: a family
+ * plan's price does not depend on how many it covers, so adding within the
+ * places is free.
+ */
+export async function changeCovers(
+  userId: number,
+  membershipId: number,
+  wanted: unknown
+): Promise<Result<{ membership: Membership; standing: CoverStanding }>> {
+  const ids = readCovers(wanted);
+  if (!Array.isArray(ids)) return ids;
   return withTransaction(async () => {
     const db = getDb();
-    // One change to a membership's cover at a time: two at once would each count the others out.
-    const m = (await db
-      .prepare(
-        `SELECT id, venue_id, user_id, holder_kind, status, expires_on, COALESCE(plan_id, tier_id) AS plan FROM memberships
-          WHERE id = ? AND user_id = ? FOR UPDATE`
-      )
-      .get(membershipId, userId)) as
-      | { id: number; venue_id: number; user_id: number; holder_kind: string; status: string; expires_on: string; plan: number | null }
-      | undefined;
-    if (!m) return refused("MBO_NOT_YOURS", "That is not one of your memberships.", 404);
-    const plan = m.plan ? await planById(m.plan, { retired: true }) : null;
-    if (m.holder_kind !== "customer" || !plan || plan.offeredFor !== "family" || plan.familyLimit === null)
-      return refused("MBO_NOT_CHANGEABLE", "Only a family membership bought online names people you can change. Ask the venue.", 409);
+    const found = await familyTerm(userId, membershipId);
+    if (!found.ok) return found;
+    const { term: m, plan } = found;
+    const places = await placesOf(m, plan.familyLimit);
+    if (ids.length > Math.min(places.limit, MAX_MEMBERSHIP_COVERS))
+      return refused("MBO_FAMILY_LIMIT", `This plan covers up to ${places.limit} people besides you.`, 409, { n: places.limit });
     const today = todayISO();
-    if (m.status !== "active" || m.expires_on < today) return refused("MBO_ENDED", "This membership has ended.", 409);
-    if (ids.length > Math.min(plan.familyLimit, MAX_MEMBERSHIP_COVERS))
-      return refused("MBO_FAMILY_LIMIT", `This plan covers up to ${plan.familyLimit} people besides you.`, 409, { n: plan.familyLimit });
-    const now = ((await db.prepare("SELECT participant_id FROM membership_participants WHERE membership_id = ?").all(m.id)) as { participant_id: number }[]).map(
-      (r) => r.participant_id
-    );
+    const now = await coveredNow(m.id);
     const added = ids.filter((id) => !now.includes(id));
     const removed = now.filter((id) => !ids.includes(id));
     const user = (await db.prepare("SELECT name FROM users WHERE id = ?").get(userId)) as { name: string };
@@ -424,16 +613,155 @@ export async function changeCovers(userId: number, membershipId: number, wanted:
       if (until) return refused("MBO_ALREADY_COVERED", `${who.name} is already a member here until ${until}.`, 409, { name: who.name, until });
       named.push(who);
     }
+    if (added.length > places.left)
+      return refused(
+        "MBO_NO_PLACES_LEFT",
+        "Nobody new can be put on this membership this term: its places are used, and taking somebody off does not give one back. You can name them for its next term.",
+        409,
+        { n: places.limit + places.swaps }
+      );
     for (const id of removed) {
       await db.prepare("DELETE FROM membership_participants WHERE membership_id = ? AND participant_id = ?").run(m.id, id);
+      await recordCover(m.id, id, "removed", { userId });
       await participantEvent(id, "membership.uncovered", { userId, name: user.name }, { venueId: m.venue_id, detail: `membership ${m.id}` });
     }
     for (const p of named) {
       await db.prepare("INSERT INTO membership_participants (membership_id, participant_id) VALUES (?, ?)").run(m.id, p.id);
+      await recordCover(m.id, p.id, "added", { userId });
       await participantEvent(p.id, "membership.covered", { userId, name: user.name }, { venueId: m.venue_id, detail: `membership ${m.id}, until ${m.expires_on}` });
     }
-    return { ok: true, membership: (await membershipById(m.id))! };
+    return { ok: true, membership: (await membershipById(m.id))!, standing: (await coverStanding(m.id))! };
   });
+}
+
+/**
+ * Whom a family membership that renews by itself covers from its next term,
+ * as its buyer chooses now (the owner's decision: a different list at
+ * renewal, within the limit). The charge for that term makes the next
+ * membership naming them, less anybody the account no longer acts for by
+ * then (`renewalRequest`); this term is unchanged. One that does not renew by
+ * itself is renewed by buying it again, naming whom it should cover then.
+ */
+export async function setNextCovers(userId: number, membershipId: number, wanted: unknown): Promise<Result<{ membership: Membership; standing: CoverStanding }>> {
+  const ids = readCovers(wanted);
+  if (!Array.isArray(ids)) return ids;
+  return withTransaction(async () => {
+    const db = getDb();
+    const found = await familyTerm(userId, membershipId);
+    if (!found.ok) return found;
+    const { term: m, plan } = found;
+    if (!(await db.prepare("SELECT 1 FROM membership_subscriptions WHERE membership_id = ? AND status = 'active'").get(m.id)))
+      return refused("MBO_NOT_RENEWING", "This membership does not renew by itself: choose whom it covers when you renew it.", 409);
+    // The next term is sold as the plan is then.
+    if (ids.length > Math.min(plan.familyLimit, MAX_MEMBERSHIP_COVERS))
+      return refused("MBO_FAMILY_LIMIT", `This plan covers up to ${plan.familyLimit} people besides you.`, 409, { n: plan.familyLimit });
+    const from = addDays(m.expires_on, 1);
+    const to = addDays(addMonths(from, plan.months), -1);
+    for (const id of ids) {
+      const who = await actsFor(userId, id);
+      if ("ok" in who) return who;
+      const until = await coveredUntil(m.venue_id, id, from, to, m.id);
+      if (until) return refused("MBO_ALREADY_COVERED", `${who.name} is already a member here until ${until}.`, 409, { name: who.name, until });
+    }
+    await db.prepare("DELETE FROM membership_next_covers WHERE membership_id = ?").run(m.id);
+    for (const id of ids) await db.prepare("INSERT INTO membership_next_covers (membership_id, participant_id) VALUES (?, ?)").run(m.id, id);
+    await db.prepare("UPDATE memberships SET next_covers_at = now() WHERE id = ?").run(m.id);
+    return { ok: true, membership: (await membershipById(m.id))!, standing: (await coverStanding(m.id))! };
+  });
+}
+
+/**
+ * A manager correcting a person entered wrongly on a membership (the
+ * owner's decision: a correction, authorised, with a reason): `remove` comes
+ * off, and `add`, where given, goes on in their place. It uses none of the
+ * term's places, and gives back the place of the person taken off. The
+ * person put on is somebody the buying account acts for now, or one the
+ * venue knows with a guardian on the holder's number (as at the counter),
+ * not covered elsewhere for the days left; the plan's limit holds, since one
+ * goes off for each who goes on. Each person's history records it, and the
+ * route the activity log, with the reason.
+ */
+export async function correctCover(
+  admin: { id: number | null; name: string },
+  membershipId: number,
+  input: { remove?: unknown; add?: unknown; reason?: unknown }
+): Promise<Result<{ membership: Membership; removed: Named; added: Named | null }>> {
+  const remove = input.remove;
+  if (!Number.isInteger(remove) || (remove as number) <= 0) return refused("MBO_REQUEST", "remove is the participant to take off.");
+  const add = input.add === undefined || input.add === null ? null : input.add;
+  if (add !== null && (!Number.isInteger(add) || (add as number) <= 0)) return refused("MBO_REQUEST", "add is the participant to put on in their place.");
+  const reason = typeof input.reason === "string" ? input.reason.trim().replace(/\s+/g, " ").slice(0, 300) : "";
+  if (reason.length < 3) return refused("MBO_REASON", "Say why: who was entered wrongly, and how it was found.");
+  return withTransaction(async () => {
+    const db = getDb();
+    const m = (await db.prepare(`SELECT ${TERM_COLUMNS} FROM memberships WHERE id = ? FOR UPDATE`).get(membershipId)) as TermRow | undefined;
+    if (!m) return refused("MBO_NOT_FOUND", "Membership not found.", 404);
+    if (m.status !== "active" || m.expires_on < todayISO()) return refused("MBO_ENDED", "This membership has ended.", 409);
+    const now = await coveredNow(m.id);
+    if (!now.includes(remove as number)) return refused("MBO_NOT_COVERED", "That person is not covered by this membership.", 409);
+    const off = (await db.prepare("SELECT id, display_name AS name FROM participants WHERE id = ?").get(remove)) as Named;
+    let on: Named | null = null;
+    if (add !== null) {
+      if (now.includes(add as number) || m.holder_participant_id === add)
+        return refused("MBO_ALREADY_ON", "That person is covered by this membership already.", 409);
+      const byAccount = m.user_id !== null ? await actsFor(m.user_id, add as number) : null;
+      if (byAccount && !("ok" in byAccount)) on = byAccount;
+      else {
+        const known = await selectionAtVenue(m.venue_id, m.holder_phone, [add as number], false);
+        // Bought by an account: refused as the account would be; sold at the counter, as the counter would be.
+        if (isRefusal(known)) return byAccount ?? known;
+        on = known.participants[0];
+      }
+      const until = await coveredUntil(m.venue_id, on.id, todayISO(), m.expires_on, m.id);
+      if (until) return refused("MBO_ALREADY_COVERED", `${on.name} is already a member here until ${until}.`, 409, { name: on.name, until });
+    }
+    const actor = { adminId: admin.id, name: admin.name };
+    await db.prepare("DELETE FROM membership_participants WHERE membership_id = ? AND participant_id = ?").run(m.id, off.id);
+    await recordCover(m.id, off.id, "corrected_out", { adminId: admin.id }, reason);
+    await participantEvent(off.id, "membership.uncovered", actor, { venueId: m.venue_id, detail: `membership ${m.code}: corrected (${reason})` });
+    if (on) {
+      await db.prepare("INSERT INTO membership_participants (membership_id, participant_id, added_by_admin_id) VALUES (?, ?, ?)").run(m.id, on.id, admin.id);
+      await recordCover(m.id, on.id, "corrected_in", { adminId: admin.id }, reason);
+      await participantEvent(on.id, "membership.covered", actor, { venueId: m.venue_id, detail: `membership ${m.code}, until ${m.expires_on}: corrected (${reason})` });
+    }
+    return { ok: true, membership: (await membershipById(m.id))!, removed: off, added: on };
+  });
+}
+
+/** One change to whom a membership covers, for staff: who, what, when, by whom, and why. */
+export interface CoverChangeView {
+  change: CoverChange;
+  name: string | null;
+  at: string;
+  by: string | null;
+  byStaff: boolean;
+  reason: string | null;
+}
+
+/** Who a membership covered when: every change, oldest first, and its places this term where it is a family plan's. */
+export async function coverHistory(membershipId: number): Promise<{ changes: CoverChangeView[]; places: CoverPlaces | null }> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT c.change, c.at, c.reason, p.display_name AS name, COALESCE(a.name, u.name) AS by_name, c.by_admin_id IS NOT NULL AS by_staff
+         FROM membership_cover_changes c
+         LEFT JOIN participants p ON p.id = c.participant_id
+         LEFT JOIN admins a ON a.id = c.by_admin_id
+         LEFT JOIN users u ON u.id = c.by_user_id
+        WHERE c.membership_id = ? ORDER BY c.id`
+    )
+    .all(membershipId)) as { change: CoverChange; at: unknown; reason: string | null; name: string | null; by_name: string | null; by_staff: boolean | number }[];
+  const standing = await coverStanding(membershipId);
+  return {
+    changes: rows.map((r) => ({
+      change: r.change,
+      name: r.name,
+      at: r.at instanceof Date ? r.at.toISOString() : String(r.at),
+      by: r.by_name,
+      byStaff: Boolean(r.by_staff),
+      reason: r.reason,
+    })),
+    places: standing ? { limit: standing.limit, swaps: standing.swaps, used: standing.used, left: standing.left } : null,
+  };
 }
 
 export interface Purchase {

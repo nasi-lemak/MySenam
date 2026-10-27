@@ -228,9 +228,9 @@ export const stripe: PaymentGateway = {
       form.set("line_items[0][price_data][recurring][interval]", "month");
       form.set("line_items[0][price_data][recurring][interval_count]", String(request.recurring.months));
     }
-    // Stripe closes a page no sooner than 30 minutes, and by default after a day.
+    // Stripe closes a page no sooner than 30 minutes, and no later than (and by default after) a day.
     if (request.expiresInMinutes)
-      form.set("expires_at", String(Math.floor(Date.now() / 1000) + Math.max(30, request.expiresInMinutes) * 60));
+      form.set("expires_at", String(Math.floor(Date.now() / 1000) + Math.min(24 * 60, Math.max(30, request.expiresInMinutes)) * 60));
     if (request.email) form.set("customer_email", request.email);
     if (request.reference) {
       form.set("client_reference_id", request.reference.value.slice(0, 200));
@@ -299,6 +299,8 @@ export const stripe: PaymentGateway = {
   },
 
   subscriptions: true,
+  // A Checkout Session's `expires_at`: 30 minutes to 24 hours after it is made (createCheckout above).
+  pageExpiry: { minMinutes: 30, maxMinutes: 24 * 60 },
 
   async billForPayment(account, paymentRef) {
     // The checkout session that made this payment intent: our page for it.

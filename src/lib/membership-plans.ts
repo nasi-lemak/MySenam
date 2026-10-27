@@ -45,6 +45,12 @@ export interface MembershipPlan {
   offeredFor: OfferedFor;
   /** A family plan's: how many dependants it covers besides its holder. Null for any other plan. */
   familyLimit: number | null;
+  /**
+   * A family plan's: how many people the account that bought it may put on
+   * in one term in place of somebody taken off (migration 0191;
+   * lib/membership-purchases.ts). 0, the default: none until the next term.
+   */
+  coverSwaps: number;
 }
 
 export const OFFERED_FOR = ["account", "participant", "individual", "family"] as const;
@@ -72,6 +78,7 @@ interface PlanRow {
   scope: string | null;
   offered_for?: string | null;
   family_limit?: number | null;
+  cover_swaps?: number | null;
 }
 
 const toPlan = (r: PlanRow): MembershipPlan => ({
@@ -85,9 +92,10 @@ const toPlan = (r: PlanRow): MembershipPlan => ({
   scope: isScope(r.scope, PLAN_SCOPES) ? r.scope : "booking",
   offeredFor: isOfferedFor(r.offered_for) ? r.offered_for : "account",
   familyLimit: r.offered_for === "family" ? (r.family_limit ?? null) : null,
+  coverSwaps: r.offered_for === "family" ? (r.cover_swaps ?? 0) : 0,
 });
 
-const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope, offered_for, family_limit";
+const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps";
 
 /** The plans a venue has on offer, cheapest first. */
 export async function listPlans(venueId: number): Promise<MembershipPlan[]> {
@@ -132,23 +140,27 @@ function readBenefits(input: {
  * it is (`account` for a new plan); a family plan needs its limit, 1–12.
  */
 function readHolders(
-  input: { offeredFor?: unknown; familyLimit?: unknown },
-  current: { offeredFor: OfferedFor; familyLimit: number | null }
-): { offeredFor: OfferedFor; familyLimit: number | null } | string {
+  input: { offeredFor?: unknown; familyLimit?: unknown; coverSwaps?: unknown },
+  current: { offeredFor: OfferedFor; familyLimit: number | null; coverSwaps: number }
+): { offeredFor: OfferedFor; familyLimit: number | null; coverSwaps: number } | string {
   const offeredFor = input.offeredFor ?? current.offeredFor;
   if (!isOfferedFor(offeredFor)) return "A plan is sold to the account holder, somebody they look after, either, or a family.";
-  if (offeredFor !== "family") return { offeredFor, familyLimit: null };
+  if (offeredFor !== "family") return { offeredFor, familyLimit: null, coverSwaps: 0 };
   const limit = input.familyLimit ?? current.familyLimit;
   if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > MAX_MEMBERSHIP_COVERS)
     return `A family plan covers 1–${MAX_MEMBERSHIP_COVERS} people besides its holder.`;
-  return { offeredFor, familyLimit: limit as number };
+  // Not said: as it is (none for a new plan).
+  const swaps = input.coverSwaps ?? current.coverSwaps;
+  if (!Number.isInteger(swaps) || (swaps as number) < 0 || (swaps as number) > MAX_MEMBERSHIP_COVERS)
+    return `A family plan lets 0–${MAX_MEMBERSHIP_COVERS} people be put on in place of others in one term.`;
+  return { offeredFor, familyLimit: limit as number, coverSwaps: swaps as number };
 }
 
 /** Change a plan's benefits. Memberships already on it get them from now. */
 export async function setPlanBenefits(
   venueId: number,
   planId: number,
-  input: { ratePercent?: unknown; aheadDays?: unknown; scope?: unknown; offeredFor?: unknown; familyLimit?: unknown }
+  input: { ratePercent?: unknown; aheadDays?: unknown; scope?: unknown; offeredFor?: unknown; familyLimit?: unknown; coverSwaps?: unknown }
 ): Promise<PlanResult> {
   const benefits = readBenefits(input);
   if (typeof benefits === "string") return { ok: false, error: benefits };
@@ -160,9 +172,9 @@ export async function setPlanBenefits(
   // Not said: what the price covers stays as it is.
   const done = await getDb()
     .prepare(
-      "UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope), offered_for = ?, family_limit = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL"
+      "UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope), offered_for = ?, family_limit = ?, cover_swaps = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL"
     )
-    .run(benefits.ratePercent, benefits.aheadDays, input.scope === undefined || input.scope === null ? null : benefits.scope, holders.offeredFor, holders.familyLimit, planId, venueId);
+    .run(benefits.ratePercent, benefits.aheadDays, input.scope === undefined || input.scope === null ? null : benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, planId, venueId);
   if (done.changes !== 1) return { ok: false, error: "That plan is not offered here." };
   return { ok: true, plan: (await planById(planId))! };
 }
@@ -177,7 +189,7 @@ export async function longestPlanWindow(venueId: number): Promise<number | null>
 
 export async function createPlan(
   venueId: number,
-  input: { name: unknown; months: unknown; price: unknown; ratePercent?: unknown; aheadDays?: unknown; scope?: unknown; offeredFor?: unknown; familyLimit?: unknown }
+  input: { name: unknown; months: unknown; price: unknown; ratePercent?: unknown; aheadDays?: unknown; scope?: unknown; offeredFor?: unknown; familyLimit?: unknown; coverSwaps?: unknown }
 ): Promise<PlanResult> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (name.length < 2 || name.length > 60) return { ok: false, error: "Give the plan a name of 2–60 characters." };
@@ -189,13 +201,13 @@ export async function createPlan(
     return { ok: false, error: `A venue offers up to ${MAX_PLANS_PER_VENUE} plans. Retire one first.` };
   const benefits = readBenefits(input);
   if (typeof benefits === "string") return { ok: false, error: benefits };
-  const holders = readHolders(input, { offeredFor: "account", familyLimit: null });
+  const holders = readHolders(input, { offeredFor: "account", familyLimit: null, coverSwaps: 0 });
   if (typeof holders === "string") return { ok: false, error: holders };
   const info = await getDb()
     .prepare(
-      "INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days, scope, offered_for, family_limit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays, benefits.scope, holders.offeredFor, holders.familyLimit);
+    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays, benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps);
   return { ok: true, plan: (await planById(Number(info.lastInsertRowid)))! };
 }
 

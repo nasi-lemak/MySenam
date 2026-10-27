@@ -2330,6 +2330,17 @@ export const ZH: Record<Phrase, string> = {
   "fin6.msg.coachHandedOverSubject": "已转给其他教练：{date}，{time} 的课程",
   "fin6.msg.coachHandedOver": "{name}，您好，{student} 于 {date}，{time}（{court}，{venue}）的课程已转给另一位教练，不再列入您的日程。预订编号 {code}。",
   "fin6.lessonKeepsCoach": "您的课程保留原教练：显示的时间为该教练授课且有空的时段。如需更换教练，请联系场馆。",
+  // Family memberships: places per term, the next term's list, changing plan at renewal (lib/membership-purchases.ts)
+  "mb6.noPlaces": "本期已无名额可添加新成员：移除某人不会退回名额。您可以将其列入下一期。",
+  "mb6.placesLeft_one": "本期还可添加 {n} 人。",
+  "mb6.placesLeft_other": "本期还可添加 {n} 人。",
+  "mb6.nextTerm": "下一期起涵盖{names}。",
+  "mb6.nextTermNone": "下一期起除您以外不涵盖任何人。",
+  "mb6.nextOn": "下一期起添加 {name}",
+  "mb6.nextOff": "下一期起移除 {name}",
+  "mb6.err.MBO_NO_PLACES_LEFT": "本期无法再为此会员资格添加新成员：名额已用完，移除某人也不会退回名额。您可以将其列入下一期。",
+  "mb6.err.MBO_NOT_RENEWING": "此会员资格不会自动续费：请在续期时选择其涵盖的人。",
+  "mb6.err.MBO_RENEWS": "该会员资格会自动续费。如需更换配套，请先停止自动续费：新配套将于其到期后的第二天开始。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

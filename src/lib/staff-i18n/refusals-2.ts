@@ -681,4 +681,12 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Give the player's name.": { ms: "Berikan nama pemain.", zh: "请填写球员姓名。" },
   "participantId must be a participant's id.": { ms: "participantId mestilah id peserta.", zh: "participantId 须为参与者的 id。" },
   "This site cannot check phone numbers, so a guardian cannot take their relationship over with an account: invite their account as another guardian instead.": { ms: "Laman ini tidak dapat mengesahkan nombor telefon, jadi penjaga tidak boleh mengambil alih hubungan mereka dengan akaun: jemput akaun mereka sebagai penjaga lain.", zh: "本网站无法验证电话号码，因此监护人无法用账户接管其关系：请改为邀请其账户成为另一位监护人。" },
+  "A family plan lets 0–12 people be put on in place of others in one term.": { ms: "Pelan keluarga membenarkan 0–12 orang ditambah sebagai ganti orang lain dalam satu tempoh.", zh: "家庭配套每期可替换 0–12 人。" },
+  "remove is the participant to take off.": { ms: "remove ialah peserta yang hendak dikeluarkan.", zh: "remove 须为要移除的参与者。" },
+  "add is the participant to put on in their place.": { ms: "add ialah peserta yang hendak ditambah sebagai gantinya.", zh: "add 须为替换上的参与者。" },
+  "Say why: who was entered wrongly, and how it was found.": { ms: "Nyatakan sebabnya: siapa yang tersalah dimasukkan, dan bagaimana ia ditemui.", zh: "请说明原因：误填了谁，以及如何发现的。" },
+  "This membership has ended.": { ms: "Keahlian ini telah tamat.", zh: "此会员资格已结束。" },
+  "That person is not covered by this membership.": { ms: "Orang itu tidak dilindungi oleh keahlian ini.", zh: "此人不在此会员资格的涵盖范围内。" },
+  "That person is covered by this membership already.": { ms: "Orang itu sudah dilindungi oleh keahlian ini.", zh: "此人已在此会员资格的涵盖范围内。" },
+  "{0} is already a member here until {1}.": { ms: "{0} sudah menjadi ahli di sini sehingga {1}.", zh: "{0} 已是此处会员，有效期至 {1}。" },
 };

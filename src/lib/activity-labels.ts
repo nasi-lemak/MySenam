@@ -67,6 +67,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "membership.sold": "Sold a membership",
   "membership.voided": "Voided a membership",
   "membership.extended": "Gave days back on a membership",
+  "membership.cover_corrected": "Corrected whom a membership covers",
   "membership.plan_added": "Added a membership plan",
   "membership.plan_retired": "Retired a membership plan",
   "pass.sold": "Sold a pass",

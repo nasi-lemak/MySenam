@@ -200,6 +200,12 @@ export interface PaymentGateway {
   refundStatus?(account: GatewayAccount, refundId: string): Promise<"succeeded" | "pending" | "failed" | "unknown">;
   /** It can charge again every period by itself (`CheckoutRequest.recurring`). */
   subscriptions?: boolean;
+  /**
+   * How soon and how late it can close a page by itself
+   * (`CheckoutRequest.expiresInMinutes`): Stripe, 30 minutes to a day ahead.
+   * Left out where a page stays payable until it is paid (Billplz).
+   */
+  pageExpiry?: { minMinutes: number; maxMinutes: number };
   /** Stop a subscription: why it could not be, or null. */
   cancelSubscription?(account: GatewayAccount, subscriptionId: string): Promise<string | null>;
   /** The platform's own account (venue fees, WhatsApp packs) from the environment. */

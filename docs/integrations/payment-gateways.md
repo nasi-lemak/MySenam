@@ -30,6 +30,12 @@ never knows which gateway a payment went through.
 - **The currency** comes from the install's country (`MYSENAM_COUNTRY`, see
   *Countries*), and a gateway that does not take it refuses to open a page
   (Billplz takes ringgit only).
+- **Closing a page at a set time** is a gateway's own ability
+  (`pageExpiry`): Stripe closes a Checkout Session 30 minutes to 24 hours
+  after it is made; a Billplz bill stays payable until it is paid. What
+  MySenam does with each is in
+  [a membership paid online](../features/payments-and-credit.md#a-membership-paid-online)
+  and [paying online to hold a booking](../features/payments-and-credit.md#paying-online-to-hold-a-booking).
 - **Verification may ask the gateway.** A report's check can be a signature or
   a call to the gateway's own API, which is how a return address that carries
   no signature is checked.
