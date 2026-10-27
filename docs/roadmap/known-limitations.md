@@ -191,7 +191,7 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
-began on 24 October 2026, **85 now**. Closures are recorded with their tests
+began on 24 October 2026, **86 now**. Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B38, M16–M18 and
 S12–S24, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (75
