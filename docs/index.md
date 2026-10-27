@@ -124,6 +124,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Work not built: planned (accepted) and proposed (ideas), blocked and deferred | [Roadmap](roadmap/roadmap.md) |
 | What is wrong, missing or unverified now | [Known limitations](roadmap/known-limitations.md) |
 | Go-to-market research, October 2026: competitors, costs, pricing, segments, and what became of its recommendations | [Go-to-market research](research/go-to-market/index.md) |
+| Where to store and scan supporting documents, and at what cost (October 2026): object storage, on-demand scanners and GuardDuty compared with clamd on the 4 GB Droplet; a recommendation, not a decision | [Document storage and scanning costs](research/2026-10-27-document-storage-and-scanning-costs.md) |
 | Audits by date, and a tracker of the launch audit's open items | [Audits](audits/index.md) |
 
 ## Where new information belongs
