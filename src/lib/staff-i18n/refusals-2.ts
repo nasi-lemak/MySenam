@@ -637,4 +637,6 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
     zh: "审核日期早于这些期限最近一次更改：它不可能审核的是现行期限。",
   },
   "Give a reference to the written advice, kept outside MySenam.": { ms: "Berikan rujukan kepada nasihat bertulis, yang disimpan di luar MySenam.", zh: "请填写书面意见的参考编号（保存在 MySenam 之外）。" },
+  "Say never, or promotion (where the code allows it).": { ms: "Nyatakan never (tidak sama sekali), atau promotion (jika kod membenarkannya).", zh: "请填写 never（不允许），或 promotion（在优惠码允许时）。" },
+  "passCodes must be a list of pass codes.": { ms: "passCodes mestilah senarai kod pas.", zh: "passCodes 须为次卡代码列表。" },
 };

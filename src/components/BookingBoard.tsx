@@ -11,7 +11,7 @@ import { pricedByQuantity } from "@/lib/pricing";
 import { formatMinute, parseClock } from "@/lib/interval";
 import { isPastSlot } from "@/lib/time";
 import { lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
-import { passCost } from "@/lib/pass-rules";
+import PassAllocation, { passCodesOf } from "@/components/PassAllocation";
 import WaiverTick from "@/components/WaiverTick";
 import { explainGuard } from "@/components/ManagedPeople";
 import { NeedsLabel, PeoplePerCourt, takingParam, useManagedPeople, useTaking, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
@@ -19,7 +19,7 @@ import { customerAnywhere, groupRequest, namedOn, splitByCourt, type CourtOf } f
 import type { EligibilityLine } from "@/lib/eligibility";
 import { ParticipantPicker, type PickedParticipant } from "@/components/admin/ParticipantPicker";
 import { useT } from "@/components/Language";
-import { translateError } from "@/lib/i18n";
+import { errorText, translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
 import type { Phrase, T } from "@/lib/i18n";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
@@ -79,6 +79,8 @@ interface Confirmation {
   /** Total taken off by a promo code, and why one did not apply. */
   discount?: number;
   promoError?: string | null;
+  /** Its code (ONE_DISCOUNT, STK_NOT_COMBINABLE…), to say it in the reader's language. */
+  promoErrorCode?: string | null;
   /** The venue takes payment online, so the unpaid part can be paid now. */
   payOnline?: boolean;
   /** Extras on each booking, and why they could not go on. */
@@ -189,6 +191,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
   const [maxWeeks, setMaxWeeks] = useState(MAX_RECUR_WEEKS);
   // Concession prices offered here.
   const [concessions, setConcessions] = useState<Concession[]>([]);
+  // Whether a promo code may go with a concession price here (lib/discounts.ts): never, unless the venue allows it.
+  const [stacking, setStacking] = useState<"never" | "promotion">("never");
   // A manager of this venue, who may book outside its rules.
   const [mayOverride, setMayOverride] = useState(false);
   // The venue's own staff, booking at the counter (lib/participant-bookings.ts).
@@ -261,6 +265,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       if (typeof data.timeZone === "string") setZone(data.timeZone);
       if (Number.isInteger(data.seriesWeeks)) setMaxWeeks(data.seriesWeeks);
       setConcessions(Array.isArray(data.concessions) ? data.concessions : []);
+      setStacking(data.discountStacking === "promotion" ? "promotion" : "never");
 
       const pending = pendingInitial.current;
       if (pending) {
@@ -722,6 +727,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
               !(c.offPeakOnly && coveredCells(selection.courtId).some((cell) => cell.peak))
           )}
           lastMinute={lastMinute}
+          codeWithConcession={stacking === "promotion"}
           onBooked={(c) => {
             setBookingError(null);
             setConfirmation(c);
@@ -768,6 +774,7 @@ function BookingForm({
   alsoFree = [],
   concessions = [],
   lastMinute = 0,
+  codeWithConcession = false,
   onBooked,
   onError,
 }: {
@@ -793,6 +800,8 @@ function BookingForm({
   concessions?: Concession[];
   /** Percent off the time picked, for booking it now. */
   lastMinute?: number;
+  /** The venue lets a promo code go with a concession price, where the code allows it (lib/discounts.ts). */
+  codeWithConcession?: boolean;
   onBooked: (c: Confirmation) => void;
   onError: (msg: string) => void;
 }) {
@@ -896,11 +905,10 @@ function BookingForm({
   const [passCode, setPassCode] = useState("");
   const [promoCode, setPromoCode] = useState("");
   const [myPasses, setMyPasses] = useState<Pass[]>([]);
-  const chosenPass = myPasses.find((p) => p.code === passCode) ?? null;
-  // A pass spent per place (`places`, lib/entitlements.ts) spends for each place the booking takes.
-  const perPlace = chosenPass ? passCost(chosenPass, length) : null;
-  const passSpend =
-    perPlace && perPlace.ok && chosenPass?.scope === "places" ? { ...perPlace, units: perPlace.units * Math.max(1, counted ? players : persons) } : perPlace;
+  // Which pass pays for whom (components/PassAllocation.tsx): one for the whole booking, or each person's own for their place.
+  const [passChoice, setPassChoice] = useState<string[]>([]);
+  // The passes to pay with: those chosen from the account's, or a code typed by a guest.
+  const passCodes = myPasses.length > 0 ? passCodesOf(passChoice) : passCode.trim() !== "" ? [passCode.trim()] : [];
   // Company or school accounts here this customer may charge to (lib/accounts.ts).
   const [accounts, setAccounts] = useState<{ id: number; name: string }[]>([]);
   const [chargeTo, setChargeTo] = useState<number | null>(null);
@@ -1009,8 +1017,9 @@ function BookingForm({
           weeks,
           skipConflicts,
           // On an account, paid on its invoice: not from credit or a pass.
-          payFromWallet: chargeTo === null && (hasExtras || passCode.trim() === "") && payFromWallet,
-          payWithPass: (chargeTo === null && !hasExtras && passCode.trim()) || undefined,
+          payFromWallet: chargeTo === null && (hasExtras || passCodes.length === 0) && payFromWallet,
+          // One pass for the whole booking, or one person's own pass for each place (lib/pass-rules.ts).
+          payWithPasses: chargeTo === null && !hasExtras && passCodes.length > 0 ? passCodes : undefined,
           ...(chargeTo !== null ? { chargeTo } : {}),
           ...(agreeWaiver ? { agreeWaiver: true } : {}),
           // On several courts, each court's own people; otherwise everybody on this one.
@@ -1025,7 +1034,8 @@ function BookingForm({
             : named.length > 0
               ? { participantIds: named, customerTakesPart }
               : {}),
-          promoCode: promoCode.trim() || undefined,
+          // Not sent where it would be refused at once: a concession chosen where the venue gives one discount at a time.
+          promoCode: ((!concession || codeWithConcession) && promoCode.trim()) || undefined,
           addons: pickedList(picked),
           marketing: email.trim() !== "" && marketing,
           ...(concession
@@ -1347,7 +1357,7 @@ function BookingForm({
           </select>
         </label>
       )}
-      {chargeTo === null && balance !== null && balance > 0 && (hasExtras || passCode.trim() === "") && (
+      {chargeTo === null && balance !== null && balance > 0 && (hasExtras || passCodes.length === 0) && (
         <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
           <input
             type="checkbox"
@@ -1359,8 +1369,9 @@ function BookingForm({
         </label>
       )}
 
-      {/* One discount at a time: a concession price is one. */}
-      {!concession && (
+      {/* One discount at a time unless the venue allows a code with a concession price, and the code does (lib/discounts.ts). */}
+      {concession && !codeWithConcession && <p className="mt-2 text-xs text-slate-500">{t("stk.form.oneDiscount")}</p>}
+      {(!concession || codeWithConcession) && (
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
         <label htmlFor="promo-code">{t("form.promoLabel")}</label>
         <input
@@ -1373,6 +1384,7 @@ function BookingForm({
         {promoCode.trim() !== "" && (
           <span className="text-slate-500">{t("form.promoChecked")}</span>
         )}
+        {concession && <span className="text-slate-500">{t("stk.form.codeWithConcession")}</span>}
       </div>
       )}
 
@@ -1387,18 +1399,33 @@ function BookingForm({
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
         <span>{t("form.passLabel")}</span>
         {myPasses.length > 0 ? (
-          <select
-            value={passCode}
-            onChange={(e) => setPassCode(e.target.value)}
-            className="rounded-md border border-slate-300 px-2 py-1 focus:border-teal-500 focus:outline-none"
-          >
-            <option value="">{t("form.passNone")}</option>
-            {myPasses.map((p) => (
-              <option key={p.id} value={p.code}>
-                {p.kind === "time" ? t("form.passOptionTime", { name: p.name, len: lengthLabel(t, p.remaining) }) : t("form.passOption", { name: p.name, n: p.remaining })}
-              </option>
-            ))}
-          </select>
+          <PassAllocation
+            places={whoCanHave.map((w) => ({ placeId: null, customer: w.id === null, participantId: w.id, name: w.id === null ? name || w.name : w.name }))}
+            passes={myPasses}
+            players={counted ? players : 1}
+            minutes={length}
+            weeks={weeks}
+            soldByPlace={pricedByQuantity(court)}
+            bookerName={name}
+            codes={passChoice}
+            onChange={setPassChoice}
+            words={{
+              title: t("stk.pass.title"),
+              whole: t("form.passLabel"),
+              each: t("stk.pass.each"),
+              none: t("form.passNone"),
+              option: (p) =>
+                p.kind === "time" ? t("stk.pass.optionTime", { name: p.name, len: lengthLabel(t, p.remaining) }) : t("stk.pass.option", { name: p.name, n: p.remaining }),
+              uses: (p, units) =>
+                p.kind === "time"
+                  ? t("stk.pass.usesTime", { len: lengthLabel(t, units), left: lengthLabel(t, p.remaining) })
+                  : t("stk.pass.uses", { n: units, left: p.remaining }),
+              short: t("stk.pass.short"),
+              ready: t("stk.pass.ready"),
+              explain: (plan) =>
+                plan.code === "PASS_TOO_LONG" ? t("form.passTooLong", { len: lengthLabel(t, plan.maxMinutes) }) : errorText(t, plan.code, plan.vars),
+            }}
+          />
         ) : (
           <input
             value={passCode}
@@ -1406,16 +1433,6 @@ function BookingForm({
             placeholder="PS-XXXXXX"
             className="w-36 rounded-md border border-slate-300 px-2 py-1 font-mono focus:border-teal-500 focus:outline-none"
           />
-        )}
-        {passSpend && !passSpend.ok && <span className="font-medium text-amber-700">{t("form.passTooLong", { len: lengthLabel(t, passSpend.maxMinutes) })}</span>}
-        {passSpend && passSpend.ok && chosenPass && (
-          <span className="text-slate-500">
-            {chosenPass.kind === "time"
-              ? t("form.passSpendTime", { len: lengthLabel(t, passSpend.units), per: weeks > 1 ? t("form.passPerWeekTime", { len: lengthLabel(t, passSpend.units * weeks) }) : "" })
-              : t.plural("form.passSpend", passSpend.units, {
-                  per: weeks > 1 ? t("form.passPerWeek", { total: passSpend.units * weeks }) : "",
-                })}
-          </span>
         )}
       </div>
       )}
@@ -1653,7 +1670,7 @@ function ConfirmationModal({
         </dl>
         {confirmation.promoError && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            {t("done.promoRejected", { reason: confirmation.promoError })}
+            {t("done.promoRejected", { reason: translateError(t, { error: confirmation.promoError, code: confirmation.promoErrorCode ?? undefined }) })}
           </p>
         )}
         {confirmation.account && (

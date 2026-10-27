@@ -11,7 +11,8 @@ import { type Booking, type Refusal, type Sport } from "./types";
 import { errorText, translator, type ErrorCode, type Phrase } from "./i18n";
 import { isConcessionPreset, type ConcessionPreset } from "./concessions-shared";
 import { unchangedPreset } from "./concession-presets";
-import { CONCESSION_SCOPES, isDuplicateRedemption, isScope, placeFor, placeShare, placesOf, soldByPlace, type BenefitScope } from "./entitlements";
+import { CONCESSION_SCOPES, isDuplicateRedemption, isScope, placeFor, placeShares, placesOf, soldByPlace, type BenefitScope } from "./entitlements";
+import { allocatePromo, courtBeforePromo, stackRefusal } from "./discounts";
 
 /**
  * Concession prices: a student, senior, child or OKU price, as a share off.
@@ -174,26 +175,44 @@ export async function applyConcession(
   }
   if (booking.paymentStatus === "paid") return refuse("PROMO_TOO_LATE");
   const db = getDb();
-  const flags = (await db.prepare("SELECT last_minute, concession_id FROM bookings WHERE id = ?").get(bookingId)) as {
-    last_minute: number;
-    concession_id: number | null;
-  };
-  if (flags.last_minute === 1 || flags.concession_id !== null) return refuse("ONE_DISCOUNT");
-  // A person's own concession already on it is the one discount.
-  if (await db.prepare("SELECT 1 FROM place_benefits WHERE booking_id = ? AND kind = 'concession' AND reversed_at IS NULL").get(bookingId))
-    return refuse("ONE_DISCOUNT");
+  // The venue's rule on discounts together, asked first to say why at once; asked again under the lock below.
+  if (booking.concessionName) return refuse("ONE_DISCOUNT");
+  const stackedNow = await stackRefusal(bookingId, { kind: "concession" });
+  if (stackedNow) return stackedNow;
   const peak = await offPeakRefusal(concession, court.venueId, booking);
   if (peak) return peak;
-  // Off the court time only: not a coach's fee, nor a setup or cleanup fee.
-  const off = roundMoney(((booking.totalPrice - (booking.coachFee ?? 0) - (booking.feeAmount ?? 0)) * concession.percent) / 100);
   const check: ConcessionCheck = (await proofOnFile(court.venueId, booking.phone, concession.id, booking.date)) ? "seen" : "due";
-  await db
-    .prepare(
-      `UPDATE bookings SET total_price = total_price - ?, concession_id = ?, concession_name = ?, concession_preset = ?, concession_off = ?, concession_check = ?
-        WHERE id = ? AND concession_id IS NULL`
-    )
-    .run(off, concession.id, concession.name, concession.preset, off, check, bookingId);
-  return { ok: true, off, check };
+  try {
+    const off = await withTransaction(async () => {
+      // Under the booking's row lock: whatever else is being put on it at the same moment is seen (lib/discounts.ts).
+      const live = (await db.prepare("SELECT status, payment_status, concession_id FROM bookings WHERE id = ? FOR UPDATE").get(bookingId)) as {
+        status: string;
+        payment_status: string;
+        concession_id: number | null;
+      };
+      if (live.status !== "confirmed" || live.payment_status !== "unpaid") throw new ConcessionRefused(refuse("PROMO_TOO_LATE"));
+      if (live.concession_id !== null) throw new ConcessionRefused(refuse("ONE_DISCOUNT"));
+      // With a code or a person's own concession already on it: the venue's rule on discounts together.
+      const stacked = await stackRefusal(bookingId, { kind: "concession" });
+      if (stacked) throw new ConcessionRefused(stacked);
+      // Off the court time only, after member prices and before any code: not a coach's fee, nor a setup or cleanup fee, nor extras.
+      const amount = roundMoney(((await courtBeforePromo(bookingId)) * concession.percent) / 100);
+      const done = await db
+        .prepare(
+          `UPDATE bookings SET total_price = total_price - ?, concession_id = ?, concession_name = ?, concession_preset = ?, concession_off = ?, concession_check = ?
+            WHERE id = ? AND concession_id IS NULL`
+        )
+        .run(amount, concession.id, concession.name, concession.preset, amount, check, bookingId);
+      if (done.changes !== 1) throw new ConcessionRefused(refuse("ONE_DISCOUNT"));
+      // A code on it is worked out again on the lower price, so the order is the same whichever came first.
+      await allocatePromo(bookingId);
+      return amount;
+    });
+    return { ok: true, off, check };
+  } catch (err) {
+    if (err instanceof ConcessionRefused) return err.refusal;
+    throw err;
+  }
 }
 
 /** Refused where the venue gives it off-peak only and the booking touches peak time. */
@@ -241,12 +260,9 @@ export async function applyPlaceConcession(
   if (!soldByPlace(court)) return refuse("ENT_PLACE_ONLY");
   if (booking.paymentStatus === "paid") return refuse("PROMO_TOO_LATE");
   const db = getDb();
-  const flags = (await db.prepare("SELECT last_minute, concession_id FROM bookings WHERE id = ?").get(bookingId)) as {
-    last_minute: number;
-    concession_id: number | null;
-  };
-  if (flags.last_minute === 1 || flags.concession_id !== null) return refuse("ONE_DISCOUNT");
-  if (await db.prepare("SELECT 1 FROM promo_uses WHERE booking_id = ?").get(bookingId)) return refuse("ONE_DISCOUNT");
+  // The venue's rule on discounts together, asked first to say why at once; asked again under the lock below.
+  const stackedNow = await stackRefusal(bookingId, { kind: "placeConcession" });
+  if (stackedNow) return stackedNow;
   const peak = await offPeakRefusal(concession, court.venueId, booking);
   if (peak) return peak;
   const place = await placeFor(bookingId, participantId);
@@ -263,8 +279,11 @@ export async function applyPlaceConcession(
       // The booking's price is read and changed under its row lock, so two places' concessions at once each see the other.
       const live = (await db.prepare("SELECT status, payment_status FROM bookings WHERE id = ? FOR UPDATE").get(bookingId)) as { status: string; payment_status: string };
       if (live.status !== "confirmed" || live.payment_status !== "unpaid") throw new ConcessionRefused(refuse("PROMO_TOO_LATE"));
-      const share = await placeShare(bookingId, place.placeId);
-      const amount = roundMoney((share.net * concession.percent) / 100);
+      const stacked = await stackRefusal(bookingId, { kind: "placeConcession" });
+      if (stacked) throw new ConcessionRefused(stacked);
+      // That place's share of the court time after its own member price, before any code (lib/discounts.ts: the order).
+      const line = (await placeShares(bookingId)).lines.find((l) => l.placeId === place.placeId);
+      const amount = roundMoney((Math.max(0, (line?.gross ?? 0) - (line?.member ?? 0)) * concession.percent) / 100);
       await db
         .prepare(
           `INSERT INTO place_benefits (booking_id, place_id, participant_id, kind, concession_id, concession_name, concession_preset, amount, proof_check)
@@ -272,6 +291,8 @@ export async function applyPlaceConcession(
         )
         .run(bookingId, place.placeId, participantId, concession.id, concession.name, concession.preset, amount, check);
       await db.prepare("UPDATE bookings SET total_price = total_price - ? WHERE id = ?").run(amount, bookingId);
+      // A code on it is worked out again on the lower price, so the order is the same whichever came first.
+      await allocatePromo(bookingId);
       return amount;
     });
     return { ok: true, off, check, placeId: place.placeId };
@@ -345,9 +366,13 @@ export async function checkConcession(input: {
   if (input.outcome !== "refused") return { ok: false, error: "Say whether the proof was seen." };
   const off = Number(row.concession_off);
   if (booking.status === "confirmed" && booking.paymentStatus === "unpaid") {
-    await db
-      .prepare("UPDATE bookings SET total_price = total_price + ?, concession_check = 'refused' WHERE id = ?")
-      .run(off, booking.id);
+    await withTransaction(async () => {
+      await db
+        .prepare("UPDATE bookings SET total_price = total_price + ?, concession_check = 'refused' WHERE id = ?")
+        .run(off, booking.id);
+      // A code on it is worked out again on the full price (lib/discounts.ts).
+      await allocatePromo(booking.id);
+    });
   } else {
     // Paid already: the difference is a sale of its own, receipted like any other.
     const sold = await sellAtCounter({
@@ -413,10 +438,15 @@ async function checkPlaceConcession(
   const off = Number(pb.amount);
   if (booking.status === "confirmed" && booking.paymentStatus === "unpaid") {
     // The benefit stays on record as refused and given back; its amount goes back on what is owed, once.
-    const done = await db
-      .prepare("UPDATE place_benefits SET proof_check = 'refused', reversed_at = now(), reversed_why = 'no proof' WHERE id = ? AND reversed_at IS NULL")
-      .run(pb.id);
-    if (done.changes === 1) await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(off, booking.id);
+    await withTransaction(async () => {
+      const done = await db
+        .prepare("UPDATE place_benefits SET proof_check = 'refused', reversed_at = now(), reversed_why = 'no proof' WHERE id = ? AND reversed_at IS NULL")
+        .run(pb.id);
+      if (done.changes !== 1) return;
+      await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(off, booking.id);
+      // A code on it is worked out again on the full price (lib/discounts.ts).
+      await allocatePromo(booking.id);
+    });
   } else {
     const sold = await sellAtCounter({
       venueId,

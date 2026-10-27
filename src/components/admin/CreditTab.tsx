@@ -623,7 +623,11 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
     maxUses: "",
     // Once each to begin with: a code passed round should not go to one person's every booking.
     maxPerCustomer: "1",
+    // Not with a concession price unless said (lib/discounts.ts).
+    combinable: false,
   });
+  // Whether a concession price and a code go together at this venue: never (one discount at a time), or where the code allows.
+  const [stacking, setStacking] = useState<"never" | "promotion">("never");
 
   const venue = venues.find((v) => v.id === venueId) ?? null;
   const sports = [...new Set((venue?.courts ?? []).map((c) => c.sport))];
@@ -634,6 +638,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
     if (!res.ok) return;
     const data = await res.json();
     setPromos(data.promos);
+    setStacking(data.stacking === "promotion" ? "promotion" : "never");
   }, [venueId]);
 
   useEffect(() => {
@@ -660,6 +665,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           validTo: form.validTo,
           maxUses: form.maxUses === "" ? null : Number(form.maxUses),
           maxPerCustomer: form.maxPerCustomer === "" ? null : Number(form.maxPerCustomer),
+          combinable: form.combinable,
         }),
       });
       const data = await res.json();
@@ -669,6 +675,24 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cr.promoCreateFailed"));
+    }
+  }
+
+  async function saveStacking(value: "never" | "promotion") {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/promos/stacking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, stacking: value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("stk.stackingFailed")));
+      setStacking(data.stacking);
+      setNotice(t("stk.stackingSaved", { rule: t(data.stacking === "promotion" ? "stk.stackingPromotion" : "stk.stackingNever") }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("stk.stackingFailed"));
     }
   }
 
@@ -839,6 +863,15 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-20 ${inputClass}`}
           />
         </label>
+        <label className="flex items-center gap-1.5 self-center text-xs font-medium text-slate-500" title={t("stk.combinableHint")}>
+          <input
+            type="checkbox"
+            checked={form.combinable}
+            onChange={(e) => setForm({ ...form, combinable: e.target.checked })}
+            className="accent-teal-600"
+          />
+          {t("stk.combinable")}
+        </label>
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
@@ -846,6 +879,21 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           {t("cr.createCode")}
         </button>
       </form>
+
+      <div className="mt-3 text-xs text-slate-600">
+        <label className="flex flex-wrap items-center gap-2 font-medium">
+          {t("stk.stacking")}
+          <select
+            value={stacking}
+            onChange={(e) => saveStacking(e.target.value === "promotion" ? "promotion" : "never")}
+            className={inputClass}
+          >
+            <option value="never">{t("stk.stackingNever")}</option>
+            <option value="promotion">{t("stk.stackingPromotion")}</option>
+          </select>
+        </label>
+        <p className="mt-1 text-slate-500">{t("stk.stackingNote")}</p>
+      </div>
 
       <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -870,6 +918,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                   <span className="ml-1 text-xs text-slate-400">
                     {p.sport ? activityIcon(p.sport) : t("cr.allSports")}
                     {p.minHours > 1 ? ` · ${t("cr.minHoursShort", { n: p.minHours })}` : ""}
+                    {p.combinable ? ` · ${t("stk.combinableChip")}` : ""}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-semibold">

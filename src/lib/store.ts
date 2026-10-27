@@ -28,6 +28,7 @@ import { creditScope } from "./mode";
 import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
 import { isDuplicateSpend, memberPrices, membersOnlyRefusal, PASS_SCOPES, placesOf as placeRows, refuse as refuseEnt, soldByPlace, type BenefitScope } from "./entitlements";
+import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, stackRefusal } from "./discounts";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
@@ -80,7 +81,7 @@ import {
   type Occupant,
 } from "./claims";
 export { releaseBooking } from "./claims";
-import { passCost } from "./pass-rules";
+import { planPassSpends } from "./pass-rules";
 export { passCost } from "./pass-rules";
 import {
   breachMessage,
@@ -6604,11 +6605,12 @@ interface PromoRow {
   max_per_customer: number | null;
   status: PromoStatus;
   used: number;
+  combinable: boolean | null;
 }
 
 const PROMO_SELECT = `
   SELECT p.id, p.code, p.venue_id, v.name AS venue_name, p.sport, p.description,
-         p.kind, p.value, p.min_hours, p.valid_from, p.valid_to, p.max_uses, p.max_per_customer, p.status,
+         p.kind, p.value, p.min_hours, p.valid_from, p.valid_to, p.max_uses, p.max_per_customer, p.status, p.combinable,
          (SELECT COUNT(*) FROM promo_uses u WHERE u.promo_id = p.id) AS used
   FROM promo_codes p JOIN venues v ON v.id = p.venue_id
 `;
@@ -6630,6 +6632,7 @@ function toPromo(r: PromoRow): PromoCode {
     maxPerCustomer: r.max_per_customer,
     used: r.used,
     status: r.status,
+    combinable: r.combinable === true,
   };
   const reason = promoBlocked(promo);
   return reason ? { ...promo, unusableReason: englishOf(reason), unusablePhrase: reason } : promo;
@@ -6647,14 +6650,6 @@ const promoBlockedReason = (p: PromoCode): string | null => {
   const reason = promoBlocked(p);
   return reason && englishOf(reason);
 };
-
-/** What a code takes off a price. Never more than the price itself. */
-function promoDiscount(p: Pick<PromoCode, "kind" | "value">, price: number): number {
-  // A percentage comes off to the sen or cent, rounded in the venue's favour.
-  const scale = 10 ** region().currency.minorUnits;
-  const off = p.kind === "percent" ? Math.floor(roundMoney((price * p.value) / 100) * scale + 1e-6) / scale : p.value;
-  return Math.max(0, Math.min(off, price));
-}
 
 export async function getPromoCode(venueId: number, code: string): Promise<PromoCode | null> {
   const row = await getDb()
@@ -6684,6 +6679,8 @@ export async function createPromoCode(input: {
   validTo: string;
   maxUses?: number | null;
   maxPerCustomer?: number | null;
+  /** May go on a booking with a concession price, where the venue allows discounts together (lib/discounts.ts). */
+  combinable?: boolean;
   adminId: number;
 }): Promise<PromoEditResult> {
   return withTransaction(async () => {
@@ -6732,12 +6729,13 @@ export async function createPromoCode(input: {
     const info = await db
       .prepare(`
         INSERT INTO promo_codes (code, venue_id, sport, description, kind, value,
-                                 min_hours, valid_from, valid_to, max_uses, max_per_customer, admin_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 min_hours, valid_from, valid_to, max_uses, max_per_customer, admin_id, combinable)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         code, input.venueId, input.sport ?? null, input.description.trim(), input.kind,
-        input.value, minHours, input.validFrom, input.validTo, input.maxUses ?? null, input.maxPerCustomer ?? null, input.adminId
+        input.value, minHours, input.validFrom, input.validTo, input.maxUses ?? null, input.maxPerCustomer ?? null, input.adminId,
+        input.combinable === true
       );
     return { ok: true, promo: (await promoById(Number(info.lastInsertRowid)))! };
   });
@@ -6823,13 +6821,14 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.paymentStatus === "paid")
     return refuse("PROMO_TOO_LATE");
-  // One discount at a time: a last-minute price is already one.
-  if ((row as BookingRow & { last_minute?: number }).last_minute === 1) return refuse("PROMO_NOT_LAST_MINUTE");
-  // Nor on a concession price.
-  if (row.concession_name) return refuse("ONE_DISCOUNT");
 
   const court = await getCourt(booking.courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
+  const asked = await getPromoCode(court.venueId, code);
+  // One discount at a time, unless the venue and the code both allow a concession with it (lib/discounts.ts).
+  // (A code that is not there at all: where no code could go with what is on the booking, that is the reason.)
+  const stacked = await stackRefusal(booking.id, { kind: "promo", combinable: asked?.combinable === true });
+  if (stacked && (asked || stacked.code !== "STK_NOT_COMBINABLE")) return stacked;
 
   const quote = await quotePromo({
     venueId: court.venueId,
@@ -6837,20 +6836,26 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
     sport: booking.sport,
     date: booking.date,
     hours: booking.endHour - booking.startHour,
-    // A code is for the court time: a coach's fee is theirs, and setup and
-    // cleanup fees are not time, as with concessions.
-    price: booking.totalPrice - (booking.coachFee ?? 0) - (booking.feeAmount ?? 0),
+    // A code is for the court time, after member prices and concessions: a coach's fee is theirs, and
+    // setup and cleanup fees and extras are not time, as with concessions.
+    price: await courtBeforePromo(booking.id),
   });
   if (!quote.ok) return quote;
 
   try {
-    await db.transaction(async () => {
+    await withTransaction(async () => {
+      // Under the booking's row lock, so a concession put on it at the same moment is seen, and the rule asked again.
+      const live = (await db.prepare("SELECT status, payment_status FROM bookings WHERE id = ? FOR UPDATE").get(booking.id)) as {
+        status: string;
+        payment_status: string;
+      };
+      if (live.status !== "confirmed") throw new Error("REFUSED:BOOKING_WAS_CANCELLED");
+      if (live.payment_status === "paid") throw new Error("REFUSED:PROMO_TOO_LATE");
       const fresh = (await promoById(quote.promo.id))!;
       const blocked = promoBlockedReason(fresh);
       if (blocked) throw new Error(`BLOCKED:${blocked}`);
-      // Re-derive against the live price, not the quoted one.
-      const discount = promoDiscount(fresh, booking.totalPrice - (booking.coachFee ?? 0) - (booking.feeAmount ?? 0));
-      if (discount <= 0) throw new Error("BLOCKED:This code takes nothing off that price.");
+      const stacked = await stackRefusal(booking.id, { kind: "promo", combinable: fresh.combinable === true });
+      if (stacked) throw new PromoRefused(stacked);
       // One customer cannot take a code's every use: counted by phone, however it is typed.
       if (fresh.maxPerCustomer !== null) {
         const mine = (await db
@@ -6861,30 +6866,47 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
           .get(fresh.id, booking.phone)) as { n: number | string };
         if (Number(mine.n) >= fresh.maxPerCustomer) throw new Error("LIMIT");
       }
+      // The use counts itself on the code's row, where the database refuses one past its limit (migration 0165).
       await db.prepare(
-        "INSERT INTO promo_uses (promo_id, booking_id, discount) VALUES (?, ?, ?)"
-      ).run(fresh.id, booking.id, discount);
-      await db.prepare("UPDATE bookings SET total_price = total_price - ? WHERE id = ?")
-        .run(discount, booking.id);
-    })();
+        "INSERT INTO promo_uses (promo_id, booking_id, discount) VALUES (?, ?, 0)"
+      ).run(fresh.id, booking.id);
+      // Worked out on the live price, after member prices and concessions, and shared between the places.
+      const done = await allocatePromo(booking.id);
+      if (!done || done.discount <= 0) throw new Error("BLOCKED:This code takes nothing off that price.");
+    });
   } catch (err) {
+    if (err instanceof PromoRefused) return err.refusal;
+    if (err instanceof Error && err.message.startsWith("REFUSED:")) return refuse(err.message.slice("REFUSED:".length) as ErrorCode);
     if (err instanceof Error && err.message.startsWith("BLOCKED:"))
       return { ok: false, error: err.message.slice("BLOCKED:".length) };
     if (err instanceof Error && err.message === "LIMIT") return refuse("PROMO_YOUR_LIMIT");
     if (isUniqueViolation(err, "promo_uses"))
       return refuse("PROMO_ALREADY_USED");
+    if (isPromoUsedUp(err)) return refuse("STK_USED_UP");
     throw err;
   }
 
   const use = await db
-    .prepare("SELECT discount FROM promo_uses WHERE booking_id = ?")
+    .prepare("SELECT discount::float AS discount FROM promo_uses WHERE booking_id = ?")
     .get(booking.id) as { discount: number };
   return {
     ok: true,
-    discount: use.discount,
-    newTotal: booking.totalPrice - use.discount,
+    discount: Number(use.discount),
+    newTotal: (await getBookingById(booking.id))!.totalPrice,
     promo: (await promoById(quote.promo.id))!,
   };
+}
+
+class PromoRefused extends Error {
+  constructor(readonly refusal: Refusal) {
+    super("PROMO_REFUSED");
+  }
+}
+
+/** The database refusing a use past a code's limit (migration 0165). */
+function isPromoUsedUp(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; constraint?: string } | null;
+  return !!e && e.code === "23514" && `${e.constraint ?? ""} ${e.message ?? ""}`.includes("promo_codes_used_within_limit");
 }
 
 /**
@@ -6893,6 +6915,7 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
  */
 async function releasePromoUse(bookingId: number): Promise<void> {
   await getDb().prepare("DELETE FROM promo_uses WHERE booking_id = ?").run(bookingId);
+  await releasePromoShares(bookingId);
 }
 
 /** The code used on a booking, for showing it back to staff and customers. */
@@ -7016,6 +7039,18 @@ export async function listPassesFor(userId: number): Promise<Pass[]> {
     .prepare(`${PASS_SELECT} WHERE p.user_id = ? ORDER BY p.id DESC`)
     .all(userId) as PassRow[];
   return rows.map(toPass);
+}
+
+/**
+ * The passes a number holds at a venue that can be spent now: its own and
+ * those it holds for a participant (each for that person's place), for the
+ * counter to say which pays for whom (lib/pass-rules.ts `planPassSpends`).
+ */
+export async function usablePassesForHolder(venueId: number, phone: string): Promise<Pass[]> {
+  const rows = (await getDb()
+    .prepare(`${PASS_SELECT} WHERE p.venue_id = ? AND phone_key(p.holder_phone) = phone_key(?) ORDER BY p.id`)
+    .all(venueId, phone)) as PassRow[];
+  return rows.map(toPass).filter((p) => !p.unusableReason);
 }
 
 /** Passes issued by one venue, newest first — the counter's list. */
@@ -7284,44 +7319,23 @@ export async function payBookingWithPasses(
   if (!court) return refuse("COURT_NOT_FOUND");
   const minutes = booking.endMin - booking.startMin;
 
-  // What each pass spends, and for which place (null: the booking as a whole, or a place nobody is named on).
-  const spends: { pass: Pass; placeId: number | null; units: number }[] = [];
-  const costOf = (pass: Pass): number | Refusal => {
-    const cost = passCost(pass, minutes);
-    return cost.ok ? cost.units : { ok: false, error: `That pass pays for bookings up to ${formatLength(cost.maxMinutes)}.` };
-  };
-  const oneEach = passes.every((p) => p.scope === "participant");
-  if (passes.length > 1 && !oneEach) return refuseEnt("ENT_PASS_MIX");
-  if (!oneEach) {
-    const pass = passes[0];
-    // A package of a resource's hours pays for the resource hired whole, not for places sold one by one.
-    if (pass.scope === "resource" && soldByPlace(court)) return refuseEnt("ENT_PASS_RESOURCE");
-    const units = costOf(pass);
-    if (typeof units !== "number") return units;
-    if (pass.scope === "places") {
-      const named = (await placeRows(booking.id)).filter((p) => p.placeId !== null);
-      for (const place of named) spends.push({ pass, placeId: place.placeId, units });
-      for (let i = named.length; i < Math.max(1, booking.players ?? 1); i++) spends.push({ pass, placeId: null, units });
-    } else spends.push({ pass, placeId: null, units });
-  } else {
-    // Each a person's own: every place on the booking covered by its own person's pass, once.
-    const places = await placeRows(booking.id);
-    if ((booking.players ?? 1) > places.length) return refuseEnt("ENT_PASS_UNNAMED");
-    const covered = new Set<number>();
-    for (const pass of passes) {
-      const place = places.find((p) => (pass.holderParticipantId ? p.participantId === pass.holderParticipantId : p.customer));
-      if (!place && opts.skipAbsent) continue;
-      if (!place) return refuseEnt("ENT_PASS_NOT_ON_BOOKING", { name: pass.holderParticipantName ?? pass.holderName });
-      if (covered.has(place.placeId ?? 0)) return refuseEnt("ENT_PASS_TWICE", { name: place.name ?? pass.holderName });
-      covered.add(place.placeId ?? 0);
-      const units = costOf(pass);
-      if (typeof units !== "number") return units;
-      spends.push({ pass, placeId: place.placeId, units });
-    }
-    const uncovered = places.filter((p) => !covered.has(p.placeId ?? 0));
-    if (uncovered.length > 0)
-      return refuseEnt("ENT_PASS_UNCOVERED", { names: uncovered.map((p) => (p.customer ? booking.name : p.name ?? "?")).join(", ") });
+  // What each pass spends, and for which place (null: the booking as a whole, or a place nobody is named on):
+  // the one plan the booking form and the counter show too (lib/pass-rules.ts).
+  const plan = planPassSpends({
+    passes,
+    places: await placeRows(booking.id),
+    players: booking.players ?? 1,
+    minutes,
+    soldByPlace: soldByPlace(court),
+    bookerName: booking.name,
+    skipAbsent: opts.skipAbsent,
+  });
+  if (!plan.ok) {
+    if (plan.code === "PASS_TOO_LONG") return { ok: false, error: `That pass pays for bookings up to ${formatLength(plan.maxMinutes)}.` };
+    return refuseEnt(plan.code, plan.vars ?? {});
   }
+  const spends = plan.spends;
+  if (spends.length === 0) return refuseEnt("ENT_PASS_UNCOVERED", { names: booking.name });
 
   try {
     await db.transaction(async () => {

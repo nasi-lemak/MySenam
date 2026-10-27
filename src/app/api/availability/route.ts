@@ -2,6 +2,7 @@ import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { seriesWeeks } from "@/lib/house-rules";
 import { listConcessions } from "@/lib/concessions";
+import { discountStacking } from "@/lib/discounts";
 import { activeMembership, getAvailability, getVenue, getVenueClosure, memberNumberTrusted } from "@/lib/store";
 import { getSessionUser } from "@/lib/auth";
 import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
@@ -81,6 +82,8 @@ export async function GET(req: NextRequest) {
     seriesWeeks: await seriesWeeks(venueId),
     // Concession prices offered here, chosen at booking and shown at the counter.
     concessions: await listConcessions(venueId),
+    // Whether a promo code goes with a concession price here (lib/discounts.ts): one discount at a time unless the venue and the code allow it.
+    discountStacking: await discountStacking(venueId),
     // The venue's own staff at the counter: they may book for a child the venue knows (lib/participant-bookings.ts).
     atCounter: await (async () => {
       const admin = await getSessionAdmin(req);

@@ -230,6 +230,15 @@ const en = {
   "ent.cr.planScope": "and the price covers",
   "ent.cr.planScopeBooking": "the whole booking",
   "ent.cr.planScopeOwn": "the members' own places only",
+  "stk.combinable": "Goes with a concession price",
+  "stk.combinableHint": "Only where this venue lets a code and a concession price go together (below).",
+  "stk.combinableChip": "with a concession price",
+  "stk.stacking": "A concession price and a code together",
+  "stk.stackingNever": "Never: one discount at a time",
+  "stk.stackingPromotion": "Where the code allows it",
+  "stk.stackingNote": "The concession comes off first; the code is then worked out on the lower price and shared between the places. A member's rate is a price, not a discount, and goes with either.",
+  "stk.stackingSaved": "Saved: {rule}.",
+  "stk.stackingFailed": "Could not save that.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -461,6 +470,15 @@ const ms: Record<keyof typeof en, string> = {
   "ent.cr.planScope": "dan harga meliputi",
   "ent.cr.planScopeBooking": "keseluruhan tempahan",
   "ent.cr.planScopeOwn": "tempat ahli sendiri sahaja",
+  "stk.combinable": "Boleh digunakan bersama harga konsesi",
+  "stk.combinableHint": "Hanya jika pusat ini membenarkan kod dan harga konsesi digunakan bersama (di bawah).",
+  "stk.combinableChip": "bersama harga konsesi",
+  "stk.stacking": "Harga konsesi dan kod bersama",
+  "stk.stackingNever": "Tidak sama sekali: satu diskaun pada satu masa",
+  "stk.stackingPromotion": "Jika kod itu membenarkannya",
+  "stk.stackingNote": "Konsesi ditolak dahulu; kemudian kod dikira pada harga yang lebih rendah dan dibahagikan antara tempat. Kadar ahli ialah harga, bukan diskaun, dan boleh digunakan bersama kedua-duanya.",
+  "stk.stackingSaved": "Disimpan: {rule}.",
+  "stk.stackingFailed": "Tidak dapat menyimpannya.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -692,6 +710,15 @@ const zh: Record<keyof typeof en, string> = {
   "ent.cr.planScope": "价格适用于",
   "ent.cr.planScopeBooking": "整个预订",
   "ent.cr.planScopeOwn": "仅会员本人的名额",
+  "stk.combinable": "可与优惠价同时使用",
+  "stk.combinableHint": "仅在本场馆允许优惠码与优惠价同时使用时适用（见下方）。",
+  "stk.combinableChip": "可与优惠价同时使用",
+  "stk.stacking": "优惠价与优惠码同时使用",
+  "stk.stackingNever": "不允许：每次只能使用一种优惠",
+  "stk.stackingPromotion": "在优惠码允许时",
+  "stk.stackingNote": "先扣除优惠价；再按较低的价格计算优惠码，并分摊到各名额。会员价是价格而非折扣，可与两者同时使用。",
+  "stk.stackingSaved": "已保存：{rule}。",
+  "stk.stackingFailed": "无法保存。",
 };
 
 const area = { en, ms, zh };

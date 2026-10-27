@@ -232,6 +232,9 @@ one of those hours (and that take a booking that long), with what each costs.
 - Each court counts against the venue's house rules, as each week of a weekly
   booking does. 2 to 6 courts, at one venue, on one date, without extras or a
   coach (book those on one court).
+- A concession and a promo code are put on each court's booking by the same
+  rule as on one ([discounts together](pricing.md#discounts-together)); a
+  limited code spends a use for each court.
 - **Kinds of kit** work the same way: beside a shared resource (single
   kayaks), the form offers the venue's other shared resources free at that
   time (*Add other kinds at the same time*: double kayaks, boards), each with
@@ -574,7 +577,9 @@ the time goes while the customer rebooks.
 - **The price follows the court time.** Unpaid, it is repriced at the new
   time's rate, up or down, by the same pricing as a new booking. Paid, it keeps what was paid: a customer cannot move
   it somewhere dearer (that would be peak hours at an off-peak price), and
-  staff who do have chosen not to charge the difference.
+  staff who do have chosen not to charge the difference. Its concessions and
+  promo code stay as they were given, the same amounts, and are not asked
+  about again ([discounts together](pricing.md#discounts-together)).
 - Refused for a class place (it moves with its class), a lesson with a
   coach, a checked-in booking, or kit still out; and, for a customer, a
   booking friends have already paid shares of in a split (the venue can move
@@ -667,9 +672,11 @@ bookings (✕ beside a name, *−1 place*), with a reason if they give one.
     paid on the venue's cancellation terms (a late withdrawal keeps the
     venue's share, as a late cancellation does), with a credit note of its own
     ([refunds for one person's place](payments-and-credit.md#refunds-for-one-persons-place)).
-    The person's own concession or member's price goes with their place, a
-    pass spent for their place gives back its entries, and benefits for the
-    whole booking stay with it.
+    The person's own concession or member's price goes with their place, and
+    so does exactly their recorded share of a promo code
+    ([discounts together](pricing.md#discounts-together)); a pass spent for
+    their place gives back its entries, and benefits for the whole booking
+    stay with it.
   - A court or room hired whole: the person is no longer named on it. The
     court stays booked and paid as it was, and nothing is refunded: there is
     nothing priced per person.

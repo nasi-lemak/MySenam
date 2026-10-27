@@ -2218,6 +2218,20 @@ export const TA: Record<Phrase, string> = {
   "ent.form.whose": "யாருடைய விலை?",
   "ent.form.mine": "என்னுடையது",
   "ent.form.placeOnly": "இந்த விலை ஒருவரின் இடத்துக்கு உரியது.",
+  "err.STK_NOT_COMBINABLE": "இந்தக் குறியீட்டைச் சலுகை விலையுடன் சேர்த்துப் பயன்படுத்த முடியாது. சலுகை விலையில் முன்பதிவு செய்யுங்கள், அல்லது குறியீட்டை மட்டும் பயன்படுத்துங்கள்.",
+  "err.STK_USED_UP": "இந்தக் குறியீடு முழுவதும் பயன்படுத்தப்பட்டுவிட்டது.",
+  "stk.form.oneDiscount": "இங்கே ஒரே நேரத்தில் ஒரு தள்ளுபடி மட்டுமே: ப்ரோமோ குறியீட்டைச் சலுகை விலையுடன் சேர்க்க முடியாது.",
+  "stk.form.codeWithConcession": "குறியீடு அனுமதித்தால் மட்டுமே அதைச் சலுகை விலையுடன் சேர்க்க முடியும்.",
+  "stk.pass.each": "ஒவ்வொருவருக்கும் ஒரு பாஸ்",
+  "stk.pass.title": "எந்தப் பாஸ் யாருக்குச் செலுத்துகிறது",
+  "stk.pass.none": "பாஸ் இல்லை",
+  "stk.pass.option": "{name} · {n} மீதம்",
+  "stk.pass.optionTime": "{name} · {len} மீதம்",
+  "stk.pass.uses": "{left} இல் {n} பயன்படுத்தப்படும்",
+  "stk.pass.usesTime": "{left} இல் {len} பயன்படுத்தப்படும்",
+  "stk.pass.short": "இந்தப் பாஸில் போதுமான மீதம் இல்லை.",
+  "stk.pass.noneFor": "இங்கே {name} அவர்களின் பாஸ் இல்லை: முன்பதிவுக்கு வேறு வழியில் செலுத்துங்கள்.",
+  "stk.pass.ready": "ஒவ்வொரு இடமும் அதன் சொந்தப் பாஸால் செலுத்தப்படுகிறது.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

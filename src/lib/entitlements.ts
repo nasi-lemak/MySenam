@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { errorText, translator, type ErrorCode, type Phrase } from "./i18n";
 import { pricedByQuantity, type MemberPricing } from "./pricing";
-import { roundMoney } from "./region";
+import { region, roundMoney } from "./region";
 import type { BenefitScope, Court, Membership, Refusal } from "./types";
 
 export type { BenefitScope };
@@ -92,41 +92,151 @@ export async function placeFor(bookingId: number, participantId: number | null):
   return (await placesOf(bookingId)).find((p) => (participantId === null ? p.customer : p.participantId === participantId)) ?? null;
 }
 
-/** Money each live per-place benefit took off a booking, by place (0 for the customer alone). */
-async function placeAmounts(bookingId: number): Promise<Map<number, number>> {
-  const rows = (await getDb()
-    .prepare("SELECT COALESCE(place_id, 0) AS place, SUM(amount)::float AS amount FROM place_benefits WHERE booking_id = ? AND reversed_at IS NULL GROUP BY 1")
-    .all(bookingId)) as { place: number; amount: number }[];
-  return new Map(rows.map((r) => [Number(r.place), Number(r.amount)]));
+/** Whole sen (or cents): every share below is worked in them, so the parts always add up to the whole. */
+const minor = () => 10 ** region().currency.minorUnits;
+const toMinor = (amount: number) => Math.round(amount * minor());
+const fromMinor = (units: number) => units / minor();
+
+/**
+ * `total` split into `parts` whole sen as evenly as it goes, the earlier
+ * parts taking the odd sen: 10.00 in three is 3.34, 3.33, 3.33.
+ */
+export function splitEvenly(total: number, parts: number): number[] {
+  if (parts <= 0) return [];
+  const units = toMinor(total);
+  const base = Math.floor(units / parts);
+  const odd = units - base * parts;
+  return Array.from({ length: parts }, (_, i) => fromMinor(base + (i < odd ? 1 : 0)));
 }
 
 /**
- * One place's share of a booking priced by the place, as it was charged: the
- * court time split evenly between the places it takes now (fees, a coach's
- * fee and extras stay with the booking; a booking-wide discount is shared
- * between the places; places already taken off it while paid are left out),
- * before (`gross`) and after (`net`) what that place's own benefits took off.
- * What a place's concession comes off, and what taking the place off the
- * booking takes off its price. `placeId` -1: a place nobody is named on.
+ * `total` shared in proportion to `weights`, in whole sen, by largest
+ * remainder (on a tie the earlier part takes the sen): what each place
+ * takes of a booking-wide discount. All weights nothing: shared evenly.
  */
-export async function placeShare(bookingId: number, placeId: number | null): Promise<{ gross: number; net: number; players: number }> {
+export function splitInProportion(total: number, weights: number[]): number[] {
+  const units = toMinor(total);
+  const w = weights.map((x) => Math.max(0, toMinor(x)));
+  const sum = w.reduce((s, x) => s + x, 0);
+  if (sum === 0) return splitEvenly(total, weights.length);
+  const exact = w.map((x) => (units * x) / sum);
+  const out = exact.map((x) => Math.floor(x + 1e-9));
+  let left = units - out.reduce((s, x) => s + x, 0);
+  const order = exact.map((x, i) => ({ i, rest: x - out[i] })).sort((a, b) => b.rest - a.rest || a.i - b.i);
+  for (const { i } of order) {
+    if (left <= 0) break;
+    out[i] += 1;
+    left -= 1;
+  }
+  return out.map(fromMinor);
+}
+
+/**
+ * One place's share of a booking priced by the place, part by part
+ * (ADR 0025, changes of 27 October 2026): its share of the court time at
+ * the public price (`gross`), what its own member price and concession took
+ * off, its share of a booking-wide promo code, and what it costs now
+ * (`net`). The one calculation behind a place's concession, a code's share
+ * of each place, and what taking a place off the booking takes off.
+ */
+export interface PlaceShareLine {
+  /** Its `booking_participants` row; null for the customer taking the booking alone; -1 for a place nobody is named on. */
+  placeId: number | null;
+  customer: boolean;
+  participantId: number | null;
+  name: string | null;
+  gross: number;
+  member: number;
+  concession: number;
+  promo: number;
+  /** Whether its promo share is recorded for it (`promo_place_shares`), or its part of what is left. */
+  promoRecorded: boolean;
+  net: number;
+}
+
+/**
+ * Each place on a booking, and what each costs: the court time as charged
+ * (fees, a coach's fee and extras stay with the booking; places already taken
+ * off while paid are left out) with what the places' own benefits and the
+ * code took off added back is the court time at the public price, split
+ * evenly between the places in whole sen (the earlier places taking the odd
+ * sen); from each place's share come its own member price and concession,
+ * then its share of the code: as recorded for a named place, or for places
+ * nobody is named on (and bookings made before shares were recorded) an even
+ * part of what is left. The nets add up to the court time as charged.
+ * Named places come first, in the order they were put on the booking; the
+ * places nobody is named on after them.
+ */
+export async function placeShares(bookingId: number): Promise<{ players: number; lines: PlaceShareLine[] }> {
   const db = getDb();
   const b = (await db
     .prepare(
       `SELECT b.total_price::float AS total, b.fee_amount::float AS fees, b.coach_fee::float AS coach, b.players,
               (SELECT COALESCE(SUM(w.price), 0)::float FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid) AS withdrawn,
-              (SELECT COALESCE(SUM(a.quantity * a.unit_price), 0)::float FROM booking_addons a WHERE a.booking_id = b.id) AS extras
+              (SELECT COALESCE(SUM(w.promo_share), 0)::float FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid) AS withdrawn_promo,
+              (SELECT COALESCE(SUM(a.quantity * a.unit_price), 0)::float FROM booking_addons a WHERE a.booking_id = b.id) AS extras,
+              (SELECT COALESCE(SUM(u.discount), 0)::float FROM promo_uses u WHERE u.booking_id = b.id) AS promo
          FROM bookings b WHERE b.id = ?`
     )
-    .get(bookingId)) as { total: number; fees: number | null; coach: number | null; players: number; withdrawn: number; extras: number } | undefined;
-  if (!b) return { gross: 0, net: 0, players: 0 };
-  const amounts = await placeAmounts(bookingId);
-  const all = [...amounts.values()].reduce((s, a) => s + a, 0);
-  const players = Math.max(1, Number(b.players) || 1);
+    .get(bookingId)) as
+    | { total: number; fees: number | null; coach: number | null; players: number; withdrawn: number; withdrawn_promo: number; extras: number; promo: number }
+    | undefined;
+  if (!b) return { players: 0, lines: [] };
+  const benefits = (await db
+    .prepare("SELECT COALESCE(place_id, 0) AS place, kind, SUM(amount)::float AS amount FROM place_benefits WHERE booking_id = ? AND reversed_at IS NULL GROUP BY 1, 2")
+    .all(bookingId)) as { place: number; kind: string; amount: number }[];
+  const recorded = new Map(
+    (
+      (await db
+        .prepare("SELECT place_id, amount::float AS amount FROM promo_place_shares WHERE booking_id = ? AND reversed_at IS NULL")
+        .all(bookingId)) as { place_id: number; amount: number }[]
+    ).map((r) => [Number(r.place_id), Number(r.amount)])
+  );
+  const places = await placesOf(bookingId);
+  const players = Math.max(1, Number(b.players) || 1, places.length);
+  const benefitsAll = benefits.reduce((s, r) => s + Number(r.amount), 0);
+  // The code's discount on the places there now: a place taken off a paid booking took its share with it.
+  const promo = roundMoney(Number(b.promo) - Number(b.withdrawn_promo));
   const court = Number(b.total) - Number(b.fees ?? 0) - Number(b.coach ?? 0) - Number(b.extras) - Number(b.withdrawn);
-  const gross = roundMoney((court + all) / players);
-  const own = amounts.get(placeId ?? 0) ?? 0;
-  return { gross, net: roundMoney(Math.max(0, gross - own)), players };
+  const gross = splitEvenly(roundMoney(court + benefitsAll + promo), players);
+  const own = (place: number | null, kind: string) =>
+    place === -1 ? 0 : benefits.filter((r) => r.place === (place ?? 0) && r.kind === kind).reduce((s, r) => s + Number(r.amount), 0);
+  const slots = [
+    ...places.map((p) => ({ placeId: p.placeId, customer: p.customer, participantId: p.participantId, name: p.name })),
+    ...Array.from({ length: players - places.length }, () => ({ placeId: -1 as number | null, customer: false, participantId: null, name: null })),
+  ];
+  const has = (placeId: number | null) => placeId !== null && placeId !== -1 && recorded.has(placeId);
+  const rest = roundMoney(promo - [...recorded.values()].reduce((s, a) => s + a, 0));
+  const unrecorded = slots.filter((s) => !has(s.placeId)).length;
+  const restShares = splitEvenly(Math.max(0, rest), unrecorded);
+  let k = 0;
+  const lines = slots.map((s, i) => {
+    const member = roundMoney(own(s.placeId, "membership"));
+    const concession = roundMoney(own(s.placeId, "concession"));
+    const share = has(s.placeId) ? recorded.get(s.placeId!)! : (restShares[k++] ?? 0);
+    return {
+      ...s,
+      gross: gross[i],
+      member,
+      concession,
+      promo: share,
+      promoRecorded: has(s.placeId),
+      net: roundMoney(Math.max(0, gross[i] - member - concession - share)),
+    };
+  });
+  return { players, lines };
+}
+
+/**
+ * One place's share of a booking priced by the place (`placeShares`): before
+ * (`gross`) and after (`net`) what came off it. `placeId` -1: a place nobody
+ * is named on (the last of them).
+ */
+export async function placeShare(bookingId: number, placeId: number | null): Promise<{ gross: number; net: number; players: number }> {
+  const { players, lines } = await placeShares(bookingId);
+  const line = placeId === -1 ? lines.filter((l) => l.placeId === -1).at(-1) : lines.find((l) => l.placeId === placeId);
+  if (!line) return { gross: 0, net: 0, players };
+  return { gross: line.gross, net: line.net, players };
 }
 
 /** A per-place benefit standing on a booking, for its screens and receipt. */

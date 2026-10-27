@@ -351,7 +351,8 @@ export async function POST(req: NextRequest) {
 
   // A concession price the customer said is theirs (lib/concessions.ts), shown
   // at the counter. Like a code, best-effort: refused, the booking stands at
-  // the full price and says why. It is one discount, so it comes before a code.
+  // the full price and says why. Concessions come before a code, whose discount is worked out on the
+  // lower price where the venue and the code allow both (lib/discounts.ts).
   let concessionError: { error: string; code?: string; vars?: Record<string, string | number> } | null = null;
   if (Number.isInteger(concessionId)) {
     for (const booking of result.bookings) {
@@ -386,12 +387,17 @@ export async function POST(req: NextRequest) {
   // pass charges the discounted figure. Like paying, it is best-effort: a code
   // that has run out leaves the booking standing at full price with the reason.
   let promoError: string | null = null;
+  // Its code, where it has one (ONE_DISCOUNT, STK_NOT_COMBINABLE: lib/discounts.ts), for the caller to say it in its own words.
+  let promoErrorCode: string | null = null;
   let discount = 0;
   if (typeof promoCode === "string" && promoCode.trim() !== "") {
     for (const booking of result.bookings) {
       const applied = await applyPromo(booking.id, promoCode);
       if (!applied.ok) {
-        if (!promoError) promoError = applied.error;
+        if (!promoError) {
+          promoError = applied.error;
+          promoErrorCode = applied.code ?? null;
+        }
       } else {
         booking.totalPrice = applied.newTotal;
         discount += applied.discount;
@@ -520,6 +526,7 @@ export async function POST(req: NextRequest) {
       // Or just this share of it, the rest at the counter: the venue's choice, not for a number past its strikes.
       depositPercent: holdUntil && policy.active && !(await struckOut(venue.id, phone)).out ? policy.depositPercent : null,
       promoError,
+      promoErrorCode,
       discount,
       concessionError,
       // What to bring for the concession price that went on.

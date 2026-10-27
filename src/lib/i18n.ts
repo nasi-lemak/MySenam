@@ -2375,6 +2375,20 @@ const EN = {
   "ent.form.whose": "Whose price is it?",
   "ent.form.mine": "Mine",
   "ent.form.placeOnly": "This price is for one person's place.",
+  "err.STK_NOT_COMBINABLE": "This code does not go with a concession price. Book at the concession price, or with the code alone.",
+  "err.STK_USED_UP": "This code has been fully claimed.",
+  "stk.form.oneDiscount": "One discount at a time here: a promo code does not go with a concession price.",
+  "stk.form.codeWithConcession": "A code goes with a concession price only if the code allows it.",
+  "stk.pass.each": "A pass for each person",
+  "stk.pass.title": "Which pass pays for whom",
+  "stk.pass.none": "No pass",
+  "stk.pass.option": "{name} · {n} left",
+  "stk.pass.optionTime": "{name} · {len} left",
+  "stk.pass.uses": "Uses {n} of {left}",
+  "stk.pass.usesTime": "Uses {len} of {left}",
+  "stk.pass.short": "Not enough left on this pass.",
+  "stk.pass.noneFor": "No pass of {name}'s here: pay for the booking another way.",
+  "stk.pass.ready": "Each place is paid by its own pass.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -4703,6 +4717,20 @@ const MS: Record<Phrase, string> = {
   "ent.form.whose": "Harga siapa?",
   "ent.form.mine": "Saya",
   "ent.form.placeOnly": "Harga ini untuk tempat seorang.",
+  "err.STK_NOT_COMBINABLE": "Kod ini tidak boleh digunakan bersama harga konsesi. Tempah pada harga konsesi, atau dengan kod sahaja.",
+  "err.STK_USED_UP": "Kod ini telah habis digunakan.",
+  "stk.form.oneDiscount": "Satu diskaun pada satu masa di sini: kod promosi tidak boleh digunakan bersama harga konsesi.",
+  "stk.form.codeWithConcession": "Kod boleh digunakan bersama harga konsesi hanya jika kod itu membenarkannya.",
+  "stk.pass.each": "Satu pas untuk setiap orang",
+  "stk.pass.title": "Pas mana membayar untuk siapa",
+  "stk.pass.none": "Tiada pas",
+  "stk.pass.option": "{name} · tinggal {n}",
+  "stk.pass.optionTime": "{name} · tinggal {len}",
+  "stk.pass.uses": "Menggunakan {n} daripada {left}",
+  "stk.pass.usesTime": "Menggunakan {len} daripada {left}",
+  "stk.pass.short": "Baki pas ini tidak mencukupi.",
+  "stk.pass.noneFor": "Tiada pas milik {name} di sini: bayar tempahan dengan cara lain.",
+  "stk.pass.ready": "Setiap tempat dibayar oleh pasnya sendiri.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

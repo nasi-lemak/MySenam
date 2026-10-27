@@ -310,8 +310,10 @@ stand-in gateway.
 
 Taking one person off a paid booking, the others staying booked
 ([taking one person off a booking](booking.md#taking-one-person-off-a-booking);
-`lib/place-withdrawals.ts`), gives back that place's price as charged, on
-the venue's cancellation terms (a late withdrawal keeps the venue's share),
+`lib/place-withdrawals.ts`), gives back that place's price as charged (its
+share of the court time, less its own member price, concession and recorded
+share of a promo code: [discounts together](pricing.md#discounts-together)),
+on the venue's cancellation terms (a late withdrawal keeps the venue's share),
 through the paths a cancellation uses, and nothing twice:
 
 - **The booking's sale stays as it was sold.** Its receipt is drawn from the
@@ -333,14 +335,16 @@ through the paths a cancellation uses, and nothing twice:
 - **A pass** spent for that place gives back its entries (whole entries,
   rounded down on a late withdrawal); one that paid for the booking as a
   whole gives back nothing for one person.
-- **Not yet paid**, the place's price comes off what is owed instead, its
-  share of a booking-wide discount with it.
+- **Not yet paid**, the place's price comes off what is owed instead, and
+  the code's use comes down by exactly that place's recorded share
+  (`place_withdrawals.promo_share` keeps it either way).
 - Bookings others paid shares of, held by a deposit, charged to an account,
   or with a payment page open are refused: the venue can change those
   ([taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
 
-Tested in `tests/place-withdrawals.test.ts` on PGlite and Postgres, against
-a stand-in gateway for the online case.
+Tested in `tests/place-withdrawals.test.ts` and, with a concession and a
+code on the booking, `tests/discount-stacking.test.ts`, on PGlite and
+Postgres, against a stand-in gateway for the online case.
 
 ## Stored credit
 
@@ -366,6 +370,11 @@ Three guards matter, and each has a test:
 Cancelling a wallet-paid booking refunds it automatically, through every path:
 by code, from an account, a whole series, an admin cancellation, and the
 enrolments released when a class is cancelled.
+
+Credit, a gift voucher (which becomes credit) and a pass are means of paying,
+not discounts: they pay the price as it stands after member prices,
+concessions and any promo code, and never change it
+([discounts together](pricing.md#discounts-together)).
 
 ### Whose credit it is
 

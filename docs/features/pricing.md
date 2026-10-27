@@ -1,6 +1,6 @@
 # Pricing, discounts, memberships and passes
 
-Authoritative for how a price is worked out: prices to the minute, peak bands, holidays, last-minute prices, per-player courts, concessions, promo codes, memberships and multi-visit passes.
+Authoritative for how a price is worked out: prices to the minute, peak bands, holidays, last-minute prices, per-player courts, concessions, promo codes, discounts together, memberships and multi-visit passes.
 Status: [feature status](../product/feature-status.md#pricing) and [memberships, passes and credit](../product/feature-status.md#memberships-passes-and-credit).
 
 ## Prices to the minute
@@ -148,8 +148,9 @@ exactly what it did.
 - **One person's place** has a price only where the booking is priced by
   the place: places on a shared facility, players on a court priced per
   player. Its share is the booking's court time as charged, split between
-  its places (fees, a coach's fee and extras stay with the booking; a
-  booking-wide discount is shared between the places). A guardian booking
+  its places in whole sen (fees, a coach's fee and extras stay with the
+  booking; a booking-wide code is shared between the places as
+  [discounts together](#discounts-together) says). A guardian booking
   three children on a pool at RM10 a place, one of them on a 50% child's
   price, pays RM25. On a court hired whole nothing is priced per person:
   one person's concession does not apply there, and the booking says why.
@@ -160,8 +161,10 @@ exactly what it did.
   wherever (the booking form, the counter, the venue's API key, a group of
   courts).
 - **On the booking form** a concession for one person asks whose it is,
-  among those taking part. Through the API, `placeConcessions` names each
-  person's own, and `payWithPasses` pays with each one's own pass
+  among those taking part, and a pass is chosen for the whole booking or one
+  for each person ([several passes](#several-passes-for-one-booking)).
+  Through the API, `placeConcessions` names each person's own, and
+  `payWithPasses` pays with each one's own pass
   ([HTTP API](../architecture/http-api.md)).
 
 ## Concession prices
@@ -188,9 +191,10 @@ student card"), and optionally one sport or off-peak hours only.
 - **Booking:** the customer picks it from *Price* on the booking form and gets
   the lower price at once. The form, the confirmation and `/my-booking` say what
   to bring, and that without it the full price is charged at the counter. It is
-  one discount: not with a promo code or a last-minute price. Where it does not
-  apply (another sport, a peak hour), the booking stands at the full price and
-  says why.
+  not with a last-minute price, and with a promo code only where the venue and
+  the code allow it ([discounts together](#discounts-together)). Where it does
+  not apply (another sport, a peak hour), the booking stands at the full price
+  and says why.
 - **For the whole booking, or one person's place.** Staff say which under
   *Applies to* ([what a benefit applies to](#what-a-benefit-applies-to)).
   One for one person's place comes off that person's share alone, on a
@@ -230,14 +234,85 @@ with the reason, rather than losing the booking.
 
 Uses are counted as rows in `promo_uses`, one per booking, re-counted **inside**
 the claiming transaction so two customers cannot both take the last use of a
-limited code. A `UNIQUE (booking_id)` stops two codes stacking on one booking.
+limited code; each use also counts itself on the code's own row
+(`promo_codes.used_count`, migration 0165), where the database refuses one past
+the limit whichever path claims it (`STK_USED_UP`). A `UNIQUE (booking_id)`
+stops two codes stacking on one booking. Whether a code goes with a concession
+price is said when it is made (*Goes with a concession price*,
+`promo_codes.combinable`; off unless ticked), and counts only where the venue
+allows discounts together ([below](#discounts-together)).
 Cancelling gives the use back — the customer never had the benefit, so a limited
 code should not be poorer for it — through the same `refundBooking()` helper
 that returns credit and pass entries, so every cancellation path is covered.
 
 Withdrawing a code stops further claims; discounts already given stand. A
-percentage is rounded **down** and no discount ever exceeds the price, so a
-total cannot go negative.
+percentage is rounded **down** to the sen (15% of RM10.05 is RM1.50) and no
+discount ever exceeds the price, so a total cannot go negative.
+
+## Discounts together
+
+Which benefits are discounts, which go together, and the one order every path
+prices by (`src/lib/discounts.ts`;
+[ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)).
+
+| What | Is | Goes with a discount? |
+| ---- | -- | --------------------- |
+| The public rate, a member's or tier's rate (for the booking or a member's own place) | A price | Always: it is what the time costs |
+| A last-minute price | A price for booking now | No: it takes no concession and no code |
+| A concession (the booking's, or one person's place's) | A discount | With a code only where the venue and the code allow it; never a second concession on one place |
+| A promo code | A discount | As above |
+| Stored credit, a gift voucher (it becomes credit), a pass, a payment | A means of paying | Applied after the price; changes no price |
+
+**The rule.** Each venue says, under *Credit & passes → Promo codes → A
+concession price and a code together* (a manager's setting,
+`venues.discount_stacking`): **never**, one discount at a time (the
+default, and every venue before), or **where the code allows it**. Each code
+says whether it goes with a concession price (off unless ticked). A
+concession and a code go together only where both say yes; otherwise the one
+asked for second is refused, the booking standing at the first, and it is
+refused the same way on every path: the booking form (which then takes the
+code's field away and says why), the counter (staff book through the same
+form and route), the API, several courts at once and lessons. The refusal's
+code is `ONE_DISCOUNT` where the venue gives one discount at a time and
+`STK_NOT_COMBINABLE` where the code does not combine; the API returns it as
+`promoErrorCode` beside `promoError`. A class enrolment takes neither.
+
+**The order**, in whole sen:
+
+1. Each place's share of the court time at the public price: the court time
+   split evenly between the places, the earlier places taking the odd sen
+   (RM10.00 in three is RM3.34, RM3.33, RM3.33).
+2. Its member price, where the place is a member's.
+3. Its concession: that share of what the place costs then, rounded half up;
+   a booking's own concession comes off the whole court time.
+4. The code, worked out on the court time after all of those: a percentage
+   rounded down, a fixed amount never more than the court time. On a booking
+   sold by the place it is shared between the places in proportion to what
+   each costs by then, by largest remainder (the earlier place first on a
+   tie), and each named place's share is recorded (`promo_place_shares`).
+5. Tax, which is inside the price ([regions and tax](../product/regions-and-tax.md#tax-sst-and-gst)).
+6. The means of paying: credit, a pass, a payment.
+
+Fees, a coach's fee and extras are never discounted, and no price goes below
+nothing. Three children at RM10 a place, one on a 50% child's price, with a
+10% code the venue allows with it: RM30, less RM5 for the child, is RM25; 10%
+of that is RM2.50, shared RM1, RM1 and RM0.50; RM22.50 to pay. The receipt
+shows each discount as its own line, the concessions and member prices first,
+then the code, adding up to what is owed.
+
+**Whatever came first.** A concession added after the code (by the library;
+the form and the API always put the concession on first), or refused at the
+counter for no proof, works the code out again on the new price, so the result
+is the same either way.
+
+**Afterwards.** Taking one person off a booking takes exactly their place's
+share: its member price, its concession and its recorded share of the code
+([taking one person off a booking](booking.md#taking-one-person-off-a-booking));
+places nobody is named on share what is left of the code evenly. A move keeps
+the discounts as they were given (their amounts), repricing only the court
+time. A cancellation gives the code's use back, with its shares. A booking
+made before shares were recorded keeps every stored amount; its code is shared
+evenly between its places, as it was.
 
 ## Memberships and member rates
 
@@ -388,6 +463,22 @@ sold (*Credit & passes → Spends*; `passes.kind`, `passCost` in
 Either kind can be limited to bookings of up to so many minutes. The booking
 form says what a booking would spend before it is made, and refuses a
 booking longer than the pass allows.
+
+### Several passes for one booking
+
+On the booking form, a signed-in customer's passes are offered under *Using a
+pass?*: one for the whole booking, or *A pass for each person*, which lists
+each person taking part with that person's own passes only (a child's swim
+pass for that child). Each line says what it would spend of what it has left
+and says so when a pass has too little; until every place has its own pass
+the form says whose place is still to pay, in the words the server would use
+(`ENT_PASS_*`). At the counter, the payment step of an unpaid booking offers
+*Passes…*: the passes the booking's number holds here (its own, and those it
+holds for the people it acts for), chosen the same way, and paid all or
+nothing (`/api/admin/bookings/passes`). Both show the booking engine's own
+plan (`planPassSpends` in `src/lib/pass-rules.ts`), which the engine then
+spends under its transaction, re-reading every balance: nothing is decided on
+the screen that the server does not decide again.
 
 Entries and minutes are an append-only ledger (`pass_entries`), the same shape as the credit
 wallet: `remaining = entries + SUM(delta)`, spends negative and refunds
