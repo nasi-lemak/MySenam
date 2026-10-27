@@ -9,6 +9,7 @@ import { MAX_GROUP_COURTS, type Sport } from "@/lib/types";
 import { isValidDateString } from "@/lib/time";
 import { MAX_NAMED, selectionForAccount } from "@/lib/participant-bookings";
 import { isRefusal } from "@/lib/participants";
+import { memberCover, renewPath, takesPlaces, type MemberLapse } from "@/lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -108,7 +109,33 @@ export async function GET(req: NextRequest) {
     if (quote.ok) others.push({ courtId: id, total: quote.quote.total, allowed: quote.allowed });
   }
 
+  // A place on a members' session (a members-only venue's shared session): whether each person taking
+  // one is covered on this date, not today, with why not and where to renew (lib/entitlements.ts).
+  // The booking asks the same; this says it before booking.
+  let members: { participantId: number | null; name: string; covered: boolean; lapse?: MemberLapse; renew: string }[] | undefined;
+  if (user && takesPlaces(court)) {
+    const { accessSettings } = await import("@/lib/access");
+    if ((await accessSettings(court.venueId)).access === "members") {
+      const persons = [
+        ...(!people || people.customerTakesPart ? [{ participantId: null, name: user.name }] : []),
+        ...(people?.participants ?? []).map((p) => ({ participantId: p.id as number | null, name: p.name })),
+      ];
+      members = [];
+      for (const who of persons) {
+        const cover = await memberCover(court.venueId, who, who.participantId === null ? { phone: user.phone, userId: user.id, by: "customer" } : null, date);
+        members.push({
+          participantId: who.participantId,
+          name: who.name,
+          covered: cover.covered,
+          ...(cover.lapse ? { lapse: cover.lapse } : {}),
+          renew: cover.covered ? "" : await renewPath(court.venueId, who.participantId !== null),
+        });
+      }
+    }
+  }
+
   return NextResponse.json({
+    ...(members ? { members } : {}),
     courtId,
     date,
     start: priced.span.start,

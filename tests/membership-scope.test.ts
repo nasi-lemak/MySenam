@@ -255,9 +255,9 @@ describe("a place on a members' session is each person's own to hold", () => {
     const swim = await book(parent, { courtId: pool, date: day(8), start: at(9), end: at(10), participantIds: [member.id] });
     expect(swim.status).toBe(201);
     expect((await rescheduleBooking(swim.body.booking.code, { date: day(9), start: at(9) }, "customer")).ok).toBe(true);
-    expect(await rescheduleBooking(swim.body.booking.code, { date: day(12), start: at(9) }, "customer")).toMatchObject({ ok: false, code: "ENT_MEMBERS_PLACE" });
-    // A weekly series past it: refused for the weeks it does not cover.
-    expect((await book(parent, { courtId: pool, date: day(8), start: at(13), end: at(14), weeks: 2, participantIds: [member.id] })).body).toMatchObject({ code: "ENT_MEMBERS_PLACE" });
+    expect(await rescheduleBooking(swim.body.booking.code, { date: day(12), start: at(9) }, "customer")).toMatchObject({ ok: false, code: "MV6_ENDS_BEFORE", vars: { name: "Rafiq", until: day(10), date: day(12) } });
+    // A weekly series past it: refused for the weeks it does not cover, saying when it ends.
+    expect((await book(parent, { courtId: pool, date: day(8), start: at(13), end: at(14), weeks: 2, participantIds: [member.id] })).body).toMatchObject({ code: "MV6_ENDS_BEFORE", vars: { until: day(10), date: day(15) } });
   });
 });
 

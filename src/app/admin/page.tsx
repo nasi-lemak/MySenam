@@ -17,6 +17,7 @@ import { TournamentsTab } from "@/components/admin/TournamentsTab";
 import { SetupChecklist } from "@/components/admin/SetupChecklist";
 import { BookingLinkCard } from "@/components/admin/BookingLinkCard";
 import { ApprovalsReview, RevocationFlags } from "@/components/admin/ApprovalsPanel";
+import MembershipFlags from "@/components/admin/MembershipFlags";
 import { SystemHealth } from "@/components/admin/SystemHealth";
 import { ErrorsPanel } from "@/components/admin/ErrorsPanel";
 import { IntegrityCheck } from "@/components/admin/IntegrityCheck";
@@ -316,6 +317,8 @@ export default function AdminPage() {
         venues.map((venue) => <ApprovalsReview key={`approvals-${venue.id}`} venueId={venue.id} venueName={venues.length > 1 ? venue.name : null} waitingOnly />)}
       {/* Bookings to decide after an approval was taken back: shown only when there are some. */}
       {!isOwner && tab === "bookings" && venues.map((venue) => <RevocationFlags key={`approval-flags-${venue.id}`} venueId={venue.id} />)}
+      {/* Bookings to decide after a membership stopped covering somebody on them: shown only when there are some. */}
+      {!isOwner && tab === "bookings" && venues.map((venue) => <MembershipFlags key={`membership-flags-${venue.id}`} venueId={venue.id} />)}
 
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (

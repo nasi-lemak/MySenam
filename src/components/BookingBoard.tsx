@@ -29,6 +29,7 @@ import { SplitCost } from "@/components/SplitCost";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
+import MembershipEligibility, { type MemberLine } from "@/components/MembershipEligibility";
 import { lengthLabel } from "@/lib/length-label";
 import { money, intlTag, region, plainAmount, localTimeOf, shortDate } from "@/lib/region";
 
@@ -67,6 +68,8 @@ interface Quote {
   code?: string;
   vars?: Record<string, string | number>;
   others: { courtId: number; total: number; allowed: boolean }[];
+  /** A members-only session: whether each person taking a place is a member on its date (components/MembershipEligibility.tsx). */
+  members?: MemberLine[];
 }
 
 interface Confirmation {
@@ -1086,6 +1089,7 @@ function BookingForm({
             <div className="text-xs text-slate-500">{t("quote.billed", { len: lengthLabel(t, quote.billedMinutes) })}</div>
           )}
           {quote && !quote.allowed && !override && <div className="text-xs font-medium text-amber-700">{translateError(t, quote)}</div>}
+          {quote?.members && !atCounter && <MembershipEligibility lines={quote.members} date={date} />}
           {remembered && (
             <button
               type="button"

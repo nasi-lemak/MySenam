@@ -101,18 +101,18 @@ export async function POST(req: NextRequest) {
         !!people && !people.customerTakesPart && people.participants.length > 0 && (forClass || ((await getCourt(courtId as number))?.capacity ?? 1) > 1),
     });
     if (refused) return refusal(refused, 403);
-    // Nobody waits for a members' place they could not take (lib/entitlements.ts): the same check the booking makes.
-    if (people && people.participants.length > 0) {
-      const court = forClass ? null : await getCourt(courtId as number);
-      const notMember = await membersOnlyRefusal({
-        venueId,
-        court: { capacity: court?.capacity ?? 1 },
-        classId: forClass ? (classId as number) : null,
-        participants: people.participants,
-        dates: [forClass ? session!.date : (date as string)],
-      });
-      if (notMember) return refusal(notMember, 403);
-    }
+    // Nobody waits for a members' place they could not take on its date (lib/entitlements.ts): the same
+    // check the booking makes, for each person named and the customer where they take a place.
+    const court = forClass ? null : await getCourt(courtId as number);
+    const notMember = await membersOnlyRefusal({
+      venueId,
+      court: { capacity: court?.capacity ?? 1 },
+      classId: forClass ? (classId as number) : null,
+      participants: people?.participants ?? [],
+      customer: !people || people.customerTakesPart ? { phone: person.phone, userId: user?.id ?? null, by: "customer" } : null,
+      dates: [forClass ? session!.date : (date as string)],
+    });
+    if (notMember) return refusal(notMember, 403);
   }
 
   const result = forClass

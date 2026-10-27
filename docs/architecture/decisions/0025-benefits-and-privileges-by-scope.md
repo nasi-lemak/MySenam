@@ -189,3 +189,24 @@
     passes, one per person, by the engine's own plan. A percentage code is
     now rounded down to the sen as documented (it had been rounded half up
     first). Migrations 0163–0165.
+  - 2026-10-27 (the owner's decision on membership validity): booking
+    privileges and participation are checked apart, each at its own time.
+    Privileges (reserving a resource whole, booking further ahead) stay the
+    account's, asked when the booking is made and again when it is moved
+    (a customer's move now counts a member's number only for the account that
+    made the booking, as booking online does). Participation is the actual
+    participant's membership, valid on the session's date, not today's: the
+    customer's own place on a members' session is now asked by date too, at
+    the counter and through the API as well as online (it had been the
+    account's answer for today, and not asked at the counter); a waiting
+    list's offer and claim ask it; the refusal says whose membership ends
+    before the session, and where to renew (`MV6_ENDS_BEFORE`,
+    `MV6_OWN_ENDS_BEFORE`, `MV6_OWN_NOT_MEMBER`), and the booking form says
+    it before booking. It is asked again before taking part: self check-in
+    and the door code refuse a place a membership no longer covers, and the
+    desk is warned and decides, on the record (migration 0196). A membership
+    cancelled, voided on a chargeback, or a dependant taken off a family
+    membership flags the bookings it no longer covers for staff, as a revoked
+    approval does (ADR 0020; migration 0195); nothing paid is cancelled.
+    Memberships have no suspended state; none was added
+    ([membership validity](../../features/pricing.md#membership-validity)).

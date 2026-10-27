@@ -64,7 +64,10 @@ bounded so that it never stands in for a guardian:
   participant's own, never the customer's or anybody else's. So is a
   membership: at a members-only venue, a participant taking a place on a
   shared session needs their own membership, or a family membership naming
-  them (`ENT_MEMBERS_PLACE`, 409, `vars.name`;
+  them, valid on the session's date (`ENT_MEMBERS_PLACE`, 409, `vars.name`;
+  `MV6_ENDS_BEFORE` with `vars.until` where theirs ends before it; the
+  customer's own place likewise, `MV6_OWN_ENDS_BEFORE` or
+  `MV6_OWN_NOT_MEMBER`, by the number given;
   [who a venue is for](../features/booking.md#who-a-venue-is-for-public-members-only-private)).
 - The booking is recorded as made by the venue's system: in each
   participant's history as the key (`API key <id>`), and on each place.

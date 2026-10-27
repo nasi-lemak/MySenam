@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     email: typeof body.email === "string" && body.email.trim() ? body.email.trim() : undefined,
     ...(body.players !== undefined ? { players: body.players as number } : {}),
   });
-  if (!made.ok) return NextResponse.json({ error: made.error, code: made.code }, { status: 409 });
+  if (!made.ok) return NextResponse.json({ error: made.error, code: made.code, ...(made.vars ? { vars: made.vars } : {}) }, { status: 409 });
   if (selection)
     await recordBookedFor(selection.participants, { adminId: null, name: `API key ${caller.keyId}` }, { venueId: caller.venueId, codes: [made.booking.code], how: "api" });
   await notifyBookingConfirmed([made.booking], "en", null);

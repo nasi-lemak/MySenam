@@ -123,17 +123,17 @@ export async function joinAtVenue(
     placesForOthers: !takesPart && named.length > 0 && (forClass || (court?.capacity ?? 1) > 1),
   });
   if (refused) return bad(refused.error, 403, refused.code, refused.vars);
-  // Nobody waits for a members' place they could not take: each participant's own (lib/entitlements.ts).
-  if (named.length > 0) {
-    const notMember = await membersOnlyRefusal({
-      venueId,
-      court: { capacity: court?.capacity ?? 1 },
-      classId: forClass ? (classId as number) : null,
-      participants: named,
-      dates: [day],
-    });
-    if (notMember) return bad(notMember.error, 403, notMember.code, notMember.vars);
-  }
+  // Nobody waits for a members' place they could not take on its date: each participant's own, and the
+  // customer's where they take one, by the number staff or the venue's system give (lib/entitlements.ts).
+  const notMember = await membersOnlyRefusal({
+    venueId,
+    court: { capacity: court?.capacity ?? 1 },
+    classId: forClass ? (classId as number) : null,
+    participants: named,
+    customer: takesPart ? { phone: phone.trim(), userId: null, by: maker.channel } : null,
+    dates: [day],
+  });
+  if (notMember) return bad(notMember.error, 403, notMember.code, notMember.vars);
 
   const person = {
     name: name.trim(),

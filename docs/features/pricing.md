@@ -342,7 +342,8 @@ promo code discounts that. A member on a RM10/hr member rate booking two hours
 with a 20% code pays RM16.
 
 Cancelling a membership stops future discounts; bookings already made keep the
-price they were given.
+price they were given. Those at a members-only venue it no longer covers are
+flagged for staff, never cancelled ([when a membership stops](#when-a-membership-stops)).
 
 **A membership is its holder's**, and of the people it names
 ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
@@ -376,6 +377,91 @@ Who may book a members-only venue, and how far ahead a member may book, are
 the account's: a member books a court for their children further ahead. A
 place on a members' session is each person's own to hold
 ([who a venue is for](booking.md#who-a-venue-is-for-public-members-only-private)).
+
+### Membership validity
+
+Two things a membership gives are kept apart, and each is checked at its own
+time on every path: online, the counter, the venue's API key, a group of
+courts, a waiting list (joining, the offer and its claim), a class, a move,
+check-in and the door (the owner's decision of 27 October 2026;
+`src/lib/entitlements.ts`).
+
+| | Whose | Checked | For example |
+| - | ----- | ------- | ----------- |
+| **Booking privileges** | The account's (its own membership, on a number it has proved or is linked to online) | When the booking is made, and again when it is moved (a move books the new day): by the venue's rules (`windowFor`, `aheadFor`, `houseRuleRefusal` in `src/lib/house-rules.ts`) | Members book further ahead; a member reserves a court at a members-only venue |
+| **Participation** | The person taking the place: their own membership, or a family one naming them; the customer's own place, theirs (or a place on the venue's list) | For **the session's date**, never today's answer: when booked, offered, claimed or moved (`membersOnlyRefusal`), and again before they take part (`participationLapses`) | A members-only swim session; a class at a members-only club |
+
+- **A membership ending before the session does not cover it**, however
+  live it is today. Booking is refused with why and when: *Aina's membership
+  here ends on 15 Nov, before the session on 27 Nov. Renew it, then book*
+  (`MV6_ENDS_BEFORE`; the customer's own place: `MV6_OWN_ENDS_BEFORE`, or
+  `MV6_OWN_NOT_MEMBER` with no membership at all; `ENT_MEMBERS_PLACE` for a
+  participant with none). The booking form says the same before booking,
+  person by person, from the quote (`members` on `/api/quote`,
+  `src/components/MembershipEligibility.tsx`), with **where to renew**: the
+  venue's plans on its page (`/venue/:id#membership`) where it sells a
+  membership online for that person, else *ask the venue to renew it at the
+  counter*. A renewal starting the day after the old one ends covers the
+  session, and the booking goes through. The venue page tells a member until
+  when their membership runs.
+- **A booking privilege is not taken back.** A booking made inside the
+  members' window stands when the membership later ends or is cancelled;
+  moving it asks the window again for the new day. A move by the customer
+  counts a member's number only where the account that made the booking has
+  proved it or is linked to the membership, as booking online does; the
+  number typed on the booking alone gives no member's window.
+- **Waiting lists**: nobody joins for a members' place they could not take on
+  its date; a place freed is not offered to an entry whose membership no
+  longer covers the date (it keeps its place in the queue, to renew), and a
+  claim made after it lapsed is refused with the reason, the entry back to
+  waiting and the place to the next.
+- **A manager going past the rules** may still book somebody a membership does
+  not cover, recorded as an override; such a booking is met by staff at the
+  desk, never let in unattended (below).
+
+#### Before taking part
+
+Check-in and the door ask again, for the session's date, about everybody
+taking a place on a members' session (`participationLapses`): a membership
+cancelled, voided by a chargeback or ended for that day since it was booked,
+or a dependant taken off a family membership.
+
+- **Self check-in from the QR code** is refused with the reason (*… was
+  cancelled. Check in at the desk: staff will decide*; `MV6_CHECKIN_ENDED`,
+  `MV6_CHECKIN_CANCELLED`, `MV6_CHECKIN_NONE`).
+- **The door code** is not given, with the reason (`reason: "membership"`,
+  `MV6_DOOR_*`), so nobody is let in unattended
+  ([doors](venue-operations.md#resources-nobody-is-standing-next-to)).
+- **At the desk** staff see a clear warning naming each person and why
+  (`MV6_DESK_WARNING`, with `warnings`), and decide. Admitting them anyway is
+  their decision, with a note: kept on the booking (`membership_admissions`,
+  migration 0196: who, why, what they were warned of) and in the activity
+  log (`checkin.membership_admitted`). The same holds when one person on a
+  booking is marked arrived.
+- A court reserved whole is a booking privilege: not asked again here.
+
+#### When a membership stops
+
+A paid booking is never cancelled or taken silently. When a membership is
+**cancelled** by staff (*Void*), **voided by a chargeback** (revoked), or a
+dependant is **taken off** a family membership, the confirmed bookings from
+today on at a members-only venue of its business that it no longer covers
+are **flagged for staff** (`membership_booking_flags`, migration 0195;
+`src/lib/membership-flags.ts`), in the same pattern as a revoked approval's
+([ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md)):
+each place its holder or a person it covered takes on a members' session,
+and each resource the holder reserved whole there (flagged so staff know; it
+was a privilege when booked, and is not barred). Somebody still covered on
+the day by another membership or the venue's list is not flagged.
+
+Staff see them under *Bookings* (*Bookings to decide: a membership no longer
+covers them*, `GET /api/admin/memberships/flags`) and deal with each: cancel
+it the ordinary way (the venue's cancellation terms and refund policy apply
+then, and only then), admit them at the desk, or keep it, and say which
+(`POST`, a note required; in the activity log). Memberships have no
+suspended state: cancelling (staff) and voiding on a chargeback (revoked)
+are the two ways one stops early, besides taking a dependant off a family
+membership.
 
 ### Joining online
 
@@ -466,7 +552,9 @@ under *Plans and tiers*; `membership_plans.offered_for`, migration 0167;
   on the venue page (`PATCH /api/my/membership`). The price stays as paid:
   no plan is prorated, so nothing is charged for adding somebody and nothing
   is refunded for taking somebody off. Somebody taken off is no longer a
-  member through it from then on; bookings already made keep their price. A
+  member through it from then on; bookings already made keep their price, and
+  their places on members' sessions it no longer covers are flagged for staff
+  ([when a membership stops](#when-a-membership-stops)). A
   membership sold at the counter, or one that is not a family plan's, is the
   venue's to change.
 - **Cancelling** is as for any membership: the customer can stop it renewing;

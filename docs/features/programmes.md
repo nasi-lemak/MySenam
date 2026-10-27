@@ -52,8 +52,9 @@ reason (`ENT_WITHDRAW_CLASS`; [taking one person off a booking](booking.md#takin
 
 **A class at a members-only venue** is a members' session: each child
 enrolled needs their own membership, or a family membership naming them, on
-the class's date (`ENT_MEMBERS_PLACE`), and so does joining its waiting
-list for them; a parent who is not a member may enrol their member child
+the class's date, not today (`ENT_MEMBERS_PLACE`; `MV6_ENDS_BEFORE` where
+theirs ends before it, with where to renew), and so does joining its waiting
+list for them ([membership validity](pricing.md#membership-validity)); a parent who is not a member may enrol their member child
 ([who a venue is for](booking.md#who-a-venue-is-for-public-members-only-private)).
 
 

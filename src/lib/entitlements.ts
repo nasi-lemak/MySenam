@@ -376,32 +376,193 @@ export async function memberPrices(input: {
   return { booking: null, places: found.map((f) => ({ participantId: f.participantId, level: level(f.m), membershipId: f.m.id })) };
 }
 
+// ------------------------------------------------------------ membership validity on the day (the owner's decision of 27 October 2026)
+
 /**
- * Who may take a place on a session at a members-only venue (ADR 0025): each
+ * Why nobody's membership covers a person on a date here: one that would
+ * have covered it was cancelled (by staff, or voided by a chargeback),
+ * theirs ended before it (`until`), or there is none (including a family
+ * membership that no longer names them).
+ */
+export type MemberLapse = { kind: "ended"; until: string } | { kind: "cancelled" } | { kind: "none" };
+
+/** One person taking a place on a members' session, and whether a membership covers them on its date. */
+export interface MemberCover {
+  /** Their `booking_participants` row, where the booking names them. */
+  placeId?: number | null;
+  /** Null: the customer's own place. */
+  participantId: number | null;
+  name: string;
+  date: string;
+  covered: boolean;
+  /** Why not, where not covered. */
+  lapse?: MemberLapse;
+}
+
+/**
+ * Is this person a member here on this date, by the rule for whose a
+ * membership is (ADR 0025)? A participant: their own membership, or a family
+ * one naming them. The customer's own place: their own membership by the
+ * rule for who is booking (`membershipOf`: online, a number the account has
+ * proved or is linked to), or a place on the venue's list then (lib/access.ts
+ * `listedOn`). Never today's answer for another day: a membership ending
+ * before the date does not cover it.
+ */
+export async function memberCover(
+  venueId: number,
+  who: { participantId: number | null; name: string; placeId?: number | null },
+  booker: Booker | null,
+  date: string
+): Promise<MemberCover> {
+  const base = { ...(who.placeId !== undefined ? { placeId: who.placeId } : {}), participantId: who.participantId, name: who.name, date };
+  if (who.participantId === null) {
+    if (!booker) return { ...base, covered: false, lapse: { kind: "none" } };
+    if (await membershipOf(venueId, null, booker, date)) return { ...base, covered: true };
+    const { accountPhone, listedOn } = await import("./access");
+    // Online, the account's own number too, whatever number was typed on the booking (as lib/access.ts `eligible`).
+    const own = booker.by === "customer" && booker.userId ? await accountPhone(booker.userId) : null;
+    if (own && own !== booker.phone && (await membershipOf(venueId, null, { ...booker, phone: own }, date))) return { ...base, covered: true };
+    if (await listedOn(venueId, booker, date)) return { ...base, covered: true };
+    // Why not, said of the account's own membership online, else of the number's.
+    return { ...base, covered: false, lapse: await lapseOf(venueId, null, own ? { ...booker, phone: own } : booker, date) };
+  } else {
+    const store = await import("./store");
+    if (await store.participantMembership(venueId, who.participantId, date)) return { ...base, covered: true };
+  }
+  return { ...base, covered: false, lapse: await lapseOf(venueId, who.participantId, booker, date) };
+}
+
+/** Why no membership covers this person on this date (`MemberLapse`): from their memberships in this venue's business. */
+async function lapseOf(venueId: number, participantId: number | null, booker: Booker | null, date: string): Promise<MemberLapse> {
+  const { inSameBusiness } = await import("./branches");
+  const whose =
+    participantId !== null
+      ? `(m.holder_participant_id = ? OR EXISTS (SELECT 1 FROM membership_participants mp WHERE mp.membership_id = m.id AND mp.participant_id = ?))`
+      : `m.holder_kind = 'customer' AND phone_key(m.holder_phone) = phone_key(?)`;
+  if (participantId === null && !booker?.phone) return { kind: "none" };
+  const rows = (await getDb()
+    .prepare(
+      `SELECT m.status, m.starts_on, m.expires_on FROM memberships m
+        WHERE ${inSameBusiness("m.venue_id")} AND ${whose} AND m.starts_on <= ?`
+    )
+    .all(venueId, ...(participantId !== null ? [participantId, participantId] : [booker!.phone]), date)) as { status: string; starts_on: string; expires_on: string }[];
+  if (rows.some((r) => r.status === "void" && r.expires_on >= date)) return { kind: "cancelled" };
+  const ended = rows.filter((r) => r.status === "active" && r.expires_on < date).map((r) => r.expires_on).sort();
+  return ended.length > 0 ? { kind: "ended", until: ended[ended.length - 1] } : { kind: "none" };
+}
+
+/**
+ * Where to renew or buy a membership that would cover this person: the
+ * venue's page, at its plans, where it sells one online for them (the
+ * account's own, or one for somebody it looks after or a family); "" where
+ * it does not, and the venue renews it at the counter.
+ */
+export async function renewPath(venueId: number, forParticipant: boolean): Promise<string> {
+  const { takesPaymentOnline } = await import("./payments");
+  if (!(await takesPaymentOnline(venueId))) return "";
+  const { listPlans } = await import("./membership-plans");
+  const fits = (await listPlans(venueId)).some((p) => (forParticipant ? p.offeredFor !== "account" : p.offeredFor !== "participant"));
+  return fits ? `/venue/${venueId}#membership` : "";
+}
+
+/**
+ * A member's place refused, said with why and where to renew: a
+ * participant's membership that ended before the session
+ * (`MV6_ENDS_BEFORE`) or none (`ENT_MEMBERS_PLACE`); the customer's own
+ * (`MV6_OWN_ENDS_BEFORE`, `MV6_OWN_NOT_MEMBER`). `vars.renew` is the path to
+ * renew or buy online, "" where the venue does it at the counter.
+ */
+export async function coverRefusal(venueId: number, c: MemberCover): Promise<Refusal> {
+  const renew = await renewPath(venueId, c.participantId !== null);
+  const ended = c.lapse?.kind === "ended" ? c.lapse.until : null;
+  if (c.participantId !== null)
+    return ended ? refuse("MV6_ENDS_BEFORE", { name: c.name, until: ended, date: c.date, renew }) : refuse("ENT_MEMBERS_PLACE", { name: c.name, renew });
+  return ended ? refuse("MV6_OWN_ENDS_BEFORE", { until: ended, date: c.date, renew }) : refuse("MV6_OWN_NOT_MEMBER", { date: c.date, renew });
+}
+
+/**
+ * Who may take a place on a session at a members-only venue (ADR 0025, and
+ * the owner's decision of 27 October 2026 on membership validity): each
  * person taking a place of a shared-capacity session (a facility's places, a
- * class) must be a member themself, on every date booked. Here each
- * participant named: their own membership, or a family membership naming
- * them; a guardian's own membership never covers a child it does not name.
- * The customer's own place is the account's, checked where it always was
- * (lib/access.ts). Reserving a resource whole stays the booker's privilege
- * (a member may book a court for their children), so it asks nothing here.
- * The one check every path makes: online, the counter, the venue's API key,
- * a group of courts, a waiting-list offer, a class and a move.
+ * class) must be a member themself on every date booked, whatever today's
+ * answer is. Each participant named: their own membership, or a family
+ * membership naming them; a guardian's own membership never covers a child
+ * it does not name. The customer's own place, where they take one
+ * (`customer`): their own membership on that date, or a place on the
+ * venue's list then. Reserving a resource whole stays the booker's privilege
+ * (a member may book a court for their children), checked when it is made
+ * (lib/access.ts), so it asks nothing here. The one check every path makes:
+ * online, the counter, the venue's API key, a group of courts, a
+ * waiting-list offer and its claim, a class and a move. The refusal says
+ * why (a membership ending before the session, with its date) and where to
+ * renew (`coverRefusal`).
  */
 export async function membersOnlyRefusal(input: {
   venueId: number;
   court: Pick<Court, "capacity">;
   classId?: number | null;
   participants: { id: number; name: string }[];
+  /** The customer, where they take a place themself: who is booking, by `membershipOf`'s rule. */
+  customer?: Booker | null;
   dates: string[];
 }): Promise<Refusal | null> {
-  if (input.participants.length === 0 || !takesPlaces(input.court, input.classId)) return null;
+  const lacking = await membersLacking(input);
+  return lacking ? coverRefusal(input.venueId, lacking) : null;
+}
+
+/** The first person (the customer first) and date a members' session would take a place for that no membership covers, or null. */
+export async function membersLacking(input: {
+  venueId: number;
+  court: Pick<Court, "capacity">;
+  classId?: number | null;
+  participants: { id: number; name: string }[];
+  customer?: Booker | null;
+  dates: string[];
+}): Promise<MemberCover | null> {
+  if ((input.participants.length === 0 && !input.customer) || !takesPlaces(input.court, input.classId)) return null;
   const { accessSettings } = await import("./access");
   if ((await accessSettings(input.venueId)).access !== "members") return null;
-  const store = await import("./store");
-  for (const p of input.participants)
-    for (const date of input.dates) if (!(await store.participantMembership(input.venueId, p.id, date))) return refuse("ENT_MEMBERS_PLACE", { name: p.name });
+  const dates = [...input.dates].sort();
+  const people = [...(input.customer ? [{ participantId: null, name: "" }] : []), ...input.participants.map((p) => ({ participantId: p.id, name: p.name }))];
+  for (const who of people)
+    for (const date of dates) {
+      const cover = await memberCover(input.venueId, who, who.participantId === null ? (input.customer ?? null) : null, date);
+      if (!cover.covered) return cover;
+    }
   return null;
+}
+
+/**
+ * Before somebody takes part: everybody with a place on this booking whose
+ * membership no longer covers its date, where it is a place on a members'
+ * session (a members-only venue's shared-capacity session or class). Asked
+ * at check-in (the desk warns, self check-in refuses), and before a door
+ * code is given. The customer's own place by the booking's number, or the
+ * account that made it (staff took the number on their word, and online the
+ * booking was checked by the account's); a place on the venue's list
+ * counts as it does for booking. Empty where nothing is asked.
+ */
+export async function participationLapses(bookingId: number): Promise<MemberCover[]> {
+  const b = (await getDb()
+    .prepare(
+      `SELECT b.date, b.name, b.phone, b.user_id, b.class_id, c.venue_id, c.capacity FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?`
+    )
+    .get(bookingId)) as { date: string; name: string; phone: string; user_id: number | null; class_id: number | null; venue_id: number; capacity: number } | undefined;
+  if (!b || !takesPlaces({ capacity: Number(b.capacity) }, b.class_id)) return [];
+  const { accessSettings } = await import("./access");
+  if ((await accessSettings(b.venue_id)).access !== "members") return [];
+  const out: MemberCover[] = [];
+  for (const place of await placesOf(bookingId)) {
+    if (!place.customer && place.participantId === null) continue;
+    const cover = await memberCover(
+      b.venue_id,
+      { participantId: place.customer ? null : place.participantId, name: place.name ?? (place.customer ? b.name : ""), placeId: place.placeId },
+      place.customer ? { phone: b.phone, userId: b.user_id } : null,
+      b.date
+    );
+    if (!cover.covered) out.push(cover);
+  }
+  return out;
 }
 
 /**

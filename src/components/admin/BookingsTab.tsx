@@ -399,15 +399,40 @@ export function BookingsTab() {
     }
   }
 
-  async function toggleCheckIn(code: string, out: boolean) {
+  /**
+   * Somebody on a members' session whose membership no longer covers it
+   * (`MV6_DESK_WARNING`): staff are told who and why, and decide. Undefined:
+   * not that warning; null: staff did not admit them; else the note to send
+   * with `admit`, recorded with the check-in.
+   */
+  function decideAdmission(data: { code?: string; warnings?: { name: string; date: string; lapse?: { kind: string; until?: string } }[] }): { note: string } | null | undefined {
+    if (data.code !== "MV6_DESK_WARNING" || !Array.isArray(data.warnings)) return undefined;
+    const lines = data.warnings.map((w) =>
+      w.lapse?.kind === "ended"
+        ? t("mv6.bk.warnEnded", { name: w.name, until: w.lapse.until ?? "", date: w.date })
+        : w.lapse?.kind === "cancelled"
+          ? t("mv6.bk.warnCancelled", { name: w.name })
+          : t("mv6.bk.warnNone", { name: w.name, date: w.date })
+    );
+    if (!window.confirm([t("mv6.bk.warnTitle"), ...lines, "", t("mv6.bk.admitConfirm")].join("\n"))) return null;
+    const note = window.prompt(t("mv6.bk.admitNote"));
+    return note === null ? null : { note };
+  }
+
+  async function toggleCheckIn(code: string, out: boolean, admit?: { note: string }) {
     setError(null);
     try {
       const res = await fetch("/api/admin/check-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, out }),
+        body: JSON.stringify({ code, out, ...(admit ? { admit: true, note: admit.note } : {}) }),
       });
       const data = await res.json();
+      if (!res.ok && !admit) {
+        const decided = decideAdmission(data);
+        if (decided === null) return;
+        if (decided) return await toggleCheckIn(code, out, decided);
+      }
       if (!res.ok) throw new Error(t.err(data, t("bk.checkInFailed")));
       load();
     } catch (err) {
@@ -456,15 +481,20 @@ export function BookingsTab() {
   }
 
   /** One person a booking names arrived, did not, or clear it (lib/store.ts `markPlace`). */
-  async function markPerson(code: string, placeId: number, mark: "arrived" | "no_show" | "clear") {
+  async function markPerson(code: string, placeId: number, mark: "arrived" | "no_show" | "clear", admit?: { note: string }) {
     setError(null);
     try {
       const res = await fetch("/api/admin/check-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, placeId, mark }),
+        body: JSON.stringify({ code, placeId, mark, ...(admit ? { admit: true, note: admit.note } : {}) }),
       });
       const data = await res.json();
+      if (!res.ok && !admit) {
+        const decided = decideAdmission(data);
+        if (decided === null) return;
+        if (decided) return await markPerson(code, placeId, mark, decided);
+      }
       if (!res.ok) throw new Error(t.err(data, t("bk.checkInFailed")));
       load();
     } catch (err) {

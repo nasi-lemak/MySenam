@@ -27,6 +27,12 @@ export async function POST(
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   // One that renews itself stops charging too; if the gateway will not say so, staff are told to stop it there.
   const renewal = await stopRenewalOf(membershipId);
-  await logAction(admin, { venueId: existing.venueId, action: "membership.voided", detail: `Membership ${membershipId}` });
-  return NextResponse.json({ membership: result.membership, ...(renewal ? { warning: `It still renews at the gateway: ${renewal}` } : {}) });
+  // Its holder's and covered people's bookings from today on that it no longer covers: flagged for staff, never cancelled.
+  const flagged = result.flagged ?? 0;
+  await logAction(admin, {
+    venueId: existing.venueId,
+    action: "membership.voided",
+    detail: `Membership ${membershipId}${flagged > 0 ? `; ${flagged} booking(s) flagged for staff` : ""}`,
+  });
+  return NextResponse.json({ membership: result.membership, flagged, ...(renewal ? { warning: `It still renews at the gateway: ${renewal}` } : {}) });
 }

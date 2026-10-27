@@ -27,7 +27,7 @@ import {
 import { creditScope } from "./mode";
 import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
-import { isDuplicateSpend, memberPrices, membersOnlyRefusal, PASS_SCOPES, placesOf as placeRows, refuse as refuseEnt, soldByPlace, type BenefitScope } from "./entitlements";
+import { isDuplicateSpend, memberPrices, membersOnlyRefusal, participationLapses, PASS_SCOPES, placesOf as placeRows, refuse as refuseEnt, soldByPlace, type BenefitScope, type MemberCover } from "./entitlements";
 import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, stackRefusal } from "./discounts";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -2123,13 +2123,15 @@ export async function createBookingSeries(
     if (held && channel === "customer" && players > Math.max(1, persons) && !override) return refuse("SIGN_OFF_EACH", { sport: activityName(court.sport) });
   }
   // A place on a members' session is each person's own to hold (lib/entitlements.ts, ADR 0025): a
-  // participant needs their own membership or a family one naming them, on every week booked. A
+  // participant needs their own membership or a family one naming them, and the customer taking a
+  // place their own (or a place on the venue's list), valid on every week booked, not just today. A
   // manager going past the rules may book without, and it is recorded as an override.
   const notMember = await membersOnlyRefusal({
     venueId: court.venueId,
     court,
     classId: input.classId ?? null,
     participants: named,
+    customer: customerPlays ? { phone, userId: userId ?? null, ...(input.by ? { by: input.by } : {}) } : null,
     dates: Array.from({ length: weeks }, (_, w) => addDays(date, 7 * w)),
   });
   if (notMember && !override) return notMember;
@@ -3344,11 +3346,15 @@ async function rescheduleBookingOnce(
       }
       if (!held) breaches.push("SIGN_OFF");
     }
-    // A members' session: each participant still a member on the new date (lib/entitlements.ts).
+    // A members' session: each taking a place still a member on the new date (lib/entitlements.ts), the customer's own place too.
+    const placesNow = await bookingPlaces(booking.id);
+    const movedBy = ((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null } | undefined)?.user_id ?? null;
     const notMember = await membersOnlyRefusal({
       venueId: court.venueId,
       court,
-      participants: (await bookingPlaces(booking.id)).flatMap((p) => (!p.customer && p.participantId !== null ? [{ id: p.participantId, name: p.name ?? "" }] : [])),
+      classId: booking.classId ?? null,
+      participants: placesNow.flatMap((p) => (!p.customer && p.participantId !== null ? [{ id: p.participantId, name: p.name ?? "" }] : [])),
+      customer: placesNow.some((p) => p.customer) ? { phone: booking.phone, userId: movedBy, by } : null,
       dates: [to.date],
     });
     if (notMember && !(by === "staff" && to.override === true)) {
@@ -4213,6 +4219,63 @@ export async function paySeries(
 
 export type CheckInResult = { ok: true; booking: Booking } | Refusal;
 
+/**
+ * At the desk, somebody whose membership no longer covers the session
+ * (lib/entitlements.ts `participationLapses`): staff are told who and why,
+ * and decide. Sent again with `admit`, they are checked in and the decision
+ * is kept (`membership_admissions`) and logged by the caller.
+ */
+export type DeskCheckInResult = CheckInResult | { ok: false; error: string; code: "MV6_DESK_WARNING"; warnings: MemberCover[] };
+
+/** Staff at the desk admitting somebody whose membership no longer covers the session: who decided, and why. */
+export interface MembershipAdmit {
+  adminId: number | null;
+  adminName: string;
+  note?: string | null;
+}
+
+/** The English sentence staff are warned with (their screen says it in their language, from `warnings`). */
+function deskWarning(warnings: MemberCover[]): string {
+  const lines = warnings.map((w) =>
+    w.lapse?.kind === "ended"
+      ? `${w.name}'s membership ended on ${w.lapse.until}`
+      : w.lapse?.kind === "cancelled"
+        ? `${w.name}'s membership was cancelled`
+        : `${w.name} has no membership covering ${w.date}`
+  );
+  return `This session is for members: ${lines.join("; ")}. Check them in only if you decide to admit them.`;
+}
+
+/** Keep staff's decision to admit people their membership no longer covers. */
+async function recordAdmission(bookingId: number, warnings: MemberCover[], admit: MembershipAdmit): Promise<void> {
+  const note = admit.note?.trim().slice(0, 300) || null;
+  for (const w of warnings)
+    await getDb()
+      .prepare(
+        `INSERT INTO membership_admissions (booking_id, place_id, participant_id, person_name, lapse, ended_on, admin_id, admin_name, note)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        bookingId,
+        w.placeId ?? null,
+        w.participantId,
+        w.name,
+        w.lapse?.kind ?? "none",
+        w.lapse?.kind === "ended" ? w.lapse.until : null,
+        admit.adminId,
+        admit.adminName,
+        note
+      );
+}
+
+/** What a person turned away unattended is told: why their membership does not cover the session. */
+function lapseRefusal(channel: "CHECKIN" | "DOOR", w: MemberCover): Refusal {
+  const door = channel === "DOOR";
+  if (w.lapse?.kind === "ended") return refuse(door ? "MV6_DOOR_ENDED" : "MV6_CHECKIN_ENDED", { name: w.name, until: w.lapse.until, date: w.date });
+  if (w.lapse?.kind === "cancelled") return refuse(door ? "MV6_DOOR_CANCELLED" : "MV6_CHECKIN_CANCELLED", { name: w.name, date: w.date });
+  return refuse(door ? "MV6_DOOR_NONE" : "MV6_CHECKIN_NONE", { name: w.name, date: w.date });
+}
+
 async function bookingByCode(code: string): Promise<Booking | null> {
   const row = await getDb()
     .prepare(
@@ -4238,14 +4301,23 @@ function checkInWindowError(booking: Booking, zone: string): string | null {
   return null;
 }
 
-/** Record an arrival at the front desk. */
-export async function checkIn(code: string): Promise<CheckInResult> {
+/**
+ * Record an arrival at the front desk. A place on a members' session whose
+ * person's membership no longer covers it is not checked in silently:
+ * staff are warned (`MV6_DESK_WARNING`, with who and why) and decide; with
+ * `admit` the decision is kept and they are checked in.
+ */
+export async function checkIn(code: string, opts: { admit?: MembershipAdmit } = {}): Promise<DeskCheckInResult> {
   const booking = await bookingByCode(code);
   if (!booking) return refuse("BOOKING_NOT_FOUND");
-  return await checkInBooking(booking);
+  return await checkInBooking(booking, { desk: true, ...(opts.admit ? { admit: opts.admit } : {}) });
 }
 
-/** Self-service check-in from the QR code on a booking. */
+/**
+ * Self-service check-in from the QR code on a booking. Nobody is there to
+ * decide, so a place whose membership no longer covers the session is
+ * refused with the reason: check in at the desk.
+ */
 export async function checkInByToken(token: string): Promise<CheckInResult> {
   const trimmed = token.trim();
   if (trimmed === "") return refuse("BOOKING_NOT_FOUND");
@@ -4255,20 +4327,26 @@ export async function checkInByToken(token: string): Promise<CheckInResult> {
     )
     .get(trimmed) as BookingRow | undefined;
   if (!row) return refuse("BOOKING_NOT_FOUND");
-  return await checkInBooking(toBooking(row));
+  return (await checkInBooking(toBooking(row), { desk: false })) as CheckInResult;
 }
 
-async function checkInBooking(booking: Booking): Promise<CheckInResult> {
+async function checkInBooking(booking: Booking, how: { desk: boolean; admit?: MembershipAdmit }): Promise<DeskCheckInResult> {
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.checkedInAt) return { ok: false, error: "Already checked in." };
   const windowError = checkInWindowError(booking, await courtZone(booking.courtId));
   if (windowError) return { ok: false, error: windowError };
+  // Revalidated before taking part (the owner's decision of 27 October 2026): a membership cancelled,
+  // voided or ended for this date since it was booked. Nobody admits them unattended.
+  const lapses = await participationLapses(booking.id);
+  if (lapses.length > 0 && !how.desk) return lapseRefusal("CHECKIN", lapses[0]);
+  if (lapses.length > 0 && !how.admit) return { ok: false, error: deskWarning(lapses), code: "MV6_DESK_WARNING", warnings: lapses };
 
   const db = getDb();
   await db.transaction(async () => {
     await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
     // Arriving contradicts a no-show, so clear any stale flag.
     if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+    if (lapses.length > 0 && how.admit) await recordAdmission(booking.id, lapses, how.admit);
   })();
   return { ok: true, booking: (await bookingByCode(booking.code))! };
 }
@@ -4597,6 +4675,15 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
       reason: "supervised",
       message: "Staff will meet you for this booking and let you in. There is no door code for it.",
     };
+
+  // A place on a members' session whose person's membership was cancelled, voided or has ended for
+  // this date since it was booked: nobody unattended decides that, so no door code (the owner's
+  // decision of 27 October 2026). Staff at the desk may admit them, on the record.
+  const lapses = await participationLapses(booking.id);
+  if (lapses.length > 0) {
+    const said = lapseRefusal("DOOR", lapses[0]);
+    return { ok: false, reason: "membership", message: said.error, ...(said.code ? { code: said.code } : {}), ...(said.vars ? { vars: said.vars } : {}) };
+  }
 
   // An activity whose rules ask for a sign-off or a certification opens no
   // door to a booking without one in force that day: a session booked for an
@@ -5087,7 +5174,10 @@ export async function placeAttendance(bookingId: number): Promise<PlaceAttendanc
   }));
 }
 
-export type PlaceMarkResult = { ok: true; booking: Booking; places: PlaceAttendance[] } | Refusal;
+export type PlaceMarkResult =
+  | { ok: true; booking: Booking; places: PlaceAttendance[] }
+  | Refusal
+  | { ok: false; error: string; code: "MV6_DESK_WARNING"; warnings: MemberCover[] };
 
 /**
  * Staff record that one person a booking names arrived, did not, or clear
@@ -5096,9 +5186,18 @@ export type PlaceMarkResult = { ok: true; booking: Booking; places: PlaceAttenda
  * no-show only once it has started, and never for somebody seen to arrive.
  * The booking is a no-show (the strike its customer may carry) only when
  * everybody it names was one and nobody checked it in. Who recorded it is
- * kept.
+ * kept. Somebody arriving whose membership no longer covers a members'
+ * session is a warning for staff to decide on (`MV6_DESK_WARNING`), as at
+ * the booking's check-in; with `admit` they are marked arrived and the
+ * decision kept.
  */
-export async function markPlace(code: string, placeId: number, mark: "arrived" | "no_show" | "clear", admin: { id: number | null; name: string }): Promise<PlaceMarkResult> {
+export async function markPlace(
+  code: string,
+  placeId: number,
+  mark: "arrived" | "no_show" | "clear",
+  admin: { id: number | null; name: string },
+  opts: { admit?: MembershipAdmit } = {}
+): Promise<PlaceMarkResult> {
   return withTransaction(async () => {
     const db = getDb();
     const found = await bookingByCode(code);
@@ -5118,8 +5217,12 @@ export async function markPlace(code: string, placeId: number, mark: "arrived" |
       if (!booking.checkedInAt) {
         const windowError = checkInWindowError(booking, zone);
         if (windowError) return { ok: false, error: windowError };
-        await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
       }
+      // Their membership, revalidated for the session's date (lib/entitlements.ts): staff warned, and decide.
+      const lapsed = (await participationLapses(booking.id)).filter((w) => w.placeId === place.id);
+      if (lapsed.length > 0 && !opts.admit) return { ok: false, error: deskWarning(lapsed), code: "MV6_DESK_WARNING" as const, warnings: lapsed };
+      if (lapsed.length > 0 && opts.admit) await recordAdmission(booking.id, lapsed, opts.admit);
+      if (!booking.checkedInAt) await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
       const checkIn = (await db.prepare("SELECT id FROM check_ins WHERE booking_id = ?").get(booking.id)) as { id: number };
       await db
         .prepare(
@@ -6665,15 +6768,22 @@ export async function sellMembership(input: {
   });
 }
 
-/** Cancel a membership. Bookings already made keep the price they were given. */
-export async function voidMembership(id: number): Promise<MembershipResult> {
+/**
+ * Cancel a membership. Bookings already made keep the price they were given;
+ * those from today on at a members-only venue that it no longer covers are
+ * flagged for staff, never cancelled (lib/membership-flags.ts): `flagged`
+ * says how many.
+ */
+export async function voidMembership(id: number): Promise<MembershipResult & { flagged?: number }> {
   return withTransaction(async () => {
     const m = await membershipById(id);
-    if (!m) return { ok: false, error: "Membership not found." };
-    if (m.status === "void") return { ok: false, error: "This membership is already cancelled." };
+    if (!m) return { ok: false as const, error: "Membership not found." };
+    if (m.status === "void") return { ok: false as const, error: "This membership is already cancelled." };
     await getDb().prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(id);
     await creditReceipt(`membership:${id}`, "receipt.why.voided");
-    return { ok: true, membership: (await membershipById(id))! };
+    const { flagAfterMembershipLoss } = await import("./membership-flags");
+    const flagged = await flagAfterMembershipLoss(id, "cancelled");
+    return { ok: true as const, membership: (await membershipById(id))!, flagged };
   });
 }
 
@@ -7739,6 +7849,23 @@ async function entryRefused(row: WaitlistRow, named: { id: number; name: string 
       (row.class_id !== null || ((row.court_id ? await getCourt(row.court_id) : null)?.capacity ?? 1) > 1) &&
       (await accessSettings(venueId)).access === "members";
     if (notHere && !forOthers) return { refusal: notHere, leaves: false };
+  }
+  // A members' place, offered or claimed, only to those a membership covers on its date: each named,
+  // and the customer where they take a place (lib/entitlements.ts). A membership that has since ended
+  // or been cancelled keeps the entry waiting in its place, to renew; the place goes to the next.
+  const date = row.class_id ? (await getClass(row.class_id))?.date : row.date;
+  const court = row.class_id ? null : row.court_id ? await getCourt(row.court_id) : null;
+  if (date) {
+    const takesPart = row.customer_takes_part !== false || named.length === 0;
+    const notMember = await membersOnlyRefusal({
+      venueId,
+      court: { capacity: court?.capacity ?? 1 },
+      classId: row.class_id,
+      participants: named,
+      customer: takesPart ? { phone: row.phone, userId: row.user_id, by: channelOf(row) } : null,
+      dates: [date],
+    });
+    if (notMember) return { refusal: notMember, leaves: false };
   }
   return null;
 }

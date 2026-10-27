@@ -432,6 +432,11 @@ export async function changeCovers(userId: number, membershipId: number, wanted:
       await db.prepare("INSERT INTO membership_participants (membership_id, participant_id) VALUES (?, ?)").run(m.id, p.id);
       await participantEvent(p.id, "membership.covered", { userId, name: user.name }, { venueId: m.venue_id, detail: `membership ${m.id}, until ${m.expires_on}` });
     }
+    // Somebody taken off it: their members' places from today on it no longer covers are flagged for staff (lib/membership-flags.ts).
+    if (removed.length > 0) {
+      const { flagAfterMembershipLoss } = await import("./membership-flags");
+      await flagAfterMembershipLoss(m.id, "uncovered", removed);
+    }
     return { ok: true, membership: (await membershipById(m.id))! };
   });
 }
