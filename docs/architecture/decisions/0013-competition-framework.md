@@ -82,3 +82,8 @@
     its version; staff decisions on league results are emailed to both
     sides. League results still use their own functions with the shared
     rules, not `recordResult` (see the feature document's open decisions).
+  - 2026-10-27 (the owner's decision): that is the design, not a gap. Box
+    leagues check and rank results by the shared rules (`scoreRefusal`,
+    `standings`) through their own result functions in `src/lib/leagues.ts`;
+    `recordResult` stays a tournament's, with its progression and
+    corrections. `AGENTS.md` was corrected to say so; the code is unchanged.

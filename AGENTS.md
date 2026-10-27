@@ -25,8 +25,11 @@ which names the one authoritative document for each subject.
 - Competitions are configured by data: a new sport is a template and rules
   (`src/lib/competition-templates.ts`, `src/lib/tournament-rules.ts`), never
   an engine or a branch on the sport ([ADR 0013](docs/architecture/decisions/0013-competition-framework.md)).
-  Box leagues and results entered by players or officials use the same rules
-  and `recordResult`, not checks of their own.
+  Results entered by players or officials go through `recordResult`, as
+  staff's do. Box leagues check and rank results by the same rules
+  (`scoreRefusal`, `standings`) through their own functions in
+  `src/lib/leagues.ts`, since `recordResult` carries a tournament's
+  progression and corrections; neither has checks of its own.
 - Matchmaking is built on open games ([ADR 0016](docs/architecture/decisions/0016-matchmaking-on-open-games.md)):
   one row per person per game, every change that takes or frees a place under
   the game's row lock, suggestions by published rules with their reasons shown,

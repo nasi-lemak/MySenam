@@ -595,8 +595,9 @@ Which parts are verified, and how, is in
   day announcements, are roadmap rows, not commitments
   ([roadmap](../roadmap/roadmap.md)).
 - Box-league results are checked and ranked by the same rules as a
-  tournament's (`scoreRefusal`, `standings`), but recorded by their own
-  functions in `src/lib/leagues.ts`, not by `recordResult`, which is a
-  tournament's (its progression, corrections and issues have no league
-  counterpart). `AGENTS.md` says box leagues use `recordResult`: which is
-  intended is the owner's to say.
+  tournament's (`scoreRefusal`, `standings`), and recorded by their own
+  functions in `src/lib/leagues.ts` (`reportResult`, `confirmResult`,
+  `disputeResult`, `decideResult`), not by `recordResult`, which carries a
+  tournament's progression, corrections and issues that have no league
+  counterpart. This is the intended design (the owner, 27 October 2026), and
+  `AGENTS.md` says so.

@@ -269,11 +269,11 @@ Also, in [tournaments](../features/tournaments.md):
   (P3, by design: officials are often volunteers without an account).
 - Box leagues share the competition rules for scores and tables, but are
   still their own engine for seasons, boxes and result states; a league match
-  always has a winner. `AGENTS.md` says box leagues use `recordResult`; they
-  use the shared rules (`scoreRefusal`, `standings`) with their own result
-  functions in `src/lib/leagues.ts`, since `recordResult` is bound to
-  knockout progression and corrections. For the owner: amend `AGENTS.md` to
-  say so (recommended), or plan moving leagues onto `recordResult` (P3).
+  always has a winner. They use the shared rules (`scoreRefusal`,
+  `standings`) with their own result functions in `src/lib/leagues.ts`,
+  since `recordResult` is bound to knockout progression and corrections; by
+  the owner's decision of 27 October 2026 that is the design, and
+  `AGENTS.md` says so (P3, by design).
 
 Also, in [open games](../features/matchmaking.md#moving-a-game-to-another-time):
 
