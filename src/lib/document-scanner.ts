@@ -1,4 +1,5 @@
 import net from "net";
+import { readClamdConf } from "./clamd-on-demand";
 
 /**
  * The malware scanner supporting documents go through before anybody can
@@ -173,8 +174,9 @@ export function readReply(reply: string, engine: string): ScanVerdict {
 // ------------------------------------------------------------ configuration
 
 /**
- * - `scanner`: a scanner is configured (`MYSENAM_CLAMD`); documents wait in
- *   quarantine until it has passed them.
+ * - `scanner`: a scanner is configured (`MYSENAM_CLAMD`, or clamd started on
+ *   demand by `MYSENAM_CLAMD_ONDEMAND`); documents wait in quarantine until
+ *   it has passed them.
  * - `unconfigured`: none is. Documents are still taken into quarantine and
  *   wait there, never released, until a scanner is configured and passes
  *   them (lib/document-scanning.ts).
@@ -193,12 +195,28 @@ export function setDocumentScanner(scanner: DocumentScanner | "unconfigured" | n
   testing.__mysenamDocumentScanner = scanner;
 }
 
+const onDemandConf = new Map<string, ReturnType<typeof readClamdConf>>();
+
+/**
+ * Where clamd listens: `MYSENAM_CLAMD`, or, when only the on-demand scanner
+ * is configured (`MYSENAM_CLAMD_ONDEMAND`), the loopback address its
+ * clamd.conf gives (lib/clamd-on-demand.ts). Null when neither says.
+ */
+export function clamdAddress(): { host: string; port: number } | null {
+  const address = process.env.MYSENAM_CLAMD?.trim();
+  if (address) return parseClamdAddress(address);
+  const file = process.env.MYSENAM_CLAMD_ONDEMAND?.trim();
+  if (!file) return null;
+  if (!onDemandConf.has(file)) onDemandConf.set(file, readClamdConf(file));
+  const conf = onDemandConf.get(file)!;
+  return "error" in conf ? null : { host: conf.host, port: conf.port };
+}
+
 /** The scanner in use, or null when there is none. */
 export function documentScanner(): DocumentScanner | null {
   const t = testing.__mysenamDocumentScanner;
   if (t !== undefined && t !== null) return typeof t === "string" ? null : t;
-  const address = process.env.MYSENAM_CLAMD?.trim();
-  const parsed = address ? parseClamdAddress(address) : null;
+  const parsed = clamdAddress();
   return parsed ? new ClamdScanner(parsed.host, parsed.port) : null;
 }
 

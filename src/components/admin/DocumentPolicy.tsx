@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { FailedDocument, ScannerHealth, ScannerProblem } from "@/lib/document-scanning";
+import type { FailedDocument, OnDemandHealth, ScannerHealth, ScannerProblem } from "@/lib/document-scanning";
 import { fileSize } from "@/components/ApprovalDocumentLink";
 import type { Jurisdiction, RetentionPolicy, ScopeKey } from "@/lib/retention-policy";
 import { useStaffT } from "./StaffLanguage";
@@ -35,8 +35,15 @@ const FIELDS: { key: keyof Periods; words: "apr.retx.documentDays" | "apr.retx.r
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
-/** Problems worded under the amended decision (no opt-out, documents waiting for a scanner) have `apr.scan2.` words. */
-const problemKey = (p: ScannerProblem) => (p === "unconfigured" || p === "waiting" ? (`apr.scan2.problem.${p}` as const) : (`apr.scan.problem.${p}` as const));
+const when = (iso: string | null) => (iso ? iso.slice(0, 16).replace("T", " ") + " UTC" : "");
+
+/** Problems worded under the amended decision (no opt-out, documents waiting for a scanner) have `apr.scan2.` words; the on-demand scanner's, `apr.scan3.`. */
+const problemKey = (p: ScannerProblem) =>
+  p === "ondemand_misconfigured" || p === "ondemand_failed" || p === "ondemand_blocked"
+    ? (`apr.scan3.problem.${p}` as const)
+    : p === "unconfigured" || p === "waiting"
+      ? (`apr.scan2.problem.${p}` as const)
+      : (`apr.scan.problem.${p}` as const);
 /** How many times the owner may have one document scanned again (lib/document-scanning.ts MAX_MANUAL_RETRIES). */
 const MAX_RETRIES = 3;
 
@@ -132,11 +139,17 @@ export default function DocumentPolicy() {
       {scanner && (
         <div className="space-y-1 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
           <p className="font-medium">
-            {scanner.mode === "scanner" ? t("apr.scan.modeScanner") : t("apr.scan2.modeUnconfigured")}
+            {scanner.mode !== "scanner"
+              ? t("apr.scan2.modeUnconfigured")
+              : scanner.onDemand && !scanner.onDemand.error
+                ? t("apr.scan3.modeOnDemand", { idle: scanner.onDemand.idleMinutes ?? 0 })
+                : t("apr.scan.modeScanner")}
           </p>
-          {scanner.mode === "scanner" && (
+          {scanner.onDemand?.error && <p className="text-amber-800">{t("apr.scan3.misconfigured", { error: scanner.onDemand.error })}</p>}
+          {scanner.mode === "scanner" && scanner.reachable !== null && (
             <p className="text-slate-600">{scanner.reachable ? t("apr.scan.answering", { engine: scanner.engine ?? "" }) : t("apr.scan.notAnswering")}</p>
           )}
+          {scanner.onDemand && !scanner.onDemand.error && <OnDemandLines health={scanner.onDemand} />}
           {scanner.signaturesAt && (
             <p className="text-slate-600">
               {t("apr.scan.signatures", { date: day(scanner.signaturesAt), hours: Math.floor(scanner.signatureAgeHours ?? 0) })}
@@ -354,5 +367,34 @@ export default function DocumentPolicy() {
         </div>
       )}
     </section>
+  );
+}
+
+/** The scanner started on demand: running or not, its last start (load time, peak memory), stop and failure, and why it is held back. */
+function OnDemandLines({ health }: { health: OnDemandHealth }) {
+  const t = useStaffT();
+  const s = health.state;
+  return (
+    <>
+      <p className="text-slate-600">{t(`apr.scan3.phase.${s?.phase ?? "stopped"}`)}</p>
+      {s?.lastStartAt && (
+        <p className="text-slate-600">
+          {s.lastLoadMs !== null
+            ? t("apr.scan3.lastStart", { date: when(s.lastStartAt), seconds: (s.lastLoadMs / 1000).toFixed(1), mib: s.peakRssMiB ?? "?" })
+            : t("apr.scan3.lastStartNoLoad", { date: when(s.lastStartAt) })}
+        </p>
+      )}
+      {s?.lastStopAt && s.lastStopReason && (
+        <p className="text-slate-600">{t("apr.scan3.lastStop", { date: when(s.lastStopAt), reason: t(`apr.scan3.stop.${s.lastStopReason}`) })}</p>
+      )}
+      {health.memAvailableMiB !== null && health.minAvailableMiB !== null && (
+        <p className="text-slate-600">{t("apr.scan3.memory", { mib: health.memAvailableMiB, min: health.minAvailableMiB })}</p>
+      )}
+      {health.signaturesVersion !== null && <p className="text-slate-600">{t("apr.scan3.signaturesOnDisk", { version: health.signaturesVersion })}</p>}
+      {s?.blocked && <p className="text-amber-800">{t(`apr.scan3.blocked.${s.blocked.reason}`, { date: when(s.blocked.since) })}</p>}
+      {s?.lastFailureAt && s.lastFailure && s.consecutiveFailures > 0 && (
+        <p className="text-amber-800">{t("apr.scan3.lastFailure", { date: when(s.lastFailureAt), detail: s.lastFailure })}</p>
+      )}
+    </>
   );
 }

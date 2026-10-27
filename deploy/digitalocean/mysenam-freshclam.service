@@ -1,0 +1,19 @@
+# ClamAV signature updates for the on-demand scanner. Installed to
+# /etc/systemd/system/ by setup.sh (--scanner=on-demand), started by
+# mysenam-freshclam.timer. It never runs beside the app's on-demand clamd:
+# /usr/local/sbin/mysenam-freshclam waits for clamd to stop first.
+#
+#   systemctl start mysenam-freshclam      update now
+#   journalctl -u mysenam-freshclam        what it said
+
+[Unit]
+Description=ClamAV signature update for MySenam's on-demand scanner
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mysenam-freshclam /var/lib/mysenam/scanner
+# Waiting for clamd to go idle can take up to an hour; the update itself, a minute or two.
+TimeoutStartSec=90min
+Nice=10

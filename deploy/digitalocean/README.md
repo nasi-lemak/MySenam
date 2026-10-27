@@ -8,7 +8,8 @@ visited. One script sets the machine up; another deploys each new version.
 visitors ──https──▶ Caddy :443 ──▶ app 127.0.0.1:3000 ──▶ Postgres (localhost only)
                      (certificates)    (systemd: mysenam)      (nightly pg_dump → off-site)
                                               │
-                                              └──▶ clamd 127.0.0.1:3310 (supporting documents; freshclam updates it)
+                                              └──▶ clamd 127.0.0.1:3310 (supporting documents; started by the app
+                                                   while documents wait, on a 2 GB Droplet; freshclam updates it)
 ```
 
 ## What it costs
@@ -17,21 +18,27 @@ visitors ──https──▶ Caddy :443 ──▶ app 127.0.0.1:3000 ──▶ 
 | --- | --- |
 | Droplet: Basic, Regular, **2 GB / 1 vCPU / 50 GB**, Singapore | 12 |
 | Droplet backups (weekly snapshots of the whole machine), optional | 2.40 |
-| Off-site copies on Cloudflare R2: free under 10 GB | 0 |
+| Off-site copies on Backblaze B2 (preferred; Amazon S3 supported): the first 10 GB free, then about USD 7 a TB | 0 at first |
 
-The app uses about 250 MB and Postgres is set up to use about 300 MB, so 2 GB
-leaves the operating system room to cache the database. Move to 4 GB
+The app uses about 250–340 MB and Postgres is set up to use about 300 MB, so
+2 GB leaves the operating system room to cache the database. Move to 4 GB
 (USD 24) when the database outgrows a few gigabytes, or when pages that list
 a lot start to feel slow. DigitalOcean resizes a Droplet in place, with a reboot.
 
-**The malware scanner needs 4 GB.** ClamAV, which checks the documents
-customers send with applications, holds its signatures in memory (about
-1.2 GiB; ClamAV recommends 3 to 4 GiB of RAM for the machine) and a few hundred megabytes
-of disk for them. With it, choose the **4 GB / 2 vCPU** Droplet (USD 24 a
-month, USD 12 more than without it). Without it (`--no-scanner`), the app
+**The malware scanner fits the 2 GB Droplet by running only when needed.**
+ClamAV, which checks the documents customers send with applications, holds
+its signatures in memory while it runs: about 1 GiB measured (ClamAV
+recommends 3 to 4 GiB of RAM for a machine that keeps it running), and a few
+hundred megabytes of disk. On this Droplet the setup chooses
+`--scanner=on-demand`: the app starts clamd itself when a document waits and
+enough memory is free, and stops it a few minutes after the last one is
+scanned, and freshclam updates the signatures on a timer, never while clamd
+runs. A document sent while clamd is stopped is released about a minute
+later instead of at once. On 4 GB or more, `--scanner=always-on` keeps clamd
+running (the default there). `--scanner=none` leaves it out: the app then
 takes supporting documents into quarantine and nobody can open them, or
 approve an application that needs one, until a scanner is set up; there is no
-setting to release them unscanned ([deployment](../../docs/operations/deployment.md#the-malware-scanner)).
+setting to release them unscanned ([deployment](../../docs/operations/deployment.md#choosing-how-clamd-runs)).
 
 ## Setting it up
 
@@ -56,10 +63,14 @@ ssh root@<droplet-ip> bash mysenam-kit/setup.sh \
 ```
 
 It installs Postgres 16, Node 22 and Caddy, and turns on the firewall (SSH, HTTP
-and HTTPS only) and automatic security updates. It adds 2 GB of swap, so a build
-never runs the machine out of memory. Then it creates the database with a
-generated password and writes the app's settings to `/etc/mysenam/env`, with a
-generated `MYSENAM_SECRET`. It finishes by printing a deploy key.
+and HTTPS only) and automatic security updates. It adds 2 GB of swap as a
+safety net, so a build never runs the machine out of memory; it is not
+capacity, and nothing is sized to run in it. It installs ClamAV in the mode
+chosen for the machine's memory (add `--scanner=on-demand`, `always-on` or
+`none` to choose yourself) and, on demand, fetches the first signatures. Then
+it creates the database with a generated password and writes the app's
+settings to `/etc/mysenam/env`, with a generated `MYSENAM_SECRET`. It finishes
+by printing a deploy key.
 
 **4. Let the server read the repository.** On GitHub: *Settings → Deploy keys →
 Add deploy key*. Paste the key it printed, and leave *Allow write access*
@@ -89,7 +100,8 @@ Caddy gets the certificate. Sign in at `/admin`.
 | Take a backup now | `mysenam-run npm run backup` |
 | Look inside the database | `sudo -u postgres psql mysenam` |
 | See Caddy's side | `journalctl -u caddy -f` |
-| Check the malware scanner and its signature updates | `systemctl status clamav-daemon`, `journalctl -u clamav-freshclam` (the owner's *Supporting documents* panel shows the same) |
+| Check the malware scanner and its signature updates | On demand: `journalctl -u mysenam \| grep 'malware scanner'` (starts and stops), `journalctl -u mysenam-freshclam`, `systemctl list-timers mysenam-freshclam`. Always on: `systemctl status clamav-daemon`, `journalctl -u clamav-freshclam`. The owner's *Supporting documents* panel shows the same |
+| Update the signatures now (on demand) | `systemctl start mysenam-freshclam` (it waits for clamd to stop first) |
 
 **Deploying** builds the new version beside the live one, so the site stays up
 while it builds. It takes a backup with the live version, switches, and checks
@@ -100,11 +112,18 @@ versions are kept in `/srv/mysenam/releases`.
 **Backups** are taken by the app every night at 03:00 local time with
 `pg_dump`, checked by reading them back, and kept in `/var/lib/mysenam/backups`
 (the last 14). Copies on the same disk do not survive losing the disk, so set
-up off-site copies: create a Cloudflare R2 bucket and an API token that can only
-write objects to it. Fill in the `OFFSITE_S3_*` lines in `/etc/mysenam/env`,
-restart, and press *Back up now* under *Venues & staff → Backups* to see the
-first copy arrive. Add a lifecycle rule on the bucket to delete copies after 30
-days.
+up off-site copies, through the one S3-compatible setting: **Backblaze B2** is
+the preferred provider and Amazon S3 is supported as well
+([ADR 0015](../../docs/architecture/decisions/0015-backblaze-b2-preferred-signed-backup-sets.md)).
+Create a private bucket with Object Lock and an application key that can only
+upload to it, keeping the read key and the decryption key off the server.
+Fill in the `OFFSITE_S3_*` lines in `/etc/mysenam/env`, with
+`OFFSITE_DATA_LOCATION`; a B2 bucket is abroad (it has no region in Asia), so
+nothing is copied until the transfer is approved (`OFFSITE_TRANSFER_APPROVED`)
+and copies are encrypted ([backups](../../docs/operations/backups.md#off-site-copies),
+[privacy](../../docs/architecture/privacy.md#backups-held-abroad)). Restart, and
+press *Back up now* under *Venues & staff → Backups* to see the first copy
+arrive. Add a lifecycle rule on the bucket to delete copies after 30 days.
 
 **Restoring**:
 
@@ -183,6 +202,9 @@ go; nothing reads it again.
 | `/var/lib/mysenam/backups` | Nightly and pre-deploy backups |
 | `/etc/caddy/Caddyfile` | Caddy's configuration |
 | `/etc/postgresql/16/main/conf.d/mysenam.conf` | Postgres sized for this machine |
-| `/etc/clamav/clamd.conf`, `/etc/systemd/system/clamav-daemon.socket.d/mysenam.conf` | The malware scanner, listening on 127.0.0.1:3310; signatures in `/var/lib/clamav` |
+| `/etc/mysenam/clamd-ondemand.conf` | On demand: clamd as the app starts it, on 127.0.0.1:3310; signatures in `/var/lib/clamav` |
+| `/var/lib/mysenam/scanner/` | On demand: the app's clamd lock and freshclam's, so the two never run together |
+| `/usr/local/sbin/mysenam-freshclam`, `/etc/systemd/system/mysenam-freshclam.{service,timer}` | On demand: signature updates twice a day, waiting for clamd to stop |
+| `/etc/clamav/clamd.conf`, `/etc/systemd/system/clamav-daemon.socket.d/mysenam.conf` | Always on: the malware scanner, listening on 127.0.0.1:3310; signatures in `/var/lib/clamav` |
 | `/var/lib/mysenam/backups/erasure-ledger.jsonl` | Erasures, applied again after a restore |
 | `/etc/systemd/system/mysenam.service` | How the app is run |

@@ -455,3 +455,37 @@ for AmazonGuardDuty, AmazonS3 and AWSDataTransfer, Regions ap-southeast-1 and
 ap-southeast-5), because the regional tables on the S3 pricing page did not
 load as text. ClamAV file sizes are from HTTP HEAD requests to
 database.clamav.net; nothing was downloaded.
+
+## Addendum (27 October 2026, measured)
+
+Added the same day, after the note above was written; the findings above
+stand as written. The owner did not approve the 4 GB Droplet and chose clamd
+on the 2 GB Droplet, started only when necessary, with every guarantee kept.
+That is close to option 0c, built differently: the app starts and stops clamd
+itself (not systemd socket activation), behind a memory guard, never beside
+freshclam, so health can tell "stopped on purpose" from "down". What is
+decided and built is in
+[ADR 0024](../architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md)
+and [deployment: choosing how clamd runs](../operations/deployment.md#choosing-how-clamd-runs).
+
+Measured in the development container (4 vCPU, Intel Xeon 2.1 GHz, 16 GB;
+**not a Droplet**), ClamAV 1.5.4 with the official signatures (daily 28165,
+main 63, bytecode 339), the kit's clamd settings:
+
+| What | Measured | Label |
+|---|---|---|
+| Production app, Postgres at rest | about 334 MiB (proportional set size); about 100 MiB | VERIFIED (this container) |
+| clamd resident once loaded; through a reload in place | 969–972 MiB; 1,038 MiB | VERIFIED (this container) |
+| freshclam peak, `TestDatabases yes` / `no` | about 700 MiB / about 310–320 MiB | VERIFIED (this container) |
+| clamd started by the app, start to PONG (three runs) | 10.3–10.6 s; 11.3 s held to one CPU; 15.5 s in an earlier measurement | VERIFIED (this container) |
+| A document sent while clamd was stopped, to its clean result | 10.4–10.7 s when the scheduler's tick came at once; in production up to a minute more for the next tick | VERIFIED (this container) |
+| clamd's peak resident memory (`VmHWM`) in those runs | 972 MiB | VERIFIED (this container) |
+
+So option 0c's unknown (row 32) is answered for this container: about
+10–16 s to load, not "30 s to 2 min" (that ESTIMATE may still hold on a
+shared vCPU). Its memory concern is met by never running clamd and freshclam
+together and starting clamd only while 1,200 MiB is free: app, Postgres and
+clamd come to about 1.45 GiB, which a 2 GB Droplet holds only on those terms.
+Still **not verified**: the kit on a real Droplet, its `MemAvailable` there
+with the app and Postgres running, clamd's load time on its vCPU, and the
+freshclam timer over days.

@@ -2,7 +2,18 @@ import crypto from "crypto";
 import { logAction } from "./activity";
 import { isOwner, type Admin } from "./admin-auth";
 import { raiseAlert } from "./alerts";
-import { getDb } from "./db";
+import {
+  DEFAULTS as ON_DEMAND_DEFAULTS,
+  memAvailableMiB,
+  OnDemandClamd,
+  onDemandOptionsFromEnv,
+  processAlive,
+  readClamdConf,
+  signaturesOnDisk,
+  type OnDemandState,
+  type TickOutcome,
+} from "./clamd-on-demand";
+import { dataDirectory, getDb } from "./db";
 import { documentScanner, scanMode, type ScanErrorKind, type ScanMode } from "./document-scanner";
 
 /**
@@ -52,6 +63,11 @@ import { documentScanner, scanMode, type ScanErrorKind, type ScanMode } from "./
  * - **Bounded.** An unavailable, timed-out or inconclusive scan is tried
  *   again on a schedule (`RETRY_MINUTES`), at most `MAX_SCAN_ATTEMPTS` times
  *   in a round (about a day), then the document fails.
+ * - **A scanner started on demand.** Where clamd runs only while documents
+ *   wait (`MYSENAM_CLAMD_ONDEMAND`, lib/clamd-on-demand.ts), the scheduler
+ *   starts it when documents need a scanner (`tickOnDemandScanner`), scans
+ *   them as soon as it answers, and it stops after an idle period. A scanner
+ *   that cannot be started changes nothing here: documents keep waiting.
  *
  * Logs name a document by its number and the signature found, never its
  * contents or the applicant.
@@ -111,12 +127,15 @@ export async function scanDocument(id: number): Promise<ScanStatus | null> {
   if (claimed.sha256 !== null && claimed.sha256 !== hash) return failTry(claimed, "inconclusive", "integrity: content does not match its hash", "unscannable");
   const scanner = documentScanner();
   if (!scanner) return failTry(claimed, "unavailable", "no scanner configured");
+  // A scanner started on demand is in use, before and after the scan: not idle.
+  onDemandScanner()?.noteUse();
   let verdict;
   try {
     verdict = await scanner.scan(content);
   } catch {
     verdict = { kind: "error" as const, error: "unavailable" as const, detail: "scanner threw" };
   }
+  onDemandScanner()?.noteUse();
   if (verdict.kind === "clean") return settle(claimed, hash, { status: "clean", engine: verdict.engine });
   if (verdict.kind === "found") return settle(claimed, hash, { status: "rejected", engine: verdict.engine, finding: verdict.finding });
   // Too large for the scanner's limits will not get better by waiting.
@@ -223,12 +242,18 @@ export async function scanDocuments(ids: number[], waitMs = 20_000): Promise<voi
   clearTimeout(timer);
 }
 
-/** The scheduler's part: documents whose next try is due, oldest first, a few at a time. */
-export async function scanDueDocuments(limit = 20): Promise<{ scanned: number }> {
+/**
+ * The scheduler's part: documents whose next try is due, oldest first, a few
+ * at a time. `waitingForScanner`: also those whose last try found no scanner,
+ * without waiting for their next try (a scanner started on demand has just
+ * answered, so the wait would only be time lost).
+ */
+export async function scanDueDocuments(limit = 20, opts: { waitingForScanner?: boolean } = {}): Promise<{ scanned: number }> {
   const due = (await getDb()
     .prepare(
       `SELECT id FROM approval_documents
-        WHERE scan_status = 'pending' AND (scan_next_at IS NULL OR scan_next_at <= now()) AND (scan_claimed_until IS NULL OR scan_claimed_until < now())
+        WHERE scan_status = 'pending' AND (scan_next_at IS NULL OR scan_next_at <= now()${opts.waitingForScanner ? " OR scan_error LIKE 'unavailable%'" : ""})
+          AND (scan_claimed_until IS NULL OR scan_claimed_until < now())
         ORDER BY scan_next_at NULLS FIRST, id LIMIT ?`
     )
     .all(limit)) as { id: number }[];
@@ -409,6 +434,87 @@ export async function requeueWaitingDocuments(limit = 50): Promise<{ requeued: n
   return { requeued };
 }
 
+// ------------------------------------------------------------ the scanner started on demand
+
+/** Where the on-demand scanner's state is kept, for the owner's panel (`settings`). */
+const ON_DEMAND_KEY = "clamd_ondemand";
+const ON_DEMAND_ALERT = "document-scanner-ondemand";
+
+const onDemand = globalThis as {
+  __mysenamOnDemandTest?: OnDemandClamd | "none";
+  __mysenamOnDemandEnv?: OnDemandClamd | null;
+};
+
+/** What the app gives the on-demand scanner: its state kept in `settings`, the owners told, its own events logged. */
+export function onDemandHooks() {
+  return {
+    persist: async (state: OnDemandState) => {
+      await getDb()
+        .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+        .run(ON_DEMAND_KEY, JSON.stringify(state));
+    },
+    alert: async (kind: "start_failed" | "crashed" | "blocked", detail: string) => {
+      console.error(`[mysenam] on-demand malware scanner: ${detail}`);
+      await raiseAlert(
+        ON_DEMAND_ALERT,
+        kind === "blocked" ? "Supporting documents: the malware scanner was not started" : "Supporting documents: the malware scanner could not be started",
+        detail
+      );
+    },
+    log: (line: string) => console.info(`[mysenam] on-demand malware scanner: ${line}`),
+  };
+}
+
+/** Tests only: put an on-demand scanner in place of the configured one, or none ("none"); null goes back to the environment. */
+export function setOnDemandScanner(manager: OnDemandClamd | "none" | null): void {
+  onDemand.__mysenamOnDemandTest = manager ?? undefined;
+}
+
+/** The on-demand scanner (`MYSENAM_CLAMD_ONDEMAND`), made once per process; null when none is configured or it cannot be used. */
+export function onDemandScanner(): OnDemandClamd | null {
+  const t = onDemand.__mysenamOnDemandTest;
+  if (t !== undefined) return t === "none" ? null : t;
+  if (onDemand.__mysenamOnDemandEnv !== undefined) return onDemand.__mysenamOnDemandEnv;
+  const opts = onDemandOptionsFromEnv(process.env, dataDirectory());
+  onDemand.__mysenamOnDemandEnv = !opts || "error" in opts ? null : new OnDemandClamd({ ...opts, ...onDemandHooks() });
+  return onDemand.__mysenamOnDemandEnv;
+}
+
+/** Why `MYSENAM_CLAMD_ONDEMAND` cannot be used, in words; null when it is unset or fine. */
+export function onDemandProblem(): string | null {
+  if (onDemand.__mysenamOnDemandTest !== undefined) return null;
+  const opts = onDemandOptionsFromEnv(process.env, dataDirectory());
+  return opts && "error" in opts ? opts.error : null;
+}
+
+/** Documents that need a scanner now: pending and due (or last tried with no scanner), or failed only for want of one. */
+export async function documentsNeedingScanner(): Promise<number> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM approval_documents
+        WHERE (scan_status = 'pending' AND (scan_next_at IS NULL OR scan_next_at <= now() OR scan_error LIKE 'unavailable%'))
+           OR (scan_status = 'failed' AND scan_failure = 'scanner_unavailable')`
+    )
+    .get()) as { n: number };
+  return row.n;
+}
+
+/**
+ * Every minute from the scheduler, where the scanner is started on demand:
+ * start clamd when documents need it (the guards allowing), and, once it
+ * answers, put back in quarantine what waited for a scanner and scan what is
+ * waiting; stop it after the idle period. Null where there is no on-demand
+ * scanner.
+ */
+export async function tickOnDemandScanner(): Promise<TickOutcome | null> {
+  const manager = onDemandScanner();
+  if (!manager) return null;
+  return manager.tick(await documentsNeedingScanner(), async () => {
+    await requeueWaitingDocuments();
+    await scanDueDocuments(20, { waitingForScanner: true });
+  });
+}
+
 // ------------------------------------------------------------ the owner's view
 
 export interface ScanRetryRecord {
@@ -510,10 +616,35 @@ export async function failedDocuments(limit = 50): Promise<FailedDocument[]> {
 
 // ------------------------------------------------------------ health
 
-export type ScannerProblem = "unconfigured" | "unreachable" | "signatures_old" | "signatures_unknown" | "backlog" | "failures" | "waiting";
+export type ScannerProblem =
+  | "unconfigured"
+  | "unreachable"
+  | "signatures_old"
+  | "signatures_unknown"
+  | "backlog"
+  | "failures"
+  | "waiting"
+  | "ondemand_misconfigured"
+  | "ondemand_failed"
+  | "ondemand_blocked";
+
+/** The scanner started on demand: its settings, the machine's free memory now, and its last start, stop and failure. */
+export interface OnDemandHealth {
+  /** Why `MYSENAM_CLAMD_ONDEMAND` cannot be used; null when it can. */
+  error: string | null;
+  idleMinutes: number | null;
+  startSeconds: number | null;
+  minAvailableMiB: number | null;
+  memAvailableMiB: number | null;
+  /** The daily signatures' version on disk (their date is `signaturesAt`), read while clamd is stopped. */
+  signaturesVersion: number | null;
+  state: OnDemandState | null;
+}
 
 export interface ScannerHealth {
   mode: ScanMode;
+  /** Set where clamd is started on demand (`MYSENAM_CLAMD_ONDEMAND`). */
+  onDemand: OnDemandHealth | null;
   reachable: boolean | null;
   engine: string | null;
   signaturesAt: string | null;
@@ -540,7 +671,45 @@ const PROBLEM_TEXT: Record<ScannerProblem, string> = {
   failures: "Supporting documents could not be scanned by a working scanner, and cannot be opened.",
   waiting:
     "Supporting documents could not be scanned because no scanner answered: they are kept in quarantine, unopened, and scanned by themselves once a scanner answers.",
+  ondemand_misconfigured: "The malware scanner to start on demand (MYSENAM_CLAMD_ONDEMAND) cannot be used: check its clamd.conf and the clamd binary.",
+  ondemand_failed: "The malware scanner started on demand failed to start or stopped by itself: documents wait in quarantine, and it is tried again after a pause.",
+  ondemand_blocked: `The malware scanner was not started on demand for more than ${ON_DEMAND_DEFAULTS.blockedAlertMinutes} minutes (too little free memory, freshclam running, or another process holding it): documents wait in quarantine.`,
 };
+
+/**
+ * The on-demand scanner's settings and state: as kept in `settings` by the
+ * process that runs it (the scheduler's), unless this process has started
+ * clamd itself; a clamd recorded as running whose process is gone is shown
+ * stopped. Null where none is configured.
+ */
+async function readOnDemandHealth(): Promise<(OnDemandHealth & { signaturesAt: string | null }) | null> {
+  const error = onDemandProblem();
+  const manager = onDemandScanner();
+  if (!manager && !error) return null;
+  let state: OnDemandState | null = manager ? manager.state() : null;
+  const actedHere = state !== null && (state.lastStartAt !== null || state.blocked !== null || state.lastFailureAt !== null);
+  if (!actedHere) {
+    const row = (await getDb().prepare("SELECT value FROM settings WHERE key = ?").get(ON_DEMAND_KEY)) as { value: string } | undefined;
+    try {
+      if (row) state = JSON.parse(row.value) as OnDemandState;
+    } catch {
+      // unreadable: shown as this process knows it
+    }
+  }
+  if (state && state.phase !== "stopped" && state.pid !== null && !processAlive(state.pid)) state = { ...state, phase: "stopped", pid: null };
+  const conf = manager ? readClamdConf(manager.configFile) : null;
+  const signatures = conf && !("error" in conf) ? signaturesOnDisk(conf.databaseDirectory) : null;
+  return {
+    error,
+    idleMinutes: manager ? manager.idleMs / 60_000 : null,
+    startSeconds: manager ? manager.startTimeoutMs / 1000 : null,
+    minAvailableMiB: manager ? manager.minAvailableMiB : null,
+    memAvailableMiB: memAvailableMiB(),
+    signaturesVersion: signatures?.version ?? null,
+    signaturesAt: signatures?.builtAt ?? null,
+    state,
+  };
+}
 
 /** The scanner, and documents by state: for the owner's dashboard and the hourly check. */
 export async function scannerHealth(now = Date.now()): Promise<ScannerHealth> {
@@ -570,8 +739,24 @@ export async function scannerHealth(now = Date.now()): Promise<ScannerHealth> {
   let signaturesAt: string | null = null;
   let signatureAgeHours: number | null = null;
   const scanner = documentScanner();
+  const onDemandHealth = await readOnDemandHealth();
+  const od = onDemandHealth?.state ?? null;
+  // Stopped on purpose (nothing waiting, or a start held back or failed, which is told as such): not "unreachable".
+  const stoppedOnPurpose = onDemandHealth !== null && onDemandHealth.error === null && od?.phase !== "running";
   if (mode === "unconfigured") problems.push("unconfigured");
-  if (scanner) {
+  if (onDemandHealth?.error) problems.push("ondemand_misconfigured");
+  if (od && od.consecutiveFailures > 0) problems.push("ondemand_failed");
+  if (od?.blocked && now - Date.parse(od.blocked.since) >= ON_DEMAND_DEFAULTS.blockedAlertMinutes * 60_000) problems.push("ondemand_blocked");
+  if (scanner && stoppedOnPurpose) {
+    // Its signatures' age read from the database on disk, as clamd would load them at its next start.
+    const builtAt = onDemandHealth.signaturesAt;
+    if (builtAt === null) problems.push("signatures_unknown");
+    else {
+      signaturesAt = builtAt;
+      signatureAgeHours = Math.max(0, (now - Date.parse(builtAt)) / 3_600_000);
+      if (signatureAgeHours > SIGNATURES_MAX_AGE_HOURS) problems.push("signatures_old");
+    }
+  } else if (scanner) {
     const s = await scanner.status();
     reachable = s.reachable;
     engine = s.engine;
@@ -586,8 +771,15 @@ export async function scannerHealth(now = Date.now()): Promise<ScannerHealth> {
   if (counts.overdue > 0) problems.push("backlog");
   if (counts.failed > 0) problems.push("failures");
   if (counts.waiting > 0) problems.push("waiting");
+  let onDemandOut: OnDemandHealth | null = null;
+  if (onDemandHealth) {
+    const { signaturesAt: _onDisk, ...rest } = onDemandHealth;
+    void _onDisk;
+    onDemandOut = rest;
+  }
   return {
     mode,
+    onDemand: onDemandOut,
     reachable,
     engine,
     signaturesAt,

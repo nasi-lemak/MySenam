@@ -1,6 +1,6 @@
 # ADR 0024: Supporting documents scanned before release; retention by configured purpose
 
-- **Status:** current, decided 2026-10-26 by the product owner. Amended 27 October 2026 (see [Changes](#changes)). Builds on
+- **Status:** current, decided 2026-10-26 by the product owner. Amended twice on 27 October 2026: fail closed, and clamd started on demand on the 2 GB Droplet (see [Changes](#changes)). Builds on
   [ADR 0021](0021-approval-retention-and-pdf-documents.md), whose structural
   checks, purposes and holds all stand; this record replaces its
   "not malware scanning" consequence and its fixed retention bounds. The rules
@@ -101,6 +101,26 @@
   none configured while documents wait, signatures over 48 hours old or of
   unknown age, a backlog over an hour, documents waiting for a scanner, or
   unscannable ones. `/api/health` stays thin.
+- **Where clamd runs** (amended 27 October 2026). Three deployment modes,
+  every guarantee above the same in each: **on demand**, the default for the
+  2 GB Droplet, where the app starts clamd itself as a child process when
+  documents wait and no scanner answers, lets the quarantine and retry
+  pipeline scan them, and stops it after an idle period with nothing waiting
+  (`src/lib/clamd-on-demand.ts`); **always on**, clamd as a service, for 4 GB
+  and more or a separate scanner machine; **none**, documents waiting. On
+  demand: one clamd per machine (the scheduler's lease, and a lock file
+  naming the app process, its clamd and the boot); started only while
+  `MemAvailable` is above a threshold (1,200 MiB by default) and freshclam is
+  not running, and freshclam, run from a timer, never while clamd is up
+  (each marks before it looks, so the two never overlap); a start must
+  answer PING within a bound or is killed and retried after a growing pause;
+  a crash is recorded, its document stays pending; the owners are told of a
+  failed start or crash at once, and of a start held back for 30 minutes;
+  children are waited for and stopped with the app. Nothing is ever
+  released because clamd could not be started. Health tells a clamd stopped
+  on purpose from one that is down, reads the signatures' date from disk
+  while it is stopped, and reports the last start, its load time and peak
+  resident memory (`VmHWM`), and the last failure.
 - **What a scan means:** no known signature matched; never that a file is
   harmless. Scanning supplements the structural checks and replaces none;
   nothing is rendered or previewed on the server; logs name a document's
@@ -132,20 +152,33 @@ Update frequency: ClamAV documentation, *Configuration*: <https://docs.clamav.ne
 
 ### Consequences for the deployment
 
-- The 2 GB Droplet is too small with clamd beside the app (about 250 MB) and
-  Postgres (about 300 MB): the kit recommends the 4 GB Droplet, USD 24 a
-  month instead of USD 12. Nothing was provisioned; resizing is the owner's
-  decision. `setup.sh --no-scanner` keeps the 2 GB machine, and documents then
-  wait in quarantine, unopened, until a scanner is set up.
-- Measured in the development container with the official signatures, clamd
-  holds about 1 GiB and freshclam peaks at about 0.7 GiB while it tests new
-  signatures (before clamd reloads, so about 1.7 GiB together at the worst
-  moment): less than ClamAV's documented figures, and one container's, not a
-  Droplet's; the 4 GB recommendation stands. The kit keeps freshclam's
-  `TestDatabases yes`: `no` would save about 380 MiB at that peak, and
-  freshclam would still verify each database's digital signature, but a
-  database the engine cannot load would reach clamd untested, and a failed
-  reload would hold documents back until fixed.
+- **The 2 GB Droplet, with clamd on demand, is the recommendation**
+  (amended 27 October 2026: the owner did not approve the 4 GB Droplet,
+  USD 12 a month more, and asked that scanning use compute only when
+  necessary). Measured in the development container with the official
+  signatures (one container's figures, not a Droplet's): the production app
+  about 334 MiB (proportional set size), Postgres about 100 MiB at rest,
+  clamd about 970 MiB resident once loaded (1,038 MiB through a reload in
+  place), freshclam about 700 MiB at its peak with `TestDatabases yes` and
+  about 310–320 MiB with `no`. App, Postgres and clamd come to about
+  1.45 GiB: a 2 GB Droplet holds that only if clamd is not resident while
+  freshclam runs, nor while nothing waits, which is what the on-demand mode
+  ensures. Started on demand by the app with the official signatures, clamd
+  answered after 10.3–10.6 s, a document sent while it was stopped was
+  released 10.4–10.7 s after it arrived when the scheduler's tick came at
+  once (up to a minute more in production), and clamd's peak resident memory
+  was 972 MiB. The cost is that delay for the first document after an idle
+  period, and the swap file kept as a safety net, not capacity.
+- **Always on** stays supported, and is the kit's default from 3.5 GB of
+  memory: freshclam tests before clamd reloads, so about 1.7 GiB for both at
+  the worst moment, which a 4 GB machine holds. The kit keeps freshclam's
+  `TestDatabases yes` in both modes: `no` would save about 380 MiB at that
+  peak, and freshclam would still verify each database's digital signature,
+  but a database the engine cannot load would reach clamd untested, and a
+  failed load would hold documents back until fixed. On demand it fits,
+  since freshclam never runs beside clamd.
+- `setup.sh --scanner=none` (formerly `--no-scanner`) leaves the scanner
+  out, and documents then wait in quarantine, unopened, until one is set up.
 - Documents stored before migration 0142 start `pending` and are scanned;
   without a scanner they wait, kept, until one is (migration 0159).
 
@@ -259,6 +292,20 @@ Update frequency: ClamAV documentation, *Configuration*: <https://docs.clamav.ne
 - **Applying unverified entries** (beyond a gap, or from a refused segment):
   an entry erases; one the chain and signature do not vouch for is listed,
   not applied, and the operator decides.
+- **Resizing to the 4 GB Droplet with clamd always on:** the simplest, and
+  documents released within seconds; not approved by the owner (USD 12 a
+  month more). Kept as the always-on mode for any install that has the
+  memory.
+- **systemd socket activation with a stop timer** (clamd started on the
+  first connection; the research note's option 0c): the start would happen
+  inside a scan's connection, which would wait for the whole load; the app
+  could not hold a start back for want of memory or while freshclam runs,
+  nor tell a clamd stopped on purpose from one that is down. Replaced by the
+  app starting and stopping clamd itself.
+- **Scanning on separately allocated compute, or with a cloud scanning
+  service** (the [research note](../../research/2026-10-27-document-storage-and-scanning-costs.md)):
+  saves at most a few dollars a month for a new account, a token that can
+  start machines, a second store or a paid, proprietary engine; not chosen.
 
 ## Verification
 
@@ -287,6 +334,21 @@ Update frequency: ClamAV documentation, *Configuration*: <https://docs.clamav.ne
   automatic return to quarantine; legacy documents kept until their own
   deadline, recorded as retention; alerts) and the migration in
   `tests/document-scan-migration.test.ts`, on PGlite and Postgres.
+- clamd on demand: a stand-in clamd (a Node process speaking enough of the
+  protocol, told to hang, crash mid-scan or ignore SIGTERM) for every guard
+  path, in `tests/clamd-on-demand.test.ts`: too little memory and freshclam
+  running keep documents waiting and tell the owners; a hung start is killed
+  (SIGKILL after an ignored SIGTERM, no zombie) and retried after a pause; a
+  crash mid-scan leaves the document pending; an idle clamd stops; concurrent
+  ticks and a second process start one clamd, and a clamd left by a dead app
+  process is stopped by its pid; the app's shutdown stops it (a separate Node
+  process, with and without a handler of its own); the kit's `freshclam.sh`
+  and the app take turns. The real engine started on demand with the
+  official signatures, in the development container:
+  `tests/clamd-on-demand-engine.test.ts` (skipped, saying why, without
+  `clamd` or the signatures). On PGlite and Postgres. The kit's set-up on a
+  real Droplet, its memory there and the freshclam timer are **not
+  verified**.
 - Retention and restore: `tests/retention-policy.test.ts`,
   `tests/approval-retention.test.ts`, and the restore round trip in
   `tests/backup-scripts.test.ts`.
@@ -338,3 +400,10 @@ Update frequency: ClamAV documentation, *Configuration*: <https://docs.clamav.ne
   by the platform owner, not verified by MySenam. A review recorded before
   with only a name, a day and a basis was lapsed. The defaults (90, 30, 365
   and 7 days) and every bound are unchanged.
+- **27 October 2026, scanning on demand** (owner's decision): the owner did not approve the 4 GB Droplet and
+  asked that scanning use compute only when necessary, every guarantee
+  holding. Added the on-demand mode (the app starts clamd while documents
+  wait and stops it when idle, behind a memory guard, never beside
+  freshclam), the kit's `--scanner=on-demand|always-on|none` with a freshclam
+  timer, health and alerts for it, and the measurements; the recommendation
+  is now the 2 GB Droplet with clamd on demand. No migration.

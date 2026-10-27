@@ -21,30 +21,43 @@
 # ADMIN_PASSWORD in /etc/mysenam/env, and run deploy.sh.
 set -euo pipefail
 
-DOMAIN="" EMAIL="" REPO="" BRANCH="main" SCANNER="yes"
+DOMAIN="" EMAIL="" REPO="" BRANCH="main" SCANNER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="$2"; shift 2 ;;
     --email) EMAIL="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
-    # Leave out the malware scanner for supporting documents (ClamAV). Without
-    # it documents wait in quarantine, unopened, until a scanner is set up.
-    --no-scanner) SCANNER="no"; shift ;;
+    # The malware scanner for supporting documents (ClamAV's clamd):
+    #   on-demand  the app starts clamd only while documents wait, and stops it
+    #              when idle (the default below 3.5 GB of memory: the 2 GB Droplet)
+    #   always-on  clamd runs all the time as a service (the default from 3.5 GB)
+    #   none       no scanner: documents wait in quarantine, unopened, until one is set up
+    --scanner=*) SCANNER="${1#--scanner=}"; shift ;;
+    --scanner) SCANNER="$2"; shift 2 ;;
+    --no-scanner) SCANNER="none"; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 if [[ -z "$DOMAIN" || -z "$EMAIL" || -z "$REPO" ]]; then
-  echo "Usage: bash setup.sh --domain book.example.my --email you@example.my --repo git@github.com:owner/repo.git [--branch main]" >&2
+  echo "Usage: bash setup.sh --domain book.example.my --email you@example.my --repo git@github.com:owner/repo.git [--branch main] [--scanner=on-demand|always-on|none]" >&2
   exit 1
 fi
+MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+if [[ -z "$SCANNER" ]]; then
+  if (( MEM_MB < 3500 )); then SCANNER="on-demand"; else SCANNER="always-on"; fi
+fi
+case "$SCANNER" in
+  on-demand|always-on|none) ;;
+  *) echo "--scanner is on-demand, always-on or none (not $SCANNER)." >&2; exit 1 ;;
+esac
 [[ $EUID -eq 0 ]] || { echo "Run this as root." >&2; exit 1; }
 . /etc/os-release
 [[ "$ID" == "ubuntu" && "$VERSION_ID" == "24.04" ]] || echo "Warning: written for Ubuntu 24.04; this is $PRETTY_NAME." >&2
 
 step() { printf '\n== %s\n' "$*"; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for f in Caddyfile mysenam.service postgresql.conf deploy.sh run.sh; do
+for f in Caddyfile mysenam.service postgresql.conf deploy.sh run.sh freshclam.sh mysenam-freshclam.service mysenam-freshclam.timer; do
   [[ -f "$here/$f" ]] || { echo "$f is missing: run this from the whole deploy/digitalocean folder." >&2; exit 1; }
 done
 
@@ -53,7 +66,9 @@ export DEBIAN_FRONTEND=noninteractive
 step "Swap"
 # A 2 GB Droplet has no swap. `next build` briefly wants more than the app
 # does, and a little swap turns a would-be out-of-memory kill into a slow
-# minute instead.
+# minute instead. It is a safety net, not capacity: nothing is sized to run
+# in it, and the on-demand scanner is started only while enough memory is
+# free without it.
 if ! swapon --show | grep -q .; then
   fallocate -l 2G /swapfile
   chmod 600 /swapfile
@@ -85,21 +100,28 @@ if ! command -v caddy >/dev/null; then
   apt-get install -yq caddy
 fi
 
-step "Malware scanner for supporting documents (ClamAV)"
+step "Malware scanner for supporting documents (ClamAV): $SCANNER"
 # clamd scans the documents customers send with applications before anybody
 # can open them (docs/operations/deployment.md#the-malware-scanner). It loads
-# its signatures into memory: about 1.2 GiB, and ClamAV recommends 3 to 4 GiB
-# of RAM for the machine. Reloading new signatures is done in place
-# (ConcurrentDatabaseReload no), which pauses scans for a minute instead of
-# holding two copies in memory; documents wait in quarantine meanwhile.
-# freshclam fetches the official signatures, and keeps them fresh, on its own.
-if [[ "$SCANNER" == "yes" ]]; then
-  MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-  if (( MEM_MB < 3500 )); then
-    echo "Warning: this machine has ${MEM_MB} MB of memory. ClamAV needs about 1.2 GiB for itself and recommends 3-4 GiB in all;" >&2
-    echo "         resize the Droplet to 4 GB before taking documents, or run setup with --no-scanner." >&2
-  fi
+# the official signatures into memory: about 1 GiB measured, and ClamAV
+# recommends 3 to 4 GiB of RAM for a machine that keeps it running. Reloading
+# new signatures is done in place (ConcurrentDatabaseReload no), which pauses
+# scans instead of holding two copies in memory; documents wait in quarantine
+# meanwhile.
+#
+# always-on: Ubuntu's clamav-daemon, all the time, and clamav-freshclam keeping
+#   the signatures fresh on its own. For 4 GB and more.
+# on-demand: the app starts clamd itself while documents wait (and enough
+#   memory is free), and stops it when idle; freshclam runs from a timer, never
+#   beside it (mysenam-freshclam). The packaged services stay off. For 2 GB.
+if [[ "$SCANNER" != "none" ]]; then
   apt-get install -yq clamav-daemon clamav-freshclam
+fi
+if [[ "$SCANNER" == "always-on" ]]; then
+  if (( MEM_MB < 3500 )); then
+    echo "Warning: this machine has ${MEM_MB} MB of memory. clamd holds about 1 GiB all the time and ClamAV recommends 3-4 GiB in all;" >&2
+    echo "         resize the Droplet to 4 GB, or run setup with --scanner=on-demand." >&2
+  fi
   set_clamd() { if grep -q "^$1 " /etc/clamav/clamd.conf; then sed -i "s|^$1 .*|$1 $2|" /etc/clamav/clamd.conf; else echo "$1 $2" >> /etc/clamav/clamd.conf; fi; }
   set_clamd ConcurrentDatabaseReload no
   set_clamd StreamMaxLength 12M
@@ -110,11 +132,18 @@ if [[ "$SCANNER" == "yes" ]]; then
 [Socket]
 ListenStream=127.0.0.1:3310
 EOF
+  # Switching from on-demand: its timer goes.
+  systemctl disable --now mysenam-freshclam.timer >/dev/null 2>&1 || true
   systemctl daemon-reload
   systemctl enable --now clamav-freshclam >/dev/null
   # clamd starts once freshclam has the first signatures (a few minutes on a new machine).
   systemctl enable clamav-daemon.socket clamav-daemon >/dev/null
   systemctl restart clamav-daemon.socket || true
+elif [[ "$SCANNER" == "on-demand" ]]; then
+  # Neither packaged service runs: the app starts clamd, and freshclam runs from the timer set up below.
+  systemctl disable --now clamav-daemon.socket clamav-daemon clamav-freshclam >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/clamav-daemon.socket.d/mysenam.conf
+  systemctl daemon-reload
 fi
 
 step "Security updates, applied on their own"
@@ -135,6 +164,36 @@ step "The mysenam user and its folders"
 id mysenam >/dev/null 2>&1 || useradd --system --home-dir /srv/mysenam --create-home --shell /bin/bash mysenam
 install -d -o mysenam -g mysenam -m 750 /srv/mysenam /srv/mysenam/releases /var/lib/mysenam /var/lib/mysenam/backups
 install -d -o root -g mysenam -m 750 /etc/mysenam
+
+if [[ "$SCANNER" == "on-demand" ]]; then
+  step "The on-demand scanner: clamd as the app starts it, and freshclam on a timer"
+  # The app (user mysenam) runs clamd itself: it must read the signatures.
+  usermod -a -G clamav mysenam
+  chmod 755 /var/lib/clamav
+  # The app's lock and freshclam's, side by side, so the two never run together.
+  install -d -o mysenam -g mysenam -m 750 /var/lib/mysenam/scanner
+  cat > /etc/mysenam/clamd-ondemand.conf <<'EOF'
+# clamd as the app starts it on demand (MYSENAM_CLAMD_ONDEMAND), in the
+# foreground, as the app's own user. Written by setup.sh.
+# Loopback only: clamd has no authentication.
+TCPSocket 3310
+TCPAddr 127.0.0.1
+DatabaseDirectory /var/lib/clamav
+# Reload in place, never two copies in memory.
+ConcurrentDatabaseReload no
+StreamMaxLength 12M
+MaxThreads 2
+EOF
+  chown root:mysenam /etc/mysenam/clamd-ondemand.conf
+  chmod 640 /etc/mysenam/clamd-ondemand.conf
+  install -m 750 "$here/freshclam.sh" /usr/local/sbin/mysenam-freshclam
+  cp "$here/mysenam-freshclam.service" "$here/mysenam-freshclam.timer" /etc/systemd/system/
+  systemctl daemon-reload
+  systemctl enable --now mysenam-freshclam.timer >/dev/null
+  # The first signatures now (about 113 MB), before any document is scanned.
+  /usr/local/sbin/mysenam-freshclam /var/lib/mysenam/scanner \
+    || echo "Warning: freshclam could not fetch the signatures yet; it tries again on its timer (systemctl start mysenam-freshclam to try now)." >&2
+fi
 
 step "Deploy key"
 if [[ ! -f /srv/mysenam/.ssh/id_ed25519 ]]; then
@@ -177,17 +236,28 @@ ADMIN_PASSWORD=
 # SITE_NAME=Arena Sports Booking
 # MYSENAM_MARKETPLACE=on
 
-# Off-site backups — Cloudflare R2, Backblaze B2 or S3. Without these every
-# backup sits on the same disk as the database it is a backup of.
-# OFFSITE_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+# Off-site backups: Backblaze B2 is preferred, Amazon S3 is supported, both
+# through the one S3-compatible setting below (docs/operations/backups.md).
+# Without these every backup sits on the same disk as the database it is a
+# backup of. A bucket abroad (B2 always is) also needs the transfer approved
+# and encryption on (docs/architecture/privacy.md#backups-held-abroad).
+# OFFSITE_S3_ENDPOINT=https://s3.us-west-004.backblazeb2.com
 # OFFSITE_S3_BUCKET=
 # OFFSITE_S3_ACCESS_KEY_ID=
 # OFFSITE_S3_SECRET_ACCESS_KEY=
+# OFFSITE_DATA_LOCATION=US
+# OFFSITE_TRANSFER_APPROVED=
+# OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE=/etc/mysenam/offsite-public.pem
 
 # The malware scanner supporting documents are checked with before anybody
-# can open them (ClamAV, installed by setup unless --no-scanner). Without it,
-# documents wait in quarantine, unopened, until one is set up.
-$( [[ "$SCANNER" == "yes" ]] && echo "MYSENAM_CLAMD=127.0.0.1:3310" || echo "# MYSENAM_CLAMD=127.0.0.1:3310" )
+# can open them (ClamAV; setup's --scanner). Without it, documents wait in
+# quarantine, unopened, until one is set up. With MYSENAM_CLAMD_ONDEMAND the
+# app starts clamd itself while documents wait, and stops it when idle.
+$( case "$SCANNER" in
+     always-on) echo "MYSENAM_CLAMD=127.0.0.1:3310" ;;
+     on-demand) printf 'MYSENAM_CLAMD=127.0.0.1:3310\nMYSENAM_CLAMD_ONDEMAND=/etc/mysenam/clamd-ondemand.conf\n' ;;
+     *) echo "# MYSENAM_CLAMD=127.0.0.1:3310" ;;
+   esac )
 
 # Messages to customers.
 # WHATSAPP_TOKEN=
@@ -197,6 +267,17 @@ $( [[ "$SCANNER" == "yes" ]] && echo "MYSENAM_CLAMD=127.0.0.1:3310" || echo "# M
 EOF
   chown root:mysenam /etc/mysenam/env
   chmod 640 /etc/mysenam/env
+elif [[ "$SCANNER" == "on-demand" ]] && ! grep -q '^MYSENAM_CLAMD_ONDEMAND=' /etc/mysenam/env; then
+  # A machine set up before: the on-demand scanner's settings added, nothing already there replaced.
+  {
+    echo
+    echo "# The malware scanner, started by the app while documents wait (added by setup.sh --scanner=on-demand)."
+    grep -q '^MYSENAM_CLAMD=' /etc/mysenam/env || echo "MYSENAM_CLAMD=127.0.0.1:3310"
+    echo "MYSENAM_CLAMD_ONDEMAND=/etc/mysenam/clamd-ondemand.conf"
+  } >> /etc/mysenam/env
+  echo "Added MYSENAM_CLAMD_ONDEMAND to /etc/mysenam/env: restart the app (systemctl restart mysenam)."
+elif [[ "$SCANNER" != "on-demand" ]] && grep -q '^MYSENAM_CLAMD_ONDEMAND=' /etc/mysenam/env; then
+  echo "Warning: /etc/mysenam/env still sets MYSENAM_CLAMD_ONDEMAND; remove it for --scanner=$SCANNER, then systemctl restart mysenam." >&2
 fi
 
 cat > /etc/mysenam/deploy.conf <<EOF
