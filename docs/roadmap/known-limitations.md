@@ -137,15 +137,14 @@ that could be removed, **4** a missing test, **5** a decision, kept on
 purpose, **6** waiting on an outside service, **7** a legal or commercial
 decision needing approval, **8** not needed until a market or customer
 that needs it. Kinds 1 to 4 are worked off; 5 stays unless the reason
-changes; 6 to 8 name what they wait for. As of 27 October 2026: one defect
-(kind 1) is open, M16, waiting on the owner's decision.
+changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
+(kind 1) is open.
 
 | Limitation | Kind | Who it affects | Next action, or what it waits for |
 | ---------- | ---- | -------------- | --------------------------------- |
 | [Email, WhatsApp, SMS, Billplz, Stripe, MyInvois, Google sign-in, off-site and photo buckets](#integrations-awaiting-live-verification-or-a-partner) never checked against the real service | 6 | Everyone, once the feature is on | Each passes its live check ([launch checklist](../operations/deployment.md#launch-integration-checklist)) |
 | [Email bounces not read back](#operations-and-security-s) | 6 | Venues whose customers' mail bounces | The owner reads bounces in the provider's dashboard weekly; a bounce webhook once a provider is chosen |
 | [Without WhatsApp or SMS, no number is proved](#decisions-the-owner-has-to-make): staff link each member's or resident's account before they book online | 6 | Members-only and private venues | Switch phone checks on |
-| [M16: a person's concession and a promo code combine through the API only](#money-m) | 1 | Venues with both concessions and promo codes | The owner decides whether they combine; then one rule on every path |
 | [Refunds by hand](#money-m) (every Billplz refund) depend on staff | 6 | Customers owed a refund at Billplz venues | A gateway with a refund API (HitPay is the candidate) |
 | [Reserve with Google, smart locks, Stripe Connect, InvoiceNow, web push, LINE, Zalo](#integrations-awaiting-live-verification-or-a-partner) | 6 / 8 | Venues wanting them | A partner approval or contract each |
 | [Remote staging](#production-readiness) never run; [load](#production-readiness) measured on one machine | 6 | The owner | An agreed spend for a droplet; re-run the benchmark on the production set-up |
@@ -162,7 +161,7 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: one defect
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
 | [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities) | 3 / 5 | Families, clubs | Kept until a venue needs more |
-| [Another guardian's consent rests on accounts](#activities): guardians with only a number, participants no venue knows, no reminders of review dates | 5 | Families | Kept until a venue needs more |
+| [Guardians recorded by name and number](#activities): notices by WhatsApp only, an abandoned notice makes no task, the code's language | 3 / 6 | Families | The template approved; a task for an abandoned notice |
 | [Country names for countries not sold in](#activities); [clock changes](#booking-and-availability-b) (handled, no such country) | 8 | — | When a country is added |
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
 | [A proposal holds a day](#booking-and-availability-b); [independent bookings retried](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
@@ -175,26 +174,26 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **82 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B26 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B28, M16, M17 and
 S12–S19, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (56
+[resolved without a number](#resolved-limitations-without-a-number) (61
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
 each narrower than what it replaced or newly found and recorded rather than
-left unsaid: the access list matching a typed number; the native review of
+left unsaid: the native review of
 newly translated text; what the owner's decisions of 25 and 26 October 2026
 left when built (exact shared separation on fungible places, gaps across a
 change of the clocks, the provisional retention periods); and what building
 participants and scanning left (ClamAV's production set-up unverified);
 and, from the owner's decisions of 27 October 2026, the limits of taking one
-person off a booking, gaps in benefits by scope, another guardian's consent
-resting on accounts and the off-site erasure ledger tested against a
-stand-in only, each narrower than what it replaced; and one defect found by
-an acceptance scenario and left for the owner's decision (M16). The owner's decisions of 24 October 2026 (the launch languages,
+person off a booking, gaps in benefits by scope, guardians recorded by name
+and number, the off-site erasure ledger tested against a stand-in only, staff
+linking residents to a venue's list without phone checks, and what a waiting
+list asks again at the offer, each narrower than what it replaced. The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-In the table above, one row is a defect (M16); one is partly of kind 3 (the
+In the table above, no row is a defect; one is partly of kind 3 (the
 limits of taking one person off a booking).
 
 ## Suspected defects
@@ -218,6 +217,14 @@ venue's list; after migration 0175 every existing entry is unlinked unless
 its number is proved ([migration note](../archive/migrations/legacy-installs.md#venue-lists-from-before-migration-0175)).
 A resident inviting a guest by email learns whether that email has an account
 (refused `GUEST_ACCOUNT_UNKNOWN`), within the guest-invite rate limit (P3).
+
+Also: a waiting list asks again only the refused-number rule, the venue being
+open and, for an online entry, the venue's access when it offers a place and
+when it is claimed; house rules, the unpaid-bookings limit and no-show
+strikes are asked when joining only; a place freed while a venue was unlisted
+is offered when another place there frees; an offer message already queued
+before a number was refused may still go, though its claim is refused
+([booking](../features/booking.md)) (P3).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -255,8 +262,12 @@ Also, in [tournaments](../features/tournaments.md):
   tournament's results until staff withdraw it or the tournament ends
   (P3, by design: officials are often volunteers without an account).
 - Box leagues share the competition rules for scores and tables, but are
-  still their own engine for seasons and boxes; a league match always has a
-  winner (P3).
+  still their own engine for seasons, boxes and result states; a league match
+  always has a winner. `AGENTS.md` says box leagues use `recordResult`; they
+  use the shared rules (`scoreRefusal`, `standings`) with their own result
+  functions in `src/lib/leagues.ts`, since `recordResult` is bound to
+  knockout progression and corrections. For the owner: amend `AGENTS.md` to
+  say so (recommended), or plan moving leagues onto `recordResult` (P3).
 
 Also, in [open games](../features/matchmaking.md#moving-a-game-to-another-time):
 
@@ -353,26 +364,25 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   self check-in and door codes check a booking in as a whole, though the
   door asks for each person's own eligibility ([taking one person off](../features/booking.md#taking-one-person-off-a-booking)) (P3).
 - **Benefits by scope have gaps** ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
-  the booking form spends one pass per booking (several passes are paid
-  through the API only); a place concession's receipt line is in English
-  with the person's name; memberships for a participant and family memberships
-  bought online are verified only against stand-in gateways (a family
-  membership is held by the buying account; dependants change without
-  proration; a purchase holds its people for 60 minutes; overlapping cover is
-  refused online but not at the counter; the payment return page does not
-  name whom it is for; a child's name stays on the guardian's receipt); a tournament's members-only
-  rule still checks the entrant's account, not each player's membership;
-  a participant's remembered concession proof is not yet in the account's
-  data export (P3).
-- **Another guardian's consent rests on accounts**: agreement comes from an
-  existing guardian with an account, so a child whose only guardians are a
-  name and number at a venue (or a linked adult participant) gets another
-  guardian only by a manager's recorded exception, and such guardians are not
-  told by email; participants no venue knows are reviewed by the platform
-  owner through the API only; nothing reminds managers of flagged
-  relationships or of an exception's review date. A guardian's relationship
-  and authority remain their declaration, reviewed by staff only where an
-  activity asks it, never verified ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)) (P3).
+  a place concession's receipt line is in English with the person's name;
+  memberships for a participant and family memberships bought online are
+  verified only against stand-in gateways (a family membership is held by the
+  buying account; dependants change without proration; a purchase holds its
+  people for 60 minutes; overlapping cover is refused online but not at the
+  counter; the payment return page does not name whom it is for; a child's
+  name stays on the guardian's receipt); a last-minute price combines with no
+  discount, a moved booking keeps the discounts it had, and the venue's API
+  key books with none (P3).
+- **Guardians recorded by name and number** agree, withdraw or have their
+  number checked by a code staff send to it; where no code can be sent, a
+  manager records an in-person agreement, flagged for review and recorded as
+  no proof of authority. Their notices go only by WhatsApp to a number a code
+  has come back from (the outbox has no SMS channel, and the
+  `mysenam_guardian_notice` template needs Meta's approval), otherwise a task
+  for the venue; a notice the outbox abandons makes no task, and the code's
+  SMS is in the install's first language. A guardian's relationship and
+  authority remain their declaration, reviewed by staff only where an activity
+  asks it, never verified ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)) (P3).
 - **A catalogue change** made on one instance reaches the others within a
   minute (the cache), and the browser on its next page (P3).
 - **Country names exist for countries the app is not yet sold in** (sepak
@@ -416,17 +426,7 @@ review is part of the same blocker.
 
 ### Money (M)
 
-- **M16. A person's concession and a promo code combine through the API
-  only** (found 27 October 2026 by acceptance scenario *Places L*). The
-  [pricing](../features/pricing.md) rule is one discount, not with a promo
-  code, and the booking form hides the code once a concession is chosen; but
-  `POST /api/bookings` with `placeConcessions` and `promoCode` applies both
-  (the concession first), while a code applied first makes a person's
-  concession refuse with `ONE_DISCOUNT` at the counter; [ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)
-  says a booking-wide discount is shared between the places. Which is
-  intended is for the owner to decide; the code is not changed until then.
-  Test to write: the combination refused (or allowed) the same way on the
-  form, the counter and the API (P2).
+None open.
 
 Also: a refund made by hand (every Billplz refund) depends on the venue's
 staff. MySenam tracks it — the date customers are told, overdue refunds on
@@ -531,6 +531,10 @@ IDs are not reused. Each fix came with the test recommended above.
 | B25 | The period report counted a booking on a shared facility as one place whatever its players, so shared facilities' utilisation and hours (by court, in all, by activity, by month and by hour) were under-counted; they now count each booking's places | `tests/occupancy-totals.test.ts` |
 | B26 | On a new Postgres install with several servers starting at once, seeding the starter venues ran after the migration lock in a serializable transaction without retry, so one server's start failed with a serialization error; seeding now runs under the lock | `tests/migration-lock.test.ts` |
 | S19 | A members-only or private venue's access list let in any account whose typed number was on it, where the install had no phone checks; an entry now counts online only for the account staff (or the inviting resident, by the guest's account email) linked it to, or an account that has proved the number; the counter is unchanged | `tests/access-accounts.test.ts` |
+| B27 | A number the venue refused after it joined a waiting list was still offered a place, and the claim booked it; the refused-number rule and the venue being open are now asked again at the offer and the claim on every channel | `tests/waitlist-recheck.test.ts` |
+| B28 | A league result could be overwritten or confirmed stale: report, confirm and staff decisions read the match and then wrote it by id, so a correction racing a confirmation or decision could turn a settled result back to reported, and a confirmation confirmed whatever score was there; now one transaction on the locked row against a version the database moves on every change (migration 0177), stale answers refused | `tests/league-results-race.test.ts`, `tests/competition-entrants.test.ts` |
+| M16 | A person's concession and a promo code combined through the API only (the form and the counter allowed one): by the owner's decision of 27 October 2026, one rule on every path (the venue's stacking setting, one discount at a time by default, and whether the code combines), one order and rounding, each place's share of a code recorded and given back exactly on a withdrawal; a limited code's last use held by the database | `tests/discount-stacking.test.ts`, `tests/components/booking-form-discounts.test.tsx` |
+| M17 | A percentage promo code was rounded half up before the documented round-down (15% of RM10.05 gave RM1.51) | `tests/discount-stacking.test.ts` |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number
@@ -596,6 +600,11 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A booking for several people was changed as a whole: one person could not be taken off with their share refunded | Where the activity sells places separately, one person is taken off: the place released and offered to the waiting list, its price off what is owed or refunded on the venue's terms with its own credit note, passes and concessions given back; a group gives up a place; a court hired whole only un-names; anything else refused with its reason | `tests/place-withdrawals.test.ts`, `tests/components/withdraw-people.test.tsx` |
 | A pass entry paid for a booking, not a person on it, and a concession was declared per booking | Passes and concessions carry a scope (booking, resource, one person's place, a number of places), redeemed once per place under a database guard; everything issued before keeps booking scope | `tests/entitlements.test.ts` |
 | Members-only access, a member's longer window and house-rule limits followed whoever booked | Account privileges (booking earlier, limits) stay with the account; a members-only session needs each participant's own membership or a family membership naming them, one check on every path | `tests/membership-scope.test.ts` |
+| Several passes for one booking could be spent through the API only | The booking form and the counter's payment step choose which pass pays for whom (one for the booking, or each person's own), by the plan the engine pays by | `tests/pass-allocation.test.ts`, `tests/components/pass-allocation.test.tsx` |
+| Participant and family memberships were sold at the counter only | Bought online for oneself, a child the account acts for, or a family within the plan's limit; active only once paid | `tests/membership-purchases.test.ts`, `tests/components/join-membership.test.tsx` |
+| A child whose only guardians were a name and number got another guardian only by a manager's exception; such a guardian could not register later; nothing reminded managers of flagged relationships or review dates; participants no venue knows had no owner screen | Staff send a code to the recorded number for agreement, withdrawal or a check; a recorded guardian takes the relationship over with a proved number and a code; managers see reviews and due dates under *Needs attention*; the owner reviews every venue's | `tests/guardian-contact.test.ts`, `tests/components/contact-guardians.test.tsx` |
+| A participant's remembered concession proof, guardian requests, withdrawn places and place benefits were missing from the account's data export | Each is in the export as a structured record (who verified by role, never by name; no files) | `tests/participant-export.test.ts` |
+| Tournaments and leagues took entries from an account for itself only; staff could not enter a player at the counter; members-only competitions checked the account's membership; a league partner's gender was not asked; staff league decisions and walkovers told nobody | A guardian enters a participant, staff enter a player at the counter, both through the self-entry checks; members-only follows the entrant's own or a family membership; a gendered league of pairs asks the partner's; both sides are emailed a staff decision | `tests/competition-entrants.test.ts`, `tests/components/competition-entrants.test.tsx` |
 
 ## Production readiness
 
