@@ -161,7 +161,7 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
 | [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities) | 3 / 5 | Families, clubs | Kept until a venue needs more |
-| [Guardians recorded by name and number](#activities): notices by WhatsApp only, an abandoned notice makes no task | 3 / 6 | Families | The template approved; a task for an abandoned notice |
+| [Guardians recorded by name and number](#activities): notices by WhatsApp only | 6 | Families | The template approved |
 | [Country names for countries not sold in](#activities); [clock changes](#booking-and-availability-b) (handled, no such country) | 8 | — | When a country is added |
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
 | [A proposal holds a day](#booking-and-availability-b); [independent bookings retried](#booking-and-availability-b); [staffed hours whole](#booking-and-availability-b); [old tables gone](#booking-and-availability-b) | 5 | Hosts; venues | Kept |
@@ -175,8 +175,8 @@ page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **82 now**. Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B28, M16, M17 and
-S12–S19, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (65
+S12–S20, found and fixed in the same work) and
+[resolved without a number](#resolved-limitations-without-a-number) (67
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
@@ -378,7 +378,7 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   no proof of authority. Their notices go only by WhatsApp to a number a code
   has come back from (the outbox has no SMS channel, and the
   `mysenam_guardian_notice` template needs Meta's approval), otherwise a task
-  for the venue; a notice the outbox abandons makes no task. A guardian's relationship and
+  for the venue (also when a notice is abandoned or reported undelivered). A guardian's relationship and
   authority remain their declaration, reviewed by staff only where an activity
   asks it, never verified ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)) (P3).
 - **A catalogue change** made on one instance reaches the others within a
@@ -533,6 +533,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B28 | A league result could be overwritten or confirmed stale: report, confirm and staff decisions read the match and then wrote it by id, so a correction racing a confirmation or decision could turn a settled result back to reported, and a confirmation confirmed whatever score was there; now one transaction on the locked row against a version the database moves on every change (migration 0177), stale answers refused | `tests/league-results-race.test.ts`, `tests/competition-entrants.test.ts` |
 | M16 | A person's concession and a promo code combined through the API only (the form and the counter allowed one): by the owner's decision of 27 October 2026, one rule on every path (the venue's stacking setting, one discount at a time by default, and whether the code combines), one order and rounding, each place's share of a code recorded and given back exactly on a withdrawal; a limited code's last use held by the database | `tests/discount-stacking.test.ts`, `tests/components/booking-form-discounts.test.tsx` |
 | M17 | A percentage promo code was rounded half up before the documented round-down (15% of RM10.05 gave RM1.51) | `tests/discount-stacking.test.ts` |
+| S20 | A participant whose only link to a venue was a concession proof, a membership or a pass sold there was not known to that venue, so its staff could not find or act on them; those links now make them known to that venue and its business's branches only | `tests/participants-known-links.test.ts` |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number
@@ -607,6 +608,8 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The membership payment return page said "You're a member" for a child's or a family membership | It names whose membership it is and whom a family one covers | `tests/payment-return-membership.test.tsx` |
 | A guardian entering somebody in a tournament or league was asked for "your" details and shown "Pay my entry"; tournament emails did not say whose entry | The forms and fee buttons name the person entered, and every tournament email about such an entry starts by saying whose it is | `tests/components/entering-for-someone.test.tsx`, `tests/tournament-entry-mails.test.ts` |
 | The code sent to a guardian recorded by name and number was always in the install's first language | Staff choose the message's language, starting from their own site language | `tests/components/guardian-code-language.test.tsx` |
+| Nobody, staff included, could move a one-to-one lesson: it was cancelled and booked again | The customer moves it keeping the coach; staff also to another coach while unpaid; the coach's hours and other lessons checked, the coach claimed with the court | `tests/lesson-moves.test.ts`, `tests/coaching.test.ts` |
+| Only the platform owner could run the integrity check on demand | A manager runs it for their own venues, scoped in each query | `tests/integrity.test.ts`, `tests/components/owner-panels.test.tsx` |
 
 ## Production readiness
 
