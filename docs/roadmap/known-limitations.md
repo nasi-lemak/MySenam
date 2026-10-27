@@ -139,14 +139,15 @@ that could be removed, **4** a missing test, **5** a decision, kept on
 purpose, **6** waiting on an outside service, **7** a legal or commercial
 decision needing approval, **8** not needed until a market or customer
 that needs it. Kinds 1 to 4 are worked off; 5 stays unless the reason
-changes; 6 to 8 name what they wait for. As of 26 October 2026: no defect
-(kind 1) is open.
+changes; 6 to 8 name what they wait for. As of 27 October 2026: one defect
+(kind 1) is open, M16, waiting on the owner's decision.
 
 | Limitation | Kind | Who it affects | Next action, or what it waits for |
 | ---------- | ---- | -------------- | --------------------------------- |
 | [Email, WhatsApp, SMS, Billplz, Stripe, MyInvois, Google sign-in, off-site and photo buckets](#integrations-awaiting-live-verification-or-a-partner) never checked against the real service | 6 | Everyone, once the feature is on | Each passes its live check ([launch checklist](../operations/deployment.md#launch-integration-checklist)) |
 | [Email bounces not read back](#operations-and-security-s) | 6 | Venues whose customers' mail bounces | The owner reads bounces in the provider's dashboard weekly; a bounce webhook once a provider is chosen |
 | [Without WhatsApp or SMS, no number is proved](#decisions-the-owner-has-to-make); a [venue's access list](#operations-and-security-s) then matches a typed number | 6 | Members-only and private venues | Switch phone checks on |
+| [M16: a person's concession and a promo code combine through the API only](#money-m) | 1 | Venues with both concessions and promo codes | The owner decides whether they combine; then one rule on every path |
 | [Refunds by hand](#money-m) (every Billplz refund) depend on staff | 6 | Customers owed a refund at Billplz venues | A gateway with a refund API (HitPay is the candidate) |
 | [Reserve with Google, smart locks, Stripe Connect, InvoiceNow, web push, LINE, Zalo](#integrations-awaiting-live-verification-or-a-partner) | 6 / 8 | Venues wanting them | A partner approval or contract each |
 | [Remote staging](#production-readiness) never run; [load](#production-readiness) measured on one machine | 6 | The owner | An agreed spend for a droplet; re-run the benchmark on the production set-up |
@@ -175,9 +176,9 @@ changes; 6 to 8 name what they wait for. As of 26 October 2026: no defect
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
-began on 24 October 2026, **81 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B20 and
-S12–S17, found and fixed in the same work) and
+began on 24 October 2026, **82 now**. Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B22 and
+S12–S18, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (56
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
@@ -191,10 +192,11 @@ participants and scanning left (ClamAV's production set-up unverified);
 and, from the owner's decisions of 27 October 2026, the limits of taking one
 person off a booking, gaps in benefits by scope, another guardian's consent
 resting on accounts and the off-site erasure ledger tested against a
-stand-in only, each narrower than what it replaced. The owner's decisions of 24 October 2026 (the launch languages,
+stand-in only, each narrower than what it replaced; and one defect found by
+an acceptance scenario and left for the owner's decision (M16). The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-In the table above, no row is a defect; one is partly of kind 3 (the
+In the table above, one row is a defect (M16); one is partly of kind 3 (the
 limits of taking one person off a booking).
 
 ## Suspected defects
@@ -413,7 +415,17 @@ review is part of the same blocker.
 
 ### Money (M)
 
-None open.
+- **M16. A person's concession and a promo code combine through the API
+  only** (found 27 October 2026 by acceptance scenario *Places L*). The
+  [pricing](../features/pricing.md) rule is one discount, not with a promo
+  code, and the booking form hides the code once a concession is chosen; but
+  `POST /api/bookings` with `placeConcessions` and `promoCode` applies both
+  (the concession first), while a code applied first makes a person's
+  concession refuse with `ONE_DISCOUNT` at the counter; [ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)
+  says a booking-wide discount is shared between the places. Which is
+  intended is for the owner to decide; the code is not changed until then.
+  Test to write: the combination refused (or allowed) the same way on the
+  form, the counter and the API (P2).
 
 Also: a refund made by hand (every Billplz refund) depends on the venue's
 staff. MySenam tracks it — the date customers are told, overdue refunds on
@@ -511,6 +523,9 @@ IDs are not reused. Each fix came with the test recommended above.
 | S17 | A child's unstaffed access rested on the adult's induction: inductions were one per venue and phone number, staff could record one only for the number's holder, and the door checked the booking's number, so a child (or a sibling) booked on a parent's number opened on the parent's induction. Inductions now belong to the person inducted, the number holder's own or a participant's; the door asks for each person taking part; older family inductions stay the number holder's, flagged where ambiguous, and are given to a participant only by a manager with a reason ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)). Found investigating the owner's report | `tests/participants.test.ts`, `tests/participants-migration.test.ts`, `tests/guardian-applications.test.ts` |
 | B19 | The staff bookings tab could show one day's list under another day's heading: a slower answer for an earlier date overwrote the newer one, so it read *No bookings* over a day that had them. Stale answers are now dropped. Found by the acceptance scenarios (*Participants C*, and *Change time 1* and *3* in two runs) | `tests/components/bookings-tab.test.tsx` |
 | B20 | Bookings and class enrolments made by staff at the counter for a members-only venue were refused with `MEMBERS_SIGN_IN`, though staff book anyone at the counter; now the account check does not apply at the counter, and every participant is still checked for their own membership | `tests/membership-scope.test.ts` ("the counter and the venue's own system are held to it too") |
+| B21 | The Reports tab could show one venue's figures under another's name: a late answer for the venue shown first overwrote the venue just chosen (also the activity log and coach payouts); stale answers are now dropped | `tests/components/reports-venue-switch.test.tsx` |
+| B22 | At the counter, one person's concession proof could be marked seen but never remembered (no "until when" was sent), so every visit asked again; the dashboard now offers next visit, month end, year end or 12 months, as for a booking-wide concession | `tests/components/bookings-tab.test.tsx`, `tests/uat/round4.uat.ts` (Places L) |
+| S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
 
 ### Resolved limitations without a number
 

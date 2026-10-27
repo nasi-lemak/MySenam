@@ -242,18 +242,28 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Participants D | Search for an activity needing approval: anonymous and nobody-chosen show the requirement only; each child, both together, and the parent each show their own statuses, never "approved" while one is not; the venue grid follows; signing out forgets the choice |
 | Documents E | A parent's certificate waits for its scan and cannot be opened or approved; once released the reviewer downloads it unchanged and approves; a file the scan refuses cannot be opened by any path or approved. Uses a scanner stand-in, not ClamAV, so it is skipped against a deployment |
 | Participants F | On a phone: add a child, apply, read the approval, choose her on search, book her; every page fits, controls are within reach (24px targets) and text is readable |
+| Guardians G | The front desk starts a request for an adult at the counter; a single-use code for his own account; nothing about the child reaches him (people, form, search, booking, applying) before or while pending; the existing guardian is emailed (child, what, when, how to report, the venue; never who) and agrees online; a stranger she refuses gets nothing; a change she reports is paused by a manager and booking stops |
+| Guardians H | A second guardian sees the child approved on the first guardian's application and books for her; he cannot see or download that application or its certificate |
+| Documents I | Scanner away: the certificate waits unopened and unapprovable, and the owner's panel says the scanner does not answer; a working scanner that cannot scan fails a document; the owner rescans it with a reason (still failing, then passing), each retry on record; the reviewer opens it unchanged. Uses the scanner stand-in; skipped against a deployment |
+| Recovery J | The retention review is refused until reviewer, role, firm and written-advice reference are given; it is shown as the owner's record, not verified by MySenam, with the rest still provisional; the privacy notice says the same; changing a period lapses it. The ledger and restore gate are script-tested (`tests/erasure-ledger-restore.test.ts`) |
+| Places K | One child taken off a pool session sold by the place: the other stays booked, RM10 less owed, the place offered to the waiting list and claimed, an email names who is off; the last one left and a session sold whole are refused with reasons |
+| Places L | One child's concession on her place alone (the form offers no code on top), the receipt adds up; the counter checks her proof only and remembers it for 12 months, so the next booking does not ask; asked twice, refused |
 
 The acceptance server runs as a marketplace (`MYSENAM_MARKETPLACE=on`, in
 `tests/uat/setup.ts`), since only a marketplace has `/list-your-venue`; a
 staging deployment that is not one skips *Venue 1*. It also points
 `MYSENAM_CLAMD` at a stand-in on the loopback (`tests/uat/scanner.ts`): it
 speaks clamd's protocol, refuses the EICAR test string, and holds a document
-marked `UAT-HOLD-SCAN` until the scenario releases it. It is not ClamAV and
+marked `UAT-HOLD-SCAN` until the scenario releases it, and takes
+`UAT-MODE up|down|error` to stop answering or to fail every scan (Documents
+I). It is not ClamAV and
 proves nothing about the engine (`tests/document-scanning-engine.test.ts`
 does); it is not used against a deployment, nor where `MYSENAM_CLAMD` is set,
-and *Documents E* is then skipped.
+and *Documents E* and *I* are then skipped. The app's output is kept as
+`server.log` beside the evidence (`E2E_SERVER_LOG`); the server sends with
+`MYSENAM_SEND=log`, so that file is where scenarios read the emails sent.
 
-Last run: all 32 of 32 against the production build on PGlite (26 October
+Last run: all 38 of 38 against the production build on PGlite (27 October
 2026); 14 of 14, before
 scenario H was added, against a staging deployment
 on Postgres 16 with seeded data. Not driven from
