@@ -3667,7 +3667,15 @@ export async function moveTargetsFor(code: string): Promise<Court[]> {
 
 export interface OccupancyDay {
   date: string;
-  perCourt: { courtId: number; booked: number; blocked: number }[];
+  perCourt: {
+    courtId: number;
+    /** Place-hours booked: each booking is its places for its minutes. */
+    booked: number;
+    /** Place-hours taken out of service by blocks and outages: two places of four for an hour is 2. */
+    blocked: number;
+    /** Place-hours that could have been sold: the day's hours times capacity, less `blocked`; none on a closed day. */
+    sellable: number;
+  }[];
 }
 
 export interface OccupancyReport {
@@ -3677,9 +3685,12 @@ export interface OccupancyReport {
 }
 
 /**
- * Hours booked and blocked per court for `numDays` days from `start`: court
- * time, so a shared facility counts each place held, and only blocks that
- * take the whole resource take hours out of the day.
+ * Place-hours booked, taken out of service and sellable per court for
+ * `numDays` days from `start`, measured as the reports measure utilisation
+ * (docs/features/reporting.md): each day by its own hours, a closed day
+ * offering nothing, and every place a block or outage takes out coming off
+ * what could be sold for its time, so a block of two kayaks of six takes two
+ * places, not the hour.
  */
 export async function getOccupancy(venueId: number, start: string, numDays: number): Promise<OccupancyReport> {
   const db = getDb();
@@ -3692,17 +3703,25 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
   for (const date of dates) {
     const held = await occupantsOn(courts, date, zone);
     const on = await venueHours(venueId, date);
+    const shut = on.closed || (await getVenueClosure(venueId, date)) !== null;
     const day = { start: on.openMin, end: on.closeMin };
+    const open = shut ? 0 : (day.end - day.start) / 60;
     const minutes = (list: Occupant[], each: (o: Occupant) => number) =>
       list.reduce((sum, o) => sum + Math.max(0, Math.min(o.span.end, day.end) - Math.max(o.span.start, day.start)) * each(o), 0);
     days.push({
       date,
       perCourt: courts.map((c) => {
         const occupants = held.get(c.id)!;
+        const offered = open * c.capacity;
+        const blocked = Math.min(
+          offered,
+          minutes(occupants.filter((o) => o.kind === "block" || o.kind === "outage"), (o) => Math.min(o.places, c.capacity)) / 60
+        );
         return {
           courtId: c.id,
           booked: minutes(occupants.filter((o) => o.kind === "booking"), (o) => o.places) / 60,
-          blocked: minutes(occupants.filter((o) => (o.kind === "block" || o.kind === "outage") && o.places >= c.capacity), () => 1) / 60,
+          blocked,
+          sellable: offered - blocked,
         };
       }),
     });

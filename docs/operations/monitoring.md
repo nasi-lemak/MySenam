@@ -22,7 +22,11 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   from yesterday on. Every write keeps the two together, so this finds
   nothing unless something went round the code (a hand-edited row, half a
   restore). `GET /api/admin/integrity` asks again now, for the platform
-  owner, after putting it right.
+  owner, after putting it right; the owner's dashboard runs it from
+  *Booking integrity check* (`src/components/admin/IntegrityCheck.tsx`),
+  beside the system health and errors panels, listing each problem by kind,
+  venue and booking or class with the server's own description of it
+  (in English, as the check writes it).
   The same check raises **refunds that are stuck**: one asked of the gateway
   with no answer after an hour, money owed back on an online payment for
   over a week, and a refund the gateway accepted and then reported failed

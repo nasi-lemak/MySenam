@@ -93,13 +93,14 @@ export function OccupancyTab({
                   {report.days.map((d) => {
                     const cell = d.perCourt.find((c) => c.courtId === court.id);
                     const booked = cell?.booked ?? 0;
-                    const places = report.totalSlotsPerDay * court.capacity;
-                    const pct = Math.round((booked / places) * 100);
+                    // What could have been sold, after places taken out of service (lib/store.ts, getOccupancy).
+                    const places = cell?.sellable ?? report.totalSlotsPerDay * court.capacity;
+                    const pct = places > 0 ? Math.round((booked / places) * 100) : 0;
                     return (
                       <td key={d.date} className="p-1 text-center">
                         <div
                           className={`rounded-md py-1.5 text-xs font-semibold ${heat(pct)}`}
-                          title={cell?.blocked ? t("occ.cellBlocked", { booked, places, hours: cell.blocked }) : t("occ.cell", { booked, places })}
+                          title={cell?.blocked ? t("occ.cellBlocked", { booked, places, out: cell.blocked }) : t("occ.cell", { booked, places })}
                         >
                           {booked > 0 ? `${pct}%` : "·"}
                           {cell?.blocked ? <span className="ml-0.5">⛔</span> : null}
@@ -113,10 +114,7 @@ export function OccupancyTab({
                 <td className="px-3 py-2">{t("occ.venueTotal")}</td>
                 {report.days.map((d) => {
                   const booked = d.perCourt.reduce((s, c) => s + c.booked, 0);
-                  const total = report.courts.reduce(
-                    (sum, c) => sum + report.totalSlotsPerDay * c.capacity,
-                    0
-                  );
+                  const total = d.perCourt.reduce((sum, c) => sum + c.sellable, 0);
                   const pct = total > 0 ? Math.round((booked / total) * 100) : 0;
                   return (
                     <td key={d.date} className="px-2 py-2 text-center text-teal-700">

@@ -4,6 +4,7 @@ process.env.MYSENAM_DB = ":memory:";
 
 import {
   blockSlots,
+  closeVenueDay,
   courtsForAnyBooking,
   createBooking,
   createCourt,
@@ -17,6 +18,7 @@ import {
   searchAvailability,
   unblockSlots,
 } from "../src/lib/store";
+import { venueReport } from "../src/lib/reports";
 import { addDays, todayISO } from "../src/lib/time";
 
 const PHONE = "0123456789";
@@ -178,18 +180,46 @@ describe("a partial block everywhere else it matters", () => {
     })).toMatchObject({ ok: true });
   });
 
-  it("counts only full blocks against the occupancy report", async () => {
+  it("takes every place a block takes out off what the occupancy report could sell, as the report's utilisation does", async () => {
     const k = await fleet(4);
     const date = future(12);
-    await blockSlots(k.id, date, [10, 11], "Two out", 2);
-    const partial = (await getOccupancy((await venue()).id, date, 1))
-      .days[0].perCourt.find((c) => c.courtId === k.id)!;
-    expect(partial.blocked).toBe(0);
+    const v = await venue();
+    const cell = async () => (await getOccupancy(v.id, date, 1)).days[0].perCourt.find((c) => c.courtId === k.id)!;
+    const offered = (await cell()).sellable;
+    expect(offered).toBeGreaterThan(0);
+    expect((await cell()).blocked).toBe(0);
 
+    // Two kayaks of four for two hours: four place-hours out, the hour still sellable.
+    await blockSlots(k.id, date, [10, 11], "Two out", 2);
+    expect(await cell()).toMatchObject({ blocked: 4, sellable: offered - 4 });
+
+    // The whole fleet for an hour: all four places.
     await blockSlots(k.id, date, [12], "All out");
-    const full = (await getOccupancy((await venue()).id, date, 1))
-      .days[0].perCourt.find((c) => c.courtId === k.id)!;
-    expect(full.blocked).toBe(1);
+    expect(await cell()).toMatchObject({ blocked: 8, sellable: offered - 8 });
+
+    // A place rented is a place-hour booked, against what is left.
+    await rent(k.id, [10], date);
+    expect((await cell()).booked).toBe(1);
+
+    // The period report measures the same day the same way.
+    const line = (await venueReport(v.id, date, date))!.byCourt.find((c) => c.courtId === k.id)!;
+    expect(line.sellableHours).toBe(offered - 8);
+    expect(line.hours).toBe(1);
+  });
+
+  it("counts a court's blocked hour once, and a closed day as offering nothing", async () => {
+    const v = await venue();
+    const r = await createCourt({ venueId: v.id, name: `Court ${Math.random().toString(36).slice(2, 6)}`, sport: "badminton", offPeakRate: 20, peakRate: 30 });
+    if (!r.ok) throw new Error(r.error);
+    const date = future(14);
+    const cell = async (d = date) => (await getOccupancy(v.id, d, 1)).days[0].perCourt.find((c) => c.courtId === r.court.id)!;
+    const offered = (await cell()).sellable;
+    await blockSlots(r.court.id, date, [10, 11], "Line marking");
+    expect(await cell()).toMatchObject({ blocked: 2, sellable: offered - 2 });
+
+    const shut = future(15);
+    expect(await closeVenueDay(v.id, shut, "Hari Raya")).toMatchObject({ ok: true });
+    expect(await cell(shut)).toMatchObject({ booked: 0, blocked: 0, sellable: 0 });
   });
 
   it("shows staff the places out while the hour is still sellable", async () => {
