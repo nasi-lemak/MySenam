@@ -325,9 +325,10 @@ describe("one person's own price on their place", () => {
     const member = receipt.lines.find((l) => l.place?.kind === "membership")!;
     const kids = receipt.lines.find((l) => l.concessionPreset === "child")!;
     const own = receipt.lines.find((l) => l.place?.kind === "concession" && !l.concessionPreset)!;
-    expect(member).toEqual({ description: "Member price, Alya", amount: -5, place: { kind: "membership", name: "Alya" } });
-    expect(kids).toEqual({ description: "Child (under 12) price, Badrul", amount: -5, concessionPreset: "child", place: { kind: "concession", name: "Badrul" } });
-    expect(own).toEqual({ description: "Junior squad price, Chen", amount: -2, place: { kind: "concession", name: "Chen" } });
+    // Whose place it was is kept apart from the words (`place.name`), so retention and erasure can clear it (lib/receipt-names.ts).
+    expect(member).toEqual({ description: "Member price", amount: -5, place: { kind: "membership", name: "Alya" } });
+    expect(kids).toEqual({ description: "Child (under 12) price", amount: -5, concessionPreset: "child", place: { kind: "concession", name: "Badrul" } });
+    expect(own).toEqual({ description: "Junior squad price", amount: -2, place: { kind: "concession", name: "Chen" } });
     expect(receipt.total).toBe(18);
 
     const read = (locale: "en" | "ms" | "zh" | "ta") => [member, kids, own].map((l) => receiptLineText(translator(locale), l));
@@ -359,8 +360,8 @@ describe("one person's own price on their place", () => {
     expect(receiptLineText(translator("zh"), shown.lines.find((l) => l.concessionPreset === "child")!)).toBe("儿童（12岁以下）优惠价（Badrul）");
     expect(receiptLineText(translator("ta"), shown.lines.find((l) => l.place?.kind === "membership")!)).toBe("உறுப்பினர் விலை, Alya");
 
-    // As one written before lines kept it: no key and no place. It is shown, and stays, as stored.
-    const bare = credit.lines.map(({ concessionPreset: _k, place: _p, ...rest }) => rest);
+    // As one written before lines kept it: no key and no place, the name in the words. It is shown, and stays, as stored.
+    const bare = credit.lines.map(({ concessionPreset: _k, place, ...rest }) => (place?.name ? { ...rest, description: `${rest.description}, ${place.name}` } : rest));
     await getDb().prepare("UPDATE receipts SET lines = ? WHERE id = ?").run(JSON.stringify(bare), credit.id);
     const old = (await open(credit.ref))!;
     expect(old).toMatchObject({ number: credit.number, total: credit.total });

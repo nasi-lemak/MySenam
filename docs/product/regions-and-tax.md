@@ -189,12 +189,14 @@ details → Tax* (managers only).
   *会员价（Alya）*, *உறுப்பினர் விலை, Alya*; a concession the venue named
   itself stays as typed). Only the words change: the amounts, the number, the tax and the
   line as stored are the same for every reader, and the sales journal,
-  exports and e-invoices keep the words as written. A receipt from before
+  exports and e-invoices keep the words as written (with whom a line is for,
+  while the receipt still names them:
+  [privacy](../architecture/privacy.md#receipts-and-credit-notes)). A receipt from before
   lines kept the key reads in the customer's language only where it can be
   told for certain: a booking whose concession is still that built-in one,
   word for word, under the same name; a credit note or kept receipt whose
   booking's own line today has the same words and amount. Anything else
-  shows as stored, and nothing stored is rewritten (`receiptLineText` in
+  shows as stored, and nothing stored is rewritten for it (`receiptLineText` in
   `src/lib/receipts.ts`, `tests/receipt-languages.test.ts`).
 - **Receipts for everything else sold.** A membership, a pass, a credit
   top-up, a tournament entry, a league fee or a share of a game gets a

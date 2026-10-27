@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { documentsForUser } from "@/lib/documents";
+import { documentsForUser, lineText } from "@/lib/documents";
 import { receiptPath } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
       number: d.number,
       kind: d.kind,
       venueName: d.venueName,
-      description: d.lines[0]?.description ?? "",
+      description: d.lines[0] ? lineText(d.lines[0]) : "",
       total: d.total,
       issuedAt: d.issuedAt,
       path: receiptPath(d.ref),

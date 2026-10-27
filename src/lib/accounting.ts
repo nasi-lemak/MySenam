@@ -4,6 +4,7 @@ import { currencySymbol, roundMoney } from "./region";
 import { taxIncluded, taxName } from "./tax";
 import { venueZoneOf } from "./zones";
 import { PAID_VIA_LABELS, type PaidVia } from "./types";
+import { lineText, type Line } from "./documents";
 
 /**
  * A venue's sales journal for its accountant: every receipt and credit note
@@ -228,7 +229,9 @@ export async function salesJournal(venueId: number, from: string, to: string): P
     const sign = d.kind === "credit_note" ? -1 : 1;
     let description = "";
     try {
-      description = (JSON.parse(d.lines) as { description: string }[])[0]?.description ?? "";
+      // With whom it is for, where the line keeps that apart (lib/documents.ts `lineText`).
+      const first = (JSON.parse(d.lines) as Line[])[0];
+      description = first ? lineText(first) : "";
     } catch {
       // An unreadable line is still a document with a total.
     }

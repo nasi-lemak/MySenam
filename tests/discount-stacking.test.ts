@@ -15,7 +15,7 @@ import { applyConcession, applyPlaceConcession, checkConcession, saveConcession 
 import { saveCoach } from "../src/lib/coaching";
 import { getDb } from "../src/lib/db";
 import { courtBeforePromo, discountStacking, promoDiscount, setDiscountStacking, stackRefusal } from "../src/lib/discounts";
-import { bookingSale } from "../src/lib/documents";
+import { bookingSale, lineText } from "../src/lib/documents";
 import { placeBenefitsFor, placeShares, splitEvenly, splitInProportion } from "../src/lib/entitlements";
 import { addManaged } from "../src/lib/managed-people";
 import { withdrawPlace } from "../src/lib/place-withdrawals";
@@ -285,7 +285,9 @@ describe("a concession and a code together, where the venue and the code allow i
     // The receipt: each discount a line of its own, the concession before the code, adding up to what is owed.
     const sale = (await bookingSale(id))!;
     expect(sale.lines.map((l) => l.amount)).toEqual([30, -5, -2.5]);
-    expect(sale.lines[1].description).toBe(`${childPrice.name} price, Gina`);
+    // Whose place it was, kept apart from the words (lib/receipt-names.ts), said with them.
+    expect(sale.lines[1]).toMatchObject({ description: `${childPrice.name} price`, place: { name: "Gina" } });
+    expect(lineText(sale.lines[1])).toBe(`${childPrice.name} price, Gina`);
     expect(sale.lines[2].description).toBe(`Promo ${promo.code}`);
     expect(sum(sale.lines.map((l) => l.amount))).toBe(sale.total);
 

@@ -512,7 +512,8 @@ export async function invoiceCredits(invoiceId: number): Promise<InvoiceCredit[]
 export async function creditAccountForPlace(input: {
   bookingId: number;
   withdrawalId: number;
-  who: string;
+  /** Who was taken off: their name, apart from the credit note's words (lib/documents.ts `Line.who`), or so many places. */
+  who: { name: string | null; places: number };
   amount: number;
   why: string;
 }): Promise<{ id: number; number: string | null } | null> {

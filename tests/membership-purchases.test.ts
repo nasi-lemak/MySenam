@@ -15,7 +15,7 @@ import { setAccessSettings } from "../src/lib/access";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession } from "../src/lib/admin-auth";
 import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
-import { documentsForUser } from "../src/lib/documents";
+import { documentsForUser, lineText } from "../src/lib/documents";
 import { acceptGuardianInvite, requestAtVenue } from "../src/lib/guardian-requests";
 import { addManaged } from "../src/lib/managed-people";
 import { addMonths, createPlan, setPlanBenefits } from "../src/lib/membership-plans";
@@ -230,7 +230,9 @@ describe("buying for a child the account looks after", () => {
     expect(await activeMembership(venueId, parent.phone)).toBeNull();
     // The receipt names whom it is for; the child's history says who bought it.
     const receipt = (await documentsForUser(parent.id)).find((d) => d.lines[0].description.startsWith("Membership"))!;
-    expect(receipt.lines[0].description).toBe(`Membership ${mine[0].code} for Alya, ${today} to ${mine[0].expiresOn}`);
+    // Said with the names, kept apart from the words so retention and erasure clear them (lib/receipt-names.ts).
+    expect(lineText(receipt.lines[0])).toBe(`Membership ${mine[0].code} for Alya, ${today} to ${mine[0].expiresOn}`);
+    expect(receipt.lines[0]).toMatchObject({ description: `Membership ${mine[0].code} for {who}, ${today} to ${mine[0].expiresOn}`, who: ["Alya"] });
     expect(receipt).toMatchObject({ total: 120, paidVia: "Online (Stripe)" });
     expect((await participantHistory(kid.id)).some((e) => e.action === "membership.bought" && e.detail?.includes(mine[0].code))).toBe(true);
     expect(await paymentByBill(bought.session!)).toMatchObject({ status: "paid", refundOwed: 0 });
@@ -298,7 +300,8 @@ describe("a family membership", () => {
     expect((await participantMembership(venueId, b.id))?.id).toBe(m.id);
     expect(await participantMembership(venueId, c.id)).toBeNull();
     const receipt = (await documentsForUser(parent.id)).find((d) => d.lines[0].description.startsWith("Membership"))!;
-    expect(receipt.lines[0].description).toBe(`Membership ${m.code} for ${parent.name}, Ena, Fikri, ${m.startsOn} to ${m.expiresOn}`);
+    expect(lineText(receipt.lines[0])).toBe(`Membership ${m.code} for ${parent.name}, Ena, Fikri, ${m.startsOn} to ${m.expiresOn}`);
+    expect(receipt.lines[0].who).toEqual([parent.name, "Ena", "Fikri"]);
     // Covered already: refused for the same days, said with the date it ends.
     expect((await quote(parent, { planId: plans.individual, participantId: a.id })).body).toMatchObject({
       code: "MBO_ALREADY_COVERED",

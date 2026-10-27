@@ -13,7 +13,7 @@ import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession } from "../src/li
 import { createSession, registerUser, SESSION_COOKIE } from "../src/lib/auth";
 import { applyPlaceConcession, checkConcession, saveConcession } from "../src/lib/concessions";
 import { getDb } from "../src/lib/db";
-import { bookingSale } from "../src/lib/documents";
+import { bookingSale, lineText } from "../src/lib/documents";
 import { placeBenefitsFor, placeShare } from "../src/lib/entitlements";
 import { addManaged } from "../src/lib/managed-people";
 import { createAtVenue } from "../src/lib/participants";
@@ -263,7 +263,7 @@ describe("a concession for one person's place", () => {
     expect((await placeShare(made.body.booking.id, benefits[0].placeId)).net).toBe(5);
     // The receipt names whose price it was.
     const sale = await bookingSale(made.body.booking.id);
-    expect(sale!.lines.some((l) => l.description === `${childPrice.name} price, Amani` && l.amount === -5)).toBe(true);
+    expect(sale!.lines.some((l) => lineText(l) === `${childPrice.name} price, Amani` && l.amount === -5)).toBe(true);
     expect(sale!.lines.reduce((s, l) => s + l.amount, 0)).toBe(25);
 
     // A concession for the booking: off the whole of it, as always.

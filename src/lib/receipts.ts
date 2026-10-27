@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { keyedHash } from "./secrets";
 import { findBookingByCode, getVenue } from "./store";
 import { taxIncluded, taxName, venueTax } from "./tax";
-import { bookingSale, documentById, documentFor, documentId, paidVia, type Document, type Line } from "./documents";
+import { bookingSale, documentById, documentFor, documentId, lineText, paidVia, type Document, type Line } from "./documents";
 import { siteName } from "./site";
 import { DICTIONARIES, type Phrase, type T } from "./i18n";
 import { isConcessionPreset } from "./concessions-shared";
@@ -83,7 +83,7 @@ async function issuer(venueId: number | null): Promise<Receipt["venue"] | null> 
  * the line kept in the venue's books, are the same in every language. A
  * language with no words for it says it as written.
  */
-export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset" | "place" | "slot">): string {
+export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset" | "place" | "slot" | "who">): string {
   const words = DICTIONARIES[t.locale];
   if (line.slot && words?.["lo6.rcpt.slot"]) return slotText(t, line.slot);
   const preset = line.concessionPreset;
@@ -94,10 +94,11 @@ export function receiptLineText(t: T, line: Pick<Line, "description" | "concessi
     const name = `pre.con.${preset}` as Phrase;
     price = said(name) && said("rcpt.concessionPrice") ? t("rcpt.concessionPrice", { name: t(name) }) : null;
   }
-  if (price === null) return line.description;
+  // As written, with whom it is for where the line keeps that apart (lib/documents.ts `lineText`).
+  if (price === null) return lineText(line);
   const who = line.place?.name;
   if (!who) return price;
-  return said("fin5.placeFor") ? t("fin5.placeFor", { price, name: who }) : line.description;
+  return said("fin5.placeFor") ? t("fin5.placeFor", { price, name: who }) : lineText(line);
 }
 
 /**

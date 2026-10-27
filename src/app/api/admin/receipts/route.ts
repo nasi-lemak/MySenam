@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { documentsForVenue } from "@/lib/documents";
+import { documentsForVenue, linePhrase, lineText } from "@/lib/documents";
 import { receiptPath } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +19,10 @@ export async function GET(req: NextRequest) {
       number: d.number,
       kind: d.kind,
       customer: d.customerName,
-      description: d.lines[0]?.description ?? "",
+      // With whom it is for, where the line keeps that apart (lib/documents.ts `lineText`).
+      description: d.lines[0] ? lineText(d.lines[0]) : "",
       // Where MySenam worded it: the phrase, for the staff language (lib/staff-text.ts).
-      descriptionPhrase: d.lines[0]?.phrase ?? null,
+      descriptionPhrase: d.lines[0] ? linePhrase(d.lines[0]) : null,
       total: d.total,
       tax: d.tax?.amount ?? 0,
       credits: d.credits,

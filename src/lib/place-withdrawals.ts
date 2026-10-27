@@ -1,6 +1,6 @@
 import { policyFor } from "./booking-policy";
 import { getDb, withTransaction } from "./db";
-import { creditBookingPlace, creditReceipt } from "./documents";
+import { creditBookingPlace, creditReceipt, WHO } from "./documents";
 import { placeShares, placesOf, refuse, soldByPlace, type BookingPlace } from "./entitlements";
 import { isLocale, translator, type Locale } from "./i18n";
 import { hasBeenLive } from "./listing";
@@ -420,7 +420,8 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
           o.deposit
         )) as { id: number };
 
-      const label = o.name ?? `${o.places} place${o.places === 1 ? "" : "s"}`;
+      // Whom it was, apart from the words of its credit notes, so retention and erasure can clear it (lib/receipt-names.ts).
+      const taken = { name: o.name, places: o.places };
       const why = o.late ? "receipt.why.lateCancelled" : "receipt.why.cancelled";
       // The money, the way it was paid; or, not yet paid, the price comes off what is owed.
       if (!a.settled) {
@@ -449,7 +450,7 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
         // On an account invoice already issued: the invoice stays; the place's part is a credit note on the account.
         if (a.ownRefund > 0) {
           const { creditAccountForPlace } = await import("./accounts");
-          await creditAccountForPlace({ bookingId: booking.id, withdrawalId: w.id, who: label, amount: a.ownRefund, why });
+          await creditAccountForPlace({ bookingId: booking.id, withdrawalId: w.id, who: taken, amount: a.ownRefund, why });
         }
       } else {
         // The booking's price stays as sold; this place's part of it is settled here (`place_withdrawals.price`, paid).
@@ -478,14 +479,19 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
             )
             .run(a.ownRefund, booking.id);
         }
-        if (a.ownRefund > 0) await creditBookingPlace(booking.id, w.id, label, a.ownRefund, why);
+        if (a.ownRefund > 0) await creditBookingPlace(booking.id, w.id, taken, a.ownRefund, why);
       }
       // The part settled from a deposit paid online goes back to that payment, with a credit note on the deposit's receipt.
       if (o.deposit > 0 && a.depositPaymentId !== null) {
         await db
           .prepare("UPDATE online_payments SET refund_due = LEAST(amount, refund_due + ?) WHERE id = ? AND status = 'paid'")
           .run(o.deposit, a.depositPaymentId);
-        await creditReceipt(`payment:${a.depositPaymentId}`, why, 1, { key: `${booking.code}, ${label}`, amount: o.deposit });
+        // Keyed by the withdrawal, so each has its own credit note and the key names nobody; the name apart (`Line.who`).
+        await creditReceipt(`payment:${a.depositPaymentId}`, why, 1, {
+          key: `${booking.code}:place:${w.id}`,
+          amount: o.deposit,
+          ...(o.name ? { text: `${booking.code}, ${WHO}`, who: [o.name] } : { text: `${booking.code}, ${o.places} place${o.places === 1 ? "" : "s"}` }),
+        });
       }
       // A pass spent for the place gives back its entries (rounded down on a late withdrawal), once.
       if (a.paid && booking.paidVia === "pass")
