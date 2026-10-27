@@ -162,7 +162,7 @@ changes; 6 to 8 name what they wait for. As of 26 October 2026: no defect
 | [Ways some activities are sold](#activities): bowling by the game, gym entry without a session, day passes, launch windows, range officers, heats | 8 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
-| [Several people on one booking changed as a whole; pass entries and concessions per booking](#activities); [rules counted for the booker](#activities) | 3 / 7 / 5 | Families, clubs | The owner decides passes and concessions per person; removing one person from a booking when a venue needs it |
+| [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities) | 3 / 5 | Families, clubs | Kept until a venue needs more |
 | [Another guardian's consent rests on accounts](#activities): guardians with only a number, participants no venue knows, no reminders of review dates | 5 | Families | Kept until a venue needs more |
 | [Country names for countries not sold in](#activities); [clock changes](#booking-and-availability-b) (handled, no such country) | 8 | — | When a country is added |
 | [Tournament corrections](#booking-and-availability-b) never rewrite a played match; [performance ties](#booking-and-availability-b) wait for the organiser; [official's links](#booking-and-availability-b) are bearer links; [divisions](#booking-and-availability-b) keep players apart by account; [box leagues](#booking-and-availability-b) always have a winner | 5 | Organisers | Kept: each reason is in its section |
@@ -176,9 +176,9 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **81 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B19 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B20 and
 S12–S17, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (53
+[resolved without a number](#resolved-limitations-without-a-number) (56
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
@@ -187,16 +187,15 @@ left unsaid: the access list matching a typed number; the native review of
 newly translated text; what the owner's decisions of 25 and 26 October 2026
 left when built (exact shared separation on fungible places, gaps across a
 change of the clocks, the provisional retention periods); and what building
-participants and scanning left (a booking for several people changed as a
-whole, pass entries and concessions per booking, rules counted for the
-booker, ClamAV's production set-up unverified); and, from the owner's
-decisions of 27 October 2026, another guardian's consent resting on accounts
-and the off-site erasure ledger tested against a stand-in only, each
-narrower than what it replaced. The owner's decisions of 24 October 2026 (the launch languages,
+participants and scanning left (ClamAV's production set-up unverified);
+and, from the owner's decisions of 27 October 2026, the limits of taking one
+person off a booking, gaps in benefits by scope, another guardian's consent
+resting on accounts and the off-site erasure ledger tested against a
+stand-in only, each narrower than what it replaced. The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-In the table above, no row is a defect; one is partly of kind 3 (removing
-one person from a booking for several).
+In the table above, no row is a defect; one is partly of kind 3 (the
+limits of taking one person off a booking).
 
 ## Suspected defects
 
@@ -347,17 +346,21 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   answers to the questions in [privacy](../architecture/privacy.md); deleted rows
   stay in backups until those age out (about two weeks) (P3, kind 7).
 - **The erasure ledger off-site is tested against a stand-in only**: entries are copied off-site in signed segments within a minute and with every set, and a restore that cannot show the ledger complete (always after losing the server) is not served until acknowledged; an erasure made after its entry last left a lost server (normally under a minute, longer while copies fail, which raises `erasure-ledger-offsite`) is redone by hand; one the restored copy blocks (credit, a pass, a hold) is raised to the owners rather than forced; retention periods an activity shortened after the backup are not in the ledger (the install's, which bound them, are) ([backups](../operations/backups.md#after-a-restore)) (P3).
-- **A booking for several people is changed as a whole**: one person cannot
-  be taken off it with their share refunded (cancel it and book again); a
-  pass entry pays for a booking, not per person on it, and a concession is
-  declared per booking, not per participant (both for the owner to decide);
-  the waiting list is joined online only; QR self check-in and door codes
-  check a booking in as a whole, though the door asks for each person's own
-  eligibility ([booking for somebody else](../features/booking.md#booking-for-somebody-else)) (P3).
-- **Rules counted for the booker stay the booker's**: members-only access,
-  a member's longer booking window and house-rule limits per number follow
-  whoever books, not each participant (P3, by design until a venue needs
-  otherwise).
+- **Taking one person off a booking has limits**: it is refused for
+  lessons, open games, bookings on a company account, deposits, shared
+  payments and open payment pages, which are cancelled whole; a class place
+  is withdrawn by cancelling that child's enrolment; the notice is an email
+  only (no WhatsApp template); the waiting list is joined online only; QR
+  self check-in and door codes check a booking in as a whole, though the
+  door asks for each person's own eligibility ([taking one person off](../features/booking.md#taking-one-person-off-a-booking)) (P3).
+- **Benefits by scope have gaps** ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
+  the booking form spends one pass per booking (several passes are paid
+  through the API only); a place concession's receipt line is in English
+  with the person's name; memberships held for a participant, and family
+  memberships, are sold at the counter only; a tournament's members-only
+  rule still checks the entrant's account, not each player's membership;
+  a participant's remembered concession proof is not yet in the account's
+  data export (P3).
 - **Another guardian's consent rests on accounts**: agreement comes from an
   existing guardian with an account, so a child whose only guardians are a
   name and number at a venue (or a linked adult participant) gets another
@@ -507,6 +510,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B18 | A competition's draw scheduled each division around the others' matches by the players already in them, so a final or third-place match still to be decided counted as nobody's: a player in two divisions could be put on court in one at the time of a final they could reach in the other. A side still to be decided now counts as everybody who could still reach it, in the draw and when a fixture is moved or replayed. Found writing the tournament browser scenarios | `tests/divisions.test.ts` |
 | S17 | A child's unstaffed access rested on the adult's induction: inductions were one per venue and phone number, staff could record one only for the number's holder, and the door checked the booking's number, so a child (or a sibling) booked on a parent's number opened on the parent's induction. Inductions now belong to the person inducted, the number holder's own or a participant's; the door asks for each person taking part; older family inductions stay the number holder's, flagged where ambiguous, and are given to a participant only by a manager with a reason ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)). Found investigating the owner's report | `tests/participants.test.ts`, `tests/participants-migration.test.ts`, `tests/guardian-applications.test.ts` |
 | B19 | The staff bookings tab could show one day's list under another day's heading: a slower answer for an earlier date overwrote the newer one, so it read *No bookings* over a day that had them. Stale answers are now dropped. Found by the acceptance scenarios (*Participants C*, and *Change time 1* and *3* in two runs) | `tests/components/bookings-tab.test.tsx` |
+| B20 | Bookings and class enrolments made by staff at the counter for a members-only venue were refused with `MEMBERS_SIGN_IN`, though staff book anyone at the counter; now the account check does not apply at the counter, and every participant is still checked for their own membership | `tests/membership-scope.test.ts` ("the counter and the venue's own system are held to it too") |
 
 ### Resolved limitations without a number
 
@@ -568,6 +572,9 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Guardians were not told when another adult became a guardian, and staff could add one on the adult's declaration alone | Another guardian only by invitation and agreement or a manager's recorded exception; the other guardians are told through the outbox; a guardian may report a relationship for review (pause, keep, revoke) | `tests/counter-guardians.test.ts`, `tests/components/guardian-requests.test.tsx` |
 | Coaches saw the participant's name on a lesson with no stated limit | The owner confirmed it: a coach sees a child's name only on lessons assigned to them while their coach record is active; no venue-wide list, guardian records or documents | `tests/coach-scope.test.ts` |
 | Search showed only the signed-in account's own applications: a second guardian saw *approval required* while another's waited | Each participant's status counts their applications whoever made them; answers and documents stay with the applicant, staff and reviewers | `tests/guardian-eligibility.test.ts` |
+| A booking for several people was changed as a whole: one person could not be taken off with their share refunded | Where the activity sells places separately, one person is taken off: the place released and offered to the waiting list, its price off what is owed or refunded on the venue's terms with its own credit note, passes and concessions given back; a group gives up a place; a court hired whole only un-names; anything else refused with its reason | `tests/place-withdrawals.test.ts`, `tests/components/withdraw-people.test.tsx` |
+| A pass entry paid for a booking, not a person on it, and a concession was declared per booking | Passes and concessions carry a scope (booking, resource, one person's place, a number of places), redeemed once per place under a database guard; everything issued before keeps booking scope | `tests/entitlements.test.ts` |
+| Members-only access, a member's longer window and house-rule limits followed whoever booked | Account privileges (booking earlier, limits) stay with the account; a members-only session needs each participant's own membership or a family membership naming them, one check on every path | `tests/membership-scope.test.ts` |
 
 ## Production readiness
 
