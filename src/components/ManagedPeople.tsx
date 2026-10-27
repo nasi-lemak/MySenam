@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ManagedPerson, Relationship } from "@/lib/managed-people";
+import type { AccountRequests } from "@/lib/guardian-requests";
 import { hasPhrase, type Phrase, type T } from "@/lib/i18n";
 import { useT } from "@/components/Language";
 
@@ -9,7 +10,7 @@ const RELATIONSHIPS: Relationship[] = ["parent", "guardian", "other"];
 
 /** A refusal about somebody managed, in the customer's language: by its code where it has one. */
 export function explainGuard(t: T, body: { error?: string; code?: string; vars?: Record<string, string | number> } | null | undefined): string {
-  for (const key of body?.code ? [`guard.err.${body.code}`, `ptc.err.${body.code}`, `pbk.err.${body.code}`] : [])
+  for (const key of body?.code ? [`guard.err.${body.code}`, `ptc.err.${body.code}`, `pbk.err.${body.code}`, `gv.err.${body.code}`] : [])
     if (hasPhrase(key)) return t(key as Phrase, body?.vars);
   return body?.error || t("guard.failed");
 }
@@ -22,6 +23,9 @@ const EMPTY_CODE = { code: "", relationship: "parent" as Relationship, authority
  * somebody else the adult has authority for, who needs no login of their
  * own. Add, change and stop managing; nothing but a name, a birth year if an
  * activity needs one, and the adult's declared relationship and authority.
+ * Another adult's request to become a guardian waits here for this
+ * guardian's answer, and recent changes to who acts for each person can be
+ * reported as a mistake (lib/guardian-requests.ts).
  */
 export default function ManagedPeople() {
   const t = useT();
@@ -34,6 +38,7 @@ export default function ManagedPeople() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [codeForm, setCodeForm] = useState(EMPTY_CODE);
+  const [requests, setRequests] = useState<AccountRequests | null>(null);
 
   const load = useCallback(() => {
     fetch("/api/my/people?archived=1", { cache: "no-store" })
@@ -42,6 +47,7 @@ export default function ManagedPeople() {
         if (!data) return;
         setPeople(data.people);
         setOwn(data.own ?? null);
+        setRequests(data.requests ?? null);
       })
       .catch(() => {});
   }, []);
@@ -84,7 +90,13 @@ export default function ManagedPeople() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(explainGuard(t, data));
-      setNotice(data.as === "guardian" ? t("ptc.accept.doneGuardian", { name: data.person.displayName }) : t("ptc.accept.doneLinked", { name: data.person.displayName }));
+      setNotice(
+        data.as === "pending"
+          ? t("gv.accept.pending", { name: data.person.displayName })
+          : data.as === "guardian"
+            ? t("ptc.accept.doneGuardian", { name: data.person.displayName })
+            : t("ptc.accept.doneLinked", { name: data.person.displayName })
+      );
       setCodeForm(EMPTY_CODE);
       load();
     } catch (err) {
@@ -94,6 +106,37 @@ export default function ManagedPeople() {
     }
   }
   useEffect(() => load(), [load]);
+
+  /** An existing guardian's answer to another adult's request (lib/guardian-requests.ts answerRequest). */
+  async function answer(id: number, name: string, agree: boolean) {
+    const reason = agree ? undefined : window.prompt(t("gv.refuseReason"));
+    if (reason === null) return;
+    await post("/api/my/people/requests", { id, agree, ...(reason ? { reason } : {}) }, agree ? t("gv.agreed", { name }) : t("gv.refused"));
+  }
+
+  /** Report a change to who acts for somebody as a mistake: flagged for a manager (lib/guardian-requests.ts reportMistake). */
+  async function report(participantId: number, guardianshipId: number) {
+    const note = window.prompt(t("gv.change.reportPrompt"));
+    if (note === null) return;
+    await post("/api/my/people/report", { id: participantId, guardianshipId, note }, t("gv.change.reportDone"));
+  }
+
+  async function post(url: string, body: Record<string, unknown>, done: string) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(explainGuard(t, data));
+      setNotice(done);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("guard.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function send(method: "POST" | "PATCH", body: Record<string, unknown>) {
     setBusy(true);
@@ -128,7 +171,7 @@ export default function ManagedPeople() {
   const archived = people.filter((p) => p.archivedAt);
   const field = "mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm";
   return (
-    <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section id="people" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div>
         <h2 className="text-lg font-bold">{t("guard.title")}</h2>
         <p className="mt-1 text-sm text-slate-600">{t("guard.intro")}</p>
@@ -136,6 +179,43 @@ export default function ManagedPeople() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</div>}
       {own && <p className="text-sm text-slate-600">{t("ptc.own", { name: own.displayName })}</p>}
+      {requests && requests.toAnswer.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+          <p className="font-medium">{t("gv.toAnswer.title")}</p>
+          {requests.toAnswer.map((r) => (
+            <div key={r.id} className="space-y-1">
+              <p>
+                {t("gv.toAnswer.line", { proposed: r.proposedName, name: r.displayName, relationship: t(`guard.rel.${r.relationship}`) })}{" "}
+                {r.venueName ? t("gv.toAnswer.by", { by: r.startedBy, venue: r.venueName }) : ""}
+              </p>
+              <p className="text-xs text-slate-600">{t("gv.toAnswer.note", { name: r.displayName })}</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void answer(r.id, r.displayName, true)}
+                  className="rounded-lg bg-teal-600 px-3 py-1 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {t("gv.agree")}
+                </button>
+                <button type="button" disabled={busy} onClick={() => void answer(r.id, r.displayName, false)} className="text-sm text-red-700 underline">
+                  {t("gv.refuse")}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {requests?.pending.map((r) => (
+        <p key={`pending-${r.id}`} className="text-sm text-slate-600">
+          {t("gv.pending.line", { name: r.displayName })}
+        </p>
+      ))}
+      {requests?.paused.map((r, i) => (
+        <p key={`paused-${i}`} className="text-sm text-amber-800">
+          {t("gv.paused.line", { name: r.displayName })}
+        </p>
+      ))}
       {live.length === 0 && <p className="text-sm text-slate-500">{t("guard.none")}</p>}
       <ul className="divide-y divide-slate-100 text-sm">
         {live.map((p) => (
@@ -145,6 +225,21 @@ export default function ManagedPeople() {
               {p.birthYear ? ` · ${t("guard.born", { year: p.birthYear })}` : ""} · {t(`guard.rel.${p.relationship}`)}
               {p.otherGuardians > 0 ? ` · ${t("ptc.others", { n: p.otherGuardians })}` : ""}
               {p.linked ? ` · ${t("ptc.linked")}` : ""}
+              {requests?.changes
+                .filter((c) => c.participantId === p.id)
+                .map((c) => (
+                  <span key={`${c.guardianshipId}-${c.kind}`} className="mt-0.5 block text-xs text-slate-500">
+                    {t(c.kind === "added" ? "gv.change.added" : "gv.change.ended", { date: new Date(c.at).toLocaleDateString() })}{" "}
+                    {c.kind === "added" &&
+                      (c.reported ? (
+                        t("gv.change.reported")
+                      ) : (
+                        <button type="button" disabled={busy} className="text-red-700 underline" onClick={() => void report(p.id, c.guardianshipId)}>
+                          {t("gv.change.report")}
+                        </button>
+                      ))}
+                  </span>
+                ))}
             </span>
             <span className="flex flex-wrap gap-3 text-xs">
               <button
@@ -234,7 +329,7 @@ export default function ManagedPeople() {
       </form>
       <form onSubmit={accept} className="space-y-2 rounded-lg border border-slate-100 p-3">
         <p className="text-sm font-medium">{t("ptc.accept.title")}</p>
-        <p className="text-xs text-slate-500">{t("ptc.accept.intro")}</p>
+        <p className="text-xs text-slate-500">{t("gv.accept.intro")}</p>
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs text-slate-600">
             {t("ptc.accept.code")}

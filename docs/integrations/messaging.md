@@ -108,6 +108,41 @@ Closing a day that has bookings or classes on it is refused until staff say
 to cancel them; then each customer is told, as above. Messages are written in
 the language the customer booked in.
 
+### Guardian notices
+
+When who acts for a participant changes (ADR 0023;
+[another guardian by invitation](../features/venue-operations.md#another-guardian-by-invitation)),
+the participant's other guardians with an account (acting for them now, not
+paused) are emailed through the outbox (`notifyGuardianChange` in
+`src/lib/guardian-requests.ts`, kind `account_email`, in the language each
+account last used):
+
+| When | To | Says |
+| ---- | -- | ---- |
+| Another guardian added (a request agreed, or made by an exception) | every other guardian, except the new one and the one who just agreed | that a guardian was added for {name}, and when |
+| A guardian's relationship ended (ended by them, or revoked by staff) | every remaining guardian | that a guardian stopped acting for {name}, and when |
+| A request staff started was accepted and waits for agreement | every guardian who could agree | that another adult asked, that nothing changes unless they agree or a manager records an exception, and where to answer |
+
+Each names the participant and the general nature of the change and when it
+took effect (in the venue's time zone), links to the account's people page
+(`/account#people`) to report a mistake or answer, and gives the venue to
+contact (its name and number) where a venue is involved. Never the other
+adult's name or details, and never a location, court, schedule or anything
+else private. Guardians recorded by a venue by name and number only have no
+email and are not told (no WhatsApp template exists for this). An exception
+that requires it (`suppressNotice`, a manager's) tells nobody, and the
+participant's history says so (`guardian.notice_suppressed`).
+
+Queued like any other message: retried when the mail server is down, held
+to the daily limit per address, its body (with the account link) wiped once
+sent. The change is made and recorded before anything is queued, so a
+failed delivery, or a failure even to queue it (recorded as
+`guardian.notice_failed`), never undoes the change or loses its record; the
+queued messages are listed in the participant's history
+(`guardian.notified`). Tested with a transport that fails and a queue that
+throws (`tests/counter-guardians.test.ts`); live delivery is part of the
+email integration's verification, as for every email.
+
 ### Urgent news, and knowing it arrived
 
 A cancellation or a move by the venue is something a customer must not miss —

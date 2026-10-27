@@ -52,8 +52,9 @@ part other than that person ([booking for somebody else](booking.md#booking-for-
   A number with no guardian of that participant on it is refused
   (`PBK_NOT_GUARDIAN`): typing a number never makes anybody a guardian.
   An adult bringing a child the venue already knows, but not on record as
-  their guardian, is added as a guardian of that same participant
-  ([below](#a-second-guardian-at-the-counter)), never as a second record.
+  their guardian, is invited to become a guardian of that same participant
+  ([below](#another-guardian-by-invitation)), never made one on the spot and
+  never a second record.
 - The booking is the guardian's (told and paying as any customer); the child
   stays the participant, and their own eligibility is what the booking and
   the door check. The member of staff is recorded on each place
@@ -61,69 +62,118 @@ part other than that person ([booking for somebody else](booking.md#booking-for-
   and in the activity log (`booking.for_participant`). Classes enrolled at
   the counter the same way are logged as `class.enrol_participant`.
 - **Corrections.** Under *Venues → Participants: guardians and own logins*, a
-  manager finds the people the venue knows by a guardian's number, ends a
-  guardian's relationship, or links a participant's own login by its email,
-  each with a reason kept in the participant's history and the activity log
-  (`PATCH /api/admin/participants/[id]`; front desk cannot).
+  manager finds the people the venue knows by a guardian's number (or what
+  waits for review), ends, pauses or keeps a guardian's relationship, decides
+  requests to become a guardian, or links a participant's own login by its
+  email, each with a reason kept in the participant's history and the
+  activity log (`PATCH /api/admin/participants/[id]`; front desk cannot).
 
-### A second guardian at the counter
+### Another guardian by invitation
 
 A child the venue knows (their mother registered them, say) is brought by an
-adult who is not on record as their guardian (their father, on his own
-number). The adult's declaration is recorded on the existing participant
-(`src/lib/participants.ts` `addGuardianAtVenue`), never as a new record of the
-same child:
+adult who is not on record as their guardian (their father). Staff never make
+him a guardian from a name and a number: a phone number proves control of a
+number, not authority over a child. Another guardian is a request
+(`src/lib/guardian-requests.ts`; [ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)),
+on the existing participant, never a second record of the same child:
 
-- **Finding the child.** In the counter's *for somebody on this number*, staff
-  choose *A child we know, whose guardian on record has another number?*,
-  type the number of a guardian on record (the adult gives it), and choose
-  the child among the participants the venue knows on that number. No
-  browsing, no match on names: the number only finds candidates.
-- **The declaration.** The adult's name and number (as typed for the
-  booking), the relationship they declare (parent, legal guardian, another
-  person with authority) and the tick that they declared to the member of
-  staff that they have the authority to act for the child
-  (`POST /api/admin/participants/[id]/guardians`). Without the tick it is
-  refused (`PTC_COUNTER_AUTHORITY`); a number that already has a guardian of
-  the child is refused (`PTC_GUARDIAN_ON_NUMBER`). Recorded as declared,
-  never verified, and no documents are taken.
-- **Who may.** Front desk or a manager, for a participant their venue knows
-  (another venue's staff get *not found*). A guardian named this way acts
-  only through a venue's staff and its API key, on their own number: they
-  see nothing online. Adding a MySenam account as a guardian is a
-  manager's, with a reason, under *Participants: guardians and own logins*
-  (`PATCH /api/admin/participants/[id]`, `addGuardian` with the account's
-  email): the account then sees and acts for the child online as any
-  guardian does, which online otherwise takes a code from an existing
-  guardian, so it carries the weight of linking a login. A participant's own
-  login cannot be their guardian (`PTC_GUARDIAN_OWN_LOGIN`).
-- **No manager confirmation when another guardian exists.** The child
-  almost always has a guardian on another number already, so asking a
-  manager to confirm each time would stop the desk doing this at all, and
-  the desk's alternative until now (a new participant) took no confirmation
-  and duplicated the child. What the desk records reaches no more than the
-  counter, every step names the member of staff, and a manager can end the
-  relationship at any time with a reason. An account, which reaches more,
-  is the manager's.
-- **On record.** The relationship is provenance `counter`, with the member
-  of staff and the venue (`participant_guardians.recorded_by_*`,
-  `venue_id`); the participant's history has `guardian.added`, and the
-  activity log `participant.guardian_added`, naming the member of staff, the
-  participant and the venue. The other guardians stay exactly as they were.
-- **Not told.** The existing guardians are not told: nothing in the product
-  tells a guardian about a change to who else acts for a participant (online
-  codes and revocations do not either). One with an account sees only the
-  count of other guardians in their list of the people they manage go up.
-- **What it does not settle.** A counter declaration is not a staff review
-  of authority: an activity that asks for one before approving an
-  application (`guardianCheck`, [sign-offs](activities.md#sign-offs)) still
-  asks, whoever applies.
+1. **Started.** In the counter's *for somebody on this number*, staff choose
+   *An adult not on record asks to become a guardian of a child we know?*,
+   type the number of a guardian on record and choose the child among the
+   participants the venue knows on that number (no browsing, no match on
+   names). Or a manager, under *Participants: guardians and own logins*,
+   chooses *Invite another adult as a guardian*. Staff give the adult's
+   name, and optionally the email of their MySenam account, so that only
+   that account may accept (`POST /api/admin/participants/[id]/guardians`;
+   front desk or a manager, for a participant their venue knows; another
+   venue's staff get *not found*). A guardian of the child can start one
+   too, from their own people page (*Share with another guardian*).
+2. **Invited.** The request comes with a single-use code (hashed, a week,
+   `participant_invites`), shown to staff once, for the adult to accept
+   signed in to their own MySenam account (making one if need be), with
+   their own declared relationship and authority. The relationship is bound
+   to that authenticated account, never to a typed number.
+3. **Agreed.** A guardian's own code needs nothing more: giving it was their
+   agreement. A request staff started waits (*pending*) until an existing
+   guardian with an account agrees on their people page
+   (`POST /api/my/people/requests`), or a manager records an exception
+   (below). An existing guardian may refuse, with a reason; the request is
+   then closed and its code dead. The guardians who could agree are emailed
+   that there is a request to answer ([messaging](../integrations/messaging.md#guardian-notices)).
+4. **Active.** Only then is the relationship made (`participant_guardians`,
+   provenance `online`: the adult's own declaration, signed in), and the
+   adult books, applies and sees the child as any guardian does. Their
+   number then books for the child at the counter.
+5. **Told.** The participant's other guardians with an account are emailed
+   that a guardian was added and when, with a link to report a mistake
+   ([messaging](../integrations/messaging.md#guardian-notices)).
+6. **Corrected.** A guardian who reports it as a mistake (*Report a
+   mistake* beside the change on their people page,
+   `POST /api/my/people/report`) flags it for a manager, who keeps it,
+   pauses it, or revokes it, each with a reason (below).
 
-Tests: `tests/counter-guardians.test.ts` (added, then the booking goes
-through; no new participant; refusals; another venue; the account route a
-manager's; history and activity log; nobody messaged; the authority review
-still asked; two counters at once on Postgres) and
-`tests/components/counter-guardian-picker.test.tsx` (the counter's screen).
+**A request grants nothing.** Until it is active the adult cannot book for
+the child (online `GUARD_NOT_FOUND`, at the counter `PBK_NOT_GUARDIAN`),
+apply for them, see their approval status or record, or give out codes; the
+child is not among the people they manage; their people page and their data
+export say only that a request is pending.
+
+**The exception, narrowly.** A manager (or the platform owner), never front
+desk, may complete a request without an existing guardian's agreement:
+under *Participants*, *Record an exception* on the request, with a category
+(a custody dispute; an existing guardian who cannot agree, because they
+cannot be reached or have no MySenam account, as a guardian a venue
+recorded by name and number never does; another safeguarding reason), a
+reason in words, and a date within a year to look at it again
+(`PATCH /api/admin/participants/[id]`, `exception`). It may also say the
+other guardians are not to be told, only where safeguarding requires it.
+It is recorded as an exception, never as proof of legal guardianship: the
+relationship it makes is flagged for review, and an activity that asks for
+a guardian's authority to be reviewed (`guardianCheck`,
+[sign-offs](activities.md#sign-offs)) still asks. Recorded before the adult
+accepts, it takes effect when they do. A manager may also close a request
+still open, with a reason (`closeRequest`).
+
+**Review.** *Show what needs review* lists the participants the venue knows
+with a relationship flagged (reported as a mistake, made by an exception, or
+made by the earlier counter shortcut, below) or paused
+(`GET /api/admin/participants?review=1`, managers only). A manager pauses a
+relationship (`suspendGuardian`: it acts for nobody, online or at the
+counter, until kept or revoked; nothing it made is undone), keeps it
+(`confirmGuardian`: the flag closed, a pause lifted) or revokes it
+(`revokeGuardian`), each with a reason, in the participant's history and the
+activity log. A participant no venue knows (a family's own record) is
+reviewed by the platform owner.
+
+**On record.** Who started the request (staff by name and venue, or the
+guardian), which account accepted and its declaration, who agreed or who
+made the exception and why, who refused or closed it, who paused, kept or
+revoked: on the request (`guardian_requests`), the relationship, the
+participant's history (`guardian.requested`, `guardian.request_accepted`,
+`guardian.request_agreed`, `guardian.exception`, `guardian.added`,
+`guardian.notified`, `guardian.reported`, `guardian.suspended`,
+`guardian.confirmed`) and, for staff, the activity log
+(`participant.guardian_requested`, `participant.guardian_exception`,
+`participant.guardian_request_closed`, `participant.guardian_suspended`,
+`participant.guardian_confirmed`, `participant.guardian_revoked`).
+
+**Earlier relationships.** Until 27 October 2026 the counter could make an
+adult a guardian at once, by name and number (front desk) or by account (a
+manager), on a declaration typed by staff. That shortcut is gone. Migration
+0152 keeps every relationship it made (nobody loses one they hold) but flags
+each for a manager's review (`review_reason = 'counter-shortcut'`). The
+branch had not been launched, so none is expected in production; the flag
+covers any test or pilot install.
+
+Tests: `tests/counter-guardians.test.ts` (a request started by front desk;
+pending grants nothing, online, at the counter, in status, in the export;
+the existing guardians asked, then told; agreement; refusal; a code bound
+to one account; the exception a manager's only, before or after
+acceptance, with the notice suppressed; delivery failing and the queue
+down undo nothing; a reported mistake paused, kept and revoked; another
+venue; no second participant; guardians sharing one number; races on
+Postgres; the migration's flag), `tests/components/counter-guardian-picker.test.tsx`
+and `tests/components/guardian-requests.test.tsx` (the screens).
 
 ### Self-service check-in
 

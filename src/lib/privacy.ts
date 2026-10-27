@@ -444,6 +444,8 @@ export interface CustomerExport {
   guardianshipsEnded: unknown[];
   /** Where this account is a participant's own login: that participant's record, which is theirs. */
   asParticipant: unknown | null;
+  /** Requests this account accepted to become somebody's guardian, still waiting: that one is pending, and nothing about the participant (lib/guardian-requests.ts). */
+  guardianRequestsPending: unknown[];
   /** Why this file is not quite everything, in the person's own terms. */
   heldAtACounter: string;
 }
@@ -633,7 +635,12 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
     approvals: await (await import("./approvals")).approvalsExport(userId),
     ...(await (async () => {
       const people = await participantsExport(userId);
-      return { managedPeople: people.managed, guardianshipsEnded: people.ended, asParticipant: people.asParticipant };
+      return {
+        managedPeople: people.managed,
+        guardianshipsEnded: people.ended,
+        asParticipant: people.asParticipant,
+        guardianRequestsPending: people.guardianRequestsPending,
+      };
     })()),
     heldAtACounter:
       "A pass, membership, waiting-list place, induction, sign-off or booking made at a counter is filed against a phone number rather than this account. Ask the venue for those: its manager can give you everything it holds against your number once they have checked who you are in person, which this page cannot.",

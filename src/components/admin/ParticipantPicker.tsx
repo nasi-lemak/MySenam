@@ -26,8 +26,9 @@ const input = "rounded-md border border-slate-300 px-2 py-1 text-sm focus:border
  * whose guardian is on that number (a child, most often), or somebody new,
  * added with the guardian's declaration made to the member of staff. Or a
  * child the venue knows whose recorded guardian is on another number: found
- * by that number, the adult here then becomes a guardian too on their own
- * declaration, rather than a second record of the same child. Staff
+ * by that number, the adult here is invited to become a guardian too (a
+ * code they accept on their own account; lib/guardian-requests.ts), never
+ * made one on the spot, and never a second record of the same child. Staff
  * choose; the number only finds candidates and never decides whose it is.
  */
 export function ParticipantPicker({
@@ -58,9 +59,15 @@ export function ParticipantPicker({
   const [form, setForm] = useState({ displayName: "", birthYear: "", relationship: "parent", authority: false });
   const [error, setError] = useState<string | null>(null);
   const tooShort = phone.replace(/\D/g, "").length < 7;
-  // A child the venue knows whose recorded guardian is on another number: the adult here
-  // becomes a guardian too, on their own declaration (lib/participants.ts addGuardianAtVenue).
-  const [other, setOther] = useState<{ phone: string; found: Candidate[] | null; chosen: number | null; relationship: string; authority: boolean } | null>(null);
+  // A child the venue knows whose recorded guardian is on another number: the adult here is
+  // invited to become a guardian too, by a code for their own account (lib/guardian-requests.ts).
+  const [other, setOther] = useState<{
+    phone: string;
+    found: Candidate[] | null;
+    chosen: number | null;
+    email: string;
+    made: { code: string; expiresAt: string; consentPossible: boolean; name: string } | null;
+  } | null>(null);
   const adult = guardianName.trim();
 
   async function findOther() {
@@ -76,7 +83,8 @@ export function ParticipantPicker({
     }
   }
 
-  async function addAsGuardian() {
+  /** A request and its code, shown once: nothing is granted until the adult accepts and a guardian agrees (or a manager's exception). */
+  async function invite() {
     if (!other || other.chosen === null) return;
     const child = other.found?.find((c) => c.id === other.chosen);
     if (!child) return;
@@ -85,16 +93,11 @@ export function ParticipantPicker({
       const res = await fetch(`/api/admin/participants/${child.id}/guardians`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, guardianName: adult, guardianPhone: phone, relationship: other.relationship, authority: other.authority }),
+        body: JSON.stringify({ venueId, proposedName: adult, ...(other.email.trim() ? { email: other.email.trim() } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data));
-      setOther(null);
-      await look();
-      // Now on this number: chosen for what is being recorded.
-      const picked = { id: child.id, displayName: child.displayName };
-      if (many) many.onChange([...many.values.filter((v) => v.id !== child.id), picked], many.holderTakesPart);
-      else onChange(picked);
+      setOther({ ...other, made: { ...data.request, name: child.displayName } });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("c.failed"));
     }
@@ -192,10 +195,10 @@ export function ParticipantPicker({
           {other === null ? (
             <button
               type="button"
-              onClick={() => setOther({ phone: "", found: null, chosen: null, relationship: "parent", authority: false })}
+              onClick={() => setOther({ phone: "", found: null, chosen: null, email: "", made: null })}
               className="block text-xs font-medium text-teal-700 underline"
             >
-              {t("pbk2.g.open")}
+              {t("gv.g.open")}
             </button>
           ) : (
             <div className="space-y-1 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs" data-testid="add-guardian">
@@ -203,7 +206,7 @@ export function ParticipantPicker({
                 <p className="text-amber-700">{t("pbk2.g.needName")}</p>
               ) : (
                 <>
-                  <p className="text-slate-600">{t("pbk2.g.intro", { adult })}</p>
+                  <p className="text-slate-600">{t("gv.g.intro", { adult })}</p>
                   <div className="flex flex-wrap items-center gap-2">
                     <input
                       aria-label={t("pbk2.g.otherPhone")}
@@ -232,33 +235,26 @@ export function ParticipantPicker({
                       </span>
                     </label>
                   ))}
-                  {other.chosen !== null && (
+                  {other.chosen !== null && other.made === null && (
                     <>
-                      <select
-                        aria-label={t("ptc.pick.relationship")}
-                        value={other.relationship}
-                        onChange={(e) => setOther({ ...other, relationship: e.target.value })}
-                        className={input}
-                      >
-                        {RELATIONSHIPS.map((r) => (
-                          <option key={r} value={r}>
-                            {t("pbk2.g.adultIs", { adult, relationship: t(`apr.child.rel.${r}`) })}
-                          </option>
-                        ))}
-                      </select>
-                      <label className="flex items-start gap-2">
-                        <input type="checkbox" checked={other.authority} onChange={(e) => setOther({ ...other, authority: e.target.checked })} className="mt-0.5" />
-                        {t("pbk2.g.declared", { adult, name: other.found?.find((c) => c.id === other.chosen)?.displayName ?? "" })}
-                      </label>
-                      <p className="text-slate-500">{t("pbk2.g.note")}</p>
-                      <button
-                        type="button"
-                        onClick={() => void addAsGuardian()}
-                        className="rounded-lg bg-teal-600 px-3 py-1 font-semibold text-white hover:bg-teal-700"
-                      >
-                        {t("pbk2.g.add", { adult })}
+                      <input
+                        type="email"
+                        aria-label={t("gv.g.email", { adult })}
+                        placeholder={t("gv.g.email", { adult })}
+                        value={other.email}
+                        onChange={(e) => setOther({ ...other, email: e.target.value })}
+                        className={`w-full max-w-sm ${input}`}
+                      />
+                      <button type="button" onClick={() => void invite()} className="rounded-lg bg-teal-600 px-3 py-1 font-semibold text-white hover:bg-teal-700">
+                        {t("gv.g.invite", { adult })}
                       </button>
                     </>
+                  )}
+                  {other.made && (
+                    <div role="status" className="space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2 text-emerald-900">
+                      <p>{t("gv.g.code", { adult, code: other.made.code, date: new Date(other.made.expiresAt).toLocaleDateString(), name: other.made.name })}</p>
+                      {!other.made.consentPossible && <p className="text-amber-800">{t("gv.g.noConsent", { name: other.made.name })}</p>}
+                    </div>
                   )}
                 </>
               )}

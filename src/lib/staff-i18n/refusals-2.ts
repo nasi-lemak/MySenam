@@ -602,4 +602,13 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That account is their own login: it cannot be their guardian too.": { ms: "Akaun itu ialah log masuk mereka sendiri: ia tidak boleh menjadi penjaga mereka juga.", zh: "该账户是其本人的登录账户，不能同时作为其监护人。" },
   "That account already acts for them.": { ms: "Akaun itu sudah bertindak bagi pihak mereka.", zh: "该账户已代其行事。" },
   "Somebody on this number already acts for them.": { ms: "Seseorang yang menggunakan nombor ini sudah bertindak bagi pihak mereka.", zh: "此号码下已有人代其行事。" },
+  "Give the adult's name, or the email of their MySenam account.": { ms: "Berikan nama orang dewasa itu, atau e-mel akaun MySenam mereka.", zh: "请填写该成年人的姓名，或其 MySenam 账户的电子邮箱。" },
+  "No such request.": { ms: "Tiada permintaan sedemikian.", zh: "没有这项申请。" },
+  "This request is no longer waiting for an answer.": { ms: "Permintaan ini tidak lagi menunggu jawapan.", zh: "此申请已不再等待答复。" },
+  "Choose why: a custody dispute, a guardian who cannot agree, or another safeguarding reason.": { ms: "Pilih sebabnya: pertikaian hak penjagaan, penjaga yang tidak dapat bersetuju, atau sebab perlindungan lain.", zh: "请选择原因：监护权纠纷、监护人无法同意，或其他保护原因。" },
+  "Give a date within the next year to look at it again.": { ms: "Berikan tarikh dalam tempoh setahun akan datang untuk menyemaknya semula.", zh: "请填写一年内的复核日期。" },
+  "This relationship is already paused.": { ms: "Hubungan ini sudah digantung.", zh: "此关系已暂停。" },
+  "Nothing about this relationship is waiting for a review.": { ms: "Tiada apa-apa tentang hubungan ini yang menunggu semakan.", zh: "此关系没有待复核的事项。" },
+  "action is revokeGuardian, suspendGuardian, confirmGuardian, exception, closeRequest or link.": { ms: "action ialah revokeGuardian, suspendGuardian, confirmGuardian, exception, closeRequest atau link.", zh: "action 须为 revokeGuardian、suspendGuardian、confirmGuardian、exception、closeRequest 或 link。" },
+  "coachId must be a coach's id.": { ms: "coachId mestilah id jurulatih.", zh: "coachId 须为教练的 id。" },
 };

@@ -102,6 +102,11 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "induction.kept": "ptc.act.inductionKept",
   "booking.for_participant": "pua.act.bookedFor",
   "class.enrol_participant": "pua.act.enrolledFor",
+  "participant.guardian_requested": "gv.act.requested",
+  "participant.guardian_exception": "gv.act.exception",
+  "participant.guardian_request_closed": "gv.act.closed",
+  "participant.guardian_suspended": "gv.act.suspended",
+  "participant.guardian_confirmed": "gv.act.confirmed",
 };
 
 /**

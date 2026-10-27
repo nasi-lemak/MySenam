@@ -1,7 +1,10 @@
 # ADR 0023: Participants apart from accounts; eligibility owned by the participant
 
 - **Status:** current, decided 2026-10-26 by the product owner (an approved
-  architectural decision). Amends
+  architectural decision). Amended 27 October 2026 (the owner's decisions:
+  another guardian only by verified consent, the other guardians told,
+  coaches seeing only the children they supervise, eligibility status
+  following the participant; see *Changes*). Amends
   [ADR 0022](0022-children-managed-from-an-adults-account.md): its managed
   people become participants, and its consequence that a child rides on the
   adult's induction no longer holds. How customers and staff use it is
@@ -18,11 +21,9 @@
   and coaching, equipment hire, check-in and no-shows, booking emails and
   the counter and API key no longer assume the account is the person;
   memberships price only a booking their holder takes part in.
-  A second guardian may also be added at a venue's counter, on the adult's
-  own declaration made in person (2026-10-26, the owner's decision): by
-  name and number by front desk or a manager, as an account by a manager
-  with a reason; no second record of the child
-  ([a second guardian at the counter](../../features/venue-operations.md#a-second-guardian-at-the-counter)).
+  An adult asking at a venue's counter to become a guardian of a child the
+  venue knows is invited, never made one on the spot; no second record of
+  the child ([another guardian by invitation](../../features/venue-operations.md#another-guardian-by-invitation)).
 - **Context:** a reported defect: inductions stayed with the adult's phone
   number. The cause was in the model, the staff workflow and the lookup
   together. `inductions` was `UNIQUE (venue_id, phone)` (migration 0001), so a
@@ -71,10 +72,48 @@
     became their `online` guardian with the original declaration and times.
   - **A second guardian, and the participant's own login, only by agreement
     of both sides.** A guardian gives a code (`participant_invites`: hashed,
-    one use, a week): another adult accepting it declares their own
-    relationship and authority and becomes a guardian; the participant's
-    own account accepting a `link` code becomes their login (one participant
-    per account, unique). A venue's manager may link a participant it knows
+    one use, a week): another adult accepting it, signed in to their own
+    account, declares their own relationship and authority and becomes a
+    guardian (giving the code was the guardian's agreement); the
+    participant's own account accepting a `link` code becomes their login
+    (one participant per account, unique).
+  - **Another guardian by verified consent, never on a typed name and
+    number** (amended 27 October 2026; `guardian_requests`, migration 0152,
+    `src/lib/guardian-requests.ts`). A phone number proves control of a
+    number, not authority over a child. Another guardian is a request:
+    started by somebody authorised (a guardian, by their code; or a venue's
+    staff, front desk or a manager, for a participant the venue knows, the
+    adult asking in person); the adult invited with a single-use code they
+    accept signed in to their own MySenam account, optionally bound to that
+    account by its email, with their own declaration; then, for a request
+    staff started, an existing guardian with an account agrees online, or a
+    manager (or the platform owner) records a narrow exception: a category
+    (a custody dispute; an existing guardian who cannot agree, unreachable
+    or without an account; another safeguarding reason), a reason in words
+    and a date within a year to look at it again, optionally that the other
+    guardians are not told. An exception is recorded as one, never as proof
+    of legal guardianship; the relationship it makes is flagged for review
+    and is provenance `online`, never `staff_review`, so a review of
+    authority an activity asks for is still asked. Only then is the
+    relationship made. A request grants nothing: no booking (online or at
+    the counter), application, status, record, code or export entry beyond
+    that a request is pending. Who started, accepted, agreed, made the
+    exception, refused, closed, paused and revoked is kept on the request,
+    the relationship, the participant's history and, for staff, the
+    activity log. A guardian may report a change as a mistake; a manager
+    keeps, pauses (the relationship acts for nobody meanwhile) or revokes
+    it, with a reason. A relationship the earlier counter shortcut made
+    stays, flagged for review (0152).
+  - **The other guardians are told** (amended 27 October 2026). When a
+    guardian is added or a relationship ends, and when a request staff
+    started waits for their agreement, the participant's other guardians
+    with an account are emailed through the outbox: which participant, the
+    general nature, when it took effect, the link to report a mistake and
+    the venue to contact; never the other adult, nor any location, schedule
+    or private detail. Queued after the change is made and recorded, so a
+    failed delivery never undoes it; an exception may require that they are
+    not told, and the history says so
+    ([guardian notices](../../integrations/messaging.md#guardian-notices)). A venue's manager may link a participant it knows
     to an account named by email, with a reason. A code from somebody who no
     longer acts for the participant is void. After linking, the account's
     eligibility includes the participant's and the participant's includes the
@@ -157,7 +196,16 @@
   - **Privacy.** A participant is never discoverable (no user record: not in
     player search, suggestions, profiles or invitations; a booking naming
     one is never an open game) and is shown to nobody but their guardians,
-    their own login and the venues they have dealings with. An account's
+    their own login and the venues they have dealings with; a coach sees a
+    child only in their own lessons and in the applications they are the
+    named reviewer for, at their venue (amended 27 October 2026,
+    [which children a coach sees](../../features/programmes.md#which-children-a-coach-sees)).
+    Whether a participant may book an activity that needs approval follows
+    the participant, not who applied: their own sign-offs and their
+    applications still open, whichever guardian made them, shown as a
+    status only to an account acting for them now; the application, its
+    answers and documents stay the applicant's, the venue's staff's and its
+    named reviewers' (amended 27 October 2026). An account's
     export holds the participants it manages with their record, the
     relationships it ended, and, for a linked login, the participant's own
     record. Erasing a guardian removes their relationships; a participant
@@ -186,8 +234,8 @@
   equipment hire, check-in and no-shows (one per booking, not per person
   taking part), booking emails (they do not name the participant), and the
   counter and the venue's API key, which still book for the customer only
-  (the library they need is in place). Another guardian does not see an
-  application the first one made. Whether a linked adult participant may end
+  (the library they need is in place). Another guardian sees the status of
+  an application the first one made, never the application. Whether a linked adult participant may end
   a guardian's relationship over them themself is not decided: staff can.
 - **Alternatives considered:** a second table of participants beside
   `managed_people` (two identity systems to keep in step); a participant
@@ -198,3 +246,17 @@
   or numbers (exactly the inference the owner ruled out); dropping the
   summary columns on `bookings` (every booking read rewritten for no change
   in what is known).
+- **Changes:**
+  - 2026-10-26: extended to every booking path naming participants.
+  - 2026-10-26: a second guardian could be added at a venue's counter on a
+    declaration made to staff, by name and number (front desk) or by account
+    (a manager, with a reason), at once and without telling the other
+    guardians.
+  - 2026-10-27 (amendment): that counter shortcut withdrawn; another
+    guardian only by request, invitation to the adult's own account, and an
+    existing guardian's agreement or a manager's exception; the other
+    guardians told; a reported mistake reviewed, paused or revoked;
+    relationships the shortcut made flagged for review (migration 0152).
+    Coaches see only the children they supervise. Eligibility status
+    follows the participant: another guardian's application counts for the
+    child's status, never for access to the application.

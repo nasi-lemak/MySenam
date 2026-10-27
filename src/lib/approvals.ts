@@ -647,13 +647,19 @@ export async function venueApprovals(venueId: number, opts: { waitingOnly?: bool
   return toRequests(rows);
 }
 
-/** The applications a coach is authorised to review: for the activities the venue named them for. */
+/**
+ * The applications a coach is authorised to review: for the activities the
+ * venue named them for, at that venue, while the coach is active. A child
+ * appears to a coach only here, as an applicant they are named reviewer for,
+ * and in their own lessons (lib/coach-schedule.ts): never every child at the
+ * venue, another venue's, or a guardian's other records.
+ */
 export async function coachApprovals(coachId: number): Promise<ApprovalRequest[]> {
   const rows = (await getDb()
     .prepare(
       `${REQUEST_SELECT}
         JOIN approval_reviewers ar ON ar.requirement_id = r.requirement_id AND ar.coach_id = ?
-        JOIN coaches k ON k.id = ar.coach_id AND k.venue_id = r.venue_id
+        JOIN coaches k ON k.id = ar.coach_id AND k.venue_id = r.venue_id AND k.active = 1
        ORDER BY (r.status IN ('pending', 'info_requested', 'in_person_due')) DESC, r.id DESC LIMIT 100`
     )
     .all(coachId)) as RequestRow[];
