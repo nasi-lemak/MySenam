@@ -506,15 +506,22 @@ Joining the queue goes through the same checks as booking
 (`customerMayBook()`): a refused number, a members-only venue, the house rules
 and the unpaid-bookings limit all apply, so a queue is not a way round them.
 
-Some of the venue's say is asked again when a place is offered and when it
-is claimed, for every entry however it was made (online, at the counter,
-through the API; `entryRefused()` in `src/lib/store.ts`):
+When a place is offered and again when it is claimed, the entry is asked
+what the booking the claim makes would be asked on the path the entry was
+made: online, at the counter or through the API (`entryRefused()` in
+`src/lib/store.ts`, through `mayBookOn()` in `src/lib/limits.ts`, which is
+`customerMayBook()` as each booking route asks it). So a place freed
+weeks after somebody joined goes only to somebody who could book it now:
 
 - **A number the venue refuses now** (refused after it joined): the entry is
   passed over at the offer and leaves the queue, and the place goes to the
   next; an offer already out cannot be claimed (`PHONE_BLOCKED`), nothing is
   booked, the entry leaves and the place passes on. Lifting the refusal later
-  does not bring the entry back. Nothing is sent to the number.
+  does not bring the entry back. Nothing more is sent to the number: refusing
+  it takes any offer message to it still waiting in the outbox back out
+  (marked given up, *the venue refused this number after the offer was
+  made*), and an offer whose message had not yet been written gets none. A
+  message already sent stays sent; its link is then refused as above.
 - **The venue not open to customers** (a draft, or unlisted): nobody is
   offered a place while it is so, and a live offer cannot be claimed
   (`VENUE_NOT_OPEN`); that entry goes back to waiting in its place, its hold
@@ -527,11 +534,21 @@ through the API; `entryRefused()` in `src/lib/store.ts`):
   sign-off lapsed does; at the claim it is refused (`MEMBERS_ONLY`,
   `PRIVATE_VENUE`), goes back to waiting and the place passes on. Who may
   book a members-only or private venue is not asked of an entry the counter
-  or the API made, as it is not at their join.
+  or the API made, as it is not of their bookings.
+- **The house rules** (bookings coming up at once, a day, a week; how far
+  ahead), counted as they stand then, the claim's own booking among them;
+  **the unpaid-bookings limit**; and **no-show strikes** where the venue
+  takes nothing online (where it does, the claimed booking is held until
+  paid, as any booking from a struck-out number is): passed over at the offer
+  keeping its place, and at the claim refused with the booking's own reason
+  (`LIMIT_UPCOMING`, `LIMIT_DAY`, `PHONE_LIMIT_VENUE`, `STRIKES_COUNTER`…),
+  back to waiting and the place passed on. Asked of an entry the counter or
+  the API made as their bookings are asked them. A class place is not held
+  to the house rules at the claim, as an enrolment is not (a class is limited
+  by the class).
 
-The house rules, the unpaid-bookings limit and the no-show strikes are asked
-at the join only; the booking the claim makes is held until paid where the
-venue asks that, as any booking is.
+The booking the claim makes is then held until paid where the venue asks
+that, as any booking is.
 
 Claiming is deliberately a tap rather than automatic on page load, because
 unlike check-in it creates a booking that costs money. Claiming enrols the
@@ -590,7 +607,7 @@ button (`src/components/admin/WaitlistJoin.tsx`).
   as the counter checks them; at the offer and again at the claim, each
   participant still one the venue knows with a guardian on that number
   (otherwise the entry leaves the queue and the place goes to the next), and
-  the number not refused since and the venue open, as for any entry
+  what the counter (or the API) would ask of the booking, as for any entry
   ([above](#waitlists)). The
   booking claimed from it is made as the counter (or the API) would make it,
   with the member of staff on record as having put each participant on it.

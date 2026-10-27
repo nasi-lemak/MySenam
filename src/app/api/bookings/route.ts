@@ -1,7 +1,8 @@
 import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
-import { applyConcession, applyPlaceConcession, concessionById } from "@/lib/concessions";
-import { placeFor, readPlaceConcessions } from "@/lib/entitlements";
+import { concessionById } from "@/lib/concessions";
+import { applyAskedDiscounts } from "@/lib/booking-discounts";
+import { readPlaceConcessions } from "@/lib/entitlements";
 import { phoneRefusal } from "@/lib/phone-check";
 import { readTime, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
@@ -9,11 +10,9 @@ import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { breachMessage } from "@/lib/booking-rules";
 import {
-  applyPromo,
   createBookingOnAnyCourt,
   createBookingSeries,
   createGroupBooking,
-  getBookingById,
   findBooking,
   getCourt,
   getVenue,
@@ -349,61 +348,9 @@ export async function POST(req: NextRequest) {
     result.bookings.splice(0, result.bookings.length, ...kept);
   }
 
-  // A concession price the customer said is theirs (lib/concessions.ts), shown
-  // at the counter. Like a code, best-effort: refused, the booking stands at
-  // the full price and says why. Concessions come before a code, whose discount is worked out on the
-  // lower price where the venue and the code allow both (lib/discounts.ts).
-  let concessionError: { error: string; code?: string; vars?: Record<string, string | number> } | null = null;
-  if (Number.isInteger(concessionId)) {
-    for (const booking of result.bookings) {
-      const applied = await applyConcession(booking.id, concessionId as number);
-      if (!applied.ok) {
-        if (!concessionError) concessionError = { error: applied.error, code: applied.code, vars: applied.vars };
-        continue;
-      }
-      // As stored now: the lower price, and which concession, for the confirmation.
-      Object.assign(booking, (await getBookingById(booking.id)) ?? {});
-    }
-  }
-  // Each person's own concession, on their own place (a child's price for one child of three).
-  // On several courts, on the court that person is on.
-  for (const asked of perPlace) {
-    let applied = false;
-    for (const booking of result.bookings) {
-      if (!(await placeFor(booking.id, asked.participantId))) continue;
-      const done = await applyPlaceConcession(booking.id, asked.concessionId, asked.participantId);
-      if (!done.ok) {
-        if (!concessionError) concessionError = { error: done.error, code: done.code, vars: done.vars };
-        applied = true;
-        continue;
-      }
-      applied = true;
-      Object.assign(booking, (await getBookingById(booking.id)) ?? {});
-    }
-    if (!applied && !concessionError) concessionError = { error: "That person is not taking part in this booking.", code: "ENT_NOT_ON_BOOKING" };
-  }
-
-  // A code is claimed before anything is settled, so paying from credit or a
-  // pass charges the discounted figure. Like paying, it is best-effort: a code
-  // that has run out leaves the booking standing at full price with the reason.
-  let promoError: string | null = null;
-  // Its code, where it has one (ONE_DISCOUNT, STK_NOT_COMBINABLE: lib/discounts.ts), for the caller to say it in its own words.
-  let promoErrorCode: string | null = null;
-  let discount = 0;
-  if (typeof promoCode === "string" && promoCode.trim() !== "") {
-    for (const booking of result.bookings) {
-      const applied = await applyPromo(booking.id, promoCode);
-      if (!applied.ok) {
-        if (!promoError) {
-          promoError = applied.error;
-          promoErrorCode = applied.code ?? null;
-        }
-      } else {
-        booking.totalPrice = applied.newTotal;
-        discount += applied.discount;
-      }
-    }
-  }
+  // The discounts asked for, in the one order (a concession, each person's own, then a code),
+  // best-effort, as every path puts them on (lib/booking-discounts.ts).
+  const { concessionError, promoError, promoErrorCode, discount } = await applyAskedDiscounts(result.bookings, { concessionId, placeConcessions: perPlace, promoCode });
 
   // Extras go on after the code, which is for the court, and before paying,
   // so credit and the counter charge them with it. A week of a series whose

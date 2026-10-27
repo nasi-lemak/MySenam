@@ -189,3 +189,12 @@
     passes, one per person, by the engine's own plan. A percentage code is
     now rounded down to the sen as documented (it had been rounded half up
     first). Migrations 0163–0165.
+  - 2026-10-27 (benefits the same on every path): the venue's API key, which
+    had booked with no discount, takes the booking form's and the counter's
+    concessions and code through the same function
+    (`lib/booking-discounts.ts`), as this record said it did; a membership
+    sold at the counter refuses a participant already covered for any of its
+    days, as buying online does. Confirmed as decided, unchanged: a
+    last-minute price takes no other discount, and a move keeps the
+    discounts as given, the court time following the price-difference rule
+    ([discounts together](../../features/pricing.md#discounts-together)).
