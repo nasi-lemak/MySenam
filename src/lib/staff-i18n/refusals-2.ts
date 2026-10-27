@@ -637,4 +637,14 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
     zh: "审核日期早于这些期限最近一次更改：它不可能审核的是现行期限。",
   },
   "Give a reference to the written advice, kept outside MySenam.": { ms: "Berikan rujukan kepada nasihat bertulis, yang disimpan di luar MySenam.", zh: "请填写书面意见的参考编号（保存在 MySenam 之外）。" },
+  // The waiting list at the counter (app/api/admin/waitlist, lib/waitlist-venue.ts).
+  "entryId is required.": { ms: "entryId diperlukan.", zh: "需要 entryId。" },
+  "That class is not at this venue.": { ms: "Kelas itu bukan di pusat ini.", zh: "该课程不在本场馆。" },
+  "That court is not at this venue.": { ms: "Gelanggang itu bukan di pusat ini.", zh: "该场地不在本场馆。" },
+  "That entry was made online by the customer: it is theirs to leave.": {
+    ms: "Penyertaan itu dibuat dalam talian oleh pelanggan: hanya pelanggan boleh menariknya.",
+    zh: "该候补记录由顾客在线登记：只能由顾客本人退出。",
+  },
+  "locale must be en, ms, zh or ta.": { ms: "locale mestilah en, ms, zh atau ta.", zh: "locale 必须是 en、ms、zh 或 ta。" },
+  "confirmWho must be true or false.": { ms: "confirmWho mestilah true atau false.", zh: "confirmWho 必须是 true 或 false。" },
 };

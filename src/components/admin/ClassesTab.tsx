@@ -6,13 +6,14 @@ import { useCallback, useEffect, useState } from "react";
 import { CoachesPanel } from "./CoachesPanel";
 import { formatHour } from "@/lib/time";
 import { MAX_CLASS_WEEKS } from "@/lib/types";
-import type { Booking, ClassSession } from "@/lib/types";
+import type { Booking, ClassSession, WaitlistEntry } from "@/lib/types";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
 import type { ClassStatus } from "@/lib/types";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { WaitlistJoin, WaitlistQueue } from "./WaitlistJoin";
 
 const STATUS: Record<ClassStatus, StaffPhrase> = { scheduled: "cls.status.scheduled", cancelled: "cls.status.cancelled" };
 const ONLY: Record<string, StaffPhrase> = { women: "cls.onlyWomen", men: "cls.onlyMen" };
@@ -26,7 +27,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
   const [roster, setRoster] = useState<{
     session: ClassSession;
     roster: Booking[];
-    waitlist?: { id: number; name: string; phone: string; status: string; participantNames?: string[] }[];
+    waitlist?: WaitlistEntry[];
   } | null>(null);
   const [waiting, setWaiting] = useState<Record<number, number>>({});
   const [error, setError] = useState<string | null>(null);
@@ -366,27 +367,19 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                 instructor: roster.session.instructor,
               })}
             </p>
-            {roster.waitlist && roster.waitlist.length > 0 && (
-              <div className="mt-4 rounded-lg bg-amber-50 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                  {t("cls.waitingN", { n: roster.waitlist.length })}
-                </div>
-                <ul className="mt-1 space-y-1 text-sm text-amber-900">
-                  {roster.waitlist.map((w) => (
-                    <li key={w.id} className="flex items-center justify-between gap-3">
-                      <span>
-                        {w.participantNames && w.participantNames.length > 0 ? t("apr.child.bookedFor", { name: w.participantNames.join(", "), adult: w.name }) : w.name}
-                        <span className="ml-2 text-xs opacity-70">{w.phone}</span>
-                      </span>
-                      {w.status === "offered" && (
-                        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold">
-                          {t("cls.offered")}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {/* Who waits, and who put them there; an entry the venue made can be taken off (WaitlistJoin.tsx). */}
+            {venue && roster.waitlist && (
+              <WaitlistQueue venueId={venue.id} entries={roster.waitlist} onChange={() => void openRoster(roster.session)} />
+            )}
+            {/* A full class: a caller at the counter joins its queue. */}
+            {venue && roster.session.status === "scheduled" && roster.session.enrolled >= roster.session.capacity && (
+              <WaitlistJoin
+                key={roster.session.id}
+                venueId={venue.id}
+                target={{ classId: roster.session.id, who: roster.session.who }}
+                label={roster.session.name}
+                onDone={() => void openRoster(roster.session)}
+              />
             )}
             {roster.roster.length === 0 ? (
               <p className="mt-4 text-sm text-slate-500">{t("cls.nobody")}</p>

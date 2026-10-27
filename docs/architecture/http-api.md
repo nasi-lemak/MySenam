@@ -208,6 +208,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/classes`          | `{courtId, name, instructor, date, start, end, capacity, price, weeks?}` |
 | GET    | `/api/admin/classes/:id`      | The class and its roster                             |
 | DELETE | `/api/admin/classes/:id`      | Cancel a class, releasing every enrolment            |
+| GET    | `/api/admin/waitlist`         | `?venueId=&date=` → the venue's waiting lists that day (court time and classes), each entry with who made it (`madeBy`, `madeByName`); no offer tokens. Desk and managers of the venue |
+| POST   | `/api/admin/waitlist`         | `{venueId, classId \| courtId+date+start+end, name, phone, email?, participantIds?, customerTakesPart?, confirmWho?, locale?}` → queue a caller at the counter, on staff's word, under joining online's rules; participants the venue knows with a live guardian on `phone` ([at the counter and through the API](../features/booking.md#at-the-counter-and-through-the-api)). Logged `waitlist.added` |
+| DELETE | `/api/admin/waitlist`         | `{venueId, entryId}` → take off an entry the venue made (counter or API); a customer's own online entry is refused (409). Logged `waitlist.removed` |
 | GET    | `/api/admin/slots`            | `?venueId=&date=` → each court's day for staff: columns, and every booking, class, block, outage and buffer to the minute (`entries`) |
 | POST   | `/api/admin/blocks`           | `{courtId, date, start, end \| hours[], reason?, places?}` → block that time; what is booked in it stays, the rest is blocked |
 | DELETE | `/api/admin/blocks`           | `{courtId, date, start, end \| hours[]}` → release blocked time |
@@ -534,5 +537,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/v1/bookings/:code` | One of the venue's bookings, by its code, with `participants` |
 | POST | `/api/v1/bookings/:code/cancel` | Cancel one of the venue's bookings, as its staff would (write keys). The customer is told |
 | GET | `/api/v1/venue` | The key's venue: its details, hours and courts with their rates |
+| GET | `/api/v1/waitlist` | `?date=YYYY-MM-DD` → the venue's waiting lists that day, each entry with `madeBy`; never an offer's token |
+| POST | `/api/v1/waitlist` | `{ classId \| courtId, date, start, end, name, phone, email?, participantIds?, customerTakesPart?, confirmWho?, locale? }` → queue somebody as the venue's counter does (write keys); participants as for `POST /api/v1/bookings` ([external API](../integrations/external-api.md)) |
+| DELETE | `/api/v1/waitlist` | `{ entryId }` → take off an entry the venue made (write keys); a customer's own online entry is refused (409) |
 
 Prices are always computed server-side; the client's displayed total is informational.
