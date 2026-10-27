@@ -3,6 +3,7 @@ import { classRefusal } from "@/lib/who";
 import { readMinute, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { customerMayBook } from "@/lib/limits";
+import { membersOnlyRefusal } from "@/lib/entitlements";
 import { takesPaymentOnline } from "@/lib/payments";
 import { rateLimit } from "@/lib/rate-limit";
 import { getClass, getCourt, joinClassWaitlist, joinSlotWaitlist, leaveWaitlist } from "@/lib/store";
@@ -94,8 +95,24 @@ export async function POST(req: NextRequest) {
       userId: user?.id ?? null,
       dates: [forClass ? session!.date : (date as string)],
       canPayOnline: await takesPaymentOnline(venueId),
+      // Waiting for places only for people the account books for, on a class or a shared session:
+      // each must be a member themself, checked when the place is offered and taken (lib/entitlements.ts).
+      placesForOthers:
+        !!people && !people.customerTakesPart && people.participants.length > 0 && (forClass || ((await getCourt(courtId as number))?.capacity ?? 1) > 1),
     });
     if (refused) return refusal(refused, 403);
+    // Nobody waits for a members' place they could not take (lib/entitlements.ts): the same check the booking makes.
+    if (people && people.participants.length > 0) {
+      const court = forClass ? null : await getCourt(courtId as number);
+      const notMember = await membersOnlyRefusal({
+        venueId,
+        court: { capacity: court?.capacity ?? 1 },
+        classId: forClass ? (classId as number) : null,
+        participants: people.participants,
+        dates: [forClass ? session!.date : (date as string)],
+      });
+      if (notMember) return refusal(notMember, 403);
+    }
   }
 
   const result = forClass

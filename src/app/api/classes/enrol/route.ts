@@ -97,6 +97,10 @@ export async function POST(req: NextRequest) {
       userId: user?.id ?? null,
       preview: (await mayShowVenue(forClass.venueId, req)).preview,
       ...(termInfo ? { dates: termInfo.sessions.map((c) => c.date) } : {}),
+      // The venue's staff at its counter enrol anyone; each participant's own membership is still asked.
+      atCounter: byStaff,
+      // Places only for people the account books for: each must be a member themself (lib/entitlements.ts).
+      placesForOthers: !customerTakesPart && (selection?.participants.length ?? 0) > 0,
     });
     if (refused) return refusal(refused);
     // The venue's waiver, agreed to once per version (lib/waivers.ts): for each person taking a place.
