@@ -44,7 +44,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
     setAccounts(data.accounts);
     setLanguages(data.languages ?? []);
     if (inv.ok) {
-      const found = await inv.json();
+      const found = await readJson(inv);
       setInvoices(found.invoices ?? []);
       setMore(found.more === true);
     }
