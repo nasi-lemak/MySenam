@@ -14,6 +14,10 @@ import { bookCourt, freeSlot, scenario, signUp, url, type Actor } from "./harnes
  *   arrives, and the same link used again offers nothing.
  * - **Email 3**: a password reset's link sets a new password; the old one no
  *   longer signs in, the new one does, and the link cannot be used twice.
+ * - **Email 4** (docs/architecture/authentication.md#signing-up): signing up
+ *   by an emailed link; the form answers somebody else typing the same
+ *   address exactly as it answered the newcomer, and the address is emailed
+ *   how to sign in instead, with no link that makes or changes anything.
  *
  * The acceptance server sends with MYSENAM_SEND=log and its output is kept
  * beside the evidence (tests/uat/setup.ts), so the emails are read there.
@@ -211,6 +215,62 @@ describe.skipIf(!serverLog)("following the links the app emails", () => {
       await customer.context.clearCookies();
       expect((await customer.api("POST", "/api/auth/login", { email: customer.email, password: "yet another acceptance password" })).status).toBe(401);
       expect((await customer.api("POST", "/api/auth/login", { email: customer.email, password: fresh })).status).toBe(200);
+    });
+  });
+
+  scenario("Email 4: signing up by the emailed link, which works once; somebody else typing the same address sees the same, and it is emailed how to sign in, with no link", async (s) => {
+    const newcomer = await s.actor("Newcomer", "phone");
+    const page = newcomer.page;
+
+    const told = await s.step(newcomer, "on Register, gives an email address only and is told to check their email", async () => {
+      await page.goto(`${url}/login?mode=register`);
+      await page.getByLabel("Email").fill(newcomer.email);
+      expect(await page.getByLabel("Password").count()).toBe(0);
+      await page.getByRole("button", { name: "Email me a link" }).click();
+      const status = page.getByRole("status");
+      await status.getByText("Check your email").waitFor();
+      return (await status.textContent())!;
+    });
+
+    const link = await s.step(newcomer, "receives one email with a link to finish creating the account", async () => {
+      const m = await emailed(newcomer.email, /^Finish creating your /);
+      return linkIn(m, /^\/register$/);
+    });
+
+    await s.step(newcomer, "opens the link, sees the address it is for, gives name, phone and password, and is signed in on the account page", async () => {
+      await page.goto(link);
+      await page.getByText(`For ${newcomer.email}.`).waitFor();
+      await page.getByLabel("Name").fill("Newcomer Tester");
+      await page.getByLabel("Phone").fill(newcomer.phone);
+      await page.getByLabel("Password").fill(newcomer.password);
+      await page.getByRole("button", { name: "Create account" }).click();
+      await page.waitForURL(/\/account/);
+      expect((await newcomer.api("GET", "/api/auth/me")).body.user).toMatchObject({ email: newcomer.email, name: "Newcomer Tester" });
+    });
+
+    await s.step(newcomer, "signed out, the same link opened again makes nothing and says to sign in or ask for a new link", async () => {
+      await newcomer.context.clearCookies();
+      await page.goto(link);
+      await page.getByRole("alert").getByText(/This link cannot be used/).waitFor();
+      expect(await page.getByLabel("Password").count()).toBe(0);
+    });
+
+    const stranger = await s.actor("Stranger");
+    await s.step(stranger, "types the newcomer's address into Register and is shown exactly what the newcomer was", async () => {
+      await stranger.page.goto(`${url}/login?mode=register`);
+      await stranger.page.getByLabel("Email").fill(newcomer.email);
+      await stranger.page.getByRole("button", { name: "Email me a link" }).click();
+      const status = stranger.page.getByRole("status");
+      await status.getByText("Check your email").waitFor();
+      expect(await status.textContent()).toBe(told);
+    });
+
+    await s.step(newcomer, "receives an email saying they already have an account, how to sign in and to set a new password, with no link that makes or changes anything", async () => {
+      const m = await emailed(newcomer.email, /^You already have a /);
+      expect(m.text).not.toMatch(/token=|\/register|\/reset-password/);
+      linkIn(m, /^\/login$/);
+      linkIn(m, /^\/forgot-password$/);
+      expect((await newcomer.api("POST", "/api/auth/login", { email: newcomer.email, password: newcomer.password })).status).toBe(200);
     });
   });
 });

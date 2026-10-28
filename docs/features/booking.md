@@ -1004,8 +1004,9 @@ off) and **for up to how many days** (1 to 14). Changing them is a manager's job
   - The email carries a **single-use link** to `/guest-invitation`, kept only
     as a keyed hash with a keyed hash of the address. It works until the
     guest's entry ends, and only for **an account signed in with that
-    address**: somebody without one makes it (*Create an account*) and comes
-    back. Accepting links that one entry to the account, and nothing else —
+    address**: somebody without one makes it (*Create an account*, by the
+    link emailed to that address: [signing up](../architecture/authentication.md#signing-up))
+    and comes back. Accepting links that one entry to the account, and nothing else —
     no other entry, venue, household or staff access.
   - Inviting the same guest again with an email **replaces** the link; the
     guest taken off, their entry running out, a lapsed guest taken over by

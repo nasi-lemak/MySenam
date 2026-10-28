@@ -139,6 +139,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | Door codes shown | 180 days | deleted |
 | Arrivals at the desk | 365 days | deleted |
 | Phone check codes and links | 1 day | deleted |
+| Sign-up requests, and the addresses sign-up emails went to (with each link's keyed hash) | until worked through (a request), 1 day (what was sent) | deleted ([signing up](authentication.md#signing-up)) |
 | Settled waiting-list entries | 90 days | deleted |
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |

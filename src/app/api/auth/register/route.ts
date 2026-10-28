@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSession, registerUser, SESSION_COOKIE } from "@/lib/auth";
+import { isLocale, LOCALE_COOKIE, offeredLocales, type Locale } from "@/lib/i18n";
 import { rateLimit } from "@/lib/rate-limit";
-import { sessionCookieOptions } from "@/lib/session-cookie";
+import { EMAIL_SHAPE, requestRegistration } from "@/lib/registration";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * `{ email }` → always `202 { ok: true }`, whatever the address: a link to
+ * finish signing up is emailed to an address no account holds, a notice with
+ * how to sign in to one that has an account (lib/registration.ts). Nothing
+ * else is taken before the address is proved; a name, phone or password sent
+ * here (an older form) is ignored, not kept.
+ */
+const accepted = () => NextResponse.json({ ok: true }, { status: 202 });
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -12,31 +21,23 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { name, email, phone, password, website } = (body ?? {}) as Record<string, unknown>;
-  // A field no person sees: a form that fills it in is a script.
-  if (typeof website === "string" && website !== "")
-    return NextResponse.json({ error: "The account could not be created." }, { status: 400 });
-
-  if (typeof name !== "string" || name.trim().length < 2)
-    return NextResponse.json({ error: "Please provide your name." }, { status: 400 });
-  if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+  const { email, website, locale } = (body ?? {}) as Record<string, unknown>;
+  if (typeof email !== "string" || email.trim().length > 320 || !EMAIL_SHAPE.test(email.trim()))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
-  if (typeof phone !== "string" || !/^\+?[0-9 -]{7,20}$/.test(phone.trim()))
-    return NextResponse.json({ error: "Please provide a valid phone number." }, { status: 400 });
-  if (typeof password !== "string" || password.length < 8)
-    return NextResponse.json(
-      { error: "Password must be at least 8 characters." },
-      { status: 400 }
-    );
 
   const limited = await rateLimit(req, "register");
   if (limited) return limited;
+  // A field no person sees: a form that fills it in is a script. It is told what everybody is, and nothing is sent.
+  if (typeof website === "string" && website !== "") return accepted();
 
-  const result = await registerUser({ name, email, phone, password });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await requestRegistration(email, languageOf(req, locale));
+  return accepted();
+}
 
-  const session = await createSession(result.user.id);
-  const res = NextResponse.json({ user: result.user }, { status: 201 });
-  res.cookies.set(SESSION_COOKIE, session.token, sessionCookieOptions(req, session.expiresAt));
-  return res;
+/** The language the page was in (it says), else the one chosen on the site, else the install's first. */
+function languageOf(req: NextRequest, said: unknown): Locale {
+  const offered = offeredLocales();
+  const chosen = req.cookies.get(LOCALE_COOKIE)?.value;
+  for (const candidate of [said, chosen]) if (typeof candidate === "string" && isLocale(candidate) && offered.includes(candidate)) return candidate;
+  return offered[0] ?? "en";
 }

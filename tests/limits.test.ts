@@ -243,8 +243,9 @@ describe("a venue renamed by its operator", () => {
 });
 
 describe("a sign-up form filled in by a script", () => {
-  it("makes no account", async () => {
+  it("makes no account and sends nothing, answered as everybody is", async () => {
     const { POST } = await import("../src/app/api/auth/register/route");
+    const { settleRegistrationRequests } = await import("../src/lib/registration");
     const res = await POST(
       json("/api/auth/register", {
         name: "Bot",
@@ -254,7 +255,13 @@ describe("a sign-up form filled in by a script", () => {
         website: "http://spam.example",
       })
     );
-    expect(res.status).toBe(400);
+    // Signing up always answers "check your email" (lib/registration.ts); the script is told nothing different.
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ ok: true });
+    await settleRegistrationRequests();
     expect(await getDb().prepare("SELECT 1 FROM users WHERE email = 'bot@example.com'").get()).toBeUndefined();
+    expect(await getDb().prepare("SELECT 1 FROM registration_requests WHERE email = 'bot@example.com'").get()).toBeUndefined();
+    expect(await getDb().prepare("SELECT 1 FROM registration_links WHERE email = 'bot@example.com'").get()).toBeUndefined();
+    expect(await getDb().prepare("SELECT 1 FROM messages WHERE recipient = 'bot@example.com'").get()).toBeUndefined();
   });
 });

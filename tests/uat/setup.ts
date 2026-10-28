@@ -22,6 +22,10 @@ export default function setup(project: TestProject) {
   // MYSENAM_SEND=log, so this is also where a scenario reads the emails the app sent.
   if (!process.env.E2E_URL) process.env.E2E_SERVER_LOG ??= path.join(dir, "server.log");
   project.provide("uatServerLog", process.env.E2E_URL ? null : (process.env.E2E_SERVER_LOG ?? null));
+  // Where making an account reads the link emailed to finish it (harness.ts, signUp): the same output here;
+  // against a deployment, its output as scripts/stage.mjs follows it (UAT_SIGNUP_LOG). Only signing up reads
+  // it there: the scenarios about other emails stay skipped against a deployment.
+  project.provide("uatSignUpLog", process.env.E2E_URL ? (process.env.UAT_SIGNUP_LOG ?? null) : (process.env.E2E_SERVER_LOG ?? null));
   return () => {
     const scenarios = fs
       .readdirSync(dir, { withFileTypes: true })
@@ -36,5 +40,6 @@ declare module "vitest" {
   export interface ProvidedContext {
     uatDir: string;
     uatServerLog: string | null;
+    uatSignUpLog: string | null;
   }
 }

@@ -983,8 +983,9 @@ async function phoneCheckingServer(dir: string): Promise<{ base: string; output:
   };
 }
 
-/** This actor's requests go to another server from now on (their own cookies, that server as the origin). */
-function rebase(a: Actor, base: string): Actor {
+/** This actor's requests go to another server from now on (their own cookies, that server as the origin), its emails read from that server's output. */
+function rebase(a: Actor, base: string, output?: () => string): Actor {
+  if (output) a.serverOutput = output;
   a.api = async (method, p, body) => {
     const res = await a.context.request.fetch(`${base}${p}`, {
       method,
@@ -1051,7 +1052,7 @@ describe.skipIf(!serverLog)("guardians recorded by name and number", () => {
         await page.getByText(`guardian: ${guardian.name} (parent)`).waitFor();
       });
 
-      const father = rebase(await s.actor("Father"), base);
+      const father = rebase(await s.actor("Father"), base, server.output);
       await signUp(father);
       const inviteCode = await s.step(desk, "Mei's father, with an account of his own, asks at the counter to become her guardian too: the desk finds Mei by her mother's number and makes a single-use code for his account", async () => {
         const adultName = "Father Tester";
@@ -1112,7 +1113,7 @@ describe.skipIf(!serverLog)("guardians recorded by name and number", () => {
       });
 
       // Later the mother makes an account with the number the venue recorded (setup: registering).
-      const mother = rebase(await s.actor("Mother"), base);
+      const mother = rebase(await s.actor("Mother"), base, server.output);
       mother.phone = guardian.phone;
       await signUp(mother);
       const before = codesTo(guardian.phone).length;

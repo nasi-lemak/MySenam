@@ -6,6 +6,7 @@ import { authenticateAdmin, createAdmin } from "../src/lib/admin-auth";
 import { authenticate, registerUser } from "../src/lib/auth";
 import { getDb, transactionStats } from "../src/lib/db";
 import { processResetRequests, requestReset, settleResetRequests } from "../src/lib/password-reset";
+import { requestRegistration, settleRegistrationRequests } from "../src/lib/registration";
 
 /**
  * How long signing in or asking for a password reset takes must not say
@@ -136,4 +137,60 @@ describe("asking for a password reset", () => {
     expect(await processResetRequests()).toBe(1);
     expect(await processResetRequests()).toBe(0);
   });
+});
+
+describe("asking to sign up", () => {
+  // Each address may be sent only a few emails an hour; what is measured here is the reply, not the email.
+  const forget = () => getDb().prepare("DELETE FROM registration_links").run();
+
+  it("does the same awaited work for an account's address, a new one and one with a link already out", async () => {
+    await settleRegistrationRequests();
+    await forget();
+    await requestRegistration("pending-signup@timing.my");
+    await settleRegistrationRequests();
+    const mails = async (email: string) => ((await getDb().prepare("SELECT COUNT(*)::int AS n FROM messages WHERE recipient = ?").get(email)) as { n: number }).n;
+    const counted = async (email: string) => {
+      const had = await mails(email);
+      const before = transactionStats().queries;
+      const answer = await requestRegistration(email);
+      const statements = transactionStats().queries - before;
+      const queued = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM registration_requests WHERE email = ?").get(email)) as { n: number };
+      const messages = (await mails(email)) - had;
+      await settleRegistrationRequests();
+      return { answer, statements, queued: queued.n, messages };
+    };
+    const known = await counted("timed@timing.my");
+    const unknown = await counted("nobody-signup@timing.my");
+    const pending = await counted("pending-signup@timing.my");
+    // The reply: the same answer, one statement (the request written down), nothing sent yet, whichever address.
+    expect(known).toEqual({ answer: { ok: true }, statements: 1, queued: 1, messages: 0 });
+    expect(unknown).toEqual(known);
+    expect(pending).toEqual(known);
+    // Afterwards: the account's address is told it has one, the others are sent a link.
+    const subjects = async (email: string) =>
+      ((await getDb().prepare("SELECT subject FROM messages WHERE recipient = ? AND subject NOT LIKE 'Set a new password%' ORDER BY id").all(email)) as { subject: string }[]).map(
+        (m) => m.subject
+      );
+    expect(await subjects("timed@timing.my")).toEqual(["You already have a MySenam account"]);
+    expect(await subjects("nobody-signup@timing.my")).toEqual(["Finish creating your MySenam account"]);
+    expect(await subjects("pending-signup@timing.my")).toEqual(["Finish creating your MySenam account", "Finish creating your MySenam account"]);
+    expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM registration_requests").get()) as { n: number }).toEqual({ n: 0 });
+  });
+
+  it("takes about as long either way", async () => {
+    await settleRegistrationRequests();
+    await forget();
+    const between = async () => {
+      await settleRegistrationRequests();
+      await forget();
+    };
+    const t = await race(
+      () => requestRegistration("timed@timing.my"),
+      (i) => requestRegistration(`nobody-signup${i}@timing.my`),
+      between
+    );
+    expect(t.known).toBeLessThan(3 * t.unknown + 3);
+    // Nor is an account's address answered faster, though no link is made for it.
+    expect(t.unknown).toBeLessThan(3 * t.known + 3);
+  }, 60_000);
 });

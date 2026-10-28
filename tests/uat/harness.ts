@@ -24,6 +24,8 @@ import { OWNER } from "../e2e/server";
 
 export const url = inject("e2eUrl");
 const runDir = inject("uatDir");
+/** The app's output, where it writes the emails it sends (MYSENAM_SEND=log), for the links that finish signing up (tests/uat/setup.ts). */
+const serverLog = inject("uatSignUpLog");
 let browser: Browser;
 let ipCounter = 0;
 let emailCounter = 0;
@@ -49,6 +51,8 @@ export interface Actor {
   password: string;
   phone: string;
   id?: number;
+  /** The output of the server this actor uses, where its emails are, when it is not the acceptance server's (a second server's). */
+  serverOutput?: () => string;
   /** A request from this person's browser: their cookies, their address, this site as the origin. */
   api(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }>;
 }
@@ -172,10 +176,19 @@ export function scenario(title: string, fn: (s: Scenario) => Promise<void>) {
   });
 }
 
-/** A new customer account, signed in in this actor's browser; optionally a playing profile and a level. */
+/**
+ * A new customer account, signed in in this actor's browser; optionally a
+ * playing profile and a level. Made as a person makes one: the address asked
+ * for, the link emailed to it followed, the rest given there
+ * (lib/registration.ts). The email is read from the server's output, so this
+ * needs it (a deployment's is followed by scripts/stage.mjs, UAT_SIGNUP_LOG).
+ */
 export async function signUp(a: Actor, opts: { profile?: Record<string, unknown>; level?: { sport: string; level: string } } = {}): Promise<Actor> {
-  const made = await a.api("POST", "/api/auth/register", { name: `${a.name} Tester`, email: a.email, phone: a.phone, password: a.password });
-  if (made.status !== 200 && made.status !== 201) throw new Error(`register ${a.name}: ${made.status} ${JSON.stringify(made.body)}`);
+  const asked = await a.api("POST", "/api/auth/register", { email: a.email });
+  if (asked.status !== 202) throw new Error(`register ${a.name}: ${asked.status} ${JSON.stringify(asked.body)}`);
+  const token = await signUpToken(a);
+  const made = await a.api("POST", "/api/auth/register/complete", { token, name: `${a.name} Tester`, phone: a.phone, password: a.password });
+  if (made.status !== 201) throw new Error(`register ${a.name}: ${made.status} ${JSON.stringify(made.body)}`);
   a.id = (made.body.user as { id: number } | undefined)?.id;
   if (opts.profile) {
     const p = await a.api("PUT", "/api/my/profile", opts.profile);
@@ -183,6 +196,24 @@ export async function signUp(a: Actor, opts: { profile?: Record<string, unknown>
   }
   if (opts.level) await a.api("PUT", "/api/my/levels", opts.level);
   return a;
+}
+
+/** The token in the sign-up link emailed to this actor's address, once it has gone out. */
+async function signUpToken(a: Actor, timeout = 20_000): Promise<string> {
+  if (!a.serverOutput && !serverLog) throw new Error("Signing up needs the server's output to read the emailed link from (E2E_SERVER_LOG, or UAT_SIGNUP_LOG against a deployment).");
+  const output = a.serverOutput ?? (() => (serverLog && fs.existsSync(serverLog) ? fs.readFileSync(serverLog, "utf8") : ""));
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const token = output()
+      .split("[outbox] ")
+      .filter((chunk) => chunk.startsWith(`email → ${a.email}\n`))
+      .map((chunk) => /\/register\?token=([A-Za-z0-9_-]+)/.exec(chunk)?.[1])
+      .filter(Boolean)
+      .at(-1);
+    if (token) return token;
+    if (Date.now() > deadline) throw new Error(`No sign-up link was emailed to ${a.email}`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 /** The platform owner, signed in to the dashboard in this actor's browser. */
