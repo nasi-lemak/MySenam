@@ -324,6 +324,9 @@ describe("selling a pass at the counter", () => {
             holderName: "Aisyah",
             holderPhone: PHONE,
             expiresOn: addDays(todayISO(), 90),
+            // Not from the venue's list: a manager's price, with the reason, and how it was paid (X1-19, X1-2).
+            via: "cash",
+            priceReason: "Counter pass, not on the list",
             ...body,
           }),
         })

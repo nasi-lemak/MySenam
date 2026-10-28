@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { canAccessVenue, denyVenue, requireAdmin } from "@/lib/admin-auth";
 import type { Admin } from "@/lib/admin-auth";
 import { creditScope } from "@/lib/mode";
 import { findUserForWallet, listWalletEntries, topUpWallet } from "@/lib/store";
-import { MAX_TOP_UP } from "@/lib/types";
+import { COUNTER_METHODS, MAX_TOP_UP, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
+import { asStaff } from "@/lib/acting-staff";
 import { logAction } from "@/lib/activity";
 import { money, isAmount } from "@/lib/region";
 
@@ -22,6 +23,16 @@ function venueFor(admin: Admin, asked: unknown): number | undefined | NextRespon
   if (id === null || id === undefined || !Number.isInteger(id) || id <= 0)
     return NextResponse.json({ error: "Say which venue's credit this is." }, { status: 400 });
   return denyVenue(admin, id) ?? id;
+}
+
+/**
+ * Whose till the money went into, for its cash-up, where credit is the
+ * install's own: the venue named, if it is the admin's, or their one venue.
+ */
+function counterFor(admin: Admin, asked: unknown): number | null {
+  const id = asked === undefined || asked === null || asked === "" ? null : Number(asked);
+  if (id !== null && Number.isInteger(id) && id > 0 && canAccessVenue(admin, id)) return id;
+  return admin.venueIds?.length === 1 ? admin.venueIds[0] : null;
 }
 
 /** Look a customer up at the counter by email or phone. */
@@ -54,7 +65,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { userId, amount, reason, venueId: askedVenue } = (body ?? {}) as Record<string, unknown>;
+  const { userId, amount, reason, venueId: askedVenue, via } = (body ?? {}) as Record<string, unknown>;
   const venueId = venueFor(admin, askedVenue);
   if (venueId instanceof NextResponse) return venueId;
 
@@ -62,19 +73,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "userId is required." }, { status: 400 });
   if (!isAmount(amount, 1, MAX_TOP_UP))
     return NextResponse.json({ error: `Top-up must be ${money(1)}–${MAX_TOP_UP}.` }, { status: 400 });
+  // How the money was taken (cash, DuitNow QR, a transfer or a card terminal): on its receipt and in the cash-up.
+  if (via === undefined || via === null || via === "") return NextResponse.json({ error: "Say how it was paid.", code: "P8B_VIA_REQUIRED" }, { status: 400 });
+  if (!COUNTER_METHODS.includes(via as CounterMethod))
+    return NextResponse.json({ error: `via must be one of ${COUNTER_METHODS.join(", ")}.` }, { status: 400 });
 
-  const result = await topUpWallet({
-    userId: userId as number,
-    amount: amount as number,
-    adminId: admin.id,
-    reason: typeof reason === "string" ? reason : undefined,
-    venueId,
-  });
+  const counter = venueId ?? counterFor(admin, askedVenue);
+  // As the member of staff selling it, so its receipt says who took the money (lib/acting-staff.ts).
+  const result = await asStaff(admin, () =>
+    topUpWallet({
+      userId: userId as number,
+      amount: amount as number,
+      adminId: admin.id,
+      reason: typeof reason === "string" ? reason : undefined,
+      venueId,
+      via: via as CounterMethod,
+      counterVenueId: counter,
+    })
+  );
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   await logAction(admin, {
-    venueId: venueId ?? null,
+    venueId: counter,
     action: "credit.changed",
-    detail: `${money(amount as number)} for customer ${userId}${typeof reason === "string" && reason.trim() ? `: ${reason.trim()}` : ""}`,
+    detail: `${money(amount as number)} for customer ${userId}, by ${PAID_VIA_LABELS[via as CounterMethod]}${typeof reason === "string" && reason.trim() ? `: ${reason.trim()}` : ""}`,
   });
   return NextResponse.json({ balance: result.balance, entry: result.entry }, { status: 201 });
 }

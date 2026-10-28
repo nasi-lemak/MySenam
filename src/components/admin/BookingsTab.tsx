@@ -21,6 +21,7 @@ import PassAllocation, { passCodesOf, type AllocPass } from "@/components/PassAl
 import type { PlanPlace } from "@/lib/pass-rules";
 import { errorText } from "@/lib/i18n";
 import { lengthLabel } from "@/lib/length-label";
+import { AdjustPrice } from "./AdjustPrice";
 
 /* ---------------- Bookings tab ---------------- */
 
@@ -998,6 +999,7 @@ export function BookingsTab() {
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   <PaymentChip b={b} act={act} />
                   <AccountChip b={b} act={act} />
+                  <AdjustPrice b={b} onDone={() => void load()} />
                   <AttendanceChip b={b} act={act} />
                   <KitChip b={b} act={act} />
                 </div>
@@ -1062,6 +1064,7 @@ export function BookingsTab() {
                     <td className="px-3 py-2">
                       <PaymentChip b={b} act={act} />
                       <AccountChip b={b} act={act} />
+                      <AdjustPrice b={b} onDone={() => void load()} />
                     </td>
                     <td className="px-3 py-2">
                       <AttendanceChip b={b} act={act} />

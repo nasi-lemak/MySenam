@@ -18,6 +18,13 @@ import { money, region } from "@/lib/region";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import type { CounterMethod } from "@/lib/types";
+import type { PassProduct } from "@/lib/pass-products";
+import { MethodSelect } from "./CounterMethod";
+import { CashUpPanel } from "./CashUpPanel";
+import { FIRST_PAGE, ListFilter, listParams, type ListQuery } from "./ListFilter";
+import { PassProducts, productTerms } from "./PassProducts";
+import { useStaffRole } from "./useStaffRole";
 
 /* ---------------- Credit tab ---------------- */
 
@@ -38,6 +45,8 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
   const [customer, setCustomer] = useState<WalletCustomer | null>(null);
   const [entries, setEntries] = useState<WalletEntry[]>([]);
   const [amount, setAmount] = useState("50");
+  // How the desk took the money (X1-2): asked each time, never assumed.
+  const [via, setVia] = useState<CounterMethod | "">("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -66,15 +75,17 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
     if (!customer) return;
     setError(null);
     setNotice(null);
+    if (!via) return setError(t("p8b.via.say"));
     try {
       const res = await fetch("/api/admin/wallet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: customer.id, amount: Number(amount), venueId: creditVenueId }),
+        body: JSON.stringify({ userId: customer.id, amount: Number(amount), venueId: creditVenueId, via }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("cr.topUpFailed")));
       setNotice(t("cr.added", { amount: money(amount), balance: money(data.balance) }));
+      setVia("");
       setCustomer({ ...customer, balance: data.balance });
       setEntries([data.entry, ...entries]);
     } catch (err) {
@@ -183,6 +194,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
                 {money(preset)}
               </button>
             ))}
+            <MethodSelect value={via} onChange={setVia} />
             <button
               onClick={topUp}
               className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
@@ -212,6 +224,8 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
       </div>
 
       <CounterSalesPanel venues={venues} />
+
+      <CashUpPanel venues={venues} />
 
       <AccountsPanel venues={venues} />
 
@@ -254,21 +268,39 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
   // A pass for one person's place, held for a participant the holder acts for; null: the holder themself.
   const [passFor, setPassFor] = useState<PickedParticipant | null>(null);
   const [coaches, setCoaches] = useState<{ id: number; name: string; active: boolean }[]>([]);
+  // Sold from the venue's list at its price (X1-19): a product, or a manager's own pass ("custom") with a reason.
+  const role = useStaffRole();
+  const manager = role?.role === "manager";
+  const [products, setProducts] = useState<PassProduct[]>([]);
+  const [productId, setProductId] = useState("");
+  const [otherTerms, setOtherTerms] = useState(false);
+  const [priceReason, setPriceReason] = useState("");
+  const [via, setVia] = useState<CounterMethod | "">("");
+  // Found by code, name or number, by status, a page at a time (X1-7).
+  const [query, setQuery] = useState<ListQuery>(FIRST_PAGE);
+  const [more, setMore] = useState(false);
 
   const venue = venues.find((v) => v.id === venueId) ?? null;
   const sports = [...new Set((venue?.courts ?? []).map((c) => c.sport))];
+  const product = products.find((p) => String(p.id) === productId) ?? null;
+  const custom = productId === "custom";
+  // What it will cost: the product's, unless a manager says otherwise.
+  const price = product && !otherTerms ? product.price : Number(form.price);
 
   const load = useCallback(async () => {
     if (!venueId) return;
-    const [res, c] = await Promise.all([
-      fetch(`/api/admin/passes?venueId=${venueId}`, { cache: "no-store" }),
+    const [res, c, p] = await Promise.all([
+      fetch(`/api/admin/passes?venueId=${venueId}${listParams(query)}`, { cache: "no-store" }),
       fetch(`/api/admin/coaches?venueId=${venueId}`, { cache: "no-store" }).catch(() => null),
+      fetch(`/api/admin/pass-products?venueId=${venueId}`, { cache: "no-store" }).catch(() => null),
     ]);
     if (c?.ok) setCoaches(((await c.json()).coaches ?? []).filter((x: { active: boolean }) => x.active));
+    if (p?.ok) setProducts((await p.json()).products ?? []);
     if (!res.ok) return;
     const data = await res.json();
     setPasses(data.passes);
-  }, [venueId]);
+    setMore(data.more === true);
+  }, [venueId, query]);
 
   useEffect(() => {
     load();
@@ -278,27 +310,40 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
     e.preventDefault();
     setError(null);
     setNotice(null);
+    if (!product && !custom) return setError(t("p8b.prod.choose"));
+    if (price > 0 && !via) return setError(t("p8b.via.say"));
+    const scope = product ? product.scope : form.scope;
     try {
       const res = await fetch("/api/admin/passes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           venueId,
-          name: form.name,
-          sport: form.sport || null,
-          kind: form.kind,
-          // A time pass is sold in hours here, kept in minutes.
-          entries: form.kind === "time" ? Math.round(Number(form.entries) * 60) : Number(form.entries),
-          entryMinutes: form.kind === "time" || form.entryMinutes.trim() === "" ? null : Number(form.entryMinutes),
-          maxMinutes: form.maxMinutes.trim() === "" ? null : Number(form.maxMinutes),
-          price: Number(form.price),
+          ...(product
+            ? {
+                productId: product.id,
+                // Another price or term: a manager's, with the reason.
+                ...(otherTerms ? { price: Number(form.price), expiresOn: form.expiresOn || undefined, priceReason } : {}),
+              }
+            : {
+                name: form.name,
+                sport: form.sport || null,
+                kind: form.kind,
+                // A time pass is sold in hours here, kept in minutes.
+                entries: form.kind === "time" ? Math.round(Number(form.entries) * 60) : Number(form.entries),
+                entryMinutes: form.kind === "time" || form.entryMinutes.trim() === "" ? null : Number(form.entryMinutes),
+                maxMinutes: form.maxMinutes.trim() === "" ? null : Number(form.maxMinutes),
+                price: Number(form.price),
+                expiresOn: form.expiresOn,
+                coachId: form.coachId ? Number(form.coachId) : null,
+                scope: form.scope,
+                priceReason,
+              }),
           holderName: form.holderName,
           holderPhone: form.holderPhone,
           accountEmail: form.accountEmail.trim() || undefined,
-          expiresOn: form.expiresOn,
-          coachId: form.coachId ? Number(form.coachId) : null,
-          scope: form.scope,
-          ...(form.scope === "participant" && passFor ? { holderParticipantId: passFor.id } : {}),
+          ...(via ? { via } : {}),
+          ...(scope === "participant" && passFor ? { holderParticipantId: passFor.id } : {}),
         }),
       });
       const data = await res.json();
@@ -306,6 +351,9 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
       setNotice(t("cr.passSold", { code: data.pass.code, name: data.pass.holderParticipantName ?? data.pass.holderName }));
       setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
       setPassFor(null);
+      setVia("");
+      setPriceReason("");
+      setOtherTerms(false);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cr.passIssueFailed"));
@@ -365,6 +413,42 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             </select>
           </label>
         )}
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("cr.pass")}
+          <select
+            required
+            value={productId}
+            onChange={(e) => {
+              setProductId(e.target.value);
+              setOtherTerms(false);
+            }}
+            className={`mt-1 w-72 ${inputClass}`}
+          >
+            <option value="">{products.length > 0 ? t("p8b.prod.pick") : t("p8b.prod.noneYet")}</option>
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · {productTerms(t, p)} · {money(p.price)}
+              </option>
+            ))}
+            {manager && <option value="custom">{t("p8b.prod.custom")}</option>}
+          </select>
+        </label>
+        {product && manager && (
+          <label className="flex items-center gap-1.5 self-center text-xs font-medium text-slate-600">
+            <input
+              type="checkbox"
+              checked={otherTerms}
+              onChange={(e) => {
+                setOtherTerms(e.target.checked);
+                if (e.target.checked) setForm({ ...form, price: String(product.price), expiresOn: "" });
+              }}
+              className="accent-teal-600"
+            />
+            {t("p8b.prod.otherTerms")}
+          </label>
+        )}
+        {custom && (
+        <>
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("cr.passName")}
           <input
@@ -469,18 +553,48 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-28 ${inputClass}`}
           />
         </label>
-        <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("cr.price")}
-          <input
-            type="number"
-            step={0.01}
-            min={0}
-            required
-            value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })}
-            className={`mt-1 w-24 ${inputClass}`}
-          />
-        </label>
+        </>
+        )}
+        {(custom || otherTerms) && (
+          <>
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("cr.price")}
+              <input
+                type="number"
+                step={0.01}
+                min={0}
+                required
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: e.target.value })}
+                className={`mt-1 w-24 ${inputClass}`}
+              />
+            </label>
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("cr.expires")}
+              <input
+                type="date"
+                required={custom}
+                min={todayLocal()}
+                value={form.expiresOn}
+                onChange={(e) => setForm({ ...form, expiresOn: e.target.value })}
+                className={`mt-1 ${inputClass}`}
+              />
+            </label>
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("p8b.price.reason")}
+              <input
+                required
+                minLength={5}
+                maxLength={300}
+                value={priceReason}
+                onChange={(e) => setPriceReason(e.target.value)}
+                placeholder={t("p8b.price.reasonExample")}
+                className={`mt-1 w-64 ${inputClass}`}
+              />
+            </label>
+          </>
+        )}
+        {product && !otherTerms && <p className="self-center text-xs text-slate-600">{t("p8b.prod.sellsAt", { price: money(product.price), days: product.validDays })}</p>}
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("cr.holder")}
           <input
@@ -502,17 +616,6 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("cr.expires")}
-          <input
-            type="date"
-            required
-            min={todayLocal()}
-            value={form.expiresOn}
-            onChange={(e) => setForm({ ...form, expiresOn: e.target.value })}
-            className={`mt-1 ${inputClass}`}
-          />
-        </label>
-        <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("cr.accountEmail")}
           <input
             type="email"
@@ -522,12 +625,13 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-48 ${inputClass}`}
           />
         </label>
-        {form.scope === "participant" && venueId > 0 && (
+        {(product ? product.scope : form.scope) === "participant" && venueId > 0 && (
           <div className="w-full text-xs font-medium text-slate-500">
             {t("ent.cr.passFor")}
             <ParticipantPicker venueId={venueId} phone={form.holderPhone} guardianName={form.holderName} value={passFor} onChange={setPassFor} />
           </div>
         )}
+        <MethodSelect value={via} onChange={setVia} required={price > 0} />
         <button
           type="submit"
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
@@ -535,6 +639,23 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           {t("cr.sellPass")}
         </button>
       </form>
+
+      {venueId > 0 && manager && (
+        <PassProducts venueId={venueId} products={products} sports={sports} coaches={coaches} onChanged={() => void load()} />
+      )}
+
+      <ListFilter
+        query={query}
+        onChange={setQuery}
+        more={more}
+        statuses={[
+          { value: "active", label: "p8b.list.active" },
+          { value: "lapsing", label: "p8b.list.lapsing" },
+          { value: "used", label: "p8b.list.used" },
+          { value: "expired", label: "p8b.list.expired" },
+          { value: "cancelled", label: "p8b.list.cancelled" },
+        ]}
+      />
 
       <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full min-w-[760px] border-collapse text-sm">
@@ -561,6 +682,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                     {pass.coachName && ` · ${t("cr.passLessonsWith", { name: pass.coachName })}`}
                     {pass.scope && pass.scope !== "booking" && ` · ${scopeLabel(t, pass.scope)}`}
                   </span>
+                  <PriceSetNote set={(pass as Pass & { priceSet?: PriceSet | null }).priceSet ?? null} price={pass.price} />
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   {pass.holderName}
@@ -604,6 +726,26 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
         </table>
       </div>
     </section>
+  );
+}
+
+/** A manager's price on a pass or membership, other than the list's (lib/counter-prices.ts). */
+interface PriceSet {
+  listPrice: number | null;
+  reason: string;
+  adminName: string;
+}
+
+/** Says, under a sale, that a manager set its price, against what, and why. */
+function PriceSetNote({ set, price }: { set: PriceSet | null; price: number }) {
+  const t = useStaffT();
+  if (!set) return null;
+  return (
+    <span className="block text-xs text-amber-700">
+      {set.listPrice === null
+        ? t("p8b.price.setOffList", { price: money(price), who: set.adminName, reason: set.reason })
+        : t("p8b.price.setFromList", { price: money(price), list: money(set.listPrice), who: set.adminName, reason: set.reason })}
+    </span>
   );
 }
 
@@ -983,18 +1125,31 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [memberFor, setMemberFor] = useState<PickedParticipant | null>(null);
   const [covers, setCovers] = useState<PickedParticipant[]>([]);
   const [coverPick, setCoverPick] = useState<PickedParticipant | null>(null);
-  // The venue's plans, to put a membership sold here on one for its benefits.
+  // The venue's plans: a membership is sold on one, at its fee and for its months (X1-19).
   const [tiers, setTiers] = useState<Plan[]>([]);
+  const role = useStaffRole();
+  const manager = role?.role === "manager";
+  // A manager's other fee or term, or no plan: with the reason.
+  const [otherTerms, setOtherTerms] = useState(false);
+  const [priceReason, setPriceReason] = useState("");
+  const [via, setVia] = useState<CounterMethod | "">("");
+  // Found by code, name or number, by status ("lapsing within 30 days" among them), a page at a time (X1-7).
+  const [query, setQuery] = useState<ListQuery>(FIRST_PAGE);
+  const [more, setMore] = useState(false);
+  const plan = tiers.find((p) => String(p.id) === form.tierId) ?? null;
+  const ownTerms = !plan || otherTerms;
+  const fee = plan && !otherTerms ? plan.price : Number(form.price);
 
   const load = useCallback(async () => {
     if (!venueId) return;
-    const res = await fetch(`/api/admin/memberships?venueId=${venueId}`, { cache: "no-store" });
+    const res = await fetch(`/api/admin/memberships?venueId=${venueId}${listParams(query)}`, { cache: "no-store" });
     if (!res.ok) return;
     const data = await res.json();
     setMembers(data.memberships);
+    setMore(data.more === true);
     const plans = await fetch(`/api/admin/membership-plans?venueId=${venueId}`, { cache: "no-store" });
     if (plans.ok) setTiers((await plans.json()).plans);
-  }, [venueId]);
+  }, [venueId, query]);
 
   useEffect(() => {
     load();
@@ -1004,6 +1159,8 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
     e.preventDefault();
     setError(null);
     setNotice(null);
+    if (!plan && !manager) return setError(t("p8b.plan.choose"));
+    if (fee > 0 && !via) return setError(t("p8b.via.say"));
     try {
       const res = await fetch("/api/admin/memberships", {
         method: "POST",
@@ -1014,9 +1171,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           holderPhone: form.holderPhone,
           accountEmail: form.accountEmail.trim() || undefined,
           startsOn: form.startsOn,
-          expiresOn: form.expiresOn,
-          price: Number(form.price),
-          ...(form.tierId ? { tierId: Number(form.tierId) } : {}),
+          // On a plan: its fee and months, unless a manager says otherwise, with the reason.
+          ...(ownTerms ? { expiresOn: form.expiresOn || undefined, price: Number(form.price), priceReason } : {}),
+          ...(plan ? { tierId: plan.id } : {}),
+          ...(via ? { via } : {}),
           ...(memberFor ? { holderParticipantId: memberFor.id } : {}),
           ...(covers.length > 0 ? { covers: covers.map((c) => c.id) } : {}),
         }),
@@ -1027,6 +1185,9 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
       setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
       setMemberFor(null);
       setCovers([]);
+      setVia("");
+      setPriceReason("");
+      setOtherTerms(false);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cr.memberSellFailed"));
@@ -1137,23 +1298,24 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 w-36 ${inputClass}`}
           />
         </label>
-        {tiers.length > 0 && (
-          <label className="flex flex-col text-xs font-medium text-slate-500">
-            {t("cr.plan")}
-            <select
-              value={form.tierId}
-              onChange={(e) => setForm({ ...form, tierId: e.target.value })}
-              className={`mt-1 w-56 ${inputClass}`}
-            >
-              <option value="">{t("cr.noPlan")}</option>
-              {tiers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({tierBenefits(t, p)})
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("cr.plan")}
+          <select
+            value={form.tierId}
+            onChange={(e) => {
+              setForm({ ...form, tierId: e.target.value });
+              setOtherTerms(false);
+            }}
+            className={`mt-1 w-72 ${inputClass}`}
+          >
+            <option value="">{manager ? t("p8b.plan.none") : tiers.length > 0 ? t("p8b.plan.pick") : t("p8b.plan.noneYet")}</option>
+            {tiers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · {t.plural("cr.months", p.months)} · {money(p.price)} ({tierBenefits(t, p)})
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("c.from")}
           <input
@@ -1164,29 +1326,60 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
             className={`mt-1 ${inputClass}`}
           />
         </label>
-        <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("c.until")}
-          <input
-            type="date"
-            required
-            min={form.startsOn}
-            value={form.expiresOn}
-            onChange={(e) => setForm({ ...form, expiresOn: e.target.value })}
-            className={`mt-1 ${inputClass}`}
-          />
-        </label>
-        <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("cr.fee")}
-          <input
-            type="number"
-            step={0.01}
-            min={0}
-            required
-            value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })}
-            className={`mt-1 w-24 ${inputClass}`}
-          />
-        </label>
+        {plan && manager && (
+          <label className="flex items-center gap-1.5 self-center text-xs font-medium text-slate-600">
+            <input
+              type="checkbox"
+              checked={otherTerms}
+              onChange={(e) => {
+                setOtherTerms(e.target.checked);
+                if (e.target.checked) setForm({ ...form, price: String(plan.price), expiresOn: "" });
+              }}
+              className="accent-teal-600"
+            />
+            {t("p8b.plan.otherTerms")}
+          </label>
+        )}
+        {plan && !otherTerms && <p className="self-center text-xs text-slate-600">{t("p8b.plan.sellsAt", { price: money(plan.price), months: plan.months })}</p>}
+        {ownTerms && (plan || manager) && (
+          <>
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("c.until")}
+              <input
+                type="date"
+                required={!plan}
+                min={form.startsOn}
+                value={form.expiresOn}
+                onChange={(e) => setForm({ ...form, expiresOn: e.target.value })}
+                className={`mt-1 ${inputClass}`}
+              />
+            </label>
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("cr.fee")}
+              <input
+                type="number"
+                step={0.01}
+                min={0}
+                required
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: e.target.value })}
+                className={`mt-1 w-24 ${inputClass}`}
+              />
+            </label>
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("p8b.price.reason")}
+              <input
+                required
+                minLength={5}
+                maxLength={300}
+                value={priceReason}
+                onChange={(e) => setPriceReason(e.target.value)}
+                placeholder={t("p8b.price.reasonExample")}
+                className={`mt-1 w-64 ${inputClass}`}
+              />
+            </label>
+          </>
+        )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("cr.accountEmail")}
           <input
@@ -1232,15 +1425,30 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
             </div>
           </div>
         )}
+        <MethodSelect value={via} onChange={setVia} required={fee > 0} />
         <button
           type="submit"
-          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+          disabled={!plan && !manager}
+          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
         >
           {t("cr.sellMembership")}
         </button>
       </form>
 
       {venueId > 0 && <MembershipPlans venueId={venueId} />}
+
+      <ListFilter
+        query={query}
+        onChange={setQuery}
+        more={more}
+        statuses={[
+          { value: "active", label: "p8b.list.active" },
+          { value: "lapsing", label: "p8b.list.lapsing" },
+          { value: "upcoming", label: "p8b.list.upcoming" },
+          { value: "expired", label: "p8b.list.expired" },
+          { value: "cancelled", label: "p8b.list.cancelled" },
+        ]}
+      />
 
       <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full min-w-[700px] border-collapse text-sm">
@@ -1278,6 +1486,9 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="whitespace-nowrap px-3 py-2 font-semibold">
                   {money(m.price)}
                   {m.online && <span className="ml-1.5 rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700">{t("cr.onlineBadge")}</span>}
+                  <span className="whitespace-normal font-normal">
+                    <PriceSetNote set={(m as Membership & { priceSet?: PriceSet | null }).priceSet ?? null} price={m.price} />
+                  </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
                   {m.unusableReason ? (

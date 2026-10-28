@@ -291,6 +291,8 @@ const en = {
   "dreq.title": "A customer's data",
   "dreq.intro": "When somebody asks what you hold about them, check who they are first: a phone number is not proof. Then download everything here filed against their number, to give them. Managers only; each download goes in the activity log.",
   "dreq.phone": "Their phone number",
+  // Round 8 (P8b): the month the accountant asks for
+  "p8b.rpt.lastMonth": "Last month",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -579,6 +581,8 @@ const ms: Record<keyof typeof en, string> = {
   "dreq.title": "Data pelanggan",
   "dreq.intro": "Apabila seseorang bertanya apa yang anda simpan tentang mereka, pastikan identiti mereka dahulu: nombor telefon bukan bukti. Kemudian muat turun semua yang direkodkan di sini di bawah nombor mereka, untuk diberikan kepada mereka. Pengurus sahaja; setiap muat turun direkodkan dalam log aktiviti.",
   "dreq.phone": "Nombor telefon mereka",
+  // Round 8 (P8b): the month the accountant asks for
+  "p8b.rpt.lastMonth": "Bulan lepas",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -867,6 +871,8 @@ const zh: Record<keyof typeof en, string> = {
   "dreq.title": "顾客资料",
   "dreq.intro": "当有人询问您保存了哪些关于他们的资料时，请先核实身份：电话号码不能作为证明。然后下载这里登记在其号码下的所有资料，交给他们。仅限经理；每次下载都会记录在活动日志中。",
   "dreq.phone": "对方的电话号码",
+  // Round 8 (P8b): the month the accountant asks for
+  "p8b.rpt.lastMonth": "上个月",
 };
 
 const area = { en, ms, zh };

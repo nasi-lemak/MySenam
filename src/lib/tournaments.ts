@@ -30,7 +30,7 @@ import { blockSlots, offerSlotPlace, releaseBlockTime, venueHours } from "./stor
 import { venueZoneOf } from "./zones";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { formatMinute, hoursOf, instantOf, minutesOf } from "./interval";
-import { type Sport } from "./types";
+import { type CounterMethod, type Sport } from "./types";
 import type { Level } from "./games";
 import { isCategory, isPartnerGender, type Category } from "./who";
 import { money } from "./region";
@@ -1530,7 +1530,14 @@ export async function paidOnline(column: "tournament_entry_id" | "league_place_i
 
 export async function setEntry(
   entryId: number,
-  change: { paid?: boolean; seed?: number | null; checkedIn?: boolean; eligibilityCheckedBy?: string | null }
+  change: {
+    paid?: boolean;
+    /** How the desk took the fee, for its receipt and the cash-up (lib/cash-up.ts). */
+    via?: CounterMethod | null;
+    seed?: number | null;
+    checkedIn?: boolean;
+    eligibilityCheckedBy?: string | null;
+  }
 ): Promise<Result<Entry>> {
   const db = getDb();
   if (change.paid !== undefined) {
@@ -1543,7 +1550,7 @@ export async function setEntry(
       .prepare(`UPDATE tournament_entries SET paid_at = ${change.paid ? "datetime('now')" : "NULL"} WHERE id = ? AND paid_at IS ${change.paid ? "NULL" : "NOT NULL"}`)
       .run(entryId);
     // Paid at the counter just now, or the mark taken back: receipted, or credited.
-    if (changed.changes === 1) await receiptFee("entry", entryId, change.paid);
+    if (changed.changes === 1) await receiptFee("entry", entryId, change.paid, change.via);
   }
   if (change.seed !== undefined) {
     if (change.seed !== null && (!Number.isInteger(change.seed) || change.seed < 1 || change.seed > 64))

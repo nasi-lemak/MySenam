@@ -4,10 +4,12 @@ import { roundMoney } from "./region";
 import { taxIncluded, venueTax } from "./tax";
 import { formatHour } from "./time";
 import { hoursOf } from "./interval";
-import { PAID_VIA_LABELS, type PaidVia } from "./types";
+import { PAID_VIA_LABELS, type CounterMethod, type PaidVia } from "./types";
 import { englishOf, said, type StaffText } from "./staff-text";
 import { derivedPreset } from "./concession-presets";
 import { isConcessionPreset, type ConcessionPreset } from "./concessions-shared";
+import { actingStaff } from "./acting-staff";
+import { pageSql, paged, textMatch, type ListQuery, type Page } from "./list-search";
 
 /**
  * Receipts and credit notes kept as documents (migration 0040): one for each
@@ -59,6 +61,13 @@ export interface Line {
    * have the names in `description`.
    */
   who?: string[];
+  /**
+   * A manager's change to a booking's price before it was paid
+   * (lib/price-adjustments.ts): the difference, as a line of its own, so the
+   * receipt says it in the reader's language (lib/receipts.ts
+   * `receiptLineText`). `description` stays as written, for the books.
+   */
+  adjusted?: "adjusted" | "complimentary";
 }
 
 /** Where a line's names go in its words (`Line.who`). */
@@ -113,6 +122,10 @@ export interface Document {
   credits: string | null;
   issuedAt: string;
   source: string;
+  /** Who took or gave back the money, where staff did (migration 0234). */
+  staffName: string | null;
+  /** The install's own (no `venueId`): whose till the money went into, where staff said (migration 0234). */
+  counterVenueId: number | null;
 }
 
 interface Row {
@@ -135,6 +148,9 @@ interface Row {
   paid_via: string | null;
   note: string | null;
   issued_at: string;
+  staff_id?: number | null;
+  staff_name?: string | null;
+  counter_venue_id?: number | null;
 }
 
 export const documentRef = (id: number) => `R${id}`;
@@ -166,6 +182,8 @@ function toDocument(r: Row): Document {
     credits: r.credits_ref,
     issuedAt: r.issued_at,
     source: r.source,
+    staffName: r.staff_name ?? null,
+    counterVenueId: r.counter_venue_id ?? null,
   };
 }
 
@@ -196,6 +214,26 @@ export async function documentsForVenue(venueId: number, limit = 100): Promise<D
     .prepare("SELECT * FROM receipts WHERE venue_id = ? ORDER BY id DESC LIMIT ?")
     .all(venueId, limit)) as Row[];
   return rows.map(toDocument);
+}
+
+/** What the venue's book of receipts filters by (lib/list-search.ts). */
+export const DOCUMENT_LIST_STATUSES = ["receipt", "credit_note"] as const;
+
+/**
+ * A venue's receipts and credit notes found by number, the booking a credit
+ * note is for, the customer's name or number; receipts or credit notes only;
+ * a page at a time, newest first (lib/list-search.ts).
+ */
+export async function searchDocuments(venueId: number, query: ListQuery): Promise<Page<Document>> {
+  const match = textMatch(query.q, { codes: ["number", "credits_ref"], names: ["customer_name"], phones: ["customer_phone"] });
+  const rows = (await getDb()
+    .prepare(
+      `SELECT * FROM receipts WHERE venue_id = ? AND ${match.sql}${query.status ? " AND kind = ?" : ""}
+        ORDER BY id DESC ${pageSql(query.page)}`
+    )
+    .all(venueId, ...match.params, ...(query.status ? [query.status] : []))) as Row[];
+  const page = paged(rows, query.page);
+  return { ...page, items: page.items.map(toDocument) };
 }
 
 /** How a payment was made, as a receipt says it. */
@@ -239,6 +277,8 @@ async function write(fields: Fields): Promise<Document> {
   const db = getDb();
   for (let attempt = 0; ; attempt++) {
     try {
+      // Who is acting, where staff are (lib/acting-staff.ts): the cash-up counts what each took and gave back.
+      const staff = actingStaff();
       const id = await db.transaction(async () => {
         const existing = (await db.prepare("SELECT id FROM receipts WHERE source = ?").get(fields.source)) as { id: number } | undefined;
         if (existing) return existing.id;
@@ -250,13 +290,17 @@ async function write(fields: Fields): Promise<Document> {
         const made = (await db
           .prepare(
             `INSERT INTO receipts (venue_id, kind, seq, number, source, credits_id, credits_ref, user_id, customer_name,
-               customer_phone, lines, total, tax_name, tax_rate, tax_amount, tax_reg_no, paid_via, note, issued_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now'))) RETURNING id`
+               customer_phone, lines, total, tax_name, tax_rate, tax_amount, tax_reg_no, paid_via, note, issued_at, staff_id, staff_name,
+               counter_venue_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?, ?) RETURNING id`
           )
           .get(
             fields.venue_id, fields.kind, seq, number, fields.source, fields.credits_id, fields.credits_ref, fields.user_id,
             fields.customer_name, fields.customer_phone, fields.lines, fields.total, fields.tax_name, fields.tax_rate,
-            fields.tax_amount, fields.tax_reg_no, fields.paid_via, fields.note, fields.issued_at ?? null
+            fields.tax_amount, fields.tax_reg_no, fields.paid_via, fields.note, fields.issued_at ?? null,
+            staff?.id ?? null, staff?.name ?? null,
+            // Only for the install's own: a venue's document is in its own till already.
+            fields.venue_id === null ? (fields.counter_venue_id ?? null) : null
           )) as { id: number };
         return made.id;
       })();
@@ -284,6 +328,8 @@ export interface Sale {
   note?: string | null;
   /** When it was paid, if before now (YYYY-MM-DD HH:MM:SS, UTC), so it falls in the right period. */
   issuedAt?: string | null;
+  /** The install's own sale (`venueId` null) taken at a venue's counter: whose till, for its cash-up. */
+  counterVenueId?: number | null;
 }
 
 /** Receipt a sale. Nothing for a free one. */
@@ -310,6 +356,7 @@ export async function issueReceipt(sale: Sale): Promise<Document | null> {
     paid_via: sale.paidVia,
     note: sale.note ?? null,
     issued_at: sale.issuedAt ?? null,
+    counter_venue_id: sale.counterVenueId ?? null,
   });
 }
 
@@ -379,6 +426,8 @@ export async function creditReceipt(
     tax_amount: receipt.tax?.amount ?? 0,
     tax_reg_no: receipt.tax?.regNo ?? null,
     paid_via: receipt.paidVia,
+    // Given back over the same counter it was taken at.
+    counter_venue_id: receipt.counterVenueId,
     note: why,
   });
 }
@@ -458,6 +507,16 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     name: string | null;
   }[];
   const forNames = people.some((p) => p.takes_part_as === "participant") ? people.flatMap((p) => (p.name ? [p.name] : [])) : [];
+  // A manager's change to the price before it was paid (lib/price-adjustments.ts): the difference, last, after every
+  // discount. One made after it was paid is a credit note of its own; the receipt stays as sold.
+  const adjusted = (await db
+    .prepare(
+      `SELECT COALESCE(SUM(delta), 0)::float AS delta,
+              COALESCE((SELECT complimentary FROM booking_price_adjustments WHERE booking_id = ? AND NOT paid ORDER BY id DESC LIMIT 1), false) AS free
+         FROM booking_price_adjustments WHERE booking_id = ? AND NOT paid`
+    )
+    .get(bookingId, bookingId)) as { delta: number; free: boolean | number };
+  const adjustment = roundMoney(Number(adjusted.delta));
   const discount = (promo?.discount ?? 0) + concession + placeOff;
   // A built-in one is said in the reader's language; the venue's own name stays as typed.
   const preset = derivedPreset({
@@ -470,7 +529,7 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
       description: `${b.court_name} (${activityName(b.sport)}), ${b.date} ${formatHour(hoursOf(b.start_min))}–${formatHour(hoursOf(b.end_min))}${
         Number(b.players) > 1 ? `, ${b.players} players` : ""
       }`,
-      amount: roundMoney(b.total_price - extrasTotal + discount - b.coach_fee),
+      amount: roundMoney(b.total_price - extrasTotal + discount - b.coach_fee - adjustment),
       slot: { court: b.court_name, sport: b.sport, date: b.date, startMin: b.start_min, endMin: b.end_min, players: Number(b.players), for: forNames },
     },
     ...(b.coach_fee > 0 ? [{ description: `Coaching with ${b.coach_name ?? "a coach"}`, amount: b.coach_fee }] : []),
@@ -494,6 +553,15 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
       place: { kind: p.kind === "membership" ? ("membership" as const) : ("concession" as const), name: p.name },
     })),
     ...(promo ? [{ description: `Promo ${promo.code}`, amount: -promo.discount }] : []),
+    ...(adjustment !== 0
+      ? [
+          {
+            description: adjusted.free === true || adjusted.free === 1 ? "Complimentary" : "Price adjusted by the venue",
+            amount: adjustment,
+            adjusted: adjusted.free === true || adjusted.free === 1 ? ("complimentary" as const) : ("adjusted" as const),
+          },
+        ]
+      : []),
     ...(b.deposit_paid > 0 ? [{ description: "Deposit paid online, on its own receipt", amount: -b.deposit_paid }] : []),
     ...(b.shares_paid - b.deposit_paid > 0.005
       ? [{ description: "Paid by other players, on their own receipts", amount: -roundMoney(b.shares_paid - b.deposit_paid) }]
@@ -713,6 +781,43 @@ export async function creditBookingCoach(bookingId: number, changeId: number, wh
   });
 }
 
+/**
+ * A paid booking's price lowered by a manager afterwards
+ * (lib/price-adjustments.ts): a credit note for the difference, at the tax the
+ * booking was sold at, given back the way it was paid. The booking's receipt
+ * stays what was sold. Once per adjustment.
+ */
+export async function creditBookingAdjustment(bookingId: number, adjustmentId: number, amount: number, complimentary: boolean): Promise<Document | null> {
+  const full = await bookingSale(bookingId);
+  if (!full || full.paymentStatus !== "paid" || amount <= 0) return null;
+  const total = roundMoney(amount);
+  const tax = full.taxRate ? await venueTax(full.venueId) : null;
+  return write({
+    venue_id: full.venueId,
+    kind: "credit_note",
+    source: `booking:${bookingId}:adjust:${adjustmentId}`,
+    credits_id: null,
+    credits_ref: full.code,
+    user_id: full.userId,
+    customer_name: full.name,
+    customer_phone: full.phone,
+    lines: JSON.stringify([
+      {
+        description: complimentary ? "Complimentary" : "Price adjusted by the venue",
+        amount: total,
+        adjusted: complimentary ? "complimentary" : "adjusted",
+      } satisfies Line,
+    ]),
+    total,
+    tax_name: full.taxRate ? tax!.name : null,
+    tax_rate: full.taxRate,
+    tax_amount: full.taxRate ? taxIncluded(total, full.taxRate) : 0,
+    tax_reg_no: full.taxRate ? tax!.regNo : null,
+    paid_via: paidVia(full.paidVia),
+    note: "receipt.p8b.adjusted",
+  });
+}
+
 /** What a tournament entry or league season sold: for its receipt, however it was paid. */
 interface FeeSale {
   venueId: number;
@@ -764,7 +869,13 @@ export async function placeSale(placeId: number): Promise<FeeSale | null> {
  * taken back. Marked paid again, it is a payment of its own with its own
  * receipt, so each is told apart by when it was made.
  */
-export async function receiptFee(kind: "entry" | "place", id: number, paid: boolean): Promise<void> {
+export async function receiptFee(
+  kind: "entry" | "place",
+  id: number,
+  paid: boolean,
+  /** How the desk took it (lib/types.ts COUNTER_METHODS); "At the counter" where not said. */
+  via?: CounterMethod | null
+): Promise<void> {
   if (!paid) {
     const last = (await getDb()
       .prepare(
@@ -786,7 +897,7 @@ export async function receiptFee(kind: "entry" | "place", id: number, paid: bool
     name: sale.name,
     phone: sale.phone,
     lines: [saidLine(sale.description, sale.fee)],
-    paidVia: "At the counter",
+    paidVia: paidVia(via) ?? "At the counter",
     taxable: true,
   });
 }

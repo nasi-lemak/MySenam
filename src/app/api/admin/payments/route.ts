@@ -10,6 +10,7 @@ import {
 import { COUNTER_METHODS, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
 import { logAction } from "@/lib/activity";
 import { refusal } from "@/lib/api";
+import { asStaff } from "@/lib/acting-staff";
 import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +38,8 @@ export async function POST(req: NextRequest) {
     if (!venueIds.every((id) => canAccessVenue(admin, id)))
       return NextResponse.json({ error: "You do not manage that venue." }, { status: 403 });
 
-    const result = await paySeries(seriesCode, method);
+    // As the member of staff taking it: the cash-up counts who took what (lib/acting-staff.ts).
+    const result = await asStaff(admin, () => paySeries(seriesCode, method));
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     await logAction(admin, {
       venueId: venueIds[0],
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
 
-  const result = await setPaymentStatus(code, paid, method, admin.role);
+  const result = await setPaymentStatus(code, paid, method, admin.role, admin);
   if (!result.ok) return refusal(result);
   await logAction(admin, {
     venueId,

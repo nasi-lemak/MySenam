@@ -12,6 +12,8 @@ import { taxIncluded } from "./tax";
 import { addDays, todayISO } from "./time";
 import { COUNTER_METHODS, type CounterMethod, type Refusal } from "./types";
 import { linkIn } from "./link-locale";
+import { pageSql, paged, textMatch, type ListQuery, type Page } from "./list-search";
+import { actingStaff } from "./acting-staff";
 
 /**
  * Company and school accounts: an organisation that books through the month
@@ -508,6 +510,33 @@ export async function listInvoices(venueId: number, accountId?: number): Promise
   return rows.map(toInvoice);
 }
 
+/** What the counter's invoice list filters by (lib/list-search.ts). */
+export const INVOICE_LIST_STATUSES = ["open", "overdue", "paid"] as const;
+
+/**
+ * A venue's invoices to its accounts found by number or the account's name or
+ * email; by status (`overdue`: unpaid past its day, oldest first); a page at
+ * a time, newest first (lib/list-search.ts).
+ */
+export async function searchInvoices(venueId: number, query: ListQuery): Promise<Page<AccountInvoice>> {
+  const today = todayISO();
+  const match = textMatch(query.q, { codes: ["(i.period || '-A' || lpad(i.id::text, 5, '0'))"], names: ["a.name", "a.email"] });
+  const STATUS: Record<string, { sql: string; params: unknown[] }> = {
+    open: { sql: "i.paid_on IS NULL AND i.due_on >= ?", params: [today] },
+    overdue: { sql: "i.paid_on IS NULL AND i.due_on < ?", params: [today] },
+    paid: { sql: "i.paid_on IS NOT NULL", params: [] },
+  };
+  const status = query.status ? STATUS[query.status] : { sql: "TRUE", params: [] };
+  const rows = (await getDb()
+    .prepare(
+      `${INVOICE_SELECT} WHERE i.venue_id = ? AND ${match.sql} AND ${status.sql}
+        ORDER BY ${query.status === "overdue" ? "i.due_on, i.id" : "i.id DESC"} ${pageSql(query.page)}`
+    )
+    .all(venueId, ...match.params, ...status.params)) as InvoiceRow[];
+  const page = paged(rows, query.page);
+  return { ...page, items: page.items.map(toInvoice) };
+}
+
 /** What is on it, booking by booking. */
 export async function invoiceLines(invoiceId: number): Promise<InvoiceLine[]> {
   const rows = (await getDb()
@@ -597,10 +626,11 @@ export async function markInvoicePaid(venueId: number, invoiceId: number, via: u
     if (done.changes === 0) return { ok: false as const, error: "That invoice is not here, or is paid already." };
     await db
       .prepare(
-        `UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = ?
+        `UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = ?, paid_by = ?, paid_by_name = ?
           WHERE account_invoice_id = ? AND status = 'confirmed' AND payment_status = 'unpaid'`
       )
-      .run(new Date().toISOString(), via, invoiceId);
+      // Who took the money, for the cash-up: whoever is acting (lib/acting-staff.ts).
+      .run(new Date().toISOString(), via, actingStaff()?.id ?? null, actingStaff()?.name ?? null, invoiceId);
     return { ok: true as const, invoice: (await invoiceById(invoiceId))! };
   });
 }

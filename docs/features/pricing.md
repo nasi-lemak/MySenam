@@ -308,6 +308,9 @@ before it, with `concessionError` or `promoError` saying why.
 5. Tax, which is inside the price ([regions and tax](../product/regions-and-tax.md#tax-sst-and-gst)).
 6. The means of paying: credit, a pass, a payment.
 
+A manager's [price adjustment](#a-managers-price-adjustment) comes after all
+of these, as a difference of its own, and no discount is added after it.
+
 Fees, a coach's fee and extras are never discounted, and no price goes below
 nothing. Three children at RM10 a place, one on a 50% child's price, with a
 10% code the venue allows with it: RM30, less RM5 for the child, is RM25; 10%
@@ -847,6 +850,68 @@ set under *Credit → Plans and tiers*:
   buying another plan for the same holder while it still renews is refused
   (`MBO_RENEWS`), so the next term is never bought twice. Nothing changes a
   membership's plan mid-term, online or at the counter.
+
+## Selling at the counter
+
+The venue's prices are a manager's ([tenancy](../architecture/tenancy.md)):
+the desk sells passes and memberships from the venue's own list, at its price
+(`src/lib/counter-prices.ts`, `src/lib/pass-products.ts`, migration 0235).
+
+- **Memberships** are sold on one of the venue's plans (the same plans
+  customers join online): the plan's fee, and its months from the day it
+  starts, the end worked out.
+- **Passes** are sold from the venue's pass products, *Credit & passes →
+  Passes the counter sells*: each with its name, what it spends (entries of
+  so many minutes, or hours of court time), the longest booking it pays for,
+  its sport or coach, what one use covers, how many days it lasts from the
+  day it is sold, and its price. A manager adds and retires them; a pass sold
+  from one copies its terms and names it (`passes.product_id`), so retiring
+  a product changes no pass already sold.
+- **Anything else** (another price or end date, a membership without a plan,
+  a pass not on the list, a free one) is a manager's, with a reason of 5 to
+  300 characters. It is written with the sale in its transaction
+  (`counter_price_overrides`: the list price, the price, the reason and the
+  manager), shown under the sale in the lists, and in the activity log
+  (`sale.price_set`). Front desk is refused (`P8B_PRICE_MANAGER`,
+  `P8B_SELL_FROM_LIST`), so a venue sells passes and memberships at the
+  counter only once a manager has put them on the list.
+
+## A manager's price adjustment
+
+A manager may change one booking's price, or make it complimentary, with a
+reason: a goodwill discount, a free hour for a coach or sponsor, a quote
+given on the phone (*Adjust price* on the day list;
+`src/lib/price-adjustments.ts`, migration 0236). It is recorded as a policy
+override is ([ADR 0026](../architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md)):
+the booking, the price before and after, complimentary or not, the reason,
+the manager by id and name, in the same transaction, and in the activity log
+(`booking.price_adjusted`). Front desk never adjusts a price.
+
+- **Before it is paid** the booking's price becomes the new amount. Its
+  receipt, drawn from the booking, keeps every line it had and adds the
+  difference last (*Price adjusted by the venue*, or *Complimentary*, in the
+  customer's language). Paid afterwards, by any way, the adjusted price is
+  what is paid, taxed and in the sales journal.
+- **After it was paid at the counter** the receipt stays as sold. Only a
+  lower price is accepted, and the difference goes on a credit note of its
+  own, by the way it was paid, for the desk to hand back (the
+  [cash-up](payments-and-credit.md#cash-up) counts it); a later cancellation
+  gives back only what is left (`paidPartLeft`). Paid online, with credit or
+  with a pass, money goes back by the refund paths, and the adjustment is
+  refused.
+- **Discounts already on it stay**: the new amount is what the customer pays
+  for the booking as it stands after member prices, concessions and any
+  code, which stay on the receipt as they were worked out (a code stays
+  used). The manager's figure is the last word: no code or concession is
+  added to an adjusted booking afterwards (`P8B_PRICE_ADJUSTED`, asked by
+  the one rule every path asks, `stackRefusal`), so it is never discounted
+  again behind the manager's back. What changes the booking itself later
+  (extras added, a concession whose proof is not shown, moving to a dearer
+  hour) moves its price by its own difference, as it would have anyway.
+- **Refused** for a cancelled booking, below what a deposit or shares have
+  paid on it, while others share its cost (a split or an open game), while a
+  payment page for it is open, and once it is on an account invoice.
+- The bookings export has a *Price adjusted* column with the difference.
 
 ## Multi-visit passes
 

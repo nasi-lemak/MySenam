@@ -41,8 +41,18 @@ function daysAgo(back: number): string {
 const RANGES: [StaffPhrase, () => { from: string; to: string }][] = [
   ["rpt.range.last30", () => ({ from: daysAgo(29), to: todayLocal() })],
   ["rpt.range.thisMonth", () => ({ from: monthStart(0), to: todayLocal() })],
+  // The month the accountant asks for at the start of the next (X1-8): its first day to its last.
+  ["p8b.rpt.lastMonth", () => lastMonth()],
   ["rpt.range.last3", () => ({ from: monthStart(2), to: todayLocal() })],
 ];
+
+/** Last calendar month as the venue's staff count it (from their today), first day to last, as YYYY-MM-DD. */
+export function lastMonth(today: string = todayLocal()): { from: string; to: string } {
+  const [y, m] = today.split("-").map(Number);
+  const from = new Date(Date.UTC(y, m - 2, 1));
+  const to = new Date(Date.UTC(y, m - 1, 0));
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
 
 const ringgit = (n: number) => {
   const r = Math.round(n * 100) / 100;
@@ -131,12 +141,15 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
         <input
           type="date"
           value={range.from}
+          aria-label={t("c.from")}
           onChange={(e) => setRange({ ...range, from: e.target.value })}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
         <input
           type="date"
           value={range.to}
+          aria-label={t("c.until")}
+          min={range.from}
           onChange={(e) => setRange({ ...range, to: e.target.value })}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />

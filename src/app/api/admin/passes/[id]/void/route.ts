@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getPassById, listPassEntries, voidPass } from "@/lib/store";
 import { logAction } from "@/lib/activity";
+import { asStaff } from "@/lib/acting-staff";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,8 @@ export async function POST(
   const denied = denyVenue(admin, existing.venueId);
   if (denied) return denied;
 
-  const result = await voidPass(passId);
+  // As the manager cancelling it, so its credit note says who (lib/acting-staff.ts).
+  const result = await asStaff(admin, () => voidPass(passId));
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   await logAction(admin, { venueId: existing.venueId, action: "pass.voided", detail: `Pass ${passId}` });
   return NextResponse.json({ pass: result.pass, entries: await listPassEntries(passId, 20) });

@@ -2568,6 +2568,11 @@ export const TA: Record<Phrase, string> = {
   "r9.form.overrideReason": "காரணம் (முன்பதிவுடனும் செயல்பாட்டுப் பதிவிலும் வைக்கப்படும்)",
   "r9.form.overrideBook": "விலக்கு அளித்து முன்பதிவு செய்",
   "r9.form.askManager": "மேலாளரிடம் கேளுங்கள்: இந்த மையம் அதன் மேலாளர்கள் ஒரு முன்பதிவுக்கு இதற்கு விலக்கு அளிக்க அனுமதிக்கிறது.",
+  // Round 8 (P8b): a manager's price adjustment on a booking, as the customer's receipt and refusals say it
+  "p8b.rcpt.adjusted": "மையம் சரிசெய்த விலை",
+  "p8b.rcpt.complimentary": "இலவசம் (மையத்தின் அன்பளிப்பு)",
+  "receipt.p8b.adjusted": "பணம் செலுத்திய பின் மையம் விலையைக் குறைத்தது; இது அந்த வித்தியாசம்.",
+  "err.P8B_PRICE_ADJUSTED": "இந்த முன்பதிவின் விலையை மையம் நிர்ணயித்துள்ளது: இப்போது குறியீடு அல்லது சலுகை எதையும் சேர்க்க முடியாது. மையத்திடம் கேளுங்கள்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

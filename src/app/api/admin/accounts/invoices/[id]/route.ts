@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { denyVenue, getSessionAdmin, requireAdmin } from "@/lib/admin-auth";
+import { asStaff } from "@/lib/acting-staff";
 import { logFromRequest } from "@/lib/activity";
 import { invoiceById, markInvoicePaid, withdrawInvoice } from "@/lib/accounts";
 import { money } from "@/lib/region";
@@ -19,7 +20,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const invoice = await invoiceFor(req, (await params).id);
   if (invoice instanceof NextResponse) return invoice;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  const done = await markInvoicePaid(invoice.venueId, invoice.id, body?.via);
+  // As the member of staff taking it: the cash-up counts who took what (lib/acting-staff.ts).
+  const staff = await getSessionAdmin(req);
+  const pay = () => markInvoicePaid(invoice.venueId, invoice.id, body?.via);
+  const done = staff ? await asStaff(staff, pay) : await pay();
   if (!done.ok) return NextResponse.json(done, { status: 409 });
   await logFromRequest(req, {
     venueId: invoice.venueId,

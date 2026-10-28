@@ -14,6 +14,7 @@ import { useStaffT } from "./StaffLanguage";
 import { CounterEntry } from "./CounterEntry";
 import { sportLabel } from "@/lib/i18n";
 import { levelLabel } from "./TournamentsTab";
+import { PayMark } from "./CounterMethod";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
@@ -425,14 +426,15 @@ function Manage({
                           {place.move && place.move !== "stay" && <span className="ml-1 text-xs">{place.move === "up" ? t("lg.up") : t("lg.down")}</span>}
                         </span>
                         {l.fee > 0 && (
-                          <label className="flex items-center gap-1 text-xs text-slate-600">
-                            <input
-                              type="checkbox"
-                              checked={place.paid}
-                              onChange={(e) => void post(`${base}/places/${place.id}`, { paid: e.target.checked })}
-                            />
-                            {t("lg.paid")}
-                          </label>
+                          // Marked paid at the counter says how (X1-2).
+                          <PayMark
+                            paid={place.paid}
+                            paidLabel={`✓ ${t("lg.paid")}`}
+                            unpaidLabel={t("p8b.lg.markPaid")}
+                            onPaid={(via) => void post(`${base}/places/${place.id}`, { paid: true, via })}
+                            onUnpaid={() => void post(`${base}/places/${place.id}`, { paid: false })}
+                            className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600"
+                          />
                         )}
                       </li>
                     );

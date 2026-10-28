@@ -83,9 +83,14 @@ async function issuer(venueId: number | null): Promise<Receipt["venue"] | null> 
  * the line kept in the venue's books, are the same in every language. A
  * language with no words for it says it as written.
  */
-export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset" | "place" | "slot" | "who">): string {
+export function receiptLineText(t: T, line: Pick<Line, "description" | "concessionPreset" | "place" | "slot" | "who" | "adjusted">): string {
   const words = DICTIONARIES[t.locale];
   if (line.slot && words?.["lo6.rcpt.slot"]) return slotText(t, line.slot);
+  // A manager's change to the price (lib/price-adjustments.ts), in the reader's language.
+  if (line.adjusted) {
+    const key: Phrase = line.adjusted === "complimentary" ? "p8b.rcpt.complimentary" : "p8b.rcpt.adjusted";
+    if (words?.[key]) return t(key);
+  }
   const preset = line.concessionPreset;
   const said = (key: Phrase) => Boolean(words?.[key]);
   let price: string | null = null;

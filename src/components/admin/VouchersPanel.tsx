@@ -6,6 +6,7 @@ import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
 import { useStaffT } from "./StaffLanguage";
+import { FIRST_PAGE, ListFilter, listParams, type ListQuery } from "./ListFilter";
 
 type Listed = Voucher & { printUrl: string };
 
@@ -27,12 +28,18 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
   const [form, setForm] = useState({ amount: "50", buyerName: "", buyerEmail: "", recipientName: "", message: "", via: "cash" });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; printUrl?: string } | null>(null);
+  // Found by code, name, email or number, by status, a page at a time (X1-7).
+  const [query, setQuery] = useState<ListQuery>(FIRST_PAGE);
+  const [more, setMore] = useState(false);
 
   const load = useCallback(async () => {
     if (!venueId) return;
-    const res = await fetch(`/api/admin/vouchers?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setVouchers((await res.json()).vouchers);
-  }, [venueId]);
+    const res = await fetch(`/api/admin/vouchers?venueId=${venueId}${listParams(query)}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    setVouchers(data.vouchers);
+    setMore(data.more === true);
+  }, [venueId, query]);
 
   useEffect(() => {
     load();
@@ -122,6 +129,18 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
           )}
         </p>
       )}
+      <ListFilter
+        query={query}
+        onChange={setQuery}
+        more={more}
+        statuses={[
+          { value: "active", label: "p8b.list.active" },
+          { value: "lapsing", label: "p8b.list.lapsing" },
+          { value: "redeemed", label: "p8b.list.redeemed" },
+          { value: "expired", label: "p8b.list.expired" },
+          { value: "cancelled", label: "p8b.list.cancelled" },
+        ]}
+      />
       {vouchers.length > 0 && (
         <ul className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white text-sm">
           {vouchers.map((v) => (

@@ -430,7 +430,8 @@ describe("a manager's correction", () => {
       new NextRequest("http://localhost/api/admin/memberships", {
         method: "POST",
         headers: { cookie: manager, "content-type": "application/json" },
-        body: JSON.stringify({ venueId, holderName: parent.name, holderPhone: parent.phone, startsOn: todayISO(), expiresOn: addDays(todayISO(), 90), price: 100, covers: [a.id] }),
+        // No plan: a manager's price, with the reason, and how it was paid (X1-19, X1-2).
+        body: JSON.stringify({ venueId, holderName: parent.name, holderPhone: parent.phone, startsOn: todayISO(), expiresOn: addDays(todayISO(), 90), price: 100, covers: [a.id], via: "cash", priceReason: "Family rate agreed at the desk" }),
       })
     );
     expect(sold.status).toBe(201);

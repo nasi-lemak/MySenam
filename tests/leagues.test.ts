@@ -449,7 +449,9 @@ describe("staff", () => {
 
     const places = await import("../src/app/api/admin/leagues/[id]/places/[placeId]/route");
     const place = d.places[0];
-    expect((await call(places.POST, "", { paid: true }, { id, placeId: String(place.id) })).status).toBe(200);
+    // A fee taken at the counter says how (X1-2): refused without, receipted with it.
+    expect((await call(places.POST, "", { paid: true }, { id, placeId: String(place.id) })).status).toBe(400);
+    expect((await call(places.POST, "", { paid: true, via: "cash" }, { id, placeId: String(place.id) })).status).toBe(200);
     expect((await call(places.POST, "", { paid: "yes" }, { id, placeId: String(place.id) })).status).toBe(400);
     expect(await setPlacePaid(999999, true)).toMatchObject({ ok: false });
 

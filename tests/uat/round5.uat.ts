@@ -298,10 +298,16 @@ describe("discounts together", () => {
   });
 });
 
-/** A pass for one child's own place, sold at the counter on their guardian's number and put on her account (setup). */
-async function childPass(desk: Actor, centre: Centre, parent: Actor, child: Child, entries = 5): Promise<{ id: number; code: string; name: string }> {
+/**
+ * A pass for one child's own place, sold at the counter on their guardian's number and put on her account (setup).
+ * Named for the child, so not one of the venue's pass products: a manager's sale, with the reason, paid in cash
+ * (round 8, X1-19 and X1-2; the desk sells only from the venue's list).
+ */
+async function childPass(manager: Actor, centre: Centre, parent: Actor, child: Child, entries = 5): Promise<{ id: number; code: string; name: string }> {
   const name = `Swim pass, ${child.name}`;
-  const r = await desk.api("POST", "/api/admin/passes", {
+  const r = await manager.api("POST", "/api/admin/passes", {
+    via: "cash",
+    priceReason: "A pass named for one child",
     venueId: centre.venueId,
     name,
     sport: "swimming",
@@ -331,7 +337,6 @@ describe("several passes for one booking", () => {
   scenario("Passes N: a guardian pays for two children with each child's own pass on the form; the counter pays another booking with both passes; balances and receipt agree; taking one child off gives back only her entry", async (s) => {
     const owner = await signInOwner(await s.actor("Owner"));
     const centre = await swimCentre(owner, "Kolam Kepong");
-    const deskApi = await staffApi(await s.actor("Desk API"), centre.desk.email);
     const {
       parent: mother,
       kids: [amani, bella],
@@ -344,8 +349,8 @@ describe("several passes for one booking", () => {
     const unpaid = await bookChildren(mother, atCounter, [amani, bella]);
     expect(unpaid.status, JSON.stringify(unpaid.body)).toBe(201);
     const counterCode = (unpaid.body.booking as { code: string }).code;
-    const amanis = await childPass(deskApi, centre, mother, amani);
-    const bellas = await childPass(deskApi, centre, mother, bella);
+    const amanis = await childPass(owner, centre, mother, amani);
+    const bellas = await childPass(owner, centre, mother, bella);
     expect(await passesLeft(mother)).toEqual({ [amanis.name]: 5, [bellas.name]: 5 });
     const page = mother.page;
 

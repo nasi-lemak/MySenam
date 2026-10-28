@@ -623,6 +623,19 @@ const en = {
   "r9.policy.assisted": "assisted booking",
   "r9.blk.why": "Why unblock it (kept in the activity log)",
   "r9.blk.confirm": "Unblock",
+  // Round 8 (P8b): a manager's price adjustment on one booking
+  "p8b.adj.open": "Adjust price",
+  "p8b.adj.unpaidNote": "A new price for this booking, or complimentary. The receipt shows the difference after any discounts; no code or concession can be added afterwards.",
+  "p8b.adj.paidNote": "It is paid: the price can only come down. The difference goes on a credit note; give it back by {via}.",
+  "p8b.adj.free": "Complimentary",
+  "p8b.adj.newPrice": "New price",
+  "p8b.adj.reason": "Why (kept with the booking)",
+  "p8b.adj.reasonExample": "e.g. lights failed last week",
+  "p8b.adj.save": "Save the price",
+  "p8b.adj.failed": "Could not change the price.",
+  "p8b.adj.done": "Price {from} → {to}.",
+  "p8b.adj.doneAfterPaid": "{amount} to give back by {via}, on credit note {number}.",
+  "p8b.adj.was": "{from} → {to} by {who}: {reason}",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1229,6 +1242,19 @@ const ms: Record<keyof typeof en, string> = {
   "r9.policy.assisted": "tempahan dibantu",
   "r9.blk.why": "Sebab dinyahsekat (disimpan dalam log aktiviti)",
   "r9.blk.confirm": "Nyahsekat",
+  // Round 8 (P8b): a manager's price adjustment on one booking
+  "p8b.adj.open": "Laraskan harga",
+  "p8b.adj.unpaidNote": "Harga baharu untuk tempahan ini, atau percuma. Resit menunjukkan perbezaannya selepas sebarang diskaun; tiada kod atau konsesi boleh ditambah selepas itu.",
+  "p8b.adj.paidNote": "Ia sudah dibayar: harga hanya boleh diturunkan. Perbezaannya dicatat pada nota kredit; pulangkan melalui {via}.",
+  "p8b.adj.free": "Percuma",
+  "p8b.adj.newPrice": "Harga baharu",
+  "p8b.adj.reason": "Sebab (disimpan bersama tempahan)",
+  "p8b.adj.reasonExample": "cth. lampu rosak minggu lalu",
+  "p8b.adj.save": "Simpan harga",
+  "p8b.adj.failed": "Harga tidak dapat diubah.",
+  "p8b.adj.done": "Harga {from} → {to}.",
+  "p8b.adj.doneAfterPaid": "{amount} untuk dipulangkan melalui {via}, pada nota kredit {number}.",
+  "p8b.adj.was": "{from} → {to} oleh {who}: {reason}",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1835,6 +1861,19 @@ const zh: Record<keyof typeof en, string> = {
   "r9.policy.assisted": "协助预订",
   "r9.blk.why": "解除封锁的原因（记入操作日志）",
   "r9.blk.confirm": "解除封锁",
+  // Round 8 (P8b): a manager's price adjustment on one booking
+  "p8b.adj.open": "调整价格",
+  "p8b.adj.unpaidNote": "为此预订设定新价格，或免费。收据会在所有折扣之后列出差额；此后不能再使用优惠码或优惠价。",
+  "p8b.adj.paidNote": "已付款：价格只能调低。差额开具贷记单；请以{via}退还。",
+  "p8b.adj.free": "免费",
+  "p8b.adj.newPrice": "新价格",
+  "p8b.adj.reason": "原因（与预订一起保存）",
+  "p8b.adj.reasonExample": "例如：上周灯光故障",
+  "p8b.adj.save": "保存价格",
+  "p8b.adj.failed": "无法更改价格。",
+  "p8b.adj.done": "价格 {from} → {to}。",
+  "p8b.adj.doneAfterPaid": "需以{via}退还 {amount}，贷记单 {number}。",
+  "p8b.adj.was": "{from} → {to}，由 {who} 调整：{reason}",
 };
 
 const area = { en, ms, zh };

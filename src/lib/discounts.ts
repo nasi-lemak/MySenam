@@ -81,6 +81,8 @@ interface Standing {
   /** A concession on one person's place, still standing. */
   placeConcession: boolean;
   promo: { combinable: boolean } | null;
+  /** A manager adjusted its price (lib/price-adjustments.ts). */
+  adjusted: boolean;
 }
 
 async function standing(bookingId: number): Promise<Standing | null> {
@@ -90,7 +92,8 @@ async function standing(bookingId: number): Promise<Standing | null> {
       `SELECT c.venue_id, b.last_minute, b.concession_id, b.concession_check,
               EXISTS (SELECT 1 FROM place_benefits pb WHERE pb.booking_id = b.id AND pb.kind = 'concession' AND pb.reversed_at IS NULL) AS place_concession,
               (SELECT p.combinable FROM promo_uses u JOIN promo_codes p ON p.id = u.promo_id WHERE u.booking_id = b.id) AS promo_combinable,
-              EXISTS (SELECT 1 FROM promo_uses u WHERE u.booking_id = b.id) AS has_promo
+              EXISTS (SELECT 1 FROM promo_uses u WHERE u.booking_id = b.id) AS has_promo,
+              EXISTS (SELECT 1 FROM booking_price_adjustments a WHERE a.booking_id = b.id) AS adjusted
          FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?`
     )
     .get(bookingId)) as
@@ -102,6 +105,7 @@ async function standing(bookingId: number): Promise<Standing | null> {
         place_concession: boolean;
         promo_combinable: boolean | null;
         has_promo: boolean;
+        adjusted: boolean;
       }
     | undefined;
   if (!b) return null;
@@ -111,6 +115,7 @@ async function standing(bookingId: number): Promise<Standing | null> {
     bookingConcession: b.concession_id !== null && b.concession_check !== "refused",
     placeConcession: !!b.place_concession,
     promo: b.has_promo ? { combinable: !!b.promo_combinable } : null,
+    adjusted: !!b.adjusted,
   };
 }
 
@@ -133,6 +138,8 @@ export async function stackRefusal(
 ): Promise<Refusal | null> {
   const s = await standing(bookingId);
   if (!s) return refuse("BOOKING_NOT_FOUND");
+  // A manager set its price (lib/price-adjustments.ts): that is the last word, after every discount on it.
+  if (s.adjusted) return refuse("P8B_PRICE_ADJUSTED");
   if (adding.kind === "promo") {
     // A last-minute price is already one.
     if (s.lastMinute) return refuse("PROMO_NOT_LAST_MINUTE");

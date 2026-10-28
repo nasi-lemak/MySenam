@@ -5,6 +5,7 @@ import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
 import type { StaffText } from "@/lib/staff-text";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { FIRST_PAGE, ListFilter, listParams, type ListQuery } from "./ListFilter";
 
 interface Row {
   number: string;
@@ -29,13 +30,19 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
   const clock = useStaffClock();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [rows, setRows] = useState<Row[] | null>(null);
+  // Found by number, booking code, name or number, receipts or credit notes, a page at a time (X1-7).
+  const [query, setQuery] = useState<ListQuery>(FIRST_PAGE);
+  const [more, setMore] = useState(false);
 
   useEffect(() => {
     setRows(null);
-    void fetch(`/api/admin/receipts?venueId=${venueId}`, { cache: "no-store" })
+    void fetch(`/api/admin/receipts?venueId=${venueId}${listParams(query)}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setRows(d?.receipts ?? []));
-  }, [venueId]);
+      .then((d) => {
+        setRows(d?.receipts ?? []);
+        setMore(d?.more === true);
+      });
+  }, [venueId, query]);
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -58,6 +65,16 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
       <p className="mt-1 text-xs text-slate-500">
         {t("rcp.intro")}
       </p>
+      <ListFilter
+        query={query}
+        onChange={setQuery}
+        more={more}
+        placeholder="p8b.list.searchReceipts"
+        statuses={[
+          { value: "receipt", label: "p8b.list.receipts" },
+          { value: "credit_note", label: "p8b.list.creditNotes" },
+        ]}
+      />
       {rows && rows.length === 0 && <p className="mt-2 text-sm text-slate-500">{t("rcp.none")}</p>}
       {rows && rows.length > 0 && (
         <div className="mt-2 overflow-x-auto">

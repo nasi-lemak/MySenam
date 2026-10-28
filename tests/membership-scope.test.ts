@@ -213,6 +213,9 @@ describe("a place on a members' session is each person's own to hold", () => {
         startsOn: todayISO(ZONE),
         expiresOn: day(40),
         price: 80,
+        // No plan: a manager's price, with the reason, and how it was paid (X1-19, X1-2).
+        via: "cash",
+        priceReason: "Agreed rate, no plan here",
         holderParticipantId: kid.participant.id,
       })
     );
@@ -228,6 +231,8 @@ describe("a place on a members' session is each person's own to hold", () => {
         startsOn: todayISO(ZONE),
         expiresOn: day(40),
         price: 80,
+        via: "cash",
+        priceReason: "Agreed rate, no plan here",
         holderParticipantId: kid.participant.id,
       })
     );

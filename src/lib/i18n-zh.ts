@@ -2565,6 +2565,11 @@ export const ZH: Record<Phrase, string> = {
   "r9.form.overrideReason": "原因（与预订一起保存，并记入操作日志）",
   "r9.form.overrideBook": "破例放行并预订",
   "r9.form.askManager": "请找经理：本场馆允许经理为一笔预订破例放行此项。",
+  // Round 8 (P8b): a manager's price adjustment on a booking, as the customer's receipt and refusals say it
+  "p8b.rcpt.adjusted": "场馆调整的价格",
+  "p8b.rcpt.complimentary": "免费（场馆赠送）",
+  "receipt.p8b.adjusted": "场馆在付款后降低了价格；此为差额。",
+  "err.P8B_PRICE_ADJUSTED": "场馆已为此预订定价：现在无法再使用优惠码或优惠价。请联系场馆。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

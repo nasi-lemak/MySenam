@@ -205,7 +205,8 @@ describe("a pass for one person's place", () => {
     const kid = await createAtVenue({ venueId: venue, admin: { id: manager.id, name: manager.name }, displayName: "Chandra", guardian: { name: "Mr Raj", phone: ph, relationship: "parent", authority: true } });
     if (!kid.ok) throw new Error(kid.error);
     const sell = (body: Record<string, unknown>) =>
-      passesRoute.POST(req("http://localhost/api/admin/passes", "POST", manager.cookie, { venueId: venue, name: "Swim 5", entries: 5, price: 50, holderName: "Mr Raj", holderPhone: ph, expiresOn: day(30), ...body }));
+      // Not from the venue's list: a manager's price, with the reason, and how it was paid (X1-19, X1-2).
+      passesRoute.POST(req("http://localhost/api/admin/passes", "POST", manager.cookie, { venueId: venue, name: "Swim 5", entries: 5, price: 50, holderName: "Mr Raj", holderPhone: ph, expiresOn: day(30), via: "cash", priceReason: "Swim pass, not on the list yet", ...body }));
     const ok = await sell({ scope: "participant", holderParticipantId: kid.participant.id });
     expect(ok.status).toBe(201);
     expect(((await ok.json()) as { pass: { holderParticipantName: string } }).pass.holderParticipantName).toBe("Chandra");

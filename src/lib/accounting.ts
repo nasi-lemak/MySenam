@@ -4,7 +4,7 @@ import { currencySymbol, roundMoney } from "./region";
 import { taxIncluded, taxName } from "./tax";
 import { venueZoneOf } from "./zones";
 import { PAID_VIA_LABELS, type PaidVia } from "./types";
-import { lineText, type Line } from "./documents";
+import { lineText, paidHowOf, type Line } from "./documents";
 
 /**
  * A venue's sales journal for its accountant: every receipt and credit note
@@ -60,6 +60,16 @@ export interface JournalRow {
    * a configuration an adviser reviewed (lib/deposit-deductions.ts).
    */
   taxBasis: "provisional" | "venue" | "reviewed" | null;
+  /** When the money moved (UTC, as stored), for the cash-up's order. */
+  at: string;
+  /**
+   * How, as a method (lib/types.ts PaidVia; `counter` for "At the counter"
+   * with no method said), or null where nothing says: the cash-up's columns.
+   */
+  method: string | null;
+  /** Who took or gave back the money, where staff did (migration 0234). */
+  staffId: number | null;
+  staffName: string | null;
 }
 
 const BASIS_LABEL = { provisional: "Provisional default, not reviewed", venue: "Venue's choice, not reviewed", reviewed: "Reviewed by the venue's adviser" };
@@ -157,8 +167,22 @@ async function categoryOf(source: string): Promise<Category> {
 
 const label = (via: string | null) => (via ? (PAID_VIA_LABELS[via as PaidVia] ?? via) : "Not recorded");
 
-/** Every receipt and credit note dated in the period, oldest first. */
-export async function salesJournal(venueId: number, from: string, to: string): Promise<JournalRow[]> {
+/** A stored time as one ISO string, whichever way the driver hands it back. */
+const stamp = (v: unknown): string => {
+  if (v instanceof Date) return v.toISOString();
+  const s = String(v ?? "");
+  // "YYYY-MM-DD HH:MM:SS" (UTC, as `datetime('now')` writes it) or an ISO string.
+  return /^\d{4}-\d{2}-\d{2} \d/.test(s) ? `${s.replace(" ", "T")}Z` : s;
+};
+
+/**
+ * Every receipt and credit note dated in the period, oldest first. With
+ * `counter`, for the cash-up (lib/cash-up.ts): also what the install sold as
+ * its own over this venue's counter (credit, where it is the install's,
+ * `receipts.counter_venue_id`), which is in this venue's till but not its
+ * books.
+ */
+export async function salesJournal(venueId: number, from: string, to: string, opts: { counter?: boolean } = {}): Promise<JournalRow[]> {
   const db = getDb();
   const zone = await zoneOf(venueId);
   const onDay = (column: string) => `to_char((${column}::timestamp AT TIME ZONE 'UTC') AT TIME ZONE ?, 'YYYY-MM-DD')`;
@@ -167,7 +191,7 @@ export async function salesJournal(venueId: number, from: string, to: string): P
   const bookings = (await db
     .prepare(
       `SELECT ${onDay("b.paid_at")} AS day, b.code, b.name, b.class_id, b.coach_id, b.date, c.name AS court,
-              (b.total_price - b.shares_paid)::float AS gross, b.tax_rate, b.paid_via
+              (b.total_price - b.shares_paid)::float AS gross, b.tax_rate, b.paid_via, b.paid_at, b.paid_by, b.paid_by_name
          FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.payment_status = 'paid' AND b.paid_at IS NOT NULL
           AND COALESCE(b.paid_via, '') <> 'pass' AND b.total_price - b.shares_paid > 0
@@ -184,16 +208,19 @@ export async function salesJournal(venueId: number, from: string, to: string): P
     gross: number;
     tax_rate: number | string | null;
     paid_via: string | null;
+    paid_at: unknown;
+    paid_by: number | null;
+    paid_by_name: string | null;
   }[];
 
   const documents = (await db
     .prepare(
       `SELECT ${onDay("issued_at")} AS day, kind, number, source, customer_name, lines, total::float AS total,
-              tax_rate, tax_amount::float AS tax_amount, paid_via
+              tax_rate, tax_amount::float AS tax_amount, paid_via, issued_at, staff_id, staff_name
          FROM receipts
-        WHERE venue_id = ? AND ${onDay("issued_at")} BETWEEN ? AND ?`
+        WHERE (venue_id = ?${opts.counter ? " OR (venue_id IS NULL AND counter_venue_id = ?)" : ""}) AND ${onDay("issued_at")} BETWEEN ? AND ?`
     )
-    .all(zone, venueId, zone, from, to)) as {
+    .all(zone, venueId, ...(opts.counter ? [venueId] : []), zone, from, to)) as {
     day: string;
     kind: "receipt" | "credit_note";
     number: string;
@@ -204,6 +231,9 @@ export async function salesJournal(venueId: number, from: string, to: string): P
     tax_rate: number | string | null;
     tax_amount: number;
     paid_via: string | null;
+    issued_at: unknown;
+    staff_id: number | null;
+    staff_name: string | null;
   }[];
 
   const rows: JournalRow[] = bookings.map((b) => {
@@ -222,6 +252,10 @@ export async function salesJournal(venueId: number, from: string, to: string): P
       taxRate: rate,
       paidVia: label(b.paid_via),
       taxBasis: null,
+      at: stamp(b.paid_at),
+      method: b.paid_via,
+      staffId: b.paid_by,
+      staffName: b.paid_by_name,
     };
   });
   for (const d of documents) {
@@ -248,6 +282,10 @@ export async function salesJournal(venueId: number, from: string, to: string): P
       taxRate: d.tax_rate === null ? null : Number(d.tax_rate),
       paidVia: d.paid_via ?? (d.kind === "credit_note" ? "—" : "Not recorded"),
       taxBasis: category.startsWith("Hire") ? await basisOf(d.source) : null,
+      at: stamp(d.issued_at),
+      method: paidHowOf(d.paid_via)?.via ?? null,
+      staffId: d.staff_id,
+      staffName: d.staff_name,
     });
   }
   return rows.sort((a, b) => a.date.localeCompare(b.date) || a.number.localeCompare(b.number));

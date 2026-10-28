@@ -2727,6 +2727,11 @@ const EN = {
   "r9.form.overrideReason": "Why (kept with the booking and in the activity log)",
   "r9.form.overrideBook": "Override and book",
   "r9.form.askManager": "Ask a manager: this venue lets its managers override this for one booking.",
+  // Round 8 (P8b): a manager's price adjustment on a booking, as the customer's receipt and refusals say it
+  "p8b.rcpt.adjusted": "Price adjusted by the venue",
+  "p8b.rcpt.complimentary": "Complimentary",
+  "receipt.p8b.adjusted": "The venue lowered the price after it was paid; this is the difference.",
+  "err.P8B_PRICE_ADJUSTED": "The venue has set this booking's price: no code or concession can be added to it now. Ask the venue.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5405,6 +5410,11 @@ const MS: Record<Phrase, string> = {
   "r9.form.overrideReason": "Sebab (disimpan bersama tempahan dan dalam log aktiviti)",
   "r9.form.overrideBook": "Atasi dan tempah",
   "r9.form.askManager": "Minta pengurus: pusat ini membenarkan pengurusnya mengatasi perkara ini untuk satu tempahan.",
+  // Round 8 (P8b): a manager's price adjustment on a booking, as the customer's receipt and refusals say it
+  "p8b.rcpt.adjusted": "Harga dilaraskan oleh pusat",
+  "p8b.rcpt.complimentary": "Percuma (ihsan pusat)",
+  "receipt.p8b.adjusted": "Pusat menurunkan harga selepas ia dibayar; ini ialah perbezaannya.",
+  "err.P8B_PRICE_ADJUSTED": "Pusat telah menetapkan harga tempahan ini: tiada kod atau konsesi boleh ditambah sekarang. Tanya pusat.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
