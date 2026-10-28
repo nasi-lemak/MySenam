@@ -184,8 +184,9 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 | [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional pending legal review, the off-site erasure ledger unverified against a real bucket | 5 / 7 / 3 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction |
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
 | [Counter and API held to the house rules and strikes](#decisions-the-owner-has-to-make) though the documents said staff were not | 7 | Venues | The owner decides whether staff and the API are exempt |
-| [Sign-up says an address is taken; email invitations cannot be withdrawn; timing tests on one machine](#operations-and-security-s) | 3 / 5 | Everyone | Sign-up by an emailed link when wanted (recommended); kept otherwise |
-| [Times on staff screens written the English way; a link's language reaches only the page it opens](#languages) | 3 | Staff; customers reading other languages | When staff screens are next localised |
+| [Timing tests on one machine; an invitation withdrawn while its email is being sent](#operations-and-security-s) | 5 | Everyone | Kept: equal timing in production is shown only by measuring there; the link is refused either way |
+| [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; the owner decides names in e-invoice lines and how long buyer details are kept |
+| [Staff messages in the install's first language](#languages) | 3 / 5 | Coaches and staff reading Malay or Chinese | A language of their own for coaches and staff, if the owner wants staff emails in other languages |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
 Counted mechanically (each bullet, *Also* paragraph and table row in this
@@ -246,25 +247,41 @@ the access and participants screens say what they enable, what happens
 without them and recommend them where a venue relies on numbers; nothing is
 switched on by it ([venue operations](../features/venue-operations.md)).
 
-Also: signing up says when an address already has an account (`409`), limited
-to 5 attempts an hour per client IP address, not per email, and answered
-before the password is hashed: anybody can check a few addresses an hour for
-whether they have an account, and learn nothing else about it. Recommended:
-sign-up by an emailed link, the form always answering "check your email" (P3).
-An invitation by email to a guest list, a game or a group cannot be withdrawn
-by whoever sent it; it lapses (a guest's visit, 48 hours or the game's start,
-7 days for a group) or is replaced by inviting the address again (P3). The
-tests that show sign-in and password reset take as long for an unknown
-address use generous bounds on one machine: they show an unknown address is
-not systematically faster, not equal timing in production (P3).
+Also: signing up does not say whether an address has an account: it answers
+*check your email* for every address and emails either a link to finish or a
+notice to sign in ([signing up](../architecture/authentication.md#signing-up)),
+and Google sign-in refuses an address Google has not verified in the same
+words whether or not an account has it (S25). An account made before
+migration 0224 and never given a password by a reset link has no record of
+its address being proved, so Google joining it clears its password (P3). An
+invitation by email withdrawn at the very moment its email is being sent may
+still arrive, with no notice after it; its link is refused all the same (P3).
+The tests that show sign-in, password reset and sign-up take as long for an
+unknown address use generous bounds on one machine: they show an unknown
+address is not systematically faster, not equal timing in production (P3).
 
 Also: an e-invoice already sent to LHDN keeps the names its lines said, as
-sent; coaches' names on lesson receipts, and receipts naming a participant
-whom retention deleted rather than erased, keep those names until the
-receipt's own retention period; where a name is cleared by matching it as a
-word, a matching word elsewhere on that receipt is cleared too (amounts never
-change) ([privacy](../architecture/privacy.md)) (P3). For the owner: whether
-e-invoice descriptions should leave people's names out altogether.
+sent, at LHDN and in its copy here, which is never changed
+([MyInvois](../integrations/myinvois.md#states-and-what-never-changes)); one
+not yet sent follows its receipt, and a venue can leave names out of
+e-invoice lines (off by default). The details a customer gave for their own
+e-invoice (name, TIN, ID number, email, phone, address) are kept with it,
+with no retention rule or erasure clearing them. Coaches' names on lesson
+receipts, and receipts naming a participant whom retention deleted rather
+than erased, keep those names until the receipt's own retention period;
+where a name is cleared by matching it as a word, a matching word elsewhere
+on that receipt is cleared too (amounts never change)
+([privacy](../architecture/privacy.md)) (P3). For the owner: whether
+"leave names out" should be on by default (recommended), and how long
+e-invoice buyer details are kept.
+
+Also: MyInvois cancelling is done in the portal and reaches MySenam only when
+LHDN is asked; MySenam issues no debit or refund notes; staff cannot correct
+a buyer's details (the customer asks again); a draft sent by the scheduler
+and a retry at the same moment can reach LHDN twice; the LHDN rules followed
+(seven days, RM10,000, codes, version 1.0, the 72-hour window) are read from
+published guidance and unverified
+([MyInvois](../integrations/myinvois.md#what-is-assumed-and-not-verified)) (P3).
 
 Also: a waiting-list offer and claim ask what the booking would ask on the
 path the entry was made (a refused number, the venue open, an online entry's
@@ -416,8 +433,7 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   game; a class place is withdrawn by cancelling that child's enrolment; a
   credit note on a company or school account waits for the account's next
   invoice, so a closed account with nothing more to invoice keeps it until the
-  venue settles it by hand; the venue's API offers no withdrawal (staff do it
-  at the counter); the notice is an email only (no WhatsApp template); QR self
+  venue settles it by hand; the notice is an email only (no WhatsApp template); QR self
   check-in and door codes check a booking in as a whole, though the door asks
   for each person's own eligibility ([taking one person off](../features/booking.md#taking-one-person-off-a-booking)) (P3).
 - **Benefits by scope have gaps** ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
@@ -427,22 +443,26 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   closing with the hold and a Billplz bill's late money made or owed back; a
   Stripe Checkout session completed with its payment still processing
   releases the hold at once, and money landing after another purchase for the
-  same people is owed back; a refund made in the gateway's own dashboard,
-  without cancelling the membership with a refund, is not seen, there being
-  no `charge.refunded` handling); changes of whom a family membership covers
+  same people is owed back; a refund made in Stripe's own dashboard is
+  recorded and raised to staff but changes no membership by itself, and one
+  made in Billplz's dashboard is seen only when staff mark it, Billplz
+  reporting no refunds); changes of whom a family membership covers
   made before migration 0192 were not recorded, so those terms count only
-  whom they cover now, and the cover history is not in the account's data
-  export; memberships have no suspended state (one stops early only by
-  cancellation or a chargeback); a court reserved whole while its booker was
+  whom they cover now; memberships can be suspended for a period and
+  reactivated, but a booking at an ordinary venue priced at a member rate
+  inside a suspension keeps its price and is not flagged (a booking does not
+  record the membership that priced it), and a move or a waiting-list offer
+  asks membership before its transaction, so a suspension saved at the same
+  instant can miss it (the booking path asks again inside its transaction); a court reserved whole while its booker was
   a member is flagged, not barred, when the membership stops (a booking
   privilege, checked when booked) (P3).
 - **Changing a lesson's coach has limits** ([one-to-one coaching](../features/programmes.md#one-to-one-coaching)):
-  the difference a dearer coach costs on a paid lesson is taken at the
-  counter only (no online payment page) and is not in the day's
-  expected and outstanding figures or on the customer's booking page, the
-  customer being told by email; a lesson paid with a lesson pack, a deposit
-  or others' shares cannot be given to another coach (cancel and book again)
-  (P3).
+  customers cannot change the coach; lessons paid with a lesson pack, a
+  deposit or shares others paid keep their coach (cancel and book again). A
+  dearer coach's difference is paid at the counter or, where the venue takes
+  payment online, online from the coach-change email or the booking page; it
+  counts in the day's expected and outstanding figures, not yet in the month's
+  report. Online payment is checked against stand-ins only (P3).
 - **Guardians recorded by name and number** agree, withdraw or have their
   number checked by a code staff send to it; where no code can be sent, a
   manager records an in-person agreement, flagged for review and recorded as
@@ -491,11 +511,12 @@ Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
   built-in activity names in Malay and Chinese (machine-assisted), and the
   times each language is written in (Malay's PG/PTG and Tamil's 24-hour clock,
   from the common locale data) (P2).
-- **Times on the staff dashboard** and in staff-facing messages (urgent
-  notices, coaches' emails, staff calendars) are written the English way; a
-  customer's link opens its page in the message's language, but a page
-  reached from there by moving around the site falls back to the visitor's
-  chosen or the install's language ([regions](../product/regions-and-tax.md)) (P3).
+- **Staff messages have no reader's language of their own:** a coach's
+  emails and a venue's booking alerts go in the install's first (staff)
+  language, times as it writes them; the staff calendar feed is in the
+  language its address names. Text stored in English (the activity log's
+  details, receipt descriptions, refusals with no translation) keeps the times
+  it was written with ([regions](../product/regions-and-tax.md)) (P3).
 
 The launch promises English, Malay, simplified Chinese and Tamil to
 customers (the owner, 24 October 2026), so these reviews are a
@@ -631,6 +652,12 @@ IDs are not reused. Each fix came with the test recommended above.
 | S23 | Receipts and credit notes kept the names of whom their lines were for (a guardian's children, a child taken off a booking, a family membership's dependants) after the retention period and after an erasure, and a participant's erasure did not reach receipts; names are now kept apart from a line's words and cleared by retention, account erasure and participant erasure (older lines by their known shapes and the names known for the receipt), and again after a restore | `tests/receipt-names.test.ts` |
 | S24 | A Postgres connection cut while a transaction held it (the server restarting, an administrator ending it) raised an error nobody listened for, which stops a Node process; such a connection now fails only its transaction and is thrown away. Found by the full Postgres suite, where a test database dropped under a background password-reset run did it | `tests/db-connection-lost.test.ts` (Postgres) |
 | S18 | The platform owner's notice after having a document scanned again always said it was put back in quarantine, whatever the scan then found; it now says whether it passed, was refused or still could not be scanned | `tests/components/document-policy.test.tsx` |
+| B39 | A dearer coach's difference still owed stayed owed when the lesson was given to another coach again, and the new change's terms ignored it: giving it back to the first coach refunded RM20 while RM20 was still owed; a difference still owed now ends with the next change, whose terms count from what the customer paid for | `tests/coach-difference-online.test.ts` |
+| B40 | A booking checked a members-only venue's eligibility before its transaction, so a membership suspended or cancelled while it was being made could leave a confirmed members' place neither refused nor flagged; the check is asked again inside the booking's transaction. Found by the suspension race test | `tests/membership-suspensions.test.ts` ("suspending while somebody books", Postgres) |
+| M19 | *Send again* on an e-invoice LHDN had found invalid set it back to a draft and sent the same record again, overwriting the stored document, its submission and document IDs and when it was sent, so the record of what LHDN held was lost; a document that reached LHDN is now never changed or deleted (a database trigger), and a correction is a replacement under its own number | `tests/einvoice-records.test.ts` |
+| M20 | E-invoicing could invoice a sale twice or name the wrong document: a customer's own e-invoice that failed let its receipt into the month's consolidated one, and sending it again invoiced the sale twice; a large sale whose own e-invoice failed or was refused could go into the consolidated one; a credit note could name a document not yet valid or found invalid, or be dropped against an invalid consolidated one; LHDN's *Cancelled* answer was ignored. Each now follows what the consolidated document records it carried and what LHDN last said | `tests/einvoice-records.test.ts` |
+| M21 | Credit waiting on a closed company or school account could be paid back only outside the app, with no record, and could still come off a later invoice, refunding it twice; a manager now records it paid back by hand, after which no invoice takes it, and closed accounts with credit waiting stay listed | `tests/account-credit-settled.test.ts` (with an invoice racing it, Postgres) |
+| S25 | Google sign-in with an address Google had not verified answered "An account with this email already exists" only where one did, telling anybody whether an address had an account; every unverified address is now refused in the same words and nothing is made. Found by the sign-up work | `tests/sign-in.test.ts` |
 
 ### Resolved limitations without a number
 
@@ -714,6 +741,16 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Taking one person off a booking held by a deposit or charged to a company account was refused | Supported: off the balance first, then the deposit's part back; before the invoice off the charge, after it a credit note off the next invoice | `tests/place-withdrawals-money.test.ts` |
 | A family membership's dependants could be swapped freely and without limit during a term | Changes follow the plan's policy: places per term, replacements, the next term's list, a manager's correction with a reason, every change kept | `tests/membership-covers.test.ts` |
 | A members' place was checked against a membership active today, and the customer's own place not at the counter or through the API | Each person's cover is checked for the session's date on every path, again at check-in and the door, and a membership that stops flags bookings for staff | `tests/membership-validity.test.ts` |
+| Signing up said when an address already had an account (`409`) | Sign-up takes the address only and always answers *check your email*; the account is made by the link emailed to a new address, an address with an account is told how to sign in ([signing up](../architecture/authentication.md#signing-up)) | `tests/registration.test.ts`, `tests/no-enumeration-timing.test.ts`, `tests/components/sign-up.test.tsx`, `tests/uat/emailed-links.uat.ts` (Email 4) |
+| An invitation by email to a guest list, a game or a group could not be withdrawn; it lapsed | The resident (or the venue's manager, with a reason, logged), the game's host or sender, or the group's organiser withdraws one not yet accepted; one or the other against an acceptance; the link refused like one run out; the address told only if the email had gone | `tests/invitation-withdrawals.test.ts`, `tests/components/invitation-withdrawals.test.tsx` |
+| A dearer coach's difference was taken at the counter only, and was not in the day's figures or on the customer's booking page | Paid online from the coach-change email or the booking page where the venue takes payment online, once, on its own receipt; the counter still takes it; counted in the day's expected, collected and outstanding figures | `tests/coach-difference-online.test.ts`, `tests/components/coach-difference.test.tsx` |
+| Memberships had no suspended state | Suspended for a period by a manager with a reason and reactivated, covering nobody on its dates, bookings flagged and never cancelled or refunded, the end extended only where the plan says so | `tests/membership-suspensions.test.ts` |
+| Times on staff screens and in staff calendars were written the English way, and a link's language reached only the page it opened | Every staff screen writes times by the shared formatter in the staff language and the venue's (or event's) zone; staff calendar and coach calendar in the language their address names; a link's language kept for the visit while the visitor has chosen none | `tests/staff-times.test.ts`, `tests/components/staff-times.test.tsx`, `tests/link-locale.test.ts` |
+| The venue's API offered no withdrawal of one person's place | `GET`/`POST /api/v1/bookings/:code/withdraw`: the counter's terms, refusals and money, its own venue only, logged as the key, an optional `Idempotency-Key` | `tests/api-withdrawals.test.ts` |
+| A refund made in Stripe's dashboard was not seen | `charge.refunded` and `charge.refund.updated` recorded once, never counting MySenam's own refunds twice; matched to a hand mark or what was owed, otherwise raised to staff and counted towards later refunds; nothing else changed by itself | `tests/stripe-gateway-refunds.test.ts` |
+| Family-membership cover history was not in the account's data export | `membershipCoverChanges`, naming only people the holder is shown | `tests/membership-cover-export.test.ts` |
+| The lesson form had no pay-from-credit option | The court form's credit path | `tests/lesson-credit.test.ts`, `tests/components/coach-booking-credit.test.tsx` |
+| An e-invoice's states, corrections and LHDN identifiers were not all shown to staff | Each document's state, identifiers, LHDN's reasons and what can be done next, offering only what the server allows; corrections as replacements linked to what they replace | `tests/einvoice-records.test.ts` |
 
 ## Production readiness
 
