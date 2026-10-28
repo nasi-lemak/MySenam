@@ -221,7 +221,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B56, M16–M28 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B58, M16–M28 and
 S12–S28, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (114
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -803,6 +803,8 @@ IDs are not reused. Each fix came with the test recommended above.
 | B54 | Two first splits of one booking at once failed with a database error, and a re-split while a friend was paying left a paid share at the old amount; splitting runs under the booking's lock and a re-split is refused while a share is paid or being paid | `tests/split-races.test.ts` |
 | B55 | The schedule kept no track of which answer it was waiting for: an answer for a day or venue left a moment before could arrive late and show under the one now chosen; a late answer is dropped | `tests/components/staff-place.test.tsx` |
 | B56 | Claiming a waiting-list offer read the entry without locking it, so a claim and the entry being left or turned down at the same moment could both go through; the entry is locked by each | `tests/waitlist-leave.test.ts` |
+| B57 | On a phone, *Renew or buy a membership* in the booking form opened the venue's plans under the booking sheet, which stayed open over them, so *Join* could not be tapped; following the link closes the form. Found by the acceptance scenarios (*Membership W*) | `tests/components/booking-dialogs.test.tsx`, `tests/uat/round6.uat.ts` (Membership W) |
+| B58 | A court given back late with all of it kept told the customer "the rest goes back the way you paid" when nothing does; it now says nothing is refunded | `tests/components/q8a-customer-flows.test.tsx`, `tests/uat/round8.uat.ts` (Late AK) |
 
 ### Resolved limitations without a number
 
@@ -1003,6 +1005,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
-| Browser tests drive the main journeys: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and twenty-six acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), among them a venue's set-up from sign-up to its first booking, changing a booking's time, and a tournament's whole run from set-up to corrections; emailed confirmation, waiting-list offer and password-reset links are followed from the acceptance server's log (skipped against a deployment) | Those are checked by route and unit tests, not a browser | P2 |
+| Browser tests drive the main journeys: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and seventy-one acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), among them a venue's set-up from sign-up to its first booking, changing a booking's time, and a tournament's whole run from set-up to corrections; emailed confirmation, waiting-list offer and password-reset links are followed from the acceptance server's log (skipped against a deployment) | Those are checked by route and unit tests, not a browser | P2 |
+| The acceptance scenario *Accounts AG* cannot set itself up between 23:00 and 24:00 Malaysia time: it books the next whole hour and invoices up to today, and in that hour the booking falls tomorrow | A full acceptance run in that hour fails that scenario on the clock, not the product; run outside it or re-run the file | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1: [blocks any launch](#blockers-for-any-launch) |
 | The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1: [blocks any launch](#blockers-for-any-launch) until a lawyer confirms it |
