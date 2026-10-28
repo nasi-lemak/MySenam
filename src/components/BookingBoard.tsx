@@ -200,6 +200,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
   const [mayOverride, setMayOverride] = useState(false);
   // The venue's own staff, booking at the counter (lib/participant-bookings.ts).
   const [atCounter, setAtCounter] = useState(false);
+  // At the counter of a members-only or private venue: a member's or resident's guest may be booked as one.
+  const [guestsOfMembers, setGuestsOfMembers] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -265,6 +267,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       setMemberRates(data.memberRates === true);
       setMayOverride(data.mayOverride === true);
       setAtCounter(data.atCounter === true);
+      setGuestsOfMembers(data.guestsOfMembers === true);
       if (typeof data.timeZone === "string") setZone(data.timeZone);
       if (Number.isInteger(data.seriesWeeks)) setMaxWeeks(data.seriesWeeks);
       setConcessions(Array.isArray(data.concessions) ? data.concessions : []);
@@ -725,6 +728,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           policy={picked.policy}
           mayOverride={mayOverride && selection.courtId !== ANY_COURT}
           atCounter={atCounter}
+          guestsOfMembers={atCounter && guestsOfMembers}
           onChange={setSelection}
           maxWeeks={maxWeeks}
           alsoFree={alsoFree}
@@ -776,6 +780,7 @@ function BookingForm({
   policy,
   mayOverride = false,
   atCounter = false,
+  guestsOfMembers = false,
   onChange,
   maxWeeks = MAX_RECUR_WEEKS,
   alsoFree = [],
@@ -798,6 +803,8 @@ function BookingForm({
   mayOverride?: boolean;
   /** The venue's own staff at the counter, who may book for a child the venue knows (lib/participant-bookings.ts). */
   atCounter?: boolean;
+  /** At the counter of a members-only or private venue: staff say whether the person is a walk-in customer or a member's or resident's guest (lib/guest-invites.ts). */
+  guestsOfMembers?: boolean;
   onChange: (s: Selection) => void;
   /** The most weeks one weekly booking may run here. */
   maxWeeks?: number;
@@ -817,6 +824,9 @@ function BookingForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  // At the counter: a walk-in customer (nobody's guest), or a member's or resident's guest, by the host's number.
+  const [asGuest, setAsGuest] = useState(false);
+  const [hostPhone, setHostPhone] = useState("");
   // News from this venue: asked, never ticked for them (lib/marketing.ts).
   const [marketing, setMarketing] = useState(false);
   const [weeks, setWeeks] = useState(1);
@@ -1007,7 +1017,7 @@ function BookingForm({
   useEffect(() => {
     setCounterOffer(null);
     setCounterExtra({});
-  }, [court.id, start, length, date, phone, weeks]);
+  }, [court.id, start, length, date, phone, weeks, asGuest, hostPhone]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1068,6 +1078,8 @@ function BookingForm({
           ...(counted ? { players } : {}),
           // At the counter: paid as it is booked, or a manager's override with its reason.
           ...(atCounter ? extra : {}),
+          // At the counter: the person is a member's or resident's guest, not a walk-in customer.
+          ...(atCounter && guestsOfMembers && asGuest && hostPhone.trim() !== "" ? { guestOf: hostPhone.trim() } : {}),
         }),
       });
       const data = await res.json();
@@ -1206,6 +1218,32 @@ function BookingForm({
               : t("form.book", { amount: withExtras ?? 0 })}
         </button>
       </div>
+      {atCounter && guestsOfMembers && (
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+          <span className="font-medium">{t("gc8.form.who")}</span>
+          <label className="flex items-center gap-1">
+            <input type="radio" name="gc8-who" checked={!asGuest} onChange={() => setAsGuest(false)} className="accent-teal-600" />
+            {t("gc8.form.walkIn")}
+          </label>
+          <label className="flex items-center gap-1">
+            <input type="radio" name="gc8-who" checked={asGuest} onChange={() => setAsGuest(true)} className="accent-teal-600" />
+            {t("gc8.form.guest")}
+          </label>
+          {asGuest && (
+            <>
+              <input
+                required
+                value={hostPhone}
+                onChange={(e) => setHostPhone(e.target.value)}
+                placeholder={t("gc8.form.hostPhone")}
+                aria-label={t("gc8.form.hostPhone")}
+                className="w-36 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+              />
+              <span className="text-slate-500">{t("gc8.form.note")}</span>
+            </>
+          )}
+        </div>
+      )}
       {atCounter && counterOffer && (
         <div className="mt-2 space-y-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-slate-700">
           {counterOffer.payNow && (

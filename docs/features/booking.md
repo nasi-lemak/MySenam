@@ -498,11 +498,12 @@ claim, [below](#waitlists)).
 | Policy | Online | At the counter | Through the API key |
 | ------ | ------ | -------------- | ------------------- |
 | The venue open to customers | Refused (`VENUE_NOT_OPEN`) | Its own staff may try a venue customers cannot reach yet | Refused |
-| Who a venue is for (members only, private) | The account ([below](#who-a-venue-is-for-public-members-only-private)) | The number booked, on staff's word, or each person named where only they take places | As the counter |
+| Who a venue is for (members only, private) | The account ([below](#who-a-venue-is-for-public-members-only-private)) | The number booked, on staff's word, or each person named where only they take places; a member's or resident's guest by their host ([below](#members-and-residents-guests-at-the-counter-and-through-the-api)) | As the counter |
+| A member's or resident's guest allowance | The resident's own invitations (`GUEST_LIMIT`, [below](#residents-inviting-their-own-guests)) | Counted against the host's allowance; a manager may override | Counted against the host's allowance; refused |
 | House rules: how far ahead | Refused (`LIMIT_AHEAD`, `LIMIT_AHEAD_MEMBERS`) | Refused; a member's number on staff's word has the members' window | Refused |
 | House rules: bookings at once, a week, a day | Refused (`LIMIT_UPCOMING`, `LIMIT_WEEK`, `LIMIT_DAY`) | Refused; a manager may override | Refused |
 | A weekly booking needs an account | Refused (`SERIES_NEEDS_ACCOUNT`) | Refused; a manager may book it as assisted | One booking at a time |
-| The guest limit (`GUEST_SURGE_PER_HOUR` unpaid bookings without an account in the hour) | Held until paid where the venue takes payment online; refused where it does not | Paid as it is booked, or refused; a manager may override | Refused |
+| The limit on online bookings without an account (`GUEST_SURGE_PER_HOUR` unpaid ones made online or through the API in the hour) | Held until paid where the venue takes payment online; refused where it does not | Paid as it is booked, or refused; a manager may override | Refused |
 | A blocked number | Refused (`PHONE_BLOCKED`) | Refused, never overridden | Refused |
 | No-show strikes | Held until paid online; refused where nothing is taken online | Paid as it is booked, or refused; a manager may override | Refused |
 | Unpaid bookings coming up (3 here, 6 anywhere) | Refused | Refused, never overridden, paid as it is booked or not | Refused |
@@ -520,8 +521,18 @@ number, sell a membership or add the person to the list, or ask a manager to
 override it where the venue allows. Through the API it keeps the code the form
 gets, with words for a venue's system (`saidOn()`).
 
+**The limit on online bookings without an account** (once called the guest
+limit: "guest" there means booking without an account, never a member's
+guest) is a brake on a venue's evening being filled from a script. It counts
+unpaid bookings without an account made online or through the venue's API key
+in the last hour (`guestSurge()`; each booking records the path it was made
+on, `made_on`). The counter's own bookings, an ordinary walk-in customer or a
+member's guest, are made by staff in front of the person and are not counted,
+so a busy counter hour no longer trips it; it is still asked at the counter
+when the venue is being flooded online (`tests/guest-counting.test.ts`).
+
 **Paid as it is booked.** Where online a booking would be held until paid
-(no-show strikes, the guest limit), the counter takes payment as it books:
+(no-show strikes, the limit on online bookings without an account), the counter takes payment as it books:
 the form offers *Take payment now* and how it was paid (`paidAtCounter`:
 cash, QR, transfer, card), and the booking (or class place) is marked paid
 then, on the record as any counter payment is (`payment.paid`). Never
@@ -542,15 +553,16 @@ manager's (`POST /api/admin/policy-overrides`) and is in the activity log
 | ------ | -------------------- |
 | House rules | Bookings at once, a week, a day (`LIMIT_UPCOMING`, `LIMIT_WEEK`, `LIMIT_DAY`); not how far ahead |
 | No-show strikes | `STRIKES_COUNTER`: booked unpaid, not held |
-| The guest limit | `GUEST_SURGE` |
+| Online bookings without an account | `GUEST_SURGE` |
 | Assisted booking | A weekly booking for a customer without an account (`SERIES_NEEDS_ACCOUNT`); everybody on it still eligible |
+| A member's or resident's guest allowance | `GC8_GUEST_ALLOWANCE`, `GC8_GUESTS_OFF`, `GC8_GUEST_DAYS`, for a guest registered at the counter ([below](#members-and-residents-guests-at-the-counter-and-through-the-api)); never the host's eligibility |
 
 - Refused with one of these at the counter, the form says what can be done: a
   manager at a venue that permits it gets *Override for this booking* with a
   reason; front desk sees *Ask a manager*.
 - The request names the policies (`overridePolicies`) and gives a reason
   (`overrideReason`, 5–300 characters). The server checks again: each is one
-  of these four (`R9_OVERRIDE_NOT_OVERRIDABLE`, 400), the venue permits it
+  of these five (`R9_OVERRIDE_NOT_OVERRIDABLE`, 400), the venue permits it
   (`R9_OVERRIDE_NOT_PERMITTED`, 403), the member of staff is a manager of
   that venue (`R9_OVERRIDE_MANAGERS`, 403, for front desk and for anybody
   without a staff session), and the reason is given (`R9_OVERRIDE_REASON`,
@@ -611,7 +623,7 @@ Joining the queue goes through the same checks as booking
 refused number, a members-only venue, the house rules and the unpaid-bookings
 limit all apply, so a queue is not a way round them. The place is claimed
 later through the offer's link, so it is paid as a claim is: no-show strikes
-and the guest limit refuse only where claimed court time could not be held
+and the limit on online bookings without an account refuse only where claimed court time could not be held
 until paid online. A class's queue asks exactly what enrolling asks: the house
 rules for the session's date, and strikes refused online (an enrolment is
 never held until paid).
@@ -650,7 +662,7 @@ weeks after somebody joined goes only to somebody who could book it now:
   ahead, the members' longer window among them), counted as they stand then,
   the claim's own booking among them, for court time and a class place alike,
   as booking and enrolling ask them; **the unpaid-bookings limit**; and
-  **no-show strikes** and **the guest limit** where the venue takes nothing
+  **no-show strikes** and **the limit on online bookings without an account** where the venue takes nothing
   online, or for a class place (otherwise the claimed court time is held until
   paid, as any booking from a struck-out number is): passed over at the offer
   keeping its place, and at the claim refused with the booking's own reason
@@ -1183,6 +1195,65 @@ off) and **for up to how many days** (1 to 14). Changing them is a manager's job
   (`tests/guest-invitations.test.ts`, `tests/components/guest-invitations.test.tsx`).
 - Only a resident or member whose own entry counts for their account (linked,
   or their number proved) can invite guests.
+
+### Members' and residents' guests at the counter and through the API
+
+The owner's decision of 28 October 2026: *count actual guests, including
+counter-registered guests, while distinguishing ordinary walk-in customers
+from guests accompanying members.* So the counter tells the two apart:
+
+- **A walk-in customer** books for themselves and is nobody's guest. At a
+  public venue that is everybody; at a members-only or private venue they
+  must be eligible themselves, as above (`R9_DESK_NOT_MEMBER`,
+  `R9_DESK_NOT_LISTED`). Their booking does not count towards the limit on
+  online bookings without an account ([above](#the-same-policies-on-every-path)).
+- **A member's or resident's guest** comes with somebody on the venue's list.
+  At a members-only or private venue the counter's booking form asks *Booking
+  for: a walk-in customer / a member's or resident's guest*, and for a guest
+  the host's phone number (`guestOf`); the venue's API key may send the same
+  (`src/lib/guest-invites.ts`, `registerGuest`).
+  - The host must be a resident or member on the list for every date booked,
+    on staff's word as everything at the counter is (`GC8_HOST_NOT_FOUND`).
+    A number on the list in its own right, or another resident's guest whose
+    visit is running, is booked as themselves (`GC8_GUEST_LISTED`); nor can
+    the host be their own guest (`GC8_GUEST_IS_HOST`). None of these is ever
+    overridden. At a public venue there is no allowance and the person is a
+    walk-in (`GC8_GUESTS_NOT_HERE`, 400). A guest is booked for their own place
+    alone (`GC8_GUEST_ALONE`, 400, with people named), and only staff or the
+    API key say so (`GC8_GUEST_OF_STAFF`, 403, online: residents invite from
+    their account page instead).
+  - **Counted exactly as a resident's own invitation.** The guest goes on the
+    list as the host's guest until the last date booked, with the host's unit,
+    so one allowance counts every guest whichever path registered them: the
+    venue's *guests each at a time* (`GC8_GUEST_ALLOWANCE`; `GC8_GUESTS_OFF`
+    where it is 0) and *for up to how many days*, counted from today
+    (`GC8_GUEST_DAYS`). A guest the counter registered fills a place the
+    resident could otherwise invite online (`GUEST_LIMIT`), and the other way
+    round. Booking the host's own running guest again extends the visit and
+    takes no extra place. The booking counts with the host's household under
+    the house rules, even before the guest is on the list.
+  - **Overridable like the other operational limits**: a manager may go past
+    the allowance (the guests at once, and the visit's length) for one booking
+    where the venue permits *A member's or resident's guest allowance*
+    ([manager overrides](#manager-overrides)); front desk is told to ask a
+    manager; the API key never overrides.
+  - Registered under the host's entry's row lock, as a resident's online
+    invitation now also takes it, so two registrations for one host at once
+    cannot both take the last place. A booking that is then not made (the
+    time taken, a coach not free, an account over its limit) takes the
+    registration back. The booking keeps whose guest it is
+    (`bookings.guest_of_entry`, migration 0229) and the path it was made on;
+    staff see *Guest of …* on the list as for any resident's guest; the
+    activity log has *Registered a member's or resident's guest at the
+    counter* (`guest.registered`). Reports, occupancy and the bookings list
+    count the booking as any other (`tests/guest-counting.test.ts`,
+    `tests/components/guest-at-counter.test.tsx`).
+  - Only a resident or member **on the venue's list** can be a host: a
+    members-only venue's member who holds a membership but is not on its list
+    cannot bring a guest this way (add them to the list as a member). Guests
+    are not asked of class places or waiting lists: a guest is registered with
+    a court booking (or by the resident online) and is then listed for those
+    dates like anybody on the list.
 
 ## Free courts and house rules
 

@@ -27,6 +27,7 @@ import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "
 import { assignLessonCoach, coachChoice, coachDifferences, lessonRefusal, lessonSports } from "@/lib/lesson-coaches";
 import { guestSurge, policyCheck } from "@/lib/limits";
 import { overrideRefusal, policyRefusal, readOverride, type PolicyOverrideRecord } from "@/lib/policy-overrides";
+import { guestHostAt, registerGuest, undoGuestRegistration, type GuestHost, type GuestRegistration } from "@/lib/guest-invites";
 import { logOverride, policyRefused } from "@/lib/counter-policy";
 import { money } from "@/lib/region";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
@@ -134,7 +135,11 @@ export async function POST(req: NextRequest) {
   // taken at the counter as it is booked: the counter's alone, checked once who is booking is known.
   const askOverride = readOverride((body ?? {}) as Record<string, unknown>);
   if (askOverride && "ok" in askOverride) return refusal(askOverride, 400);
-  const { paidAtCounter } = (body ?? {}) as Record<string, unknown>;
+  const { paidAtCounter, guestOf } = (body ?? {}) as Record<string, unknown>;
+  // A member's or resident's guest, by the host's number, rather than a walk-in customer: the counter's alone.
+  if (guestOf !== undefined && guestOf !== null && (typeof guestOf !== "string" || !/^\+?[0-9 -]{7,20}$/.test(guestOf.trim())))
+    return NextResponse.json({ error: "guestOf must be the host's phone number." }, { status: 400 });
+  const hostPhone = typeof guestOf === "string" ? guestOf.trim() : null;
   if (paidAtCounter !== undefined && paidAtCounter !== null && !COUNTER_METHODS.includes(paidAtCounter as CounterMethod))
     return NextResponse.json({ error: `paidAtCounter must be one of ${COUNTER_METHODS.join(", ")}.` }, { status: 400 });
 
@@ -164,6 +169,8 @@ export async function POST(req: NextRequest) {
   }
   // Taking payment as it is booked is the counter's.
   if (paidAtCounter !== undefined && paidAtCounter !== null && !byStaff) return refusal(policyRefusal("R9_PAY_NOW_STAFF"), 403);
+  // Booking somebody as a member's or resident's guest is staff's: members invite their own from their account page.
+  if (hostPhone !== null && !byStaff) return refusal(policyRefusal("GC8_GUEST_OF_STAFF"), 403);
   const payNow = byStaff && paidAtCounter !== undefined && paidAtCounter !== null && (chargeTo === undefined || chargeTo === null) ? (paidAtCounter as CounterMethod) : null;
 
   const user = await getSessionUser(req);
@@ -232,6 +239,17 @@ export async function POST(req: NextRequest) {
   // and a manager may go past what the venue lets them, recorded with the booking.
   const venueOfBooking = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
   let policyOverride: PolicyOverrideRecord | undefined;
+  // Each court of a group counts as a booking, as each week of a series does.
+  const datesBooked = group ? group.map(() => date) : Array.from({ length: Math.min(Math.max(1, Number(weeks) || 1), 52) }, (_, i) => addDays(date, i * 7));
+  // A member's or resident's guest at the counter (lib/guest-invites.ts): the host on the venue's list for the
+  // dates booked, the guest booked for their own place alone.
+  let host: GuestHost | null = null;
+  if (hostPhone !== null && venueOfBooking !== undefined) {
+    if (named.length > 0) return refusal(policyRefusal("GC8_GUEST_ALONE"), 400);
+    const found = await guestHostAt(venueOfBooking, hostPhone, datesBooked);
+    if ("ok" in found) return refusal(found, found.code === "GC8_GUESTS_NOT_HERE" ? 400 : 409);
+    host = found;
+  }
   if (venueOfBooking !== undefined) {
     const path = byStaff ? ("staff" as const) : ("customer" as const);
     const answer = await policyCheck(path, {
@@ -240,13 +258,7 @@ export async function POST(req: NextRequest) {
       weeks: (weeks as number) ?? 1,
       signedIn: user !== null,
       userId: user?.id ?? null,
-      // Each court of a group counts as a booking, as each week of a series does.
-      dates:
-        typeof date === "string" && isValidDateString(date)
-          ? group
-            ? group.map(() => date)
-            : Array.from({ length: Math.min(Math.max(1, Number(weeks) || 1), 52) }, (_, i) => addDays(date, i * 7))
-          : undefined,
+      dates: datesBooked,
       preview: (await mayShowVenue(venueOfBooking, req)).preview,
       canPayOnline: await takesPaymentOnline(venueOfBooking),
       // Places on a shared session for people the account books for, not itself: each their own member (lib/entitlements.ts).
@@ -256,6 +268,7 @@ export async function POST(req: NextRequest) {
       customerTakesPart,
       paidNow: payNow !== null,
       ...(askOverride ? { overrides: askOverride.policies } : {}),
+      ...(host ? { guestOf: host } : {}),
     });
     if (answer.refusal) return policyRefused(path, answer.refusal, byStaff ? { staff: desk!, venueId: venueOfBooking } : null);
     if (byStaff && askOverride && answer.overridden.length > 0)
@@ -344,8 +357,26 @@ export async function POST(req: NextRequest) {
     addedBy: byStaff && desk ? { adminId: desk.id } : { userId: user?.id ?? null },
     // A manager's override of the venue's policies, written with each booking in its transaction.
     ...(policyOverride ? { policyOverride } : {}),
+    // Whose guest, where staff booked a member's or resident's guest rather than a walk-in customer.
+    ...(host ? { guestOf: host.id } : {}),
   };
   const forPeople = selection && selection.participants.length > 0 ? { participants: selection.participants, customerTakesPart: selection.customerTakesPart } : {};
+
+  // The guest on the venue's list as the host's, under the host's lock, against the allowance (gone past only by the
+  // manager's override already let through), so the booking's own checks find them listed. Taken back if no booking stands.
+  let guestReg: GuestRegistration | null = null;
+  if (host && desk) {
+    const registered = await registerGuest(host, { phone: phone.trim(), name: name.trim() }, datesBooked, {
+      adminId: desk.id,
+      overrideAllowance: policyOverride?.overridden.some((o) => o.policy === "guest_allowance") === true,
+    });
+    if (!registered.ok) return policyRefused("staff", registered, { staff: desk, venueId: host.venueId });
+    guestReg = registered.registration;
+  }
+  const undone = async (res: NextResponse) => {
+    if (guestReg) await undoGuestRegistration(guestReg);
+    return res;
+  };
 
   const result = anyCourt
     ? await createBookingOnAnyCourt({
@@ -358,7 +389,7 @@ export async function POST(req: NextRequest) {
       ? await createGroupBooking({ ...common, courtIds: group, placesByCourt, ...(Object.keys(assign).length > 0 ? { assign } : {}) })
       : await createBookingSeries({ ...common, ...forPeople, courtId: courtId as number });
 
-  if (!result.ok) return refusal(result);
+  if (!result.ok) return undone(refusal(result));
 
   // Outside the court's rules, on a manager's say: on the record.
   if (staff && result.overrides && result.overrides.length > 0) {
@@ -389,14 +420,14 @@ export async function POST(req: NextRequest) {
           continue;
         }
         for (const b of result.bookings) await discardBooking(b.id);
-        return refusal(attached);
+        return undone(refusal(attached));
       }
       booking.totalPrice = Math.round((booking.totalPrice + attached.fee) * 100) / 100;
       booking.coachId = coach.id;
       booking.coachFee = attached.fee;
       kept.push(booking);
     }
-    if (kept.length === 0) return refusal({ ok: false, error: `${coach.name} has just been booked for that time. Pick another.`, code: "COACH_TAKEN", vars: { name: coach.name } });
+    if (kept.length === 0) return undone(refusal({ ok: false, error: `${coach.name} has just been booked for that time. Pick another.`, code: "COACH_TAKEN", vars: { name: coach.name } }));
     result.bookings.splice(0, result.bookings.length, ...kept);
   }
   // The venue's choice of coach, week by week, the first week's coach kept where they are free (lib/lesson-coaches.ts).
@@ -412,7 +443,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
         for (const b of result.bookings) await discardBooking(b.id);
-        return refusal(put);
+        return undone(refusal(put));
       }
       lessonCoach ??= { id: put.coach.id, name: put.coach.name };
       booking.totalPrice = Math.round((booking.totalPrice + put.fee) * 100) / 100;
@@ -420,7 +451,7 @@ export async function POST(req: NextRequest) {
       booking.coachFee = put.fee;
       kept.push(booking);
     }
-    if (kept.length === 0) return refusal(lessonRefusal("LESSON_NO_COACH"));
+    if (kept.length === 0) return undone(refusal(lessonRefusal("LESSON_NO_COACH")));
     result.bookings.splice(0, result.bookings.length, ...kept);
   }
 
@@ -451,10 +482,19 @@ export async function POST(req: NextRequest) {
     const charged = await chargeToAccount(venueOfBooking!, account.id, result.bookings.map((b) => b.id));
     if (!charged.ok) {
       for (const b of result.bookings) await discardBooking(b.id);
-      return refusal(charged);
+      return undone(refusal(charged));
     }
     for (const b of result.bookings) b.accountId = account.id;
   }
+
+  // A member's or resident's guest registered at the counter: in the activity log against the first booking.
+  if (guestReg && host && desk)
+    await logAction(desk, {
+      venueId: host.venueId,
+      action: "guest.registered",
+      bookingCode: result.bookings[0].code,
+      detail: `${name.trim()} on ${phone.trim()} as the guest of ${host.label ? `${host.label}, ` : ""}${host.phone}, on the list until ${guestReg.expiresOn}`,
+    });
 
   // Past the venue's policies, on a manager's say: kept with each booking that stands, and in the activity log.
   if (policyOverride && desk)

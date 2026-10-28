@@ -145,4 +145,5 @@ export const ACTION_LABELS: Record<string, string> = {
   "booking.policy_overridden": "Overrode a venue policy for one booking",
   "phone.blocked": "Blocked a phone number",
   "phone.unblocked": "Unblocked a phone number, saying why",
+  "guest.registered": "Registered a member's or resident's guest at the counter",
 };

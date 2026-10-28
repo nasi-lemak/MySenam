@@ -89,6 +89,9 @@ export async function GET(req: NextRequest) {
       const admin = await getSessionAdmin(req);
       return !!admin && canAccessVenue(admin, venueId);
     })(),
+    // At the counter of a members-only or private venue: staff may book a member's or resident's guest, apart from a
+    // walk-in customer, against the host's guest allowance (lib/guest-invites.ts `registerGuest`).
+    guestsOfMembers: !!staff && canAccessVenue(staff, venueId) && venue.access !== "public",
     // A manager of this venue may book outside its booking rules (recorded).
     mayOverride: !!staff && staff.role !== "desk" && canAccessVenue(staff, venueId),
     // What a session sees (member rates, staff-only rooms, a manager's override, who is taking part) is its own:

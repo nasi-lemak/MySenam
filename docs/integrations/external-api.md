@@ -116,6 +116,18 @@ overrides the venue's policies: `overridePolicies`, `overrideReason`,
 `paidAtCounter` or `override` sent with a booking or a waiting-list entry is
 refused (`R9_API_NO_OVERRIDE`, 400), never ignored.
 
+`guestOf` (the host's phone number) books the person as a member's or
+resident's guest at a members-only or private venue, as the counter does
+([members' and residents' guests](../features/booking.md#members-and-residents-guests-at-the-counter-and-through-the-api)):
+the host must be a resident or member on the venue's list for the date
+(`GC8_HOST_NOT_FOUND`), and the guest goes on the list as theirs until that
+date, counted against the host's guest allowance (`GC8_GUEST_ALLOWANCE`,
+`GC8_GUESTS_OFF`, `GC8_GUEST_DAYS`, 409), which a key never goes past. A
+number on the list in its own right is booked as itself (`GC8_GUEST_LISTED`);
+a public venue has no allowance (`GC8_GUESTS_NOT_HERE`, 400). Bookings made
+through a key count towards the limit on online bookings without an account
+(`GUEST_SURGE`) as online ones do.
+
 Every booking the API returns (`POST`, `GET /bookings`, `GET /bookings/<code>`)
 now also carries `participants`: `[{ participantId, name, customer }]`, each
 person taking a place where the booking names somebody other than its
