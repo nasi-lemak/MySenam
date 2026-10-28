@@ -7,14 +7,14 @@ import { ChangeTime } from "@/components/ChangeTime";
 import { LessonCoach } from "./LessonCoach";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { addDays, formatHour, todayISO } from "@/lib/time";
-import { COUNTER_METHODS, HIRE_CONDITIONS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS } from "@/lib/types";
+import { COUNTER_METHODS, HIRE_CONDITIONS, MAX_DEPOSIT, MAX_HIRE_NOTE, MAX_VENUE_AHEAD_DAYS, PAID_VIA_LABELS } from "@/lib/types";
 import type { BookingStatus, CounterMethod, PaidVia } from "@/lib/types";
 import type { Court, HireCondition } from "@/lib/types";
 import type { AdminBookingRow, BookingHit } from "@/lib/store";
 import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductions";
 import type { StaffT } from "@/lib/staff-i18n";
 import { localTime, todayLocal } from "./shared";
-import { money } from "@/lib/region";
+import { clockTime, money, region } from "@/lib/region";
 import { isConcessionPreset } from "@/lib/concessions-shared";
 import { useStaffT } from "./StaffLanguage";
 import PassAllocation, { passCodesOf, type AllocPass } from "@/components/PassAllocation";
@@ -179,14 +179,14 @@ export function BookingsTab() {
   }
 
   /** The difference owed for a dearer coach, taken at the counter (lib/lesson-coaches.ts): its own receipt. */
-  async function collectCoachDifference(b: AdminBookingRow, changeId: number, via: CounterMethod) {
+  async function collectCoachDifference(b: AdminBookingRow, changeId: number, via: CounterMethod, closePage = false) {
     setError(null);
     setPaying(null);
     try {
       const res = await fetch("/api/admin/bookings/lesson-coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId: b.venueId, changeId, method: via }),
+        body: JSON.stringify({ venueId: b.venueId, changeId, method: via, ...(closePage ? { closePage: true } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("bk.paymentFailed")));
@@ -1110,7 +1110,7 @@ interface Act {
   withdrawPerson: (b: AdminBookingRow, placeId: number | null, name: string | null) => void;
   checkPlaceConcession: (b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused", remember?: string) => void;
   payWithPasses: (code: string, passCodes: string[]) => Promise<string | null>;
-  collectCoachDifference: (b: AdminBookingRow, changeId: number, via: CounterMethod) => void;
+  collectCoachDifference: (b: AdminBookingRow, changeId: number, via: CounterMethod, closePage?: boolean) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -1268,7 +1268,10 @@ function ConcessionCheck({ b, act }: { b: AdminBookingRow; act: Act }) {
   );
 }
 
-/** A lesson: the coach, and their fee inside the price; and what is still owed for a dearer coach, to take here. */
+/**
+ * A lesson: the coach, and their fee inside the price; and a dearer coach's difference: still owed (to take here),
+ * being paid online (a page open: taking it here closes that page), or paid, and how.
+ */
 function Coach({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
   return (
@@ -1279,8 +1282,8 @@ function Coach({ b, act }: { b: AdminBookingRow; act: Act }) {
           act.paying === `coach:${o.changeId}` ? (
             <span key={o.changeId} className="mt-1 block">
               <MethodPicker
-                label={t("co6.bk.owedTakeBy", { amount: money(o.amount) })}
-                onPick={(via) => act.collectCoachDifference(b, o.changeId, via)}
+                label={t(o.pageOpenUntil ? "cp7.bk.closeAndTake" : "co6.bk.owedTakeBy", { amount: money(o.amount) })}
+                onPick={(via) => act.collectCoachDifference(b, o.changeId, via, !!o.pageOpenUntil)}
                 onCancel={() => act.setPaying(null)}
               />
             </span>
@@ -1288,15 +1291,31 @@ function Coach({ b, act }: { b: AdminBookingRow; act: Act }) {
             <button
               key={o.changeId}
               onClick={() => act.setPaying(`coach:${o.changeId}`)}
-              title={t("co6.bk.owedTitle", { coach: o.coach })}
+              title={o.pageOpenUntil ? t("cp7.bk.payingTitle") : t("co6.bk.owedTitle", { coach: o.coach })}
               className="mt-1 block rounded bg-amber-50 px-2 py-0.5 text-left font-medium text-amber-800 ring-1 ring-amber-200"
             >
-              {t("co6.bk.owed", { amount: money(o.amount), coach: o.coach })}
+              {o.pageOpenUntil
+                ? t("cp7.bk.paying", {
+                    amount: money(o.amount),
+                    coach: o.coach,
+                    time: clockTime(new Date(o.pageOpenUntil), o.zone ?? region().timeZone, t.locale),
+                  })
+                : t("co6.bk.owed", { amount: money(o.amount), coach: o.coach })}
             </button>
           )
         )}
+      {(b.coachPaid ?? []).map((p) => (
+        <span key={p.changeId} title={t("cp7.bk.paidTitle")} className="mt-1 block text-emerald-700">
+          ✓ {t("cp7.bk.paid", { amount: money(p.amount), coach: p.coach, via: viaName(t, p.via) })}
+        </span>
+      ))}
     </div>
   );
+}
+
+/** How a coach's difference was paid, in the staff member's language: a counter method, or online. */
+function viaName(t: StaffT, via: string): string {
+  return via in PAID_VIA_LABELS ? t(`c.via.${via as PaidVia}`) : via;
 }
 
 /** Strikes against this number here, where the venue counts them, with a way to let them off. */

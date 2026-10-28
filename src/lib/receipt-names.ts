@@ -213,11 +213,12 @@ async function receiptsOfBookings(bookingIds: number[], extra: Row[] = []): Prom
         `SELECT ${COLUMNS} FROM receipts
           WHERE source = ? OR source LIKE ? OR source LIKE ?
              OR source IN (SELECT 'lesson-coach:' || id FROM lesson_coach_changes WHERE booking_id = ?)
+             OR EXISTS (SELECT 1 FROM lesson_coach_changes l WHERE l.booking_id = ? AND receipts.source LIKE 'lesson-coach:' || l.id || ':%')
              OR source IN (SELECT 'account-credit:' || id FROM account_credits WHERE booking_id = ?)
              OR source IN (SELECT 'payment:' || p.id FROM online_payments p JOIN online_payment_bookings pb ON pb.payment_id = p.id
                             WHERE pb.booking_id = ? AND p.purpose = 'booking')`
       )
-      .all(`booking:${b}`, `booking:${b}:%`, `booking-paid:${b}:%`, b, b, b)) as Row[];
+      .all(`booking:${b}`, `booking:${b}:%`, `booking-paid:${b}:%`, b, b, b, b)) as Row[];
     for (const r of rows) found.set(Number(r.id), r);
   }
   return withCreditNotes([...found.values()]);

@@ -431,19 +431,26 @@ fees the way a place taken off a booking is settled, and nothing twice:
   ([refunds that are interrupted](#refunds-that-are-interrupted)).
 - **Paid at the counter**, the credit note is written and the venue's staff
   give the money back.
-- **A dearer coach's difference** is owed, not charged: taken at the counter
+- **A dearer coach's difference** is owed, not charged: paid once, at the
+  counter or, where the venue takes payment online, on the venue's payment
+  page ([paying a dearer coach's difference online](programmes.md#paying-a-dearer-coachs-difference-online)),
   on a receipt of its own (`lesson-coach:<id>`, under *Coaching* in the sales
-  journal). A lesson cancelled after it was taken has that receipt credited
-  too, and the money goes back by hand as it was taken; one cancelled before,
-  owes it no longer. It is not paid online, and the day's expected and
-  outstanding figures do not count it.
+  journal). A second payment for it (the counter took it meanwhile, it was
+  paid on another page) or one after it stopped being owed (the lesson
+  cancelled, or given to another coach again) is owed back on that payment
+  with no receipt, as any second payment is, and refunded once through the
+  refund paths here. A lesson cancelled after it was paid has that receipt
+  credited too, and the money goes back the way it was taken: by hand, or
+  owed back on its online payment; one cancelled before owes it no longer.
+  The day's expected figure counts it once owed, collected once paid.
 - **Kept as paid** instead, nothing moves: the venue absorbs the difference
   and the amount is recorded with the change.
 - Lessons paid with a lesson pack, with a deposit, or with shares others paid
   are refused: cancel and book again.
 
-Tested in `tests/lesson-coach-changes.test.ts` on PGlite and Postgres,
-against a stand-in gateway for the online case.
+Tested in `tests/lesson-coach-changes.test.ts` and, for the difference paid
+online, `tests/coach-difference-online.test.ts`, on PGlite and Postgres,
+against stand-in gateways for the online case.
 
 ### Receipts for a guardian
 

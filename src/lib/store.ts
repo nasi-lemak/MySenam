@@ -4087,8 +4087,13 @@ export interface AdminBookingRow extends Booking {
   people: { placeId: number; name: string | null; customer: boolean; arrivedAt: string | null; noShow: boolean }[];
   /** One person's concession on their own place (lib/entitlements.ts), and where its proof stands. */
   placeConcessions?: { id: number; name: string | null; concessionName: string; concessionPreset: string | null; amount: number; check: "due" | "seen" | "refused" | null }[];
-  /** A paid lesson given to a dearer coach, the price adjusted: each difference still owed, to take at the counter (lib/lesson-coaches.ts). */
-  coachOwed?: { changeId: number; amount: number; coach: string }[];
+  /**
+   * A paid lesson given to a dearer coach, the price adjusted: each difference still owed, to take at the counter,
+   * and until when a payment page for it is open (lib/lesson-coaches.ts).
+   */
+  coachOwed?: { changeId: number; amount: number; coach: string; pageOpenUntil?: string; zone?: string }[];
+  /** Each such difference paid, and how (a counter method, or `online`): in the day's figures. */
+  coachPaid?: { changeId: number; amount: number; coach: string; via: string }[];
 }
 
 export interface UserBookingRow extends Booking {
@@ -5554,7 +5559,9 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
   const extras = await addonsFor(rows.map((r) => r.id));
   const notes = await notesFor(rows.map((r) => ({ venueId: r.venue_id, phone: r.phone })));
   // What is owed for a dearer coach on a paid lesson, to take at the counter (lib/lesson-coaches.ts).
-  const coachOwed = await (await import("./lesson-coaches")).owedForCoachChanges(rows.filter((r) => r.coach_id).map((r) => r.id));
+  const lessons = await import("./lesson-coaches");
+  const coachOwed = await lessons.owedForCoachChanges(rows.filter((r) => r.coach_id).map((r) => r.id));
+  const coachPaid = await lessons.paidForCoachChanges(rows.filter((r) => r.coach_id).map((r) => r.id));
   // Each person taking part: the customer's own agreement, or each participant's (lib/participants.ts).
   const places = new Map<number, (number | null)[]>();
   // And who of them arrived, for the counter to say person by person (`markPlace`).
@@ -5684,6 +5691,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       people: (people.get(booking.id) ?? []).some((p) => !p.customer) ? people.get(booking.id)! : [],
       ...(placeConcessions.has(booking.id) ? { placeConcessions: placeConcessions.get(booking.id)! } : {}),
       ...(coachOwed.has(booking.id) ? { coachOwed: coachOwed.get(booking.id)! } : {}),
+      ...(coachPaid.has(booking.id) ? { coachPaid: coachPaid.get(booking.id)! } : {}),
     });
   }
   return list;

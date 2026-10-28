@@ -84,7 +84,7 @@ export function LessonCoach({
   const adjustLine = !a
     ? ""
     : a.owed > 0
-      ? t("co6.bk.adjustOwed", { amount: amount(a.owed) })
+      ? `${t("co6.bk.adjustOwed", { amount: amount(a.owed) })} ${t("cp7.bk.adjustOnlineToo")}`
       : a.refund > 0
         ? t(a.refundHow === "credit" ? "co6.bk.adjustCredit" : a.refundHow === "online" ? "co6.bk.adjustOnline" : "co6.bk.adjustHand", { amount: amount(a.refund) })
         : t("co6.bk.noDifference");
@@ -121,6 +121,7 @@ export function LessonCoach({
       {k && (
         <div className="mt-2 space-y-1 text-xs text-slate-700" data-testid="coach-terms">
           <p>{t("co6.bk.fees", { from: k.fromCoach.name, fromFee: amount(k.fromFee), to: k.toCoach.name, toFee: amount(k.toFee) })}</p>
+          {paid && k.earlierOwed > 0 && <p data-testid="coach-earlier-owed">{t("cp7.bk.earlierOwed", { amount: amount(k.earlierOwed) })}</p>}
           {!paid ? (
             <p>{k.difference === 0 ? t("co6.bk.noDifference") : t(k.difference > 0 ? "co6.bk.unpaidUp" : "co6.bk.unpaidDown", { amount: amount(k.difference) })}</p>
           ) : (
