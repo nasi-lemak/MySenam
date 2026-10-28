@@ -16,11 +16,18 @@ import { baseUrl } from "./outbox";
  * changes. The first time, an existing account with the same email is joined
  * to it — only if Google says it has verified that email, or anybody could
  * make a Google account with somebody else's address and walk into theirs.
- * Joining it clears the account's password and signs it out everywhere, since
- * that password was set by whoever registered the address, not necessarily
- * its owner.
+ * An address Google has not verified is refused whether or not an account
+ * has it, in the same words, so the answer says nothing about accounts
+ * (docs/architecture/security.md, no enumeration).
+ * Joining an account clears its password and signs it out everywhere, since
+ * that password may have been set by whoever registered the address, not its
+ * owner — unless the address was proved first (`email_confirmed_at`: made by
+ * the link emailed to it, or its password set by a reset link), in which case
+ * the password is its owner's and stays.
  * Otherwise a new account is made, with no password and no phone number yet:
- * the number is asked for, and checked, before anything that needs it.
+ * the number is asked for, and checked, before anything that needs it. Made
+ * at the same moment by another route, the address's account is joined
+ * instead.
  *
  * GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET turn it on; the address to give
  * Google as the redirect is `<MYSENAM_URL>/api/auth/google/callback`.
@@ -197,28 +204,39 @@ export async function signInWithIdentity(who: {
     .get(who.provider, who.subject)) as { user_id: number } | undefined;
   if (known) return { ok: true, userId: known.user_id, created: false };
 
+  // Not verified by Google: refused whether an account has the address or not, in the same words.
+  if (!who.emailVerified)
+    return { ok: false, error: "Google has not confirmed this email address. Sign up or sign in with your email address instead." };
   const email = who.email.trim();
-  const existing = (await db.prepare("SELECT id FROM users WHERE email = ?").get(email)) as { id: number } | undefined;
-  if (existing && !who.emailVerified)
-    return { ok: false, error: "An account with this email already exists. Sign in with your password instead." };
+  const name = (who.name?.trim() || email.split("@")[0]).slice(0, 100);
+  // No password, so none can match; no phone yet, so one is asked for before booking. Losing a race for
+  // the address to a sign-up link or another Google sign-in makes nothing, and that account is joined.
+  const made = (await db
+    .prepare(
+      `INSERT INTO users (name, email, phone, password_hash, email_confirmed_at) VALUES (?, ?, '', '', datetime('now'))
+       ON CONFLICT (email) DO NOTHING RETURNING id`
+    )
+    .get(name, email)) as { id: number } | undefined;
   let userId: number;
   let created = false;
-  if (existing) {
+  if (made) {
+    userId = made.id;
+    created = true;
+  } else {
+    const existing = (await db.prepare("SELECT id, password_hash, email_confirmed_at FROM users WHERE email = ?").get(email)) as {
+      id: number;
+      password_hash: string;
+      email_confirmed_at: string | null;
+    };
     userId = existing.id;
-    // Nothing here ever proved that whoever set this account's password owns the address; Google just has.
-    // So somebody who signed up with it first, to be let in later, is shut out: the password goes, and
-    // every session with it. The owner signs in with Google, or sets a password by the reset email.
-    const had = (await db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId)) as { password_hash: string } | undefined;
-    if (had?.password_hash) {
+    // Unless the address was proved before, nothing showed that whoever set this account's password owns it;
+    // Google just has. So somebody who signed up with it first, to be let in later, is shut out: the password
+    // goes, and every session with it. The owner signs in with Google, or sets a password by the reset email.
+    if (existing.password_hash && !existing.email_confirmed_at) {
       await db.prepare("UPDATE users SET password_hash = '' WHERE id = ?").run(userId);
       await db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
     }
-  } else {
-    const name = (who.name?.trim() || email.split("@")[0]).slice(0, 100);
-    // No password, so none can match; no phone yet, so one is asked for before booking.
-    userId = (await db.prepare("INSERT INTO users (name, email, phone, password_hash) VALUES (?, ?, '', '')").run(name, email))
-      .lastInsertRowid as number;
-    created = true;
+    await db.prepare("UPDATE users SET email_confirmed_at = COALESCE(email_confirmed_at, datetime('now')) WHERE id = ?").run(userId);
   }
   await db
     .prepare("INSERT INTO user_identities (provider, subject, user_id, email) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")

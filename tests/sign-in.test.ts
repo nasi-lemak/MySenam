@@ -160,16 +160,32 @@ describe("signing in with Google", () => {
     const existing = await account();
     const { pending } = startGoogle(null)!;
     googleAnswers(claimsFor(pending, { email: existing.email, email_verified: false }));
-    expect(await finishGoogle({ code: "x", state: pending.state, error: null }, pending)).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("Sign in with your password"),
-    });
+    const taken = await finishGoogle({ code: "x", state: pending.state, error: null }, pending);
+    expect(taken).toMatchObject({ ok: false, error: expect.stringContaining("Google has not confirmed this email address") });
+    // An address nobody has gets the same answer, and no account: the refusal says nothing about accounts.
+    googleAnswers(claimsFor(pending, { email: `nobody-${++n}@unverified.my`, email_verified: false }));
+    const free = await finishGoogle({ code: "x", state: pending.state, error: null }, pending);
+    expect(free).toEqual(taken);
+    expect(await getDb().prepare("SELECT 1 FROM users WHERE email = ?").get(`nobody-${n}@unverified.my`)).toBeUndefined();
     const before = await createSession(existing.id);
     googleAnswers(claimsFor(pending, { email: existing.email, email_verified: "true" }));
     expect(await finishGoogle({ code: "x", state: pending.state, error: null }, pending)).toMatchObject({ ok: true, userId: existing.id });
     // Whoever registered the address first, to be let in later, is shut out: no password, no session.
     expect(await authenticate(existing.email, "a long enough password")).toBeNull();
     expect(await getUserByToken(before.token)).toBeNull();
+  });
+
+  it("keeps the password of an account whose address was proved before Google joins it", async () => {
+    google();
+    const proved = await account();
+    await getDb().prepare("UPDATE users SET email_confirmed_at = datetime('now') WHERE id = ?").run(proved.id);
+    const before = await createSession(proved.id);
+    const { pending } = startGoogle(null)!;
+    googleAnswers(claimsFor(pending, { email: proved.email, email_verified: true }));
+    expect(await finishGoogle({ code: "x", state: pending.state, error: null }, pending)).toMatchObject({ ok: true, userId: proved.id, created: false });
+    // The address's owner set that password (by the sign-up or reset link): it stays, and so do their sessions.
+    expect(await authenticate(proved.email, "a long enough password")).toMatchObject({ id: proved.id });
+    expect(await getUserByToken(before.token)).toMatchObject({ id: proved.id });
   });
 
   it("refuses an answer that is not for this sign-in", async () => {

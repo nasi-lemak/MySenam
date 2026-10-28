@@ -238,7 +238,7 @@ export async function completeRegistration(
     if (!link) return registrationInvalid();
     const user = (await db
       .prepare(
-        `INSERT INTO users (name, email, phone, password_hash, locale) VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO users (name, email, phone, password_hash, locale, email_confirmed_at) VALUES (?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT (email) DO NOTHING RETURNING id, name, email::text AS email, phone`
       )
       .get(input.name.trim(), link.email, input.phone.trim(), passwordHash, isLocale(link.locale) ? link.locale : null)) as User | undefined;

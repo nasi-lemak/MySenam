@@ -279,6 +279,8 @@ describe("the link", () => {
     expect(await authenticate("finisher@signup.my", details.password)).toMatchObject({ id: user.id });
     // In the language the sign-up was asked in.
     expect((await getDb().prepare("SELECT locale FROM users WHERE id = ?").get(user.id)) as { locale: string }).toEqual({ locale: "zh" });
+    // The link proved the address: Google joining the account later keeps its password (lib/oauth.ts).
+    expect(((await getDb().prepare("SELECT email_confirmed_at FROM users WHERE id = ?").get(user.id)) as { email_confirmed_at: string | null }).email_confirmed_at).not.toBeNull();
 
     const again = await complete(req("/api/auth/register/complete", { token, ...details, name: "Somebody Else" }));
     expect(again.status).toBe(400);

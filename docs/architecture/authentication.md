@@ -159,9 +159,12 @@ one rather than the other.
   limit, as a reset does. The form's hidden field, filled in only by scripts,
   gets the same answer, and nothing is sent.
 
-The app does not record that an address was confirmed: an account made by a
-link has proved it, one made before this flow may not have. So Google sign-in still clears the password of an
-account it joins (below). Tests and the demo make accounts directly with
+An account records when its address was proved (`email_confirmed_at`,
+migration 0224): made by this link, made by Google with an address Google has
+verified, or given its password by a reset link emailed to it. Google sign-in
+keeps the password of such an account when it joins it (below); accounts made
+before migration 0224, and never reset since, have no such record. Tests and
+the demo make accounts directly with
 `registerUser` (`src/lib/auth.ts`), which no route exposes.
 
 ## Signing in with Google
@@ -179,9 +182,16 @@ offers *Continue with Google* above the email and password form, which stays.
   it. The first time, an existing account with the same email is joined to it
   only if Google says it has verified that email — otherwise anybody could
   create a Google account with somebody else's address and walk into theirs.
-  Failing both, a new account is made, with no password and no phone number;
-  a [sign-up link](#signing-up) still out for that address can no longer be
-  used.
+  An address Google has not verified is refused whether or not an account has
+  it, in the same words, so the answer says nothing about accounts. Joining
+  clears the account's password and signs it out everywhere, since whoever
+  set it may have registered the address before its owner, unless the
+  address was proved first (above), when the password is the owner's and
+  stays. Failing both, a new account is made, with no password and no phone
+  number; a [sign-up link](#signing-up) still out for that address can no
+  longer be used, and an account made for the address at the same moment by
+  another route is joined instead (`tests/sign-in.test.ts`,
+  `tests/registration.test.ts`).
 - **Only at the main address.** Google sends people back to the one redirect
   registered with it, so the button is not shown on a venue's own storefront
   domain, where the session would land on another site.

@@ -86,6 +86,8 @@ describe("forgot password", () => {
     expect(await authenticate("aisyah@example.com", "new-password-2")).toMatchObject({ id: userId });
     expect(await authenticate("aisyah@example.com", "old-password-1")).toBeNull();
     expect(await getUserByToken(elsewhere.token)).toBeNull();
+    // The link went to the address, so the password is its owner's: recorded as proved (lib/oauth.ts keeps it).
+    expect(((await getDb().prepare("SELECT email_confirmed_at FROM users WHERE id = ?").get(userId)) as { email_confirmed_at: string | null }).email_confirmed_at).not.toBeNull();
 
     // Used once, it is spent.
     expect(await resetPassword("user", token, "third-password-3")).toMatchObject({ ok: false, code: "RESET_INVALID" });

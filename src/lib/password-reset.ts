@@ -169,6 +169,9 @@ export async function resetPassword(kind: AccountKind, token: string, password: 
       .get(kind, hashOf(token))) as { account_id: number } | undefined;
     if (!claimed) return refuse("RESET_INVALID");
     await db.prepare(`UPDATE ${t.accounts} SET password_hash = ? WHERE id = ?`).run(hashPassword(password), claimed.account_id);
+    // The link went to the account's address, so whoever set this password holds it (lib/oauth.ts keeps it).
+    if (kind === "user")
+      await db.prepare("UPDATE users SET email_confirmed_at = COALESCE(email_confirmed_at, datetime('now')) WHERE id = ?").run(claimed.account_id);
     await db.prepare(`DELETE FROM ${t.sessions} WHERE ${t.sessionColumn} = ?`).run(claimed.account_id);
     // Any other links still out for this account are void now too.
     await db

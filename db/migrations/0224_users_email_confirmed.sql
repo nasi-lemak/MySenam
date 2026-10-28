@@ -1,0 +1,11 @@
+-- When an account's email address was proved to belong to whoever holds the
+-- account (lib/oauth.ts, lib/registration.ts, lib/password-reset.ts): made by
+-- the link emailed to it, made by Google with an address Google has verified,
+-- or given its password by a reset link emailed to it.
+--
+-- Google sign-in joining an account by a verified address clears the
+-- account's password, since nothing proved that whoever set it owns the
+-- address; an account whose address was proved this way keeps it. Accounts
+-- made before this migration have no record, and Google joining them clears
+-- the password as before.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_confirmed_at TEXT;
