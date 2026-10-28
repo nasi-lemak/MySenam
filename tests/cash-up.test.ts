@@ -156,13 +156,14 @@ describe("every counter sale says how it was paid", () => {
 
 describe("the cash-up", () => {
   beforeAll(async () => {
-    // A booking marked paid in cash by the desk, a counter sale by the manager, and a pass voided by the manager.
+    // A booking marked paid in cash by the desk, a counter sale by the manager, and a pass voided by the manager, its
+    // unused part (all of it) handed back.
     const b = await createBooking({ courtId, date: addDays(today, 2), hours: [10], name: "Ben", phone: "0128880009" });
     if (!b.ok) throw new Error(b.error);
     expect((await call(paymentsPost, "/api/admin/payments", asDesk, { code: b.booking.code, paid: true, via: "cash" })).status).toBe(200);
     expect((await call(salesPost, "/api/admin/counter-sales", asManager, { venueId, via: "transfer", items: [{ name: "Grip", price: 8, quantity: 1 }] })).status).toBe(200);
     const pass = (await getDb().prepare("SELECT id FROM passes WHERE venue_id = ? ORDER BY id LIMIT 1").get(venueId)) as { id: number };
-    expect((await call(passVoid, "", asManager, {}, { id: String(pass.id) })).status).toBe(200);
+    expect((await call(passVoid, "", asManager, { refund: true }, { id: String(pass.id) })).status).toBe(200);
   });
 
   it("adds up the day by method out of the journal, row for row", async () => {
