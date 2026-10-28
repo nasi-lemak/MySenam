@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, setAdminLocale } from "@/lib/admin-auth";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
-  const body = (await req.json().catch(() => null)) as { locale?: unknown } | null;
+  const body = await jsonObject(req).catch(() => null);
   if (!body || !("locale" in body)) return NextResponse.json({ error: "locale is required." }, { status: 400 });
   const set = await setAdminLocale(admin.id, body.locale);
   if (!set.ok) return NextResponse.json(set, { status: 400 });

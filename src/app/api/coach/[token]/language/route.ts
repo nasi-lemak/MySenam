@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { coachForToken, logCoachChange, setCoachLocale } from "@/lib/coach-schedule";
 import { rateLimit } from "@/lib/rate-limit";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   if (limited) return limited;
   const found = await coachForToken((await params).token);
   if (!found || !found.coach.active) return NextResponse.json({ error: "This link is no longer in use." }, { status: 404 });
-  const body = (await req.json().catch(() => null)) as { locale?: unknown } | null;
+  const body = await jsonObject(req).catch(() => null);
   if (!body || !("locale" in body)) return NextResponse.json({ error: "locale is required." }, { status: 400 });
   const set = await setCoachLocale(found.coach.id, null, body.locale);
   if (!set.ok) return NextResponse.json(set, { status: 400 });
