@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -26,9 +27,9 @@ export default function PreferencesPage() {
     void (async () => {
       const res = await fetch("/api/my/profile", { cache: "no-store" });
       if (res.status === 401) return setSignedOut(true);
-      setProfile((await res.json()).profile);
+      setProfile((await readJson(res)).profile);
       const b = await fetch("/api/players/blocks", { cache: "no-store" });
-      if (b.ok) setBlocks((await b.json()).blocks);
+      if (b.ok) setBlocks((await readJson(b)).blocks);
     })();
   }, []);
 
@@ -53,7 +54,7 @@ export default function PreferencesPage() {
     setError(null);
     setNotice(null);
     const res = await fetch("/api/my/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(data.error);
     setProfile(data.profile);
     setNotice(t("prefs.saved"));
@@ -61,7 +62,7 @@ export default function PreferencesPage() {
 
   async function unblock(userId: number) {
     const res = await fetch("/api/players/blocks", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }) });
-    if (res.ok) setBlocks((await res.json()).blocks);
+    if (res.ok) setBlocks((await readJson(res)).blocks);
   }
 
   return (

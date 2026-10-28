@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useRef, useState } from "react";
 import type { CashUp } from "@/lib/cash-up";
 import type { ManagedVenue } from "./shared";
@@ -30,7 +31,7 @@ export function CashUpPanel({ venues }: { venues: ManagedVenue[] }) {
     setError(null);
     void fetch(`/api/admin/cash-up?venueId=${venueId}${date ? `&date=${date}` : ""}${staffId ? `&staffId=${staffId}` : ""}`, { cache: "no-store" })
       .then(async (r) => {
-        const body = await r.json().catch(() => ({}));
+        const body = await readJson(r).catch(() => ({}));
         if (mine !== asked.current) return;
         if (!r.ok) {
           setData(null);

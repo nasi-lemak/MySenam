@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { IntegrityProblem } from "@/lib/integrity";
 import type { ManagedVenue } from "./shared";
@@ -26,7 +27,7 @@ export function IntegrityCheck({ venues, own = false }: { venues: ManagedVenue[]
     setError(null);
     try {
       const res = await fetch("/api/admin/integrity", { cache: "no-store" });
-      const data = await res.json().catch(() => null);
+      const data = await readJson(res).catch(() => null);
       if (!res.ok) throw new Error(t.err(data, t("ow5.int.failed")));
       setProblems((data?.problems ?? []) as IntegrityProblem[]);
       setCheckedAt(new Date());

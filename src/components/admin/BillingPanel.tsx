@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Invoice, VenuePlan } from "@/lib/billing";
 import type { OnlinePayment } from "@/lib/payments";
@@ -35,7 +36,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/billing", { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bill.loadFailed")));
       setState(data);
     } catch (err) {
@@ -57,7 +58,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bill.requestFailed")));
       if (typeof data.url === "string") {
         window.location.assign(data.url);
@@ -196,7 +197,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                   <tr key={p.venueId}>
                     <td className="px-3 py-2 font-medium">{p.venueName}</td>
                     <td className="px-3 py-2">
-                      <input
+                      <input aria-label={t("q8b.l.fee")}
                         value={editing.fee}
                         onChange={(e) => setEditing({ ...editing, fee: e.target.value })}
                         placeholder={p.feeFrom === "own" ? t("bill.bySize") : t("bill.amountBySize", { amount: money(p.effectiveFee) })}
@@ -205,7 +206,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                       />
                     </td>
                     <td className="px-3 py-2">
-                      <input
+                      <input aria-label={t("q8b.l.startsOn")}
                         type="date"
                         value={editing.start}
                         onChange={(e) => setEditing({ ...editing, start: e.target.value })}

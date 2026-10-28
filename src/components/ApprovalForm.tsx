@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { ApprovalQuestion } from "@/lib/approvals";
 import { hasPhrase, sportLabel, translateError, type Phrase, type T } from "@/lib/i18n";
@@ -154,7 +155,7 @@ export function ApprovalForm({ info, onDone, initialFor }: { info: ApplyInfo; on
     for (const f of files) form.append("document", f);
     try {
       const res = await fetch("/api/my/approvals", { method: "POST", body: form });
-      const body = await res.json();
+      const body = await readJson(res);
       if (!res.ok) throw new Error(explainApproval(t, body));
       onDone();
     } catch (err) {

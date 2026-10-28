@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useStaffT } from "./StaffLanguage";
 
@@ -15,7 +16,7 @@ export function BookingLinkCard({ venueId, venueName }: { venueId: number; venue
 
   useEffect(() => {
     void fetch(`/api/admin/booking-link?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then((d: { url?: string } | null) => setUrl(d?.url ?? null))
       .catch(() => setUrl(null));
   }, [venueId]);

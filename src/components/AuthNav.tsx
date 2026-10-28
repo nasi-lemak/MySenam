@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -15,7 +16,7 @@ export default function AuthNav() {
   // Refetch on every route change so the chip updates right after login/logout.
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => res.json())
+      .then((res) => readJson(res))
       .then((data) => setUser(data.user))
       .catch(() => setUser(null))
       .finally(() => setLoaded(true));

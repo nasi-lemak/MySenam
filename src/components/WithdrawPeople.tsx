@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError, type T } from "@/lib/i18n";
@@ -77,7 +78,7 @@ export function WithdrawPeople({
         ? `code=${encodeURIComponent(source.code)}&phone=${encodeURIComponent(source.phone)}`
         : `bookingId=${source.bookingId}`;
       const res = await fetch(`${url}?${query}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("ent.who.failed"));
       setOptions(data.options as Option[]);
     } catch (err) {
@@ -101,7 +102,7 @@ export function WithdrawPeople({
           ...(o.who === "unnamed" ? { unnamed: 1 } : o.who === "customer" ? { customer: true } : { participantId: o.participantId }),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("ent.who.failed"));
       const done = withdrawMoneyLine(t, data.withdrawal);
       setOptions(null);

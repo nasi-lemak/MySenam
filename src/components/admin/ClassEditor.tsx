@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { ClassSession } from "@/lib/types";
 import { currencySymbol } from "@/lib/region";
@@ -47,7 +48,7 @@ export function ClassEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("p8c.cls.saveFailed")));
       const saved = t.plural("p8c.cls.saved", (data.classes as unknown[]).length);
       onDone(data.offered > 0 ? `${saved} ${t("p8c.cls.offered")}` : saved);

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 
 /** Who is signed in, asked once per page however many screens ask. */
@@ -7,7 +8,7 @@ let asked: Promise<{ id: number; role: "manager" | "desk" } | null> | null = nul
 
 function me() {
   asked ??= fetch("/api/admin/auth/me", { cache: "no-store" })
-    .then((r) => (r.ok ? r.json() : null))
+    .then((r) => (r.ok ? readJson(r) : null))
     .then((d) => (d?.admin ? { id: d.admin.id as number, role: d.admin.role === "desk" ? ("desk" as const) : ("manager" as const) } : null))
     .catch(() => null);
   return asked;

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Audience } from "@/lib/marketing";
 import type { ManagedVenue } from "./shared";
@@ -24,7 +25,7 @@ export function MarketingPanel({ venues }: { venues: ManagedVenue[] }) {
   const load = useCallback(async () => {
     if (!venueId) return;
     const res = await fetch(`/api/admin/marketing?venueId=${venueId}`, { cache: "no-store" });
-    const d = await res.json();
+    const d = await readJson(res);
     if (res.ok) setData(d);
     else setError(t.err(d, t("mkt.loadFailed")));
   }, [venueId, t]);
@@ -43,7 +44,7 @@ export function MarketingPanel({ venues }: { venues: ManagedVenue[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, action, subject, body }),
       });
-      const d = await res.json();
+      const d = await readJson(res);
       if (!res.ok) throw new Error(t.err(d, t("mkt.sendFailed")));
       if (action === "test") setNotice(t("mkt.testSent", { to: d.sentTo }));
       else {

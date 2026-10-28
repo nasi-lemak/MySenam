@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Pack } from "@/lib/whatsapp-credit";
 import type { Usage } from "@/lib/whatsapp-usage";
@@ -43,7 +44,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/whatsapp?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setS(await res.json());
+    if (res.ok) setS(await readJson(res));
   }, [venueId]);
   useEffect(() => {
     if (open && s === null) void load();
@@ -58,7 +59,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...body }),
       });
-      const out = await res.json();
+      const out = await readJson(res);
       if (!res.ok) throw new Error(t.err(out, t("wa.requestFailed")));
       if (typeof out.url === "string") return window.location.assign(out.url);
       setS(out);

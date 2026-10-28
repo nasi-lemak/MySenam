@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -25,7 +26,7 @@ export default function GiftVoucherForm({ venueId, venueName, min, max }: { venu
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...form, amount }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok || typeof data.url !== "string") throw new Error(translateError(t, data) || t("pay.failed"));
       window.location.assign(data.url);
     } catch (err) {

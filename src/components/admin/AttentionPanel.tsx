@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { UrgentNotice } from "@/lib/urgent";
 import type { OverdueRefunds } from "@/lib/payments";
@@ -78,7 +79,7 @@ export function AttentionPanel() {
 
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/attention", { cache: "no-store" });
-    if (res.ok) setData(await res.json());
+    if (res.ok) setData(await readJson(res));
   }, []);
   useEffect(() => {
     void load();
@@ -106,7 +107,7 @@ export function AttentionPanel() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ taskId, action: "guardianTold", how: "told" }),
     });
-    const out = await res.json();
+    const out = await readJson(res);
     if (!res.ok) setError(t.err(out, t("att.saveFailed")));
     else setData((was) => (was ? { ...was, ...out } : was));
   }
@@ -195,7 +196,7 @@ export function AttentionPanel() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ id: n.id, action: "told" }),
                   });
-                  const out = await res.json();
+                  const out = await readJson(res);
                   if (!res.ok) setError(t.err(out, t("att.saveFailed")));
                   else setData((was) => ({ ...was, ...out }));
                 }}

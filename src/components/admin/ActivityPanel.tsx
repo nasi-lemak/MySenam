@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { ACTION_LABELS, type StaffAction } from "@/lib/activity-labels";
 import type { StaffPhrase } from "@/lib/staff-i18n";
@@ -206,7 +207,7 @@ export function ActivityPanel({ venueId, from, to }: { venueId: number; from: st
     const params = new URLSearchParams({ venueId: String(venueId), from, to, limit: "300" });
     if (query) params.set("code", query);
     void fetch(`/api/admin/activity?${params}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : { actions: [] }))
+      .then((r) => (r.ok ? readJson(r) : { actions: [] }))
       .then((d: { actions?: StaffAction[] }) => live && setActions(d.actions ?? []));
     return () => {
       live = false;

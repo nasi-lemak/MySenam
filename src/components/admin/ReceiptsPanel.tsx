@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
@@ -37,7 +38,7 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
   useEffect(() => {
     setRows(null);
     void fetch(`/api/admin/receipts?venueId=${venueId}${listParams(query)}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then((d) => {
         setRows(d?.receipts ?? []);
         setMore(d?.more === true);
@@ -49,7 +50,7 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold">{t("rcp.title")}</h3>
         {venues.length > 1 && (
-          <select
+          <select aria-label={t("q8b.l.venue")}
             value={venueId}
             onChange={(e) => setVenueId(Number(e.target.value))}
             className="rounded-md border border-slate-300 px-2 py-1 text-sm"

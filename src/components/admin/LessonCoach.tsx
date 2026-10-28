@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { Coach } from "@/lib/coaching";
 import type { CoachChangeTerms, CoachMoney } from "@/lib/lesson-coaches";
@@ -50,7 +51,7 @@ export function LessonCoach({
   useEffect(() => {
     let live = true;
     fetch(`/api/admin/coaches?venueId=${venueId}`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data: { coaches?: Coach[] } | null) => live && setCoaches(data?.coaches ?? []))
       .catch(() => live && setCoaches([]));
     return () => {
@@ -66,7 +67,7 @@ export function LessonCoach({
     let live = true;
     fetch(`/api/admin/bookings/lesson-coach?code=${encodeURIComponent(code)}&coachId=${value}`, { cache: "no-store" })
       .then(async (res) => {
-        const data = await res.json();
+        const data = await readJson(res);
         if (!live) return;
         if (res.ok) setTerms(data);
         else setRefused(t.err(data, t("co6.bk.termsFailed")));

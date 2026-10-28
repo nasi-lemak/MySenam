@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 
@@ -21,7 +22,7 @@ export function BookAgain({ code, phone, className }: { code: string; phone?: st
         `/api/bookings/again?code=${encodeURIComponent(code)}${phone ? `&phone=${encodeURIComponent(phone)}` : ""}`,
         { cache: "no-store" }
       );
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok || typeof data.url !== "string") throw new Error();
       window.location.assign(data.url);
     } catch {

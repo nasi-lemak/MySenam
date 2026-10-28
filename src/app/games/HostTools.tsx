@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { T } from "@/lib/i18n";
 import type { OpenGame } from "@/lib/games";
@@ -25,13 +26,13 @@ export function HostTools({ t, g, act }: { t: T; g: OpenGame; act: Act }) {
 
   async function showGroups() {
     const res = await fetch("/api/groups", { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     setGroups(((data.groups ?? []) as Group[]).filter((x) => x.mine?.status === "member").map((x) => ({ id: x.id, name: x.name })));
   }
 
   async function showCandidates() {
     const res = await fetch(`/api/games/${g.id}/candidates`, { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(data.error);
     setCandidates(data.players);
   }
@@ -39,7 +40,7 @@ export function HostTools({ t, g, act }: { t: T; g: OpenGame; act: Act }) {
   async function makeLink() {
     setError(null);
     const res = await fetch(`/api/games/${g.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "link", hours: 72 }) });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(data.error);
     setLink(data);
   }
@@ -145,7 +146,7 @@ export function SafetyButtons({ t, userId, gameId, done }: { t: T; userId: numbe
   const small = "rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:border-red-400";
   async function send(url: string, body: object, ok: string) {
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await res.json();
+    const data = await readJson(res);
     done(res.ok ? ok : null, res.ok ? undefined : data.error);
   }
   return (

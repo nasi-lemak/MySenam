@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -58,7 +59,7 @@ export function ChangeTime({
     setError(null);
     fetch(optionsUrl(date), { cache: "no-store" })
       .then(async (res) => {
-        const data = await res.json();
+        const data = await readJson(res);
         if (!res.ok) throw new Error(translateError(t, data) || "Could not load times");
         if (live) setOptions(data.options as RescheduleOption[]);
       })
@@ -76,7 +77,7 @@ export function ChangeTime({
       setError(null);
       try {
         const res = await preview(o, date);
-        const data = await res.json();
+        const data = await readJson(res);
         if (!res.ok) throw new Error(translateError(t, data) || "Could not change it");
         setChecking({ option: o, preview: data.preview as MovePreview });
       } catch (err) {
@@ -95,7 +96,7 @@ export function ChangeTime({
     setError(null);
     try {
       const res = await submit(o, date, why);
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || "Could not change it");
       setChecking(null);
       onDone((data.booking as Booking | undefined) ?? booking, data.outcome === "proposal" ? t("move.proposed") : t("resched.done", { when: when(o) }));

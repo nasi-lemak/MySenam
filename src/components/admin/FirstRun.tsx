@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { intlTag, isoOffset, region } from "@/lib/region";
 import type { Locale } from "@/lib/i18n";
@@ -55,7 +56,7 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
 
   useEffect(() => {
     fetch("/api/admin/demo", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then((d) => setState(d))
       .catch(() => setState(null));
   }, []);
@@ -69,7 +70,7 @@ export function FirstRun({ onSeeded }: { onSeeded: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("fr.couldNotLoad")));
       setDone({ bookings: data.bookings, extras: data.extras, extraPhrases: data.extraPhrases });
       setState(null);

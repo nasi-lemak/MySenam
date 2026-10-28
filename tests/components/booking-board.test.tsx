@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import BookingBoard from "../../src/components/BookingBoard";
 import { LanguageProvider } from "../../src/components/Language";
 import { addDays, todayISO } from "../../src/lib/time";
+import { shortDate } from "../../src/lib/region";
 
 /**
  * The board is where a customer books: a start and a length, picked on the
@@ -335,7 +336,8 @@ describe("the day the venue is shut", () => {
     availability = [row({ slots: slots(HOURS, false), starts: [] })];
     extra = { closure: { date: DAY, reason: "Public holiday" } };
     await act(async () => void board());
-    expect(screen.getByText(new RegExp(`Closed on ${DAY}`))).toBeTruthy();
+    // The day with its weekday, as every customer date is written (audit R8 X2-16).
+    expect(screen.getByText(new RegExp(`Closed on ${shortDate(DAY, "en", true)}`))).toBeTruthy();
     expect(screen.getByText("Public holiday")).toBeTruthy();
   });
 });

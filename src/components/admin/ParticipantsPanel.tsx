@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { LOCALE_NAMES, offeredLocales, type Locale } from "@/lib/i18n";
@@ -116,7 +117,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
             ? `/api/admin/participants?venueId=${venueId}&review=1`
             : `/api/admin/participants?venueId=${venueId}&phone=${encodeURIComponent(phone)}`;
       const res = await fetch(url, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setFound(data.participants);
       setCodesPossible(data.codesPossible !== false);
@@ -131,7 +132,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
     setNotice(null);
     try {
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setNotice(done);
       await load(lastLook);
@@ -181,7 +182,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, proposedName: invitee.proposedName, ...(invitee.email.trim() ? { email: invitee.email.trim() } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setMade({ participantId: p.id, ...data.request });
       setInvitingFor(null);

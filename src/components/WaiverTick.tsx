@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 
@@ -26,7 +27,7 @@ export default function WaiverTick({
   useEffect(() => {
     let live = true;
     fetch(`/api/venues/${venueId}/waiver`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data) => live && setAsks(!!data?.waiver))
       .catch(() => {});
     return () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { Membership } from "@/lib/types";
 import type { CoverChangeView, CoverPlaces } from "@/lib/membership-purchases";
@@ -34,7 +35,7 @@ export function MembershipCovers({ membership, venueId, onChanged }: { membershi
   async function load() {
     const res = await fetch(`/api/admin/memberships/${membership.id}/covers`, { cache: "no-store" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setChanges(data.changes);
     setPlaces(data.places);
   }
@@ -48,7 +49,7 @@ export function MembershipCovers({ membership, venueId, onChanged }: { membershi
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ remove, ...(add ? { add: add.id } : {}), reason }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("mb6.cr.correctFailed")));
     setDone(true);
     setAdd(null);

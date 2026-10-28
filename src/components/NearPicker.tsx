@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 
@@ -50,7 +51,7 @@ export function NearPicker({
     setStatus("locating");
     try {
       const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
-      const data = (await res.json()) as { found?: { lat: number; lng: number } | null };
+      const data = (await readJson(res)) as { found?: { lat: number; lng: number } | null };
       if (!res.ok || !data.found) return setStatus("notFound");
       setStatus(null);
       onChange({ lat: data.found.lat, lng: data.found.lng, km, where: q });

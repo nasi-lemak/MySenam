@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -23,7 +24,7 @@ export function GuestInvites() {
     try {
       const res = await fetch("/api/my/guests", { cache: "no-store" });
       if (res.ok) {
-        const data = await res.json();
+        const data = await readJson(res);
         setVenues(data.venues ?? []);
         setPhoneChecks(data.phoneChecks === true);
       }
@@ -48,7 +49,7 @@ export function GuestInvites() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId: form.venueId, phone: form.phone, name: form.name, days: Number(form.days), email: form.email }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("guests.failed"));
       setVenues(data.venues);
       // The same words whether or not an account holds the address given: nothing here can say which.
@@ -64,7 +65,7 @@ export function GuestInvites() {
   async function remove(id: number) {
     setError(null);
     const res = await fetch(`/api/my/guests?id=${id}`, { method: "DELETE" });
-    if (res.ok) setVenues((await res.json()).venues ?? []);
+    if (res.ok) setVenues((await readJson(res)).venues ?? []);
   }
 
   /** The emailed invitation for one guest, not yet accepted, withdrawn after a confirm; the guest stays on the list. */
@@ -78,7 +79,7 @@ export function GuestInvites() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "withdrawInvitation", id }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (data.venues) setVenues(data.venues);
     if (!res.ok) {
       setError(translateError(t, data) || t("guests.failed"));

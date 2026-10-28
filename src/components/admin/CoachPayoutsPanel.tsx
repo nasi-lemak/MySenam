@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { CoachPayout } from "@/lib/coach-schedule";
 import { money } from "@/lib/region";
@@ -14,7 +15,7 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
     let live = true;
     setPayouts(null);
     void fetch(`/api/admin/coach-payouts?venueId=${venueId}&from=${from}&to=${to}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : { payouts: [] }))
+      .then((r) => (r.ok ? readJson(r) : { payouts: [] }))
       .then((d) => live && setPayouts(d.payouts ?? []))
       .catch(() => live && setPayouts([]));
     return () => {

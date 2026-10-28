@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { AccessEntry, AccessKind, AccessSettings, VenueAccess } from "@/lib/access";
 import { money, region } from "@/lib/region";
@@ -53,7 +54,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/venue-access?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) take(await res.json());
+    if (res.ok) take(await readJson(res));
   }, [venueId]);
 
   useEffect(() => {
@@ -70,7 +71,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...body }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
       take(data);
       setNotice(typeof data.added === "number" ? t("acs.imported", { added: data.added, updated: data.updated }) : ok);
@@ -310,7 +311,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                   {t("acs.pasteLine")} <span className="font-mono">{t("acs.pasteFormat")}</span> {t("acs.pasteRest")}
                 </p>
                 {/* staff-i18n-ignore: sample rows in the import format (a number, a name, a unit), the same in every language */}
-                <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={5} placeholder={`${region().phone.example}, Aisyah Rahman, A-12-3\n${region().phone.example}, Lee Wei, B-05-1`} className={`mt-1 w-full font-mono ${input}`} />
+                <textarea aria-label={t("q8b.l.rows")} value={paste} onChange={(e) => setPaste(e.target.value)} rows={5} placeholder={`${region().phone.example}, Aisyah Rahman, A-12-3\n${region().phone.example}, Lee Wei, B-05-1`} className={`mt-1 w-full font-mono ${input}`} />
                 <button
                   disabled={busy || paste.trim() === ""}
                   onClick={async () => {

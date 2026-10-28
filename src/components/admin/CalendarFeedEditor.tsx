@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { FeedStatus } from "@/lib/staff-calendar";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
@@ -31,7 +32,7 @@ export function CalendarFeedEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     setFeed(undefined);
     void fetch(`/api/admin/calendar-feed?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: Partial<Feed>) => setFeed(feedOf(d)));
   }, [venueId]);
 
@@ -47,7 +48,7 @@ export function CalendarFeedEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, on }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
       setFeed(feedOf(data));
     } catch (err) {

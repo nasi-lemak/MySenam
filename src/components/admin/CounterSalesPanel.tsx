@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Addon } from "@/lib/addons";
 import type { CounterDay } from "@/lib/counter-sales";
@@ -35,8 +36,8 @@ export function CounterSalesPanel({ venues }: { venues: ManagedVenue[] }) {
     if (!venueId) return;
     try {
       const [a, d] = await Promise.all([
-        fetch(`/api/admin/addons?venueId=${venueId}`, { cache: "no-store" }).then((r) => r.json()),
-        fetch(`/api/admin/counter-sales?venueId=${venueId}&date=${date}`, { cache: "no-store" }).then((r) => r.json()),
+        fetch(`/api/admin/addons?venueId=${venueId}`, { cache: "no-store" }).then((r) => readJson(r)),
+        fetch(`/api/admin/counter-sales?venueId=${venueId}&date=${date}`, { cache: "no-store" }).then((r) => readJson(r)),
       ]);
       setAddons(((a.addons ?? []) as Addon[]).filter((x) => x.active && x.price > 0));
       setDay(d.sales ? d : null);
@@ -72,7 +73,7 @@ export function CounterSalesPanel({ venues }: { venues: ManagedVenue[] }) {
           items: cart.map((l) => (l.addonId !== null ? { addonId: l.addonId, quantity: l.quantity } : { name: l.name, price: l.price, quantity: l.quantity })),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("pos.saleFailed")));
       setNotice({ text: t("pos.sold", { amount: money(data.sale.total), via: t(`c.via.${via}`), number: data.sale.receipt?.number ?? "" }), path: data.sale.receipt?.path ?? null });
       setCart([]);
@@ -95,7 +96,7 @@ export function CounterSalesPanel({ venues }: { venues: ManagedVenue[] }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) setError(t.err(data, t("pos.voidFailed")));
     await load();
   }

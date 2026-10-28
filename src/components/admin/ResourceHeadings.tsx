@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { Court } from "@/lib/types";
 import { useStaffT } from "./StaffLanguage";
@@ -25,7 +26,7 @@ export function ResourceHeadings({ courts, onSaved }: { courts: Court[]; onSaved
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ heading: value.trim() === "" ? null : value }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("c.failed")));
     setNotice(t("res.headingSaved", { name: data.court.name }));
     onSaved();

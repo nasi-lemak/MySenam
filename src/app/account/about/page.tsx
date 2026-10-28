@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { safePath } from "@/lib/safe-path";
 import { useEffect, useState } from "react";
@@ -26,7 +27,7 @@ export default function AboutPage() {
     void (async () => {
       const res = await fetch("/api/my/about", { cache: "no-store" });
       if (res.status === 401) return setSignedOut(true);
-      setGender((await res.json()).gender);
+      setGender((await readJson(res)).gender);
       setLoaded(true);
     })();
   }, []);

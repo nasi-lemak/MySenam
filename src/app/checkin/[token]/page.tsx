@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
@@ -30,7 +31,7 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("checkin.failed"));
       setResult(data);
     } catch (err) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { TournamentDetail } from "@/lib/tournaments";
 import { currencySymbol } from "@/lib/region";
@@ -47,7 +48,7 @@ export function TournamentDetailsEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("p8c.tn.saveFailed")));
       onSaved(data.tournament as TournamentDetail, data.promoted > 0 ? t.plural("p8c.tn.promoted", data.promoted) : t("p8c.tn.saved"));
     } catch (err) {

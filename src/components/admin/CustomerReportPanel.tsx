@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { CustomerReport } from "@/lib/customer-report";
 import { money } from "@/lib/region";
@@ -17,7 +18,7 @@ export function CustomerReportPanel({ venueId, from, to }: { venueId: number; fr
   useEffect(() => {
     let live = true;
     fetch(`/api/admin/reports/customers?venueId=${venueId}&from=${from}&to=${to}`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data) => live && setReport(data?.report ?? null))
       .catch(() => live && setReport(null));
     return () => {

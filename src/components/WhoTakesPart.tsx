@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { EligibilityLine, EligibilityStatus } from "@/lib/eligibility";
 import type { KindNeeds } from "@/lib/court-activities";
@@ -62,7 +63,7 @@ export function useTaking(opts: { lazy?: boolean } = {}) {
     if (!wanted) return;
     let live = true;
     fetch("/api/my/people", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data) => {
         if (!live) return;
         if (!data || !Array.isArray(data.people)) {
@@ -234,7 +235,7 @@ export function useManagedPeople(signedIn: boolean): ManagedChoice[] {
     if (!signedIn) return;
     let live = true;
     fetch("/api/my/people", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data) => live && data && Array.isArray(data.people) && setPeople(data.people))
       .catch(() => {});
     return () => {

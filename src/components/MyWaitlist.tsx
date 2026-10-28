@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { WaitlistEntry } from "@/lib/types";
@@ -14,7 +15,7 @@ export default function MyWaitlist({ phone }: { phone: string }) {
     try {
       const res = await fetch("/api/my/waitlist", { cache: "no-store" });
       if (!res.ok) return;
-      const data = await res.json();
+      const data = await readJson(res);
       setEntries(data.entries);
     } catch {
       // Leave whatever is on screen.

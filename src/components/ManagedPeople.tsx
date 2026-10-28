@@ -1,10 +1,12 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { ManagedPerson, Relationship } from "@/lib/managed-people";
 import type { AccountRequests } from "@/lib/guardian-requests";
 import { hasPhrase, type Phrase, type T } from "@/lib/i18n";
 import { useT } from "@/components/Language";
+import { intlTag } from "@/lib/region";
 
 const RELATIONSHIPS: Relationship[] = ["parent", "guardian", "other"];
 
@@ -42,7 +44,7 @@ export default function ManagedPeople() {
 
   const load = useCallback(() => {
     fetch("/api/my/people?archived=1", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then((data) => {
         if (!data) return;
         setPeople(data.people);
@@ -59,9 +61,9 @@ export default function ManagedPeople() {
     setNotice(null);
     try {
       const res = await fetch("/api/my/people/invites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, purpose }) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(explainGuard(t, data));
-      const date = new Date(data.expiresAt).toLocaleDateString();
+      const date = new Date(data.expiresAt).toLocaleDateString(intlTag(t.locale), { weekday: "short", day: "numeric", month: "short" });
       setNotice(
         purpose === "guardian"
           ? t("ptc.invite.toGuardian", { code: data.code, date })
@@ -94,7 +96,7 @@ export default function ManagedPeople() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: codeForm.code, relationship: codeForm.relationship, ...(codeForm.authority ? { authority: true } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(explainGuard(t, data));
       setNotice(
         data.as === "pending"
@@ -135,7 +137,7 @@ export default function ManagedPeople() {
     setNotice(null);
     try {
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(explainGuard(t, data));
       setNotice(done);
       load();
@@ -151,7 +153,7 @@ export default function ManagedPeople() {
     setError(null);
     try {
       const res = await fetch("/api/my/people", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(explainGuard(t, data));
       setForm(EMPTY);
       setEditing(null);
@@ -237,7 +239,7 @@ export default function ManagedPeople() {
                 .filter((c) => c.participantId === p.id)
                 .map((c) => (
                   <span key={`${c.guardianshipId}-${c.kind}`} className="mt-0.5 block text-xs text-slate-500">
-                    {t(c.kind === "added" ? "gv.change.added" : "gv.change.ended", { date: new Date(c.at).toLocaleDateString() })}{" "}
+                    {t(c.kind === "added" ? "gv.change.added" : "gv.change.ended", { date: new Date(c.at).toLocaleDateString(intlTag(t.locale), { weekday: "short", day: "numeric", month: "short" }) })}{" "}
                     {c.kind === "added" &&
                       (c.reported ? (
                         t("gv.change.reported")

@@ -76,6 +76,7 @@ server composes still reads in English ([known limitations](../roadmap/known-lim
 | Confirmation by email with a calendar invite | Built; delivery never verified | [Messaging](../integrations/messaging.md) |
 | Attend: check in at the desk or by QR | Built | [Venue operations](../features/venue-operations.md#check-in-and-live-crowd-levels) |
 | Change the time, cancel, book again, from `/my-booking` | Built; changing the time (and its refusals) and cancelling tested in a browser | [Booking](../features/booking.md#changing-the-date-or-time) |
+| A taken time or a full class: join its waiting list; leave it, or turn an offer down, by its link | Built; component and route tests, not walked in a browser | [Booking](../features/booking.md#leaving-and-turning-an-offer-down) |
 
 ### A tournament organiser
 

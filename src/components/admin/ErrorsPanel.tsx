@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { ErrorGroup } from "@/lib/error-log";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
@@ -18,7 +19,7 @@ export function ErrorsPanel() {
 
   useEffect(() => {
     void fetch("/api/admin/errors", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then((d: { errors: ErrorGroup[]; sentry: boolean } | null) => {
         setErrors(d?.errors ?? null);
         setSentry(d?.sentry ?? false);
@@ -32,7 +33,7 @@ export function ErrorsPanel() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
-    if (res.ok) setErrors((await res.json()).errors);
+    if (res.ok) setErrors((await readJson(res)).errors);
   }
 
   if (!errors || errors.length === 0) return null;

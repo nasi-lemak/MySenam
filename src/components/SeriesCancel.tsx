@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { translateError, type T } from "@/lib/i18n";
 import { money } from "@/lib/region";
@@ -41,7 +42,7 @@ export function SeriesCancel({
     let live = true;
     (async () => {
       const res = await post({ preview: true });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!live) return;
       if (!res.ok) return setError(translateError(t, data) || t("mine.cancelFailed"));
       setWeeks(data.weeks);
@@ -63,7 +64,7 @@ export function SeriesCancel({
     setError(null);
     try {
       const res = await post({ codes: picked.map((w) => w.code), acceptLate: picked.filter((w) => w.outcome === "late").map((w) => w.code) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
       onDone(data);
     } catch (err) {

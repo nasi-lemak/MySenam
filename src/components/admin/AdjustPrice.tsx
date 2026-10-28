@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { money } from "@/lib/region";
 import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
@@ -46,7 +47,7 @@ export function AdjustPrice({ b, onDone }: { b: Row; onDone: () => void }) {
     // What it costs now: paid, the customer's own part (others' shares are theirs).
     setAmount(String(paid ? b.totalPrice - b.sharesPaid : b.totalPrice));
     const res = await fetch(`/api/admin/bookings/adjust-price?code=${encodeURIComponent(b.code)}`, { cache: "no-store" });
-    if (res.ok) setHistory((await res.json()).adjustments ?? []);
+    if (res.ok) setHistory((await readJson(res)).adjustments ?? []);
   }
 
   async function save(e: React.FormEvent) {
@@ -59,7 +60,7 @@ export function AdjustPrice({ b, onDone }: { b: Row; onDone: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: b.code, ...(free ? { complimentary: true } : { amount: Number(amount) }), reason }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await readJson(res).catch(() => ({}));
       if (!res.ok) throw new Error(t.err(data, t("p8b.adj.failed")));
       setDone(
         data.creditNote

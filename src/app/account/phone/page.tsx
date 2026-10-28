@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { safePath } from "@/lib/safe-path";
 import { useEffect, useState } from "react";
@@ -36,7 +37,7 @@ export default function PhonePage() {
     const timer = setInterval(async () => {
       const res = await fetch("/api/my/phone", { cache: "no-store" });
       if (!res.ok) return;
-      const s = (await res.json()) as PhoneStatus;
+      const s = (await readJson(res)) as PhoneStatus;
       if (s.verified) {
         clearInterval(timer);
         window.location.href = next;
@@ -49,7 +50,7 @@ export default function PhonePage() {
     void (async () => {
       const res = await fetch("/api/my/phone", { cache: "no-store" });
       if (res.status === 401) return setSignedOut(true);
-      const s = (await res.json()) as PhoneStatus;
+      const s = (await readJson(res)) as PhoneStatus;
       setStatus(s);
       setPhone(s.phone);
     })();
@@ -60,7 +61,7 @@ export default function PhonePage() {
     setError(null);
     try {
       const res = await fetch("/api/my/phone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const out = await res.json();
+      const out = await readJson(res);
       if (!res.ok) {
         setError(translateError(t, out) || out.error);
         return null;

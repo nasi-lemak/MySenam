@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -32,7 +33,7 @@ export default function RegisterPage() {
     if (!found) return;
     void fetch("/api/auth/register/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: found }) })
       .then(async (res) => {
-        const data = await res.json();
+        const data = await readJson(res);
         if (res.ok) setEmail(String(data.email));
         else setDead(translateError(t, data) || t("auth.failed"));
       })
@@ -49,7 +50,7 @@ export default function RegisterPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, name, phone, password }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) {
         if (data?.code === "REGISTRATION_INVALID") {
           setDead(translateError(t, data));

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { AttentionPanel } from "./AttentionPanel";
 import { EnquiriesPanel } from "./EnquiriesPanel";
@@ -14,6 +15,7 @@ import type { AdminBookingRow, BookingHit } from "@/lib/store";
 import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductions";
 import type { StaffPhrase, StaffT } from "@/lib/staff-i18n";
 import { todayLocal } from "./shared";
+import { isDay, UpdatedNote, useAddressed, useAutoRefresh } from "./place";
 import { clockTime, money, region } from "@/lib/region";
 import { isConcessionPreset } from "@/lib/concessions-shared";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
@@ -71,7 +73,8 @@ export interface DayVenue {
 export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
   const t = useStaffT();
   const clock = useStaffClock();
-  const [date, setDate] = useState(todayLocal);
+  // The day is in the address, as the tab is (components/admin/place.tsx).
+  const [date, setDate] = useAddressed("date", todayLocal, isDay);
   // A customer at the desk asking about a booking: by code, number, email or name.
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<BookingHit[] | null>(null);
@@ -142,7 +145,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       const res = await fetch(`/api/admin/bookings?date=${date}`, {
         cache: "no-store",
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (mine !== asked.current) return;
       if (!res.ok) throw new Error(t.err(data, t("bk.loadFailed")));
       setBookings(data.bookings);
@@ -150,6 +153,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       setRevenue(data.revenue);
       setCollected(data.collected);
       setOutstanding(data.outstanding);
+      loaded();
     } catch (err) {
       if (mine !== asked.current) return;
       setError(err instanceof Error ? err.message : t("bk.loadFailed"));
@@ -157,7 +161,10 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     } finally {
       if (mine === asked.current) setBusy(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `loaded` is stable
   }, [date, t]);
+  // Read again every minute while it is on screen: online bookings, cancellations, check-ins and payments show (audit R8 X2-14).
+  const { updatedAt, loaded } = useAutoRefresh(load);
 
   useEffect(() => {
     load();
@@ -171,7 +178,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       const res = await fetch(`/api/admin/bookings/move?code=${encodeURIComponent(code)}`, {
         cache: "no-store",
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.courtsLoadFailed")));
       if (data.courts.length === 0) {
         setError(t("bk.noOtherCourt", { code }));
@@ -192,7 +199,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, courtId }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.moveFailed")));
       setNotice(t("bk.moved", { code, from: data.from, to: data.to }));
       setMoving(null);
@@ -222,7 +229,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId: b.venueId, changeId, method: via, ...(closePage ? { closePage: true } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.paymentFailed")));
       setNotice(t("co6.bk.owedTaken", { amount: money(data.amount), code: b.code }));
       load();
@@ -246,7 +253,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     setNote("");
     if (mode === "return")
       fetch(`/api/admin/hire?venueId=${b.venueId}`, { cache: "no-store" })
-        .then((r) => r.json())
+        .then((r) => readJson(r))
         .then((d) => setTreatments(Array.isArray(d.deductions) ? d.deductions : []))
         .catch(() => setTreatments([]));
   }
@@ -273,7 +280,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
               }
         ),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.hireFailed")));
       setNotice(
         kit.mode === "take"
@@ -303,7 +310,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, preview: true }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.cancelFailed")));
       setCancelling({ preview: data.preview, venueId: bookings?.find((b) => b.code === code)?.venueId ?? null });
     } catch (err) {
@@ -322,7 +329,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, outcome: option.outcome, expectRefund: option.refund }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.cancelFailed")));
       const settled = data.settled as { outcome: CancelOutcome; kept: number; paidOut?: { amount: number }; credited?: number } | null;
       setNotice(
@@ -352,7 +359,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ seriesCode, preview: true }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("p8a.sx.failed")));
       const weeks = data.weeks as StaffSeriesWeek[];
       setSeriesCx({ seriesCode, weeks, chosen: weeks.filter((w) => w.open).map((w) => w.code), outcome: "back" });
@@ -373,7 +380,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ seriesCode: seriesCx.seriesCode, codes: seriesCx.chosen, outcome: seriesCx.outcome, expect }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("p8a.sx.failed")));
       const left = data.left as { code: string; error: string }[];
       setNotice(
@@ -417,7 +424,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
           ...(override ? { overridePolicies: [override.policy], overrideReason: override.reason } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok && !override && data.overridable === true && typeof data.policy === "string") {
         const reason = window.prompt(t("p8a.fix.overridePrompt", { error: t.err(data) }));
         if (reason === null) return;
@@ -440,7 +447,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookingId: b.id, outcome, remember, via }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.recordFailed")));
       load();
     } catch (err) {
@@ -465,7 +472,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: b.code, ...(placeId === null ? { unnamed: 1 } : { placeId }), reason }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("ent.bk.takeOffFailed")));
       const w = data.withdrawal as { name: string | null; refund: number; owedLess: number; units: number; price: number; how: string; deposit?: number };
       // On an account already invoiced, the booker's part is a credit note on the account; a deposit's part goes back as paid.
@@ -497,7 +504,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookingId: b.id, placeBenefitId, outcome, remember }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.recordFailed")));
       load();
     } catch (err) {
@@ -515,7 +522,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId: b.venueId, phone: b.phone, note }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) setError(t.err(data, t("bk.noteFailed")));
     load();
   }
@@ -529,7 +536,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bookingId: b.id }),
     });
-    if (!res.ok) setError(t.err(await res.json(), t("bk.recordFailed")));
+    if (!res.ok) setError(t.err(await readJson(res), t("bk.recordFailed")));
     load();
   }
 
@@ -541,7 +548,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bookingId: b.id, accountId }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) setError(t.err(data, t("bk.accountFailed")));
     load();
   }
@@ -555,7 +562,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, passCodes }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) return t.err(data, t("stk.bk.failed"));
       setPaying(null);
       load();
@@ -575,7 +582,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, paid, via }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.paymentFailed")));
       load();
     } catch (err) {
@@ -613,7 +620,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, out, ...(admit ? { admit: true, note: admit.note } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok && !admit) {
         const decided = decideAdmission(data);
         if (decided === null) return;
@@ -640,7 +647,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: b.phone, reason }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.blockFailed")));
       setNotice(t("bk.blocked", { phone: b.phone, venue: b.venueName }));
     } catch (err) {
@@ -657,7 +664,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId: b.venueId, phone: b.phone }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.forgiveFailed")));
       setNotice(t("bk.forgiven", { phone: b.phone, venue: b.venueName }));
       load();
@@ -675,7 +682,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, placeId, mark, ...(admit ? { admit: true, note: admit.note } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok && !admit) {
         const decided = decideAdmission(data);
         if (decided === null) return;
@@ -698,7 +705,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, noShow }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.updateFailed")));
       load();
     } catch (err) {
@@ -720,7 +727,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ seriesCode, via }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("bk.paymentFailed")));
       load();
     } catch (err) {
@@ -778,7 +785,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
           e.preventDefault();
           if (query.trim().length < 3) return setHits(null);
           const res = await fetch(`/api/admin/bookings?q=${encodeURIComponent(query.trim())}`, { cache: "no-store" });
-          setHits(res.ok ? ((await res.json()).hits as BookingHit[]) : []);
+          setHits(res.ok ? ((await readJson(res)).hits as BookingHit[]) : []);
         }}
       >
         <input
@@ -845,6 +852,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
           />
         </label>
         <NewBooking venues={venues} date={date} />
+        <UpdatedNote at={updatedAt} />
         {bookings && (
           <>
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm shadow-sm">
@@ -1090,7 +1098,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
           <p className="mt-0.5 text-xs text-slate-600">{t("bk.handOverHelp")}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <label className="text-xs font-medium text-slate-600">{t("bk.depositHeld")}</label>
-            <input
+            <input aria-label={t("bk.depositHeld")}
               type="number"
             step={0.01}
               min={0}
@@ -1122,7 +1130,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <div>
               <label className="block text-xs font-medium text-slate-600">{t("bk.condition")}</label>
-              <select
+              <select aria-label={t("bk.condition")}
                 value={condition}
                 onChange={(e) => setCondition(e.target.value as HireCondition)}
                 className="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
@@ -1195,7 +1203,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
               {withheld > 0 && (
                 <div className="flex items-center gap-2 text-xs text-slate-600">
                   {t("bk.keptHandedBack", { kept: money(withheld), back: money(Math.max(kit.deposit - withheld, 0)) })}
-                  <select
+                  <select aria-label={t("q8b.l.method")}
                     value={heldVia}
                     onChange={(e) => setHeldVia(e.target.value as typeof heldVia)}
                     className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
@@ -1216,7 +1224,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                 value={note}
                 maxLength={MAX_HIRE_NOTE}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder={t("bk.whatHappenedPlaceholder")}
+                placeholder={t("bk.whatHappenedPlaceholder")} aria-label={t("bk.whatHappenedPlaceholder")}
                 className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
               />
             </div>
@@ -1779,7 +1787,7 @@ function AccountChip({ b, act }: { b: AdminBookingRow; act: Act }) {
         type="button"
         onClick={async () => {
           const res = await fetch(`/api/admin/accounts?venueId=${b.venueId}`, { cache: "no-store" });
-          setChoices(res.ok ? (await res.json()).accounts : []);
+          setChoices(res.ok ? (await readJson(res)).accounts : []);
         }}
         className="mt-1 block text-xs text-slate-500 underline hover:text-teal-700"
       >
@@ -1826,7 +1834,7 @@ function CounterPassPay({ code, act }: { code: string; act: Act }) {
     setOpen(true);
     setError(null);
     const res = await fetch(`/api/admin/bookings/passes?code=${encodeURIComponent(code)}`, { cache: "no-store" });
-    const body = await res.json();
+    const body = await readJson(res);
     if (!res.ok) return setError(t.err(body, t("stk.bk.failed")));
     setData(body);
   }

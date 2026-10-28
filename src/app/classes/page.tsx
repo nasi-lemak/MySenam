@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useManagedPeople, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
 import { explainGuard } from "@/components/ManagedPeople";
 import { activityIcon } from "@/lib/activity-registry";
@@ -10,6 +11,8 @@ import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } 
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
 import PayOnline from "@/components/PayOnline";
+import Dialog from "@/components/Dialog";
+import WaitlistLeaveLink from "@/components/WaitlistLeaveLink";
 import { formatHour } from "@/lib/time";
 import { ClassSession, Sport } from "@/lib/types";
 import { useOfferedSports } from "@/components/OfferedSports";
@@ -37,7 +40,7 @@ export default function ClassesPage() {
       const res = await fetch(`/api/classes${sport ? `?sport=${sport}` : ""}`, {
         cache: "no-store",
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("classes.loadFailed"));
       setClasses(data.classes);
     } catch (err) {
@@ -207,6 +210,8 @@ function EnrolModal({
   // Still to pay, where the venue takes payment online: the codes, the amount, and the first one's signed link (lib/booking-access.ts).
   const [toPay, setToPay] = useState<{ codes: string[]; amount: number; link: string } | null>(null);
   const [queued, setQueued] = useState<number | null>(null);
+  // The private link that takes this entry off the list again (lib/store.ts leaveWaitlistByToken).
+  const [leaveToken, setLeaveToken] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [confirmWho, setConfirmWho] = useState(false);
   // Who takes the places: the adult, and people they manage, each a place of their own (lib/participant-bookings.ts).
@@ -229,14 +234,14 @@ function EnrolModal({
   useEffect(() => {
     if (!session.seriesCode || isFull) return;
     fetch(`/api/classes/term?classId=${session.id}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d) => setTerm(d.term ?? null))
       .catch(() => {});
   }, [session.id, session.seriesCode, isFull]);
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => res.json())
+      .then((res) => readJson(res))
       .then((data) => {
         if (!data.user) {
           const guest = rememberedGuest();
@@ -275,7 +280,7 @@ function EnrolModal({
           ...(isFull ? {} : wholeTerm ? { term: true } : { addons: pickedList(picked) }),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok && accountDetour(data)) return;
       if (!res.ok && typeof data?.code === "string" && (data.code.startsWith("GUARD_") || data.code.startsWith("PBK_"))) throw new Error(explainGuard(t, data));
       if (!res.ok)
@@ -290,8 +295,10 @@ function EnrolModal({
         const amount = Math.round(unpaid.reduce((sum, b) => sum + b.totalPrice - (b.sharesPaid ?? 0), 0) * 100) / 100;
         if (unpaid.length > 0 && amount > 0) setToPay({ codes: unpaid.map((b) => b.code), amount, link: data.link });
       }
-      if (isFull) setQueued(data.position);
-      else if (wholeTerm) {
+      if (isFull) {
+        setQueued(data.position);
+        setLeaveToken(typeof data.leaveToken === "string" ? data.leaveToken : null);
+      } else if (wholeTerm) {
         setCode(data.seriesCode);
         setTermNote(
           [
@@ -319,18 +326,18 @@ function EnrolModal({
     "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+    <Dialog labelledBy="class-dialog-title" describedBy={code ? "class-dialog-code" : undefined} onClose={queued !== null || code ? onDone : onClose}>
         {queued !== null ? (
           <div className="text-center">
-            <div className="text-4xl">⏳</div>
-            <h2 className="mt-2 text-xl font-bold">{t("classes.queuedTitle")}</h2>
+            <div className="text-4xl" aria-hidden="true">⏳</div>
+            <h2 id="class-dialog-title" className="mt-2 text-xl font-bold">{t("classes.queuedTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
               {t("classes.queuedBody", { position: queued, name: session.name })}
             </p>
             <p className="mt-3 text-xs text-slate-500">
               {t("classes.queuedNote")}
             </p>
+            {leaveToken && <WaitlistLeaveLink t={t} token={leaveToken} />}
             <button
               onClick={onDone}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
@@ -340,15 +347,15 @@ function EnrolModal({
           </div>
         ) : code ? (
           <div className="text-center">
-            <div className="text-4xl">✅</div>
-            <h2 className="mt-2 text-xl font-bold">{t("classes.enrolledTitle")}</h2>
+            <div className="text-4xl" aria-hidden="true">✅</div>
+            <h2 id="class-dialog-title" className="mt-2 text-xl font-bold">{t("classes.enrolledTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
               {t("classes.enrolledWith", {
                 name: session.name,
                 instructor: session.instructor,
               })}
             </p>
-            <div className="mt-4 rounded-xl bg-teal-50 py-3 text-2xl font-bold tracking-widest text-teal-700">
+            <div id="class-dialog-code" className="mt-4 rounded-xl bg-teal-50 py-3 text-2xl font-bold tracking-widest text-teal-700">
               {code}
             </div>
             {extrasNote && <p className="mt-2 text-xs text-slate-600">{extrasNote}</p>}
@@ -368,7 +375,7 @@ function EnrolModal({
           </div>
         ) : (
           <>
-            <h2 className="text-lg font-bold">{session.name}</h2>
+            <h2 id="class-dialog-title" className="text-lg font-bold">{session.name}</h2>
             <p className="mt-1 text-sm text-slate-600">
               {t("classes.summary", {
                 from: formatHour(session.startHour, t.locale),
@@ -400,7 +407,7 @@ function EnrolModal({
               )}
               <label className="block text-sm font-medium text-slate-700">
                 {t("form.name")}
-                <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+                <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} data-autofocus />
               </label>
               <label className="block text-sm font-medium text-slate-700">
                 {t("form.phone")}
@@ -440,7 +447,7 @@ function EnrolModal({
               {!isFull && !wholeTerm && (
                 <AddonPicker t={t} query={`classId=${session.id}`} picked={picked} onChange={setPicked} onList={setOffered} />
               )}
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
@@ -466,7 +473,6 @@ function EnrolModal({
             </form>
           </>
         )}
-      </div>
-    </div>
+    </Dialog>
   );
 }

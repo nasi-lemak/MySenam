@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { money } from "@/lib/region";
@@ -23,7 +24,7 @@ export function SplitCost({ code, phone, total, venueName, date }: { code: strin
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, phone, parts }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(data.error);
       setLink({ url: data.url, share: data.split.share, paid: data.split.paid, parts: data.split.parts });
     } catch (err) {
@@ -93,7 +94,7 @@ export function SplitPay({ token }: { token: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(who),
         }).catch(() => null);
-        const data = res ? await res.json().catch(() => ({})) : {};
+        const data = res ? await readJson(res).catch(() => ({})) : {};
         if (res?.ok && data.url) window.location.href = data.url;
         else {
           setError(data.error ?? t("pay.failed"));

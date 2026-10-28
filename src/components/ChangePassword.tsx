@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -22,7 +23,7 @@ export function ChangePassword({ endpoint }: { endpoint: string }) {
   useEffect(() => {
     if (!open || has !== null) return;
     void fetch(endpoint, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { hasPassword?: boolean }) => setHas(d.hasPassword !== false))
       .catch(() => setHas(true));
   }, [open, has, endpoint]);
@@ -37,7 +38,7 @@ export function ChangePassword({ endpoint }: { endpoint: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ current, next }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("auth.failed"));
       setDone(true);
       setOpen(false);

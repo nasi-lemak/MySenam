@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { formatHour } from "@/lib/time";
 import type { Court } from "@/lib/types";
@@ -64,7 +65,7 @@ export function RainOutPanel({
         preview: isPreview,
       }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("rain.failed")));
     if (isPreview) return setPreview(data);
     setPreview(null);
@@ -104,7 +105,7 @@ export function RainOutPanel({
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {rich(t("rain.range"), {
           from: (
-            <select value={from} onChange={(e) => { setPreview(null); setFrom(Number(e.target.value)); }} className={select}>
+            <select aria-label={t("q8b.l.from")} value={from} onChange={(e) => { setPreview(null); setFrom(Number(e.target.value)); }} className={select}>
               {hours.map((h) => (
                 <option key={h} value={h}>
                   {formatHour(h, t.locale)}
@@ -113,7 +114,7 @@ export function RainOutPanel({
             </select>
           ),
           until: (
-            <select value={until} onChange={(e) => { setPreview(null); setUntil(Number(e.target.value)); }} className={select}>
+            <select aria-label={t("q8b.l.until")} value={until} onChange={(e) => { setPreview(null); setUntil(Number(e.target.value)); }} className={select}>
               {hours.map((h) => h + (hours[1] !== undefined ? hours[1] - hours[0] : 1)).map((h) => (
                 <option key={h} value={h}>
                   {formatHour(h, t.locale)}
@@ -122,7 +123,7 @@ export function RainOutPanel({
             </select>
           ),
         })}
-        <input value={reason} onChange={(e) => setTyped(e.target.value)} className={`w-40 ${select}`} />
+        <input aria-label={t("q8b.l.reason")} value={reason} onChange={(e) => setTyped(e.target.value)} className={`w-40 ${select}`} />
       </div>
       {preview ? (
         <div className="mt-3 rounded-lg bg-white p-3">

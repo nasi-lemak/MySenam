@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { Membership } from "@/lib/types";
 import { useT } from "@/components/Language";
@@ -18,7 +19,7 @@ export default function MyMemberships() {
 
   useEffect(() => {
     fetch("/api/my/membership", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data) => setMemberships(data?.memberships ?? []))
       .catch(() => setMemberships([]));
   }, []);

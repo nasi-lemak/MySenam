@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApprovalRequest } from "@/lib/approvals";
@@ -42,7 +43,7 @@ export default function ApprovalsPage() {
   const load = useCallback(async () => {
     const res = await fetch(`/api/my/approvals${asked ? `?venueId=${asked.venueId}&sport=${encodeURIComponent(asked.sport)}` : ""}`, { cache: "no-store" });
     if (res.status === 401) return setSignedOut(true);
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(explainApproval(t, data));
     setRequests(data.requests);
     setCourts(data.courts ?? {});
@@ -151,7 +152,7 @@ function RequestCard({
         init = { method: "POST", body: form };
       }
       const res = await fetch(`/api/my/approvals/${r.id}`, init);
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(explainApproval(t, data));
       onChange(done);
     } catch (err) {

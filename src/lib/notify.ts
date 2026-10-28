@@ -16,7 +16,7 @@ import { createNotice } from "./urgent";
 import { takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
-import { money } from "./region";
+import { money, shortDate } from "./region";
 import { slotStartsAt } from "./time";
 import { venueZoneOf } from "./zones";
 import { longEnough } from "./phone";
@@ -493,12 +493,61 @@ export async function notifyWaitlistOffer(input: {
       name: firstName(input.name),
       what: input.what,
       venue: venue.name,
-      date: input.date,
+      // With its weekday, in the reader's language (audit R8 X2-16).
+      date: shortDate(input.date, input.locale, true),
       from,
       // In the language the offer is written in, unless they have chosen one (lib/link-locale.ts).
       link: linkIn(`${await venueBaseUrl(venue.id)}/waitlist/${input.token}`, input.locale),
     },
   });
+}
+
+/**
+ * Tell somebody who joined a waiting list that they are on it, with the
+ * private link to leave it again (audit R8 X2-9): a guest who joined from the
+ * grid or a class page has no account to do it from, and somebody who found
+ * another court should not keep being offered this one. By email only, where
+ * they gave an address: it is a receipt of what they did, not news worth a
+ * WhatsApp message; the joined screen shows the same link.
+ */
+export async function notifyWaitlistJoined(input: {
+  entryId: number;
+  venueId: number;
+  name: string;
+  phone: string;
+  email?: string | null;
+  locale: Locale;
+  what: string;
+  date: string;
+  startHour: number;
+  position: number;
+  leaveToken: string;
+}): Promise<OutboxMessage | null> {
+  const venue = await getVenue(input.venueId);
+  // Nobody hears from a venue that has never been live: its entries are its own staff trying it out.
+  if (!venue || !hasBeenLive(venue)) return null;
+  const { from } = hourRange(input.startHour, input.startHour + 1, input.locale);
+  return await deliver(
+    input,
+    {
+      venueId: venue.id,
+      kind: "waitlist_joined",
+      locale: input.locale,
+      subject: "q8b.msg.joinedSubject",
+      body: "q8b.msg.joined",
+      dedupeKey: `joined:${input.entryId}`,
+      vars: {
+        name: firstName(input.name),
+        what: input.what,
+        venue: venue.name,
+        date: shortDate(input.date, input.locale, true),
+        from,
+        position: input.position,
+        leave: linkIn(`${await venueBaseUrl(venue.id)}/waitlist/leave/${input.leaveToken}`, input.locale),
+      },
+    },
+    false
+  );
 }
 
 interface OfferRow {
@@ -624,7 +673,8 @@ function slot(
   const t = translator(locale);
   return {
     where: t("msg.where", { court, venue }),
-    when: t("msg.when", { date: at.date, ...hourRange(at.startHour, at.endHour, locale) }),
+    // The day with its weekday, in the reader's language (audit R8 X2-16): "Sat, 31 Oct", "Sab, 31 Okt".
+    when: t("msg.when", { date: shortDate(at.date, locale, true), ...hourRange(at.startHour, at.endHour, locale) }),
   };
 }
 

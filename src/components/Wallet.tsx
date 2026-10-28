@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import { WalletBalance, WalletEntry } from "@/lib/types";
 import { useT } from "@/components/Language";
@@ -32,7 +33,7 @@ export default function Wallet() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: voucher }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
       setVoucher("");
       setVoucherNote({ ok: true, text: t("wallet.redeemDone", { amount: money(data.amount), venue: data.venueName }) });
@@ -52,7 +53,7 @@ export default function Wallet() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId: topUp.venueId, amount: Number(topUp.amount) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok || typeof data.url !== "string") throw new Error(translateError(t, data) || t("pay.failed"));
       window.location.assign(data.url);
     } catch (err) {
@@ -65,7 +66,7 @@ export default function Wallet() {
     try {
       const res = await fetch("/api/my/wallet", { cache: "no-store" });
       if (!res.ok) return;
-      const data = await res.json();
+      const data = await readJson(res);
       setBalance(data.balance);
       setEntries(data.entries);
       setBalances(data.balances ?? []);

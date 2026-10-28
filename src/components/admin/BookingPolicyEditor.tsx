@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { courtSports, sportsOf } from "@/lib/court-activities";
 import { ClockField } from "@/components/ClockField";
 import { WEEKDAYS, type DayHours } from "@/lib/week-hours";
@@ -138,7 +139,7 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/booking-policies?venueId=${venueId}`, { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     if (res.ok) {
       setLevels(data.levels);
       setEffective(data.effective);
@@ -202,7 +203,7 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...level, settings }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("pol.couldNotSave")));
       setNotice(t("pol.saved"));
       await load();

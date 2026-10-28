@@ -83,6 +83,17 @@ table in `src/lib/region.ts`:
   guardian change, a payment deadline) is read in the venue's time zone
   (`tests/message-times.test.ts`). Staff read times the same way, in the
   staff language (*Times for staff*, below).
+- **Dates** a customer reads are written with their weekday, as their
+  language writes them (`shortDate(date, locale, true)` in
+  `src/lib/region.ts`, beside `clockTime`): *Sat, 31 Oct*, *Sab, 31 Okt*,
+  Chinese and Tamil likewise, so nobody turns up on the wrong day. The
+  booking form, the confirmation and its weekly list, My Booking, the
+  account's bookings, the waiting list and its offer and leave pages, the
+  class and game pages, the venue's closed days, and the messages (the
+  booking's *when*, the waiting-list offer and joined emails) all use it;
+  how long a booking is held while it is paid online is written by
+  `clockTime` in the reader's language too. What is stored, exported or sent
+  to software keeps `YYYY-MM-DD`.
 - **The staff dashboard** is in English, Malay and Chinese, not Tamil (the
   owner's decision of 24 October 2026): the install's languages less Tamil,
   and the language switch on the dashboard offers only those. Its phrases are

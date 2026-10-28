@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -28,7 +29,7 @@ export default function HireEnquiry({ venueId, venueName }: { venueId: number; v
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, people: form.people === "" ? null : Number(form.people) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("form.failed"));
       setSent(form.phone);
     } catch (err) {

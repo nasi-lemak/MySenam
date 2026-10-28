@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import type { MapPoint } from "./PinMap";
@@ -60,7 +61,7 @@ export default function PinPicker({
     setStatus("looking");
     try {
       const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
-      const data = (await res.json()) as { found?: MapPoint | null };
+      const data = (await readJson(res)) as { found?: MapPoint | null };
       if (res.ok && data.found) {
         const at = { lat: data.found.lat, lng: data.found.lng };
         setFound(at);

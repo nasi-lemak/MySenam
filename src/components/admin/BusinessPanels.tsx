@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Admin } from "@/lib/admin-auth";
 import type { MapPoint } from "@/components/PinMap";
@@ -47,7 +48,7 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
 
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/branches", { cache: "no-store" });
-    if (res.ok) setRequests((await res.json()).requests);
+    if (res.ok) setRequests((await readJson(res)).requests);
   }, []);
   useEffect(() => {
     void load();
@@ -64,7 +65,7 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, ...pin }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("biz.sendFailed")));
     setNotice(t("biz.addedDraft", { name }));
     setForm({ name: "", area: "", address: "", phone: "", message: "" });
@@ -78,11 +79,11 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
       <h2 className="text-lg font-bold">{t("biz.addBranch")}</h2>
       <p className="mt-1 text-sm text-slate-500">{t("biz.addBranchIntro", { business: businessName })}</p>
       <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4">
-        <input required minLength={2} placeholder={t("biz.branchName")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-52 ${input}`} />
-        <input required minLength={2} placeholder={t("biz.area")} value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} className={`w-40 ${input}`} />
-        <input required minLength={5} placeholder={t("biz.address")} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={`w-64 ${input}`} />
-        <input required placeholder={t("c.phone")} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-40 ${input}`} />
-        <input placeholder={t("biz.anything")} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} className={`min-w-0 flex-1 ${input}`} />
+        <input required minLength={2} placeholder={t("biz.branchName")} aria-label={t("biz.branchName")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-52 ${input}`} />
+        <input required minLength={2} placeholder={t("biz.area")} aria-label={t("biz.area")} value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} className={`w-40 ${input}`} />
+        <input required minLength={5} placeholder={t("biz.address")} aria-label={t("biz.address")} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={`w-64 ${input}`} />
+        <input required placeholder={t("c.phone")} aria-label={t("c.phone")} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-40 ${input}`} />
+        <input placeholder={t("biz.anything")} aria-label={t("biz.anything")} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} className={`min-w-0 flex-1 ${input}`} />
         <div className="w-full">
           <PinPicker
             query={[form.address, form.area].filter((v) => v.trim()).join(", ")}
@@ -146,8 +147,8 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
       fetch("/api/admin/businesses", { cache: "no-store" }),
       fetch("/api/admin/admins", { cache: "no-store" }),
     ]);
-    if (b.ok) setBusinesses((await b.json()).businesses);
-    if (a.ok) setStaff((await a.json()).admins);
+    if (b.ok) setBusinesses((await readJson(b)).businesses);
+    if (a.ok) setStaff((await readJson(a)).admins);
   }, []);
   useEffect(() => {
     void load();
@@ -177,7 +178,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ businessId: b.id, action: b.suspended ? "lift" : "suspend", reason }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("biz.doFailed")));
     await load();
     onChange();
@@ -195,7 +196,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
         managerIds: managers,
       }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("biz.failed")));
     setBusinesses(data.businesses);
     setName("");
@@ -252,7 +253,7 @@ export function BusinessesPanel({ venues, onChange }: { venues: ManagedVenue[]; 
             ))}
           </select>
           {!target && (
-            <input required minLength={2} placeholder={t("biz.businessName")} value={name} onChange={(e) => setName(e.target.value)} className={`w-56 ${input}`} />
+            <input required minLength={2} placeholder={t("biz.businessName")} aria-label={t("biz.businessName")} value={name} onChange={(e) => setName(e.target.value)} className={`w-56 ${input}`} />
           )}
         </div>
         <fieldset>

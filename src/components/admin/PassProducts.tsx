@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { activityIcon } from "@/lib/activity-registry";
 import { sportLabel } from "@/lib/i18n";
@@ -61,7 +62,7 @@ export function PassProducts({
         validDays: Number(form.validDays),
       }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("p8b.prod.addFailed")));
     setForm({ ...form, name: "", price: "" });
     onChanged();
@@ -71,7 +72,7 @@ export function PassProducts({
     if (!window.confirm(t("p8b.prod.retireConfirm", { name: p.name }))) return;
     setError(null);
     const res = await fetch(`/api/admin/pass-products?venueId=${venueId}&id=${p.id}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("p8b.prod.retireFailed")));
     onChanged();
   }

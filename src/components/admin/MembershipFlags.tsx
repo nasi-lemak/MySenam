@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import { useStaffT } from "@/components/admin/StaffLanguage";
 import type { MembershipFlag } from "@/lib/membership-flags";
@@ -19,7 +20,7 @@ export default function MembershipFlags({ venueId }: { venueId: number }) {
   const load = useCallback(() => {
     fetch(`/api/admin/memberships/flags?venueId=${venueId}`, { cache: "no-store" })
       .then(async (r) => {
-        const data = await r.json();
+        const data = await readJson(r);
         if (!r.ok) throw new Error(t.err(data));
         setFlags(data.flags ?? []);
       })
@@ -36,7 +37,7 @@ export default function MembershipFlags({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, flagId: f.id, note }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setFlags(data.flags ?? []);
     } catch (err) {

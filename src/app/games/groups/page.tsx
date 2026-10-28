@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -20,7 +21,7 @@ export default function GroupsPage() {
 
   const load = useCallback(async () => {
     const res = await fetch("/api/groups", { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     setGroups(data.groups ?? []);
     setSignedIn(Boolean(data.signedIn));
   }, []);
@@ -35,7 +36,7 @@ export default function GroupsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, sport: form.sport || sports[0], privacy: form.privacy ? "private" : "public" }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(data.error);
     window.location.href = `/games/groups/${data.group.id}`;
   }
@@ -101,7 +102,7 @@ export default function GroupsPage() {
             {t("groups.capacity")}
             <input type="number" min={2} max={60} value={form.capacity} onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })} className={`w-20 ${input}`} />
           </label>
-          <input placeholder={t("groups.description")} maxLength={500} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={`min-w-0 flex-1 ${input}`} />
+          <input placeholder={t("groups.description")} aria-label={t("groups.description")} maxLength={500} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={`min-w-0 flex-1 ${input}`} />
           <label className="flex items-center gap-1.5 pb-2 text-slate-600">
             <input type="checkbox" checked={form.privacy} onChange={(e) => setForm({ ...form, privacy: e.target.checked })} />
             {t("groups.private")}

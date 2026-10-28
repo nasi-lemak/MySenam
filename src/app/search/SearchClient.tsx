@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activity, activityFilters, activityIcon, activityKeys, findActivities } from "@/lib/activity-registry";
 import { ACTIVITY_CATEGORIES } from "@/lib/activity-catalogue";
 import Link from "next/link";
@@ -166,7 +167,7 @@ export default function SearchClient({
       if (sort !== "soonest") params.set("sort", sort);
       if (taking) params.set("taking", taking);
       const res = await fetch(`/api/search?${params}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("search.failed"));
       setResults(data.results);
       setCovers(data.covers ?? {});

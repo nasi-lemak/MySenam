@@ -52,6 +52,7 @@ export async function PATCH(
     partlyUnstaffed?: "code" | "counter";
     emergencyPhone?: string | null;
     emergencyInfo?: string | null;
+    phoneWhatsapp?: boolean;
   } = {};
   for (const field of FIELDS) {
     const value = input[field];
@@ -116,6 +117,12 @@ export async function PATCH(
         { status: 400 }
       );
     changes[field] = value as string | null;
+  }
+
+  // Whether customers may message the venue's number on WhatsApp (lib/venue-contact.ts).
+  if (input.phoneWhatsapp !== undefined) {
+    if (typeof input.phoneWhatsapp !== "boolean") return NextResponse.json({ error: "phoneWhatsapp must be true or false." }, { status: 400 });
+    changes.phoneWhatsapp = input.phoneWhatsapp;
   }
 
   // Where it is on the map: both, or neither.

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,7 +31,8 @@ import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
 import type { RefundStatus } from "@/lib/payments";
 import type { T } from "@/lib/i18n";
-import { money } from "@/lib/region";
+import { money, shortDate } from "@/lib/region";
+import VenueContact from "@/components/VenueContact";
 
 /**
  * One of the account's bookings, with what My Booking says of it while it is
@@ -60,7 +62,7 @@ export default function AccountPage() {
   const load = useCallback(async () => {
     try {
       const meRes = await fetch("/api/auth/me", { cache: "no-store" });
-      const me = await meRes.json();
+      const me = await readJson(meRes);
       if (!me.user) {
         router.replace("/login");
         return;
@@ -69,7 +71,7 @@ export default function AccountPage() {
       setPhone(me.phone ?? null);
       setGender(me.gender ?? null);
       const res = await fetch("/api/my/bookings", { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("acct.loadFailed"));
       setBookings(data.bookings);
       setRefunds(data.refunds ?? []);
@@ -124,7 +126,7 @@ export default function AccountPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookingId: b.id }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
       const lines = [...(data.kept > 0 ? [t("mine.lateCancelDone", { kept: money(data.kept) })] : []), ...refundLines(t, data.refunds)];
       setNotice(lines.length > 0 ? lines.join(" ") : null);
@@ -346,7 +348,7 @@ export default function AccountPage() {
                     <td className="px-3 py-2">
                       {activityIcon(b.sport)} {b.courtName}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2">{b.date}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{shortDate(b.date, t.locale, true)}</td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
                     </td>
@@ -394,7 +396,7 @@ function VenueNews({ t }: { t: T }) {
   const [consents, setConsents] = useState<{ id: number; venueName: string; email: string; consentedAt: string; withdrawnAt: string | null }[] | null>(null);
   useEffect(() => {
     fetch("/api/my/marketing", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d) => setConsents(d.consents ?? []))
       .catch(() => setConsents([]));
   }, []);
@@ -425,7 +427,7 @@ function VenueNews({ t }: { t: T }) {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ id: c.id }),
                       });
-                      if (res.ok) setConsents((await res.json()).consents);
+                      if (res.ok) setConsents((await readJson(res)).consents);
                     }}
                   >
                     {t("mkt.acctStop")}
@@ -459,7 +461,7 @@ function YourData({ t }: { t: T }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirm: typed }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("data.closeFailed"));
       window.location.href = "/";
     } catch (err) {
@@ -604,8 +606,10 @@ function BookingCard({
           {b.venueName} ({b.venueArea})
         </div>
         <div className="text-slate-600">
-          📅 {b.date} · {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
+          📅 {shortDate(b.date, t.locale, true)} · {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
         </div>
+        {/* Its number, for whatever here says to call the venue (audit R8 X2-10). */}
+        <VenueContact t={t} venue={b.venueName} contact={b.venueContact} code={b.code} className="text-slate-600" />
         <div className="font-medium">
           {held ? (
             t("hold.total", { amount: b.totalPrice })

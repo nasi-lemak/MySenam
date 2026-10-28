@@ -734,6 +734,36 @@ customer is never booked in a child's place. The same child, or the adult
 taking part themself, cannot queue twice for the same thing; siblings on one
 number can. The offer goes to the account holder, naming who it is for.
 
+### Leaving, and turning an offer down
+
+Whoever joins a waiting list online is given **a private link to leave it**
+(`/waitlist/leave/:token`): on the screen that says they are on it, and in an
+email saying so where they gave an address (kind `waitlist_joined`, by email
+only, in their language, with the day and its weekday). Only the link's
+SHA-256 is kept (`waitlist.leave_hash`, migration 0248), as a coach's link is;
+an entry made before it has none and leaves as before. The page the link
+opens says what the entry waits for (the court or class, the venue, the day
+and time; nothing about who joined) and takes it off the list only when its
+button is pressed, so a link opened by a mail scanner changes nothing. A
+signed-in customer can still leave from *My waiting lists*, and the venue
+can take off an entry it made.
+
+The offer's own page has, beside *Claim my place*, **No thanks, offer it to
+the next person**, asked once more before it is done. Anybody holding the
+offer's link may turn it down, as anybody holding it may claim it.
+
+Either way the entry leaves the list (`cancelled`), its hold on the court is
+let go, and the place is **offered at once to the next person waiting**,
+through the same offer path every other leaving uses (`leaveWaitlistByToken`
+and `declineWaitlistOffer` in `src/lib/store.ts`), rather than held for
+nobody until the offer would have run out; that person's offer is written to
+the outbox there and then. The entry's row is locked while it is left, turned
+down or claimed, so a decline racing a claim does exactly one of them. A link
+used twice, for an entry whose place was taken up, or that has run its
+course, changes nothing and says so (`WAITLIST_NOT_FOUND`,
+`PLACE_ALREADY_CLAIMED`, `OFFER_EXPIRED`) (`tests/waitlist-leave.test.ts`, on
+PGlite and Postgres).
+
 ### At the counter and through the API
 
 Somebody who rings or walks up can be queued by the venue, not only online,
@@ -1080,6 +1110,33 @@ there are to pay.
 - The gift voucher form says it is good for 12 months, cannot be exchanged for
   cash, and is refunded only if the venue cancels it. The lesson form says the
   venue's cancellation rules cover the whole lesson, the coach's fee included.
+
+### The booking form and its dialogs
+
+Tapping a free time on a venue's grid opens the booking form
+(`components/BookingBoard.tsx`). On a phone it is a sheet along the bottom of
+the screen, never more than 60% of its height, scrolling inside, with room
+left below the grid so every court and time can be scrolled clear of it and
+picked instead, and a × that lets the time go; on a wider screen it sits under
+the grid. It ends with the **Book** button, its label carrying the price it
+will be, after everything still to choose: who takes part, the extras, the
+waiver, credit, a promo code or pass, the venue's news and the *Before you
+book* box. A refused booking is said inside the form, beside the button, read
+out and given the focus, with the venue's number to call
+([the venue's number](venue-operations.md#the-venues-number)); it is not
+also put above the grid, behind the sheet. An answer that is not the app's (a
+deploy's restart, an overloaded proxy) is said as such in the customer's
+language and never as a parser error
+([HTTP routes](../architecture/http-api.md#how-every-route-behaves)).
+
+The booking's confirmation, the waiting list on the grid and enrolling in a
+class are dialogs a keyboard and a screen reader know as such, through one
+component (`components/Dialog.tsx`): named by their heading, the
+confirmation described by its booking code, the focus moved into them when
+they open (onto the first field of a form), kept inside by Tab and
+Shift+Tab, closed by Escape, and given back to what opened them where that is
+still on the page (`tests/components/booking-dialogs.test.tsx`, with the
+phone layout checked in Chromium at 390 × 844 in English and Malay).
 
 ## Who a venue is for: public, members only, private
 

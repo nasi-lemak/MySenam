@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { Booking, ClassSession } from "@/lib/types";
@@ -10,6 +11,7 @@ import PayOnline from "@/components/PayOnline";
 import { HoldNotice } from "@/components/BookingPayment";
 import { localTimeOf, minuteClock, money, shortDate } from "@/lib/region";
 import type { OfferView } from "@/lib/waitlist-offer";
+import DeclineOffer from "@/components/DeclineOffer";
 
 interface Claimed {
   booking: Booking;
@@ -41,6 +43,8 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
   // The venue's waiver, asked here where the place is booked: its venue, once the claim says one is needed.
   const [waiverVenue, setWaiverVenue] = useState<{ id: number; name: string } | null>(null);
   const [agreeWaiver, setAgreeWaiver] = useState(false);
+  // Turned down: the place has gone to the next person waiting (components/DeclineOffer.tsx).
+  const [declined, setDeclined] = useState(false);
 
   // What is offered, read before anything is claimed: a gone offer says so at once.
   useEffect(() => {
@@ -48,7 +52,7 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
     setError(null);
     fetch(`/api/waitlist/claim?token=${encodeURIComponent(token)}`, { cache: "no-store" })
       .then(async (res) => {
-        const data = await res.json().catch(() => null);
+        const data = await readJson(res).catch(() => null);
         if (!live) return;
         if (res.ok && data?.offer) setOffer(data.offer);
         else if (data?.code === "OFFER_EXPIRED" || data?.code === "OFFER_INVALID") setError(translateError(t, data));
@@ -68,7 +72,7 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, ...(agreeWaiver ? { agreeWaiver: true } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       // Not agreed to yet: the offer still stands; tick the box and claim again.
       if (!res.ok && data?.code === "WAIVER_NEEDED" && Number.isInteger(data?.vars?.venueId)) {
         setWaiverVenue({ id: data.vars.venueId, name: typeof data.vars.venue === "string" ? data.vars.venue : "" });
@@ -140,6 +144,12 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
               </Link>
             )}
           </>
+        ) : declined ? (
+          <>
+            <div className="text-5xl" aria-hidden="true">👋</div>
+            <h1 className="mt-3 text-xl font-bold">{t("q8b.wl.declinedTitle")}</h1>
+            <p role="status" className="mt-2 text-sm text-slate-600">{t("q8b.wl.declinedBody")}</p>
+          </>
         ) : error ? (
           <>
             <div className="text-5xl">⌛</div>
@@ -196,6 +206,7 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
             >
               {busy ? t("claim.working") : t("claim.button")}
             </button>
+            <DeclineOffer token={token} disabled={busy} onDeclined={() => setDeclined(true)} />
           </>
         )}
         {/* Back to the venue the offer is at; the classes list where it is not known. */}

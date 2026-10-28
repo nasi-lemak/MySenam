@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import { Busyness, LiveOccupancy as Live } from "@/lib/types";
@@ -33,7 +34,7 @@ export default function LiveOccupancy({ venueId }: { venueId: number }) {
     try {
       const res = await fetch(`/api/venues/${venueId}/live`, { cache: "no-store" });
       if (!res.ok) return;
-      const data = await res.json();
+      const data = await readJson(res);
       setOccupancy(data.occupancy);
       setAsOf(data.asOf);
     } catch {

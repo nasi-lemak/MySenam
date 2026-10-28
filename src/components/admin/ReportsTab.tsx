@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import type { CreditPosition } from "@/lib/reports";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -97,7 +98,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
         `/api/admin/reports?venueId=${venueId}&from=${range.from}&to=${range.to}`,
         { cache: "no-store" }
       );
-      const body = await res.json();
+      const body = await readJson(res);
       if (mine !== asked.current) return;
       if (!res.ok) throw new Error(t.err(body, t("rpt.failed")));
       setData(body);
@@ -127,7 +128,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
     <div className="space-y-5">
       {/* Filters, one row, above everything they change. */}
       <div className="flex flex-wrap items-end gap-2">
-        <select
+        <select aria-label={t("q8b.l.venue")}
           value={venueId}
           onChange={(e) => setVenueId(Number(e.target.value))}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"

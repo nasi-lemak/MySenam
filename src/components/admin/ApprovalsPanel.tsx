@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApprovalRequirement, FlaggedBooking, ReviewLevel } from "@/lib/approvals";
 import { formatMinute } from "@/lib/interval";
@@ -94,7 +95,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
   const load = useCallback(() => {
     fetch(`/api/admin/approvals/settings?venueId=${venueId}`, { cache: "no-store" })
       .then(async (r) => {
-        const data = await r.json();
+        const data = await readJson(r);
         if (!r.ok) throw new Error(t.err(data));
         setRequirements(data.requirements);
         setCoaches(data.coaches);
@@ -139,7 +140,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
     };
     try {
       const res = await fetch("/api/admin/approvals/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setSaved(true);
       load();
@@ -157,7 +158,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, coachId, email }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setEmails({ ...emails, [coachId]: "" });
       load();
@@ -327,7 +328,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
                       {t("apr.set.noAccount")}
                       <input
                         type="email"
-                        placeholder={t("apr.set.accountEmail")}
+                        placeholder={t("apr.set.accountEmail")} aria-label={t("apr.set.accountEmail")}
                         value={emails[c.id] ?? ""}
                         onChange={(e) => setEmails({ ...emails, [c.id]: e.target.value })}
                         className={`w-48 ${input}`}
@@ -397,7 +398,7 @@ export function RevocationFlags({ venueId }: { venueId: number }) {
   const load = useCallback(() => {
     fetch(`/api/admin/approvals?venueId=${venueId}&waiting=1`, { cache: "no-store" })
       .then(async (r) => {
-        const data = await r.json();
+        const data = await readJson(r);
         if (!r.ok) throw new Error(t.err(data));
         setFlags(data.flags ?? []);
       })
@@ -414,7 +415,7 @@ export function RevocationFlags({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, flagId: f.id, action: "resolve_flag", note }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setFlags(data.flags ?? []);
     } catch (err) {
@@ -465,7 +466,7 @@ export function SupervisedAttendance({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, code, supervised: on, note }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setMessage({ ok: true, text: t("apr.sup.done") });
       setCode("");

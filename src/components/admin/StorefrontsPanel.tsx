@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Storefront } from "@/lib/storefront";
 import type { ManagedVenue } from "./shared";
@@ -24,7 +25,7 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/storefronts", { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("sf.loadFailed")));
       setStorefronts(data.storefronts);
     } catch (err) {
@@ -48,7 +49,7 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editing),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("sf.saveFailed")));
       setNotice(t("sf.saved", { host: data.storefront.hostname }));
       setEditing(null);
@@ -66,7 +67,7 @@ export function StorefrontsPanel({ venues }: { venues: ManagedVenue[] }) {
     setError(null);
     try {
       const res = await fetch(`/api/admin/storefronts?id=${s.id}`, { method: "DELETE" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("sf.removeFailed")));
       setNotice(t("sf.removed", { host: s.hostname }));
       await load();

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 
@@ -25,7 +26,7 @@ export function WaiverEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     if (!open) return;
     void fetch(`/api/admin/waiver?venueId=${venueId}`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data) => data && take(data));
   }, [open, venueId]);
 
@@ -39,7 +40,7 @@ export function WaiverEditor({ venueId }: { venueId: number }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, text }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     setBusy(false);
     if (!res.ok) return setError(t.err(data, t("vn.couldNotSave")));
     take(data);

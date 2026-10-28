@@ -1,7 +1,8 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { RainOutPanel } from "./RainOutPanel";
 import { RepeatBlockPanel } from "./RepeatBlockPanel";
 import { hourHeading } from "@/lib/region";
@@ -14,6 +15,7 @@ import type { StaffT } from "@/lib/staff-i18n";
 import { todayLocal } from "./shared";
 import { useStaffT } from "./StaffLanguage";
 import { WaitlistJoin, WaitlistQueue } from "./WaitlistJoin";
+import { isDay, UpdatedNote, useAddressed, useAutoRefresh } from "./place";
 
 /** A phrase with elements in it: each `{name}` becomes the element given for it. */
 function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
@@ -41,8 +43,9 @@ export function ScheduleTab({
   venues: (Venue & { courts: Court[] })[];
 }) {
   const t = useStaffT();
-  const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
-  const [date, setDate] = useState(todayLocal);
+  // The venue and day are in the address, as the tab is (components/admin/place.tsx).
+  const [venueId, setVenueId] = useAddressed("venue", venues[0]?.id ?? 1, (id) => venues.some((v) => v.id === id));
+  const [date, setDate] = useAddressed("date", todayLocal, isDay);
   const [reason, setReason] = useState("");
   // Blank takes the whole resource out; a number takes that many places.
   const [placesOut, setPlacesOut] = useState("");
@@ -56,20 +59,29 @@ export function ScheduleTab({
   // A free cell clicked: book it at the counter, or block it (X1-9).
   const [choose, setChoose] = useState<{ courtId: number; name: string; sport: string; hour: number; minute: number } | null>(null);
 
+  // Only the latest load is shown: an answer for a day or venue left since, or a refresh overtaken, is dropped.
+  const asked = useRef(0);
   const load = useCallback(async () => {
+    const n = ++asked.current;
     setError(null);
     try {
       const res = await fetch(`/api/admin/slots?venueId=${venueId}&date=${date}`, {
         cache: "no-store",
       });
-      const data = await res.json();
+      const data = await readJson(res);
+      if (n !== asked.current) return;
       if (!res.ok) throw new Error(t.err(data, t("sch.loadFailed")));
       setCourts(data.courts);
+      loaded();
     } catch (err) {
+      if (n !== asked.current) return;
       setError(err instanceof Error ? err.message : t("sch.loadFailed"));
       setCourts(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `loaded` is stable
   }, [venueId, date, t]);
+  // Read again every minute while it is on screen, so online bookings, cancellations and check-ins show (audit R8 X2-14).
+  const { updatedAt, loaded } = useAutoRefresh(load);
 
   useEffect(() => {
     load();
@@ -86,7 +98,7 @@ export function ScheduleTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ courtId: exact.courtId, date, start: exact.start, end: exact.end, reason: reason || undefined, places }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("sch.updateFailed")));
       setExact(null);
       load();
@@ -108,7 +120,7 @@ export function ScheduleTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ courtId, date, hours: [hour], reason: reason || undefined, places }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("sch.updateFailed")));
       load();
     } catch (err) {
@@ -123,6 +135,7 @@ export function ScheduleTab({
         <select
           value={venueId}
           onChange={(e) => setVenueId(Number(e.target.value))}
+          aria-label={t("q8b.l.venue")}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         >
           {venues.map((v) => (
@@ -135,12 +148,14 @@ export function ScheduleTab({
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
+          aria-label={t("q8b.l.date")}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
         <input
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder={t("sch.reasonPlaceholder")}
+          aria-label={t("sch.reasonPlaceholder")}
           className="w-52 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
         <input
@@ -150,8 +165,10 @@ export function ScheduleTab({
           onChange={(e) => setPlacesOut(e.target.value)}
           placeholder={t("sch.placesOut")}
           title={t("sch.placesOutTitle")}
+          aria-label={t("sch.placesOut")}
           className="w-32 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
         />
+        <UpdatedNote at={updatedAt} venueId={venueId} />
       </div>
       <p className="text-sm text-slate-500">
         {rich(t("sch.help"), {
@@ -164,7 +181,7 @@ export function ScheduleTab({
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {exact ? (
             <>
-              <select
+              <select aria-label={t("ct.col.court")}
                 value={exact.courtId}
                 onChange={(e) => setExact({ ...exact, courtId: Number(e.target.value) })}
                 className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"

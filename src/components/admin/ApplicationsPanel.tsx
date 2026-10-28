@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import type { EmailCheck, VenueApplication } from "@/lib/applications";
@@ -56,7 +57,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/venue-applications", { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("app.loadFailed")));
       setApplications(data.applications);
       setMarketplace(data.marketplace);
@@ -96,7 +97,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: a.id, decision, reason, checks: ticked[a.id] ?? [] }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("app.requestFailed")));
       const told = data.emailed
         ? t("app.emailed", { email: a.email })

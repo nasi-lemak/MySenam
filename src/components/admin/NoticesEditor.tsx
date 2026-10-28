@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Notice } from "@/lib/notices";
 import { todayLocal } from "./shared";
@@ -18,7 +19,7 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
   const [f, setF] = useState({ text: "", link: "", startsOn: todayLocal(), endsOn: addDays(todayLocal(), 13) });
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/notices?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setNotices((await res.json()).notices);
+    if (res.ok) setNotices((await readJson(res)).notices);
   }, [venueId]);
   useEffect(() => {
     if (open && notices === null) void load();
@@ -51,7 +52,7 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
                   onClick={async () => {
                     if (!window.confirm(t("ntc.takeDownConfirm"))) return;
                     const res = await fetch(`/api/admin/notices/${n.id}`, { method: "DELETE" });
-                    if (res.ok) setNotices((await res.json()).notices);
+                    if (res.ok) setNotices((await readJson(res)).notices);
                   }}
                   className="text-red-700 underline"
                 >
@@ -69,7 +70,7 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ...f, venueId }),
               });
-              const out = await res.json();
+              const out = await readJson(res);
               if (!res.ok) return setError(t.err(out));
               setNotices(out.notices);
               setF({ ...f, text: "", link: "" });

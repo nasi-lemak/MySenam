@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { T } from "@/lib/i18n";
 import { money } from "@/lib/region";
@@ -52,7 +53,7 @@ export default function AddonPicker({
   useEffect(() => {
     let live = true;
     fetch(`/api/addons?${query}`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : { addons: [] }))
+      .then((res) => (res.ok ? readJson(res) : { addons: [] }))
       .then((data) => {
         if (!live) return;
         const next = (data.addons ?? []) as OfferedAddon[];

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 
@@ -76,7 +77,7 @@ export function ParticipantPicker({
     setError(null);
     try {
       const res = await fetch(`/api/admin/participants?venueId=${venueId}&phone=${encodeURIComponent(other.phone)}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setOther({ ...other, found: data.participants, chosen: null });
     } catch (err) {
@@ -96,7 +97,7 @@ export function ParticipantPicker({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, proposedName: adult, ...(other.email.trim() ? { email: other.email.trim() } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setOther({ ...other, made: { ...data.request, name: child.displayName } });
     } catch (err) {
@@ -108,7 +109,7 @@ export function ParticipantPicker({
     setError(null);
     try {
       const res = await fetch(`/api/admin/participants?venueId=${venueId}&phone=${encodeURIComponent(phone)}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setCandidates(data.participants);
     } catch (err) {
@@ -132,7 +133,7 @@ export function ParticipantPicker({
           authority: form.authority,
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setAdding(false);
       setForm({ displayName: "", birthYear: "", relationship: "parent", authority: false });
@@ -277,9 +278,9 @@ export function ParticipantPicker({
           ) : (
             <div className="space-y-1 rounded-lg border border-slate-100 bg-slate-50 p-2">
               <div className="flex flex-wrap items-end gap-2">
-                <input placeholder={t("ptc.pick.name")} maxLength={40} value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} className={`w-40 ${input}`} />
+                <input placeholder={t("ptc.pick.name")} aria-label={t("ptc.pick.name")} maxLength={40} value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} className={`w-40 ${input}`} />
                 <input
-                  placeholder={t("ptc.pick.birthYear")}
+                  placeholder={t("ptc.pick.birthYear")} aria-label={t("ptc.pick.birthYear")}
                   inputMode="numeric"
                   maxLength={4}
                   value={form.birthYear}

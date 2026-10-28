@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -44,7 +45,7 @@ export default function CoachSelfService({ token, hours: initial, timeOff: initi
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hours }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(translateError(t, data) || data.error);
     setHours(data.coach.hours);
     setNotice(t("coachpage.saved"));
@@ -59,7 +60,7 @@ export default function CoachSelfService({ token, hours: initial, timeOff: initi
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(translateError(t, data) || data.error);
     setOff(data.timeOff);
     setForm({ from: "", until: "", reason: "" });
