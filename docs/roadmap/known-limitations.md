@@ -221,7 +221,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B58, M16–M28 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B59, M16–M28 and
 S12–S28, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (114
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -396,12 +396,12 @@ joined a waiting list by phone alone gets no message with its leave link (its
 WhatsApp template would be a new one), and joins at the counter or through the
 API get none ([booking](../features/booking.md)) (P3).
 
-Also: the front desk is shown some managers' controls and refused on use;
-opening hours and prices change only from today; staff are given a password by
-a manager rather than invited, and a branch manager cannot add or remove the
-branch's desk staff; a new branch starts blank; a test booking made before going
-live stays in the books unless cancelled (the round 8 audit's X1-5, X1-13 to
-X1-16, [planned](roadmap.md)) (P2).
+Also: the Tournaments and Leagues tabs still show the front desk their set-up
+forms (the server refuses them), and ticking off or hiding the set-up checklist
+is not refused to the desk by the server (the desk is not shown it); opening
+hours and prices change only from today; a new branch starts blank; a test
+booking made before going live stays in the books unless cancelled (the round 8
+audit's X1-13, X1-15 and X1-16, [planned](roadmap.md)) (P2).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -805,6 +805,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B56 | Claiming a waiting-list offer read the entry without locking it, so a claim and the entry being left or turned down at the same moment could both go through; the entry is locked by each | `tests/waitlist-leave.test.ts` |
 | B57 | On a phone, *Renew or buy a membership* in the booking form opened the venue's plans under the booking sheet, which stayed open over them, so *Join* could not be tapped; following the link closes the form. Found by the acceptance scenarios (*Membership W*) | `tests/components/booking-dialogs.test.tsx`, `tests/uat/round6.uat.ts` (Membership W) |
 | B58 | A court given back late with all of it kept told the customer "the rest goes back the way you paid" when nothing does; it now says nothing is refunded | `tests/components/q8a-customer-flows.test.tsx`, `tests/uat/round8.uat.ts` (Late AK) |
+| B59 | Removing a member of staff who had recorded an induction, sold a membership or a pass, made a promo code or given credit at the counter (or an owner who had decided a venue application) failed with a server error: six links from the first migration had no rule for a removed account; they now keep the record and drop the link (migration 0251), the activity log keeping the name | `tests/staff-accounts.test.ts` |
 
 ### Resolved limitations without a number
 
@@ -906,6 +907,8 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The day list had no filters, cut its actions off on a laptop and had no print view; nothing started a booking from the dashboard, and a click on a free schedule cell blocked the court at once | Filters, an actions menu, a printable day sheet, *New booking*, and *Book this* or *Block* on a free cell | `tests/components/bookings-tab-day.test.tsx` |
 | Staff could change nothing about a class or a tournament once made, short of cancelling it | A class's name, instructor, places (more offered to the waiting list, fewer never below those taken) and price for new enrolments, for one session or the rest of the series; a tournament's name, description, deadline, places and fee for new entries before its draw; a manager's, logged | `tests/class-changes.test.ts`, `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | The venue heard about bookings made online but not about customers' online cancellations and changes | Optional alerts for cancellations and changes, a day ahead unless widened, at the new-booking alerts' address and number, in their language | `tests/booking-change-alerts.test.ts` |
+| The front desk was shown managers' controls everywhere and refused on use | What the desk may do answered from the server's own list; managers' editors read-only, their buttons hidden | `tests/components/desk-sees-what-it-may.test.tsx` |
+| Staff were given a password by a manager, and a branch manager could not add or remove the branch's front desk | Staff invited by email to choose their own; a branch manager runs their front desk | `tests/staff-accounts.test.ts` |
 | Counter top-ups, passes, memberships and entry and league fees could be taken with no record of how they were paid, and nothing added up the till | Every counter sale says how it was paid and who took it; a cash-up by method for the day, from the sales journal, the desk's own shift or a manager's whole day | `tests/cash-up.test.ts` |
 | The front desk typed any price for a pass or a membership | Passes from the venue's products and memberships on its plans at their prices; another price a manager's with a reason, recorded and logged | `tests/counter-prices.test.ts` |
 | A booking's price could not be changed or waived once made | A manager's price adjustment with a reason, before or after a counter payment | `tests/price-adjustments.test.ts` |
