@@ -1,6 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
+import { useStaffMay } from "./StaffMay";
 import { useCallback, useEffect, useState } from "react";
 import type { Addon } from "@/lib/addons";
 import type { CounterDay } from "@/lib/counter-sales";
@@ -20,6 +21,8 @@ type CartLine = { key: string; addonId: number | null; name: string; price: numb
 
 export function CounterSalesPanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  // Voiding a sale is a manager's (lib/roles.ts).
+  const may = useStaffMay();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [date, setDate] = useState(todayLocal());
   const [addons, setAddons] = useState<Addon[]>([]);
@@ -232,7 +235,7 @@ export function CounterSalesPanel({ venues }: { venues: ManagedVenue[] }) {
                     {t("pos.receipt")}
                   </a>
                 )}
-                {!s.voidedAt && (
+                {!s.voidedAt && may("counterSaleVoid") && (
                   <button type="button" onClick={() => void voidSale(s.id)} className="text-rose-700 hover:underline">
                     {t("pos.void")}
                   </button>

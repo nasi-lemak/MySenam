@@ -2825,6 +2825,22 @@ const EN = {
   "q8b.wl.declinedBody": "Thank you for saying so: the place has gone to the next person waiting, and you are off the list.",
   "q8b.msg.joinedSubject": "On the waiting list — {venue}",
   "q8b.msg.joined": "Hi {name}, you are on the waiting list for {what} at {venue}, {date} {from} (number {position} in line).\n\nIf a place opens up we will tell you, and hold it for you for a short while.\n\nNo longer want it? Leave the list here, so the next person is asked: {leave}",
+  // R9A: staff invitations (to staff, in their own language)
+  "err.R9A_ADDRESS_TAKEN": "This address already has a staff account. Sign in with it, or ask whoever invited you to invite another address.",
+  "r9a.mail.inviteSubject": "{site}: you are invited to the staff dashboard",
+  "r9a.mail.inviteBody": "Hi {name},\n\n{who} has invited you to {where} on {site}, as {role}.\n\nChoose your own password here; the link works once, for {days} days:\n\n{link}\n\nNobody else knows the password you choose. If you did not expect this, ignore this email: no account is made.",
+  "r9a.mail.addressSubject": "{site}: confirm your new address for the staff dashboard",
+  "r9a.mail.addressBody": "Hi {name},\n\n{who} has changed the address of your staff account at {where} on {site} to this one. Choose a password here to sign in with it from now on; the link works once, for {days} days:\n\n{link}\n\nUntil you do, your account stays at its old address. If you did not expect this, ignore this email.",
+  "r9a.mail.movingSubject": "{site}: your staff account's address is being changed",
+  "r9a.mail.movingBody": "Hi {name},\n\n{who} has asked for your {site} staff account to move to {email}. It moves once that address accepts the invitation sent to it; until then you sign in here as before.\n\nIf you did not expect this, tell {who} or the platform owner.",
+  "r9a.mail.roleDesk": "front desk",
+  "r9a.mail.roleManager": "a manager",
+  "r9a.mail.roleManagerAll": "a manager of every branch",
+  "r9a.page.title": "Choose your password",
+  "r9a.page.intro": "You were invited to the staff dashboard. Choose the password you will sign in with; nobody else will know it.",
+  "r9a.page.save": "Set password and sign in",
+  "r9a.page.done": "Your password is set and you are signed in.",
+  "r9a.page.expired": "Ask whoever invited you to send it again.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5598,6 +5614,22 @@ const MS: Record<Phrase, string> = {
   "q8b.wl.declinedBody": "Terima kasih kerana memaklumkan: tempat itu telah diberikan kepada orang seterusnya yang menunggu, dan anda telah keluar dari senarai.",
   "q8b.msg.joinedSubject": "Dalam senarai menunggu — {venue}",
   "q8b.msg.joined": "Hai {name}, anda dalam senarai menunggu untuk {what} di {venue}, {date} {from} (giliran ke-{position}).\n\nJika ada tempat kosong, kami akan memaklumkan anda dan menyimpannya untuk anda seketika.\n\nTidak mahu lagi? Keluar dari senarai di sini supaya orang seterusnya ditanya: {leave}",
+  // R9A: staff invitations (to staff, in their own language)
+  "err.R9A_ADDRESS_TAKEN": "Alamat ini sudah mempunyai akaun kakitangan. Log masuk dengannya, atau minta orang yang menjemput anda menjemput alamat lain.",
+  "r9a.mail.inviteSubject": "{site}: anda dijemput ke papan pemuka kakitangan",
+  "r9a.mail.inviteBody": "Hai {name},\n\n{who} telah menjemput anda ke {where} di {site}, sebagai {role}.\n\nPilih kata laluan anda sendiri di sini; pautan ini berfungsi sekali, selama {days} hari:\n\n{link}\n\nTiada orang lain yang mengetahui kata laluan yang anda pilih. Jika anda tidak menjangkakan ini, abaikan e-mel ini: tiada akaun dibuat.",
+  "r9a.mail.addressSubject": "{site}: sahkan alamat baharu anda untuk papan pemuka kakitangan",
+  "r9a.mail.addressBody": "Hai {name},\n\n{who} telah menukar alamat akaun kakitangan anda di {where} pada {site} kepada alamat ini. Pilih kata laluan di sini untuk log masuk dengannya mulai sekarang; pautan ini berfungsi sekali, selama {days} hari:\n\n{link}\n\nSehingga anda berbuat demikian, akaun anda kekal pada alamat lamanya. Jika anda tidak menjangkakan ini, abaikan e-mel ini.",
+  "r9a.mail.movingSubject": "{site}: alamat akaun kakitangan anda sedang ditukar",
+  "r9a.mail.movingBody": "Hai {name},\n\n{who} telah meminta supaya akaun kakitangan {site} anda dipindahkan ke {email}. Ia berpindah setelah alamat itu menerima jemputan yang dihantar kepadanya; sehingga itu anda log masuk di sini seperti biasa.\n\nJika anda tidak menjangkakan ini, beritahu {who} atau pemilik platform.",
+  "r9a.mail.roleDesk": "kaunter",
+  "r9a.mail.roleManager": "pengurus",
+  "r9a.mail.roleManagerAll": "pengurus semua cawangan",
+  "r9a.page.title": "Pilih kata laluan anda",
+  "r9a.page.intro": "Anda telah dijemput ke papan pemuka kakitangan. Pilih kata laluan yang akan anda gunakan untuk log masuk; tiada orang lain akan mengetahuinya.",
+  "r9a.page.save": "Tetapkan kata laluan dan log masuk",
+  "r9a.page.done": "Kata laluan anda telah ditetapkan dan anda telah log masuk.",
+  "r9a.page.expired": "Minta orang yang menjemput anda menghantarnya semula.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

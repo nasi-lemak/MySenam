@@ -11,7 +11,7 @@ vi.mock("next/headers", () => ({
 import { NextRequest } from "next/server";
 import { listActivity } from "../src/lib/activity";
 import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdmin, createAdminSession, ensureBootstrapAdmin } from "../src/lib/admin-auth";
-import { MANAGER_ONLY } from "../src/lib/roles";
+import { MANAGER_ONLY, STAFF_ACTIONS, managerOnly, staffMay } from "../src/lib/roles";
 import { createBooking, listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 
@@ -60,6 +60,33 @@ describe("what front desk may not do", () => {
   it("names only routes that exist", () => {
     const paths = Object.keys(routes).map(pathOf);
     for (const rule of MANAGER_ONLY) expect(paths.some((p) => rule.path.test(p)), String(rule.path)).toBe(true);
+  });
+
+  it("answers the dashboard's questions from the same list, each a real route and method (X1-5)", async () => {
+    const paths = Object.keys(routes).map((file) => ({ file, path: pathOf(file) }));
+    const desk = staffMay("desk");
+    const manager = staffMay("manager");
+    for (const [name, request] of Object.entries(STAFF_ACTIONS)) {
+      const [method, path] = request.split(" ");
+      const route = paths.find((r) => r.path === path);
+      expect(route, `${name}: ${path} is not a route`).toBeTruthy();
+      const mod = (await routes[route!.file]()) as Record<string, unknown>;
+      expect(typeof mod[method], `${name}: ${request} has no handler`).toBe("function");
+      expect(desk[name as keyof typeof desk], name).toBe(!managerOnly(method, path));
+      expect(manager[name as keyof typeof manager], name).toBe(true);
+    }
+    // Every one the dashboard asks about today is a manager's; the desk is offered none of them.
+    expect(Object.values(desk).every((v) => v === false)).toBe(true);
+  });
+
+  it("sends the answers with who is signed in", async () => {
+    const { GET } = await import("../src/app/api/admin/auth/me/route");
+    const asDesk = await (await GET(new NextRequest("http://localhost/api/admin/auth/me", { headers: { cookie: deskCookie } }))).json();
+    expect(asDesk.canManage).toBe(false);
+    expect(asDesk.may).toEqual(staffMay("desk"));
+    const asManager = await (await GET(new NextRequest("http://localhost/api/admin/auth/me", { headers: { cookie: managerCookie } }))).json();
+    expect(asManager.canManage).toBe(true);
+    expect(asManager.may.venueDetails).toBe(true);
   });
 
   it("is refused at every one of them, and a manager is not", async () => {

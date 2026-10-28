@@ -1,6 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
+import { useStaffMay } from "./StaffMay";
 import { useState } from "react";
 import type { Membership } from "@/lib/types";
 import type { CoverChangeView, CoverPlaces } from "@/lib/membership-purchases";
@@ -23,6 +24,8 @@ const CHANGE_PHRASES = {
  */
 export function MembershipCovers({ membership, venueId, onChanged }: { membership: Membership; venueId: number; onChanged: () => void }) {
   const t = useStaffT();
+  // Correcting who is covered is a manager's (lib/roles.ts): the desk reads the history.
+  const mayCorrect = useStaffMay()("membershipCovers");
   const clock = useStaffClock();
   const [changes, setChanges] = useState<CoverChangeView[] | null>(null);
   const [places, setPlaces] = useState<CoverPlaces | null>(null);
@@ -81,7 +84,7 @@ export function MembershipCovers({ membership, venueId, onChanged }: { membershi
         </ul>
       )}
       {places && <p className="mt-1 text-slate-500">{t("mb6.cr.places", { used: places.used, total: places.limit + places.swaps })}</p>}
-      {covers.length > 0 && (
+      {covers.length > 0 && mayCorrect && (
         <form onSubmit={correct} className="mt-2 flex flex-wrap items-end gap-2 whitespace-normal">
           <span className="w-full font-medium text-slate-600">{t("mb6.cr.correctTitle")}</span>
           <label className="flex flex-col text-slate-500">

@@ -311,3 +311,47 @@ then it can sign in with email too.
 The links go out by email (`SMTP_URL` and `MAIL_FROM`). An install with no email set up cannot
 send them; with `MYSENAM_SEND=log` they are written to the server log instead,
 which is how to test it locally.
+
+## Staff invitations
+
+New staff choose their own password; nobody who adds them ever knows it
+(audit R8 X1-14; `src/lib/staff-accounts.ts`). Who may add, change and
+remove whom is in [tenancy](tenancy.md#who-manages-staff-accounts).
+
+- Adding a member of staff under *Venues & staff* (name, address, where they
+  work and their role, and their language where known) emails them an
+  **invitation** in their own staff language. Its link opens
+  `/reset-password?kind=invite`, works **once**, for **seven days**
+  (`INVITE_DAYS`), and only a keyed hash of it is stored
+  (`staff_invitations.token_hash`, migration 0250), as a reset link's is.
+- **No account exists until the link is used.** Choosing a password there
+  makes the account and signs that browser in (`POST /api/admin/auth/invitation`,
+  counted against the sign-in rate limit), so an invitation not yet accepted
+  can never sign in.
+- An invitation not yet accepted is listed under *Staff accounts* with who
+  sent it and when, and can be **sent again** (a new link and a new seven
+  days; the old link stops working; the name and address can be corrected on
+  the way) or **withdrawn** (its link stops working at once). Removing a
+  member of staff withdraws the invitations they sent that are still out.
+- **No account enumeration.** Inviting an address answers the same whether or
+  not it has a staff account somewhere the inviter cannot see; only the
+  invitee, who holds the address, is told when they open the link that it
+  already has one (`R9A_ADDRESS_TAKEN`), and nothing changes. An address the
+  inviter can already see (an account or invitation of their own) is said at
+  once.
+- **Correcting an address re-invites.** A manager who changes a member of
+  staff's address sends an invitation to the new one and an email to the old
+  one saying so. The account moves to the new address only when that
+  invitation is accepted, with a password chosen there, and every session it
+  had ends; until then it signs in as before.
+- **Where the install cannot send email** (no `SMTP_URL` and `MAIL_FROM`),
+  there is nothing to send an invitation with: the manager gives a password
+  (8+ characters) and the account is made at once, which they can change once
+  signed in, and an address is corrected at once. Where email is set up, a
+  typed password is refused. With `MYSENAM_SEND=log` (development, staging
+  and the acceptance scenarios) both work: a blank password invites, the
+  email written to the server log.
+- Every step is in the staff activity log: `staff.invited`,
+  `staff.invitation_resent`, `staff.invitation_withdrawn`, `staff.joined`,
+  `staff.added` (a typed password), `staff.corrected`, `staff.address_invited`,
+  `staff.address_changed`, `staff.role`, `staff.removed`.

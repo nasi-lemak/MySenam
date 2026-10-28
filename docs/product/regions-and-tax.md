@@ -203,7 +203,8 @@ language, as before (`staffReaderLocale` in `src/lib/staff-locales.ts`,
 
 - **Staff** (`admins.locale`): English, Malay or Chinese, the dashboard's
   languages (not Tamil). The manager or owner who makes the account may set
-  it (*Venues & staff → Add staff*); the person sets it with the dashboard's
+  it (*Venues & staff → Add staff*), and their invitation is written in it
+  ([staff invitations](../architecture/authentication.md#staff-invitations)); the person sets it with the dashboard's
   language switch, which saves it to their account as well as the browser
   (`/api/admin/auth/language`). Signed in on another device, the dashboard
   switches to it once, unless they choose another there

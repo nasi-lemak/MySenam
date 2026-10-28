@@ -1,6 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
+import { ManagerOnly, useStaffMay } from "./StaffMay";
 import { activityIcon } from "@/lib/activity-registry";
 import { ClockField } from "@/components/ClockField";
 import { useCallback, useEffect, useState } from "react";
@@ -23,6 +24,8 @@ const ONLY: Record<string, StaffPhrase> = { women: "cls.onlyWomen", men: "cls.on
 /* ---------------- Classes tab ---------------- */
 
 export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
+  // Scheduling, changing and cancelling classes, and the coaches, are a manager's (lib/roles.ts); the desk sees them and fills them.
+  const may = useStaffMay();
   const t = useStaffT();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [classes, setClasses] = useState<ClassSession[] | null>(null);
@@ -246,7 +249,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">
-                    {session.status === "scheduled" && (
+                    {session.status === "scheduled" && may("classChange") && (
                       <button
                         onClick={() => {
                           setNotice(null);
@@ -257,7 +260,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                         {t("p8c.cls.edit")}
                       </button>
                     )}
-                    {session.status === "scheduled" && (
+                    {session.status === "scheduled" && may("classCancel") && (
                       <button
                         onClick={() => cancelClass(session)}
                         className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
@@ -284,6 +287,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           {needsAfter}
         </p>
       ) : (
+        <ManagerOnly may="classes">
         <form
           onSubmit={schedule}
           className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
@@ -403,6 +407,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             {t("cls.schedule")}
           </button>
         </form>
+        </ManagerOnly>
       )}
 
       {roster && (
@@ -478,7 +483,11 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           }}
         />
       )}
-      {venue && <CoachesPanel key={venue.id} venue={venue} />}
+      {venue && (
+        <ManagerOnly may="coaches">
+          <CoachesPanel key={venue.id} venue={venue} />
+        </ManagerOnly>
+      )}
     </div>
   );
 }
