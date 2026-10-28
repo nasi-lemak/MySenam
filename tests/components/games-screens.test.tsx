@@ -201,10 +201,10 @@ describe("the /games page, signed in", () => {
     expect(within(hosted).getByText(/1 of 3 joined/)).toBeTruthy();
     expect(within(hosted).getByText(/Bala \(Beginner\) · wants to join/)).toBeTruthy();
     expect(within(hosted).getByText(/Chen · joined, share paid/)).toBeTruthy();
-    // Somebody invited by email: nothing about who, and nothing to act on, until they accept.
+    // Somebody invited by email: nothing about who until they accept; the one thing to do is withdraw it (tests/components/invitation-withdrawals.test.tsx).
     const emailed = within(hosted).getByTestId("email-invite");
-    expect(emailed.textContent).toBe("Invited by email, not yet accepted");
-    expect(within(emailed).queryAllByRole("button")).toHaveLength(0);
+    expect(emailed.textContent).toBe("Invited by email, not yet acceptedWithdraw invitation");
+    expect(within(emailed).getAllByRole("button").map((b) => b.textContent)).toEqual(["Withdraw invitation"]);
     const bala = within(hosted).getByText(/Bala/).closest("li")!;
     await act(async () => {
       fireEvent.click(within(bala).getByRole("button", { name: "Accept" }));
@@ -370,7 +370,7 @@ describe("one group", () => {
       })
     );
     const roster = screen.getByTestId("roster");
-    expect(within(roster).getByTestId("email-invite").textContent).toBe("Invited by email, not yet accepted");
+    expect(within(roster).getByTestId("email-invite").textContent).toBe("Invited by email, not yet acceptedWithdraw invitation");
     const row = (name: string) => within(roster).getByText(new RegExp(`^${name} ·`)).closest("li")!;
     expect(within(row("Aina")).queryAllByRole("button")).toHaveLength(0);
     expect(within(row("Bala")).getByText(/Wants to join/)).toBeTruthy();

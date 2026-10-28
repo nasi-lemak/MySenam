@@ -1,8 +1,8 @@
 import { linkIn } from "./link-locale";
 import crypto from "crypto";
-import { getDb } from "./db";
-import { errorText, translator, type ErrorCode, type Phrase, type Vars } from "./i18n";
-import { accountLocale, enqueue } from "./outbox";
+import { getDb, withTransaction } from "./db";
+import { errorText, translator, type ErrorCode, type Locale, type Phrase, type Vars } from "./i18n";
+import { abandonUnsent, accountLocale, drainOutbox, enqueue } from "./outbox";
 import { keyedHash } from "./secrets";
 import type { Refusal } from "./types";
 
@@ -25,6 +25,11 @@ import type { Refusal } from "./types";
  * Inviting somebody the inviter already knows here, picked from their lists
  * (lib/games.ts, invitePlayer), is unchanged: it names an account the
  * inviter has already seen.
+ *
+ * An invitation not yet accepted can be **withdrawn** (the owner's decision
+ * of 28 October 2026): by the game's host or the player who sent it, or the
+ * group's organiser (withdrawPlayerInvitation). Its link is then refused in
+ * the same words as any other that cannot be used.
  */
 
 /** How long an emailed invitation to a group can be accepted. */
@@ -71,18 +76,20 @@ export const FROM_EMAIL_INVITATION = (alias: string, target: "game_id" | "group_
 export interface EmailInvitation {
   id: number;
   expiresAt: string;
+  /** Withdrawn before it was accepted: shown as such until it would have run out. */
+  withdrawn?: true;
 }
 
-/** The email invitations out for a game or a group, not yet accepted or run out. */
+/** The email invitations out for a game or a group, not yet accepted or run out, and those withdrawn that would not have run out yet. */
 export async function openEmailInvitations(target: { gameId: number } | { groupId: number }): Promise<EmailInvitation[]> {
   const [column, id] = "gameId" in target ? ["game_id", target.gameId] : ["group_id", target.groupId];
   const rows = (await getDb()
     .prepare(
-      `SELECT id, expires_at FROM player_invitations
-        WHERE ${column} = ? AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > datetime('now') ORDER BY id`
+      `SELECT id, expires_at, revoked_at IS NOT NULL AS withdrawn FROM player_invitations
+        WHERE ${column} = ? AND used_at IS NULL AND (cancelled_at IS NULL OR revoked_at IS NOT NULL) AND expires_at > datetime('now') ORDER BY id`
     )
-    .all(id)) as { id: number; expires_at: string }[];
-  return rows.map((r) => ({ id: r.id, expiresAt: r.expires_at }));
+    .all(id)) as { id: number; expires_at: string; withdrawn: boolean }[];
+  return rows.map((r) => ({ id: r.id, expiresAt: r.expires_at, ...(r.withdrawn === true ? { withdrawn: true as const } : {}) }));
 }
 
 /** How many email invitations are out for a game, for its limit on invitations waiting for an answer. */
@@ -118,7 +125,7 @@ export async function issueInvitation(input: {
   await db
     .prepare(`UPDATE player_invitations SET cancelled_at = datetime('now') WHERE ${column} = ? AND email_hash = ? AND used_at IS NULL AND cancelled_at IS NULL`)
     .run(id, emailHash(input.email));
-  await db
+  const made = await db
     .prepare(`INSERT INTO player_invitations (${column}, invited_by, token_hash, email_hash, expires_at) VALUES (?, ?, ?, ?, ?)`)
     .run(id, input.invitedBy, tokenHash(input.token), emailHash(input.email), input.expiresAt);
   const locale = await accountLocale(input.invitedBy);
@@ -134,6 +141,8 @@ export async function issueInvitation(input: {
     body: input.body,
     vars,
     expiresMinutes: Math.max(1, (Date.parse(`${input.expiresAt.replace(" ", "T")}Z`) - Date.now()) / 60000),
+    // Found again by this if the invitation is withdrawn (tellInvitationWithdrawn).
+    dedupeKey: invitationMailKey("player", Number(made.lastInsertRowid)),
   });
 }
 
@@ -197,4 +206,83 @@ export async function acceptPlayerInvitation(user: { id: number; email: string; 
   if (!invitation) return invitationInvalid();
   if (invitation.gameId !== null) return (await import("./games")).acceptGameInvitation(user, invitation);
   return (await import("./groups")).acceptGroupInvitation(user, invitation);
+}
+
+/** The outbox key of the email that carried an invitation, to find it again if the invitation is withdrawn. */
+export const invitationMailKey = (kind: "guest" | "player", id: number) => `${kind}-invitation:${id}`;
+
+/**
+ * An invitation just withdrawn, in the withdrawing transaction: its email,
+ * if it has not gone yet, never goes (and the link in it is not kept); if it
+ * went, the address it went to is sent a short notice that it was withdrawn,
+ * in the language the invitation was written in, never saying by whom or
+ * why. Nothing about whoever holds the address is read or looked up, so the
+ * work is the same whether or not an account holds it.
+ */
+export async function tellInvitationWithdrawn(mailKey: string, notice: { subject: Phrase; body: Phrase; vars: Vars }): Promise<void> {
+  if ((await abandonUnsent([mailKey], "Not sent: the invitation was withdrawn.")) > 0) return;
+  const sent = (await getDb().prepare("SELECT recipient, locale FROM messages WHERE dedupe_key = ? AND status = 'sent'").get(mailKey)) as
+    | { recipient: string; locale: Locale }
+    | undefined;
+  if (!sent) return;
+  await enqueue({
+    venueId: null,
+    kind: "account_email",
+    channel: "email",
+    recipient: sent.recipient,
+    locale: sent.locale,
+    subject: notice.subject,
+    body: notice.body,
+    vars: notice.vars,
+    dedupeKey: `${mailKey}:withdrawn`,
+  });
+}
+
+/** Withdrawn now (`changed`), or already withdrawn before: the same answer either way. */
+export type WithdrawResult = { ok: true; changed: boolean } | (Refusal & { status: number });
+
+/** No such invitation, or not one this person may withdraw: the same answer, never saying which. */
+export const invitationNotFound = (): Refusal & { status: number } => ({ ...refuse("INVITATION_NOT_FOUND"), status: 404 });
+
+/**
+ * Withdraw one invitation by email to a game or a group, once the caller has
+ * checked who is asking. Under the game's or the group's row lock (`lock`),
+ * which accepting takes too, and only while it is open: a withdrawal racing
+ * an acceptance is one or the other. Withdrawing one already withdrawn
+ * answers the same and changes nothing; one accepted, run out or replaced is
+ * refused, changing nothing, an accepted one pointing to taking the person
+ * out of the game or the group instead.
+ */
+export async function withdrawPlayerInvitation(input: {
+  id: number;
+  target: { gameId: number } | { groupId: number };
+  by: number;
+  lock: () => Promise<unknown>;
+  notice: { subject: Phrase; body: Phrase; vars: Vars };
+}): Promise<WithdrawResult> {
+  const db = getDb();
+  const [column, targetId] = "gameId" in input.target ? ["game_id", input.target.gameId] : ["group_id", input.target.groupId];
+  const outcome = await withTransaction(async (): Promise<WithdrawResult> => {
+    await input.lock();
+    const row = (await db
+      .prepare(
+        `SELECT used_at, cancelled_at, revoked_at, expires_at > datetime('now') AS live FROM player_invitations
+          WHERE id = ? AND ${column} = ? FOR UPDATE`
+      )
+      .get(input.id, targetId)) as { used_at: string | null; cancelled_at: string | null; revoked_at: string | null; live: boolean } | undefined;
+    if (!row) return invitationNotFound();
+    if (row.revoked_at !== null) return { ok: true, changed: false };
+    if (row.used_at !== null) return { ...refuse("gameId" in input.target ? "INVITATION_ACCEPTED_GAME" : "INVITATION_ACCEPTED_GROUP"), status: 409 };
+    if (row.cancelled_at !== null || row.live !== true) return { ...refuse("INVITATION_NOT_PENDING"), status: 409 };
+    await db
+      .prepare(
+        `UPDATE player_invitations SET cancelled_at = datetime('now'), revoked_at = datetime('now'), revoked_by = ?
+          WHERE id = ? AND used_at IS NULL AND cancelled_at IS NULL`
+      )
+      .run(input.by, input.id);
+    await tellInvitationWithdrawn(invitationMailKey("player", input.id), input.notice);
+    return { ok: true, changed: true };
+  });
+  if (outcome.ok && outcome.changed) void drainOutbox().catch(() => null);
+  return outcome;
 }

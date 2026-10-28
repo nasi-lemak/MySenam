@@ -101,6 +101,13 @@ not stop it, so the answer itself must say nothing:
   `tests/player-invitations.test.ts`). Inviting somebody the inviter already
   knows here, picked from their lists, names an account they have seen and is
   unchanged.
+- **Withdrawing an emailed invitation** (a guest's, a game's or a group's)
+  takes no address: it names the invitation, and answers and works the same
+  whether or not an account holds the address it went to. The address is
+  told only if the invitation's email had gone, by a notice found through
+  the outbox, never by looking an account up
+  (`tellInvitationWithdrawn` in `src/lib/player-invitations.ts`;
+  `tests/invitation-withdrawals.test.ts`).
 
 The timing of signing in and of asking for a reset is measured in
 `tests/no-enumeration-timing.test.ts`, with bounds generous enough for a busy

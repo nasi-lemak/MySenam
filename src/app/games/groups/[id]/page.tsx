@@ -4,7 +4,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { activityIcon } from "@/lib/activity-registry";
-import { sportLabel } from "@/lib/i18n";
+import { sportLabel, translateError } from "@/lib/i18n";
 import type { Group } from "@/lib/groups";
 
 /** One community group: asking to join or answering an invitation; for its organiser, who is in and who is asking. */
@@ -34,7 +34,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     setNotice(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json();
-    if (!res.ok) return setError(data.error);
+    if (!res.ok) return setError(translateError(t, data) || data.error);
     if (done) setNotice(done);
     await load();
   }
@@ -125,10 +125,21 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
               )}
             </li>
           ))}
-          {/* Invited by email: nothing about who until they accept. */}
+          {/* Invited by email: nothing about who until they accept; the organiser withdraws one on a confirm, until then. */}
           {(group.emailInvites ?? []).map((x) => (
-            <li key={`email-${x.id}`} className="text-slate-500" data-testid="email-invite">
-              {t("gi7.invitedEmail")}
+            <li key={`email-${x.id}`} className="flex flex-wrap items-center gap-2 text-slate-500" data-testid="email-invite">
+              <span>{x.withdrawn ? t("rv7.withdrawnEmail") : t("gi7.invitedEmail")}</span>
+              {organiser && !x.withdrawn && (
+                <button
+                  onClick={() =>
+                    window.confirm(t("rv7.withdrawConfirm")) &&
+                    void post(`/api/groups/${group.id}`, { action: "withdrawInvitation", invitationId: x.id }, t("rv7.withdrawnOk"))
+                  }
+                  className={small}
+                >
+                  {t("rv7.withdraw")}
+                </button>
+              )}
             </li>
           ))}
         </ul>

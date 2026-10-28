@@ -4,6 +4,7 @@ import { getDb } from "./db";
 import { accountPhone, cleanAccess, ENTRY_COUNTS_FOR } from "./access";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { accountLocale, baseUrl, drainOutbox, enqueue } from "./outbox";
+import { invitationMailKey, invitationNotFound, tellInvitationWithdrawn, type WithdrawResult } from "./player-invitations";
 import { keyedHash } from "./secrets";
 import { addDays, todayISO } from "./time";
 import type { Refusal } from "./types";
@@ -33,6 +34,12 @@ import type { Refusal } from "./types";
  * again replaces it; the guest taken off, run out or taken over, or the
  * resident leaving, voids it. The resident sees *invitation sent* until the
  * guest accepts, then *linked*.
+ *
+ * An invitation not yet accepted can be **withdrawn** (the owner's decision
+ * of 28 October 2026) by the resident who sent it, or by the venue's manager
+ * with a reason (withdrawGuestInvitation, withdrawGuestInvitationByStaff):
+ * its link is then refused like any other that cannot be used, and the guest
+ * stays on the list by their number.
  */
 
 export interface GuestPolicy {
@@ -54,6 +61,8 @@ export interface MyGuest {
   linked: boolean;
   /** An emailed invitation is out for it, not yet accepted (says nothing about whether an account holds the address). */
   invited: boolean;
+  /** The last invitation emailed for it was withdrawn before it was accepted. */
+  withdrawn?: true;
 }
 
 export interface InviteVenue {
@@ -118,14 +127,26 @@ async function hostEntries(userId: number, venueId?: number): Promise<HostRow[]>
 const OPEN_INVITATION = `EXISTS (SELECT 1 FROM guest_invitations gi WHERE gi.entry_id = a.id AND gi.host_entry_id = a.invited_by
   AND gi.used_at IS NULL AND gi.cancelled_at IS NULL AND gi.expires_on >= ?)`;
 
+/** SQL: the last invitation for entry `a` from its present host was withdrawn (no `?`). */
+export const LAST_INVITATION_WITHDRAWN = `COALESCE((SELECT gi.revoked_at IS NOT NULL FROM guest_invitations gi
+  WHERE gi.entry_id = a.id AND gi.host_entry_id = a.invited_by ORDER BY gi.id DESC LIMIT 1), false)`;
+
 async function guestsOf(hostId: number): Promise<MyGuest[]> {
   const today = todayISO();
   const rows = (await getDb()
     .prepare(
-      `SELECT a.id, a.phone, a.name, a.expires_on, a.user_id, ${OPEN_INVITATION} AS invited
+      `SELECT a.id, a.phone, a.name, a.expires_on, a.user_id, ${OPEN_INVITATION} AS invited, ${LAST_INVITATION_WITHDRAWN} AS withdrawn
          FROM venue_access_list a WHERE a.invited_by = ? AND a.expires_on >= ? ORDER BY a.expires_on, a.id`
     )
-    .all(today, hostId, today)) as { id: number; phone: string; name: string | null; expires_on: string; user_id: number | null; invited: boolean }[];
+    .all(today, hostId, today)) as {
+    id: number;
+    phone: string;
+    name: string | null;
+    expires_on: string;
+    user_id: number | null;
+    invited: boolean;
+    withdrawn: boolean;
+  }[];
   return rows.map((r) => ({
     id: r.id,
     phone: r.phone,
@@ -133,6 +154,7 @@ async function guestsOf(hostId: number): Promise<MyGuest[]> {
     expiresOn: r.expires_on,
     linked: r.user_id !== null,
     invited: r.invited === true,
+    ...(r.withdrawn === true && r.invited !== true ? { withdrawn: true as const } : {}),
   }));
 }
 
@@ -253,7 +275,7 @@ export async function inviteGuest(
 async function sendInvitation(input: { userId: number; host: HostRow; entryId: number; email: string; token: string; expiresOn: string }): Promise<void> {
   const db = getDb();
   await db.prepare("UPDATE guest_invitations SET cancelled_at = now() WHERE entry_id = ? AND used_at IS NULL AND cancelled_at IS NULL").run(input.entryId);
-  await db
+  const made = await db
     .prepare(
       `INSERT INTO guest_invitations (venue_id, entry_id, host_entry_id, invited_by_user, token_hash, email_hash, expires_on)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -279,6 +301,8 @@ async function sendInvitation(input: { userId: number; host: HostRow; entryId: n
     },
     // Not sent once it can no longer be accepted.
     expiresMinutes: (Date.parse(`${addDays(input.expiresOn, 1)}T00:00:00Z`) - Date.now()) / 60000 + 24 * 60,
+    // Found again by this if the invitation is withdrawn (lib/player-invitations.ts tellInvitationWithdrawn).
+    dedupeKey: invitationMailKey("guest", Number(made.lastInsertRowid)),
   });
 }
 
@@ -331,4 +355,78 @@ export async function cancelGuest(userId: number, guestId: number): Promise<bool
     .prepare(`DELETE FROM venue_access_list WHERE id = ? AND invited_by IN (${hosts.map(() => "?").join(",")})`)
     .run(guestId, ...hosts.map((h) => h.id));
   return done.changes === 1;
+}
+
+/** Who withdraws a guest's invitation: the resident who sent it, or the venue's manager with a reason. */
+type Withdrawer = { userId: number } | { adminId: number; reason: string };
+
+/**
+ * Withdraw the invitation emailed for this guest entry, the last one its
+ * present host sent. Only while it is open, under its row lock (as accepting
+ * takes it), so a withdrawal racing an acceptance is one or the other. One
+ * already withdrawn answers the same and changes nothing; one accepted, run
+ * out or replaced is refused, changing nothing, an accepted one pointing to
+ * taking the guest off the list instead. The guest stays on the list by
+ * their number. The address is told only if the invitation's email had gone
+ * (tellInvitationWithdrawn), the same whether or not an account holds it.
+ */
+async function withdrawLatest(entry: { id: number; venue_id: number; invited_by: number }, who: Withdrawer): Promise<WithdrawResult> {
+  const db = getDb();
+  const today = todayISO();
+  const outcome = await db.transaction(async (): Promise<WithdrawResult> => {
+    const row = (await db
+      .prepare(
+        `SELECT id, used_at, cancelled_at, revoked_at, expires_on FROM guest_invitations
+          WHERE entry_id = ? AND host_entry_id = ? AND venue_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE`
+      )
+      .get(entry.id, entry.invited_by, entry.venue_id)) as
+      | { id: number; used_at: unknown; cancelled_at: unknown; revoked_at: unknown; expires_on: string }
+      | undefined;
+    if (!row) return invitationNotFound();
+    if (row.revoked_at !== null) return { ok: true, changed: false };
+    if (row.used_at !== null) return { ...refuse("INVITATION_ACCEPTED_GUEST"), status: 409 };
+    if (row.cancelled_at !== null || row.expires_on < today) return { ...refuse("INVITATION_NOT_PENDING"), status: 409 };
+    await db
+      .prepare(
+        `UPDATE guest_invitations SET cancelled_at = now(), revoked_at = now(), revoked_by_user = ?, revoked_by_admin = ?, revoke_reason = ?
+          WHERE id = ? AND used_at IS NULL AND cancelled_at IS NULL`
+      )
+      .run("userId" in who ? who.userId : null, "adminId" in who ? who.adminId : null, "adminId" in who ? who.reason : null, row.id);
+    const venue = (await db.prepare("SELECT name FROM venues WHERE id = ?").get(entry.venue_id)) as { name: string };
+    await tellInvitationWithdrawn(invitationMailKey("guest", row.id), { subject: "rv7.mail.guest.s", body: "rv7.mail.guest.b", vars: { venue: venue.name } });
+    return { ok: true, changed: true };
+  })();
+  if (outcome.ok && outcome.changed) void drainOutbox().catch(() => null);
+  return outcome;
+}
+
+/** The resident withdrawing the invitation emailed for one of their own guests; anybody else's guest is not found. */
+export async function withdrawGuestInvitation(userId: number, guestId: unknown): Promise<WithdrawResult> {
+  if (!Number.isInteger(guestId)) return invitationNotFound();
+  const hosts = await hostEntries(userId);
+  if (hosts.length === 0) return invitationNotFound();
+  const entry = (await getDb()
+    .prepare(`SELECT id, venue_id, invited_by FROM venue_access_list WHERE id = ? AND kind = 'guest' AND invited_by IN (${hosts.map(() => "?").join(",")})`)
+    .get(guestId, ...hosts.map((h) => h.id))) as { id: number; venue_id: number; invited_by: number } | undefined;
+  if (!entry) return invitationNotFound();
+  return withdrawLatest(entry, { userId });
+}
+
+/** The longest reason staff may give for withdrawing a guest's invitation. */
+export const WITHDRAW_REASON_MAX = 300;
+
+/**
+ * The venue's manager withdrawing the invitation a resident emailed for a
+ * guest on this venue's list, with a reason (kept with the invitation and in
+ * the activity log by the caller). Another venue's entry is not found.
+ */
+export async function withdrawGuestInvitationByStaff(venueId: number, entryId: unknown, adminId: number, reason: unknown): Promise<WithdrawResult> {
+  const why = typeof reason === "string" ? reason.trim() : "";
+  if (why === "" || why.length > WITHDRAW_REASON_MAX) return { ...refuse("INVITATION_REASON_NEEDED"), status: 400 };
+  if (!Number.isInteger(entryId)) return invitationNotFound();
+  const entry = (await getDb()
+    .prepare("SELECT id, venue_id, invited_by FROM venue_access_list WHERE id = ? AND venue_id = ? AND kind = 'guest' AND invited_by IS NOT NULL")
+    .get(entryId, venueId)) as { id: number; venue_id: number; invited_by: number } | undefined;
+  if (!entry) return invitationNotFound();
+  return withdrawLatest(entry, { adminId, reason: why });
 }

@@ -8,12 +8,15 @@ import {
   GROUP_INVITE_DAYS,
   invitationAddress,
   invitationInvalid,
+  invitationNotFound,
   issueInvitation,
   newInvitationToken,
   openEmailInvitations,
+  withdrawPlayerInvitation,
   type EmailInvitation,
   type InvitationRow,
   type PlayerAcceptResult,
+  type WithdrawResult,
 } from "./player-invitations";
 import type { Sport } from "./types";
 
@@ -310,6 +313,25 @@ export async function inviteToGroup(organiserId: number, groupId: number, email:
   // As a password reset's link: sent now if it can be, not waited on, and the same either way.
   void drainOutbox().catch(() => null);
   return { ok: true, group: (await groupView(groupId, organiserId))! };
+}
+
+/**
+ * The organiser withdrawing an invitation by email not yet accepted
+ * (withdrawPlayerInvitation), under the group's row lock, as accepting it
+ * is. Anybody else, or an invitation to another group, hears it is not
+ * found, as if there were none.
+ */
+export async function withdrawGroupInvitation(organiserId: number, groupId: number, invitationId: unknown): Promise<WithdrawResult> {
+  if (!Number.isInteger(invitationId)) return invitationNotFound();
+  const group = await groupRow(groupId);
+  if (!group || group.organiserId !== organiserId) return invitationNotFound();
+  return withdrawPlayerInvitation({
+    id: invitationId as number,
+    target: { groupId },
+    by: organiserId,
+    lock: () => getDb().prepare("SELECT id FROM community_groups WHERE id = ? FOR UPDATE").get(groupId),
+    notice: { subject: "rv7.mail.group.s", body: "rv7.mail.group.b", vars: { g: group.name } },
+  });
 }
 
 /**

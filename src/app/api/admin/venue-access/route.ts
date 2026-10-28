@@ -17,7 +17,7 @@ import {
 } from "@/lib/access";
 import { phoneChecksOn } from "@/lib/phone-check";
 import { logFromRequest } from "@/lib/activity";
-import { guestPolicy, setGuestPolicy } from "@/lib/guest-invites";
+import { guestPolicy, setGuestPolicy, withdrawGuestInvitationByStaff } from "@/lib/guest-invites";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +45,8 @@ export async function GET(req: NextRequest) {
  * `{ venueId, action: "remove", id }`,
  * `{ venueId, action: "link", id, account }` (the account's email or number: the entry then counts online for it),
  * `{ venueId, action: "unlink", id }`,
- * `{ venueId, action: "guests", perResident, days }` (residents inviting their own guests).
+ * `{ venueId, action: "guests", perResident, days }` (residents inviting their own guests),
+ * `{ venueId, action: "withdrawInvitation", id, reason }` (the invitation a resident emailed for guest entry `id`, not yet accepted).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -111,6 +112,17 @@ export async function POST(req: NextRequest) {
   } else if (body.action === "remove") {
     if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
     await removeAccess(venueId, body.id as number);
+  } else if (body.action === "withdrawInvitation") {
+    // A manager's, as every change to the list is (lib/roles.ts); logged as its own action, with the reason.
+    const withdrawn = await withdrawGuestInvitationByStaff(venueId, body.id, admin.id, body.reason);
+    if (!withdrawn.ok) return NextResponse.json({ error: withdrawn.error, code: withdrawn.code }, { status: withdrawn.status });
+    if (withdrawn.changed)
+      await logFromRequest(req, {
+        venueId,
+        action: "guest_invitation.withdrawn",
+        detail: `Access list: the invitation emailed for entry ${String(body.id)} withdrawn: ${String(body.reason).trim()}`,
+      });
+    return NextResponse.json({ withdrawn: true, settings: await accessSettings(venueId), list: await accessList(venueId), guests: await guestPolicy(venueId) });
   } else {
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   }

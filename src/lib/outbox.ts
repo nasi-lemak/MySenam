@@ -633,16 +633,17 @@ export async function retryMessage(
  * tried again), by their dedupe keys (`%` matches the rest of one, as in SQL
  * LIKE): what they carry no longer stands. Marked abandoned with the reason, as
  * the outbox gives up any message, so staff see why it never went; one already
- * sent, or being sent this moment, goes as it would have. How many.
+ * sent, or being sent this moment, goes as it would have. A link into somebody's
+ * account it carried is not kept, as when any is given up. How many.
  */
 export async function abandonUnsent(dedupeKeys: string[], why: string): Promise<number> {
   if (dedupeKeys.length === 0) return 0;
   const done = await getDb()
     .prepare(
-      `UPDATE messages SET status = 'abandoned', last_error = ?
+      `UPDATE messages SET status = 'abandoned', last_error = ?, ${FORGET_ACCOUNT_LINK}
         WHERE status IN ('queued','failed') AND (${dedupeKeys.map(() => "dedupe_key LIKE ?").join(" OR ")})`
     )
-    .run(why, ...dedupeKeys);
+    .run(why, ACCOUNT_LINK_HIDDEN, ...dedupeKeys);
   return done.changes;
 }
 

@@ -449,10 +449,21 @@ function MyGames({
                     )}
                   </li>
                 ))}
-              {/* Invited by email: nothing about who until they accept. */}
+              {/* Invited by email: nothing about who until they accept; withdrawn on a confirm, until then. */}
               {(g.emailInvites ?? []).map((x) => (
-                <li key={`email-${x.id}`} className="text-slate-500" data-testid="email-invite">
-                  {t("gi7.invitedEmail")}
+                <li key={`email-${x.id}`} className="flex flex-wrap items-center gap-2 text-slate-500" data-testid="email-invite">
+                  <span>{x.withdrawn ? t("rv7.withdrawnEmail") : t("gi7.invitedEmail")}</span>
+                  {!x.withdrawn && (
+                    <button
+                      onClick={() =>
+                        window.confirm(t("rv7.withdrawConfirm")) &&
+                        void act(`/api/games/${g.id}`, { action: "withdrawInvitation", invitationId: x.id }, t("rv7.withdrawnOk"))
+                      }
+                      className={small}
+                    >
+                      {t("rv7.withdraw")}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

@@ -210,6 +210,24 @@ export function AccessEditor({ venueId }: { venueId: number }) {
                           <td className="px-2 py-1">
                             {KIND_LABELS[e.kind]}
                             {e.invitedBy && <span className="block text-xs text-slate-500">{t("acs.invitedBy", { name: e.invitedBy })}</span>}
+                            {e.invitation && (
+                              <span className="block text-xs text-slate-500" data-testid="guest-invitation">
+                                {e.invitation === "pending" ? t("rv7.pending") : t("rv7.withdrawn")}
+                              </span>
+                            )}
+                            {e.invitation === "pending" && (
+                              <button
+                                disabled={busy}
+                                onClick={() => {
+                                  // Asking why is the confirm step: cancelled or left empty, nothing is sent.
+                                  const reason = window.prompt(t("rv7.reasonPrompt", { name: e.name ?? e.phone }));
+                                  if (reason && reason.trim() !== "") void post({ action: "withdrawInvitation", id: e.id, reason }, t("rv7.withdrawnOk"));
+                                }}
+                                className="text-teal-700 hover:underline"
+                              >
+                                {t("rv7.withdraw")}
+                              </button>
+                            )}
                           </td>
                           <td className="px-2 py-1">{e.expiresOn ?? "—"}</td>
                           <td className="px-2 py-1">
