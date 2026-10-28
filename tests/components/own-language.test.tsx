@@ -155,7 +155,7 @@ describe("the language of a venue's booking alerts", () => {
     await act(async () => {
       screen.getByRole("button", { name: "Save" }).click();
     });
-    expect(posted).toEqual([{ url: "/api/admin/booking-alerts", body: { venueId: 3, email: "desk@club.my", phone: "", locale: null } }]);
+    expect(posted).toEqual([{ url: "/api/admin/booking-alerts", body: { venueId: 3, email: "desk@club.my", phone: "", locale: null, cancellations: false, changes: false, withinHours: 24 } }]);
   });
 });
 

@@ -31,12 +31,12 @@ const NEEDS_NO_ENTRY: Record<string, string> = {
   "auth/forgot POST": "asking for a reset link: nobody is signed in, and the answer must not show whether the address has an account",
   "auth/reset POST": "setting a password from a reset link: nobody is signed in, and nothing at a venue changes",
   "auth/password POST": "changing one's own password: nothing at a venue changes",
+  "auth/language POST": "choosing the language one's own screens and messages are in: nothing at a venue changes",
   // The platform owner running the install itself: no venue's day, bookings, money or settings.
   "errors POST": "the platform owner marking an error report dealt with",
   "system POST": "the platform owner clearing a system alert",
   "demo POST": "the platform owner loading or moving the demonstration data (refused once anything is sold for real)",
   "backup POST": "the platform owner taking a backup now",
-  "retention POST": "the platform owner running the privacy retention policy now (each erasure is in the erasure ledger, lib/erasure-ledger.ts)",
   "businesses POST": "the platform owner grouping venues into a business",
   "venues POST": "the platform owner adding a venue",
   "venue-applications POST": "the platform owner deciding an application to list a venue, stored on the application",

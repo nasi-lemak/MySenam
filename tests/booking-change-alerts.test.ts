@@ -121,6 +121,18 @@ describe("alerts for customers' online cancellations and changes", () => {
     expect(await alertsFor(b.id)).toEqual([]);
   });
 
+  it("are written in the language chosen for the venue's alerts, as new-booking alerts are", async () => {
+    expect((await setBookingAlerts(venueId, { email: "desk@arena.my", locale: "ms" })).ok).toBe(true);
+    const b = await booked(addDays(todayISO(), 1), 15);
+    expect((await cancel(b.code, b.phone)).status).toBe(200);
+    const [mail] = (await getDb()
+      .prepare("SELECT locale, body FROM messages WHERE booking_id = ? AND kind = 'venue_booking_change'")
+      .all(b.id)) as { locale: string; body: string }[];
+    expect(mail.locale).toBe("ms");
+    expect(mail.body).not.toContain("A booking was cancelled online.");
+    expect((await setBookingAlerts(venueId, { email: "desk@arena.my", locale: null })).ok).toBe(true);
+  });
+
   it("can be widened to any time ahead, and turned off again", async () => {
     expect(await setChangeAlerts(venueId, { withinHours: null })).toMatchObject({ ok: true, changes: { withinHours: null } });
     const far = await booked(addDays(todayISO(), 9));

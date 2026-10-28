@@ -88,7 +88,7 @@ describe("alerts for online cancellations and changes", () => {
     });
     const posted = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
     expect(JSON.parse(String((posted[1] as RequestInit).body))).toEqual({
-      venueId: 3, email: "desk@arena.my", phone: "", cancellations: true, changes: false, withinHours: 48,
+      venueId: 3, email: "desk@arena.my", phone: "", locale: null, cancellations: true, changes: false, withinHours: 48,
     });
   });
 });
