@@ -177,7 +177,7 @@ export function VenuesTab({
 
       {admin.role !== "desk" && <IntegrationsPanel venues={venues} isOwner={isOwner} />}
 
-      <OnlinePaymentsPanel venues={venues} />
+      <OnlinePaymentsPanel venues={venues} desk={admin.role === "desk"} />
 
       {region().country === "MY" && admin.role !== "desk" && <EInvoicePanel venues={venues} />}
 

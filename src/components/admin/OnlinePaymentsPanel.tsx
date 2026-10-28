@@ -15,8 +15,10 @@ import { useStaffClock, useStaffT } from "./StaffLanguage";
  * settings (a Billplz collection, say), and the last four characters of each
  * key, which is enough to tell which account is set without making the page
  * worth stealing. The fields are whatever the chosen gateway asks for.
+ * Front desk sees what came through, not the account or the hold policy,
+ * which are a manager's (lib/roles.ts).
  */
-export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
+export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedVenue[]; desk?: boolean }) {
   const t = useStaffT();
   const clock = useStaffClock();
   /** What a payment that is not for bookings was for. */
@@ -56,21 +58,23 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
     setError(null);
     try {
       const [s, p] = await Promise.all([
-        fetch(`/api/admin/venues/${venueId}/payment-settings`, { cache: "no-store" }),
+        desk ? null : fetch(`/api/admin/venues/${venueId}/payment-settings`, { cache: "no-store" }),
         fetch(`/api/admin/online-payments?venueId=${venueId}`, { cache: "no-store" }),
       ]);
-      const settingsData = await s.json();
       const paymentsData = await p.json();
-      if (!s.ok) throw new Error(t.err(settingsData, t("opay.couldNotLoadSettings")));
+      if (s) {
+        const settingsData = await s.json();
+        if (!s.ok) throw new Error(t.err(settingsData, t("opay.couldNotLoadSettings")));
+        const current: PaymentSettings = settingsData.settings;
+        setSettings(current);
+        setForm({
+          provider: current.provider,
+          credentials: plainFields(current, current.provider),
+          sandbox: current.sandbox,
+          enabled: current.configured ? current.enabled : true,
+        });
+      }
       if (!p.ok) throw new Error(t.err(paymentsData, t("opay.couldNotLoadPayments")));
-      const current: PaymentSettings = settingsData.settings;
-      setSettings(current);
-      setForm({
-        provider: current.provider,
-        credentials: plainFields(current, current.provider),
-        sandbox: current.sandbox,
-        enabled: current.configured ? current.enabled : true,
-      });
       setPayments(paymentsData.payments);
       setOwed(paymentsData.refundsOwed);
       setInFlight(paymentsData.refundsInFlight ?? []);
@@ -80,7 +84,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : t("opay.couldNotLoadSettings"));
     }
-  }, [venueId, t]);
+  }, [venueId, t, desk]);
 
   useEffect(() => {
     load();
@@ -146,6 +150,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-3 text-sm font-medium text-emerald-700">{notice}</p>}
 
+      {!desk && (
+        <>
       {settings?.unreadable && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <strong>{t("opay.offTitle")}</strong> {t("opay.unreadable")}
@@ -260,6 +266,8 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
       </form>
 
       <HoldPolicyEditor venueId={venueId} canPayOnline={settings?.configured === true && settings.enabled} />
+        </>
+      )}
 
       {disputes.length > 0 && (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
