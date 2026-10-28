@@ -36,12 +36,23 @@ interface BranchRequest {
  * A business manager adding another branch. It is theirs to set up at once,
  * as a draft, and goes live like the first one did: sent from its banner on
  * the dashboard, and approved by the platform owner — or on its own, where
- * the install allows that and its pin and address agree.
+ * the install allows that and its pin and address agree. It may start from
+ * one of the business's branches' set-up (lib/branch-copy.ts).
  */
-export function BranchRequestPanel({ businessName, onChange }: { businessName: string; onChange: () => void }) {
+export function BranchRequestPanel({
+  businessName,
+  branches = [],
+  onChange,
+}: {
+  businessName: string;
+  /** The business's branches this manager sees, to start a new one from. */
+  branches?: { id: number; name: string }[];
+  onChange: () => void;
+}) {
   const t = useStaffT();
   const [requests, setRequests] = useState<BranchRequest[]>([]);
   const [form, setForm] = useState({ name: "", area: "", address: "", phone: "", message: "" });
+  const [copyFrom, setCopyFrom] = useState("");
   const [pin, setPin] = useState<MapPoint | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -63,12 +74,21 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
     const res = await fetch("/api/admin/branches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, ...pin }),
+      body: JSON.stringify({ ...form, ...pin, ...(copyFrom ? { copyFrom: Number(copyFrom) } : {}) }),
     });
     const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("biz.sendFailed")));
-    setNotice(t("biz.addedDraft", { name }));
+    const copied = data.copied as { courts: number; skippedCourts: string[] } | null;
+    const from = branches.find((b) => String(b.id) === copyFrom)?.name ?? "";
+    setNotice(
+      copied
+        ? [t.plural("r9c.copy.done", copied.courts, { name, from }), copied.skippedCourts.length ? t("r9c.copy.skipped", { from, courts: copied.skippedCourts.join(", ") }) : ""]
+            .filter(Boolean)
+            .join(" ")
+        : t("biz.addedDraft", { name })
+    );
     setForm({ name: "", area: "", address: "", phone: "", message: "" });
+    setCopyFrom("");
     setPin(null);
     await load();
     onChange();
@@ -92,6 +112,22 @@ export function BranchRequestPanel({ businessName, onChange }: { businessName: s
             text={pinText(t)}
           />
         </div>
+        {branches.length > 0 && (
+          <div className="w-full">
+            <label className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium">{t("r9c.copy.label")}</span>
+              <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)} className={input}>
+                <option value="">{t("r9c.copy.none")}</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {t("r9c.copy.from", { name: b.name })}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {copyFrom && <p className="mt-1 text-xs text-slate-500">{t("r9c.copy.hint")}</p>}
+          </div>
+        )}
         <button className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">{t("biz.addThisBranch")}</button>
       </form>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

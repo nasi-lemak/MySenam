@@ -749,4 +749,13 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "{0} bookings already made fall outside those hours. Move or cancel them first.": { ms: "{0} tempahan yang sudah dibuat berada di luar waktu itu. Pindahkan atau batalkannya dahulu.", zh: "有 {0} 笔已完成的预订落在这些营业时间之外。请先调整或取消。" },
   "The evening before {0} runs past that day's opening. Close earlier, or open later from {1}.": { ms: "Waktu malam sebelum {0} berlanjutan melepasi waktu buka hari itu. Tutup lebih awal, atau buka lebih lewat mulai {1}.", zh: "{0} 前一晚的营业时间超过了当天的开门时间。请提早结束营业，或自 {1} 起延后开门。" },
   "kind is rates or hours.": { ms: "kind ialah rates atau hours.", zh: "kind 须为 rates 或 hours。" },
+  // Round 9 (R9C): a branch from another's set-up, and test bookings
+  "Start it from one of your own branches.": { ms: "Mulakannya daripada salah satu cawangan anda sendiri.", zh: "请从您自己的其中一家分店开始。" },
+  "Could not copy that branch's set-up, so the branch was not added. Try again, or add it without copying.": { ms: "Tetapan cawangan itu tidak dapat disalin, jadi cawangan tidak ditambah. Cuba lagi, atau tambahnya tanpa menyalin.", zh: "无法复制该分店的设置，因此未添加分店。请重试，或不复制直接添加。" },
+  "copyFrom is one of your branches.": { ms: "copyFrom ialah salah satu cawangan anda.", zh: "copyFrom 须为您的其中一家分店。" },
+  "This is not a test booking.": { ms: "Ini bukan tempahan percubaan.", zh: "这不是测试预订。" },
+  "That is not a test booking still standing at this venue.": { ms: "Itu bukan tempahan percubaan yang masih ada di pusat ini.", zh: "这不是本场馆仍然有效的测试预订。" },
+  "Its receipt's month has gone to LHDN without it, so it stays a test.": { ms: "Bulan resitnya sudah dihantar kepada LHDN tanpanya, jadi ia kekal sebagai percubaan.", zh: "其收据所在月份已在不含此单的情况下提交给 LHDN，因此它仍为测试预订。" },
+  "Say which bookings to keep.": { ms: "Nyatakan tempahan mana yang hendak disimpan.", zh: "请说明要保留哪些预订。" },
+  "action must be clear or keep.": { ms: "action mestilah clear atau keep.", zh: "action 须为 clear 或 keep。" },
 };

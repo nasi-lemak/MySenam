@@ -280,19 +280,19 @@ export default function AdminPage() {
       {isOwner && <PlayerReportsPanel />}
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
       {/* One for each branch still being set up; each disappears once its branch is ready. */}
-      {/* Each draft branch, until it is live; and any venue taken off for an unpaid invoice. */}
+      {/* Each draft branch, until it is live; and any venue taken off for an unpaid invoice. A live one shows only
+          test bookings left over from setting up, while there are any (lib/test-bookings.ts). */}
       {!isOwner &&
-        venues
-          .filter((venue) => venue.publishedAt === null || venue.suspendedAt !== null)
-          .map((venue) => (
-            <GoLiveBanner
-              key={`live-${venue.id}`}
-              venueId={venue.id}
-              venueName={venues.length > 1 ? venue.name : null}
-              refreshKey={`${tab}:${venue.courts.length}`}
-              onChange={refreshVenues}
-            />
-          ))}
+        venues.map((venue) => (
+          <GoLiveBanner
+            key={`live-${venue.id}`}
+            venueId={venue.id}
+            venueName={venues.length > 1 ? venue.name : null}
+            refreshKey={`${tab}:${venue.courts.length}`}
+            onChange={refreshVenues}
+            live={venue.publishedAt !== null && venue.suspendedAt === null}
+          />
+        ))}
       {/* Setting the venue up is a manager's (lib/roles.ts): front desk is not given the checklist's steps. */}
       {!isOwner &&
         may?.venueDetails !== false &&

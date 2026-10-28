@@ -209,4 +209,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "hours.withdrawn": "Withdrew hours set from a later date",
   "rates.scheduled": "Set a court's rates from a later date",
   "rates.withdrawn": "Withdrew a court's rates set from a later date",
+  // Round 9 (R9C): new branches and test bookings
+  "venue.branch_added": "Added a branch, or started one from another branch's set-up",
+  "booking.test_cleared": "Cleared a test booking made before going live",
+  "booking.test_kept": "Kept a booking made before going live as a real one",
 };

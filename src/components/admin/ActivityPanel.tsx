@@ -197,6 +197,9 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "hours.withdrawn": "r9b.act.hoursWithdrawn",
   "rates.scheduled": "r9b.act.ratesScheduled",
   "rates.withdrawn": "r9b.act.ratesWithdrawn",
+  "venue.branch_added": "r9c.act.branchAdded",
+  "booking.test_cleared": "r9c.act.testCleared",
+  "booking.test_kept": "r9c.act.testKept",
 };
 
 /**
