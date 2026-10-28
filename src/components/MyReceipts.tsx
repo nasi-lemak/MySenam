@@ -11,6 +11,8 @@ interface Row {
   description: string;
   total: number;
   issuedAt: string;
+  /** The day, as its venue's calendar has it (app/api/my/receipts). */
+  issuedOn?: string;
   path: string;
 }
 
@@ -40,7 +42,7 @@ export default function MyReceipts() {
               <span className="font-mono text-xs text-slate-500">{r.number}</span>{" "}
               <span className="font-medium">{r.description}</span>
               {r.venueName && <span className="text-slate-500"> · {r.venueName}</span>}
-              <span className="text-slate-500"> · {r.issuedAt.slice(0, 10)}</span>
+              <span className="text-slate-500"> · {r.issuedOn ?? r.issuedAt.slice(0, 10)}</span>
             </span>
             <span className="flex items-center gap-3">
               <span className="tabular-nums">{r.kind === "credit_note" ? `−${money(r.total)}` : money(r.total)}</span>
