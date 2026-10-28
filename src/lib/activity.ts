@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { getDb } from "./db";
+import { aside, getDb, mustRethrow } from "./db";
 import { getSessionAdmin, type Admin } from "./admin-auth";
 import { formatMinute } from "./interval";
 import { money } from "./region";
@@ -24,16 +24,21 @@ export type { StaffAction } from "./activity-labels";
 export { ACTION_LABELS } from "./activity-labels";
 import type { StaffAction } from "./activity-labels";
 
-/** Write one entry. Never throws: a log that fails must not undo what was done. No `id`: somebody without a staff account (a coach at their own link), by name. */
+/**
+ * Write one entry. Never throws: a log that fails must not undo what was done (inside a transaction it is
+ * written under a savepoint), except a serialization failure or deadlock, which runs the transaction again. No `id`: somebody without a staff account (a coach at their own link), by name. */
 export async function logAction(
   admin: Pick<Admin, "name"> & { id: number | null },
   entry: { venueId: number | null; action: string; bookingCode?: string | null; detail?: string | null }
 ): Promise<void> {
   try {
-    await getDb()
-      .prepare("INSERT INTO staff_actions (admin_id, admin_name, venue_id, booking_code, action, detail) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(admin.id, admin.name, entry.venueId, entry.bookingCode ?? null, entry.action, entry.detail?.slice(0, 500) ?? null);
+    await aside(() =>
+      getDb()
+        .prepare("INSERT INTO staff_actions (admin_id, admin_name, venue_id, booking_code, action, detail) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(admin.id, admin.name, entry.venueId, entry.bookingCode ?? null, entry.action, entry.detail?.slice(0, 500) ?? null)
+    );
   } catch (err) {
+    if (mustRethrow(err)) throw err;
     console.error("[mysenam] could not write the staff activity log:", err);
   }
 }

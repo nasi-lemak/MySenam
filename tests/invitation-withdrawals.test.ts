@@ -80,14 +80,27 @@ async function tokenIn(email: string, page: "guest-invitation" | "player-invitat
 /** A transport that marks every message sent, as a working mail provider would. */
 const sendsEverything = { name: "test", send: async () => undefined };
 
-/** Drains the outbox until the first email to this address has gone (a drain started in the background may be sending it). */
+/**
+ * Drains the outbox until the first email to this address has gone (a drain started in the background may be
+ * sending it), then waits for that background drain to finish too, so that what is counted next is the next
+ * request's own statements.
+ */
 async function untilSent(email: string): Promise<void> {
   for (let i = 0; i < 100; i++) {
     await drainOutbox();
-    if ((await mailsTo(email))[0]?.status === "sent") return;
+    if ((await mailsTo(email))[0]?.status === "sent") return untilQuiet();
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`the email to ${email} was not sent`);
+}
+
+/** Until no statement has been sent for 50 ms. */
+async function untilQuiet(): Promise<void> {
+  for (let i = 0; i < 40; i++) {
+    const before = transactionStats().queries;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (transactionStats().queries === before) return;
+  }
 }
 
 beforeEach(() => resetRateLimits());

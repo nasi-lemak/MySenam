@@ -563,6 +563,22 @@ export function withTransaction<R>(fn: () => Promise<R>): Promise<R> {
 }
 
 /**
+ * For a write that catches its own failure because it must never undo the
+ * work it is part of (a log line, an alert, an error report). Inside a
+ * transaction it runs under a savepoint, so a failure it catches leaves that
+ * transaction usable; outside one it runs as it is. Its catch passes on what
+ * `mustRethrow` says: a serialization failure or deadlock, after which the
+ * transaction it is part of has to be run again rather than carry on (an
+ * aborted transaction answers every later statement with an error).
+ */
+export function aside<R>(fn: () => Promise<R>): Promise<R> {
+  return txStore.getStore() ? withTransaction(fn) : fn();
+}
+export function mustRethrow(err: unknown): boolean {
+  return txStore.getStore() !== undefined && RETRYABLE.has((err as { code?: string } | null)?.code ?? "");
+}
+
+/**
  * Is this the error a UNIQUE or PRIMARY KEY constraint raises — on `table`,
  * when one is named?
  */

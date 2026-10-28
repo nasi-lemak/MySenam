@@ -221,7 +221,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B62, M16–M28 and
-S12–S28, found and fixed in the same work) and
+S12–S29, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (114
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
@@ -797,6 +797,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B49 | 29 route handlers answered 500 to a JSON body that was not an object (`null`, a list, a number); they now answer 400, and a test sends every writing handler such bodies | `tests/bad-bodies.test.ts` |
 | B50 | The date a refund was due by, the date it was made and a customer's receipt dates were UTC dates, a day early before 08:00 in Malaysia; they are the venue's calendar dates | `tests/refund-local-date.test.ts`, `tests/manual-refunds.test.ts` |
 | S28 | Closing a day, cancelling a class, a rain-out and a court taken out of service cancelled bookings and enrolments with no entry for each in the activity log, and about thirty staff write routes (class scheduling, blocks, hire deposits kept, extras, notices, inductions, go-live, tournaments, competitions, leagues and their fees, messages sent again, WhatsApp settings, photos, a venue suspended by the platform) wrote none; each now does, and a source check fails for any admin write handler that logs nothing and is not allowed with a reason. Found by the round 8 audit | `tests/staff-log-coverage.test.ts`, `tests/activity-log-coverage.test.ts` |
+| S29 | The staff activity log, alerts and error reports caught every failure of their own write, a serialization failure included: on Postgres the transaction they sat in was left aborted rather than run again, so its next statement failed (a membership suspended while somebody booked a day inside it answered with an error) | `tests/aside-writes.test.ts` (also on Postgres), `tests/membership-suspensions.test.ts` |
 | B51 | The schedule listed a day's neighbours' bookings that only touched it (zero-minute rows at midnight) and showed an after-midnight booking under the following day; it now lists only what overlaps the day's own window, the evening's late hours with the evening | `tests/schedule-own-day.test.ts` |
 | B52 | Twelve kinds of activity-log entry (tournament rules, results and corrections, league results and joining) had no label and showed their raw names; they are labelled in every staff language, and the label test reads every way an action is chosen | `tests/activity-labels.test.ts` |
 | M23 | A tournament's entry fee was read from the tournament at payment and on the counter receipt, so changing the fee would have repriced entries already made; each entry keeps its own fee (migration 0238, backfilled) | `tests/tournament-changes.test.ts` |

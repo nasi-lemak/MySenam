@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { aside, getDb, mustRethrow } from "./db";
 import { tellOwnersEach } from "./owner-alerts";
 import { siteName } from "./site";
 import { englishOf, isStaffText, said, type StaffText } from "./staff-text";
@@ -42,36 +42,39 @@ export interface SystemAlert {
  */
 export async function raiseAlert(key: string, about: string | StaffText, detail: string, detailPhrases?: StaffText[]): Promise<boolean> {
   try {
-    const subject = typeof about === "string" ? about : englishOf(about);
-    const phrases = typeof about === "string" ? null : JSON.stringify({ subject: about, ...(detailPhrases ? { detail: detailPhrases } : {}) });
-    const db = getDb();
-    const row = (await db
-      .prepare(
-        `INSERT INTO system_alerts (key, subject, last_detail, count, said) VALUES (?, ?, ?, 1, ?)
-         ON CONFLICT (key) DO UPDATE SET subject = excluded.subject, last_detail = excluded.last_detail, said = excluded.said,
-           count = system_alerts.count + 1, last_at = datetime('now')
-         RETURNING count, last_sent_at, (last_sent_at IS NULL OR last_sent_at < datetime('now', '-${RESEND_HOURS} hours')) AS due`
-      )
-      .get(key, subject, detail.slice(0, 2000), phrases)) as { count: number; last_sent_at: string | null; due: boolean };
-    if (!row.due) return false;
-    // Claimed before sending, so two processes do not both tell it.
-    const claimed = await db
-      .prepare(
-        `UPDATE system_alerts SET last_sent_at = datetime('now')
-          WHERE key = ? AND (last_sent_at IS NULL OR last_sent_at < datetime('now', '-${RESEND_HOURS} hours'))`
-      )
-      .run(key);
-    if (claimed.changes === 0) return false;
-    await tellOwnersEach((t) => {
-      const heading = typeof about === "string" ? about : t.say(about);
-      const times = row.count > 1 ? ` ${t("r9d.sys.times", { n: row.count })}` : "";
-      const lines = detailPhrases ? detailPhrases.map((p) => t.say(p)).join("\n") : detail;
-      return { subject: t("r9d.sys.s", { subject: heading }), body: `${heading}${times}\n\n${lines}\n\n${t("r9d.sys.again", { hours: RESEND_HOURS })}` };
+    return await aside(async () => {
+      const subject = typeof about === "string" ? about : englishOf(about);
+      const phrases = typeof about === "string" ? null : JSON.stringify({ subject: about, ...(detailPhrases ? { detail: detailPhrases } : {}) });
+      const db = getDb();
+      const row = (await db
+        .prepare(
+          `INSERT INTO system_alerts (key, subject, last_detail, count, said) VALUES (?, ?, ?, 1, ?)
+           ON CONFLICT (key) DO UPDATE SET subject = excluded.subject, last_detail = excluded.last_detail, said = excluded.said,
+             count = system_alerts.count + 1, last_at = datetime('now')
+           RETURNING count, last_sent_at, (last_sent_at IS NULL OR last_sent_at < datetime('now', '-${RESEND_HOURS} hours')) AS due`
+        )
+        .get(key, subject, detail.slice(0, 2000), phrases)) as { count: number; last_sent_at: string | null; due: boolean };
+      if (!row.due) return false;
+      // Claimed before sending, so two processes do not both tell it.
+      const claimed = await db
+        .prepare(
+          `UPDATE system_alerts SET last_sent_at = datetime('now')
+            WHERE key = ? AND (last_sent_at IS NULL OR last_sent_at < datetime('now', '-${RESEND_HOURS} hours'))`
+        )
+        .run(key);
+      if (claimed.changes === 0) return false;
+      await tellOwnersEach((t) => {
+        const heading = typeof about === "string" ? about : t.say(about);
+        const times = row.count > 1 ? ` ${t("r9d.sys.times", { n: row.count })}` : "";
+        const lines = detailPhrases ? detailPhrases.map((p) => t.say(p)).join("\n") : detail;
+        return { subject: t("r9d.sys.s", { subject: heading }), body: `${heading}${times}\n\n${lines}\n\n${t("r9d.sys.again", { hours: RESEND_HOURS })}` };
+      });
+      const times = row.count > 1 ? ` (${row.count} times so far)` : "";
+      await postWebhook(`⚠ ${siteName()}: ${subject}${times}\n\n${detail}`);
+      return true;
     });
-    const times = row.count > 1 ? ` (${row.count} times so far)` : "";
-    await postWebhook(`⚠ ${siteName()}: ${subject}${times}\n\n${detail}`);
-    return true;
   } catch (err) {
+    if (mustRethrow(err)) throw err;
     console.error("[mysenam] could not raise an alert:", err);
     return false;
   }

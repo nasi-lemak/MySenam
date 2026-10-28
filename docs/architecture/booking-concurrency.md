@@ -11,7 +11,11 @@ themselves are in [booking](../features/booking.md).
   `BEGIN ISOLATION LEVEL SERIALIZABLE` and is retried on `40001`/`40P01`, up
   to ten tries, each after a random wait of up to 10, 20, 40… ms (at most
   400), so transactions that collided do not collide again in step
-  (`src/lib/db.ts`). One still in conflict after ten tries throws `BusyError`:
+  (`src/lib/db.ts`). A write that catches its own failure so as never to undo
+  the work it sits in (the staff activity log, an alert, an error report) runs
+  under a savepoint and passes a serialization failure or deadlock on, through
+  `aside` and `mustRethrow`, so the transaction is run again rather than left
+  aborted (`tests/aside-writes.test.ts`). One still in conflict after ten tries throws `BusyError`:
   nothing of it is saved, and a route answers `BUSY`, 503 with
   `Retry-After: 2`, never a 500. The booking board keeps the reason on screen
   (*busy, try again*), shows no confirmation, and sending it again sends the
