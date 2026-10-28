@@ -80,6 +80,7 @@ recommendation, not a decision. A decision is recorded by changing the row to
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
 | Giving the court back late, without a refund ([booking](../features/booking.md)) | Off for every venue until a manager turns it on | Keep it off by default and suggest it at onboarding to venues with evening drop-outs |
 | Cancellations by the venue refund online payments on some paths only ([money](#money-m)) | Closing a day and a rain-out refund online payments by themselves; a court taken out of service and a cancelled class (also when a day is closed) leave them in *Refunds owed* for staff | Refund by themselves on every path where the venue cancels, as a closed day does: the customer did nothing, and the refunds owed list stays for manual venues |
+| When counter money owed after the venue cancels is credited ([money](#money-m)) | The credit note is written when staff hand the money back or give it as credit, by whoever does, so the till, the credit note and the payout agree; until then the receipt stands uncredited in the sales journal, listed as owed; a payment taken on an earlier day needs a manager | Keep both; if older payments make for too many manager calls, a venue setting could let the desk pay out owed money up to a limit |
 
 ### Accepted
 
@@ -220,7 +221,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B62, M16–M28 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B62, M16–M29 and
 S12–S29, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (114
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -346,9 +347,13 @@ there is no guest allowance per period and no guest fee, and classes and
 waiting lists do not take a host
 ([booking](../features/booking.md#members-and-residents-guests-at-the-counter-and-through-the-api)) (P3).
 
-Also: staff move a weekly series week by week (cancelling the weeks left is
-one step); closing a day, outages, rain-outs and the venue's API key give a
-counter payment back as paid without recording a counter payout; a corrected
+Also: a counter payment on a booking the venue cancels with others (a closed
+day, an outage, a rain-out, its API key, a class called off) stays uncredited
+in the sales journal until staff hand it back or give it as credit, listed as
+owed on the day list meanwhile, and an older one needs a manager; a series
+moved to another weekday moves within each week's own Monday-to-Sunday week
+([payments and credit](../features/payments-and-credit.md),
+[booking](../features/booking.md)); a corrected
 phone number is not sent a fresh confirmation
 ([venue operations](../features/venue-operations.md)) (P3).
 
@@ -810,6 +815,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | M26 | A company or school account's booking cancelled after its invoice stayed charged with no credit note, and the account's amount owing disagreed with its invoices; the cancellation is credited to the account against the invoice once (migration 0242), and owing is what the unpaid invoices say | `tests/account-cancellations.test.ts` |
 | M27 | Late-cancellation fees kept were missing from the period report's collected figure and its tax, which drifted a cent from the journal; the report and the journal now count them with the same SQL, and a late fee's tax is worked out on the fee itself | `tests/late-cancel-report.test.ts` |
 | M28 | The sales journal subtracted the credit note of a cancelled booking paid with a pass without ever having counted it as a sale (the pass was), understating takings; such credit notes are left out | `tests/void-credit-notes.test.ts` |
+| M29 | A counter payment on a booking the venue cancelled with others (a closed day, an outage, a rain-out, its API key, a class called off) was credited at once with nobody named, and counted in that day's cash-up as cash given back that never left the till; now owed back and settled by a named person, the credit note and the payout in the cash-up of the day it is handed back | `tests/counter-owed.test.ts` (also on Postgres) |
 | B53 | Entries made at once could overfill a tournament, and a division's cap or a league join could race (two joins of one player hit a database error); entries are counted and taken under the tournament's (and competition's) lock, league joins under the league's | `tests/entry-races.test.ts` |
 | B54 | Two first splits of one booking at once failed with a database error, and a re-split while a friend was paying left a paid share at the old amount; splitting runs under the booking's lock and a re-split is refused while a share is paid or being paid | `tests/split-races.test.ts` |
 | B55 | The schedule kept no track of which answer it was waiting for: an answer for a day or venue left a moment before could arrive late and show under the one now chosen; a late answer is dropped | `tests/components/staff-place.test.tsx` |
@@ -951,6 +957,8 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A draft e-invoice sent by the scheduler and by staff at the same moment could reach LHDN twice | Claimed before LHDN is asked (migration 0256), so it is sent once; an interrupted claim is marked not sent for a check in the portal | `tests/einvoice-sending.test.ts` |
 | A new branch started blank, its courts, rates, rules and products entered again by hand | Started from another branch's set-up in one step, never its people, money, accounts or secrets | `tests/branch-copy.test.ts` |
 | Bookings made to try a venue out before it went live stayed in its reports, exports and cash-up | Marked as tests by the database, left out of the figures, marked in the journal and day list; a manager clears them (all given back, nobody told) or keeps one as real | `tests/test-bookings.test.ts`, `tests/components/test-bookings-panel.test.tsx` |
+| Staff moved a weekly series one week at a time | The weeks left moved in one step, each by the single move's checks, a week that cannot move named with why; the customer and a lesson's coach told once | `tests/series-moves.test.ts` |
+| The day list ran by court, not by time | In time order, then venue and court; the printed day sheet too | `tests/series-moves.test.ts` |
 
 ## Production readiness
 
