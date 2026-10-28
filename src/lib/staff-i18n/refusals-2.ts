@@ -697,4 +697,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "It has been replaced already.": { ms: "Ia telah pun diganti.", zh: "它已被替代。" },
   "Only an e-invoice LHDN has accepted can be checked.": { ms: "Hanya e-invois yang telah diterima LHDN boleh disemak.", zh: "只有 LHDN 已接收的电子发票才能查询。" },
   "MyInvois could not be reached.": { ms: "MyInvois tidak dapat dihubungi.", zh: "无法连接 MyInvois。" },
+  // sl8.: a language of their own for staff and coaches.
+  "The dashboard is not offered in that language.": { ms: "Papan pemuka tidak ditawarkan dalam bahasa itu.", zh: "后台不提供该语言。" },
+  "That language is not offered here.": { ms: "Bahasa itu tidak ditawarkan di sini.", zh: "此处不提供该语言。" },
+  "locale is required.": { ms: "Bahasa diperlukan.", zh: "需要提供语言。" },
 };

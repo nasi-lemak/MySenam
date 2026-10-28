@@ -693,13 +693,15 @@ export async function emailPlain(input: {
   venueId?: number | null;
   dedupeKey?: string;
   expiresMinutes?: number;
+  /** The language the subject and text were written in, recorded with the message; English when not said. */
+  locale?: Locale;
 }): Promise<OutboxMessage> {
   return enqueue({
     venueId: input.venueId ?? null,
     kind: input.kind,
     channel: "email",
     recipient: input.to,
-    locale: "en",
+    locale: input.locale ?? "en",
     subject: "msg.programmeSubject",
     body: "msg.programmeBody",
     vars: { subject: input.subject, text: input.text },

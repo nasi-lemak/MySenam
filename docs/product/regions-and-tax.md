@@ -133,15 +133,9 @@ table in `src/lib/region.ts`:
   receipt line) is kept as a time of day (`clockValue`,
   `src/lib/staff-text.ts`) and said in the reader's language; its English is
   what it always was. A refusal translated around the values it carried
-  says its times in the staff language too. What staff are sent: the staff
-  calendar feed's words and times are in the staff language its address
-  names (`?lang=`, the language of whoever turned it on or looked it up,
-  [staff calendar](../integrations/messaging.md#bookings-in-staffs-own-calendar));
-  a coach's emails are in the install's first staff language and their
-  calendar in the language their page linked it in
-  ([coaches](../features/programmes.md#a-coachs-own-schedule-no-account-needed));
-  a venue's booking alerts are in the install's first language, their hours
-  as it writes them. **What stays as it is:** what software reads (form
+  says its times in the staff language too. What staff and coaches are
+  sent is in their own language, times as it writes them
+  ([below](#a-language-of-their-own-for-staff-and-coaches)). **What stays as it is:** what software reads (form
   inputs' `HH:MM`, spreadsheets and exports, API responses, sorting,
   iCalendar's start, end, zone and ids, stored timestamps), the English the
   server keeps beside each phrase, and text stored in English (the activity
@@ -187,6 +181,58 @@ table in `src/lib/region.ts`:
     (billing months, backups, the scheduler) stay on the install's zone.
 - **Adding a country** is a row in that table, its dictionary if it speaks a
   new language, and a gateway if it needs one (*Payment gateways*).
+
+### A language of their own for staff and coaches
+
+Each member of staff and each coach may have a language of their own (the
+owner's decision of 28 October 2026), and what MySenam sends them is written
+in it, times as it writes them. None chosen is the install's first staff
+language, as before (`staffReaderLocale` in `src/lib/staff-locales.ts`,
+`coachLocale` in `src/lib/coach-schedule.ts`; migrations 0227–0228).
+
+- **Staff** (`admins.locale`): English, Malay or Chinese, the dashboard's
+  languages (not Tamil). The manager or owner who makes the account may set
+  it (*Venues & staff → Add staff*); the person sets it with the dashboard's
+  language switch, which saves it to their account as well as the browser
+  (`/api/admin/auth/language`). Signed in on another device, the dashboard
+  switches to it once, unless they choose another there
+  (`useAccountLanguage`, `src/components/admin/StaffLanguage.tsx`). A choice
+  the install no longer offers (Malay on a Singapore install) counts as none.
+  Written in it: their password-reset email, its link opening the page in it
+  ([forgotten passwords](../architecture/authentication.md#forgotten-passwords)),
+  the two-factor reset notice to them and to each platform owner, and the
+  staff calendar feed's address, which names their language where they chose
+  one, else the dashboard's current one.
+- **A venue's booking alerts** (`venues.alert_locale`): the alert address and
+  WhatsApp number are the venue's own inbox and phone rather than one
+  person's, so their language (a staff language) is chosen with them under
+  *Venue details → New-booking alerts*. The same address's email when an
+  online application needs reviewing is in it too.
+- **Coaches** (`coaches.locale`): any language the install offers customers,
+  Tamil included. A coach reads no dashboard: their schedule page, its
+  calendar and their emails are written from the customer dictionaries, a
+  coach may work at a venue without any staff account, and a coach who
+  reviews applications does so in their own customer account. The coach
+  chooses at their private link (*Your language*), and staff may set it on
+  the coach's record (*Classes → Coaches*). Their page opens in it
+  whatever the browser reads (else in the browser's language), their calendar
+  follows it whatever language its address names, and their lesson emails
+  (booked, cancelled, moved, handed over: each coach in their own) and the
+  emails asking them to review an application are written in it.
+- Where one event tells several people (a lesson handed between coaches, an
+  application's reviewers, a two-factor reset's owners), each gets their own
+  message in their own language.
+- **Still in English:** the other emails to staff (alerts to platform owners
+  and to a venue's staff from `tellOwners` and `tellVenueStaff` in
+  `src/lib/owner-alerts.ts`, low WhatsApp credit), and what staff accounts
+  are made with: a manager gives the new account its password, and no
+  invitation is sent.
+
+Tests: `tests/own-languages.test.ts` (each kind of message per recipient,
+the fallback, the routes, the coach's page and calendar),
+`tests/components/own-language.test.tsx` (the switch saving to the account,
+the dashboard following it, the pickers for alerts, coaches and the coach's
+own link).
 
 ## Tax (SST and GST)
 

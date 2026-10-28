@@ -1,9 +1,11 @@
 import { isManager, isOwner, listAdmins, listAdminsFor, type Admin } from "./admin-auth";
 import { logAction } from "./activity";
 import { getDb, withTransaction } from "./db";
-import { tellOwners } from "./owner-alerts";
+import { tellOwnersEach } from "./owner-alerts";
 import { emailPlain } from "./outbox";
 import { siteName } from "./site";
+import { translator, type T } from "./i18n";
+import { staffReaderLocale } from "./staff-locales";
 import { checkSecondFactor, hasTwoFactor } from "./two-factor";
 
 /**
@@ -16,7 +18,8 @@ import { checkSecondFactor, hasTwoFactor } from "./two-factor";
  * with a fresh code at the time, and who writes down how they knew it was
  * really that person (seen in person, called on a number already on file).
  * The reset signs the account out everywhere, voids any sign-in half done,
- * and is told to the account's own email and to every platform owner, so a
+ * and is told to the account's own email and to every platform owner (each
+ * in their own language, lib/staff-locales.ts `staffReaderLocale`), so a
  * reset somebody was talked into is seen at once by the person it locks out
  * and by the people who can undo it. The last owner, with nobody above them,
  * is reset from the server's console (`resetFromConsole`), which already
@@ -42,23 +45,23 @@ async function reset(target: Admin, entry: { by: Admin | null; reason: string })
       .prepare("INSERT INTO two_factor_resets (admin_id, reset_by, by_console, reason) VALUES (?, ?, ?, ?)")
       .run(target.id, entry.by?.id ?? null, entry.by === null, entry.reason.trim());
   });
-  const who = entry.by ? `${entry.by.name} (${entry.by.email})` : "the server's console";
+  const who = (t: T) => (entry.by ? `${entry.by.name} (${entry.by.email})` : t("sl8.tfa.console"));
   if (entry.by)
     await logAction(entry.by, { venueId: target.venueId, action: "staff.twoFactorReset", detail: `${target.name} (${target.email}): ${entry.reason.trim()}` });
+  const site = siteName();
+  const own = translator(staffReaderLocale(target.locale));
   await emailPlain({
     to: target.email,
-    subject: `${siteName()}: two-factor sign-in was reset on your account`,
-    text:
-      `Hi ${target.name},\n\nTwo-factor sign-in on your ${siteName()} staff account was reset by ${who}, and you were signed out everywhere.\n` +
-      `Sign in with your password and set two-factor sign-in up again.\n\n` +
-      `If you did not ask for this, tell a platform owner straight away: somebody may be trying to get into your account.\n\n${siteName()}`,
+    subject: own("sl8.tfa.subject", { site }),
+    text: own("sl8.tfa.body", { name: target.name, who: who(own), site }),
     kind: "account_email",
     venueId: target.venueId,
+    locale: own.locale,
   });
-  await tellOwners(
-    `${siteName()}: two-factor sign-in reset for ${target.name}`,
-    `Two-factor sign-in on ${target.name} (${target.email}) was reset by ${who}.\nReason given: ${entry.reason.trim()}\n\nThe account was signed out everywhere and has to set two-factor up again.`
-  );
+  await tellOwnersEach((t) => ({
+    subject: t("sl8.tfa.ownerSubject", { site, name: target.name }),
+    body: t("sl8.tfa.ownerBody", { name: target.name, email: target.email, who: who(t), reason: entry.reason.trim() }),
+  }));
 }
 
 /**

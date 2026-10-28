@@ -1,9 +1,10 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { useT } from "@/components/Language";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { STAFF_LANGUAGE_SETTLED, useT } from "@/components/Language";
+import { LOCALE_COOKIE } from "@/lib/i18n";
 import { momentClock, momentDay, momentText, region } from "@/lib/region";
-import { staffLocale, staffTranslator, type StaffT } from "@/lib/staff-i18n";
+import { staffLocale, staffLocales, staffTranslator, type StaffLocale, type StaffT } from "@/lib/staff-i18n";
 
 /**
  * The staff dashboard's lookup, for a client component: the language the site
@@ -13,6 +14,29 @@ import { staffLocale, staffTranslator, type StaffT } from "@/lib/staff-i18n";
 export function useStaffT(): StaffT {
   const t = useT();
   return staffTranslator(staffLocale(t.locale), t.site);
+}
+
+/**
+ * The dashboard in the signed-in account's own language (lib/admin-auth.ts
+ * `locale`): where the account has one and this browser reads the dashboard
+ * in another (chosen on another device, or set by the manager who made the
+ * account), the language cookie is set to it and the page reloaded. Once a
+ * browser session at most, and not after the reader has chosen with the
+ * switch, so a browser that refuses the cookie is not reloaded again and again.
+ */
+export function useAccountLanguage(locale: StaffLocale | null | undefined): void {
+  const current = useStaffT().locale;
+  useEffect(() => {
+    if (!locale || locale === current || !staffLocales().includes(locale)) return;
+    try {
+      if (sessionStorage.getItem(STAFF_LANGUAGE_SETTLED)) return;
+      sessionStorage.setItem(STAFF_LANGUAGE_SETTLED, locale);
+    } catch {
+      return;
+    }
+    document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=31536000; samesite=lax`;
+    window.location.reload();
+  }, [locale, current]);
 }
 
 /** The time zone of each venue the dashboard has, by its id. */

@@ -29,7 +29,8 @@ import { venueZoneOf } from "./zones";
  *   each change recorded in the venue's activity log under the coach's name;
  *   it decides no applications (that needs an account: lib/approvals.ts).
  * - **An email** when a lesson is booked with them, and when one is
- *   cancelled, where the venue has given their address.
+ *   cancelled, where the venue has given their address, in the coach's own
+ *   language (`coachLocale`).
  * - **What they are owed**: the coach's fee on each lesson in a period that
  *   went ahead, split by paid and not yet paid, for the venue to pay them.
  */
@@ -45,15 +46,33 @@ const iso = (v: unknown) => (v == null ? null : new Date(v as string).toISOStrin
 
 export interface CoachContact {
   email: string | null;
+  /** The language they chose (at their link, or staff for them); null for none chosen. */
+  locale: Locale | null;
   /** Until when their private link works, when one is on; the link itself was shown once, when made. */
   linkUntil: string | null;
 }
 
 export async function coachContacts(venueId: number): Promise<Map<number, CoachContact>> {
   const rows = (await getDb()
-    .prepare("SELECT id, email, CASE WHEN link_hash IS NOT NULL AND link_expires_at > now() THEN link_expires_at END AS link_until FROM coaches WHERE venue_id = ?")
-    .all(venueId)) as { id: number; email: string | null; link_until: unknown }[];
-  return new Map(rows.map((r) => [r.id, { email: r.email, linkUntil: iso(r.link_until) }]));
+    .prepare("SELECT id, email, locale, CASE WHEN link_hash IS NOT NULL AND link_expires_at > now() THEN link_expires_at END AS link_until FROM coaches WHERE venue_id = ?")
+    .all(venueId)) as { id: number; email: string | null; locale: string | null; link_until: unknown }[];
+  return new Map(rows.map((r) => [r.id, { email: r.email, locale: chosenCoachLocale(r.locale), linkUntil: iso(r.link_until) }]));
+}
+
+/**
+ * A coach's own language: any language this install offers customers
+ * (Tamil too), since everything a coach reads (their page, its calendar,
+ * their emails) is written from the customer dictionaries; null (or "") for
+ * none chosen. Set by the coach at their link, or by staff on their record.
+ * `venueId` null: whoever holds the link, already found by it.
+ */
+export async function setCoachLocale(coachId: number, venueId: number | null, raw: unknown): Promise<{ ok: true; locale: Locale | null } | { ok: false; error: string }> {
+  const locale = chosenCoachLocale(raw);
+  if (locale === null && raw !== null && raw !== "") return { ok: false, error: "That language is not offered here." };
+  const done = await getDb()
+    .prepare("UPDATE coaches SET locale = ? WHERE id = ? AND (?::int IS NULL OR venue_id = ?::int)")
+    .run(locale, coachId, venueId, venueId);
+  return done.changes === 1 ? { ok: true, locale } : { ok: false, error: "Coach not found." };
 }
 
 export async function setCoachEmail(coachId: number, venueId: number, email: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -89,6 +108,8 @@ export async function setCoachLink(coachId: number, venueId: number, on: boolean
 
 export interface CoachByToken {
   coach: Coach;
+  /** The language the coach chose; null for none chosen. */
+  locale: Locale | null;
   venueName: string;
   venueAddress: string;
   zone: string;
@@ -98,13 +119,13 @@ export async function coachForToken(token: string): Promise<CoachByToken | null>
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
   const row = (await getDb()
     .prepare(
-      `SELECT k.id, v.name, v.address, v.time_zone, v.lat, v.lng FROM coaches k JOIN venues v ON v.id = k.venue_id
+      `SELECT k.id, k.locale, v.name, v.address, v.time_zone, v.lat, v.lng FROM coaches k JOIN venues v ON v.id = k.venue_id
         WHERE k.link_hash = ? AND k.link_expires_at > now()`
     )
-    .get(linkHash(token))) as { id: number; name: string; address: string; time_zone: string | null; lat: number | null; lng: number | null } | undefined;
+    .get(linkHash(token))) as { id: number; locale: string | null; name: string; address: string; time_zone: string | null; lat: number | null; lng: number | null } | undefined;
   if (!row) return null;
   const coach = await coachById(row.id);
-  return coach ? { coach, venueName: row.name, venueAddress: row.address, zone: venueZoneOf(row) } : null;
+  return coach ? { coach, locale: chosenCoachLocale(row.locale), venueName: row.name, venueAddress: row.address, zone: venueZoneOf(row) } : null;
 }
 
 /** A change the coach made at their own link, in the venue's activity log under their name. */
@@ -159,13 +180,18 @@ export function coachFeedLocale(raw: string | null | undefined): Locale {
   return isLocale(raw) && offeredLocales().includes(raw) ? raw : (offeredLocales()[0] ?? "en");
 }
 
+/** A coach's language as stored: one this install offers, else null (none chosen). */
+export function chosenCoachLocale(raw: unknown): Locale | null {
+  return typeof raw === "string" && isLocale(raw) && offeredLocales().includes(raw) ? raw : null;
+}
+
 /**
- * The language MySenam writes to coaches in: the install's first staff
- * language, since a coach has no language of their own on record. Times in
- * it are written as it writes them.
+ * The language MySenam writes to a coach in: their own (`coaches.locale`),
+ * else the install's first staff language. Times in it are written as it
+ * writes them.
  */
-export function coachLocale(): Locale {
-  return staffLocales()[0];
+export function coachLocale(stored?: unknown): Locale {
+  return chosenCoachLocale(stored) ?? staffLocales()[0];
 }
 
 /**
@@ -213,7 +239,7 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
   const since = new Date(now.getTime() - 2 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
   const rows = (await db
     .prepare(
-      `SELECT b.id, b.code, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.status, k.id AS coach_id, k.name AS coach, k.email,
+      `SELECT b.id, b.code, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.status, k.id AS coach_id, k.name AS coach, k.email, k.locale,
               c.name AS court, v.id AS venue_id, v.name AS venue,
               EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id) AS told
          FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
@@ -233,16 +259,18 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
     coach_id: number;
     coach: string;
     email: string;
+    locale: string | null;
     court: string;
     venue_id: number;
     venue: string;
     told: boolean;
   }[];
   let sent = 0;
-  const locale = coachLocale();
   for (const r of rows) {
     const cancelled = r.status === "cancelled";
     if (cancelled && !r.told) continue;
+    // Each coach in their own language.
+    const locale = coachLocale(r.locale);
     const vars = {
       name: r.coach.split(/\s+/)[0],
       student: r.name,
@@ -290,13 +318,15 @@ export async function notifyLessonMoved(bookingId: number, was: { date: string; 
     | { id: number; code: string; date: string; start_min: number; end_min: number; name: string; coach_id: number | null; demo: number; court: string; venue_id: number; venue: string; told: boolean }
     | undefined;
   if (!r || r.coach_id === null || !r.told || r.demo) return 0;
-  const coaches = (await db.prepare("SELECT id, name, email FROM coaches WHERE id IN (?, ?)").all(r.coach_id, was.coachId)) as { id: number; name: string; email: string | null }[];
+  const coaches = (await db.prepare("SELECT id, name, email, locale FROM coaches WHERE id IN (?, ?)").all(r.coach_id, was.coachId)) as { id: number; name: string; email: string | null; locale: string | null }[];
   const coach = (id: number) => coaches.find((k) => k.id === id);
-  const locale = coachLocale();
-  const when = (start: number, end: number) => clockRange(start, end, locale);
   const common = { student: r.name, court: r.court, venue: r.venue, code: r.code };
-  const tell = async (to: { name: string; email: string | null } | undefined, subject: "fin6.msg.coachMovedSubject" | "msg.coachNewSubject" | "fin6.msg.coachHandedOverSubject", body: "fin6.msg.coachMoved" | "msg.coachNew" | "fin6.msg.coachHandedOver", vars: Record<string, string>) => {
+  // Each coach told in their own language, the times as it writes them.
+  type Said = (when: (start: number, end: number) => string) => Record<string, string>;
+  const tell = async (to: { name: string; email: string | null; locale: string | null } | undefined, subject: "fin6.msg.coachMovedSubject" | "msg.coachNewSubject" | "fin6.msg.coachHandedOverSubject", body: "fin6.msg.coachMoved" | "msg.coachNew" | "fin6.msg.coachHandedOver", said: Said) => {
     if (!to?.email) return 0;
+    const locale = coachLocale(to.locale);
+    const vars = said((start, end) => clockRange(start, end, locale));
     await enqueue({
       venueId: r.venue_id,
       bookingId: r.id,
@@ -310,12 +340,12 @@ export async function notifyLessonMoved(bookingId: number, was: { date: string; 
     });
     return 1;
   };
-  const now = { date: r.date, time: when(r.start_min, r.end_min) };
+  const now: Said = (when) => ({ date: r.date, time: when(r.start_min, r.end_min) });
   if (r.coach_id === was.coachId)
-    return tell(coach(r.coach_id), "fin6.msg.coachMovedSubject", "fin6.msg.coachMoved", { ...now, was: `${was.date}, ${when(was.startMin, was.endMin)}` });
+    return tell(coach(r.coach_id), "fin6.msg.coachMovedSubject", "fin6.msg.coachMoved", (when) => ({ ...now(when), was: `${was.date}, ${when(was.startMin, was.endMin)}` }));
   return (
     (await tell(coach(r.coach_id), "msg.coachNewSubject", "msg.coachNew", now)) +
-    (await tell(coach(was.coachId), "fin6.msg.coachHandedOverSubject", "fin6.msg.coachHandedOver", { date: was.date, time: when(was.startMin, was.endMin) }))
+    (await tell(coach(was.coachId), "fin6.msg.coachHandedOverSubject", "fin6.msg.coachHandedOver", (when) => ({ date: was.date, time: when(was.startMin, was.endMin) })))
   );
 }
 

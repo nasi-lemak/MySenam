@@ -57,16 +57,40 @@ export function useT(): T {
 }
 
 /**
+ * Kept for the browser session once the dashboard has followed the account's
+ * own language, or its reader has chosen one with the switch
+ * (`useAccountLanguage`, components/admin/StaffLanguage.tsx).
+ */
+export const STAFF_LANGUAGE_SETTLED = "ms_staff_lang_settled";
+
+/**
  * Switch language. Sets the cookie, then reloads so the server agrees. On the
- * staff dashboard (`staff`), only the languages staff screens are in.
+ * staff dashboard (`staff`), only the languages staff screens are in, and the
+ * choice is saved to the signed-in account as well (lib/admin-auth.ts
+ * `setAdminLocale`): the dashboard opens in it on their other devices, and
+ * what MySenam sends them is written in it. Signed out there is no account,
+ * and the cookie alone is set.
  */
 export function LanguageToggle({ staff = false }: { staff?: boolean }) {
   const locale = useContext(LanguageContext);
   const current: Locale = staff ? staffLocale(locale) : locale;
   const t = translator(locale);
 
-  function choose(next: Locale) {
+  async function choose(next: Locale) {
     if (next === current) return;
+    if (staff) {
+      await fetch("/api/admin/auth/language", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locale: next }),
+      }).catch(() => null);
+      // Chosen here: not to be overridden by the account's language this session.
+      try {
+        sessionStorage.setItem(STAFF_LANGUAGE_SETTLED, next);
+      } catch {
+        // No storage: the choice is still saved, and the cookie still set.
+      }
+    }
     // A year, site-wide, and Lax so it survives arriving from a venue's link.
     document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
     // A full reload rather than router.refresh(): the <html lang> and the
@@ -83,7 +107,7 @@ export function LanguageToggle({ staff = false }: { staff?: boolean }) {
         <button
           key={code}
           type="button"
-          onClick={() => choose(code)}
+          onClick={() => void choose(code)}
           aria-current={code === current ? "true" : undefined}
           title={LOCALE_NAMES[code]}
           // Comfortably over the 24×24 minimum a tap target needs.

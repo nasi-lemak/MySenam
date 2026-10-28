@@ -20,18 +20,18 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ alerts: await bookingAlerts(venueId) });
 }
 
-/** `{ venueId, email, phone }`: either blank to stop that one. */
+/** `{ venueId, email, phone, locale? }`: either blank to stop that one; `locale` the staff language they are written in (null for the install's first), left out to keep it. */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   const venueId = await venueOf(req, body.venueId);
   if (venueId instanceof NextResponse) return venueId;
-  const result = await setBookingAlerts(venueId, { email: body.email, phone: body.phone });
+  const result = await setBookingAlerts(venueId, { email: body.email, phone: body.phone, locale: body.locale });
   if (!result.ok) return NextResponse.json(result, { status: 400 });
   await logFromRequest(req, {
     venueId,
     action: "settings.changed",
-    detail: `New-booking alerts: ${[result.alerts.email, result.alerts.phone].filter(Boolean).join(", ") || "off"}`,
+    detail: `New-booking alerts: ${[result.alerts.email, result.alerts.phone].filter(Boolean).join(", ") || "off"}${result.alerts.locale ? ` (${result.alerts.locale})` : ""}`,
   });
   return NextResponse.json({ alerts: result.alerts });
 }

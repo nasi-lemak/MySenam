@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, withTransaction } from "./db";
 import { hashPassword, sessionExpiry, sessionKey, verifyPassword } from "./auth";
 import { deskRefusal, type StaffRole } from "./roles";
+import { chosenStaffLocale, type StaffLocale } from "./staff-locales";
 
 export const ADMIN_SESSION_COOKIE = "ms_admin";
 const SESSION_DAYS = 7;
@@ -28,6 +29,13 @@ export interface Admin {
   venueIds: number[] | null;
   /** Branch staff: a manager, or front desk (lib/roles.ts). Everybody else manages. */
   role: StaffRole;
+  /**
+   * The language they chose for the dashboard and for what MySenam sends them
+   * (a password reset, a two-factor notice); null for none chosen, when
+   * messages go in the install's first staff language (lib/staff-locales.ts
+   * `staffReaderLocale`).
+   */
+  locale: StaffLocale | null;
 }
 
 interface AdminRow {
@@ -39,10 +47,11 @@ interface AdminRow {
   business_name: string | null;
   password_hash: string;
   role?: StaffRole;
+  locale?: string | null;
 }
 
 /** Columns every admin read takes, with the business's name. */
-const ADMIN_COLUMNS = `a.id, a.name, a.email, a.venue_id, a.business_id, b.name AS business_name, a.role`;
+const ADMIN_COLUMNS = `a.id, a.name, a.email, a.venue_id, a.business_id, b.name AS business_name, a.role, a.locale`;
 const ADMIN_FROM = `admins a LEFT JOIN businesses b ON b.id = a.business_id`;
 
 /** Rows to admins, with the venues each may manage, in one more query at most. */
@@ -65,6 +74,7 @@ async function toAdmins(rows: AdminRow[]): Promise<Admin[]> {
     venueIds:
       r.business_id !== null ? (branches.get(r.business_id) ?? []) : r.venue_id !== null ? [r.venue_id] : null,
     role: r.venue_id !== null && r.role === "desk" ? "desk" : "manager",
+    locale: chosenStaffLocale(r.locale),
   }));
 }
 
@@ -267,6 +277,8 @@ export async function createAdmin(input: {
   businessId?: number | null;
   /** Branch staff only: a manager (the default), or front desk. */
   role?: StaffRole;
+  /** Their language, where whoever makes the account knows it: one of the staff languages; anything else is none chosen. */
+  locale?: unknown;
 }): Promise<CreateAdminResult> {
   return withTransaction(async () => {
     const db = getDb();
@@ -274,14 +286,15 @@ export async function createAdmin(input: {
     if (clash) return { ok: false, error: "An admin with this email already exists." };
 
     const info = await db
-      .prepare("INSERT INTO admins (name, email, password_hash, venue_id, business_id, role) VALUES (?, ?, ?, ?, ?, ?)")
+      .prepare("INSERT INTO admins (name, email, password_hash, venue_id, business_id, role, locale) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(
         input.name.trim(),
         input.email.trim(),
         hashPassword(input.password),
         input.venueId,
         input.venueId === null ? (input.businessId ?? null) : null,
-        input.venueId !== null && input.role === "desk" ? "desk" : "manager"
+        input.venueId !== null && input.role === "desk" ? "desk" : "manager",
+        chosenStaffLocale(input.locale)
       );
     const row = await db
       .prepare(`SELECT ${ADMIN_COLUMNS} FROM ${ADMIN_FROM} WHERE a.id = ?`)
@@ -293,6 +306,18 @@ export async function createAdmin(input: {
 /** Make a member of branch staff a manager or front desk. */
 export async function setStaffRole(adminId: number, role: StaffRole): Promise<void> {
   await getDb().prepare("UPDATE admins SET role = ? WHERE id = ? AND venue_id IS NOT NULL").run(role, adminId);
+}
+
+/**
+ * A member of staff's own language, which they choose with the dashboard's
+ * language switch: one of the staff languages this install offers, or null
+ * (or "") for none chosen. Refused for anything else.
+ */
+export async function setAdminLocale(adminId: number, raw: unknown): Promise<{ ok: true; locale: StaffLocale | null } | { ok: false; error: string }> {
+  const locale = chosenStaffLocale(raw);
+  if (locale === null && raw !== null && raw !== "") return { ok: false, error: "The dashboard is not offered in that language." };
+  await getDb().prepare("UPDATE admins SET locale = ? WHERE id = ?").run(locale, adminId);
+  return { ok: true, locale };
 }
 
 /** Platform owners first, then business managers, then branch staff. */

@@ -25,7 +25,10 @@ staff accounts from the *Venues & staff* tab.
 Staff accounts are a platform owner (no venue, no business), a business
 manager (a business, every branch of it), or branch staff at one venue, who
 are a manager or front desk. What each may see and do, and how that is
-enforced on every admin route, is in [tenancy and roles](tenancy.md).
+enforced on every admin route, is in [tenancy and roles](tenancy.md). Each
+account may have a language of its own (English, Malay or Chinese), set by
+whoever makes it or by the person with the dashboard's language switch
+([regions](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches)).
 
 Customer accounts are separate (`users`, `src/lib/auth.ts`): an email and
 scrypt-hashed password, or Google sign-in, and an HTTP-only session cookie.
@@ -71,7 +74,8 @@ of the admin dashboard by scanning a QR code.
   and they write down how they knew it was really that person. The reset
   clears the account's two-factor, signs it out everywhere, voids any sign-in
   half done, is recorded (`two_factor_resets`, and the staff activity log), and
-  is emailed to the account and to every platform owner, so a reset somebody
+  is emailed to the account and to every platform owner, each in their own
+  language ([regions](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches)), so a reset somebody
   was talked into is seen at once. Nobody resets their own. The last owner,
   with nobody above them, is reset on the server:
   `npm run reset-two-factor -- <email> --reason "…"`, which is recorded and
@@ -282,7 +286,12 @@ message to whoever runs the site (`src/lib/password-reset.ts`).
   A request not worked through within the link's 30 minutes is dropped, and
   the address is kept only until it is worked through. An account gets at
   most three links an hour, and the endpoints share the sign-in rate limit.
-- Customers get the email in their language; staff emails are in English.
+- Customers get the email in the language they asked in. Staff get it in
+  their own language (`admins.locale`, else the install's first staff
+  language, [regions](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches)),
+  whatever the browser that asked was reading; its link opens the reset page
+  in the same language (`?lang=`). The language is looked up only with the
+  account, after the reply, so it says nothing about whether one exists.
 
 Signed in, a password is changed from the account page (*Change password*,
 under *Sign out*) or the admin dashboard (under *Sign out*). The current

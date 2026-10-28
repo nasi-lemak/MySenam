@@ -26,7 +26,7 @@ import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
 import type { TwoFactorStatus } from "@/lib/two-factor";
-import { StaffZones, useStaffT } from "@/components/admin/StaffLanguage";
+import { StaffZones, useAccountLanguage, useStaffT } from "@/components/admin/StaffLanguage";
 
 type Tab =
   | "bookings"
@@ -59,6 +59,8 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<Tab>("bookings");
+  // Signed in: the dashboard in the account's own language, where it has one.
+  useAccountLanguage(admin?.locale);
 
   /** Re-read the session and the venues this admin may manage. */
   const refreshVenues = useCallback(async () => {

@@ -22,7 +22,10 @@ import { venueBaseUrl } from "./storefront";
 import { addDays, isBookableDate, isValidDateString, localDateOf, todayISO } from "./time";
 import { clockTime } from "./region";
 import { GUARDIAN_AGE } from "./tournaments";
-import type { Phrase } from "./i18n";
+import { translator, type Locale, type Phrase } from "./i18n";
+import { coachLocale } from "./coach-schedule";
+import { staffReaderLocale } from "./staff-locales";
+import { siteName } from "./site";
 import type { Booking, Sport } from "./types";
 import { currentWaiver, signWaiver, waiverSigned, waiverSignedFor } from "./waivers";
 import { managedPerson, type Relationship } from "./managed-people";
@@ -1060,34 +1063,52 @@ async function tellCustomer(
   }
 }
 
-/** Tell the venue's reviewers (its booking-alert address and the coaches it authorised) that an application needs them. */
+/**
+ * Tell the venue's reviewers (its booking-alert address and the coaches it
+ * authorised) that an application needs them: each in their own language,
+ * the alert address in the one the venue chose for its alerts, a coach in
+ * theirs, else the install's first staff language.
+ */
 async function tellReviewers(req: ApprovalRequest, what: "new" | "answered"): Promise<void> {
   const db = getDb();
-  const venue = (await db.prepare("SELECT alert_email FROM venues WHERE id = ?").get(req.venueId)) as { alert_email: string | null } | undefined;
+  const venue = (await db.prepare("SELECT alert_email, alert_locale FROM venues WHERE id = ?").get(req.venueId)) as
+    | { alert_email: string | null; alert_locale: string | null }
+    | undefined;
   const coaches = (await db
     .prepare(
-      `SELECT k.email FROM approval_reviewers ar JOIN coaches k ON k.id = ar.coach_id
+      `SELECT k.email, k.locale FROM approval_reviewers ar JOIN coaches k ON k.id = ar.coach_id
         WHERE ar.requirement_id = ? AND k.active = 1 AND k.email IS NOT NULL`
     )
-    .all(req.requirementId)) as { email: string }[];
-  const to = [...new Set([venue?.alert_email, ...coaches.map((c) => c.email)].filter((e): e is string => !!e))];
-  const activity = activityName(req.sport, "en");
-  // An adult applying for somebody they manage: both named, the relationship as declared (not verified).
-  const applicant = req.forPerson
-    ? `${req.appliedBy ?? "An adult"} (declared ${req.forPerson.relationship ?? "guardian"}, not verified), for ${req.name},`
-    : req.name;
-  for (const address of to)
+    .all(req.requirementId)) as { email: string; locale: string | null }[];
+  // One email an address, in the language of the first that names it.
+  const to = new Map<string, Locale>();
+  if (venue?.alert_email) to.set(venue.alert_email, staffReaderLocale(venue.alert_locale));
+  for (const c of coaches) if (!to.has(c.email)) to.set(c.email, coachLocale(c.locale));
+  for (const [address, locale] of to) {
+    const t = translator(locale);
+    const vars = {
+      activity: activityName(req.sport, t.locale),
+      venue: req.venueName,
+      site: siteName(),
+      // An adult applying for somebody they manage: both named, the relationship as declared (not verified).
+      applicant: req.forPerson
+        ? t("sl8.apr.forPerson", {
+            adult: req.appliedBy ?? t("sl8.apr.anAdult"),
+            relationship: t(`guard.rel.${req.forPerson.relationship ?? "guardian"}` as Phrase),
+            name: req.name,
+          })
+        : req.name,
+    };
     await emailPlain({
       to: address,
       venueId: req.venueId,
       kind: "staff_alert",
-      subject: what === "new" ? `New application: ${activity} at ${req.venueName}` : `Application answered: ${activity} at ${req.venueName}`,
-      text:
-        what === "new"
-          ? `${applicant} has applied online to be approved for ${activity} at ${req.venueName}. Review it in the dashboard (the bookings tab, or Courts & rates → Online applications), or, as a coach, signed in to your own MySenam account (your account's approvals page).`
-          : `${applicant} has answered your question about their application for ${activity} at ${req.venueName}. It is waiting for review again.`,
+      subject: t(what === "new" ? "sl8.apr.newSubject" : "sl8.apr.answeredSubject", vars),
+      text: t(what === "new" ? "sl8.apr.newBody" : "sl8.apr.answeredBody", vars),
       dedupeKey: `approval:${req.id}:reviewers:${what}:${address}:${Date.now()}`,
+      locale: t.locale,
     });
+  }
 }
 
 // ------------------------------------------------------------ holding a slot

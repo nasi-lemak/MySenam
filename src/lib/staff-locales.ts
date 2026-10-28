@@ -21,3 +21,17 @@ export function staffLocale(locale: Locale): StaffLocale {
   const offered = staffLocales();
   return (offered as string[]).includes(locale) ? (locale as StaffLocale) : offered[0];
 }
+
+/**
+ * A member of staff's own language as stored (`admins.locale`, a venue's
+ * `alert_locale`): one of the staff languages this install offers, else null,
+ * which is none chosen (or one the install no longer offers).
+ */
+export function chosenStaffLocale(raw: unknown): StaffLocale | null {
+  return typeof raw === "string" && (staffLocales() as string[]).includes(raw) ? (raw as StaffLocale) : null;
+}
+
+/** The language MySenam writes to a member of staff in: their own, else the install's first staff language. */
+export function staffReaderLocale(raw: unknown): StaffLocale {
+  return chosenStaffLocale(raw) ?? staffLocales()[0];
+}
