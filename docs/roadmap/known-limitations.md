@@ -77,8 +77,6 @@ recommendation, not a decision. A decision is recorded by changing the row to
 
 | Limitation | What happens today | Recommendation |
 | ---------- | ------------------ | -------------- |
-| Names in e-invoice lines ([operations and security](#operations-and-security-s)) | A venue may leave people's names out of the lines of e-invoices not yet sent; off by default, so lines name who played as receipts do | Turn it on by default for new venues: the buyer is named on the document and who played is not needed for tax |
-| How long buyer details for a customer's own e-invoice are kept ([operations and security](#operations-and-security-s)) | The name, TIN, ID number and contact details a customer gives are kept with the e-invoice, with no retention rule or erasure clearing them | Decide a period with the lawyer's review of retention; documents already sent keep what LHDN holds |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
 
 ### Accepted
@@ -142,6 +140,14 @@ withdrawn before they are accepted; a dearer coach's difference payable
 online; memberships suspended and reactivated without automatic
 cancellation, refund or extension; staff times in the staff language;
 e-invoices sent to LHDN never rewritten.
+The owner's further decisions of 28 October 2026 (being built in round 8):
+participants' and coaches' names left out of e-invoice descriptions, the
+legally required information kept; e-invoice records kept for the
+statutory period, seven years where it applies, pending legal verification,
+optional customer-profile data kept apart; a language of their own for staff
+and coaches; and actual guests counted, those registered at the counter
+included, ordinary walk-in customers told apart from guests accompanying
+members.
 
 ### Not affecting the first launch
 
@@ -198,7 +204,7 @@ changes; 6 to 8 name what they wait for. As of 28 October 2026: no defect
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
 | [Staff moves not asked the house rules; the class page without override or pay-now buttons; overrides not in the bookings export](#booking-and-availability-b) | 3 / 5 | Venues | Kept for now: the activity log carries overrides; the class page's buttons when a venue needs them |
 | [Timing tests on one machine; an invitation withdrawn while its email is being sent](#operations-and-security-s) | 5 | Everyone | Kept: equal timing in production is shown only by measuring there; the link is refused either way |
-| [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; the owner decides names in e-invoice lines and how long buyer details are kept |
+| [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; names out of lines and statutory retention decided by the owner (being built) |
 | [Staff messages in the install's first language](#languages) | 3 / 5 | Coaches and staff reading Malay or Chinese | A language of their own for coaches and staff, if the owner wants staff emails in other languages |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
@@ -206,7 +212,7 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
-**89 now**. Closures are recorded with their tests
+**87 now** (the two e-invoice decisions taken). Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B46, M16–M21 and
 S12–S25, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (86
@@ -236,7 +242,8 @@ eleven closures of round 7 (the counter's checks decided, sign-up,
 invitations, the coach difference online, suspension, staff times, the API's
 withdrawal, dashboard refunds, cover history, lesson credit, e-invoice
 states) beside what they left, each narrower: MyInvois's own limits and
-LHDN's rules unverified, two e-invoice questions for the owner, staff
+LHDN's rules unverified, two e-invoice questions for the owner (since
+decided), staff
 messages in the install's first language, and what the counter's policies
 leave (staff moves, the class page's buttons, overrides in the export). The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
