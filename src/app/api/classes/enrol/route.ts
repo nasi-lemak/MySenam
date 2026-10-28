@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { classRefusal } from "@/lib/who";
 import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
+import { contactRefusal } from "@/lib/contact-fields";
 import { getSessionUser } from "@/lib/auth";
 import { policyCheck } from "@/lib/limits";
 import { overrideRefusal, policyRefusal, readOverride, type PolicyOverrideRecord } from "@/lib/policy-overrides";
@@ -45,6 +46,9 @@ export async function POST(req: NextRequest) {
   if (email !== undefined && email !== null && email !== "" &&
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+  // Each bounded, as every path that books keeps them (lib/contact-fields.ts).
+  const unkept = contactRefusal({ name, email });
+  if (unkept) return refusal(unkept, 400);
 
   const chosen = readChosen(addons);
   if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });

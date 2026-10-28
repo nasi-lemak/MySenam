@@ -2568,6 +2568,8 @@ export const TA: Record<Phrase, string> = {
   "r9.form.overrideReason": "காரணம் (முன்பதிவுடனும் செயல்பாட்டுப் பதிவிலும் வைக்கப்படும்)",
   "r9.form.overrideBook": "விலக்கு அளித்து முன்பதிவு செய்",
   "r9.form.askManager": "மேலாளரிடம் கேளுங்கள்: இந்த மையம் அதன் மேலாளர்கள் ஒரு முன்பதிவுக்கு இதற்கு விலக்கு அளிக்க அனுமதிக்கிறது.",
+  // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
+  "err.NAME_TOO_LONG": "பெயரை {max} எழுத்துகளுக்குள் வையுங்கள்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

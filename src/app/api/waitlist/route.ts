@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { classRefusal } from "@/lib/who";
 import { readMinute, refusal } from "@/lib/api";
+import { contactRefusal } from "@/lib/contact-fields";
 import { getSessionUser } from "@/lib/auth";
 import { customerMayBook } from "@/lib/limits";
 import { membersOnlyRefusal } from "@/lib/entitlements";
@@ -44,6 +45,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Please provide your name." }, { status: 400 });
   if (typeof phone !== "string" || !/^\+?[0-9 -]{7,20}$/.test(phone.trim()))
     return NextResponse.json({ error: "Please provide a valid phone number." }, { status: 400 });
+  // Name and email checked and bounded as a booking's are (lib/contact-fields.ts).
+  const unkept = contactRefusal({ name, email });
+  if (unkept) return refusal(unkept, 400);
 
   const limited = await rateLimit(req, "booking");
   if (limited) return limited;

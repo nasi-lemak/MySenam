@@ -33,6 +33,7 @@ import { isDuplicateSpend, memberPrices, membersOnlyRefusal, participationLapses
 import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, stackRefusal } from "./discounts";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
+import { emailRefusal, nameRefusal } from "./contact-fields";
 import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, type MembershipSuspensionSummary, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
@@ -2059,6 +2060,9 @@ export async function createBookingSeries(
   attempt = 0
 ): Promise<CreateSeriesResult> {
   const { courtId, date, weeks, name, phone, email, userId } = input;
+  // The name and email kept are bounded on every path that books (lib/contact-fields.ts).
+  const unkept = nameRefusal(name, false) ?? emailRefusal(email, false);
+  if (unkept) return unkept;
   const skipConflicts = (input.skipConflicts ?? false) && weeks > 1;
   const override = input.staff?.override === true;
   // Who takes part: the participants named, and the customer where they take a place too (or nobody else is named).
@@ -8211,6 +8215,8 @@ export async function joinClassWaitlist(input: {
   /** Queued by the venue, on its word (lib/waitlist-venue.ts): checked and booked as the counter would. */
   madeBy?: WaitlistMaker;
 }): Promise<WaitlistResult> {
+  const unkept = nameRefusal(input.name, false) ?? emailRefusal(input.email, false);
+  if (unkept) return unkept;
   return withTransaction(async () => {
     await expireStaleOffers();
     const session = await getClass(input.classId);
@@ -8554,6 +8560,8 @@ export async function joinSlotWaitlist(input: {
   /** Queued by the venue, on its word (lib/waitlist-venue.ts): checked and booked as the counter would. */
   madeBy?: WaitlistMaker;
 }): Promise<WaitlistResult> {
+  const unkept = nameRefusal(input.name, false) ?? emailRefusal(input.email, false);
+  if (unkept) return unkept;
   return withTransaction(async () => {
     await expireStaleOffers();
     const { courtId, date } = input;

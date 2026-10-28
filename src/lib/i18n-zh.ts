@@ -2565,6 +2565,8 @@ export const ZH: Record<Phrase, string> = {
   "r9.form.overrideReason": "原因（与预订一起保存，并记入操作日志）",
   "r9.form.overrideBook": "破例放行并预订",
   "r9.form.askManager": "请找经理：本场馆允许经理为一笔预订破例放行此项。",
+  // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
+  "err.NAME_TOO_LONG": "姓名请不要超过 {max} 个字符。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

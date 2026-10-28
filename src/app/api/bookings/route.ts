@@ -5,6 +5,7 @@ import { applyAskedDiscounts } from "@/lib/booking-discounts";
 import { readPlaceConcessions } from "@/lib/entitlements";
 import { phoneRefusal } from "@/lib/phone-check";
 import { readTime, refusal } from "@/lib/api";
+import { contactRefusal } from "@/lib/contact-fields";
 import { getSessionUser } from "@/lib/auth";
 import { canAccessVenue, getActingStaff, twoFactorRefusal } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
@@ -104,6 +105,9 @@ export async function POST(req: NextRequest) {
   if (email !== undefined && email !== null && email !== "" &&
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+  // Each bounded, as every path that books keeps them (lib/contact-fields.ts).
+  const unkept = contactRefusal({ name, email });
+  if (unkept) return refusal(unkept, 400);
   if (weeks !== undefined &&
       (!Number.isInteger(weeks) || (weeks as number) < 1 || (weeks as number) > MAX_SERIES_WEEKS))
     return NextResponse.json(

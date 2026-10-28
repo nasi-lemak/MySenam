@@ -2727,6 +2727,8 @@ const EN = {
   "r9.form.overrideReason": "Why (kept with the booking and in the activity log)",
   "r9.form.overrideBook": "Override and book",
   "r9.form.askManager": "Ask a manager: this venue lets its managers override this for one booking.",
+  // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
+  "err.NAME_TOO_LONG": "Please keep the name to {max} characters.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5405,6 +5407,8 @@ const MS: Record<Phrase, string> = {
   "r9.form.overrideReason": "Sebab (disimpan bersama tempahan dan dalam log aktiviti)",
   "r9.form.overrideBook": "Atasi dan tempah",
   "r9.form.askManager": "Minta pengurus: pusat ini membenarkan pengurusnya mengatasi perkara ini untuk satu tempahan.",
+  // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
+  "err.NAME_TOO_LONG": "Sila hadkan nama kepada {max} aksara.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
