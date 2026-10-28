@@ -259,6 +259,7 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Email 1 | A booking's confirmation email is read from the server's log and its link opens My booking, showing that booking |
 | Email 2 | A waiting-list offer's emailed link claims the place, the claimed booking's confirmation follows, and the link then offers nothing; meanwhile the held place is refused to the person who gave it up |
 | Email 3 | A password-reset email's link sets a new password once; the old password is refused and the link then shows it has run out |
+| Email 4 | Signing up through the pages: the form answers *check your email*, the emailed link makes the account once; a stranger typing the same address sees identical text, and the address is sent a notice with no link |
 | Discounts M | A manager allows a code with a concession and makes one that combines; one child's junior price and the code on a booking for three: each place's share, the counter and the receipt add up; a code that does not combine is refused (`STK_NOT_COMBINABLE`); with the setting turned back the form takes the code away and the API refuses it (`ONE_DISCOUNT`), the booking standing at the concession price |
 | Passes N | Each child's own pass chosen for her place on the booking form, and at the counter's payment step for another booking; balances fall one entry a place, the receipt shows the places paid by pass, and one child taken off gives back only her entry |
 | Membership O | A child's own membership and a family one bought online through the Billplz stand-in: price and dates first, nobody a member until paid, the receipt naming the child; the child books a members-only session; whom the family membership covers taken off and added back, using the plan's one replacement for the term. Skipped against a deployment |
@@ -284,7 +285,7 @@ marked `UAT-HOLD-SCAN` until the scenario releases it, and takes
 I). It is not ClamAV and
 proves nothing about the engine (`tests/document-scanning-engine.test.ts`
 does); it is not used against a deployment, nor where `MYSENAM_CLAMD` is set,
-and *Documents E* and *I* are then skipped, as are *Email 1–3*, which read the emails from the acceptance server's log. The server also loads a stand-in for Billplz's sandbox
+and *Documents E* and *I* are then skipped, as are *Email 1–4*, which read the emails from the acceptance server's log; against a deployment `scripts/stage.mjs` follows the app's output into `UAT_SIGNUP_LOG`, so that the scenarios' sign-up step (`signUp` in `tests/uat/harness.ts`) can read the link it sends. The server also loads a stand-in for Billplz's sandbox
 (`tests/uat/gateway.ts`, loaded by `tests/uat/gateway-preload.mjs`): it answers
 the collection check and bill creation, serves a payment page, and sends
 Billplz's signed callback and redirect. It is not Billplz and proves nothing
