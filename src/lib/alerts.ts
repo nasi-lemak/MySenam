@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { tellOwners } from "./owner-alerts";
+import { tellOwnersEach } from "./owner-alerts";
 import { siteName } from "./site";
 import { englishOf, isStaffText, said, type StaffText } from "./staff-text";
 
@@ -37,7 +37,8 @@ export interface SystemAlert {
 /**
  * Note a failure; tell the owners if it is new or has not been told for a while. Never throws.
  * A subject given as a phrase, and the detail's lines when MySenam composed them, are kept so
- * the owner's dashboard says them in the staff language; the email says them in English.
+ * the owner's dashboard says them in the staff language; each owner's email says them in theirs
+ * too (an error's own text, and a subject given as English, as given). The webhook says English.
  */
 export async function raiseAlert(key: string, about: string | StaffText, detail: string, detailPhrases?: StaffText[]): Promise<boolean> {
   try {
@@ -61,10 +62,14 @@ export async function raiseAlert(key: string, about: string | StaffText, detail:
       )
       .run(key);
     if (claimed.changes === 0) return false;
+    await tellOwnersEach((t) => {
+      const heading = typeof about === "string" ? about : t.say(about);
+      const times = row.count > 1 ? ` ${t("r9d.sys.times", { n: row.count })}` : "";
+      const lines = detailPhrases ? detailPhrases.map((p) => t.say(p)).join("\n") : detail;
+      return { subject: t("r9d.sys.s", { subject: heading }), body: `${heading}${times}\n\n${lines}\n\n${t("r9d.sys.again", { hours: RESEND_HOURS })}` };
+    });
     const times = row.count > 1 ? ` (${row.count} times so far)` : "";
-    const text = `${subject}${times}\n\n${detail}`;
-    await tellOwners(`⚠ ${siteName()}: ${subject}`, `${text}\n\nYou will hear again in ${RESEND_HOURS} hours if it is still happening.`);
-    await postWebhook(`⚠ ${siteName()}: ${text}`);
+    await postWebhook(`⚠ ${siteName()}: ${subject}${times}\n\n${detail}`);
     return true;
   } catch (err) {
     console.error("[mysenam] could not raise an alert:", err);

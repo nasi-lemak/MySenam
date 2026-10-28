@@ -1,7 +1,6 @@
 import { getDb } from "./db";
 import { applyPaymentHolds } from "./payment-holds";
-import { siteName } from "./site";
-import { tellVenueStaff } from "./owner-alerts";
+import { tellVenueStaffEach } from "./owner-alerts";
 import { todayISO } from "./time";
 
 /**
@@ -44,12 +43,10 @@ export async function suspendVenue(venueId: number, reason: string): Promise<Sus
     )
     .get(why, venueId)) as { id: number; name: string } | undefined;
   if (!venue) return { ok: false, error: "Venue not found." };
-  await tellVenueStaff(
-    venue.id,
-    `${venue.name} has been suspended on ${siteName()}`,
-    `${venue.name} has been taken off ${siteName()}: ${why}\n\nCustomers cannot find, book or pay it online ` +
-      `until this is lifted. You can still sign in, and bookings already made stand. Reply to this email to talk to us.`
-  );
+  await tellVenueStaffEach(venue.id, (t) => ({
+    subject: t("r9d.susp.venue.s", { venue: venue.name }),
+    body: t("r9d.susp.venue.b", { venue: venue.name, why }),
+  }));
   return { ok: true, venues: 1, upcomingBookings: await upcomingBookings([venue.id]) };
 }
 
@@ -69,7 +66,7 @@ export async function liftVenue(venueId: number): Promise<{ ok: true } | { ok: f
     .run(venueId);
   // Still owing? Then it is held for that instead, and says so.
   await applyPaymentHolds();
-  await tellVenueStaff(venueId, `${row.name} is back on ${siteName()}`, `The suspension of ${row.name} has been lifted.`);
+  await tellVenueStaffEach(venueId, (t) => ({ subject: t("r9d.back.s", { name: row.name }), body: t("r9d.susp.lifted.b", { name: row.name }) }));
   return { ok: true };
 }
 
@@ -96,13 +93,10 @@ export async function suspendBusiness(businessId: number, reason: string): Promi
   })();
   if (!name) return { ok: false, error: "Business not found." };
   if (venueIds.length > 0)
-    await tellVenueStaff(
-      venueIds[0],
-      `${name} has been suspended on ${siteName()}`,
-      `${name} and all its branches have been taken off ${siteName()}: ${why}\n\nCustomers cannot find, book or ` +
-        `pay them online until this is lifted. You can still sign in, and bookings already made stand. ` +
-        `Reply to this email to talk to us.`
-    );
+    await tellVenueStaffEach(venueIds[0], (t) => ({
+      subject: t("r9d.susp.business.s", { business: name }),
+      body: t("r9d.susp.business.b", { business: name, why }),
+    }));
   return { ok: true, venues: venueIds.length, upcomingBookings: await upcomingBookings(venueIds) };
 }
 
@@ -120,7 +114,10 @@ export async function liftBusiness(businessId: number): Promise<{ ok: true } | {
     .all(businessId)) as { id: number }[];
   await applyPaymentHolds();
   if (venues.length > 0)
-    await tellVenueStaff(venues[0].id, `${business.name} is back on ${siteName()}`, `The suspension of ${business.name} has been lifted.`);
+    await tellVenueStaffEach(venues[0].id, (t) => ({
+      subject: t("r9d.back.s", { name: business.name }),
+      body: t("r9d.susp.lifted.b", { name: business.name }),
+    }));
   return { ok: true };
 }
 

@@ -12,7 +12,7 @@ import { refuse } from "./entitlements";
 import { ACTS_FOR } from "./participants";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
-import { tellVenueStaff } from "./owner-alerts";
+import { tellVenueStaffEach } from "./owner-alerts";
 import { toWhatsAppNumber } from "./transports";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { type CounterMethod, type Sport } from "./types";
@@ -1116,12 +1116,20 @@ export async function disputeResult(userId: number, matchId: number, note: strin
   if (!done.ok) return done;
   const { m, side } = done;
   const league = (await leagueById(m.league_id))!;
-  await tellVenueStaff(
-    league.venueId,
-    `A league result is disputed: ${league.name}`,
-    `${m.name_a} v ${m.name_b} (box ${m.box_no}) was reported as ${m.score}, won by ${m.winner === m.player_a ? m.name_a : m.name_b}. ` +
-      `${side.me === m.player_a ? m.name_a : m.name_b} says: "${why}"\n\nDecide it under Leagues in the admin: ${baseUrl()}/admin`
-  );
+  await tellVenueStaffEach(league.venueId, (t) => ({
+    subject: t("r9d.league.s", { league: league.name }),
+    body: t("r9d.league.b", {
+      a: m.name_a,
+      b: m.name_b,
+      box: m.box_no,
+      score: m.score ?? "",
+      winner: m.winner === m.player_a ? m.name_a : m.name_b,
+      who: side.me === m.player_a ? m.name_a : m.name_b,
+      why,
+      place: t("sh.tab.leagues"),
+      url: `${baseUrl()}/admin`,
+    }),
+  }));
   return { ok: true, value: (await matchesOf(m.season_id)).find((x) => x.id === matchId)! };
 }
 

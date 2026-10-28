@@ -14,8 +14,8 @@ import {
   type ProviderId,
 } from "./gateways";
 import type { DisputeEvent, RefundsEvent, SubscriptionEvent } from "./gateways/types";
-import { tellOwners, tellVenueStaff } from "./owner-alerts";
-import { siteName } from "./site";
+import { staffSentences, tellOwnersEach, tellVenueStaffEach } from "./owner-alerts";
+import type { StaffT } from "./staff-i18n";
 import { seal, unseal } from "./secrets";
 import { findBooking, getCourt, getVenue, membershipById } from "./store";
 import { attachPayment, HOLD_MINUTES, holdPurchase, membershipForPayment, purchaseTerms, releaseForPayment, releasePurchase } from "./membership-purchases";
@@ -1533,14 +1533,16 @@ export async function reconcileRefunds(): Promise<{ refunded: number; told: numb
       .prepare("UPDATE venues SET refund_digest_at = datetime('now') WHERE id = ? AND (refund_digest_at IS NULL OR refund_digest_at < datetime('now', '-20 hours'))")
       .run(w.venue_id);
     if (claimed.changes === 0) continue;
-    await tellVenueStaff(
-      w.venue_id,
-      `${w.n} refund${w.n === 1 ? "" : "s"} waiting for you`,
-      `${w.n} online payment${w.n === 1 ? " is" : "s are"} owed back to customers, ${money(roundMoney(w.amount).toFixed(2))} in all, the oldest since ${w.oldest.slice(0, 10)}.` +
-        (w.overdue > 0 ? ` ${w.overdue} ${w.overdue === 1 ? "is" : "are"} past the date customers were told.` : "") +
-        (w.failed > 0 ? ` ${w.failed} of them the gateway accepted and then could not make.` : "") +
-        " Refund them from Online payments → Refunds owed: with one click where the gateway allows, or in its own dashboard and then mark each refunded."
-    );
+    await tellVenueStaffEach(w.venue_id, (t) => ({
+      subject: t.plural("r9d.refunds.s", w.n),
+      body: staffSentences(
+        t,
+        t.plural("r9d.refunds.owed", w.n, { amount: money(roundMoney(w.amount).toFixed(2)), date: w.oldest.slice(0, 10) }),
+        w.overdue > 0 && t.plural("r9d.refunds.overdue", w.overdue),
+        w.failed > 0 && t("r9d.refunds.failed", { n: w.failed }),
+        t("r9d.refunds.how", { owed: t("opay.owedTitle") })
+      ),
+    }));
     told++;
   }
   return { refunded, told };
@@ -2519,30 +2521,42 @@ export async function recordPlatformDispute(provider: string, billId: string, ev
   const { opened, decided } = await noteDispute(payment.id, amount, event);
   const venue = payment.venue_id === null ? null : await getVenue(payment.venue_id);
   const who = venue?.name ?? payment.payer_name ?? "A venue";
-  const what =
+  const what = (t: StaffT) =>
     payment.purpose === "invoice" && payment.invoice_id !== null
-      ? `its invoice (number ${payment.invoice_id})`
+      ? t("r9d.pdispute.what.invoice", { n: payment.invoice_id })
       : payment.purpose === "pack"
-        ? "a WhatsApp pack"
-        : "a payment";
+        ? t("r9d.pdispute.what.pack")
+        : t("r9d.pdispute.what.payment");
   const gateway = gatewayFor(provider)?.name ?? provider;
+  const sum = money(amount);
   if (opened)
-    await tellOwners(
-      `A venue has disputed a payment to ${siteName()}: ${money(amount)}`,
-      [
-        `${who} has disputed ${money(amount)} paid online for ${what} with their bank (reason given: ${event.reason.replace(/_/g, " ")}).`,
-        event.dueBy ? `Answer it in the platform's ${gateway} dashboard by ${event.dueBy.slice(0, 10)}.` : `Answer it in the platform's ${gateway} dashboard.`,
-        "Nothing changes here on its own: if the bank decides for the venue, decide whether the invoice is owed again or the pack taken back.",
-      ].join("\n\n")
-    );
+    await tellOwnersEach((t) => ({
+      subject: t("r9d.pdispute.s", { amount: sum }),
+      body: [
+        t("r9d.pdispute.b", { who, amount: sum, what: what(t), reason: event.reason.replace(/_/g, " ") }),
+        event.dueBy ? t("r9d.pdispute.answerBy", { gateway, date: event.dueBy.slice(0, 10) }) : t("r9d.pdispute.answer", { gateway }),
+        t("r9d.pdispute.nothing"),
+      ].join("\n\n"),
+    }));
   const reopened = decided === "lost" ? await platformDisputeLost(payment, amount) : null;
   if (decided && !opened)
-    await tellOwners(
-      `Dispute ${decided}: ${money(amount)} from ${who}`,
-      decided === "won"
-        ? `The bank decided for ${siteName()}: the ${money(amount)} ${who} paid for ${what} stays.`
-        : `The bank decided for ${who}: ${money(amount)} paid for ${what} has gone back to them. ${reopened ?? "It still shows as paid here; decide whether it is owed again."}`
-    );
+    await tellOwnersEach((t) => ({
+      subject: t(decided === "won" ? "r9d.pdispute.won.s" : "r9d.pdispute.lost.s", { amount: sum, who }),
+      body:
+        decided === "won"
+          ? t("r9d.pdispute.won.b", { amount: sum, who, what: what(t) })
+          : t("r9d.pdispute.lost.b", {
+              who,
+              amount: sum,
+              what: what(t),
+              after:
+                reopened?.owed === "invoice"
+                  ? t("r9d.pdispute.invoiceAgain", { due: reopened.due, place: t("bill.title") })
+                  : reopened?.owed === "pack"
+                    ? t("r9d.pdispute.packAgain", { n: reopened.messages })
+                    : t("r9d.pdispute.stillPaid"),
+            }),
+    }));
   return true;
 }
 
@@ -2555,7 +2569,10 @@ export async function recordPlatformDispute(provider: string, billId: string, ev
  * not give them twice. Only the whole of it: a part disputed is the owners'
  * to settle by hand. Says what it did, for the owners' email.
  */
-async function platformDisputeLost(payment: PaymentRow, amount: number): Promise<string | null> {
+async function platformDisputeLost(
+  payment: PaymentRow,
+  amount: number
+): Promise<{ owed: "invoice"; due: string } | { owed: "pack"; messages: number } | null> {
   if (amount < Number(payment.amount) - 0.005) return null;
   const db = getDb();
   return withTransaction(async () => {
@@ -2565,7 +2582,7 @@ async function platformDisputeLost(payment: PaymentRow, amount: number): Promise
       const done = await db
         .prepare("UPDATE venue_invoices SET status = 'due', paid_at = NULL, paid_via = NULL, due_on = ? WHERE id = ? AND status = 'paid'")
         .run(due, payment.invoice_id);
-      return done.changes === 1 ? `The invoice is owed again, due on ${due}; void it under Billing if you decide to let it go.` : null;
+      return done.changes === 1 ? { owed: "invoice" as const, due } : null;
     }
     if (payment.purpose === "pack" && payment.pack_id != null) {
       const pack = (await db
@@ -2575,7 +2592,7 @@ async function platformDisputeLost(payment: PaymentRow, amount: number): Promise
       await db
         .prepare("INSERT INTO whatsapp_credit (venue_id, delta, reason, pack_id) VALUES (?, ?, 'chargeback', ?)")
         .run(pack.venue_id, -pack.messages, payment.pack_id);
-      return `The pack is owed again and its ${pack.messages} messages were taken back; any already sent leave the venue's balance below nothing until it is paid.`;
+      return { owed: "pack" as const, messages: pack.messages };
     }
     return null;
   });
@@ -2601,26 +2618,24 @@ export async function recordDispute(provider: string, billId: string, event: Dis
   const amount = roundMoney(event.amountMinor / 10 ** minor);
   const { opened, decided } = await noteDispute(payment.id, amount, event, () => disputeLost(payment, amount));
   const venue = await getVenue(payment.venue_id);
-  const name = venue?.name ?? "your venue";
+  const name = (t: StaffT) => venue?.name ?? t("r9d.yourVenue");
   const gateway = gatewayFor(provider)?.name ?? provider;
+  const sum = money(amount);
+  const venueId = payment.venue_id;
   if (opened)
-    await tellVenueStaff(
-      payment.venue_id,
-      `A customer has disputed a payment: ${money(amount)}`,
-      [
-        `${payment.payer_name ?? "A customer"} has disputed ${money(amount)} paid online to ${name} with their bank (reason given: ${event.reason.replace(/_/g, " ")}).`,
-        event.dueBy ? `Answer it in your ${gateway} dashboard by ${event.dueBy.slice(0, 10)}, with whatever shows the booking was real and played: the booking, the check-in, messages.` : `Answer it in your ${gateway} dashboard.`,
-        "If the bank decides for the customer, the money goes back to them and the booking shows as unpaid again.",
-      ].join("\n\n")
-    );
+    await tellVenueStaffEach(venueId, (t) => ({
+      subject: t("r9d.dispute.s", { amount: sum }),
+      body: [
+        t("r9d.dispute.b", { who: payment.payer_name ?? t("r9d.dispute.aCustomer"), amount: sum, venue: name(t), reason: event.reason.replace(/_/g, " ") }),
+        event.dueBy ? t("r9d.dispute.answerBy", { gateway, date: event.dueBy.slice(0, 10) }) : t("r9d.dispute.answer", { gateway }),
+        t("r9d.dispute.ifLost"),
+      ].join("\n\n"),
+    }));
   if (decided && !opened)
-    await tellVenueStaff(
-      payment.venue_id,
-      `Dispute ${decided}: ${money(amount)}`,
-      decided === "won"
-        ? `The bank decided for ${name}: the ${money(amount)} stays yours.`
-        : `The bank decided for the customer: ${money(amount)} has gone back to them. What it paid for is owed again: a booking shows as unpaid for that much.`
-    );
+    await tellVenueStaffEach(venueId, (t) => ({
+      subject: t(decided === "won" ? "r9d.dispute.won.s" : "r9d.dispute.lost.s", { amount: sum }),
+      body: decided === "won" ? t("r9d.dispute.won.b", { venue: name(t), amount: sum }) : t("r9d.dispute.lost.b", { amount: sum }),
+    }));
   return (await disputesFor(payment.venue_id)).find((d) => d.providerDisputeId === event.disputeId) ?? null;
 }
 
@@ -2959,13 +2974,21 @@ async function tellOfGatewayRefunds(provider: string, payment: PaymentRow, seen:
     );
   const unasked = roundMoney(seen.reduce((sum, s) => sum + s.unasked, 0));
   if (unasked <= 0) return;
-  const subject = `${gateway} refunded ${money(unasked)} that ${siteName()} did not ask for`;
-  const body = [
-    `${money(unasked)} of a payment of ${money(Number(payment.amount))} by ${payment.payer_name ?? "a customer"}${what} was refunded in the ${gateway} dashboard, and nothing here was owed back on it.`,
-    `Nothing has been changed here: the bookings, memberships and receipts stay as they were. If the refund was for something called off, cancel it here: the money ${gateway} already gave back counts towards what that owes, so it is not refunded twice. If it was a goodwill refund, there is nothing more to do.`,
-  ].join("\n\n");
-  if (platform) await tellOwners(subject, body);
-  else if (payment.venue_id !== null) await tellVenueStaff(payment.venue_id, subject, body);
+  const write = (t: StaffT) => ({
+    subject: t("r9d.gwRefund.s", { gateway, amount: money(unasked) }),
+    body: [
+      t("r9d.gwRefund.b", {
+        amount: money(unasked),
+        total: money(Number(payment.amount)),
+        who: payment.payer_name ?? t("r9d.gwRefund.aCustomer"),
+        codes: what,
+        gateway,
+      }),
+      t("r9d.gwRefund.next", { gateway }),
+    ].join("\n\n"),
+  });
+  if (platform) await tellOwnersEach(write);
+  else if (payment.venue_id !== null) await tellVenueStaffEach(payment.venue_id, write);
 }
 
 /**

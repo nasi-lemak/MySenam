@@ -1,7 +1,6 @@
 import { getDb } from "./db";
 import { isMarketplace } from "./mode";
-import { tellOwners, tellVenueStaff } from "./owner-alerts";
-import { siteName } from "./site";
+import { tellOwnersEach, tellVenueStaffEach } from "./owner-alerts";
 import { money, offsetMs } from "./region";
 
 /**
@@ -77,22 +76,21 @@ export async function applyPaymentHolds(now = new Date()): Promise<HoldChanges> 
   })();
 
   for (const v of changes.held) {
-    await tellVenueStaff(
-      v.id,
-      `${v.name} is off ${siteName()} until its invoice is paid`,
-      `An invoice for ${v.name} is more than ${GRACE_DAYS} days overdue, so customers cannot find, book or pay ` +
-        `it online until it is paid. Your dashboard works as before, and bookings already made stand.\n\n` +
-        `Pay it under Venues & staff → Billing, and ${v.name} is back straight away.`
-    );
+    await tellVenueStaffEach(v.id, (t) => ({
+      subject: t("r9d.hold.s", { venue: v.name }),
+      body: t("r9d.hold.b", { venue: v.name, days: GRACE_DAYS, place: `${t("sh.tab.venuesStaff")} → ${t("bill.title")}` }),
+    }));
   }
   if (changes.held.length > 0)
-    await tellOwners(
-      `${changes.held.length === 1 ? changes.held[0].name : `${changes.held.length} venues`} taken off for an unpaid invoice`,
-      `More than ${GRACE_DAYS} days overdue: ${changes.held.map((v) => v.name).join(", ")}. ` +
-        "They come back on their own once paid, marked paid, or the invoice is voided."
-    );
+    await tellOwnersEach((t) => ({
+      subject:
+        changes.held.length === 1
+          ? t("r9d.hold.owners.one", { venue: changes.held[0].name })
+          : t("r9d.hold.owners.many", { n: changes.held.length }),
+      body: t("r9d.hold.owners.b", { days: GRACE_DAYS, names: changes.held.map((v) => v.name).join(", ") }),
+    }));
   for (const v of changes.lifted)
-    await tellVenueStaff(v.id, `${v.name} is back on ${siteName()}`, `Thank you. Customers can find and book ${v.name} again.`);
+    await tellVenueStaffEach(v.id, (t) => ({ subject: t("r9d.back.s", { name: v.name }), body: t("r9d.hold.lifted.b", { venue: v.name }) }));
   return changes;
 }
 
@@ -123,12 +121,16 @@ async function warnOverdue(now: Date): Promise<void> {
     if (venues.length === 0) continue;
     const names = venues.map((v) => v.name).join(", ");
     const offOn = addDays(invoice.due_on, GRACE_DAYS + 1);
-    await tellVenueStaff(
-      venues[0].id,
-      `Your ${siteName()} invoice is overdue`,
-      `The invoice for ${invoice.period}, ${money(Number(invoice.amount).toFixed(2))}, was due on ${invoice.due_on}. ` +
-        `If it is still unpaid on ${offOn}, ${names} will be hidden from customers until it is paid. ` +
-        `Bookings already made will stand.\n\nPay it under Venues & staff → Billing.`
-    );
+    await tellVenueStaffEach(venues[0].id, (t) => ({
+      subject: t("r9d.overdue.s"),
+      body: t("r9d.overdue.b", {
+        period: invoice.period,
+        amount: money(Number(invoice.amount).toFixed(2)),
+        due: invoice.due_on,
+        off: offOn,
+        names,
+        place: `${t("sh.tab.venuesStaff")} → ${t("bill.title")}`,
+      }),
+    }));
   }
 }

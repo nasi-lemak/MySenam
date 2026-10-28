@@ -14,6 +14,7 @@ import reports from "./reports";
 import settings from "./settings";
 import shell from "./shell";
 import venues from "./venues";
+import alerts from "./alerts";
 import { REFUSALS as REFUSALS_1 } from "./refusals-1";
 import { REFUSALS as REFUSALS_2 } from "./refusals-2";
 import { sayWith, type StaffText } from "../staff-text";
@@ -31,7 +32,7 @@ import { sayWith, type StaffText } from "../staff-text";
  */
 export { STAFF_LOCALES, staffLocale, staffLocales, type StaffLocale };
 
-export const STAFF_AREAS = { common, approvals, server, bookings, competitions, courts, credit, platform, reports, settings, shell, venues };
+export const STAFF_AREAS = { common, approvals, server, bookings, competitions, courts, credit, platform, reports, settings, shell, venues, alerts };
 
 const EN = {
   ...common.en,
@@ -46,6 +47,7 @@ const EN = {
   ...settings.en,
   ...shell.en,
   ...venues.en,
+  ...alerts.en,
 };
 
 export type StaffPhrase = keyof typeof EN;
@@ -63,6 +65,7 @@ const merged = (l: "ms" | "zh"): Record<StaffPhrase, string> => ({
   ...settings[l],
   ...shell[l],
   ...venues[l],
+  ...alerts[l],
 });
 
 export const STAFF_DICTIONARIES: Record<StaffLocale, Record<StaffPhrase, string>> = { en: EN, ms: merged("ms"), zh: merged("zh") };
