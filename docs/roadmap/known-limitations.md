@@ -213,8 +213,8 @@ page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
 **87 now** (the two e-invoice decisions taken). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B47, M16–M22 and
-S12–S25, found and fixed in the same work) and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B50, M16–M22 and
+S12–S27, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (86
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
@@ -727,6 +727,11 @@ IDs are not reused. Each fix came with the test recommended above.
 | B46 | The front desk opening *Venue details* was shown "Front-desk accounts cannot change this" without doing anything: the online payments panel asked for the venue's payment account and hold policy, both a manager's; the desk now sees the payments only. Found by the acceptance scenarios | `tests/components/online-payments-desk.test.tsx` |
 | B47 | Two guest invitations at once from one resident could both pass the venue's guest allowance and go one over: the running guests were counted in a transaction that locked nothing; the host's list entry is now locked first, on every path | `tests/guest-counting.test.ts` ("two guests registered for one host at once") |
 | M22 | Staff cancelling a booking paid at the counter wrote a full refund in the way it was paid, with no record that the money was handed back, no choice of credit or keeping the venue's late share, and the front desk could do it for a payment taken on any earlier day; staff now choose the outcome after a preview, a counter payout is recorded with who paid it out, and a payment from an earlier day is a manager's to give back. Found by the round 8 audit | `tests/counter-refunds.test.ts` (PGlite and Postgres) |
+| S26 | The install's two-factor requirement was enforced only on the dashboard's routes: the counter's booking and class enrolment, availability, previews of venues not yet open and the platform invoice page recognised a staff session without it, so a password alone could book past the rules and mark bookings paid at the counter; every path that treats a request as staff now passes the same gate, and asking for a staff power while held answers `TWO_FACTOR_REQUIRED`. Found by the round 8 audit | `tests/staff-two-factor-gate.test.ts` |
+| S27 | A venue's staff calendar feed address, which lists customers' names and numbers, was stored as it was given and never expired; it is now kept as a hash (migration 0240, existing addresses working by their hash) with a copy sealed with the install's secret for staff to copy again, and lapses after a year. Found by the round 8 audit | `tests/calendar-feed-hash.test.ts` |
+| B48 | Names and emails on bookings, class places, waiting lists and sign-up had no length limit (a 20,000-character name was stored); names are capped at 100 characters and emails at 254 on every path and in the store | `tests/contact-lengths.test.ts` |
+| B49 | 29 route handlers answered 500 to a JSON body that was not an object (`null`, a list, a number); they now answer 400, and a test sends every writing handler such bodies | `tests/bad-bodies.test.ts` |
+| B50 | The date a refund was due by, the date it was made and a customer's receipt dates were UTC dates, a day early before 08:00 in Malaysia; they are the venue's calendar dates | `tests/refund-local-date.test.ts`, `tests/manual-refunds.test.ts` |
 
 ### Resolved limitations without a number
 
