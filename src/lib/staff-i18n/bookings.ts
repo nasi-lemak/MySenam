@@ -585,6 +585,15 @@ const en = {
   "co6.ch.venue": "The venue assigns a free coach",
   "co6.ch.help": "Assigned by the venue, the customer books a lesson for a sport and a time, and a coach of that sport who is free then is given it: the one with the fewest lessons that day. Staff can still book a coach by name, and a lesson pack still needs its own coach.",
   "co6.ch.failed": "Could not save who chooses the coach",
+  // The staff calendar feed's words (lib/staff-calendar.ts), in the language its address names.
+  "tl7.ics.calName": "{venue} bookings",
+  "tl7.ics.summary": "{court}: {who}",
+  "tl7.ics.bookedBy": "{participant}, booked by {name}",
+  "tl7.ics.withCoach": "{what}, lesson with {coach}",
+  "tl7.ics.unpaid": "{what} (unpaid)",
+  "tl7.ics.paid": "{amount}, paid",
+  "tl7.ics.notPaid": "{amount}, not paid yet",
+  "tl7.ics.class": "{court}, with {instructor}. {enrolled} of {capacity} places taken.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1154,6 +1163,14 @@ const ms: Record<keyof typeof en, string> = {
   "co6.ch.venue": "Pusat menetapkan jurulatih yang lapang",
   "co6.ch.help": "Jika ditetapkan oleh pusat, pelanggan menempah kelas untuk sukan dan masa, dan jurulatih sukan itu yang lapang pada masa tersebut diberikan kelas itu: yang paling sedikit kelas pada hari itu. Kakitangan masih boleh menempah jurulatih mengikut nama, dan pakej kelas masih memerlukan jurulatihnya sendiri.",
   "co6.ch.failed": "Tidak dapat menyimpan siapa yang memilih jurulatih",
+  "tl7.ics.calName": "Tempahan {venue}",
+  "tl7.ics.summary": "{court}: {who}",
+  "tl7.ics.bookedBy": "{participant}, ditempah oleh {name}",
+  "tl7.ics.withCoach": "{what}, kelas bersama {coach}",
+  "tl7.ics.unpaid": "{what} (belum dibayar)",
+  "tl7.ics.paid": "{amount}, sudah dibayar",
+  "tl7.ics.notPaid": "{amount}, belum dibayar",
+  "tl7.ics.class": "{court}, bersama {instructor}. {enrolled} daripada {capacity} tempat telah diambil.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1723,6 +1740,14 @@ const zh: Record<keyof typeof en, string> = {
   "co6.ch.venue": "由场馆安排有空的教练",
   "co6.ch.help": "由场馆安排时，客户按运动项目和时间预订课程，场馆将课程交给当时有空的该项目教练：当天课程最少的教练优先。员工仍可按姓名预订教练，课程套票仍需对应的教练。",
   "co6.ch.failed": "无法保存教练选择方式",
+  "tl7.ics.calName": "{venue} 的预订",
+  "tl7.ics.summary": "{court}：{who}",
+  "tl7.ics.bookedBy": "{participant}，由 {name} 预订",
+  "tl7.ics.withCoach": "{what}，与 {coach} 上课",
+  "tl7.ics.unpaid": "{what}（未付款）",
+  "tl7.ics.paid": "{amount}，已付款",
+  "tl7.ics.notPaid": "{amount}，尚未付款",
+  "tl7.ics.class": "{court}，教练 {instructor}。已报名 {enrolled} 人，共 {capacity} 个名额。",
 };
 
 const area = { en, ms, zh };

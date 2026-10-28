@@ -71,7 +71,7 @@ export function RepeatBlockPanel({
     const clashes = data.clashes as { courtName: string; date: string; hour: number }[];
     const list = clashes
       .slice(0, 6)
-      .map((c) => `${c.courtName} ${c.date} ${formatHour(c.hour)}`)
+      .map((c) => `${c.courtName} ${c.date} ${formatHour(c.hour, t.locale)}`)
       .join("; ");
     setNotice(
       [
@@ -132,7 +132,7 @@ export function RepeatBlockPanel({
             <select aria-label={t("c.from")} value={from} onChange={(e) => setFrom(Number(e.target.value))} className={select}>
               {hours.map((h) => (
                 <option key={h} value={h}>
-                  {formatHour(h)}
+                  {formatHour(h, t.locale)}
                 </option>
               ))}
             </select>
@@ -143,7 +143,7 @@ export function RepeatBlockPanel({
                 const end = hours[i + 1] ?? h + (hours[1] !== undefined ? hours[1] - hours[0] : 1);
                 return (
                   <option key={h} value={end}>
-                    {formatHour(end)}
+                    {formatHour(end, t.locale)}
                   </option>
                 );
               })}
@@ -172,7 +172,7 @@ export function RepeatBlockPanel({
           {repeats.map((r) => (
             <li key={r.code} className="flex flex-wrap items-center justify-between gap-2 py-1.5 text-xs">
               <span>
-                <strong>{r.reason}</strong> · {r.days.map((d) => DAYS[d]).join(", ")} {formatHour(r.fromHour)}–{formatHour(r.untilHour)} ·{" "}
+                <strong>{r.reason}</strong> · {r.days.map((d) => DAYS[d]).join(", ")} {formatHour(r.fromHour, t.locale)}–{formatHour(r.untilHour, t.locale)} ·{" "}
                 {r.courts.join(", ")} · {t("rep.nextUntil", { next: r.next, last: r.last })}
               </span>
               <button onClick={() => end(r.code)} className="font-medium text-red-700 underline">

@@ -5,7 +5,7 @@ import type { Enquiry, EnquiryStatus } from "@/lib/enquiries";
 import { internationalNumber } from "@/lib/phone";
 import { translator } from "@/lib/i18n";
 import type { StaffPhrase } from "@/lib/staff-i18n";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 const KIND: Record<Enquiry["kind"], StaffPhrase> = {
   event: "enq.kind.event",
@@ -38,6 +38,7 @@ export function replySubject(e: Pick<Enquiry, "replyLocale" | "venueName">, staf
  */
 export function EnquiriesPanel() {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,7 +80,7 @@ export function EnquiriesPanel() {
                   <strong>{e.name}</strong> · {t(KIND[e.kind])}
                   {e.wantedOn ? ` · ${e.wantedOn}` : ""}
                   {e.people ? ` · ${t("enq.people", { n: e.people })}` : ""}
-                  <span className="text-slate-500"> · {e.venueName} · {t("enq.asked", { date: e.createdAt.slice(0, 10) })}</span>
+                  <span className="text-slate-500"> · {e.venueName} · {t("enq.asked", { date: clock.day(e.createdAt, e.venueId) })}</span>
                 </span>
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${e.status === "new" ? "bg-violet-200 text-violet-900" : "bg-slate-100 text-slate-600"}`}>
                   {e.handledBy && e.status !== "new"

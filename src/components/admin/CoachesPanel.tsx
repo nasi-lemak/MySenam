@@ -11,7 +11,7 @@ import { money } from "@/lib/region";
 import type { ManagedVenue } from "./shared";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffPhrase } from "@/lib/staff-i18n";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 const DAYS: StaffPhrase[] = ["coach.day.0", "coach.day.1", "coach.day.2", "coach.day.3", "coach.day.4", "coach.day.5", "coach.day.6"];
 
@@ -35,6 +35,7 @@ const blank = (sports: Sport[]): Draft => ({ name: "", bio: "", sports: sports.s
  */
 export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const sports = sportsOf(venue.courts);
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [contacts, setContacts] = useState<Record<number, CoachContact>>({});
@@ -153,7 +154,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
               <span className="block text-xs text-slate-500">
                 {c.active
                   ? c.hours
-                      .map((h) => t("coach.hoursSpan", { day: t(DAYS[h.weekday]), from: formatMinute(h.from), until: formatMinute(h.until) }))
+                      .map((h) => t("coach.hoursSpan", { day: t(DAYS[h.weekday]), from: formatMinute(h.from, t.locale), until: formatMinute(h.until, t.locale) }))
                       .join(", ") || t("coach.noHours")
                   : t("coach.notTaking")}
               </span>
@@ -180,7 +181,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
                   </button>
                   {contacts[c.id]?.linkUntil ? (
                     <>
-                      <span className="text-slate-500">{t("coach.linkUntil", { date: contacts[c.id]!.linkUntil!.slice(0, 10) })}</span>
+                      <span className="text-slate-500">{t("coach.linkUntil", { date: clock.day(contacts[c.id]!.linkUntil!, venue.id) })}</span>
                       <button
                         type="button"
                         className="font-medium text-teal-700 underline"

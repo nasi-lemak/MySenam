@@ -35,7 +35,7 @@ import type { Level } from "./games";
 import { isCategory, isPartnerGender, type Category } from "./who";
 import { money } from "./region";
 import { groupResultsVoid, parseRules, readRules, type CompetitionRules, type OutReason, type OutStage } from "./tournament-rules";
-import { englishOf, joinSaid, readStaffText, said, type StaffText, type StaffValue } from "./staff-text";
+import { clockValue, englishOf, joinSaid, readStaffText, said, type StaffText, type StaffValue } from "./staff-text";
 
 /**
  * Tournaments run by venues.
@@ -2739,7 +2739,7 @@ export async function resolveIssue(
           if (refused) throw new IssueRefused(`${need.name}: ${refused}`);
           previousEnd = { date: slot.date, minute: slot.startMin + m.minutes };
         } else if (m.date !== null && m.minute !== null) previousEnd = { date: m.date, minute: m.minute + m.minutes };
-        const at: Record<string, string> = slot ? { date: slot.date, time: formatMinute(slot.startMin) } : {};
+        const at: Record<string, StaffValue> = slot ? { date: slot.date, time: clockValue(slot.startMin) } : {};
         changes.push(
           i === 0
             ? said(slot ? "srv.tn.replay.firstAt" : "srv.tn.replay.first", { match: need.namePhrase, right: name(issue.rightEntry), wrong: name(issue.wrongEntry), ...at })

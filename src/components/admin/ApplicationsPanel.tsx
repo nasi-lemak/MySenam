@@ -7,7 +7,7 @@ import { REVIEW_CHECKS, type ReviewCheck } from "@/lib/review-checks";
 import { googleMapsLink, streetViewLink } from "@/components/PinMap";
 import { money } from "@/lib/region";
 import type { StaffT } from "@/lib/staff-i18n";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 const PinMap = dynamic(() => import("@/components/PinMap"), { ssr: false });
 
@@ -39,6 +39,7 @@ const checkLabels = (t: StaffT): Record<ReviewCheck, string> => ({
  */
 export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [applications, setApplications] = useState<VenueApplication[] | null>(null);
   const [marketplace, setMarketplace] = useState(false);
   const [drafts, setDrafts] = useState(0);
@@ -158,7 +159,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                   </div>
                   <div className="mt-1 text-sm text-slate-600">
                     {a.contactName} · <span className="font-mono text-xs">{a.email}</span> ·{" "}
-                    {t("app.asked", { date: a.createdAt.slice(0, 10) })}
+                    {t("app.asked", { date: clock.day(a.createdAt) })}
                   </div>
                   {a.setup && (
                     <div className="mt-1 text-sm text-slate-600">
@@ -234,7 +235,7 @@ export function ApplicationsPanel({ onChange }: { onChange: () => void }) {
                   ? t("app.liveAuto")
                   : t("app.live")
                 : t("app.notLive")}{" "}
-              {a.decidedAt?.slice(0, 10)}
+              {a.decidedAt && clock.day(a.decidedAt)}
               {a.reason ? ` (${a.reason})` : ""}
             </li>
           ))}

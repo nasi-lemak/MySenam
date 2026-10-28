@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ErrorGroup } from "@/lib/error-log";
-import { localTime } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * Errors by kind, for the platform owner: what failed, how often, where last
@@ -12,6 +11,7 @@ import { useStaffT } from "./StaffLanguage";
  */
 export function ErrorsPanel() {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [errors, setErrors] = useState<ErrorGroup[] | null>(null);
   const [sentry, setSentry] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
@@ -55,8 +55,8 @@ export function ErrorsPanel() {
               </button>
             </div>
             <p className="mt-0.5 text-xs text-amber-800">
-              {t("errs.countLast", { n: e.count, date: e.lastAt.slice(0, 10), time: localTime(e.lastAt) })}
-              {e.path && ` · ${e.method ? `${e.method} ` : ""}${e.path}`} · {t("errs.first", { date: e.firstAt.slice(0, 10) })}
+              {t("errs.countLast", { n: e.count, date: clock.day(e.lastAt), time: clock.time(e.lastAt) })}
+              {e.path && ` · ${e.method ? `${e.method} ` : ""}${e.path}`} · {t("errs.first", { date: clock.day(e.firstAt) })}
             </p>
             {open === e.id && e.stack && (
               <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-xs text-slate-700">{e.stack}</pre>

@@ -201,7 +201,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                     {activityIcon(session.sport)} {session.courtName}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">
-                    {session.date} · {formatHour(session.startHour)}–{formatHour(session.endHour)}
+                    {session.date} · {formatHour(session.startHour, t.locale)}–{formatHour(session.endHour, t.locale)}
                   </td>
                   <td className="px-3 py-2">
                     <button
@@ -362,8 +362,8 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             <p className="mt-1 text-sm text-slate-600">
               {t("cls.sessionWhen", {
                 date: roster.session.date,
-                start: formatHour(roster.session.startHour),
-                end: formatHour(roster.session.endHour),
+                start: formatHour(roster.session.startHour, t.locale),
+                end: formatHour(roster.session.endHour, t.locale),
                 instructor: roster.session.instructor,
               })}
             </p>

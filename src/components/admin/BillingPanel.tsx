@@ -155,7 +155,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
           {state.plans.map((p) => (
             <p key={p.venueId}>
               {state.plans!.length > 1 && <span className="font-medium">{p.venueName}: </span>}
-              <span className="font-semibold">{t("bill.perMonth", { amount: money(p.effectiveFee.toFixed(2)) })}</span>
+              <span className="font-semibold">{t("bill.perMonth", { amount: money(p.effectiveFee) })}</span>
               {p.feeFrom === "tier"
                 ? ` — ${t.plural("bill.tierFor", p.resources, { tier: p.tierName ?? "" })}`
                 : p.feeFrom === "own"
@@ -170,7 +170,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
               {state.tiers.tiers
                 .map((tier, i) => {
                   const from = i === 0 ? 1 : (state.tiers!.tiers[i - 1].upTo ?? 0) + 1;
-                  return `${tier.name} ${money(tier.monthlyFee.toFixed(2))} (${tier.upTo === null ? `${from}+` : `${from}–${tier.upTo}`})`;
+                  return `${tier.name} ${money(tier.monthlyFee)} (${tier.upTo === null ? `${from}+` : `${from}–${tier.upTo}`})`;
                 })
                 .join(" · ")}
               {state.tiers.extraEach > 0 && `, ${t("bill.thenEach", { amount: money(state.tiers.extraEach) })}`}.
@@ -239,7 +239,7 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                   <tr key={p.venueId}>
                     <td className="px-3 py-2 font-medium">{p.venueName}</td>
                     <td className="px-3 py-2">
-                      {money(p.effectiveFee.toFixed(2))}
+                      {money(p.effectiveFee)}
                       <span className="text-xs text-slate-400">
                         {p.feeFrom === "tier" ? ` ${p.tierName} · ${p.resources}` : p.feeFrom === "own" ? ` ${t("bill.agreed")}` : ` ${t("bill.default")}`}
                       </span>

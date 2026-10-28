@@ -2592,6 +2592,9 @@ const EN = {
   "gi7.openGame": "Go to the game",
   "gi7.openGroup": "Go to the group",
   "gi7.noToken": "This link is not complete. Open the link in the invitation email again.",
+  // A coach's calendar feed (lib/coach-schedule.ts), in the language its address names.
+  "tl7.coachCal.name": "Lessons at {venue}",
+  "tl7.coachCal.lesson": "Lesson: {student}, {court}",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5137,6 +5140,8 @@ const MS: Record<Phrase, string> = {
   "gi7.openGame": "Pergi ke permainan",
   "gi7.openGroup": "Pergi ke kumpulan",
   "gi7.noToken": "Pautan ini tidak lengkap. Buka semula pautan dalam e-mel jemputan.",
+  "tl7.coachCal.name": "Kelas di {venue}",
+  "tl7.coachCal.lesson": "Kelas: {student}, {court}",
 };
 
 /** Exported so a test can hold the two languages against each other. */

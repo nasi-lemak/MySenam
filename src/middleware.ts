@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { crossSiteRefusal } from "./lib/same-origin";
 import { contentSecurityPolicy, DOCUMENT_PATH, DOCUMENT_POLICY, newNonce } from "./lib/security-headers";
-import { LINK_LOCALE_HEADER, linkLocaleOf } from "./lib/link-locale";
+import { CHOSEN_LOCALE_COOKIE, isLinkLocale, LINK_LOCALE_COOKIE, LINK_LOCALE_HEADER, linkLocaleOf } from "./lib/link-locale";
 
 /**
  * Every request but static files: a fresh nonce and the content security
@@ -24,10 +24,16 @@ export function middleware(req: NextRequest) {
   const headers = new Headers(req.headers);
   headers.set("Content-Security-Policy", policy);
   // A message's link opens in the message's language, unless one was chosen (lib/link-locale.ts): only one of the four, never what the browser sent.
+  // The pages reached from it keep that language for the visit, by a cookie of its own the link sets, while nobody has chosen one.
   headers.delete(LINK_LOCALE_HEADER);
-  const linked = linkLocaleOf(req.nextUrl.searchParams);
+  const fromLink = linkLocaleOf(req.nextUrl.searchParams);
+  const kept = req.cookies.get(LINK_LOCALE_COOKIE)?.value;
+  const linked = fromLink ?? (isLinkLocale(kept) ? kept : null);
   if (linked) headers.set(LINK_LOCALE_HEADER, linked);
-  return withPolicy(NextResponse.next({ request: { headers } }), policy);
+  const res = withPolicy(NextResponse.next({ request: { headers } }), policy);
+  if (fromLink && fromLink !== kept && !req.cookies.has(CHOSEN_LOCALE_COOKIE))
+    res.cookies.set(LINK_LOCALE_COOKIE, fromLink, { path: "/", sameSite: "lax", httpOnly: true, secure: req.nextUrl.protocol === "https:" });
+  return res;
 }
 
 function withPolicy(res: NextResponse, policy: string): NextResponse {

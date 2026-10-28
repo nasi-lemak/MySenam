@@ -273,11 +273,14 @@ On each coach under *Coaches* (`lib/coach-schedule.ts`):
 
 - **Email for lesson alerts.** The coach is emailed when a lesson is booked
   with them and when one is cancelled, once each (`notifyCoaches`, every
-  scheduler tick, dedupe keys `coach-new:<id>` and `coach-cancel:<id>`).
+  scheduler tick, dedupe keys `coach-new:<id>` and `coach-cancel:<id>`). A
+  coach has no language on record, so these are in the install's first staff
+  language (`coachLocale`), the lesson's hours as it writes them.
 - **Schedule link.** *Make a schedule link* gives the coach a private page,
   `/coach/<token>`, with their lessons for the next 30 days, each student's
   name and number (to call), and whether it is paid, plus a calendar feed of
-  the same, `/api/coach-calendar/<token>.ics`, for their phone. The page says
+  the same, `/api/coach-calendar/<token>.ics`, for their phone, its words
+  and times in the language the page is read in (`?lang=`). The page says
   it is private and not to be shared. The link is shown to staff once, when
   made, to copy and send: only its hash is kept (`coaches.link_hash`), so the
   dashboard afterwards says only until when it works. It lapses a year after

@@ -4,7 +4,7 @@ import { activityIcon } from "@/lib/activity-registry";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { RainOutPanel } from "./RainOutPanel";
 import { RepeatBlockPanel } from "./RepeatBlockPanel";
-import { formatHour } from "@/lib/time";
+import { hourHeading } from "@/lib/region";
 import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
 import { isShared } from "@/lib/types";
@@ -224,7 +224,7 @@ export function ScheduleTab({
           key={`${queueFor.courtId}-${queueFor.start}-${date}`}
           venueId={venueId}
           target={{ courtId: queueFor.courtId, date, start: queueFor.start, end: queueFor.end }}
-          label={`${queueFor.name}, ${formatMinute(queueFor.start)}`}
+          label={`${queueFor.name}, ${formatMinute(queueFor.start, t.locale)}`}
           onDone={() => setQueued((n) => n + 1)}
           onClose={() => setQueueFor(null)}
         />
@@ -238,7 +238,7 @@ export function ScheduleTab({
                 <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 font-semibold">{t("sch.court")}</th>
                 {courts[0]?.slots.map((s) => (
                   <th key={s.hour} className="px-1 py-2 text-center font-medium text-slate-500">
-                    {formatHour(s.hour).replace(":00 ", "").replace(" ", "")}
+                    {hourHeading(s.hour * 60, t.locale)}
                   </th>
                 ))}
               </tr>
@@ -335,7 +335,7 @@ export function ScheduleTab({
                   <ul className="mt-1 space-y-0.5 text-xs">
                     {entries.map((e, i) => (
                       <li key={i} className={e.kind === "buffer" ? "text-slate-400" : "text-slate-700"}>
-                        {formatMinute(e.start)}–{formatMinute(e.end)} · {t("sch.minutes", { n: e.end - e.start })} · {(e.phrase ? t.say(e.phrase) : e.label) || kinds[e.kind]}
+                        {formatMinute(e.start, t.locale)}–{formatMinute(e.end, t.locale)} · {t("sch.minutes", { n: e.end - e.start })} · {(e.phrase ? t.say(e.phrase) : e.label) || kinds[e.kind]}
                         {e.places ? ` · ${t.plural("sch.places", e.places)}` : ""}
                       </li>
                     ))}

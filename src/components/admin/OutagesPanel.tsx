@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Court } from "@/lib/types";
 import { offsetMs } from "@/lib/region";
+import { formatHour } from "@/lib/time";
 import { formatMinute } from "@/lib/interval";
 import { useStaffT } from "./StaffLanguage";
 
@@ -73,7 +74,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
             r.busy
               ? t("out.lateBusy", { court: r.courtName })
               : r.claimed.length > 0
-                ? t("out.lateClosed", { court: r.courtName, date: r.date, hours: r.claimed.map((s) => `${formatMinute(s.start)}–${formatMinute(s.end)}`).join(", ") })
+                ? t("out.lateClosed", { court: r.courtName, date: r.date, hours: r.claimed.map((s) => `${formatMinute(s.start, t.locale)}–${formatMinute(s.end, t.locale)}`).join(", ") })
                 : t("out.lateNothing", { court: r.courtName })
           )
           .join(" ") || t("out.lateNothing", { court: o.courtName })
@@ -223,7 +224,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           {t("out.lateLeft", {
             list: lateLeft
-              .map((a) => `${a.date} ${formatMinute(a.startMin)} · ${a.kind === "class" ? t("out.classItem", { name: a.name }) : `${a.name} (${a.ref})`}`)
+              .map((a) => `${a.date} ${formatMinute(a.startMin, t.locale)} · ${a.kind === "class" ? t("out.classItem", { name: a.name }) : `${a.name} (${a.ref})`}`)
               .join("; "),
           })}
         </p>
@@ -233,7 +234,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
           <ul className="space-y-0.5">
             {affected.map((a) => (
               <li key={`${a.kind}-${a.ref}`}>
-                {a.date} {String(a.startHour).padStart(2, "0")}:00 · {a.kind === "class" ? t("out.classItem", { name: a.name }) : `${a.name} (${a.ref})`}
+                {a.date} {formatHour(a.startHour, t.locale)} · {a.kind === "class" ? t("out.classItem", { name: a.name }) : `${a.name} (${a.ref})`}
               </li>
             ))}
           </ul>

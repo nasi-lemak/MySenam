@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Pack } from "@/lib/whatsapp-credit";
 import type { Usage } from "@/lib/whatsapp-usage";
 import { money } from "@/lib/region";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 type Mode = "off" | "urgent" | "all";
 
@@ -30,6 +30,7 @@ interface State {
  */
 export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner: boolean }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const LABEL: Record<Mode, string> = { urgent: t("wa.mode.urgent"), all: t("wa.mode.all"), off: t("wa.mode.off") };
   const NOTE: Record<Mode, string> = { urgent: t("wa.mode.urgentNote"), all: t("wa.mode.allNote"), off: t("wa.mode.offNote") };
   const BUTTON: Record<Mode, string> = { urgent: t("wa.button.urgent"), all: t("wa.button.all"), off: t("wa.button.off") };
@@ -166,7 +167,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                 </label>
                 {perMonth > 0 && (
                   <span className="text-xs text-slate-600" data-testid="estimate">
-                    {t.plural("wa.estimate", packsNeeded, { messages: perMonth, amount: money((packsNeeded * s.pack.price).toFixed(2)) })}
+                    {t.plural("wa.estimate", packsNeeded, { messages: perMonth, amount: money(packsNeeded * s.pack.price) })}
                   </span>
                 )}
               </div>
@@ -175,7 +176,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
                   {s.packs.map((p) => (
                     <li key={p.id} className="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs">
                       <span className="flex-1">
-                        {t("wa.packMessages", { n: p.messages })} · {money(p.amount)} · {p.createdAt.slice(0, 10)} ·{" "}
+                        {t("wa.packMessages", { n: p.messages })} · {money(p.amount)} · {clock.day(p.createdAt, venueId)} ·{" "}
                         {p.status === "paid"
                           ? p.paidVia === "online"
                             ? t("wa.pack.paidOnline")

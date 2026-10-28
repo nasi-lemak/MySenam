@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 export interface PickedParticipant {
   id: number;
@@ -54,6 +54,7 @@ export function ParticipantPicker({
   many?: { values: PickedParticipant[]; holderTakesPart: boolean; onChange: (values: PickedParticipant[], holderTakesPart: boolean) => void };
 }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ displayName: "", birthYear: "", relationship: "parent", authority: false });
@@ -252,7 +253,7 @@ export function ParticipantPicker({
                   )}
                   {other.made && (
                     <div role="status" className="space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2 text-emerald-900">
-                      <p>{t("gv.g.code", { adult, code: other.made.code, date: new Date(other.made.expiresAt).toLocaleDateString(), name: other.made.name })}</p>
+                      <p>{t("gv.g.code", { adult, code: other.made.code, date: clock.day(other.made.expiresAt, venueId), name: other.made.name })}</p>
                       {!other.made.consentPossible &&
                         (other.made.contactConsent ? (
                           // A guardian recorded here by name and number can agree through staff, by a code to their number (lib/contact-guardians.ts).

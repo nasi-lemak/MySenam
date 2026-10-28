@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { ACTION_LABELS, type StaffAction } from "@/lib/activity-labels";
 import type { StaffPhrase } from "@/lib/staff-i18n";
-import { localTime } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /** Each kind of entry's words in the staff dictionary; a kind not listed shows as lib/activity-labels.ts says it. */
 const ACTION_PHRASES: Record<string, StaffPhrase> = {
@@ -135,6 +134,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
  */
 export function ActivityPanel({ venueId, from, to }: { venueId: number; from: string; to: string }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [actions, setActions] = useState<StaffAction[] | null>(null);
   const [code, setCode] = useState("");
   const [query, setQuery] = useState("");
@@ -219,7 +219,7 @@ export function ActivityPanel({ venueId, from, to }: { venueId: number; from: st
               actions.map((a) => (
                 <tr key={a.id}>
                   <td className="whitespace-nowrap px-3 py-2 text-slate-600">
-                    {a.createdAt.slice(0, 10)} {localTime(a.createdAt)}
+                    {clock.when(a.createdAt, venueId)}
                   </td>
                   <td className="px-3 py-2 font-medium">{a.adminName}</td>
                   <td className="px-3 py-2">{Object.hasOwn(ACTION_PHRASES, a.action) ? t(ACTION_PHRASES[a.action]) : (ACTION_LABELS[a.action] ?? a.action)}</td>

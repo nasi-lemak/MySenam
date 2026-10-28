@@ -2432,6 +2432,8 @@ export const ZH: Record<Phrase, string> = {
   "gi7.openGame": "前往球局",
   "gi7.openGroup": "前往群组",
   "gi7.noToken": "此链接不完整。请重新打开邀请邮件中的链接。",
+  "tl7.coachCal.name": "{venue} 的课程",
+  "tl7.coachCal.lesson": "课程：{student}，{court}",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

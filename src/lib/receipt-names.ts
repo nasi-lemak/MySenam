@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { WHO, type Line } from "./documents";
 import { ANONYMOUS } from "./privacy";
-import type { StaffText, StaffValue } from "./staff-text";
+import { isStaffClock, type StaffClock, type StaffText, type StaffValue } from "./staff-text";
 
 /**
  * The people a receipt or credit note names, cleared with the rest of it
@@ -98,7 +98,12 @@ function clearValue(v: StaffValue, names: string[], theirs: (n: string) => boole
   return clearPhrase(v, names, theirs, all);
 }
 
-function clearPhrase(text: StaffText, names: string[], theirs: (n: string) => boolean, all: boolean): StaffText {
+function clearPhrase(text: StaffText | StaffClock, names: string[], theirs: (n: string) => boolean, all: boolean): StaffText | StaffClock {
+  // A time of day names nobody.
+  return isStaffClock(text) ? text : clearText(text, names, theirs, all);
+}
+
+function clearText(text: StaffText, names: string[], theirs: (n: string) => boolean, all: boolean): StaffText {
   if (!text.vars) return text;
   return { ...text, vars: Object.fromEntries(Object.entries(text.vars).map(([k, v]) => [k, clearValue(v, names, theirs, all, k)])) };
 }
@@ -117,7 +122,7 @@ function clearLine(line: Line, names: string[], theirs: (n: string) => boolean, 
     next.place = { ...line.place!, name: null };
   }
   next.description = replaceNames(text, names);
-  if (line.phrase) next.phrase = clearPhrase(line.phrase, names, theirs, all);
+  if (line.phrase) next.phrase = clearText(line.phrase, names, theirs, all);
   return next;
 }
 

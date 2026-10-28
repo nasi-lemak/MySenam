@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import type { IntegrityProblem } from "@/lib/integrity";
-import { localTime, type ManagedVenue } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import type { ManagedVenue } from "./shared";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * Ask now whether bookings and the court time they hold agree, and whether
@@ -15,6 +15,7 @@ import { useStaffT } from "./StaffLanguage";
  */
 export function IntegrityCheck({ venues, own = false }: { venues: ManagedVenue[]; own?: boolean }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [problems, setProblems] = useState<IntegrityProblem[] | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,7 +62,7 @@ export function IntegrityCheck({ venues, own = false }: { venues: ManagedVenue[]
       {error && <p className="mt-2 text-red-600">{error}</p>}
       {problems && problems.length === 0 && (
         <p className="mt-2 font-medium text-teal-700">
-          {t("ow5.int.allClear", { time: checkedAt ? localTime(checkedAt.toISOString()) : "" })}
+          {t("ow5.int.allClear", { time: checkedAt ? clock.time(checkedAt) : "" })}
         </p>
       )}
       {problems && problems.length > 0 && (

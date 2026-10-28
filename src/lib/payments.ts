@@ -33,7 +33,7 @@ import { errorText, isLocale, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
 import { creditReceipt, documentFor, entrySale, issueReceipt, keepBookingReceipt, paidVia, placeSale, saidLine, type Line } from "./documents";
 import { venueTax } from "./tax";
-import { said, withPhrase, type StaffText } from "./staff-text";
+import { clockValue, said, withPhrase, type StaffText } from "./staff-text";
 import { cancelPolicy, struckOut, type OnlineRefunds } from "./cancel-policy";
 import { activateVoucher, pendingVoucher, sendVoucher, type Voucher, type VoucherInput } from "./vouchers";
 
@@ -1760,7 +1760,7 @@ async function settleShare(row: PaymentRow): Promise<void> {
     )
     .get(target.id, target.booking_id)) as { name: string; date: string; start_min: number; end_min: number; user_id: number };
   await receiptPayment(row, {
-    description: said("srv.line.gameShare", { court: court.name, date: court.date, from: formatHour(hoursOf(court.start_min)), to: formatHour(hoursOf(court.end_min)) }),
+    description: said("srv.line.gameShare", { court: court.name, date: court.date, from: clockValue(court.start_min), to: clockValue(court.end_min) }),
     userId: court.user_id,
     taxable: true,
   });

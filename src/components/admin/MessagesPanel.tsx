@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { OutboxMessage, OutboxSummary } from "@/lib/outbox";
-import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
 import type { StaffPhrase } from "@/lib/staff-i18n";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 const STATUS_STYLES: Record<string, string> = {
   sent: "bg-emerald-50 text-emerald-700",
@@ -43,6 +42,7 @@ const PLATFORM = 0;
 
 export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenue[]; isOwner?: boolean }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [messages, setMessages] = useState<OutboxMessage[] | null>(null);
   const [summary, setSummary] = useState<OutboxSummary | null>(null);
@@ -169,7 +169,7 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
               {messages.map((m) => (
                 <tr key={m.id} className="border-b border-slate-100 align-top last:border-0">
                   <td className="whitespace-nowrap px-3 py-2 text-slate-500">
-                    {localTime(m.createdAt)}
+                    {clock.time(m.createdAt, venueId)}
                   </td>
                   <td className="px-3 py-2">
                     <button

@@ -220,8 +220,8 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
                 {t("rpt.floor", {
-                  sold: report.utilisation.courts.soldHours.toLocaleString(intlTag("en")),
-                  sellable: report.utilisation.courts.sellableHours.toLocaleString(intlTag("en")),
+                  sold: report.utilisation.courts.soldHours.toLocaleString(intlTag(t.locale)),
+                  sellable: report.utilisation.courts.sellableHours.toLocaleString(intlTag(t.locale)),
                 })}
               </div>
               {report.utilisation.courts.sellableHours > 0 && (
@@ -320,7 +320,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                     key={h.hour}
                     className="group relative flex flex-1 flex-col justify-end"
                     style={{ height: "100%" }}
-                    title={t("rpt.hourTitle", { hour: formatHour(h.hour), n: h.hours })}
+                    title={t("rpt.hourTitle", { hour: formatHour(h.hour, t.locale), n: h.hours })}
                   >
                     <div
                       className={`w-full rounded-t ${
@@ -339,13 +339,13 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 ))}
               </div>
               <div className="mt-1.5 flex justify-between text-xs text-slate-500">
-                <span>{formatHour(report.byHour[0]?.hour ?? 0)}</span>
+                <span>{formatHour(report.byHour[0]?.hour ?? 0, t.locale)}</span>
                 {peakHour && peakHour.hours > 0 && (
                   <span className="font-medium text-teal-700">
-                    {t("rpt.busiest", { hour: formatHour(peakHour.hour), n: peakHour.hours })}
+                    {t("rpt.busiest", { hour: formatHour(peakHour.hour, t.locale), n: peakHour.hours })}
                   </span>
                 )}
-                <span>{formatHour(report.byHour[report.byHour.length - 1]?.hour ?? 0)}</span>
+                <span>{formatHour(report.byHour[report.byHour.length - 1]?.hour ?? 0, t.locale)}</span>
               </div>
             </div>
 

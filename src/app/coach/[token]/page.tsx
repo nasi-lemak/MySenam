@@ -4,6 +4,7 @@ import { coachForToken, coachLessons } from "@/lib/coach-schedule";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import CoachSelfService from "@/components/CoachSelfService";
 import Link from "next/link";
+import { linkIn } from "@/lib/link-locale";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,8 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
     <div className="mx-auto max-w-xl space-y-4">
       <h1 className="text-xl font-bold">{t("coachpage.title", { name: found.coach.name, venue: found.venueName })}</h1>
       <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">{t("coachpage.private")}</p>
-      <a href={`/api/coach-calendar/${token}.ics`} className="inline-block text-sm font-semibold text-teal-700 underline">
+      {/* The feed in the language this page is read in (lib/coach-schedule.ts `coachFeedLocale`). */}
+      <a href={linkIn(`/api/coach-calendar/${token}.ics`, t.locale)} className="inline-block text-sm font-semibold text-teal-700 underline">
         📅 {t("coachpage.subscribe")}
       </a>
       {/* Applications are reviewed signed in to the coach's own account, never at this link (ADR 0020). */}

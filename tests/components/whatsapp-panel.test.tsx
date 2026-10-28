@@ -59,7 +59,7 @@ describe("the WhatsApp panel", () => {
     );
     await open();
     fireEvent.change(screen.getByLabelText("Bookings a month"), { target: { value: "500" } });
-    expect(screen.getByTestId("estimate").textContent).toMatch(/550 messages a month: 3 packs, about RM60.00/);
+    expect(screen.getByTestId("estimate").textContent).toMatch(/550 messages a month: 3 packs, about RM60(?![.\d])/);
     await act(async () => screen.getByRole("button", { name: "Buy 200 messages · RM20" }).click());
     expect(screen.getByText(/waiting for payment/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pay online" })).toBeTruthy();

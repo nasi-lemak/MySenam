@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EInvoice, EInvoiceSettings } from "@/lib/myinvois";
 import { STATE_CODES } from "@/lib/myinvois/states";
-import { intlTag, money, region } from "@/lib/region";
-import type { Locale } from "@/lib/i18n";
+import { money } from "@/lib/region";
 import type { ManagedVenue } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * LHDN e-invoicing (MyInvois) for a Malaysian venue: its tax details, how
@@ -60,18 +59,9 @@ const blank = (s: EInvoiceSettings): Form => ({
   email: s.email ?? "",
 });
 
-const when = (at: string, locale: Locale) =>
-  new Date(at.includes("Z") || at.includes("+") ? at : `${at.replace(" ", "T")}Z`).toLocaleString(intlTag(locale), {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: region().timeZone,
-  });
-
 export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const STATUS: Record<EInvoice["status"], string> = {
     pending: t("einv.status.pending"),
     submitted: t("einv.status.submitted"),
@@ -323,7 +313,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                 </p>
                 <p className="text-slate-500">
                   {money(e.total)}
-                  {e.refersCode && ` · ${t("einv.corrects", { code: e.refersCode })}`} · {when(e.submittedAt ?? e.createdAt, t.locale)}
+                  {e.refersCode && ` · ${t("einv.corrects", { code: e.refersCode })}`} · {clock.when(e.submittedAt ?? e.createdAt, venueId)}
                 </p>
                 {e.error && <p className="mt-1 text-rose-700">{e.error}</p>}
               </div>

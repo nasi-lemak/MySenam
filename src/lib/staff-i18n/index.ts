@@ -1,6 +1,6 @@
 import { fill, phraseVars, translateError, translator, type RefusalBody, type T, type Vars } from "../i18n";
 import { STAFF_LOCALES, staffLocale, staffLocales, type StaffLocale } from "../staff-locales";
-import { region } from "../region";
+import { region, retellTimes } from "../region";
 import { siteName } from "../site";
 import common from "./common";
 import approvals from "./approvals";
@@ -102,7 +102,8 @@ export function staffRefusal(sentence: string, locale: StaffLocale): string | nu
   if (exact) return exact[locale];
   for (const { re, said } of patternRefusals) {
     const m = sentence.match(re);
-    if (m) return said[locale].replace(/\{(\d+)\}/g, (_, i: string) => m[Number(i) + 1] ?? "");
+    // What it carried is put back as it was, but for its times, which are said as the language writes them.
+    if (m) return said[locale].replace(/\{(\d+)\}/g, (_, i: string) => retellTimes(m[Number(i) + 1] ?? "", locale));
   }
   return null;
 }
@@ -129,7 +130,7 @@ export function staffTranslator(locale: StaffLocale, site: string = siteName()):
     const staff = said === sent ? staffRefusal(sent, locale) : null;
     return staff ?? (said || (fallback ?? t("c.failed")));
   };
-  t.say = (text, fallback = "") => (text ? sayWith(text, (key, vars) => t(key, vars)) : fallback);
+  t.say = (text, fallback = "") => (text ? sayWith(text, (key, vars) => t(key, vars), locale) : fallback);
   t.known = (phrase, vars) => (phrase in dict ? t(phrase as StaffPhrase, vars) : null);
   t.customer = customer;
   t.locale = locale;

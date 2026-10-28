@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { PlayerReport } from "@/lib/player-safety";
-import { localTime } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 type Show = "open" | "reviewed" | "all";
 
@@ -18,6 +17,7 @@ const PAGE = 50;
  */
 export function PlayerReportsPanel() {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [show, setShow] = useState<Show>("open");
   const [reports, setReports] = useState<PlayerReport[] | null>(null);
   const [more, setMore] = useState(false);
@@ -118,7 +118,7 @@ export function PlayerReportsPanel() {
                   </span>
                 </span>
                 <span className="text-xs text-slate-500">
-                  {r.createdAt.slice(0, 10)} {localTime(r.createdAt)}
+                  {clock.when(r.createdAt)}
                 </span>
               </div>
               <p className="mt-1">

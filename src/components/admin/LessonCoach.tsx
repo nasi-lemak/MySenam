@@ -80,7 +80,7 @@ export function LessonCoach({
   const others = coaches.filter((c) => c.active && c.id !== coachId && c.sports.includes(sport));
   const k = terms?.keep;
   const a = terms?.adjust;
-  const amount = (n: number) => formatMoney(Math.abs(n).toFixed(2));
+  const amount = (n: number) => formatMoney(Math.abs(n));
   const adjustLine = !a
     ? ""
     : a.owed > 0

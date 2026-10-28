@@ -264,3 +264,85 @@ export function clockTime(at: Date, zone: string, locale: string = "en"): string
 export function localTimeOf(utc: string, zone: string = region().timeZone, locale: string = "en"): string {
   return clockTime(new Date(`${utc.replace(" ", "T")}Z`), zone, locale);
 }
+
+/**
+ * A minute of a venue's day (its wall clock: 1110 is 18:30, past 1440 the
+ * next morning) as a language writes a time, by `clockTime`: "6:30 PM",
+ * "6:30 PTG", "下午6:30", "18:30". The minute is already the venue's clock, so
+ * it is written as it stands, whatever zone the reader is in.
+ */
+export function minuteClock(minute: number, locale: string = "en"): string {
+  const m = ((Math.round(minute) % 1440) + 1440) % 1440;
+  return clockTime(new Date(Date.UTC(2000, 0, 1, 0, m)), "UTC", locale);
+}
+
+/** An hour as a narrow column's heading, by `minuteClock` less its ":00": "6PM", "6 PTG", "下午6", "18". */
+export function hourHeading(minute: number, locale: string = "en"): string {
+  const time = minuteClock(minute, locale).replace(":00", "");
+  return locale === "en" ? time.replace(" ", "") : time;
+}
+
+/** From one minute of a venue's day to another, as a language writes them: "6:00 PM–7:30 PM", "下午6:00–下午7:30". */
+export function clockRange(start: number, end: number, locale: string = "en"): string {
+  return `${minuteClock(start, locale)}–${minuteClock(end, locale)}`;
+}
+
+/** A stored moment: a Date, an ISO time, or the database's UTC "YYYY-MM-DD HH:MM:SS". */
+export function momentOf(at: Date | string): Date {
+  if (at instanceof Date) return at;
+  return new Date(/[TZ+]/.test(at.slice(10)) ? at : `${at.replace(" ", "T")}Z`);
+}
+
+/** A day on its own (YYYY-MM-DD) is no moment: it is written as it is, in any zone. */
+const DAY_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * The day (YYYY-MM-DD) a moment falls on in a zone (a venue's or an event's),
+ * not the day it was in UTC: a log line from 00:30 in Kuala Lumpur is that
+ * day's, though UTC was still on the day before. Staff screens write days so,
+ * the same in every language, as a booking's date is written.
+ */
+export function momentDay(at: Date | string, zone: string): string {
+  let f = dayFormats.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" });
+    dayFormats.set(zone, f);
+  }
+  if (typeof at === "string" && DAY_ONLY.test(at)) return at;
+  const d = momentOf(at);
+  // Something that is not a moment at all is shown as it came, never thrown over.
+  return Number.isNaN(d.getTime()) ? String(at) : f.format(d);
+}
+
+/**
+ * A moment as staff screens and staff messages write one: its day in the
+ * zone and its time of day in the reader's language ("2026-10-24 6:30 PM",
+ * "2026-10-24 6:30 PTG", "2026-10-24 下午6:30"). For people only: what is
+ * stored, exported or sent to software keeps its own form.
+ */
+export function momentText(at: Date | string, zone: string, locale: string = "en"): string {
+  if (typeof at === "string" && DAY_ONLY.test(at)) return at;
+  const d = momentOf(at);
+  return Number.isNaN(d.getTime()) ? String(at) : `${momentDay(d, zone)} ${clockTime(d, zone, locale)}`;
+}
+
+/** A stored moment's time of day in a zone and a language (`clockTime`); what is not a moment, as it came. */
+export function momentClock(at: Date | string, zone: string, locale: string = "en"): string {
+  const d = momentOf(at);
+  return Number.isNaN(d.getTime()) ? String(at) : clockTime(d, zone, locale);
+}
+
+/**
+ * English times ("6:30 PM") in text the server wrote in English, as another
+ * language writes them: for a refusal shown in that language, whose sentence
+ * is translated around the values it carried (lib/staff-i18n). English, and
+ * text with no such time, come back as they were.
+ */
+export function retellTimes(text: string, locale: string): string {
+  if (locale === "en") return text;
+  return text.replace(/\b(1[0-2]|[1-9]):([0-5]\d) (AM|PM)\b/g, (_, h: string, m: string, half: string) =>
+    minuteClock(((Number(h) % 12) + (half === "PM" ? 12 : 0)) * 60 + Number(m), locale)
+  );
+}

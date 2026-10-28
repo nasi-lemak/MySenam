@@ -62,8 +62,13 @@ table in `src/lib/region.ts`:
   they were. The middleware passes it to the page only after checking it
   against the four (dropping any such header a browser sent), and the page
   uses it only where the person has not chosen a language: a choice made
-  with the switch wins. Nothing is stored; the next page without it is in
-  their own language again ([which links](../integrations/messaging.md#messages-to-customers);
+  with the switch wins. So that the pages reached from there by moving
+  around the site stay in that language, the middleware also keeps it for
+  the browser session in a cookie of its own (`ms_link_lang`, holding the
+  language and nothing else, out of scripts' reach), set only while nobody
+  has chosen a language: a newer link's language replaces it, the switch
+  always wins over it, and closing the browser forgets it
+  ([which links](../integrations/messaging.md#messages-to-customers);
   `tests/link-locale.test.ts`).
 - **Times** are written by one formatter (`Intl.DateTimeFormat`, through
   `clockTime` in `src/lib/region.ts`; `formatHour` and `formatMinute` use
@@ -73,9 +78,9 @@ table in `src/lib/region.ts`:
   differs between the server's CLDR data (*6:30 PM*) and browsers'
   (*பிற்பகல் 6:30*) and a page must read the same on both. A booking's
   hours are the venue's wall clock and written as they stand; a moment (a
-  guardian change, a payment deadline) is read in the venue's time zone.
-  The staff dashboard's own screens still write times the English way
-  (`tests/message-times.test.ts`).
+  guardian change, a payment deadline) is read in the venue's time zone
+  (`tests/message-times.test.ts`). Staff read times the same way, in the
+  staff language (*Times for staff*, below).
 - **The staff dashboard** is in English, Malay and Chinese, not Tamil (the
   owner's decision of 24 October 2026): the install's languages less Tamil,
   and the language switch on the dashboard offers only those. Its phrases are
@@ -106,6 +111,41 @@ table in `src/lib/region.ts`:
   lines. Names the dashboard knows by a code (a template's key, a gateway's
   field) are looked up by that code (`t.known`), falling back to the
   server's English for one it has no phrase for.
+- **Times for staff** are in the staff language
+  too (the owner's decision of 28 October 2026), by the same formatter
+  (`src/lib/region.ts`: `clockTime`, `minuteClock` for a minute of the
+  venue's day, `clockRange`, `hourHeading` for the schedule's columns, and
+  `momentDay`, `momentText` and `momentClock` for a stored moment), on every
+  staff screen: the schedule, bookings, lessons and coaches, waiting lists,
+  reports, the activity log, urgent notices, payments, messages, receipts,
+  backups and the rest. A booking's hours are the venue's wall clock and are
+  written as they stand; a moment (checked in, sent, paid, logged) is read
+  on the clock and the day of the venue it happened at, or a tournament's
+  or class's own venue, from the zones the dashboard has
+  (`useStaffClock`, `src/components/admin/StaffLanguage.tsx`), and in the
+  install's zone where it belongs to no venue. Days stay written
+  `YYYY-MM-DD`, as booking dates are, but are the venue's day, not UTC's.
+  Amounts are `money()`'s: a whole amount bare (RM80), any other to the sen.
+  A time the server puts in a phrase for staff (an urgent notice's hours, a
+  court's start times, a replayed match's time, an open-game share's
+  receipt line) is kept as a time of day (`clockValue`,
+  `src/lib/staff-text.ts`) and said in the reader's language; its English is
+  what it always was. A refusal translated around the values it carried
+  says its times in the staff language too. What staff are sent: the staff
+  calendar feed's words and times are in the staff language its address
+  names (`?lang=`, the language of whoever turned it on or looked it up,
+  [staff calendar](../integrations/messaging.md#bookings-in-staffs-own-calendar));
+  a coach's emails are in the install's first staff language and their
+  calendar in the language their page linked it in
+  ([coaches](../features/programmes.md#a-coachs-own-schedule-no-account-needed));
+  a venue's booking alerts are in the install's first language, their hours
+  as it writes them. **What stays as it is:** what software reads (form
+  inputs' `HH:MM`, spreadsheets and exports, API responses, sorting,
+  iCalendar's start, end, zone and ids, stored timestamps), the English the
+  server keeps beside each phrase, and text stored in English (the activity
+  log's details, receipt descriptions, refusals with no translation), whose
+  times stay as they were written (`tests/staff-times.test.ts`,
+  `tests/components/staff-times.test.tsx`).
 - **What stays as stored or as sent:** what people typed (a block's reason,
   a counter top-up's reason, a correction's reason, names), the errors
   gateways, LHDN, mail and WhatsApp providers send, raw exception text and
