@@ -1,8 +1,9 @@
 -- Counter money owed back on bookings the venue itself called off
 -- (lib/counter-refunds.ts; docs/features/payments-and-credit.md#owed-back-after-the-venue-cancels).
 --
--- Closing a day, taking a court out of service, a rain-out and the venue's
--- API key cancel many bookings at once, and nobody stands at the till for
+-- Closing a day, taking a court out of service, a rain-out, the venue's API
+-- key and calling off a class (its enrolments) cancel bookings without staff
+-- settling each at the till, and nobody stands at the till for
 -- each. A booking among them paid at the counter (cash, QR, transfer, card
 -- terminal, or a tick whose method was never recorded) is written here as
 -- owed back: how much, how it was paid, and why it was cancelled. Nothing has
@@ -23,8 +24,8 @@ CREATE TABLE IF NOT EXISTS counter_refunds_owed (
   amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
   -- How it was paid and so how it goes back; null where the counter payment's method was never recorded.
   via TEXT CHECK (via IS NULL OR via IN ('cash', 'qr', 'transfer', 'card')),
-  -- What cancelled it: a closed day, a court out of service, a rain-out, or the venue's API key.
-  cause TEXT NOT NULL CHECK (cause IN ('closure', 'outage', 'rain', 'api')),
+  -- What cancelled it: a closed day, a court out of service, a rain-out, the venue's API key, or its class called off.
+  cause TEXT NOT NULL CHECK (cause IN ('closure', 'outage', 'rain', 'api', 'class')),
   owed_since TIMESTAMPTZ NOT NULL DEFAULT now(),
   settled_at TIMESTAMPTZ,
   -- `back`: handed back at the counter; `credit`: given as stored credit.

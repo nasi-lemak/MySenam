@@ -23,6 +23,7 @@ import { longEnough } from "./phone";
 import { taxIncluded, venueTax } from "./tax";
 import { receiptPath } from "./receipts";
 import { linkIn } from "./link-locale";
+import type { VenueCancelCause } from "./counter-refunds";
 import { bookingLinkPath } from "./booking-access";
 import { clockValue, said, type ServerPhrase, type StaffText } from "./staff-text";
 import { chosenStaffLocale, staffReaderLocale, type StaffLocale } from "./staff-locales";
@@ -1060,12 +1061,14 @@ export async function notifyReminders(now = new Date()): Promise<number> {
 /** Call off a class and tell everybody enrolled in it, as a venue cancellation each. */
 export async function cancelClassAndTell(
   classId: number,
-  why?: CancelReason
+  why?: CancelReason,
+  /** What called it off, for any counter payment owed back (lib/counter-refunds.ts): the class itself where not said. */
+  cause: VenueCancelCause = "class"
 ): Promise<{ ok: boolean; released: number; error?: string; session?: ClassSession; cancelled?: Booking[] }> {
   const session = await getClass(classId);
   // How each stood before (paid or not), for the activity log; the refund changes it.
   const before = new Map((await getClassRoster(classId)).map((b) => [b.id, b]));
-  const result = await cancelClassSession(classId);
+  const result = await cancelClassSession(classId, cause);
   if (!result.ok || !session) return result;
   // Exactly the enrolments it cancelled: not one its customer had just cancelled, nor miss one made a moment before.
   const ids = new Set(result.cancelledIds ?? []);

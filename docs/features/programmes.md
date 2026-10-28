@@ -193,7 +193,9 @@ A lesson moves the way any booking changes its date or time
   of the lesson (`notifyLessonMoved` in `src/lib/coach-schedule.ts`): the
   old time and the new; given to another coach, the new one hears of a
   lesson booked with them and the old one that it is no longer theirs, each
-  in their own language.
+  in their own language. Weeks of a lesson series moved together
+  ([moving a weekly series](booking.md#moving-a-weekly-series)) are one
+  email for the weeks moved (`notifyLessonSeriesMoved`), not one a week.
   Before the coach had heard of it, the scheduler's *new lesson* email tells
   whoever has it, at its time then. Their schedule link and calendar feed
   always show it where it is now.

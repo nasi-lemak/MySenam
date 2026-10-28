@@ -758,4 +758,10 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Its receipt's month has gone to LHDN without it, so it stays a test.": { ms: "Bulan resitnya sudah dihantar kepada LHDN tanpanya, jadi ia kekal sebagai percubaan.", zh: "其收据所在月份已在不含此单的情况下提交给 LHDN，因此它仍为测试预订。" },
   "Say which bookings to keep.": { ms: "Nyatakan tempahan mana yang hendak disimpan.", zh: "请说明要保留哪些预订。" },
   "action must be clear or keep.": { ms: "action mestilah clear atau keep.", zh: "action 须为 clear 或 keep。" },
+  // r9e: counter money owed back after the venue cancelled (lib/counter-refunds.ts), and moving a series (lib/series-moves.ts).
+  "Nothing is owed back on that.": { ms: "Tiada apa-apa yang perlu dipulangkan untuk itu.", zh: "此项无需退还任何款项。" },
+  "That was settled already. Look at the list again.": { ms: "Itu telah diselesaikan. Lihat senarai semula.", zh: "此项已处理。请重新查看列表。" },
+  "Choose the weeks to move.": { ms: "Pilih minggu untuk dipindahkan.", zh: "请选择要调整的周。" },
+  "The series changed since you looked. Look at it again.": { ms: "Siri ini telah berubah sejak anda melihatnya. Lihat semula.", zh: "自您查看以来，此系列已有变动。请重新查看。" },
+  "outcome must be back or credit.": { ms: "outcome mestilah back atau credit.", zh: "outcome 须为 back 或 credit。" },
 };

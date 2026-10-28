@@ -434,8 +434,9 @@ Two ways, for two lengths of time:
   which customers see on the venue's page. Nobody can book it, search finds it
   closed, and the reports count it as out. If anything is booked in the
   stretch, it lists those bookings and classes and stops; staff move them, or
-  choose to cancel them, which refunds each as a staff cancellation would and
-  messages its customer. Classes on a court sharing the floor are listed too.
+  choose to cancel them, which refunds each as a staff cancellation would
+  (a counter payment owed back, [owed back after the venue cancels](payments-and-credit.md#owed-back-after-the-venue-cancels))
+  and messages its customer. Classes on a court sharing the floor are listed too.
   The outage is saved in one transaction that finds nothing left in the way: a
   booking made while the others were being cancelled is cancelled in turn (or,
   without *cancel them*, listed). *Back in service today* ends it early.
@@ -461,7 +462,8 @@ Outdoor courts lose an afternoon at a time to the weather. *Schedule →
 and a reason, and first says what it would call off: each booking by code and
 name, and how many classes. *Call them off* then cancels every booking and
 class on those courts in those hours, refunds each as a staff cancellation
-would (the venue's choice, so no late-cancel fee), messages each customer and
+would (the venue's choice, so no late-cancel fee; a counter payment owed back,
+[owed back after the venue cancels](payments-and-credit.md#owed-back-after-the-venue-cancels)), messages each customer and
 keeps them on the desk's *needs attention* list until they have seen it, and
 blocks the rest of those hours with the reason so nobody books them
 meanwhile (`rainOut` in `src/lib/rain-outs.ts`). A booking already under
@@ -960,8 +962,30 @@ a week that cannot go (kit still out, a counter payment from an earlier day
 for the front desk) is named with why and the others still go. The customer
 gets one message for the weeks cancelled; the activity log has each week and
 the series (`booking.series_cancelled`) (`tests/counter-refunds.test.ts`).
-Moving a whole series to another weekday or time is not offered: staff move
-week by week.
+
+### Moving a weekly series
+
+Staff move the weeks of a series still to be played in one step (*Move the
+series* on the day list; `POST /api/admin/bookings/move-series`,
+`src/lib/series-moves.ts`): a weekday (each week moves within its own
+Monday-to-Sunday week), a start, and a court (or its own court, else another
+free one). Each week is first shown as it would go: where to, what it would
+cost, and which cannot move and why (taken, the venue closed, outside the
+court's rules, a lesson's coach not working). Staff tick the weeks to move.
+
+It is the single staff move week by week (`staffMove`, `rescheduleBooking`),
+not a second engine: what is free, linked courts and buffers, the court's
+rules for the date each week falls on (dated hours and rates included), a
+manager's override, a lesson's coach and an open game's players are decided
+as for one booking, and so is the price: a paid week keeps what was paid
+(the difference at today's rates shown, not charged), an unpaid one is priced
+at its new time. Each week moves in its own transaction; a week taken in the
+meantime stays where it is and is named, and the others still move. The
+customer gets one message for the weeks moved (the venue's change they
+acknowledge, every week in its calendar file), a lesson's coach one email,
+and the activity log each week (`booking.rescheduled`) and the series
+(`booking.series_moved`) (`tests/series-moves.test.ts`, on PGlite and
+Postgres).
 
 After a slot has passed, staff can flag it a no-show from the Bookings tab. The
 flag is reversible, never applies to a cancelled booking, and the day list shows

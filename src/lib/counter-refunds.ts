@@ -460,7 +460,7 @@ export async function counterPayoutsOn(venueIds: number[] | null, date: string):
  * The booking's credit note is written then, by the member of staff settling
  * it, so the till, the credit note and the payout agree.
  */
-export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api"] as const;
+export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api", "class"] as const;
 export type VenueCancelCause = (typeof VENUE_CANCEL_CAUSES)[number];
 export type OwedOutcome = Extract<CancelOutcome, "back" | "credit">;
 export const isOwedOutcome = (v: unknown): v is OwedOutcome => v === "back" || v === "credit";
@@ -470,8 +470,11 @@ export async function venueCancel(code: string, cause: VenueCancelCause): Promis
   return adminCancelBooking(code, async () => ({ share: 1, owe: (bookingId) => oweCounter(bookingId, cause) }));
 }
 
-/** In the cancellation's transaction: a counter payment on it written down as owed back. False where none was. */
-async function oweCounter(bookingId: number, cause: VenueCancelCause): Promise<boolean> {
+/**
+ * In the cancellation's transaction: a counter payment on it written down as owed back. False where none was. Also
+ * for a class's enrolments as the class is called off (lib/store.ts `cancelClassSession`).
+ */
+export async function oweCounter(bookingId: number, cause: VenueCancelCause): Promise<boolean> {
   const counter = await counterMoney(bookingId);
   if (!counter) return false;
   await getDb()

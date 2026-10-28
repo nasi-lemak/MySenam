@@ -7,10 +7,24 @@ import { seriesVenueIds } from "@/lib/counter-refunds";
 import { formatLength, formatMinute, isMinute, parseClock } from "@/lib/interval";
 import { notifySeriesMoved, tickOutbox } from "@/lib/notify";
 import { money } from "@/lib/region";
-import { moveSeries, previewSeriesMove, type SeriesMoveTo } from "@/lib/series-moves";
+import { moveSeries, previewSeriesMove, seriesMoveChoices, type SeriesMoveTo } from "@/lib/series-moves";
 import { getCourt, policyForCourt } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+
+/** `?seriesCode=`: the series as it is now (weekday, start and court of its next week, how many weeks are left) and its venue's courts for it. */
+export async function GET(req: NextRequest) {
+  const admin = await requireAdmin(req);
+  if (admin instanceof NextResponse) return admin;
+  const seriesCode = req.nextUrl.searchParams.get("seriesCode") ?? "";
+  if (seriesCode.trim() === "") return NextResponse.json({ error: "seriesCode is required." }, { status: 400 });
+  const venueIds = await seriesVenueIds(seriesCode);
+  if (venueIds.length === 0) return NextResponse.json({ error: "Series not found." }, { status: 404 });
+  if (!venueIds.every((id) => canAccessVenue(admin, id))) return NextResponse.json({ error: "You do not manage that venue." }, { status: 403 });
+  const choices = await seriesMoveChoices(seriesCode);
+  if (!choices.ok) return refusal(choices, 404);
+  return NextResponse.json({ weekday: choices.weekday, start: choices.start, courtId: choices.courtId, weeks: choices.weeks, courts: choices.courts });
+}
 
 /**
  * Staff move the weeks of a weekly series still to be played in one step

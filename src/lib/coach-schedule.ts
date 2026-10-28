@@ -461,3 +461,61 @@ export async function coachPayoutsCsv(venueId: number, from: string, to: string,
     ])
   );
 }
+
+/**
+ * Weeks of a lesson series moved together by the venue (lib/series-moves.ts): its coach is told once, in their own
+ * language, the first week from where it was to where it is now and how many weeks moved, rather than once a week.
+ * Only weeks the coach had heard of (`coach-new:<id>`), as `notifyLessonMoved`. Returns how many were queued.
+ */
+export async function notifyLessonSeriesMoved(
+  seriesCode: string,
+  weeks: { bookingId: number; was: { date: string; startMin: number; endMin: number } }[]
+): Promise<number> {
+  const db = getDb();
+  type Week = { id: number; date: string; start_min: number; end_min: number; name: string; coach_id: number; court: string; venue_id: number; venue: string };
+  const told: { r: Week; was: { date: string; startMin: number; endMin: number } }[] = [];
+  for (const w of weeks) {
+    const r = (await db
+      .prepare(
+        `SELECT b.id, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.coach_id, b.demo,
+                c.name AS court, v.id AS venue_id, v.name AS venue,
+                EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id) AS told
+           FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id WHERE b.id = ?`
+      )
+      .get(w.bookingId)) as (Omit<Week, "coach_id"> & { coach_id: number | null; demo: number; told: boolean }) | undefined;
+    if (r && r.coach_id !== null && r.told && !r.demo) told.push({ r: { ...r, coach_id: r.coach_id }, was: w.was });
+  }
+  let queued = 0;
+  for (const coachId of new Set(told.map((t) => t.r.coach_id))) {
+    const mine = told.filter((t) => t.r.coach_id === coachId).sort((a, b) => a.r.date.localeCompare(b.r.date));
+    const coach = (await db.prepare("SELECT name, email, locale FROM coaches WHERE id = ?").get(coachId)) as
+      | { name: string; email: string | null; locale: string | null }
+      | undefined;
+    if (!coach?.email) continue;
+    const locale = coachLocale(coach.locale);
+    const { r, was } = mine[0];
+    await enqueue({
+      venueId: r.venue_id,
+      bookingId: r.id,
+      kind: "coach_lesson",
+      channel: "email",
+      recipient: coach.email,
+      locale,
+      subject: "r9e.msg.coachSeriesMovedSubject",
+      body: "r9e.msg.coachSeriesMoved",
+      vars: {
+        name: coach.name.split(/\s+/)[0],
+        n: String(mine.length),
+        student: r.name,
+        court: r.court,
+        venue: r.venue,
+        code: seriesCode.trim().toUpperCase(),
+        was: `${was.date}, ${clockRange(was.startMin, was.endMin, locale)}`,
+        date: r.date,
+        time: clockRange(r.start_min, r.end_min, locale),
+      },
+    });
+    queued++;
+  }
+  return queued;
+}

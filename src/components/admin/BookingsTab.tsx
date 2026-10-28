@@ -24,9 +24,11 @@ import PassAllocation, { passCodesOf, type AllocPass } from "@/components/PassAl
 import type { PlanPlace } from "@/lib/pass-rules";
 import { errorText } from "@/lib/i18n";
 import { lengthLabel } from "@/lib/length-label";
-import type { CancelOutcome, CounterPayout, StaffCancelOption, StaffCancelPreview, StaffSeriesWeek } from "@/lib/counter-refunds";
+import type { CancelOutcome, CounterPayout, OwedRefund, StaffCancelOption, StaffCancelPreview, StaffSeriesWeek } from "@/lib/counter-refunds";
 import type { CorrectionScope } from "@/lib/booking-corrections";
 import { AdjustPrice } from "./AdjustPrice";
+import { OwedRefunds } from "./OwedRefunds";
+import { SeriesMovePanel } from "./SeriesMovePanel";
 
 /* ---------------- Bookings tab ---------------- */
 
@@ -127,6 +129,10 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
   const [cancelling, setCancelling] = useState<{ preview: StaffCancelPreview; venueId: number | null } | null>(null);
   // Weeks of a series being cancelled, with how what was paid is settled.
   const [seriesCx, setSeriesCx] = useState<{ seriesCode: string; weeks: StaffSeriesWeek[]; chosen: string[]; outcome: CancelOutcome } | null>(null);
+  // Counter payments owed back on bookings the venue cancelled, whatever their day (lib/counter-refunds.ts).
+  const [owed, setOwed] = useState<OwedRefund[]>([]);
+  // The series whose weeks still to be played are being moved together (lib/series-moves.ts).
+  const [seriesMove, setSeriesMove] = useState<string | null>(null);
   // A booking's name, number or email being corrected.
   const [correcting, setCorrecting] = useState<{ b: AdminBookingRow; name: string; phone: string; email: string; scope: CorrectionScope } | null>(null);
   // The day list's filters: unpaid, not checked in, one court, one venue.
@@ -151,6 +157,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       if (!res.ok) throw new Error(t.err(data, t("bk.loadFailed")));
       setBookings(data.bookings);
       setPayouts(Array.isArray(data.payouts) ? data.payouts : []);
+      setOwed(Array.isArray(data.owed) ? data.owed : []);
       setRevenue(data.revenue);
       setCollected(data.collected);
       setOutstanding(data.outstanding);
@@ -748,6 +755,11 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     openChange,
     cancelBooking,
     openSeriesCancel,
+    openSeriesMove: (seriesCode: string) => {
+      setError(null);
+      setNotice(null);
+      setSeriesMove(seriesCode);
+    },
     openCorrect,
     paySeries,
     blockNumber,
@@ -961,6 +973,20 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         <CancelPanel preview={cancelling.preview} venueId={cancelling.venueId} onChoose={(o) => void confirmCancel(o)} onClose={() => setCancelling(null)} />
       )}
 
+      {seriesMove && (
+        <SeriesMovePanel
+          key={seriesMove}
+          seriesCode={seriesMove}
+          onDone={(done) => {
+            setNotice(done);
+            setSeriesMove(null);
+            load();
+            window.dispatchEvent(new Event("attention:refresh"));
+          }}
+          onClose={() => setSeriesMove(null)}
+        />
+      )}
+
       {seriesCx && (
         <SeriesCancelPanel
           state={seriesCx}
@@ -1019,6 +1045,16 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
           </div>
         </div>
       )}
+
+      <OwedRefunds
+        owed={owed}
+        onDone={(done) => {
+          setError(null);
+          setNotice(done);
+          load();
+        }}
+        onError={setError}
+      />
 
       {payouts.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm" data-testid="payouts">
@@ -1420,6 +1456,7 @@ interface Act {
   openChange: (b: AdminBookingRow) => void;
   cancelBooking: (code: string) => void;
   openSeriesCancel: (seriesCode: string) => void;
+  openSeriesMove: (seriesCode: string) => void;
   openCorrect: (b: AdminBookingRow) => void;
   paySeries: (seriesCode: string, via?: CounterMethod) => void;
   blockNumber: (b: AdminBookingRow) => void;
@@ -2216,6 +2253,14 @@ function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
           className="inline-flex min-h-7 items-center rounded-md border border-red-200 px-2.5 text-xs font-medium text-red-600 hover:bg-red-50"
         >
           {t("p8a.sx.action")}
+        </button>
+      )}
+      {b.seriesCode && b.classId === null && (
+        <button
+          onClick={() => act.openSeriesMove(b.seriesCode!)}
+          className="inline-flex min-h-7 items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
+        >
+          {t("r9e.sm.action")}
         </button>
       )}
       {may("blockNumber") && (

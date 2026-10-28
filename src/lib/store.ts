@@ -3385,6 +3385,8 @@ async function rescheduleBookingOnce(
     coachMoney?: "keep" | "adjust";
     /** Who gave it to another coach, for the record. */
     changedBy?: { adminId: number | null; name: string };
+    /** A lesson's coach told by the caller instead, once for several weeks moved together (lib/series-moves.ts). */
+    quietCoach?: boolean;
   },
   by: "staff" | "customer"
 ): Promise<RescheduleResult> {
@@ -3703,7 +3705,7 @@ async function rescheduleBookingOnce(
     }
     if (to.hold) return { ...result, booking, held: true };
     // The coach hears of it: the new time, or (another coach) the lesson now theirs and no longer the other's.
-    if (lesson) await (await import("./coach-schedule")).notifyLessonMoved(booking.id, { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, coachId: booking.coachId! });
+    if (lesson && !to.quietCoach) await (await import("./coach-schedule")).notifyLessonMoved(booking.id, { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, coachId: booking.coachId! });
     // The time it left may now be free for somebody waiting on it.
     await offerSlotPlace(fromCourt.id, booking.date);
     // A game with nobody in it yet went with its booking: whoever asked, was
@@ -6327,7 +6329,14 @@ export async function enrolInTerm(input: {
 }
 
 /** Cancel a class and release every enrolment in it. */
-export async function cancelClassSession(classId: number): Promise<{
+export async function cancelClassSession(
+  classId: number,
+  /**
+   * What called it off (lib/counter-refunds.ts): an enrolment paid at the counter is owed back, for staff to hand back
+   * or give as credit, as when the venue cancels a booking (the class itself where not said).
+   */
+  cause: import("./counter-refunds").VenueCancelCause = "class"
+): Promise<{
   ok: boolean;
   released: number;
   /** The enrolments this cancelled (not one its customer had cancelled a moment before). */
@@ -6345,6 +6354,7 @@ export async function cancelClassSession(classId: number): Promise<{
     .all(classId) as { id: number }[];
 
   let cancelledIds: number[] = [];
+  const { oweCounter } = await import("./counter-refunds");
   await db.transaction(async () => {
     cancelledIds = [];
     await db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
@@ -6355,7 +6365,7 @@ export async function cancelClassSession(classId: number): Promise<{
       const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);
       if (done.changes !== 1) continue;
       await releaseBooking(row.id);
-      await refundBooking(row.id);
+      await refundBooking(row.id, 1, undefined, await oweCounter(row.id, cause));
       cancelledIds.push(row.id);
     }
   })();

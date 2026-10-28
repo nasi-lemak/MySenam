@@ -1,3 +1,4 @@
+import { notifyLessonSeriesMoved } from "./coach-schedule";
 import { getDb } from "./db";
 import { previewMove, staffMove } from "./game-moves";
 import { findBookingByCode, getCourt, venueHours } from "./store";
@@ -89,6 +90,23 @@ function target(b: Booking, to: SeriesMoveTo) {
   };
 }
 
+/** What staff choose from: the series as it is now (its next week's weekday, start and court) and the courts of its venue for its activity. */
+export async function seriesMoveChoices(
+  seriesCode: string
+): Promise<{ ok: true; weekday: number; start: number; courtId: number; weeks: number; courts: { id: number; name: string }[] } | Refusal> {
+  const weeks = await weeksToPlay(seriesCode);
+  if (weeks.length === 0) return refused("Series not found.");
+  const first = weeks[0];
+  const court = await getCourt(first.courtId);
+  const courts = (await getDb()
+    .prepare(
+      `SELECT c.id, c.name FROM courts c
+        WHERE c.venue_id = ? AND EXISTS (SELECT 1 FROM court_activities ca WHERE ca.court_id = c.id AND ca.sport = ?) ORDER BY c.id`
+    )
+    .all(court?.venueId ?? 0, first.sport)) as { id: number; name: string }[];
+  return { ok: true, weekday: dayOfWeek(first.date), start: first.startMin, courtId: first.courtId, weeks: weeks.length, courts };
+}
+
 /** Each week still to be played and what moving it would do, changing nothing. */
 export async function previewSeriesMove(seriesCode: string, to: SeriesMoveTo): Promise<{ ok: true; weeks: SeriesMoveWeek[] } | Refusal> {
   const weeks = await weeksToPlay(seriesCode);
@@ -157,7 +175,8 @@ export async function moveSeries(
   const left: { code: string; error: string; errorCode?: string; vars?: Record<string, string | number> }[] = [];
   for (const c of chosen) {
     const b = byCode.get(c)!;
-    const done = await staffMove(admin, b.code, { ...target(b, to), changedBy: { adminId: admin.id, name: admin.name } }, opts.reason ?? null);
+    // A lesson's coach is told once for the weeks moved, below, not once a week.
+    const done = await staffMove(admin, b.code, { ...target(b, to), changedBy: { adminId: admin.id, name: admin.name }, quietCoach: true }, opts.reason ?? null);
     if (!done.ok) {
       left.push({ code: b.code, error: done.error, ...(done.code ? { errorCode: done.code } : {}), ...(done.vars ? { vars: done.vars } : {}) });
       continue;
@@ -173,5 +192,11 @@ export async function moveSeries(
       outcome: done.outcome,
     });
   }
+  const lessons = moved.filter((m) => m.booking.coachId);
+  if (lessons.length > 0)
+    await notifyLessonSeriesMoved(
+      seriesCode,
+      lessons.map((m) => ({ bookingId: m.booking.id, was: { date: m.from.date, startMin: m.from.startMin, endMin: m.from.endMin } }))
+    );
   return { ok: true, moved, left };
 }

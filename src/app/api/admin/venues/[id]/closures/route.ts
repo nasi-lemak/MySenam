@@ -86,7 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let classesOff = 0;
   let enrolments = 0;
   for (const cl of classes) {
-    const done = await cancelClassAndTell(cl.id);
+    const done = await cancelClassAndTell(cl.id, undefined, "closure");
     if (!done.ok) continue;
     cancelled++;
     classesOff++;

@@ -356,19 +356,26 @@ mode and phone-check setting, in the staff language).
 
 ### The day list
 
-The Bookings tab lists the day's bookings, as a table on a wide screen and as
-cards on a narrow one, with the day's expected, collected and outstanding
-money. Filters narrow it to bookings still unpaid, those not yet checked in,
+The Bookings tab lists the day's bookings in time order (at the same time,
+by venue and court), as a table on a wide screen and as cards on a narrow
+one, with the day's expected, collected and outstanding money. Filters narrow it to bookings still unpaid, those not yet checked in,
 one court, or (for staff of several venues) one venue, saying how many of
 the day's are shown. The venue column appears only when more than one venue
 is shown. On the table each booking's actions (move, change time, correct
-details, cancel, cancel weeks of its series, block the number) are in one
+details, cancel, cancel or move the weeks of its series, block the number) are in one
 *Actions* menu, so nothing is cut off at laptop width; the cards keep them
 as buttons. *Print day sheet* prints the list alone, as a table without its
 actions or the dashboard around it. Money handed back at the counter that
 day for cancelled bookings is listed above it for the till
-([cancelling a booking paid at the counter](payments-and-credit.md#cancelling-a-booking-paid-at-the-counter)).
-Tests: `tests/components/bookings-tab-day.test.tsx`.
+([cancelling a booking paid at the counter](payments-and-credit.md#cancelling-a-booking-paid-at-the-counter)),
+and above that every counter payment still owed back on a booking the venue
+cancelled, each with a button to hand it back or give it as credit
+([owed back after the venue cancels](payments-and-credit.md#owed-back-after-the-venue-cancels)).
+A weekly series is moved as a whole with *Move the series*
+([moving a weekly series](booking.md#moving-a-weekly-series)).
+Tests: `tests/components/bookings-tab-day.test.tsx`,
+`tests/components/owed-series-move.test.tsx`, and the order in
+`tests/series-moves.test.ts`.
 
 ### Correcting a booking's details
 

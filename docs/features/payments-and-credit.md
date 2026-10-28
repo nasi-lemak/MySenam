@@ -464,13 +464,55 @@ cancellation message says what the venue kept, or that it went to their
 credit, where not all of it went back as paid. A weekly series is cancelled
 the same way, week by week on each week's terms
 ([cancelling a weekly series](booking.md#cancellation-and-no-shows)).
-Closed days, outages, rain-outs and the venue's API key cancel as before:
-all of it back the way it was paid, with no payout written down.
+Closed days, outages, rain-outs, the venue's API key and a class called off
+cancel without asking staff booking by booking; what was paid at the counter
+on them is owed back ([owed back after the venue cancels](#owed-back-after-the-venue-cancels)).
 
 Tested in `tests/counter-refunds.test.ts` on PGlite and Postgres: each
 outcome, the desk and the manager, a booking paid online, a changed amount,
 and two cancellations at the same moment (one settles; one payout or one
 credit, never both).
+
+### Owed back after the venue cancels
+
+Closing a day, taking a court out of service, a rain-out, the venue's API key
+cancelling a booking, and calling off a class (its enrolments) cancel
+bookings in bulk, through the same cancellation and refund as a staff one
+(`venueCancel` and `cancelClassSession`; `src/lib/counter-refunds.ts`), with
+all of what was paid going back, and nobody is asked booking by booking.
+Money paid online, with credit or with a pass goes back as it always did
+(online: owed on the payment, refunded through the gateway where the venue
+does). Money paid **at the counter** (cash, QR, transfer, card terminal, or a
+tick whose method was never recorded) has not left the till, so it is not
+written down as given back: it is **owed back** (`counter_refunds_owed`,
+migration 0258: the amount, how it was paid, and what cancelled it), and no
+credit note is written yet.
+
+- **Listed for staff.** The day list shows every counter payment still owed
+  at the staff's venues, whatever day it was for (*Owed back at the counter*;
+  `owed` on `GET /api/admin/bookings`), with the booking, the customer, how it
+  was paid and why it was cancelled.
+- **Settled when the customer comes**, as a staff cancellation settles
+  (`POST /api/admin/bookings/owed`): *Handed back* the way it was paid (its
+  credit note and a counter payout written then, by the member of staff
+  handing it back, so it is in that day's payouts and cash-up under their
+  name; `payment.paid_out`), or, for a booking made from an account, *as
+  credit* on that account (a `wallet_entries` row with the member of staff,
+  the credit note saying *Stored credit*; `payment.owed_credited`). Who
+  settled it, how and when are kept with it.
+- **Who.** The front desk hands back a counter payment taken today; one taken
+  on an earlier day is a manager's, as when staff cancel.
+- **Once.** The owed row is claimed as it is settled, in the same transaction
+  as the credit note and the payout: two members of staff at once settle it
+  once.
+- **The books.** The booking's receipt stands until it is settled; the
+  credit note is dated the day the money goes back. Until then the money is
+  in the till and the list shows it as owed.
+
+Tested in `tests/counter-owed.test.ts` on PGlite and Postgres: each of the
+five ways the venue cancels, both ways of settling, the desk and the manager,
+another venue's staff, two settling at once, and the cash-up of the day it was
+handed back; the screen in `tests/components/owed-series-move.test.tsx`.
 
 ### Refunds for one person's place
 
@@ -853,10 +895,11 @@ who counted and who checked it.
   person's, on any day.
 - **Who took it** is known for what staff did from this change on: sales,
   payments marked, fees, voids, adjustments, invoices marked paid, and a
-  booking or series staff cancel (`asStaff`, lib/acting-staff.ts). A credit
-  note written outside a member of staff's request (a closed day, an outage,
-  a rain-out, the scheduler or a customer's own cancellation) names nobody,
-  and shows only in everybody's.
+  booking or series staff cancel, and a counter payment owed back after the
+  venue cancelled, settled (`asStaff`, lib/acting-staff.ts). A credit note
+  written outside a member of staff's request (a closed day's or an outage's
+  online or credit refund, the scheduler or a customer's own cancellation)
+  names nobody, and shows only in everybody's.
 
 ## Finding a record
 

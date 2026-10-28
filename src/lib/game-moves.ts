@@ -52,6 +52,8 @@ type To = {
   /** A paid lesson to another coach: the manager's word on the money (lib/lesson-coaches.ts). */
   coachMoney?: "keep" | "adjust";
   changedBy?: { adminId: number | null; name: string };
+  /** A lesson's coach told by the caller, once for a series moved together (lib/series-moves.ts). */
+  quietCoach?: boolean;
 };
 
 export interface MovePreview {

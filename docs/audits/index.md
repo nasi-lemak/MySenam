@@ -57,7 +57,7 @@ identifiers.
 | X2-12: A booking made as a guest never reaches the account made later with the same email | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X2-13: The staff dashboard has no addresses: a reload, the Back button or a link always lands on Bookings | Partly: tab, day and venue in the address; no links to a section inside *Venue details* |
 | X2-14: The front desk's day list and court schedule never refresh themselves | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
-| X2-15: On a laptop the bookings table hides its actions; rows are by court, not by time | Partly: the actions are in a menu that fits a laptop and the list filters; rows are still ordered by court, then time |
+| X2-15: On a laptop the bookings table hides its actions; rows are by court, not by time | Done: the actions are in a menu that fits a laptop and the list filters; rows are in time order, then by court (`tests/series-moves.test.ts`) |
 | X2-16: Dates are printed as `2026-10-31` in the booking form, confirmation, My Booking, account and emails | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) (no year shown) |
 | X2-17: The booking confirmation, waiting-list and class dialogs are not dialogs to a keyboard or screen reader | Partly: one dialog for all; the grid's cells are named by price only and its hint text is pale |
 | X2-18: Staff forms labelled by placeholder only | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |

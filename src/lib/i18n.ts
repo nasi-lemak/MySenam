@@ -2853,6 +2853,8 @@ const EN = {
   "r9d.mail.tourRenamed.b": "{old} at {venue} is now called {t}. Nothing else has changed: your entry stands as it was.",
   // r9e: the venue moving the weeks of a weekly series in one step (lib/series-moves.ts).
   "r9e.msg.priceWeeks": "The weeks moved that are still to be paid now come to {cur}{total} in all, to pay at the venue.",
+  "r9e.msg.coachSeriesMovedSubject": "Moved: {n} weekly lessons with {student}",
+  "r9e.msg.coachSeriesMoved": "Hi {name}, {n} weekly lessons with {student} have moved: the first from {was} to {date}, {time} ({court}, {venue}), and each week after it the same way. Series {code}.\n\nYour whole schedule is at the private link the venue gave you.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5653,6 +5655,8 @@ const MS: Record<Phrase, string> = {
   "r9d.mail.tourRenamed.b": "{old} di {venue} kini bernama {t}. Tiada perkara lain yang berubah: penyertaan anda kekal seperti sebelumnya.",
   // r9e
   "r9e.msg.priceWeeks": "Minggu yang dipindahkan dan belum dibayar kini berjumlah {cur}{total} kesemuanya, untuk dibayar di pusat.",
+  "r9e.msg.coachSeriesMovedSubject": "Dipindahkan: {n} kelas mingguan bersama {student}",
+  "r9e.msg.coachSeriesMoved": "Hai {name}, {n} kelas mingguan bersama {student} telah dipindahkan: yang pertama dari {was} ke {date}, {time} ({court}, {venue}), dan setiap minggu selepasnya dengan cara yang sama. Siri {code}.\n\nJadual penuh anda ada di pautan peribadi yang diberikan oleh tempat ini.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

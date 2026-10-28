@@ -103,7 +103,7 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
   const cancelled: Booking[] = [];
   const classesOff: { session: ClassSession; enrolments: Booking[] }[] = [];
   for (const cl of classes) {
-    const off = await cancelClassAndTell(cl.id, why);
+    const off = await cancelClassAndTell(cl.id, why, "rain");
     if (off.ok && off.session) classesOff.push({ session: off.session, enrolments: off.cancelled ?? [] });
   }
   for (const b of live) {

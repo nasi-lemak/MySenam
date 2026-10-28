@@ -217,7 +217,7 @@ export async function createOutage(input: {
     // refunded or messaged for a court that then failed to close.
     for (const a of affected) {
       if (a.kind === "class") {
-        const off = await cancelClassAndTell(Number(a.ref));
+        const off = await cancelClassAndTell(Number(a.ref), undefined, "outage");
         if (!off.ok) continue;
         cancelled++;
         if (off.session) classesOff.push({ session: off.session, enrolments: off.cancelled ?? [] });
