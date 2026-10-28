@@ -6,8 +6,12 @@ import { money } from "@/lib/region";
 import { receiptOfPayment } from "@/lib/documents";
 import { receiptPath } from "@/lib/receipts";
 import { voucherOfPayment, voucherPath } from "@/lib/vouchers";
+import { coachDifferences } from "@/lib/lesson-coaches";
 
 export const dynamic = "force-dynamic";
+
+/** Not known to be paid: not paid, or not yet heard. */
+const outcomeIcon = (result: PaymentResult | null) => (result && !result.paid ? "↩️" : "⏳");
 
 /**
  * Where the gateway sends the customer back.
@@ -187,6 +191,44 @@ export default async function PaymentReturnPage({
             </a>
           )}
           {receiptLink}
+        </div>
+      </div>
+    );
+  }
+
+  // A dearer coach's difference (lib/lesson-coaches.ts): paid, with its own receipt; or, paid after it was settled
+  // another way, owed back; or not paid, and still owed.
+  if (payment?.purpose === "coach" && payment.coachChangeId) {
+    const [view] = await coachDifferences({ changeId: payment.coachChangeId });
+    const paidHere = payment.status === "paid" && payment.refundOwed + payment.refunded <= 0 && view?.state === "paid";
+    const owedBack = payment.status === "paid" && !paidHere;
+    return (
+      <div className="mx-auto max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">{paidHere ? "✅" : owedBack ? "↩️" : outcomeIcon(result)}</div>
+          <h1 className="mt-2 text-xl font-bold">
+            {paidHere ? t("cp7.returnPaidTitle") : owedBack ? t("cp7.returnBackTitle") : result && !result.paid ? t("pay.notPaidTitle") : t("pay.unknownTitle")}
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            {paidHere
+              ? t("cp7.returnPaidBody", { amount: money(payment.amount), code: payment.bookingCodes.join(", ") })
+              : owedBack
+                ? t("cp7.returnBackBody", { amount: money(payment.amount) })
+                : result && !result.paid
+                  ? t("cp7.returnNotPaid")
+                  : t("pay.unknownBody")}
+          </p>
+          {paidHere && view?.receipt && (
+            <a href={receiptPath(view.receipt)} className="mt-3 inline-block text-sm font-medium text-teal-700 underline">
+              {t("mine.receipt")}
+            </a>
+          )}
+          <Link
+            href="/my-booking"
+            className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          >
+            {t("pay.toMyBooking")}
+          </Link>
         </div>
       </div>
     );

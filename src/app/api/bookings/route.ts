@@ -23,7 +23,7 @@ import {
   requestedSpan,
 } from "@/lib/store";
 import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
-import { assignLessonCoach, coachChoice, lessonRefusal, lessonSports } from "@/lib/lesson-coaches";
+import { assignLessonCoach, coachChoice, coachDifferences, lessonRefusal, lessonSports } from "@/lib/lesson-coaches";
 import { customerMayBook, guestSurge } from "@/lib/limits";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { cancelPolicy, cancelPolicyFor, struckOut } from "@/lib/cancel-policy";
@@ -590,5 +590,12 @@ export async function GET(req: NextRequest) {
     reviewUrl: (await reviewable(booking.code)).ok ? reviewPath(booking.code) : null,
     // Paid online and owed back, or refunded: by when, as the venue promised.
     refunds: await refundStatusFor([booking.id]),
+    // A dearer coach's difference on a paid lesson: owed (to pay online where the venue takes it, or at the counter),
+    // being paid, or paid and how, with its own receipt (lib/lesson-coaches.ts).
+    coachDifferences: booking.coachId
+      ? (await coachDifferences({ bookingId: booking.id }))
+          .filter((d) => d.state !== "cleared")
+          .map((d) => ({ changeId: d.changeId, amount: d.amount, coach: d.toCoach, state: d.state, via: d.via, receiptUrl: d.receipt ? receiptPath(d.receipt) : null }))
+      : [],
   });
 }

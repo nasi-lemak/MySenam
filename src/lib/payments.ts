@@ -295,7 +295,10 @@ interface PaymentRow {
   refunded: number;
   /** 1: a page for the venue's deposit only, not the whole price. */
   deposit?: number;
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split" | "coach";
+  /** A dearer coach's difference (lib/lesson-coaches.ts): the change, and which attempt at paying it this page is. */
+  coach_change_id?: number | null;
+  coach_attempt?: number | null;
   invoice_id: number | null;
   split_id?: number | null;
   game_player_id: number | null;
@@ -331,7 +334,9 @@ export interface OnlinePayment {
   refundsByApi: boolean;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split" | "coach";
+  /** A dearer coach's difference: the coach change it was for. */
+  coachChangeId?: number;
   /** The membership a paid membership fee made. */
   membership?: {
     code: string;
@@ -372,11 +377,15 @@ export function refundClock(since: string | null, withinDays: number, now = new 
 }
 
 async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
-  const codes = await getDb()
-    .prepare(
-      "SELECT b.code FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = ? ORDER BY b.date, b.start_min"
-    )
-    .all(r.id) as { code: string }[];
+  const codes = r.coach_change_id
+    ? ((await getDb()
+        .prepare("SELECT b.code FROM lesson_coach_changes l JOIN bookings b ON b.id = l.booking_id WHERE l.id = ?")
+        .all(r.coach_change_id)) as { code: string }[])
+    : ((await getDb()
+        .prepare(
+          "SELECT b.code FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = ? ORDER BY b.date, b.start_min"
+        )
+        .all(r.id)) as { code: string }[]);
   return {
     id: r.id,
     billId: r.bill_id,
@@ -395,6 +404,7 @@ async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
     bookingCodes: codes.map((c) => c.code),
     purpose: r.purpose,
     ...(r.membership_id ? { membership: await membershipSummary(r.membership_id) } : {}),
+    ...(r.coach_change_id ? { coachChangeId: r.coach_change_id } : {}),
   };
 }
 
@@ -616,7 +626,31 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
   if (!row) return null;
   // A membership's payment failed or lapsed: the purchase holds nobody now (lib/membership-purchases.ts).
   if (!result.paid && row.purpose === "membership" && row.status === "pending") await releaseForPayment(row.id);
+  // A coach's difference: the page failed or expired, the difference stays owed and the counter may take it.
+  if (!result.paid && row.purpose === "coach" && row.status === "pending" && row.coach_change_id)
+    await (await import("./lesson-coaches")).releaseCoachPage(row.coach_change_id, row.coach_attempt ?? null);
   if (!result.paid || row.status === "paid") return { payment: await toPayment(row), newlyPaid: [] };
+
+  if (row.purpose === "coach") {
+    const coaches = await import("./lesson-coaches");
+    let paidNow = false;
+    await db.transaction(async () => {
+      // The lesson's booking first, as the counter and a cancellation take it, then the payment.
+      if (row.coach_change_id) await coaches.lockLessonOfChange(row.coach_change_id);
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes !== 1) return;
+      // Paid at the counter or on another page meanwhile, the lesson cancelled, or given to another coach since:
+      // owed back, with no receipt, as a second payment for anything is (M12).
+      paidNow =
+        row.coach_change_id != null &&
+        (await coaches.claimCoachDifference(row.coach_change_id, { id: row.id, amount: Number(row.amount), paidVia: paidVia("online", gatewayFor(row.provider)?.name) }));
+      if (!paidNow) await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
+    })();
+    if (paidNow) await coaches.notifyCoachDifferencePaid(row.coach_change_id!);
+    return { payment: await reread(row.id), newlyPaid: [] };
+  }
 
   if (row.purpose === "entry") {
     await db.transaction(async () => {
@@ -1065,16 +1099,18 @@ export async function refundStatusFor(bookingIds: number[]): Promise<RefundStatu
               v.refund_within_days, v.online_refunds,
               (SELECT MAX(r.created_at) FROM online_refunds r
                 WHERE r.payment_id = p.id AND r.failed_at IS NULL AND COALESCE(r.provider_ref, '') NOT LIKE 'claim:%') AS refunded_at,
-              (SELECT STRING_AGG(pb2.booking_id::text, ',') FROM online_payment_bookings pb2 WHERE pb2.payment_id = p.id) AS booking_ids,
+              COALESCE((SELECT STRING_AGG(pb2.booking_id::text, ',') FROM online_payment_bookings pb2 WHERE pb2.payment_id = p.id),
+                       (SELECT l.booking_id::text FROM lesson_coach_changes l WHERE l.id = p.coach_change_id)) AS booking_ids,
               (SELECT CASE WHEN r.failed_at IS NOT NULL THEN 'failed' WHEN COALESCE(r.provider_ref, '') LIKE 'claim:%' THEN 'requested'
                            WHEN r.pending = 1 THEN 'processing' ELSE 'done' END
                  FROM online_refunds r WHERE r.payment_id = p.id ORDER BY r.id DESC LIMIT 1) AS last_attempt
          FROM online_payments p JOIN venues v ON v.id = p.venue_id
         WHERE p.status = 'paid' AND p.refund_due > 0
-          AND p.id IN (SELECT pb.payment_id FROM online_payment_bookings pb WHERE pb.booking_id IN (${bookingIds.map(() => "?").join(", ")}))
+          AND (p.id IN (SELECT pb.payment_id FROM online_payment_bookings pb WHERE pb.booking_id IN (${bookingIds.map(() => "?").join(", ")}))
+               OR p.coach_change_id IN (SELECT l.id FROM lesson_coach_changes l WHERE l.booking_id IN (${bookingIds.map(() => "?").join(", ")})))
         ORDER BY p.id`
     )
-    .all(...bookingIds)) as {
+    .all(...bookingIds, ...bookingIds)) as {
     id: number;
     amount: number;
     refund_due: number;
@@ -1594,11 +1630,13 @@ export async function refundCancelled(
   const rows = (await getDb()
     .prepare(
       `SELECT * FROM online_payments
-        WHERE id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id IN (${marks}))
+        WHERE (id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id IN (${marks}))
+               -- A dearer coach's difference paid online for one of them (lib/lesson-coaches.ts coachChangesCancelled).
+               OR coach_change_id IN (SELECT id FROM lesson_coach_changes WHERE booking_id IN (${marks})))
           AND venue_id IS NOT NULL AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded
         ORDER BY id`
     )
-    .all(...bookingIds)) as PaymentRow[];
+    .all(...bookingIds, ...bookingIds)) as PaymentRow[];
   const done: CancelRefund[] = [];
   for (const row of rows) {
     const amount = roundMoney(row.refund_due - row.refunded);
@@ -1630,11 +1668,13 @@ async function refundToCredit(row: PaymentRow, bookingIds: number[], amount: num
   const db = getDb();
   const booking = (await db
     .prepare(
-      `SELECT b.id, b.code, b.user_id FROM bookings b JOIN online_payment_bookings pb ON pb.booking_id = b.id
-        WHERE pb.payment_id = ? AND b.id IN (${bookingIds.map(() => "?").join(",")}) AND b.user_id IS NOT NULL
+      `SELECT b.id, b.code, b.user_id FROM bookings b
+        WHERE (b.id IN (SELECT pb.booking_id FROM online_payment_bookings pb WHERE pb.payment_id = ?)
+               OR b.id IN (SELECT l.booking_id FROM lesson_coach_changes l WHERE l.id = ?))
+          AND b.id IN (${bookingIds.map(() => "?").join(",")}) AND b.user_id IS NOT NULL
         ORDER BY b.id LIMIT 1`
     )
-    .get(row.id, ...bookingIds)) as { id: number; code: string; user_id: number } | undefined;
+    .get(row.id, row.coach_change_id ?? null, ...bookingIds)) as { id: number; code: string; user_id: number } | undefined;
   if (!booking) return false;
   try {
     // Keyed on what has been owed in all, like a gateway refund: the same cancellation twice is one credit.
@@ -1876,6 +1916,81 @@ export async function startEntryPayment(
     )
     .run(account.provider, bill.id, bill.url, row.venue_id, row.fee, user.name, user.phone, row.id);
   return { ok: true, url: bill.url, amount: row.fee, reused: false };
+}
+
+// ------------------------------------------------------------ a dearer coach's difference
+
+/**
+ * A customer paying online the difference a paid lesson owes after a manager
+ * gave it to a dearer coach and adjusted the price (lib/lesson-coaches.ts;
+ * owner's decision of 28 October 2026). From the link in the email
+ * (`token`, lib/lesson-coaches.ts coachPayToken) or the customer's booking
+ * page (`code`, `phone` and the change's id, the phone proving it is theirs).
+ * Exactly the amount owed on that change; the counter stays an option. Each
+ * page is an attempt numbered on the change, counted open for
+ * `COACH_PAGE_MINUTES` (Stripe closes its page then; Billplz cannot, and money
+ * paid on it later still pays the difference if it is owed, and is owed back
+ * otherwise). A page still open is sent back to rather than a second opened.
+ */
+export async function startCoachDifferencePayment(
+  input: { token: unknown } | { code: unknown; phone: unknown; changeId: unknown }
+): Promise<StartResult> {
+  const coaches = await import("./lesson-coaches");
+  const refused = (code: ErrorCode, status = 409, vars?: Record<string, string | number>): StartResult => ({
+    ok: false,
+    error: errorText(ENGLISH, code, vars),
+    code,
+    status,
+    ...(vars ? { vars } : {}),
+  });
+  let changeId: number | null = null;
+  if ("token" in input) changeId = coaches.changeOfPayToken(input.token);
+  else if (typeof input.code === "string" && typeof input.phone === "string" && Number.isInteger(input.changeId)) {
+    const booking = await findBooking(input.code, input.phone);
+    if (!booking) return { ok: false, error: "Booking not found. Check the code and phone number.", status: 404 };
+    const owns = await getDb().prepare("SELECT 1 FROM lesson_coach_changes WHERE id = ? AND booking_id = ?").get(input.changeId, booking.id);
+    changeId = owns ? (input.changeId as number) : null;
+  }
+  if (changeId === null) return refused("LESSON_COACH_NOTHING_OWED", 404);
+  const at = (await getDb()
+    .prepare("SELECT c.venue_id FROM lesson_coach_changes l JOIN bookings b ON b.id = l.booking_id JOIN courts c ON c.id = b.court_id WHERE l.id = ?")
+    .get(changeId)) as { venue_id: number } | undefined;
+  if (!at) return refused("LESSON_COACH_NOTHING_OWED", 404);
+  const venue = await getVenue(at.venue_id);
+  const account = venue && isOpen(venue) ? await venueAccount(at.venue_id) : null;
+  if (!venue || !account) return refused("LESSON_COACH_PAY_OFFLINE", 409, { venue: venue?.name ?? "" });
+  // Stripe closes its page when the attempt stops counting as open; Billplz cannot close one at a set time.
+  const bounds = gatewayFor(account.provider)?.pageExpiry;
+  const pageMinutes = bounds ? Math.min(bounds.maxMinutes, Math.max(bounds.minMinutes, coaches.COACH_PAGE_MINUTES)) : null;
+  const held = await coaches.reserveCoachPage(changeId, pageMinutes ?? coaches.COACH_PAGE_MINUTES);
+  if (!held.ok) return { ok: false, error: held.error, code: held.code as ErrorCode, ...(held.vars ? { vars: held.vars } : {}), status: 409 };
+  if ("reuse" in held) {
+    const amount = (await coaches.coachDifferences({ changeId }))[0]?.amount ?? 0;
+    return { ok: true, url: held.reuse, amount, reused: true };
+  }
+  let bill;
+  try {
+    bill = await openCheckout(account, {
+      amount: held.amount,
+      name: held.booking.name,
+      email: held.booking.email,
+      mobile: held.booking.phone ? toWhatsAppNumber(held.booking.phone) : null,
+      description: `${venue.name}: coaching with ${held.toCoach} in place of ${held.fromCoach}, the difference (${held.booking.code})`,
+      redirectUrl: `${await venueBaseUrl(at.venue_id)}/payments/return`,
+      reference: { label: "Booking", value: held.booking.code },
+      ...(pageMinutes !== null ? { expiresInMinutes: pageMinutes } : {}),
+    });
+  } catch (err) {
+    await coaches.releaseCoachPage(changeId, held.attempt);
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await getDb()
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, coach_change_id, coach_attempt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'coach', ?, ?)`
+    )
+    .run(account.provider, bill.id, bill.url, at.venue_id, held.amount, held.booking.name, held.booking.phone, changeId, held.attempt);
+  return { ok: true, url: bill.url, amount: held.amount, reused: false };
 }
 
 // ------------------------------------------------------------ credit top-ups
@@ -2639,6 +2754,25 @@ async function takeBackWhatItBought(payment: PaymentRow, amount: number): Promis
       if (payment.league_place_id != null)
         await db.prepare("UPDATE league_places SET paid_at = NULL WHERE id = ?").run(payment.league_place_id);
       break;
+    case "coach": {
+      // A dearer coach's difference this payment paid: its receipt credited for what went back, and owed again
+      // (for the counter or another page) when it all went and the lesson stands.
+      const paid = (await db
+        .prepare("SELECT id FROM lesson_coach_changes WHERE owed_payment_id = ?")
+        .get(payment.id)) as { id: number } | undefined;
+      if (!paid) break;
+      const { coachReceiptSources } = await import("./lesson-coaches");
+      const receipt = (await coachReceiptSources(paid.id)).at(-1);
+      if (receipt) await creditReceipt(receipt, "receipt.why.disputed", Number(payment.amount) > 0 ? Math.min(1, amount / Number(payment.amount)) : 1);
+      if (whole)
+        await db
+          .prepare(
+            `UPDATE lesson_coach_changes SET owed_paid_at = NULL, owed_paid_via = NULL, owed_payment_id = NULL
+              WHERE id = ? AND EXISTS (SELECT 1 FROM bookings b WHERE b.id = lesson_coach_changes.booking_id AND b.status = 'confirmed')`
+          )
+          .run(paid.id);
+      break;
+    }
   }
 }
 

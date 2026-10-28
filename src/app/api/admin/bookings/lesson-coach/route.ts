@@ -43,9 +43,12 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ venueId, changeId, method }`: the difference owed for a dearer coach,
- * taken at the counter (cash, qr, transfer or card), once, with a receipt of
- * its own. Front desk too, as marking a booking paid is.
+ * `{ venueId, changeId, method, closePage? }`: the difference owed for a
+ * dearer coach, taken at the counter (cash, qr, transfer or card), once, with
+ * a receipt of its own. Front desk too, as marking a booking paid is. Refused
+ * while the customer has a payment page for it open
+ * (`LESSON_COACH_PAGE_OPEN`), unless `closePage: true`: the page is closed
+ * and anything paid on it afterwards is owed back.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -56,13 +59,16 @@ export async function POST(req: NextRequest) {
   const venueId = body.venueId as number;
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  const done = await collectCoachDifference(body.changeId as number, venueId, body.method);
-  if (!done.ok) return NextResponse.json({ error: done.error, ...(done.code ? { code: done.code } : {}) }, { status: done.status });
+  const done = await collectCoachDifference(body.changeId as number, venueId, body.method, { closePage: body.closePage === true });
+  if (!done.ok)
+    return NextResponse.json({ error: done.error, ...(done.code ? { code: done.code } : {}), ...(done.vars ? { vars: done.vars } : {}) }, { status: done.status });
   await logAction(admin, {
     venueId,
     action: "lesson.coach_difference_paid",
     bookingCode: done.bookingCode,
-    detail: `Coach change ${done.changeId}: ${money(done.amount)} taken (${String(body.method)})${done.receipt ? `, receipt ${done.receipt}` : ""}`,
+    detail: `Coach change ${done.changeId}: ${money(done.amount)} taken (${String(body.method)})${done.receipt ? `, receipt ${done.receipt}` : ""}${
+      done.closedPage ? "; the customer's open payment page closed, anything paid on it owed back" : ""
+    }`,
   });
   return NextResponse.json(done);
 }

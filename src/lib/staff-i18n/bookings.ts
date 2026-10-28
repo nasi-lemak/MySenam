@@ -585,6 +585,14 @@ const en = {
   "co6.ch.venue": "The venue assigns a free coach",
   "co6.ch.help": "Assigned by the venue, the customer books a lesson for a sport and a time, and a coach of that sport who is free then is given it: the one with the fewest lessons that day. Staff can still book a coach by name, and a lesson pack still needs its own coach.",
   "co6.ch.failed": "Could not save who chooses the coach",
+  "cp7.bk.paying": "{amount} owed for {coach}'s fee: the customer is paying online, page open until {time}",
+  "cp7.bk.payingTitle": "The customer has a payment page open for this difference. Taking it here closes that page; anything they pay on it afterwards is owed back to them and refunded.",
+  "cp7.bk.closeAndTake": "Close their page and take {amount} by",
+  "cp7.bk.paid": "{amount} for {coach}'s fee: paid ({via})",
+  "cp7.bk.paidTitle": "The difference for the dearer coach, paid on a receipt of its own; the lesson's own receipt is as it was sold.",
+  "cp7.bk.adjustOnlineToo": "Where the venue takes payment online, the customer can also pay it online, from the email or their booking page.",
+  "cp7.bk.earlierOwed": "{amount} still owed for an earlier change of coach is no longer owed: these amounts count from what the customer has paid for.",
+  "cp7.opay.coach": "difference for a dearer coach",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1154,6 +1162,14 @@ const ms: Record<keyof typeof en, string> = {
   "co6.ch.venue": "Pusat menetapkan jurulatih yang lapang",
   "co6.ch.help": "Jika ditetapkan oleh pusat, pelanggan menempah kelas untuk sukan dan masa, dan jurulatih sukan itu yang lapang pada masa tersebut diberikan kelas itu: yang paling sedikit kelas pada hari itu. Kakitangan masih boleh menempah jurulatih mengikut nama, dan pakej kelas masih memerlukan jurulatihnya sendiri.",
   "co6.ch.failed": "Tidak dapat menyimpan siapa yang memilih jurulatih",
+  "cp7.bk.paying": "{amount} terhutang bagi bayaran {coach}: pelanggan sedang membayar dalam talian, halaman dibuka sehingga {time}",
+  "cp7.bk.payingTitle": "Pelanggan mempunyai halaman pembayaran yang dibuka untuk perbezaan ini. Mengambil bayaran di sini menutup halaman itu; apa-apa yang dibayar padanya selepas itu terhutang kembali kepada pelanggan dan dibayar balik.",
+  "cp7.bk.closeAndTake": "Tutup halaman pelanggan dan ambil {amount} melalui",
+  "cp7.bk.paid": "{amount} bagi bayaran {coach}: dibayar ({via})",
+  "cp7.bk.paidTitle": "Perbezaan bagi jurulatih yang lebih mahal, dibayar dengan resit tersendiri; resit kelas itu sendiri kekal seperti dijual.",
+  "cp7.bk.adjustOnlineToo": "Jika pusat menerima bayaran dalam talian, pelanggan juga boleh membayarnya dalam talian, melalui e-mel atau halaman tempahan mereka.",
+  "cp7.bk.earlierOwed": "{amount} yang masih terhutang bagi pertukaran jurulatih sebelum ini tidak lagi terhutang: amaun ini dikira daripada apa yang telah dibayar oleh pelanggan.",
+  "cp7.opay.coach": "perbezaan bagi jurulatih yang lebih mahal",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1723,6 +1739,14 @@ const zh: Record<keyof typeof en, string> = {
   "co6.ch.venue": "由场馆安排有空的教练",
   "co6.ch.help": "由场馆安排时，客户按运动项目和时间预订课程，场馆将课程交给当时有空的该项目教练：当天课程最少的教练优先。员工仍可按姓名预订教练，课程套票仍需对应的教练。",
   "co6.ch.failed": "无法保存教练选择方式",
+  "cp7.bk.paying": "{coach} 的费用尚欠 {amount}：客户正在网上付款，付款页面开放至 {time}",
+  "cp7.bk.payingTitle": "客户已为这笔差额打开付款页面。在此收款会关闭该页面；之后在该页面支付的任何款项都将退还给客户。",
+  "cp7.bk.closeAndTake": "关闭客户的页面并收取 {amount}，方式",
+  "cp7.bk.paid": "{coach} 的费用 {amount}：已付（{via}）",
+  "cp7.bk.paidTitle": "较贵教练的差额，已单独开具收据付清；课程本身的收据保持售出时的样子。",
+  "cp7.bk.adjustOnlineToo": "如场馆接受网上付款，客户也可通过邮件或其预订页面在网上支付。",
+  "cp7.bk.earlierOwed": "此前更换教练尚欠的 {amount} 不再需要支付：以上金额按客户已付款项计算。",
+  "cp7.opay.coach": "较贵教练的差额",
 };
 
 const area = { en, ms, zh };

@@ -8,6 +8,7 @@ import CheckInQr from "@/components/CheckInQr";
 import { ChangeTime } from "@/components/ChangeTime";
 import { BookAgain } from "@/components/BookAgain";
 import PayOnline from "@/components/PayOnline";
+import { CoachDifference, type CoachDifferenceItem } from "@/components/CoachDifference";
 import { SplitCost } from "@/components/SplitCost";
 import { WithdrawPeople } from "@/components/WithdrawPeople";
 import { useT } from "@/components/Language";
@@ -33,6 +34,8 @@ interface Result {
   depositPercent?: number | null;
   /** Paid online and owed back, or refunded. */
   refunds?: RefundStatus[];
+  /** A dearer coach's difference on a paid lesson: owed, being paid, or paid. */
+  coachDifferences?: CoachDifferenceItem[];
 }
 
 export default function MyBookingPage() {
@@ -313,6 +316,9 @@ export default function MyBookingPage() {
                   held={!!b.holdUntil}
                   depositPercent={result.depositPercent ?? null}
                 />
+              )}
+              {(result.coachDifferences ?? []).length > 0 && (
+                <CoachDifference items={result.coachDifferences!} source={{ code, phone }} payOnline={!!result.payOnline} />
               )}
               {b.concessionName && b.concessionCheck !== "refused" && (
                 <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">

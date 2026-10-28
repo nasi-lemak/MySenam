@@ -183,10 +183,10 @@ fits this, so it is not offered).
     difference, or keeps a cheaper coach's, and the amount is recorded
     (`lesson_coach_changes.absorbed`).
   - *Adjust it*: a dearer coach's difference becomes an amount owed on the
-    booking, shown at the counter beside the lesson (*RM 20 owed for Ben
-    Tan's fee*) and taken there once, by cash, QR, transfer or card, on a
-    receipt of its own filed under *Coaching* (`POST
-    /api/admin/bookings/lesson-coach`); a cheaper coach's goes back the way
+    booking, paid once, on a receipt of its own filed under *Coaching*:
+    at the counter (*RM 20 owed for Ben Tan's fee*, by cash, QR, transfer
+    or card, `POST /api/admin/bookings/lesson-coach`), or online where the
+    venue takes payment online ([paying the difference online](#paying-a-dearer-coachs-difference-online)); a cheaper coach's goes back the way
     the lesson was paid, through the existing refund paths: to the stored
     credit it came from, owed back on the online payment and sent through the
     venue's refund path, or given back by hand at the counter; each with a
@@ -194,17 +194,29 @@ fits this, so it is not offered).
   The money is settled in the change's own transaction, under the booking's
   row lock: two managers at once settle it once, and a lesson paid meanwhile
   is refused (`RESCHEDULE_CHANGED`) rather than settled on the wrong terms.
+  A difference still owed from an earlier change ends with the next one,
+  whose terms count from the fee the customer has paid for (`earlierOwed`,
+  shown before it is made): a lesson given back to its first coach owes
+  nothing and gets nothing back, one given on to a cheaper coach gets back
+  only what it paid beyond that coach's fee, and the earlier difference is
+  recorded as no longer owed (`owed_cleared_why = 'superseded'`).
 - **Refused for money that is not simply the customer's**: a lesson paid with
   a lesson pack (`LESSON_COACH_PASS`: the pack pays only its coach's lessons;
   cancel it, which returns the pack's entry, and book again with the other
   coach paid another way), and one with a deposit or shares others paid
-  (`LESSON_COACH_PART_PAID`: cancel and book again).
+  (`LESSON_COACH_PART_PAID`: cancel and book again). Paying differences
+  online leaves these as they are (owner's decision of 28 October 2026: kept
+  unless safe and fully tested): a pack's entries, a deposit's own payment
+  and receipt, and shares others paid each have their own refund and
+  credit-note paths, which a coach's difference would have to be split
+  across.
 - **Receipts are not rewritten.** A paid lesson's receipt keeps the coach and
   fee it was sold with; an adjustment is its own receipt or credit note. A
   later cancellation gives back only what is left of what was paid (what went
   back for a cheaper coach is left out), credits a difference taken for a
-  dearer coach as it credits the lesson (given back by hand, as it was
-  taken), and a difference not yet taken is no longer owed.
+  dearer coach as it credits the lesson (given back the way it was taken: by
+  hand, or owed back on its online payment and sent through the venue's
+  refund path), and a difference not yet taken is no longer owed.
 - **On the record.** The activity log (`lesson.coach_changed`) names who did
   it, from and to which coach, the fees and the money effect; the change
   itself is kept in `lesson_coach_changes` (migration 0188).
@@ -224,6 +236,77 @@ their recipients, a change racing a new lesson for the new coach, two
 managers at once), on PGlite and Postgres; the screens in
 `tests/components/lesson-coach.test.tsx` and
 `tests/components/bookings-tab-coach.test.tsx`.
+
+#### Paying a dearer coach's difference online
+
+Where the venue takes payment online, the customer can pay the difference a
+change left owed on the venue's own payment page, as well as at the counter
+(owner's decision of 28 October 2026; `lib/lesson-coaches.ts`,
+`lib/payments.ts` `startCoachDifferencePayment`, migration 0214):
+
+- **Where it is offered.** The coach-change email carries a link to a page
+  for that change (`/coach-difference/<token>`, the change's id and a keyed
+  hash of it, so it needs no sign-in and names nothing else), and the
+  customer's booking page shows the amount owed with *Pay RM 20 online*
+  (`GET /api/bookings` `coachDifferences`); both say it can be paid at the
+  counter instead. A venue that takes no payment online says the counter
+  only (`LESSON_COACH_PAY_OFFLINE`). Both open a page through
+  `POST /api/payments/coach-difference` for exactly the amount owed on that
+  change.
+- **One page at a time.** Each page is an attempt numbered on the change
+  (`online_payments.coach_change_id`, `coach_attempt`, unique together),
+  opened under the booking's row lock and counted open for 30 minutes
+  (`lesson_coach_changes.owed_page_until`): Stripe is asked to close its page
+  then; Billplz cannot close one at a set time. A second click while it is
+  open goes back to the same page (`LESSON_COACH_PAGE_OPENING` while it is
+  being opened).
+- **The counter waits for an open page.** Staff see *paying online, page
+  open until 10:30* beside the lesson; taking it at the counter then is
+  refused (`LESSON_COACH_PAGE_OPEN`) unless they choose *Close their page and
+  take it*, which records the page closed (the activity log says so).
+- **Paid once.** The gateway's word (callback or return page, in either
+  order, any number of times) settles the page once, under the booking's
+  lock: if the difference is still owed it is paid (`owed_paid_via =
+  'online'`, `owed_payment_id`), on a receipt of its own (`lesson-coach:<id>`,
+  *Online (Stripe)*), the lesson's receipt untouched, and the customer is
+  emailed the receipt. A payment on a Billplz page after its 30 minutes still
+  pays it while it is owed.
+- **Failed or expired**, the difference stays owed and nothing is reverted:
+  the coach and fee stay the new ones, the counter can take it, and another
+  page can be opened.
+- **Too late or twice.** Money on a page after the difference was paid (at
+  the counter, the page closed to do so, or on another page), after the
+  lesson was cancelled, or after it went to another coach again, is owed back
+  on that payment, with no receipt and not counted as takings, and refunded
+  once through the venue's refund path (Stripe in one click or by the
+  scheduler where the venue refunds automatically; Billplz in its dashboard,
+  then marked refunded): the M12 pattern
+  ([refunds owed](payments-and-credit.md#refunds-for-a-cheaper-coach)).
+- **Cancelled after paying online**, the difference's receipt is credited
+  with the lesson's (a credit note of its own) and its payment is owed back
+  and sent through the venue's refund path with the lesson's.
+- **A chargeback lost** on a difference paid online credits its receipt and
+  makes it owed again, as a lost chargeback makes a booking unpaid; paid
+  again, it has a receipt of its own (`lesson-coach:<id>:2`).
+- **The day's figures.** Owed, it counts in the day's expected and
+  outstanding figures; paid either way, in collected
+  (`GET /api/admin/bookings`).
+
+Tests: `tests/coach-difference-online.test.ts` (Stripe: offered by the email
+and the booking page, one page reused, the counter refused while it is open,
+paid by callback and return page once, its own receipt, the lesson's
+untouched, the figures; an expired Stripe page; a failed Billplz page and
+another paid; late money after the counter, with the page closed and after
+its time, refunded once by Stripe and marked once for Billplz; a late Billplz
+page still paying what is owed; the coach given back and given on to a
+cheaper one while owed; cancelled before paying and after, refunded once
+with a credit note; a chargeback lost and the difference paid again; a venue
+without online payment; a deposit still refused;
+two clicks at once, the counter and the gateway at once, callback and return
+page at once), on PGlite and Postgres, against stand-ins for Stripe's and
+Billplz's APIs only; the screens in `tests/components/coach-difference.test.tsx`.
+Not checked against the real gateways: the payments integration is
+`INTEGRATION_VERIFICATION_REQUIRED`.
 
 ### Who chooses the coach
 
