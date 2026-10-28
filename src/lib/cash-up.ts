@@ -19,7 +19,9 @@ import { venueZoneOf } from "./zones";
  * journal's, row for row (`tests/cash-up.test.ts`), with one addition: where
  * credit is the install's own (MYSENAM_CREDIT_SCOPE=platform), credit sold
  * over this venue's counter is in its till though not in its books, and is
- * counted too.
+ * counted too; and one subtraction: a test booking's receipt and credit notes,
+ * from before the venue went live (lib/test-bookings.ts), are no money in the
+ * till and are left out.
  *
  * Front desk sees its own: what it took and gave back itself, today or the
  * day before (a shift past midnight). A manager sees everybody's, any day, or
@@ -74,7 +76,7 @@ export interface CashUp {
 
 export async function cashUp(venueId: number, date: string, staffId: number | null): Promise<CashUp> {
   // The day's journal, with credit the install sold as its own over this counter (in the till, not the books).
-  const day = await salesJournal(venueId, date, date, { counter: true });
+  const day = (await salesJournal(venueId, date, date, { counter: true })).filter((r) => !r.test);
   const staff = new Map<number, string>();
   for (const r of day) if (r.staffId !== null) staff.set(r.staffId, r.staffName ?? "");
   const rows = (staffId === null ? day : day.filter((r) => r.staffId === staffId)).sort((a, b) => a.at.localeCompare(b.at) || a.number.localeCompare(b.number));

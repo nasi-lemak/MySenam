@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { goLiveStatus, requestGoLive } from "@/lib/applications";
 import { jsonObject } from "@/lib/api";
 import { logAction } from "@/lib/activity";
+import { clearTestBookings } from "@/lib/test-bookings";
 
 export const dynamic = "force-dynamic";
 
@@ -24,11 +25,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(status, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** `{ venueId }` — send a draft to the platform owner to go live. */
+/** `{ venueId, clearTests? }` — send a draft to the platform owner to go live, clearing its test bookings if asked. */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
-  let body: { venueId?: unknown };
+  let body: { venueId?: unknown; clearTests?: unknown };
   try {
     body = await jsonObject(req);
   } catch {
@@ -45,5 +46,7 @@ export async function POST(req: NextRequest) {
     action: "venue.go_live",
     detail: result.live ? "Put the venue live" : "Sent the venue to the platform to go live",
   });
-  return NextResponse.json({ live: result.live, status: await goLiveStatus(venueId) });
+  // Offered as it is sent: the test bookings made while setting up, cleared (lib/test-bookings.ts).
+  const cleared = body.clearTests === true ? await clearTestBookings(admin, venueId) : null;
+  return NextResponse.json({ live: result.live, status: await goLiveStatus(venueId), cleared });
 }

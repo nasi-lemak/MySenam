@@ -307,7 +307,7 @@ export async function askForReviews(now = new Date()): Promise<number> {
     .prepare(
       `SELECT b.id, b.code, b.name, b.email, b.date, b.end_min, b.locale, b.phone_key, c.name AS court, v.id AS venue_id, v.name AS venue
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
-        WHERE b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0 AND b.email IS NOT NULL AND b.email <> ''
+        WHERE b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0 AND NOT b.test AND b.email IS NOT NULL AND b.email <> ''
           AND b.date BETWEEN ? AND ? AND v.review_requests = 1 AND v.published_at IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM venue_reviews r WHERE r.venue_id = v.id AND r.phone_key = b.phone_key)
           AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'review:' || v.id || ':' || b.phone_key)

@@ -55,7 +55,7 @@ export async function loyaltyStanding(venueId: number, phoneKey: string): Promis
 const PLAYED = `
   SELECT COALESCE((SUM(b.end_min - b.start_min) / 60.0), 0)::float AS hours
     FROM bookings b JOIN courts c ON c.id = b.court_id
-   WHERE c.venue_id = ? AND b.date < ? AND b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0
+   WHERE c.venue_id = ? AND b.date < ? AND b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0 AND NOT b.test
      AND b.class_id IS NULL AND b.payment_status = 'paid' AND b.total_price > 0
      AND NOT EXISTS (SELECT 1 FROM pass_entries pe JOIN loyalty_rewards lr ON lr.pass_id = pe.pass_id WHERE pe.booking_id = b.id)`;
 
@@ -74,7 +74,7 @@ export async function grantLoyalty(): Promise<number> {
         `SELECT b.phone_key, (SUM(b.end_min - b.start_min) / 60.0)::float AS hours,
                 (SELECT COUNT(*) FROM loyalty_rewards lr WHERE lr.venue_id = c.venue_id AND lr.phone_key = b.phone_key) AS rewards
            FROM bookings b JOIN courts c ON c.id = b.court_id
-          WHERE c.venue_id = ? AND b.date < ? AND b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0
+          WHERE c.venue_id = ? AND b.date < ? AND b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0 AND NOT b.test
             AND b.class_id IS NULL AND b.payment_status = 'paid' AND b.total_price > 0 AND b.phone_key <> ''
             AND NOT EXISTS (SELECT 1 FROM pass_entries pe JOIN loyalty_rewards lr ON lr.pass_id = pe.pass_id WHERE pe.booking_id = b.id)
           GROUP BY c.venue_id, b.phone_key

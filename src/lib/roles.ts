@@ -87,6 +87,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/pass-products$/, methods: ["POST", "DELETE"] },
   // Changing a booking's price, or giving it free, with a reason (lib/price-adjustments.ts).
   { path: /^\/api\/admin\/bookings\/adjust-price$/, methods: ["POST"] },
+  // Clearing test bookings from before going live gives back what was paid; keeping one as real puts it in the books (lib/test-bookings.ts).
+  { path: /^\/api\/admin\/test-bookings$/, methods: ["POST"] },
 ];
 
 export type StaffRole = "manager" | "desk";
