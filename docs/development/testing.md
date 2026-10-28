@@ -760,6 +760,58 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 29 October 2026, commit `266a7f9`
+
+The owner's round 8 decisions: e-invoice lines naming nobody and e-invoice
+records kept for the statutory period, apart from optional customer details;
+a language of their own for staff, coaches and a venue's booking alerts;
+guests counted wherever they are registered, walk-ins apart. And the
+operations audit of 28 October 2026 (45 of its 50 findings): counter payouts
+and staff cancellations of paid bookings and of a series' weeks (M22),
+corrections of a booking's details, the day list's filters, actions menu and
+day sheet; payment methods on every counter sale, the cash-up, counter prices
+from the venue's lists and a manager's price adjustment; every staff write in
+the activity log (S28, B52), the schedule's own day (B51), alerts for online
+cancellations and changes, classes and tournaments changed after set-up
+(M23); money on erasure, voids, account cancellations and late fees (M24–M28)
+and entry and split races (B53, B54); the two-factor gate on every staff path,
+sealed calendar feeds, length limits, malformed bodies and local refund dates
+(S26, S27, B48–B50); safe redirects, booking links, offers shown before they
+are claimed, failed payments, the account page, promo codes checked before
+booking, giving a court back late, guest bookings on the account, classes paid
+online; the booking form on a phone, answers that are not the app's, leaving a
+waiting list, the venue's number, the dashboard's address and refresh, weekday
+dates, dialogs and field names (B55, B56); and what the acceptance scenarios
+found (B57, B58). Not a launch. Run on one cloud container (four cores),
+Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed on `3604266` |
+| Documentation checks (`npm run docs:check`) | 106 passed on `3604266` |
+| Suite on PGlite | 360 files (3 Postgres-only skipped); 3686 passed, 12 skipped, on `266a7f9` |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server, `max_locks_per_transaction` 256) | 360 files; 3698 passed, on `266a7f9` at the second attempt (the first timed out in the set-up hooks of three files under the suite's own load, then passed alone in 7 seconds) |
+| Concurrency, money and security inside both suites | Among them: `tests/entry-races.test.ts`, `tests/split-races.test.ts`, `tests/price-adjustments.test.ts` (adjustments at once), `tests/class-changes.test.ts` (a cut racing an enrolment), `tests/waitlist-leave.test.ts` (a decline racing a claim), `tests/guest-counting.test.ts` (two guests for one host at once), `tests/counter-refunds.test.ts`, `tests/erasure-money.test.ts`, `tests/staff-two-factor-gate.test.ts`, `tests/bad-bodies.test.ts`, `tests/staff-log-coverage.test.ts` (every admin write handler) on both engines |
+| Build (`npm run build`) | Succeeded on `3604266` |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Counter AI, Prices AJ, Late AK, Links AL, Waitlist AM, Alerts AN and Classes AO among them | 17 files; 71 of 71 |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments against the fake gateways and the Billplz stand-in, messages through the outbox only (the acceptance server logs them), MyInvois against a stand-in, Google sign-in against a stand-in |
+
+The first full run, on `1f78e54`, passed 54 of 64 acceptance scenarios: eight
+were written for screens round 8 changed on purpose (the day list's actions
+menu, weekday dates, the booking form's order, the dashboard's address) and
+were brought up to date without weakening them; two were defects (B57, B58),
+fixed with tests. Its unit suites failed three tests and the next run's two,
+all on the clock rather than the product: the two-factor tests' fake clock was
+fixed on a date a week before the database's own (sessions lapsed), the
+participants migration test compared columns added after it, and two tests'
+bookings fell on a weekend once the date moved (all peak, or past closing);
+each now holds on any date, and the suites above ran after. Gaps: no live
+integration has passed its check; machine-assisted Malay, Chinese and Tamil
+await native review; the suites run on today's date only, so a test that
+depends on the weekday or the hour is found only when the date reaches it.
+
 #### 26 October 2026, commit `8f62ccf`
 
 Participants apart from accounts (ADR 0023), booking for somebody else on

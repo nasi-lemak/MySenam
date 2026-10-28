@@ -214,13 +214,13 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
-**89 at commit `f4812fa`** after round 7, and **98 now**: round 8 closed the
+**89 at commit `f4812fa`** after round 7, and **101 now**: round 8 closed the
 two e-invoice decisions, the staff languages and the guest count the owner
 decided, and 45 of the round 8 audit's 50 findings (the other five are
 [planned](roadmap.md)), and recorded what its new workflows leave
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
-owner. Closures are recorded with their tests
+owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B58, M16–M28 and
 S12–S28, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (114
@@ -1006,6 +1006,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
 | Browser tests drive the main journeys: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and seventy-one acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), among them a venue's set-up from sign-up to its first booking, changing a booking's time, and a tournament's whole run from set-up to corrections; emailed confirmation, waiting-list offer and password-reset links are followed from the acceptance server's log (skipped against a deployment) | Those are checked by route and unit tests, not a browser | P2 |
+| The suites run on the day they are run: tests build their dates from today, and a test that depends on the weekday (a weekend is peak all day) or the hour is found only when the date reaches it; four were found and fixed this way in round 8 | A run can fail on the calendar rather than the product; the failure names its test, and the fix is to the test | P3 |
 | The acceptance scenario *Accounts AG* cannot set itself up between 23:00 and 24:00 Malaysia time: it books the next whole hour and invoices up to today, and in that hour the booking falls tomorrow | A full acceptance run in that hour fails that scenario on the clock, not the product; run outside it or re-run the file | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1: [blocks any launch](#blockers-for-any-launch) |
 | The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1: [blocks any launch](#blockers-for-any-launch) until a lawyer confirms it |
