@@ -211,7 +211,10 @@ export async function inviteGuest(
 
   const db = getDb();
   const result = await db.transaction(async (): Promise<{ ok: true; guest: MyGuest } | Refusal> => {
-    const self = (await db.prepare("SELECT phone_key(?) = phone_key(?) AS same").get(phone, (await accountPhone(userId)) ?? "")) as {
+    // The host's entry locked while their guests are counted, as staff registering one for them lock it
+    // (`registerGuest`): two at once cannot both take the allowance's last place.
+    await db.prepare("SELECT id FROM venue_access_list WHERE id = ? FOR UPDATE").get(host.id);
+    const self =(await db.prepare("SELECT phone_key(?) = phone_key(?) AS same").get(phone, (await accountPhone(userId)) ?? "")) as {
       same: boolean;
     };
     if (self.same) return refuse("GUEST_SELF");
@@ -429,4 +432,182 @@ export async function withdrawGuestInvitationByStaff(venueId: number, entryId: u
     .get(entryId, venueId)) as { id: number; venue_id: number; invited_by: number } | undefined;
   if (!entry) return invitationNotFound();
   return withdrawLatest(entry, { adminId, reason: why });
+}
+
+// ------------------------------------------------------------ guests booked at the counter or through the API
+
+/**
+ * A member's or resident's guest booked by the venue's staff at the counter
+ * or by the venue's own system through its API key (the owner's decision of
+ * 28 October 2026: count actual guests, counter-registered ones included,
+ * apart from ordinary walk-in customers; docs/features/booking.md#members-and-residents-guests-at-the-counter-and-through-the-api).
+ *
+ * The guest goes on the venue's list as the host's guest, exactly as a
+ * resident inviting them online puts them there (`inviteGuest`), so one
+ * allowance counts every guest whichever path registered them: the guests
+ * each may have on the list at once (`guest_invites`) and how long a visit
+ * may run (`guest_invite_days`), from today to the last date booked. The
+ * guest takes the host's unit and shares the household's house rules. A
+ * walk-in customer is nobody's guest and none of this applies to them.
+ *
+ * The host is the number given, on staff's word as everything at the
+ * counter is: a resident or member on the list for every date booked.
+ */
+export interface GuestHost {
+  /** The host's entry on the venue's list. */
+  id: number;
+  venueId: number;
+  phone: string;
+  label: string | null;
+  /** Guests each may have on the list at once (the venue's `guest_invites`; 0 is none). */
+  perResident: number;
+  /** The longest a guest's visit may run, in days from today (`guest_invite_days`). */
+  days: number;
+}
+
+const lastOf = (dates: string[]) => (dates.length > 0 ? dates.reduce((a, b) => (a > b ? a : b)) : todayISO());
+
+/** The host by their number at this venue, for these dates, or why there is none. */
+export async function guestHostAt(venueId: number, hostPhone: string, dates: string[]): Promise<GuestHost | Refusal> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT v.access, v.guest_invites, v.guest_invite_days, a.id, a.phone, a.label
+         FROM venues v LEFT JOIN venue_access_list a ON a.venue_id = v.id AND a.phone_key = phone_key(?)
+          AND a.kind IN ('resident', 'member') AND (a.expires_on IS NULL OR a.expires_on >= ?)
+        WHERE v.id = ?`
+    )
+    .get(hostPhone, lastOf(dates), venueId)) as
+    | { access: string; guest_invites: number; guest_invite_days: number; id: number | null; phone: string | null; label: string | null }
+    | undefined;
+  if (!row || row.access === "public") return refuse("GC8_GUESTS_NOT_HERE");
+  if (row.id === null || row.phone === null) return refuse("GC8_HOST_NOT_FOUND");
+  return { id: row.id, venueId, phone: row.phone, label: row.label, perResident: row.guest_invites, days: row.guest_invite_days };
+}
+
+type ExistingEntry = { id: number; kind: string; expires_on: string | null; invited_by: number | null };
+
+/** The refusals of the guest allowance, which a manager may go past where the venue permits it (lib/policy-overrides.ts). */
+export const ALLOWANCE_REFUSALS: readonly string[] = ["GC8_GUEST_ALLOWANCE", "GC8_GUESTS_OFF", "GC8_GUEST_DAYS"];
+
+/**
+ * Where this guest would go on the list for these dates, and what stands in
+ * the way: the refusals no override goes past first (the host's own number,
+ * a number on the list in its own right or as somebody else's running
+ * guest), then the allowance's.
+ */
+async function guestPlacement(
+  host: GuestHost,
+  phone: string,
+  dates: string[],
+  lock: boolean
+): Promise<{ existing: ExistingEntry | undefined; mine: boolean; expiresOn: string; refusals: Refusal[] }> {
+  const db = getDb();
+  const today = todayISO();
+  const last = lastOf(dates);
+  const self = (await db.prepare("SELECT phone_key(?) = phone_key(?) AS same").get(phone, host.phone)) as { same: boolean };
+  const existing = (await db
+    .prepare(`SELECT id, kind, expires_on, invited_by FROM venue_access_list WHERE venue_id = ? AND phone_key = phone_key(?)${lock ? " FOR UPDATE" : ""}`)
+    .get(host.venueId, phone)) as ExistingEntry | undefined;
+  const mine = existing?.invited_by === host.id;
+  const lapsed = existing?.kind === "guest" && existing.expires_on !== null && existing.expires_on < today;
+  const expiresOn = mine && existing!.expires_on !== null && existing!.expires_on > last ? existing!.expires_on : last;
+  if (self.same) return { existing, mine, expiresOn, refusals: [refuse("GC8_GUEST_IS_HOST")] };
+  if (existing && !mine && !lapsed) return { existing, mine, expiresOn, refusals: [refuse("GC8_GUEST_LISTED")] };
+  const refusals: Refusal[] = [];
+  if (!mine) {
+    const { n } = (await db
+      .prepare("SELECT COUNT(*)::int AS n FROM venue_access_list WHERE invited_by = ? AND expires_on >= ?")
+      .get(host.id, today)) as { n: number };
+    if (n >= host.perResident) refusals.push(host.perResident === 0 ? refuse("GC8_GUESTS_OFF") : refuse("GC8_GUEST_ALLOWANCE", { n: host.perResident }));
+  }
+  if (last > addDays(today, host.days - 1)) refusals.push(refuse("GC8_GUEST_DAYS", { n: host.days, until: addDays(today, host.days - 1) }));
+  return { existing, mine, expiresOn, refusals };
+}
+
+/**
+ * Why this person may not be booked as the host's guest for these dates, in
+ * the order asked: none of the first is ever overridden; the allowance's
+ * (`ALLOWANCE_REFUSALS`) are a manager's to go past where the venue permits
+ * it. Asked before the booking (lib/limits.ts `policyCheck`);
+ * `registerGuest` asks again under the host's lock.
+ */
+export async function guestRefusals(host: GuestHost, phone: string, dates: string[]): Promise<Refusal[]> {
+  return (await guestPlacement(host, phone, dates, false)).refusals;
+}
+
+/** What `registerGuest` did, for `undoGuestRegistration` if the booking it was for is not made. */
+export interface GuestRegistration {
+  entryId: number;
+  hostId: number;
+  expiresOn: string;
+  /** The guest's end date before, where they were already this host's guest; null where the entry is new or taken over. */
+  previousExpiry: string | null;
+}
+
+/**
+ * Put the person booked on the list as the host's guest until the last date
+ * booked, under the host's entry's row lock, so two registrations (at the
+ * counter, through the API, or a resident inviting online) for one host
+ * cannot both take the allowance's last place. `overrideAllowance`: a
+ * manager went past the allowance for this booking (already authorised).
+ * `adminId`: the member of staff, kept as who added it; null through the API.
+ */
+export async function registerGuest(
+  host: GuestHost,
+  guest: { phone: string; name: string | null },
+  dates: string[],
+  opts: { adminId: number | null; overrideAllowance: boolean }
+): Promise<{ ok: true; registration: GuestRegistration } | Refusal> {
+  const db = getDb();
+  return await db.transaction(async (): Promise<{ ok: true; registration: GuestRegistration } | Refusal> => {
+    const still = await db
+      .prepare(
+        `SELECT id FROM venue_access_list WHERE id = ? AND venue_id = ? AND kind IN ('resident', 'member')
+            AND (expires_on IS NULL OR expires_on >= ?) FOR UPDATE`
+      )
+      .get(host.id, host.venueId, lastOf(dates));
+    if (!still) return refuse("GC8_HOST_NOT_FOUND");
+    const placed = await guestPlacement(host, guest.phone, dates, true);
+    for (const r of placed.refusals) if (!opts.overrideAllowance || !ALLOWANCE_REFUSALS.includes(r.code ?? "")) return r;
+    const cleaned = cleanAccess({ phone: guest.phone, name: guest.name, kind: "guest", expiresOn: placed.expiresOn });
+    if (!cleaned.ok) return { ok: false, error: cleaned.error };
+    const { phone, name } = cleaned.row;
+    const { existing, mine, expiresOn } = placed;
+    let entryId: number;
+    if (existing) {
+      await db
+        .prepare("UPDATE venue_access_list SET name = COALESCE(?, name), label = ?, kind = 'guest', expires_on = ?, invited_by = ? WHERE id = ?")
+        .run(name, host.label, expiresOn, host.id, existing.id);
+      // A lapsed guest taken over keeps neither the account nor any invitation still out (as `inviteGuest`).
+      if (!mine) {
+        await db.prepare("UPDATE venue_access_list SET user_id = NULL, linked_by = NULL, linked_at = NULL, added_by = ? WHERE id = ?").run(opts.adminId, existing.id);
+        await db.prepare("UPDATE guest_invitations SET cancelled_at = now() WHERE entry_id = ? AND used_at IS NULL AND cancelled_at IS NULL").run(existing.id);
+      }
+      entryId = existing.id;
+    } else {
+      const info = await db
+        .prepare(
+          `INSERT INTO venue_access_list (venue_id, phone, name, label, kind, expires_on, invited_by, added_by)
+           VALUES (?, ?, ?, ?, 'guest', ?, ?, ?)`
+        )
+        .run(host.venueId, phone, name, host.label, expiresOn, host.id, opts.adminId);
+      entryId = Number(info.lastInsertRowid);
+    }
+    return { ok: true, registration: { entryId, hostId: host.id, expiresOn, previousExpiry: mine ? existing!.expires_on : null } };
+  })();
+}
+
+/**
+ * Take back what `registerGuest` did, where the booking it was for was not
+ * made: a new (or taken-over) entry comes off the list, an extended visit
+ * goes back to its end date. Only while the entry is as it was left, so
+ * anything changed since is not undone.
+ */
+export async function undoGuestRegistration(reg: GuestRegistration): Promise<void> {
+  const db = getDb();
+  if (reg.previousExpiry !== null)
+    await db
+      .prepare("UPDATE venue_access_list SET expires_on = ? WHERE id = ? AND invited_by = ? AND expires_on = ?")
+      .run(reg.previousExpiry, reg.entryId, reg.hostId, reg.expiresOn);
+  else await db.prepare("DELETE FROM venue_access_list WHERE id = ? AND invited_by = ? AND expires_on = ?").run(reg.entryId, reg.hostId, reg.expiresOn);
 }

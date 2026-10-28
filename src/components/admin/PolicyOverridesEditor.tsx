@@ -10,6 +10,7 @@ const LABELS: Record<OverridePolicy, StaffPhrase> = {
   strikes: "r9.set.strikes",
   guest_surge: "r9.set.guest_surge",
   assisted: "r9.set.assisted",
+  guest_allowance: "gc8.set.guest_allowance",
 };
 
 /**

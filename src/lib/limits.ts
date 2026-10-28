@@ -8,6 +8,7 @@ import type { Refusal } from "./types";
 import { todayISO } from "./time";
 import { struckOut } from "./cancel-policy";
 import { overridablePolicy, type OverriddenPolicy, type OverridePolicy } from "./policy-overrides";
+import type { GuestHost } from "./guest-invites";
 
 /**
  * What stops one person holding a venue's evenings with bookings that will
@@ -40,6 +41,14 @@ export const PHONE_LIMITS = {
  * which the next guest pays online to hold theirs (or signs in, where the
  * venue takes nothing online). Each number is held to three, but numbers
  * can be made up: this is the venue's evening being filled from a script.
+ *
+ * "Guest" here is guest checkout, somebody booking without an account, never
+ * a member's or resident's guest (lib/guest-invites.ts). Only what was made
+ * online or through the venue's API key counts (`bookings.made_on`, migration
+ * 0229): the counter's own bookings, an ordinary walk-in customer or a
+ * member's guest, are made by staff in front of the person and are not the
+ * flood this brakes (the owner's decision of 28 October 2026). Bookings made
+ * before the path was recorded count as they always did.
  */
 export const GUEST_SURGE_PER_HOUR = 30;
 
@@ -48,7 +57,7 @@ export async function guestSurge(venueId: number): Promise<boolean> {
     .prepare(
       `SELECT COUNT(*) AS n FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.user_id IS NULL AND b.status = 'confirmed' AND b.payment_status = 'unpaid'
-          AND b.demo = 0 AND b.created_at > datetime('now', '-1 hour')`
+          AND b.demo = 0 AND b.created_at > datetime('now', '-1 hour') AND b.made_on IS DISTINCT FROM 'staff'`
     )
     .get(venueId)) as { n: number | string };
   return Number(r.n) >= GUEST_SURGE_PER_HOUR;
@@ -147,6 +156,13 @@ export interface PolicyInput {
   paidNow?: boolean;
   /** Policies a manager overrides for this booking, already authorised (lib/policy-overrides.ts `overrideRefusal`). */
   overrides?: OverridePolicy[];
+  /**
+   * At the counter and through the API: the person booked is this member's
+   * or resident's guest, not a walk-in customer (lib/guest-invites.ts
+   * `guestHostAt`). Who may book here is then asked of the host, the guest
+   * allowance of the guest, and the house rules count the host's household.
+   */
+  guestOf?: GuestHost;
 }
 
 /** The answer: the refusal, or null; and the refusals an override went past, to be recorded with the booking. */
@@ -204,6 +220,11 @@ export async function policyCheck(path: BookingPath, input: PolicyInput): Promis
       const theirsToHold =
         notHere !== null && input.placesForOthers === true && userId !== null && (await accessSettings(input.venueId)).access === "members";
       if (notHere && !theirsToHold) return done(notHere);
+    } else if (input.guestOf) {
+      // A member's or resident's guest: the host is on the list for the dates (`guestHostAt`); the guest goes on it
+      // under the host's allowance, which a manager may go past where the venue permits it; nothing else may.
+      const { guestRefusals } = await import("./guest-invites");
+      for (const r of await guestRefusals(input.guestOf, input.phone, input.dates ?? [])) if (!passed(r)) return done(r);
     } else {
       const notHere = await numberAccessRefusal(
         input.venueId,
@@ -213,7 +234,14 @@ export async function policyCheck(path: BookingPath, input: PolicyInput): Promis
       if (notHere) return done(notHere);
     }
     if (input.dates) {
-      const tooMany = await houseRuleRefusal({ venueId: input.venueId, phone: input.phone, userId, dates: input.dates, online: path === "customer" });
+      const tooMany = await houseRuleRefusal({
+        venueId: input.venueId,
+        phone: input.phone,
+        userId,
+        dates: input.dates,
+        online: path === "customer",
+        ...(input.guestOf && path !== "customer" ? { host: input.guestOf.phone } : {}),
+      });
       if (tooMany && !passed(tooMany)) return done(tooMany);
     }
   }
@@ -288,6 +316,9 @@ const THROUGH_API: Partial<Record<string, string>> = {
   GUEST_SURGE:
     "Many unpaid bookings without an account have been made here in the last hour. Book it at the venue's counter, where it is paid as it is booked.",
   SERIES_NEEDS_ACCOUNT: "A weekly booking needs the customer's own account.",
+  GC8_GUESTS_OFF: "This venue does not let its members or residents have guests on its list. Book it at the venue's counter.",
+  GC8_GUEST_ALLOWANCE: "The host already has as many guests on the venue's list as the venue allows at a time ({n}). One must come off the list first.",
+  GC8_GUEST_DAYS: "A guest's visit here may run until {until} at the latest, and this booking is later than that.",
 };
 
 /**

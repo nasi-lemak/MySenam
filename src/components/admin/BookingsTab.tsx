@@ -1178,7 +1178,7 @@ function OverrideNote({ b }: { b: AdminBookingRow }) {
           <div key={by}>
             {t("r9.row.overridden", {
               by,
-              what: theirs.map((o) => t(`r9.policy.${o.policy}` as StaffPhrase)).join(", "),
+              what: theirs.map((o) => t((o.policy === "guest_allowance" ? "gc8.policy.guest_allowance" : `r9.policy.${o.policy}`) as StaffPhrase)).join(", "),
               reason: theirs[0].reason,
             })}
           </div>

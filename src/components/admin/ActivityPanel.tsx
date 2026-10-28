@@ -133,6 +133,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "guest_invitation.withdrawn": "rv7.act.withdrawn",
   "payment.gateway_refund": "rg7.act.gatewayRefund",
   "account.credit_settled": "rg7.act.creditSettled",
+  "guest.registered": "gc8.act.registered",
 };
 
 /**

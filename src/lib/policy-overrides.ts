@@ -22,11 +22,18 @@ import type { Refusal } from "./types";
  *   day (`LIMIT_UPCOMING`, `LIMIT_WEEK`, `LIMIT_DAY`). How far ahead may be
  *   booked is not one of them.
  * - `strikes`: too many no-shows and late cancellations (`STRIKES_COUNTER`).
- * - `guest_surge`: the guest limit, a flood of unpaid bookings without an
- *   account in the last hour (`GUEST_SURGE`).
+ * - `guest_surge`: the limit on online bookings without an account (once
+ *   called the guest limit: these are no member's guests), a flood of unpaid
+ *   ones in the last hour (`GUEST_SURGE`).
  * - `assisted`: a weekly booking for a customer without an account
  *   (`SERIES_NEEDS_ACCOUNT`), booked for them by staff; everybody on it must
  *   still be eligible.
+ * - `guest_allowance`: a member's or resident's guest allowance, where staff
+ *   register the person booked as their guest (lib/guest-invites.ts
+ *   `registerGuest`): the guests each may have on the list at once
+ *   (`GC8_GUEST_ALLOWANCE`, `GC8_GUESTS_OFF` where it is none) and how long a guest's visit may run
+ *   (`GC8_GUEST_DAYS`). The host must still be on the list, and the guest
+ *   must not be on it in their own right or as somebody else's guest.
  *
  * Never: a refused number (taking it off the venue's refused list is the
  * workflow), the unpaid-bookings limit (taking payment for one, or
@@ -35,7 +42,7 @@ import type { Refusal } from "./types";
  * other safety prerequisites, capacity, availability and linked resources
  * (the database's), tenant isolation and payment.
  */
-export const OVERRIDABLE = ["house_rules", "strikes", "guest_surge", "assisted"] as const;
+export const OVERRIDABLE = ["house_rules", "strikes", "guest_surge", "assisted", "guest_allowance"] as const;
 export type OverridePolicy = (typeof OVERRIDABLE)[number];
 
 /** The refusals each overridable policy answers for: no other refusal is ever let through. */
@@ -44,6 +51,7 @@ export const POLICY_REFUSALS: Record<OverridePolicy, readonly ErrorCode[]> = {
   strikes: ["STRIKES_COUNTER"],
   guest_surge: ["GUEST_SURGE"],
   assisted: ["SERIES_NEEDS_ACCOUNT"],
+  guest_allowance: ["GC8_GUEST_ALLOWANCE", "GC8_GUESTS_OFF", "GC8_GUEST_DAYS"],
 };
 
 /** The overridable policy a refusal (by its policy code, lib/limits.ts) belongs to, or null: never overridable. */
@@ -206,6 +214,7 @@ export async function overridesFor(bookingIds: number[]): Promise<Map<number, Bo
 export const POLICY_NAMES: Record<OverridePolicy, string> = {
   house_rules: "the house rules",
   strikes: "no-show strikes",
-  guest_surge: "the guest limit",
+  guest_surge: "the limit on online bookings without an account",
   assisted: "an assisted booking (a weekly booking without an account)",
+  guest_allowance: "a member's or resident's guest allowance",
 };

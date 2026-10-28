@@ -197,6 +197,7 @@ export async function POST(req: NextRequest) {
       userId: user?.id,
       people,
       addedBy: byStaff ? { adminId: desk!.id } : { userId: user?.id ?? null },
+      madeOn: byStaff ? "staff" : "customer",
       ...(policyOverride ? { policyOverride } : {}),
     });
     if (!joined.ok) return refusal(joined);
@@ -227,6 +228,7 @@ export async function POST(req: NextRequest) {
     userId: user?.id,
     people,
     addedBy: byStaff ? { adminId: desk!.id } : { userId: user?.id ?? null },
+    madeOn: byStaff ? "staff" : "customer",
     ...(policyOverride ? { policyOverride } : {}),
   });
   if (!enrolled.ok) return refusal(enrolled);

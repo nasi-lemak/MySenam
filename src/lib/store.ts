@@ -777,6 +777,8 @@ export async function createBookingOnAnyCourt(input: {
   addedBy?: { userId?: number | null; adminId?: number | null };
   /** A manager's override of the venue's policies (createBookingSeries). */
   policyOverride?: PolicyOverrideRecord;
+  /** Whose guest (createBookingSeries). */
+  guestOf?: number;
 } & WhenInput): Promise<CreateSeriesResult> {
   const { venueId, sport, date, ...rest } = input;
 
@@ -860,6 +862,8 @@ export async function createGroupBooking(input: {
   addedBy?: { userId?: number | null; adminId?: number | null };
   /** A manager's override of the venue's policies, kept with each court's booking (createBookingSeries). */
   policyOverride?: PolicyOverrideRecord;
+  /** Whose guest, on each court's booking (createBookingSeries). */
+  guestOf?: number;
 } & WhenInput): Promise<CreateSeriesResult> {
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
@@ -1963,6 +1967,8 @@ export async function createBooking(
     participants?: { id: number; name: string }[];
     customerTakesPart?: boolean;
     addedBy?: { userId?: number | null; adminId?: number | null };
+    /** Whose guest, where staff or the venue's API key book a member's or resident's guest (createBookingSeries). */
+    guestOf?: number;
   } & WhenInput
 ): Promise<CreateBookingResult> {
   const result = await createBookingSeries({ ...input, weeks: 1 });
@@ -2055,6 +2061,18 @@ export async function createBookingSeries(
      * written with each booking, in its transaction.
      */
     policyOverride?: PolicyOverrideRecord;
+    /**
+     * The path the booking is made on, kept with it (`bookings.made_on`):
+     * `by` where not said. The limit on online bookings without an account
+     * does not count the counter's (lib/limits.ts `guestSurge`).
+     */
+    madeOn?: SignOffChannel;
+    /**
+     * The host's entry on the venue's list, where staff or the venue's API
+     * key booked the person as a member's or resident's guest
+     * (lib/guest-invites.ts `registerGuest`), kept as `bookings.guest_of_entry`.
+     */
+    guestOf?: number;
   } & WhenInput,
   attempt = 0
 ): Promise<CreateSeriesResult> {
@@ -2245,8 +2263,8 @@ export async function createBookingSeries(
               const id = (await db
                 .prepare(
                   `INSERT INTO bookings (code, court_id, sport, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
-                     fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override, last_minute)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                     fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override, last_minute, made_on, guest_of_entry)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
                 )
                 .get(
                   generateCode(), courtId, court.sport, weekDate, span.start, span.end,
@@ -2254,7 +2272,8 @@ export async function createBookingSeries(
                   name, phone, email ?? null, roundMoney(quote.total - placeOff), quote.fees,
                   userId ?? null, seriesCode, randomBytes(16).toString("hex"),
                   input.classId ?? null, players, breaches.length > 0,
-                  quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total ? 1 : 0
+                  quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total ? 1 : 0,
+                  input.madeOn ?? input.by ?? "customer", input.guestOf ?? null
                 )) as { id: number };
               // Who takes part, where that is somebody other than (or as well as) the customer.
               await placeParticipants(id.id, {
@@ -5997,6 +6016,8 @@ async function enrolPeopleOnce(input: {
   addedBy?: { userId?: number | null; adminId?: number | null };
   /** A manager's override of the venue's policies, kept with each enrolment (createBookingSeries). */
   policyOverride?: PolicyOverrideRecord;
+  /** The path the enrolment is made on, kept with it (createBookingSeries `madeOn`); online where not said. */
+  madeOn?: SignOffChannel;
 }): Promise<EnrolPeopleResult> {
   if (input.people.length === 0) return refuse("PLAYERS_RANGE", { max: 1 });
   return withTransaction(async () => {
@@ -6039,6 +6060,7 @@ async function enrolPeopleOnce(input: {
         classId: session.id,
         ...(person ? { participants: [person], addedBy: input.addedBy ?? { userId: input.userId ?? null } } : {}),
         ...(input.policyOverride ? { policyOverride: input.policyOverride } : {}),
+        ...(input.madeOn ? { madeOn: input.madeOn } : {}),
       });
       // One place not had takes the others back with it (the transaction).
       // Its code and values ride along, so a refusal (a member's place, say) is said in the reader's language.
@@ -6107,6 +6129,8 @@ export async function enrolInTerm(input: {
   addedBy?: { userId?: number | null; adminId?: number | null };
   /** A manager's override of the venue's policies, kept with each session's enrolment (`enrolPeople`). */
   policyOverride?: PolicyOverrideRecord;
+  /** The path it is made on (`enrolPeople`). */
+  madeOn?: SignOffChannel;
 }): Promise<TermResult> {
   const term = await classTerm(input.classId);
   if (!term) return refuse("CLASS_NO_TERM");
@@ -8352,6 +8376,7 @@ async function claimWaitlistOfferOnce(token: string, opts: { agreeWaiver?: boole
         email: row.email ?? undefined,
         userId: row.user_id ?? undefined,
         waitlistId: row.id,
+        madeOn: channelOf(row),
         people: [...(takesPart ? [null] : []), ...named],
         addedBy: channelOf(row) === "customer" ? { userId: row.user_id } : { adminId: row.made_by_admin_id ?? null },
       });

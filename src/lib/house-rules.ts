@@ -190,6 +190,13 @@ export async function houseRuleRefusal(input: {
   excluding?: number;
   /** Booked online: a member's longer window only for a number the account has proved or is linked to (lib/store.ts). */
   online?: boolean;
+  /**
+   * A member's or resident's guest booked at the counter or through the API
+   * (lib/guest-invites.ts): the host's number, so the booking counts with the
+   * host's household even before the guest is on the list. Not the host's
+   * window: the guest books as far ahead as anybody.
+   */
+  host?: string;
 }): Promise<Refusal | null> {
   const rules = await houseRules(input.venueId);
   if (input.dates.length === 0) return null;
@@ -216,7 +223,7 @@ export async function houseRuleRefusal(input: {
   }
   if (rules.upcoming === null && rules.perWeek === null && rules.perDay === null) return null;
 
-  const phones = [input.phone, ...(account ? [account] : [])];
+  const phones = [input.phone, ...(account ? [account] : []), ...(input.host ? [input.host] : [])];
   // Everybody on the venue's list in the same unit as either number, or as
   // the entry linked to the account, and a resident's own guests, who share
   // the resident's allowance.

@@ -113,3 +113,21 @@
   the waiver at the waiting list's join (the version in force at the claim
   is what the booking needs, and the claimant is the customer whoever made
   the entry).
+- **Changes:**
+  - *28 October 2026, counting actual guests* (the owner's decision: "Count
+    actual guests, including counter-registered guests, while distinguishing
+    ordinary walk-in customers from guests accompanying members"). The guest
+    limit was renamed for what it is, **the limit on online bookings without
+    an account** (`GUEST_SURGE`, policy `guest_surge` unchanged): it counts
+    unpaid bookings without an account made online or through the venue's API
+    key, no longer the counter's own (each booking now records the path it
+    was made on, `bookings.made_on`, migration 0229). It is still asked on
+    every path, as above. A **member's or resident's guest** booked at the
+    counter or through the API is counted against the host's guest allowance
+    on the venue's list, as a resident's own invitation online is; the
+    allowance (the guests each may have at once, and how long a visit runs)
+    is a fifth overridable policy, `guest_allowance` (migration 0230), a
+    manager's where the venue permits it, never the API key's. The host being
+    on the list, and the guest not being on it in their own right, are
+    eligibility and never overridden
+    ([booking](../../features/booking.md#members-and-residents-guests-at-the-counter-and-through-the-api)).
