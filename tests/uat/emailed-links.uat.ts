@@ -218,7 +218,7 @@ describe.skipIf(!serverLog)("following the links the app emails", () => {
     });
   });
 
-  scenario("Email 4: somebody signs up with an email address and is told to check their email; the emailed link finishes the account and signs them in, and works once; somebody else typing the same address sees exactly the same, and the address is emailed how to sign in, with no link that makes or changes anything", async (s) => {
+  scenario("Email 4: signing up by the emailed link, which works once; somebody else typing the same address sees the same, and it is emailed how to sign in, with no link", async (s) => {
     const newcomer = await s.actor("Newcomer", "phone");
     const page = newcomer.page;
 
