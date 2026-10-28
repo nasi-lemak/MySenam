@@ -2660,6 +2660,13 @@ export const ZH: Record<Phrase, string> = {
   "q8b.wl.declinedBody": "感谢告知：名额已转给下一位候补者，您也已退出名单。",
   "q8b.msg.joinedSubject": "已加入候补名单 — {venue}",
   "q8b.msg.joined": "{name}您好，您已加入 {venue} {what} 的候补名单，{date} {from}（排第 {position} 位）。\n\n如有名额空出，我们会通知您，并为您短暂保留。\n\n不再需要？请在此退出名单，以便询问下一位：{leave}",
+  "r9d.msg.classChangedSubject": "{what} 有变更 — {venue}",
+  "r9d.msg.classChanged": "{name}您好，{venue} 更改了您的课程（{when}）。{changes}\n\n您的名额和价格保持不变。\n\n代码：{code}",
+  "r9d.msg.classChangedOffered": "{name}您好，{venue} 更改了为您保留名额的课程（{when}）。{changes}\n\n在名额邀请到期之前，名额仍为您保留：{link}",
+  "r9d.msg.newName": "课程现名为 {name}（原名 {old}）。",
+  "r9d.msg.newInstructor": "教练现为 {instructor}（原为 {old}）。",
+  "r9d.mail.tourRenamed.s": "新名称：{t}",
+  "r9d.mail.tourRenamed.b": "{venue}的{old}现已更名为{t}。其他一切不变：您的报名保持原样。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

@@ -68,8 +68,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   });
   if (!result.ok) return refusal(result, 409);
   await logAction(admin, { venueId: session.venueId, action: "class.changed", detail: classChangeDetail(result.changed) });
-  if (result.offered > 0) await tickOutbox();
-  return NextResponse.json({ classes: result.changed.map((c) => c.after), offered: result.offered });
+  if (result.offered > 0 || result.told > 0) await tickOutbox();
+  return NextResponse.json({ classes: result.changed.map((c) => c.after), offered: result.offered, told: result.told });
 }
 
 /** Call the class off: every enrolment cancelled, refunded and told; each is in the activity log. */

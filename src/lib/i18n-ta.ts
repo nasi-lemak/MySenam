@@ -2663,6 +2663,13 @@ export const TA: Record<Phrase, string> = {
   "q8b.wl.declinedBody": "தெரிவித்ததற்கு நன்றி: இடம் அடுத்துக் காத்திருப்பவருக்குச் சென்றுவிட்டது, நீங்கள் பட்டியலிலிருந்து விலகிவிட்டீர்கள்.",
   "q8b.msg.joinedSubject": "காத்திருப்புப் பட்டியலில் — {venue}",
   "q8b.msg.joined": "வணக்கம் {name}, {venue}-இல் {what}-க்கான காத்திருப்புப் பட்டியலில் நீங்கள் உள்ளீர்கள், {date} {from} (வரிசையில் {position}-ஆவது).\n\nஇடம் காலியானால் உங்களுக்குத் தெரிவித்து, சிறிது நேரம் உங்களுக்காக வைத்திருப்போம்.\n\nஇனி தேவையில்லையா? அடுத்தவரிடம் கேட்கப்பட இங்கே பட்டியலிலிருந்து விலகுங்கள்: {leave}",
+  "r9d.msg.classChangedSubject": "{what} இல் ஒரு மாற்றம் — {venue}",
+  "r9d.msg.classChanged": "வணக்கம் {name}, {venue} உங்கள் வகுப்பில் ஒரு மாற்றம் செய்துள்ளது, {when}. {changes}\n\nஉங்கள் இடமும் அதன் விலையும் அப்படியே இருக்கும்.\n\nகுறியீடு: {code}",
+  "r9d.msg.classChangedOffered": "வணக்கம் {name}, உங்களுக்கு இடம் வழங்கப்பட்ட வகுப்பில் {venue} ஒரு மாற்றம் செய்துள்ளது, {when}. {changes}\n\nவாய்ப்பு முடியும் வரை அந்த இடம் உங்களுக்காக வைக்கப்பட்டுள்ளது: {link}",
+  "r9d.msg.newName": "அதன் பெயர் இப்போது {name} (முன்பு {old}).",
+  "r9d.msg.newInstructor": "அதன் பயிற்றுநர் இப்போது {instructor} (முன்பு {old}).",
+  "r9d.mail.tourRenamed.s": "புதிய பெயர்: {t}",
+  "r9d.mail.tourRenamed.b": "{venue} இல் {old} இப்போது {t} என அழைக்கப்படுகிறது. வேறு எதுவும் மாறவில்லை: உங்கள் பதிவு அப்படியே உள்ளது.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

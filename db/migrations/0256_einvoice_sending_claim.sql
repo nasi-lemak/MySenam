@@ -1,0 +1,14 @@
+-- A draft e-invoice is claimed before it is sent to LHDN (lib/myinvois.ts
+-- submitOne; docs/integrations/myinvois.md#sending-once).
+--
+-- The scheduler sending what is waiting and staff pressing *Send* at the same
+-- moment could both read the draft as waiting and both send it, so LHDN had
+-- it twice. Sending now first sets `sending_at` on a draft that has none, in
+-- one statement: whoever sets it sends, anyone else leaves it alone. It is
+-- cleared when the answer is written. One still set long after (the process
+-- stopped while LHDN was being asked) is not sent again by itself: it is
+-- marked not sent, for staff to check the MyInvois portal before sending it.
+--
+-- Only drafts carry it: the trigger that freezes a sent document
+-- (e_invoices_sent_frozen, migrations 0220 and 0226) does not look at it.
+ALTER TABLE e_invoices ADD COLUMN IF NOT EXISTS sending_at TEXT;

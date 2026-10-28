@@ -5,9 +5,9 @@ import { refundLines } from "./refund-text";
 import type { CancelRefund } from "./payments";
 import { getDb } from "./db";
 import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue, venueHours } from "./store";
-import { Booking, type ClassSession } from "./types";
+import { Booking, WAITLIST_OFFER_MINUTES, type ClassSession } from "./types";
 import { isLocale, Locale, translator, type Phrase } from "./i18n";
-import { drainOutbox, enqueue, hourRange } from "./outbox";
+import { drainOutbox, enqueue, hourRange, sentences } from "./outbox";
 import type { Channel, Compose } from "./outbox";
 import { icsCalendar } from "./booking-links";
 import { siteName } from "./site";
@@ -1074,6 +1074,109 @@ export async function cancelClassAndTell(
     .map((b) => ({ ...b, status: "cancelled" as const, paymentStatus: before.get(b.id)?.paymentStatus ?? b.paymentStatus }));
   for (const b of cancelled) await notifyVenueCancelled(b, session.name, why);
   return { ...result, session, cancelled };
+}
+
+/**
+ * A class's name or instructor changed (lib/class-changes.ts `changeClass`):
+ * the facts people signed up for. Everybody enrolled in a session changed,
+ * and everybody holding a live offer of a place in one, is told once per
+ * change: one email for several sessions of a series, in the language they
+ * enrolled or joined the list in. Not for its price (for enrolments from now
+ * on: nobody's changes) or its places. By email only, where they gave an
+ * address, as the waiting-list receipt is: there is no WhatsApp template for
+ * it, and the class still runs when and where it did. Returns how many were
+ * written.
+ */
+export async function notifyClassChanged(changed: { before: ClassSession; after: ClassSession }[]): Promise<number> {
+  const first = changed[0];
+  if (!first) return 0;
+  const renamed = first.before.name !== first.after.name;
+  const newInstructor = first.before.instructor !== first.after.instructor;
+  if (!renamed && !newInstructor) return 0;
+  const venue = await getVenue(first.after.venueId);
+  if (!venue || !hasBeenLive(venue)) return 0;
+  const what = (locale: Locale) => {
+    const t = translator(locale);
+    return sentences(
+      t,
+      renamed && t("r9d.msg.newName", { name: first.after.name, old: first.before.name }),
+      newInstructor && t("r9d.msg.newInstructor", { instructor: first.after.instructor, old: first.before.instructor })
+    );
+  };
+  const when = (locale: Locale, sessions: ClassSession[]) => {
+    const { when: at } = slot(locale, sessions[0].courtName, venue.name, sessions[0]);
+    return sessions.length > 1 ? translator(locale)("msg.seriesWhen", { n: sessions.length, from: at }) : at;
+  };
+  // One change, one key: written again (a retry), nothing is sent twice.
+  const change = `${first.after.id}:${Date.now()}`;
+  let written = 0;
+
+  // Enrolled: each address once, with every session of theirs that changed.
+  const people = new Map<string, { booking: Booking; sessions: ClassSession[] }>();
+  for (const { after } of changed)
+    for (const b of await getClassRoster(after.id)) {
+      const email = b.email?.trim().toLowerCase();
+      if (b.status !== "confirmed" || !email) continue;
+      const known = people.get(email);
+      if (!known) people.set(email, { booking: b, sessions: [after] });
+      else if (!known.sessions.some((s) => s.id === after.id)) known.sessions.push(after);
+    }
+  for (const [email, { booking, sessions }] of people) {
+    const locale = await localeOf(booking.id);
+    const message = await deliver(
+      { phone: "", email: booking.email },
+      {
+        bookingId: booking.id,
+        venueId: venue.id,
+        kind: "class_changed",
+        locale,
+        subject: "r9d.msg.classChangedSubject",
+        body: "r9d.msg.classChanged",
+        dedupeKey: `classchg:${change}:${email}`,
+        vars: { name: firstName(booking.name), what: first.after.name, venue: venue.name, when: when(locale, sessions), changes: what(locale), code: booking.code },
+      },
+      false
+    );
+    if (message) written++;
+  }
+
+  // Offered a place and not yet taken it: told too, with the offer's own link.
+  const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
+  const ids = changed.map((c) => c.after.id);
+  const offers = (await getDb()
+    .prepare(
+      `SELECT id, name, email, locale, offer_token, class_id FROM waitlist
+        WHERE class_id IN (${ids.map(() => "?").join(",")}) AND status = 'offered' AND offered_at > ? AND offer_token IS NOT NULL ORDER BY id`
+    )
+    .all(...ids, since)) as { id: number; name: string; email: string | null; locale: string | null; offer_token: string; class_id: number }[];
+  for (const o of offers) {
+    const email = o.email?.trim();
+    if (!email) continue;
+    const locale: Locale = o.locale && isLocale(o.locale) ? o.locale : "en";
+    const session = changed.find((c) => c.after.id === o.class_id)!.after;
+    const message = await deliver(
+      { phone: "", email },
+      {
+        venueId: venue.id,
+        kind: "class_changed",
+        locale,
+        subject: "r9d.msg.classChangedSubject",
+        body: "r9d.msg.classChangedOffered",
+        dedupeKey: `classchg:${change}:offer:${o.id}`,
+        vars: {
+          name: firstName(o.name),
+          what: first.after.name,
+          venue: venue.name,
+          when: when(locale, [session]),
+          changes: what(locale),
+          link: linkIn(`${await venueBaseUrl(venue.id)}/waitlist/${o.offer_token}`, locale),
+        },
+      },
+      false
+    );
+    if (message) written++;
+  }
+  return written;
 }
 
 /** Receipts for every week of a series just marked paid at the counter. */

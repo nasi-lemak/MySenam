@@ -2825,6 +2825,14 @@ const EN = {
   "q8b.wl.declinedBody": "Thank you for saying so: the place has gone to the next person waiting, and you are off the list.",
   "q8b.msg.joinedSubject": "On the waiting list — {venue}",
   "q8b.msg.joined": "Hi {name}, you are on the waiting list for {what} at {venue}, {date} {from} (number {position} in line).\n\nIf a place opens up we will tell you, and hold it for you for a short while.\n\nNo longer want it? Leave the list here, so the next person is asked: {leave}",
+  // A class's name or instructor changed, to those enrolled or offered a place (lib/notify.ts notifyClassChanged); a tournament renamed (r9d)
+  "r9d.msg.classChangedSubject": "A change to {what} — {venue}",
+  "r9d.msg.classChanged": "Hi {name}, {venue} has made a change to your class, {when}. {changes}\n\nYour place stays as it is, and so does its price.\n\nCode: {code}",
+  "r9d.msg.classChangedOffered": "Hi {name}, {venue} has made a change to the class you have been offered a place in, {when}. {changes}\n\nThe place is still held for you until the offer runs out: {link}",
+  "r9d.msg.newName": "It is now called {name} (it was {old}).",
+  "r9d.msg.newInstructor": "Its instructor is now {instructor} (it was {old}).",
+  "r9d.mail.tourRenamed.s": "A new name: {t}",
+  "r9d.mail.tourRenamed.b": "{old} at {venue} is now called {t}. Nothing else has changed: your entry stands as it was.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5598,6 +5606,13 @@ const MS: Record<Phrase, string> = {
   "q8b.wl.declinedBody": "Terima kasih kerana memaklumkan: tempat itu telah diberikan kepada orang seterusnya yang menunggu, dan anda telah keluar dari senarai.",
   "q8b.msg.joinedSubject": "Dalam senarai menunggu — {venue}",
   "q8b.msg.joined": "Hai {name}, anda dalam senarai menunggu untuk {what} di {venue}, {date} {from} (giliran ke-{position}).\n\nJika ada tempat kosong, kami akan memaklumkan anda dan menyimpannya untuk anda seketika.\n\nTidak mahu lagi? Keluar dari senarai di sini supaya orang seterusnya ditanya: {leave}",
+  "r9d.msg.classChangedSubject": "Perubahan pada {what} — {venue}",
+  "r9d.msg.classChanged": "Hai {name}, {venue} telah membuat perubahan pada kelas anda, {when}. {changes}\n\nTempat anda kekal, begitu juga harganya.\n\nKod: {code}",
+  "r9d.msg.classChangedOffered": "Hai {name}, {venue} telah membuat perubahan pada kelas yang anda ditawarkan tempat, {when}. {changes}\n\nTempat itu masih disimpan untuk anda sehingga tawaran tamat: {link}",
+  "r9d.msg.newName": "Namanya kini {name} (dahulu {old}).",
+  "r9d.msg.newInstructor": "Pengajarnya kini {instructor} (dahulu {old}).",
+  "r9d.mail.tourRenamed.s": "Nama baharu: {t}",
+  "r9d.mail.tourRenamed.b": "{old} di {venue} kini bernama {t}. Tiada perkara lain yang berubah: penyertaan anda kekal seperti sebelumnya.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
