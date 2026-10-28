@@ -205,7 +205,7 @@ changes; 6 to 8 name what they wait for. As of 28 October 2026: no defect
 | [Staff moves not asked the house rules; the class page without override or pay-now buttons; overrides not in the bookings export](#booking-and-availability-b) | 3 / 5 | Venues | Kept for now: the activity log carries overrides; the class page's buttons when a venue needs them |
 | [Timing tests on one machine; an invitation withdrawn while its email is being sent](#operations-and-security-s) | 5 | Everyone | Kept: equal timing in production is shown only by measuring there; the link is refused either way |
 | [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; the statutory period confirmed by the venue's adviser |
-| [Staff messages in the install's first language](#languages) | 3 / 5 | Coaches and staff reading Malay or Chinese | A language of their own for coaches and staff, if the owner wants staff emails in other languages |
+| [Owner and venue-staff alerts in English](#languages) | 3 | Staff reading Malay or Chinese | The remaining alerts written per recipient, as the others now are |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
 Counted mechanically (each bullet, *Also* paragraph and table row in this
@@ -213,7 +213,7 @@ page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
 **87 now** (the two e-invoice decisions taken). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B46, M16–M21 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B47, M16–M21 and
 S12–S25, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (86
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -328,6 +328,14 @@ was unlisted is offered when another place there frees; an offer to a number
 refused after it was made holds its place until its claim is refused or it
 runs out, and a message about it already sent stays sent (one not yet sent is
 withdrawn) ([booking](../features/booking.md#waitlists)) (P3).
+
+Also: bookings made through a venue's API key count towards the limit on
+online bookings without an account, as online ones do (the counter's own do
+not; recommended to leave the API's out too, the owner's decision); a
+members-only venue's membership holder not on its list cannot host a guest,
+there is no guest allowance per period and no guest fee, and classes and
+waiting lists do not take a host
+([booking](../features/booking.md#members-and-residents-guests-at-the-counter-and-through-the-api)) (P3).
 
 Also: staff moving a booking are not asked the house rules; class enrolments
 at the counter take payment as they are made, and overrides, through the
@@ -554,12 +562,16 @@ Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
   built-in activity names in Malay and Chinese (machine-assisted), and the
   times each language is written in (Malay's PG/PTG and Tamil's 24-hour clock,
   from the common locale data) (P2).
-- **Staff messages have no reader's language of their own:** a coach's
-  emails and a venue's booking alerts go in the install's first (staff)
-  language, times as it writes them; the staff calendar feed is in the
-  language its address names. Text stored in English (the activity log's
-  details, receipt descriptions, refusals with no translation) keeps the times
-  it was written with ([regions](../product/regions-and-tax.md)) (P3).
+- **Staff alerts still in English:** a member of staff, a coach and a
+  venue's booking alerts each have a language of their own, in which their
+  password reset, two-factor reset notice, lesson emails, booking alerts,
+  application-review emails and staff calendar address are written
+  ([regions](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches));
+  alerts to platform owners and to a venue's staff (suspensions, payment
+  holds, venue changes, reviews, match reports, webhook problems) and the low
+  WhatsApp credit email stay in English. Text stored in English (the activity
+  log's details, receipt descriptions, refusals with no translation) keeps the
+  times it was written with (P3).
 
 The launch promises English, Malay, simplified Chinese and Tamil to
 customers (the owner, 24 October 2026), so these reviews are a
@@ -707,6 +719,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B44 | Chinese times drawn in the browser read on the 24-hour clock ("18:41") where the server wrote 下午6:41: Chromium has no data for `zh-Hans-MY` and falls back to a 24-hour default; the shared formatter now asks for the 12-hour clock for Chinese. Found by the acceptance scenarios (*Times AE*) | `tests/staff-times.test.ts`, `tests/uat/round7.uat.ts` (Times AE) |
 | B45 | A member whose membership was suspended today was refused at a members-only venue as a non-member ("ask the venue how to join") rather than told it is suspended; the refusal now gives the suspension and its date. Found by the acceptance scenarios (*Suspension AD*) | `tests/membership-suspensions.test.ts`, `tests/uat/round7.uat.ts` (Suspension AD) |
 | B46 | The front desk opening *Venue details* was shown "Front-desk accounts cannot change this" without doing anything: the online payments panel asked for the venue's payment account and hold policy, both a manager's; the desk now sees the payments only. Found by the acceptance scenarios | `tests/components/online-payments-desk.test.tsx` |
+| B47 | Two guest invitations at once from one resident could both pass the venue's guest allowance and go one over: the running guests were counted in a transaction that locked nothing; the host's list entry is now locked first, on every path | `tests/guest-counting.test.ts` ("two guests registered for one host at once") |
 
 ### Resolved limitations without a number
 
@@ -801,6 +814,8 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The lesson form had no pay-from-credit option | The court form's credit path | `tests/lesson-credit.test.ts`, `tests/components/coach-booking-credit.test.tsx` |
 | An e-invoice's states, corrections and LHDN identifiers were not all shown to staff | Each document's state, identifiers, LHDN's reasons and what can be done next, offering only what the server allows; corrections as replacements linked to what they replace | `tests/einvoice-records.test.ts` |
 | The counter and the venue's API were held to the house rules, strikes and the guest limit while the documents said staff were not (a decision for the owner) | Decided 28 October 2026: one policy check on every path; the counter takes payment as it books where online would hold, the API refuses; a manager overrides selected restrictions where the venue permits, recorded per booking; blocked numbers, the unpaid limit, eligibility, the waiver, the window and capacity never overridden; unblocking says why ([ADR 0026](../architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md)) | `tests/same-policies.test.ts`, `tests/components/counter-overrides.test.tsx` |
+| Staff and coaches' messages were in the install's first language whoever read them | A language of their own per staff account, coach and venue's booking alerts, used for their emails, calendars and pages (the owner, 28 October 2026) | `tests/own-languages.test.ts`, `tests/components/own-language.test.tsx` |
+| The limit on online bookings without an account counted the counter's own walk-ins, so a busy counter hour could trip it; guests registered at the counter did not count against a host's allowance | Bookings record the path they were made on; the limit counts online and API bookings only; members' and residents' guests count against one allowance on every path, a manager overriding where the venue permits (the owner, 28 October 2026) | `tests/guest-counting.test.ts`, `tests/components/guest-at-counter.test.tsx` |
 
 ## Production readiness
 
