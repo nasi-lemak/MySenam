@@ -1,5 +1,5 @@
 import { isActivity } from "./activities";
-import { getDb, withTransaction } from "./db";
+import { getDb, isBusy, withTransaction } from "./db";
 import { hoursOn, parseWeekHours } from "./week-hours";
 import { receiptFee } from "./documents";
 import {
@@ -1089,8 +1089,29 @@ export async function enter(user: { id: number; name: string }, tournamentId: nu
  * or guardian's agreement; members only means the entrant's own membership
  * at the venue, or a family membership naming them (ADR 0025); a competition
  * may cap how many of its divisions one player enters.
+ *
+ * Counted and written in one transaction under the tournament's row lock
+ * (and, for a division, its competition's first, as the cap on divisions is
+ * counted across them), as every change to who is in it is: of entries
+ * arriving at once for the last place, one is entered and the rest wait.
  */
 export async function enterAs(entrant: Entrant, tournamentId: number, input: EntryInput = {}): Promise<Result<Entry>> {
+  try {
+    return await withTransaction(async () => {
+      const db = getDb();
+      const of = (await db.prepare("SELECT competition_id FROM tournaments WHERE id = ?").get(tournamentId)) as { competition_id: number | null } | undefined;
+      if (of?.competition_id) await db.prepare("SELECT id FROM competitions WHERE id = ? FOR UPDATE").get(of.competition_id);
+      await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(tournamentId);
+      return await enterLocked(entrant, tournamentId, input);
+    });
+  } catch (err) {
+    if (isBusy(err)) return { ok: false, error: "So many people are entering at once that this could not be finished. Nothing was entered: please try again.", code: "BUSY" };
+    throw err;
+  }
+}
+
+/** `enterAs`, inside its transaction, under the locks it took. */
+async function enterLocked(entrant: Entrant, tournamentId: number, input: EntryInput): Promise<Result<Entry>> {
   const db = getDb();
   const t = await tournamentById(tournamentId);
   if (!t || t.status !== "open") return { ok: false, error: "Entries are not open." };
@@ -1349,6 +1370,8 @@ async function takeOutOnce(entryId: number, reason: OutReason, note?: string): P
     .prepare("SELECT e.id, e.status, e.tournament_id FROM tournament_entries e WHERE e.id = ?")
     .get(entryId)) as { id: number; status: EntryStatus; tournament_id: number } | undefined;
   if (!row || row.status === "withdrawn") return { ok: false, error: "That entry is not in." };
+  // Under the tournament's row lock, as entering is (`enterAs`): a place freed and an entry arriving at once never both take it.
+  await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(row.tournament_id);
   const t = (await tournamentById(row.tournament_id))!;
   if (t.status === "finished" || t.status === "cancelled") return { ok: false, error: "That tournament is over." };
   const stage: OutStage = t.status !== "drawn" ? "before_draw" : (await knockoutStarted(t.id)) || t.format === "knockout" ? "knockout" : "groups";

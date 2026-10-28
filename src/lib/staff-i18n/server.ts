@@ -361,6 +361,8 @@ const en = {
   "ei8.ret.einvoices": "E-invoice records past the statutory period (a sent one kept as a record for the books)",
   // p8c
   "srv.msgKind.venue_booking_change": "Online cancellation or change, to the venue",
+  // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
+  "srv.d8b.cancelled": "{code}, cancelled",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -720,6 +722,8 @@ const ms: Record<keyof typeof en, string> = {
   "ei8.ret.einvoices": "Rekod e-invois yang melepasi tempoh berkanun (yang telah dihantar disimpan sebagai rekod untuk akaun)",
   // p8c
   "srv.msgKind.venue_booking_change": "Pembatalan atau perubahan dalam talian, kepada tempat",
+  // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
+  "srv.d8b.cancelled": "{code}, dibatalkan",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1079,6 +1083,8 @@ const zh: Record<keyof typeof en, string> = {
   "ei8.ret.einvoices": "超过法定保存期的电子发票记录（已提交的作为账簿记录保留）",
   // p8c
   "srv.msgKind.venue_booking_change": "在线取消或更改（通知场馆）",
+  // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
+  "srv.d8b.cancelled": "{code}，已取消",
 };
 
 const area = { en, ms, zh };

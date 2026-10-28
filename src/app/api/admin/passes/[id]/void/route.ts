@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getPassById, listPassEntries, voidPass } from "@/lib/store";
 import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Cancel a pass (managers). Not a refund: the sale stays sold. `{ refund: true }`:
+ * staff hand back its unused part, and a credit note is written for that much
+ * (`refunded`); what was spent stays sold.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,8 +29,14 @@ export async function POST(
   const denied = denyVenue(admin, existing.venueId);
   if (denied) return denied;
 
-  const result = await voidPass(passId);
+  const body = (await req.json().catch(() => null)) as { refund?: unknown } | null;
+  const result = await voidPass(passId, { refund: body?.refund === true });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
-  await logAction(admin, { venueId: existing.venueId, action: "pass.voided", detail: `Pass ${passId}` });
-  return NextResponse.json({ pass: result.pass, entries: await listPassEntries(passId, 20) });
+  const refunded = result.refunded;
+  await logAction(admin, {
+    venueId: existing.venueId,
+    action: "pass.voided",
+    detail: `Pass ${passId}${refunded !== undefined ? `, ${money(refunded)} unused handed back` : ""}`,
+  });
+  return NextResponse.json({ pass: result.pass, entries: await listPassEntries(passId, 20), ...(refunded !== undefined ? { refunded } : {}) });
 }

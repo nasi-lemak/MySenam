@@ -295,10 +295,13 @@ details → Tax* (managers only).
   page they come back to after paying online; staff find the venue's under
   *Credit & passes → Receipts and credit notes*, to reprint one.
 - **Credit notes.** Reversing a sale makes a credit note (`CN-000001`, …)
-  for all of it, at the tax it was sold at, naming the receipt it reverses:
-  a paid booking cancelled, a pass or membership voided, an online payment
-  refunded, a fee marked paid at the counter and then unmarked. A cancelled
-  booking's receipt links to its credit note.
+  for what is given back, at the tax it was sold at, naming the receipt it
+  reverses: a paid booking cancelled (all of it, or what is left after a
+  late-cancellation fee, whose own tax stays with the fee), a pass or
+  membership voided with money handed back (a pass's unused part, a
+  membership in full; voided without, it stays sold and nothing is
+  credited), an online payment refunded, a fee marked paid at the counter
+  and then unmarked. A cancelled booking's receipt links to its credit note.
 - **Tax is counted once.** Credit carries no tax when bought: it is taxed
   when spent, on the booking it pays for. A pass is taxed when sold, so a
   booking paid with one carries none of its own and its receipt says so. A
@@ -306,8 +309,9 @@ details → Tax* (managers only).
   are on their own receipts.
 - **Reports and exports.** The Collected figure says how much tax is inside
   it, at each booking's own rate, plus the tax on the period's other
-  receipts less their credit notes; the bookings spreadsheet has each
-  booking's rate and tax.
+  receipts less their credit notes, and the tax on what was kept of
+  bookings cancelled late ([reports](../features/reporting.md#reporting));
+  the bookings spreadsheet has each booking's rate and tax.
 - One rate covers the whole booking, add-ons included.
 - **Money kept from a hire deposit** carries the venue's tax according to
   why it was kept, not a choice at the desk: each country has a usual

@@ -309,6 +309,9 @@ const en = {
   "rg7.acc.settle": "Paid back by hand",
   "rg7.acc.settlePrompt": "Has the {amount} of credit on {name} been paid back by hand (a bank transfer, say)? It will then never come off an invoice. Write down how, to find it again:",
   "rg7.acc.settled": "Recorded {amount} paid back to {name} by hand. It will not come off an invoice.",
+  // Round 8 (D8b): voiding a pass is not a refund; the unused part handed back only when staff say so
+  "d8b.cr.passRefundConfirm": "Also hand back the unused part of {code}, {amount}? A credit note is written for it. Choose Cancel to keep the money: the sale stays sold.",
+  "d8b.cr.passRefunded": "{amount} handed back for the unused part, with a credit note.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -619,6 +622,9 @@ const ms: Record<keyof typeof en, string> = {
   "rg7.acc.settle": "Dibayar balik secara manual",
   "rg7.acc.settlePrompt": "Adakah kredit {amount} pada {name} telah dibayar balik secara manual (contohnya pindahan bank)? Ia tidak akan ditolak daripada mana-mana invois selepas ini. Catat caranya, supaya mudah dicari semula:",
   "rg7.acc.settled": "{amount} yang dibayar balik kepada {name} secara manual telah direkodkan. Ia tidak akan ditolak daripada invois.",
+  // Round 8 (D8b): voiding a pass is not a refund; the unused part handed back only when staff say so
+  "d8b.cr.passRefundConfirm": "Juga pulangkan bahagian {code} yang belum digunakan, {amount}? Nota kredit akan dikeluarkan untuknya. Pilih Batal untuk menyimpan wang itu: jualan kekal sebagai jualan.",
+  "d8b.cr.passRefunded": "{amount} dipulangkan bagi bahagian yang belum digunakan, dengan nota kredit.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -929,6 +935,9 @@ const zh: Record<keyof typeof en, string> = {
   "rg7.acc.settle": "已人工退还",
   "rg7.acc.settlePrompt": "{name} 账户上的 {amount} 抵扣额是否已以人工方式退还（例如银行转账）？此后将不会再从任何发票中扣除。请记下退还方式，以便日后查找：",
   "rg7.acc.settled": "已记录以人工方式向 {name} 退还 {amount}。该款项不会再从发票中扣除。",
+  // Round 8 (D8b): voiding a pass is not a refund; the unused part handed back only when staff say so
+  "d8b.cr.passRefundConfirm": "是否同时退还 {code} 未使用的部分，{amount}？系统将为此开具贷记单。选择“取消”则保留这笔钱：该销售保持不变。",
+  "d8b.cr.passRefunded": "已退还未使用部分 {amount}，并开具贷记单。",
 };
 
 const area = { en, ms, zh };

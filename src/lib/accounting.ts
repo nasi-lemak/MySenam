@@ -150,12 +150,35 @@ async function categoryOf(source: string): Promise<Category> {
       const original = (await db.prepare("SELECT source FROM receipts WHERE id = ?").get(id)) as { source: string } | undefined;
       return original ? await categoryOf(original.source) : "Other";
     }
+    // A credit note on a company account (lib/accounts.ts): under its booking's heading, as the booking's receipt is.
+    case "account-credit": {
+      const credit = (await db.prepare("SELECT booking_id FROM account_credits WHERE id = ?").get(id)) as { booking_id: number | null } | undefined;
+      return credit?.booking_id ? await categoryOf(`booking:${credit.booking_id}`) : "Other";
+    }
     default:
       return "Other";
   }
 }
 
 const label = (via: string | null) => (via ? (PAID_VIA_LABELS[via as PaidVia] ?? via) : "Not recorded");
+
+/**
+ * A booking's own receipt, as the journal draws it from the booking (lib/documents.ts `bookingSale`): what its
+ * customer paid, less the shares other players paid on their own receipts. SQL, for the booking aliased `b`.
+ */
+export const bookingGross = (b: string) => `(${b}.total_price - ${b}.shares_paid)`;
+
+/**
+ * What the journal's credit notes took back of a booking's own receipt (`column`: their totals or their tax): its
+ * cancellation (`booking:<id>`), places taken off it and a cheaper coach (`booking:<id>:…`), and, charged to a
+ * company account and invoiced, its credit notes on the account (`account-credit:<id>`). With `bookingGross`, the
+ * one sum the period report keeps of a booking cancelled late (lib/reports.ts), so the two always agree.
+ */
+export const bookingCredited = (b: string, column: "total" | "tax_amount") =>
+  `(SELECT COALESCE(SUM(r.${column}), 0) FROM receipts r
+     WHERE r.kind = 'credit_note'
+       AND (r.source = 'booking:' || ${b}.id OR r.source LIKE 'booking:' || ${b}.id || ':%'
+            OR r.source IN (SELECT 'account-credit:' || ac.id FROM account_credits ac WHERE ac.booking_id = ${b}.id)))`;
 
 /** Every receipt and credit note dated in the period, oldest first. */
 export async function salesJournal(venueId: number, from: string, to: string): Promise<JournalRow[]> {
@@ -167,10 +190,10 @@ export async function salesJournal(venueId: number, from: string, to: string): P
   const bookings = (await db
     .prepare(
       `SELECT ${onDay("b.paid_at")} AS day, b.code, b.name, b.class_id, b.coach_id, b.date, c.name AS court,
-              (b.total_price - b.shares_paid)::float AS gross, b.tax_rate, b.paid_via
+              ${bookingGross("b")}::float AS gross, b.tax_rate, b.paid_via
          FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.payment_status = 'paid' AND b.paid_at IS NOT NULL
-          AND COALESCE(b.paid_via, '') <> 'pass' AND b.total_price - b.shares_paid > 0
+          AND COALESCE(b.paid_via, '') <> 'pass' AND ${bookingGross("b")} > 0
           AND ${onDay("b.paid_at")} BETWEEN ? AND ?`
     )
     .all(zone, venueId, zone, from, to)) as {
@@ -191,7 +214,11 @@ export async function salesJournal(venueId: number, from: string, to: string): P
       `SELECT ${onDay("issued_at")} AS day, kind, number, source, customer_name, lines, total::float AS total,
               tax_rate, tax_amount::float AS tax_amount, paid_via
          FROM receipts
-        WHERE venue_id = ? AND ${onDay("issued_at")} BETWEEN ? AND ?`
+        WHERE venue_id = ? AND ${onDay("issued_at")} BETWEEN ? AND ?
+          -- A booking paid with a pass has no receipt here (the pass was the sale): nor do its credit notes, which give
+          -- entries back, not money.
+          AND NOT (kind = 'credit_note' AND source LIKE 'booking:%'
+                   AND (SELECT b.paid_via FROM bookings b WHERE b.id = split_part(source, ':', 2)::int) = 'pass')`
     )
     .all(zone, venueId, zone, from, to)) as {
     day: string;

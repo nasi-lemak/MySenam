@@ -2608,6 +2608,9 @@ export const ZH: Record<Phrase, string> = {
   "p8c.msg.whatChanged": "更改",
   "p8c.msg.whatChangedFrom": "更改（原为{was}）",
   "p8c.msg.whatWithdrawn": "更改（有人被移出）",
+  // Round 8 (D8b): what closing an account does to the money on upcoming bookings
+  "d8b.data.money":
+    "每笔预订都按场馆的取消条款取消，就像您自己取消一样：您在线支付的款项会退还，扣除任何逾时取消费用；在场馆规定的截止时间内，如场馆不允许逾时取消，已付款项归场馆所有。已经开始的预订保持不变。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */
@@ -2664,4 +2667,9 @@ export const CUSTOMER_ERRORS_ZH: Record<string, string> = {
   "email and password are required.": "请填写电子邮件和密码。",
   "code and phone are required.": "请填写代码和电话号码。",
   "One of your applications to a venue is being kept under a legal, safety or dispute hold, so the account cannot be closed yet. Ask the venue about it; the account can be closed once the hold ends.": "您向某场馆提交的一份申请正因法律、安全或纠纷原因被保留，因此账户暂时无法关闭。请向该场馆查询；保留结束后即可关闭账户。",
+  // Round 8 (D8b): closing an account that would get credit back; changing a split while a friend pays
+  "Cancelling your upcoming bookings would put credit back into your account, and it would be lost with it. Cancel those bookings yourself first, spend the credit or ask the venue to refund it, and then close the account.":
+    "取消您即将到来的预订会把储值退回您的账户，而这些储值会随账户一起消失。请先自行取消这些预订，用掉储值或请场馆退款，然后再关闭账户。",
+  "A friend is paying their share now, so the split stays as it is until that payment is settled.":
+    "有朋友正在支付其份额，因此在该付款完成之前，分摊方式保持不变。",
 };

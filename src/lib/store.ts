@@ -6549,6 +6549,58 @@ export async function settleCancelled(bookingId: number): Promise<void> {
   await refundBooking(bookingId);
 }
 
+/** What a booking cancelled with an account being closed frees, to offer once that change is committed. */
+export interface ErasedBookingFreed {
+  bookingId: number;
+  courtId: number;
+  date: string;
+  classId: number | null;
+}
+
+/**
+ * One booking of an account being closed (lib/privacy.ts `eraseCustomer`),
+ * inside its transaction: cancelled on the customer's own terms, as if they
+ * had cancelled it themselves, through the one cancellation money path
+ * (`refundBooking`: credit notes, what is owed back online, credit and pass
+ * entries given back, shares owed to friends and players, a company
+ * account's credit). Free up to the venue's cutoff; after it, the venue
+ * keeps its late-cancellation fee, or, where it allows no late cancelling,
+ * all of what was paid, the court being freed rather than left empty.
+ * One already started (or with kit still out) stands, as an hour played:
+ * nothing to refund, and its record keeps the hour and the price.
+ * Null when it stands or was not confirmed.
+ */
+export async function cancelForErasure(bookingId: number): Promise<ErasedBookingFreed | null> {
+  const db = getDb();
+  const row = (await db
+    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?")
+    .get(bookingId)) as BookingRow | undefined;
+  if (!row) return null;
+  const booking = toBooking(row);
+  if (booking.status !== "confirmed") return null;
+  const zone = await courtZone(booking.courtId);
+  if (isPastSlot(booking.date, booking.startHour, zone) || (await hasOpenHire(booking.id))) return null;
+  const cutoff = await cancelCutoffForBooking(booking.id);
+  const late = !isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone);
+  let keep = 0;
+  if (late) {
+    const court = await getCourt(booking.courtId);
+    keep = (court ? (await cancelPolicyFor(court.venueId, booking.sport)).lateKeep : null) ?? 100;
+  }
+  const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
+  if (done.changes !== 1) return null;
+  await releaseBooking(booking.id);
+  if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keep, booking.id);
+  await refundBooking(booking.id, (100 - keep) / 100);
+  return { bookingId: booking.id, courtId: booking.courtId, date: booking.date, classId: booking.classId ?? null };
+}
+
+/** A place freed by an account closed, offered to whoever has waited longest (after the erasure is committed). */
+export async function offerErasedPlace(freed: ErasedBookingFreed): Promise<void> {
+  if (freed.classId) await offerClassPlace(freed.classId);
+  else await offerSlotPlace(freed.courtId, freed.date);
+}
+
 /** Is a payment page for this booking still open, unpaid, within the day a page lasts? */
 export async function paymentPageOpen(bookingId: number): Promise<boolean> {
   return !!(await getDb()
@@ -6600,8 +6652,12 @@ async function refundBooking(
 ): Promise<void> {
   // Places already taken off it while paid were settled then: only what is left goes back now.
   const left = await paidPartLeft(bookingId);
-  // A paid booking's receipt is reversed, whoever gives the money back and how.
-  await creditBooking(bookingId, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share, left, backAs);
+  const why = share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled";
+  // On a company or school account's invoice already issued (lib/accounts.ts): the invoice stays as issued, and
+  // what goes back is a credit note on the account against it, paid or not, as for one person taken off.
+  const { creditAccountForCancellation } = await import("./accounts");
+  // Otherwise a paid booking's receipt is reversed, whoever gives the money back and how.
+  if (!(await creditAccountForCancellation(bookingId, share * left, why))) await creditBooking(bookingId, why, share, left, backAs);
   await refundBookingToWallet(bookingId, share * left);
   // A pass's spends are each given back once: a place taken off already settled its own.
   await refundBookingToPass(bookingId, share);
@@ -6987,15 +7043,16 @@ export async function sellMembership(input: {
  * Cancel a membership. Bookings already made keep the price they were given;
  * those from today on at a members-only venue that it no longer covers are
  * flagged for staff, never cancelled (lib/membership-flags.ts): `flagged`
- * says how many.
+ * says how many. Voiding is not a refund: only with `refund` (the money
+ * going back, in full) is its receipt credited; without, the sale stays sold.
  */
-export async function voidMembership(id: number): Promise<MembershipResult & { flagged?: number }> {
+export async function voidMembership(id: number, opts: { refund?: boolean } = {}): Promise<MembershipResult & { flagged?: number }> {
   return withTransaction(async () => {
     const m = await membershipById(id);
     if (!m) return { ok: false as const, error: "Membership not found." };
     if (m.status === "void") return { ok: false as const, error: "This membership is already cancelled." };
     await getDb().prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(id);
-    await creditReceipt(`membership:${id}`, "receipt.why.voided");
+    if (opts.refund) await creditReceipt(`membership:${id}`, "receipt.why.voided");
     const { flagAfterMembershipLoss } = await import("./membership-flags");
     const flagged = await flagAfterMembershipLoss(id, "cancelled");
     return { ok: true as const, membership: (await membershipById(id))!, flagged };
@@ -7657,16 +7714,32 @@ async function passById(id: number): Promise<Pass | null> {
   return row ? toPass(row) : null;
 }
 
-/** Cancel a pass. Entries already spent stay spent; the rest become unusable. */
-export async function voidPass(passId: number): Promise<PassResult> {
+/**
+ * Cancel a pass. Entries already spent stay spent; the rest become unusable.
+ * Voiding is not a refund: the sale stays sold, with no credit note. With
+ * `refund`, staff hand back the unused part (its price times the share of
+ * entries, or minutes, left), and a credit note is written for that much
+ * only (`refunded`); what was spent stays revenue.
+ */
+export async function voidPass(passId: number, opts: { refund?: boolean } = {}): Promise<PassResult & { refunded?: number }> {
   return withTransaction(async () => {
     const db = getDb();
     const pass = await passById(passId);
     if (!pass) return refuse("PASS_NOT_FOUND");
     if (pass.status === "void") return { ok: false, error: "This pass is already cancelled." };
     await db.prepare("UPDATE passes SET status = 'void' WHERE id = ?").run(passId);
-    await creditReceipt(`pass:${passId}`, "receipt.why.voided");
-    return { ok: true, pass: (await passById(passId))! };
+    let refunded: number | undefined;
+    if (opts.refund) {
+      const unused = pass.entries > 0 ? roundMoney((pass.price * Math.max(0, Math.min(pass.remaining, pass.entries))) / pass.entries) : 0;
+      const note =
+        unused <= 0
+          ? null
+          : unused >= pass.price
+            ? await creditReceipt(`pass:${passId}`, "receipt.why.voided")
+            : await creditReceipt(`pass:${passId}`, "receipt.why.voided", 1, { key: "unused", amount: unused, text: "unused" });
+      refunded = note?.total ?? 0;
+    }
+    return { ok: true, pass: (await passById(passId))!, ...(refunded !== undefined ? { refunded } : {}) };
   });
 }
 

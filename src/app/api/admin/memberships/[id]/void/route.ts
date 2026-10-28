@@ -9,9 +9,11 @@ import { money } from "@/lib/region";
 export const dynamic = "force-dynamic";
 
 /**
- * Cancel a membership (managers). `{ refund: true }`: what an online payment
- * took for it is owed back too, listed under *Refunds owed* (lib/payments.ts
- * `oweBackMembership`); left out, nothing is owed back, as before.
+ * Cancel a membership (managers). `{ refund: true }`: the money goes back, in
+ * full: its receipt is credited, and what an online payment took for it is
+ * owed back too, listed under *Refunds owed* (lib/payments.ts
+ * `oweBackMembership`). Left out, nothing is owed back and no credit note is
+ * written: the sale stays sold.
  */
 export async function POST(
   req: NextRequest,
@@ -34,7 +36,7 @@ export async function POST(
   const refund = body?.refund === true;
   // Voided and owed back together, or neither.
   const { result, owed } = await withTransaction(async () => {
-    const voided = await voidMembership(membershipId);
+    const voided = await voidMembership(membershipId, { refund });
     return { result: voided, owed: voided.ok && refund ? await oweBackMembership(membershipId) : null };
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });

@@ -74,7 +74,12 @@ rules, which start from the sport's template
   they act for, or staff enter somebody at the counter
   ([who enters and how](#who-enters-and-how)); the fee is paid online to the
   venue, or at its counter, where staff tick it off. Past the limit they go on
-  a waiting list, and move up, and are told, when somebody withdraws. In a
+  a waiting list, and move up, and are told, when somebody withdraws. Places
+  are counted and taken in one transaction under the tournament's row lock
+  (and a division's competition's, for its cap on divisions per player), as a
+  withdrawal that frees one is: of people entering at once for the last
+  place, one is in and the rest wait, and the same person entering twice at
+  once is in once (`tests/entry-races.test.ts`, on Postgres too). In a
   performance event they can give an entry time or mark to be seeded by.
 - **Who may enter**, each optional, shown on the public page:
   - **Entries close** after a given day (before the first day), in the
@@ -515,7 +520,9 @@ Venues run them from the dashboard's *Leagues* tab; players find them at
   they act for, or added by staff at the counter
   ([who enters and how](#who-enters-and-how)). In a women's or men's league
   of pairs the partner's gender is declared too, and checked as a
-  tournament's is. A player joining mid-season goes
+  tournament's is. A league has no limit on players; joining is checked and
+  written under the league's row lock, so the same player joining twice at
+  once is in once and told so. A player joining mid-season goes
   into a box at the next one. Joining says plainly that box-mates will see
   your name and phone number — that is how matches get arranged — and only
   box-mates in the season being played see them, with a WhatsApp link.

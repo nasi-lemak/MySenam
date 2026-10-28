@@ -707,12 +707,13 @@ under *Plans and tiers*; `membership_plans.offered_for`, migration 0167;
   keep their price, and their places on members' sessions it no longer covers
   are flagged for staff ([when a membership stops](#when-a-membership-stops)).
 - **Cancelling** is as for any membership: the customer can stop it renewing;
-  a manager cancels it (*Void*), with a credit note on its receipt, which also
-  stops its renewal. For one bought online the manager is asked whether the
-  money goes back too: if so, what its payment took is owed back in the same
-  change, in full (nothing is prorated), and refunded from *Refunds owed*
+  a manager cancels it (*Void*), which also stops its renewal. Voiding is not
+  a refund: the sale stays sold, with no credit note. For one bought online
+  the manager is asked whether the money goes back too: if so, its receipt is
+  credited and what its payment took is owed back in the same change, in full
+  (nothing is prorated), and refunded from *Refunds owed*
   ([refunds](payments-and-credit.md#paying-online)); if not, nothing is owed
-  back, as before.
+  back and nothing credited (`tests/void-credit-notes.test.ts`).
 
 #### Changing whom a family membership covers
 
@@ -924,5 +925,10 @@ for the booking as a whole
 ([taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
 
 Voiding a pass stops further spending but leaves spent entries spent; it is not
-a refund. Customers see their passes with a used/remaining meter on `/account`,
+a refund: the sale stays sold, with no credit note, its tax with it. When the
+manager hands back the unused part (asked when voiding), it is the pass's
+price times the share of entries (or minutes) left, and a credit note is
+written for that much only, at the tax the pass was sold at; what was spent
+stays revenue (`voidPass` in `src/lib/store.ts`; `tests/void-credit-notes.test.ts`).
+Customers see their passes with a used/remaining meter on `/account`,
 and staff sell and cancel them from the *Credit & passes* tab.

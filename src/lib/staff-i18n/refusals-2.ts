@@ -729,4 +729,6 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "The last day for entries cannot be in the past.": { ms: "Hari terakhir penyertaan tidak boleh pada masa lalu.", zh: "报名截止日不能早于今天。" },
   "{0} have entered: it cannot take fewer than that.": { ms: "{0} telah menyertai: ia tidak boleh menerima kurang daripada itu.", zh: "已有 {0} 个报名：名额不能少于此数。" },
   "Hear about changes to bookings within a day, two days, a week, or any time ahead.": { ms: "Dimaklumkan tentang perubahan tempahan dalam tempoh sehari, dua hari, seminggu, atau bila-bila masa.", zh: "可选择接收一天内、两天内、一周内或任何时间的预订变更通知。" },
+  // Round 8 (D8b): an account invoice a cancellation was credited against stays
+  "A booking on this invoice was cancelled with a credit note against it, so the invoice stays.": { ms: "Satu tempahan dalam invois ini telah dibatalkan dengan nota kredit terhadapnya, jadi invois ini kekal.", zh: "此发票上的一笔预订已取消，并已针对此发票开具贷记单，因此此发票保留。" },
 };

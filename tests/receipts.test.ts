@@ -111,7 +111,7 @@ describe("receipts for what is sold", () => {
 });
 
 describe("credit notes", () => {
-  it("reverse a voided pass in full, at the tax it was sold at", async () => {
+  it("reverse a voided pass handed back unused in full, at the tax it was sold at", async () => {
     const sold = await issuePass({
       venueId, name: "10-hour pass", entries: 10, price: 190.8, holderName: "Nurul Ain", holderPhone: "0198887777",
       expiresOn: addDays(todayISO(), 60), adminId, userId: customer.id,
@@ -121,7 +121,8 @@ describe("credit notes", () => {
     expect(receipt.tax).toMatchObject({ rate: 6, amount: 10.8 });
     // The rate changes; the credit note is at the rate it was sold at.
     await setVenueTax(venueId, { registered: true, rate: 8, regNo: "W10-1234-56789012" });
-    await voidPass(sold.pass.id);
+    // Voiding alone is not a refund (no credit note); handed back, all of it unused, it is credited in full.
+    await voidPass(sold.pass.id, { refund: true });
     await setVenueTax(venueId, { registered: true, rate: 6, regNo: "W10-1234-56789012" });
     const credit = (await documentFor(`credit:${receipt.id}`))!;
     expect(credit).toMatchObject({ kind: "credit_note", number: "CN-000001", credits: receipt.number, total: 190.8, tax: { rate: 6, amount: 10.8 } });

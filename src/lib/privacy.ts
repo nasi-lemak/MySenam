@@ -1,8 +1,7 @@
 import { getDb } from "./db";
-import { releaseBooking } from "./claims";
 import { addDays, todayISO } from "./time";
 import { deleteStaleDrafts, STALE_DRAFT_DAYS, staleDrafts } from "./drafts";
-import { bookingCancelled, forgetPlayer } from "./games";
+import { forgetPlayer } from "./games";
 import { withdraw } from "./tournaments";
 import { forgetLeaguePlayer } from "./leagues";
 import { removeVenuePhotoFiles } from "./photos";
@@ -1006,28 +1005,39 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
   // Recorded with the erasure, so a restore from an earlier backup erases it again (lib/erasure-ledger.ts).
   const ledger = await import("./erasure-ledger");
   let entry: Awaited<ReturnType<typeof ledger.recordErasure>> | null = null;
+  const store = await import("./store");
+  let freed: Awaited<ReturnType<typeof store.cancelForErasure>>[] = [];
 
-  await db.transaction(async () => {
+  const givesBack = await db.transaction(async () => {
     entry = null;
+    freed = [];
+    cancelled = 0;
     // Nothing should still be held for somebody who is leaving. Only what is
     // provably theirs: a booking that merely shares a phone number may belong
-    // to the person who used the counter before them.
+    // to the person who used the counter before them. Each is cancelled on
+    // their own terms, as if they had cancelled it, through the one
+    // cancellation money path: credit notes, what is owed back online, shares
+    // owed to friends and players, a company account's credit (lib/store.ts
+    // `cancelForErasure`). One already started stands, as an hour played.
     const upcoming = await db
       .prepare(
         `SELECT id FROM bookings
-         WHERE user_id = ? AND status = 'confirmed' AND date >= ?`
+         WHERE user_id = ? AND status = 'confirmed' AND date >= ? ORDER BY id`
       )
-      .all(userId, today) as { id: number }[];
+      .all(userId, addDays(today, -1)) as { id: number }[];
     for (const booking of upcoming) {
-      await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").run(booking.id);
-      await releaseBooking(booking.id);
-      // Players in an open game on it hear it is off, and are owed their shares.
-      await bookingCancelled(booking.id);
-      // So are friends who paid a share of it.
-      const { splitCancelled } = await import("./splits");
-      await splitCancelled(booking.id);
+      const off = await store.cancelForErasure(booking.id);
+      if (!off) continue;
+      freed.push(off);
       cancelled++;
     }
+    // Credit a cancellation gave back would be lost with the account (its credit goes with it): refused, with
+    // nothing changed, as holding credit already is. (Entries go back to the pass that paid: one of the
+    // account's own still running refuses the erasure above; any other stays with whoever holds it.)
+    const { back } = (await db
+      .prepare("SELECT COALESCE(SUM(amount), 0)::float AS back FROM wallet_entries WHERE user_id = ?")
+      .get(userId)) as { back: number };
+    if (Number(back) > 0) throw new ErasureGivesBack();
     await forgetPlayer(userId);
     // Off every waiting list. A place they were waiting for, or were offered,
     // goes to the next person in line, as if they had left it themselves.
@@ -1113,8 +1123,28 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
     await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
     // Applied again after a restore, it is the same erasure: no second entry.
     if (!opts.reapplying) entry = await ledger.recordErasure(userId, String(account.created_at));
-  })();
+  })().then(
+    () => false,
+    (err: unknown) => {
+      if (err instanceof ErasureGivesBack) return true;
+      throw err;
+    }
+  );
+  if (givesBack) return { ok: false, error: ERASURE_GIVES_BACK };
   if (entry) await ledger.appendToLedgerFile(entry);
+
+  // Once it is all kept: each place freed goes to whoever has waited longest, and money owed back online goes
+  // back to the card where the venue's gateway can send it (never into credit the account no longer has), else
+  // it is listed for the venue's staff to refund.
+  const offered = freed.filter((f): f is NonNullable<typeof f> => f !== null);
+  for (const f of offered) await store.offerErasedPlace(f);
+  if (offered.length > 0) await (await import("./payments")).refundCancelled(offered.map((f) => f.bookingId), { byVenue: true });
 
   return { ok: true, bookingsAnonymised, cancelled };
 }
+
+/** Closing the account would put credit back into it as its bookings are cancelled. */
+class ErasureGivesBack extends Error {}
+
+export const ERASURE_GIVES_BACK =
+  "Cancelling your upcoming bookings would put credit back into your account, and it would be lost with it. Cancel those bookings yourself first, spend the credit or ask the venue to refund it, and then close the account.";

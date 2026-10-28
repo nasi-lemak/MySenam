@@ -94,7 +94,18 @@ in the activity log with the last four digits of the number.
 A booking is also the venue's accounting record, so "forget me" cannot mean
 "make the takings disappear". Closing an account:
 
-- cancels upcoming bookings made from it, releasing the courts;
+- cancels upcoming bookings made from it, releasing the courts, each on the
+  customer's own terms, as if they had cancelled it themselves, through the
+  one cancellation money path (`cancelForErasure` in `src/lib/store.ts`):
+  free up to the venue's cutoff, everything going back as it was paid
+  (what was paid online owed back, and sent back to the card where the
+  venue's gateway can, never into credit the account no longer has; shares
+  friends or players paid owed back; a company account credited); after the
+  cutoff, the venue keeps its late-cancellation fee, or, where it allows no
+  late cancelling, what was paid, the court being freed rather than left
+  empty. The receipt is credited for what goes back, the credit note naming
+  nobody like the rest, and each freed place goes to whoever has waited
+  longest. A booking already under way stands, as an hour played;
 - replaces the name, phone and email on every booking it owns with `(removed)`,
   **keeping the hour and the price**;
 - strips the holder from spent passes and lapsed memberships, and clears the
@@ -136,6 +147,12 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
 It refuses while the customer is owed something — stored credit, a live pass, a
 running membership — because `wallet_entries` cascades from `users`, so erasing
 the account would destroy the only record of whose money the venue is holding.
+For the same reason it refuses, with nothing changed, when cancelling its
+upcoming bookings would put credit back into it (a booking paid from stored
+credit): the customer cancels those first, then spends the credit or asks the
+venue to refund it. Entries go back to the pass that paid: one of the
+account's own still running already refuses the erasure, and any other stays
+with whoever holds it. Tested in `tests/erasure-money.test.ts`.
 It also waits while a hold keeps one of the account's applications for a legal,
 safety or dispute reason ([below](#holds)), and says so.
 

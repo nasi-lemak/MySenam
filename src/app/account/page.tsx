@@ -480,7 +480,9 @@ function YourData({ t }: { t: T }) {
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
             <p className="text-sm font-semibold text-red-800">{t("data.irreversible")}</p>
             <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-sm text-red-700">
-              <li>{t("data.point1")}</li>
+              <li>
+                {t("data.point1")} {t("d8b.data.money")}
+              </li>
               <li>{t("data.point2")}</li>
               <li>{t("data.point3")}</li>
               <li>{t("data.point4")}</li>

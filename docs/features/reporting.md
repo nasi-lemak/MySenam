@@ -16,6 +16,19 @@ booking was taken, because that is how an operator thinks about a month.
   the number a venue chases. Cancellations are counted as their own figure
   rather than folded into revenue: a thin month should read as either "we sold
   less" or "they cancelled", never an ambiguous total.
+- **Kept from late cancellations** is takings: what the venue kept of a paid
+  booking in the period cancelled late (its late-cancellation fee, or all of
+  it where it allows no late cancelling) is a line of its own (`lateKept`) and
+  is inside *collected*, the split by payment method, by activity and by
+  month, and the tax collected. It is the booking's receipt less the credit
+  notes that gave the rest back, read from the same documents as the sales
+  journal (`bookingGross` and `bookingCredited` in `src/lib/accounting.ts`),
+  so the two agree; the fee's tax is worked out on the fee itself, the credit
+  note taking the rest of the receipt's. *Outstanding* is what confirmed
+  bookings still owe. A booking paid with a pass is left out, as its money was
+  taken when the pass was sold; a deposit kept on a booking never paid in
+  full is not in the report, as deposits are not
+  (`tests/late-cancel-report.test.ts`).
 - **Utilisation** measures against hours that could *actually* have been sold —
   the trading day times capacity, less whole-day closures and any places staff
   took out of service. Marking a court out for maintenance should not make the
