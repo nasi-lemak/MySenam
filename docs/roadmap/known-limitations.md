@@ -78,6 +78,7 @@ recommendation, not a decision. A decision is recorded by changing the row to
 | Limitation | What happens today | Recommendation |
 | ---------- | ------------------ | -------------- |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
+| Giving the court back late, without a refund ([booking](../features/booking.md)) | Off for every venue until a manager turns it on | Keep it off by default and suggest it at onboarding to venues with evening drop-outs |
 | Cancellations by the venue refund online payments on some paths only ([money](#money-m)) | Closing a day and a rain-out refund online payments by themselves; a court taken out of service and a cancelled class (also when a day is closed) leave them in *Refunds owed* for staff | Refund by themselves on every path where the venue cancels, as a closed day does: the customer did nothing, and the refunds owed list stays for manual venues |
 
 ### Accepted
@@ -373,6 +374,13 @@ manager's whole-day view; receipts and payments from before migration 0234 say
 *At the counter* and name nobody; the front desk sells no counter pass until a
 manager adds the venue's pass products
 ([cash-up](../features/payments-and-credit.md#cash-up)) (P3).
+
+Also: a waiting-list offer's message does not say that online payment will be
+asked (its WhatsApp template is fixed; the offer page says it); whoever holds a
+booking's link can do what its code and phone allow, until it expires after the
+booking; a promo code on a weekly series is checked on its first date only
+before booking (the booking checks every week)
+([finding your booking](../features/booking.md)) (P3).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -878,6 +886,15 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A booking's price could not be changed or waived once made | A manager's price adjustment with a reason, before or after a counter payment | `tests/price-adjustments.test.ts` |
 | Memberships, passes, receipts, vouchers and company invoices were long unsearchable lists | Search by code, name or number, status filters, fifty a page | `tests/counter-lists.test.ts` |
 | Reports had no *last month* | A preset beside the existing from and to dates | `tests/components/counter-money.test.tsx` |
+| Sign-in's next page could be sent to another site (`/\x`, `/%5C`, a tab) and its error text was taken from the address | One checked path for every sign-in route; error codes only | `tests/q8a-booking-flows.test.ts` |
+| A waiting-list offer was claimed before the customer saw what it was, and a claim held until paid said *pay at the counter* | The offer shown first; after claiming, the hold and paying online | `tests/q8a-booking-flows.test.ts`, `tests/components/q8a-customer-flows.test.tsx` |
+| A failed or abandoned online payment gave no code, no hold and no way to pay again | The return page shows the code, the hold or its release, and *Pay again* | `tests/q8a-payment-return.test.tsx` |
+| The account page showed held bookings as payable at the counter and could not pay, split or change them | The account's bookings do what My Booking does | `tests/components/q8a-customer-flows.test.tsx` |
+| A promo code was checked only when booking, the price shown not including it | Checked on the form, with its discount or its refusal | `tests/q8a-booking-flows.test.ts` |
+| Messages sent people to look their booking up by code and phone again | A signed link that opens the booking, expiring after it | `tests/q8a-booking-flows.test.ts` |
+| A customer past a no-late-cancel cutoff could not give the court back for others | A venue setting, off by default, to cancel late keeping it all | `tests/q8a-booking-flows.test.ts` |
+| Bookings made before signing up did not show on the account | Shown and cancellable once the account's email is proved | `tests/q8a-booking-flows.test.ts` |
+| A class enrolled online could not be paid online | Pay online after enrolling | `tests/q8a-booking-flows.test.ts` |
 
 ## Production readiness
 
