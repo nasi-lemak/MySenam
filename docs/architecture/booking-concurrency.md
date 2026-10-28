@@ -69,10 +69,21 @@ themselves are in [booking](../features/booking.md).
 
 ## Status of each guarantee
 
+The evidence separates guarantees from measurements. A guarantee (exactly
+one booking through, the rest refused as taken, never busy, nothing left
+held, the integrity check clean) holds on any machine and fails its test
+whenever it does not. How long a round took and how many transactions ran
+again depend on the machine and its load: `tests/contention.test.ts`
+records them per round and judges them at its end, in tests of their own
+(*measured on this machine*), against the bounds in the table below, never
+loosened; a slow round fails there with every round's figures and does not
+stand in for, or hide, a guarantee. Measurements on the development
+container are not a production figure.
+
 | Guarantee | Status | Evidence | Gaps |
 | --------- | ------ | -------- | ---- |
-| A minute of an exclusive court is sold once | Verified on Postgres | Exclusion constraint `claims_no_overlap` (migration 0089); raw SQL refused in `tests/capacity.test.ts` "is still the database that prevents overbooking"; `tests/concurrency.test.ts` "sells the last court to one person"; `tests/intervals.test.ts` "race for the same minutes, and only one gets them"; `tests/contention.test.ts`: 24 at once for one court, four rounds: one booked, the rest refused as taken (not busy), each round under 8 s, no claim left behind | Measured on one machine (four cores). The contention and concurrency files passed 20 runs in a row on Postgres 16, 7–8 s a run |
-| Independent bookings do not fail each other | Verified on Postgres | `tests/contention.test.ts`: 24 at once at 24 venues, and on 24 courts of one venue, four rounds each: all booked, at most two retries a round, none out of tries; `tests/booking-references-deferred.test.ts`: the order of events that made one of three a pivot now commits all three; the [benchmark](../development/testing.md#results): fifty at once at 400 venues, no errors | Measured on one machine; a retry is still possible where two transactions really read what the other wrote |
+| A minute of an exclusive court is sold once | Verified on Postgres | Exclusion constraint `claims_no_overlap` (migration 0089); raw SQL refused in `tests/capacity.test.ts` "is still the database that prevents overbooking"; `tests/concurrency.test.ts` "sells the last court to one person"; `tests/intervals.test.ts` "race for the same minutes, and only one gets them"; `tests/contention.test.ts`: 24 at once for one court, four rounds: one booked, the rest refused as taken (not busy), no claim left behind; measured: each round under 8 s | Measured on one machine (four cores). The contention and concurrency files passed 20 runs in a row on Postgres 16, 7–8 s a run |
+| Independent bookings do not fail each other | Verified on Postgres | `tests/contention.test.ts`: 24 at once at 24 venues, and on 24 courts of one venue, four rounds each: all booked, none out of tries; measured: at most two retries a round; `tests/booking-references-deferred.test.ts`: the order of events that made one of three a pivot now commits all three; the [benchmark](../development/testing.md#results): fifty at once at 400 venues, no errors | Measured on one machine; a retry is still possible where two transactions really read what the other wrote |
 | A shared facility never holds more than its capacity | Verified on Postgres | Capacity trigger `claims_capacity` under a court-row lock, counting bookings, offers and partial blocks; raw SQL refused in `tests/capacity.test.ts`; "sells a shared floor's places once each"; `tests/intervals.test.ts` "fills a shared facility to its places at every moment"; `tests/contention.test.ts`: 24 at once for a floor of five, four rounds: five booked | — |
 | Linked courts take each other | Verified on Postgres | Shared spaces; `tests/court-links.test.ts` including a two-request race and two wholes over one part; `tests/intervals.test.ts` "holds the court over it too"; `tests/contention.test.ts`: a pitch and its three courts asked for three times each at once, four rounds: the pitch or its courts, never both | Linking is one level deep (a rule of the editor, not of storage). |
 | Nothing overlaps a block, class, outage, offer or buffer | Verified on Postgres | All are claims under the same constraint; `tests/outages.test.ts` "a booking made while a court is being taken out"; `tests/move.test.ts` "never leave a booking inside the block"; `tests/intervals.test.ts` buffers | — |

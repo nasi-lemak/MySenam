@@ -91,4 +91,42 @@ is thrown away rather than handed to the next request, without stopping the
 process (`tests/db-connection-lost.test.ts`). The server needs
 `max_locks_per_transaction` of 256 or more for a restore, which locks every
 table, index and sequence in one transaction
-([`deploy/digitalocean/postgresql.conf`](../../deploy/digitalocean/postgresql.conf)).
+([`deploy/digitalocean/postgresql.conf`](../../deploy/digitalocean/postgresql.conf);
+[below](#the-lock-table-on-the-2-gb-droplet)).
+
+### The lock table on the 2 GB Droplet
+
+Postgres keeps one lock table in shared memory, sized when it starts:
+`max_locks_per_transaction` × (connections + background processes +
+prepared transactions), shared by every session, so one transaction may use
+far more than its "per transaction" number while others use few. With the
+kit's settings (`max_connections` 40, the defaults for autovacuum, worker
+and WAL-sender processes, no prepared transactions) that is 62 × the
+setting. Measured on 28 October 2026 on Postgres 16 with the kit's
+configuration file (`postgres -C shared_memory_size`, a throwaway cluster on
+the development container, not the Droplet):
+
+| `max_locks_per_transaction` | Lock slots | Shared memory Postgres asks for at start |
+| --------------------------- | ---------- | ---------------------------------------- |
+| 64 (the default) | 3,968 | 276 MB |
+| 128 | 7,936 | 278 MB |
+| **256 (the kit)** | **15,872** | **281 MB** |
+| 512 | 31,744 | 286 MB |
+
+Nearly all of it is `shared_buffers` (256 MB); 256 lock slots per process
+cost about 5 MB more than the default, taken once when the server starts
+and not growing with use. A restore of the schema at migration 0207, loaded
+in one transaction as `scripts/restore.mjs` does (`--single-transaction`),
+held **3,678 locks on 1,117 relations** at its end: 93% of the default's
+slots on its own, so a restore at 64 succeeds today only while nothing else
+holds locks, and fails ("out of shared memory") as the schema grows or
+beside a busy app. At 256 the same restore uses under a quarter.
+
+On the 2 GB Droplet, the 281 MB is inside the "up to about 300 MB" the
+deployment's memory budget already gives Postgres
+([deployment](../operations/deployment.md#the-malware-scanner)); nothing else
+changes. What this does not show: the Droplet's own memory under load, which
+only a measurement on it can (local tests and these figures are not that
+proof); and per-connection memory (`work_mem`, each session's own lock
+cache), which grows with what each query does, not with this setting. No
+upsizing is needed for it; none has been made.

@@ -23,14 +23,28 @@ import { addDays, todayISO } from "../src/lib/time";
  * Independent bookings, at different venues, must all go through: none may
  * fail for colliding with another it has nothing to do with. Bookings that
  * want the same thing must end with exactly the right number through, the
- * rest refused cleanly, every one of them quickly, and nothing left held
- * that should not be. Each runs several rounds, since a race that is lost
- * one time in ten is still lost.
+ * rest refused cleanly, and nothing left held that should not be. Each runs
+ * several rounds, since a race that is lost one time in ten is still lost.
+ *
+ * Those are guarantees, true on any machine. How long a round took and how
+ * many transactions had to be run again depend on the machine and what else
+ * it is doing, so they are recorded as each round runs and judged apart, in
+ * "measured on this machine" at the end, against the same bounds as before:
+ * a slow or retrying round fails there, with every figure, and never hides
+ * or stands in for a correctness failure (docs/architecture/booking-concurrency.md).
  */
 
 const ROUNDS = 4;
 const MANY = 24;
 const QUICK_MS = 8_000;
+/** Retries allowed in a round of independent bookings (B13, B30). */
+const RETRIES = 2;
+
+/** What each round took: the environment-sensitive half, judged at the end. */
+const measured: { scenario: string; round: number; ms: number; retries?: number; stats: string }[] = [];
+function measure(scenario: string, round: number, ms: number, retries?: number) {
+  measured.push({ scenario, round, ms: Math.round(ms), ...(retries !== undefined ? { retries } : {}), stats: JSON.stringify(transactionStats()) });
+}
 
 let n = 0;
 const venues: number[] = [];
@@ -94,13 +108,8 @@ describe("independent bookings at the same moment", () => {
       );
       const failed = results.filter((r) => !r.ok).map((r) => (r.ok ? "" : r.code ?? r.error));
       expect(failed, `round ${round}: ${JSON.stringify(transactionStats())}`).toEqual([]);
-      // Next to none had to be run again (B13). Not quite none: inserting a
-      // claim checks its booking exists, which reads the page of the bookings
-      // index every new booking is written to, and Postgres's serializable
-      // checks work by the page. Measured at 2 retries in 1,920 bookings.
-      expect(retried(), JSON.stringify(transactionStats())).toBeLessThanOrEqual(2);
       expect(transactionStats().exhausted).toBe(0);
-      expect(ms).toBeLessThan(QUICK_MS);
+      measure("different venues", round, ms, retried());
     }
     expect(await leakedClaims()).toBe(0);
     expect(await checkIntegrity()).toEqual([]);
@@ -117,16 +126,15 @@ describe("independent bookings at the same moment", () => {
         Promise.all(courts.map((c) => createBooking({ courtId: c.id, date, start: 18 * 60, end: 19 * 60, name: "Neighbour", phone: phone() })))
       );
       expect(results.filter((r) => !r.ok).map((r) => (r.ok ? "" : r.code)), JSON.stringify(transactionStats())).toEqual([]);
-      expect(retried(), JSON.stringify(transactionStats())).toBeLessThanOrEqual(2);
       expect(transactionStats().exhausted).toBe(0);
-      expect(ms).toBeLessThan(QUICK_MS);
+      measure("different courts of one venue", round, ms, retried());
     }
     expect(await leakedClaims()).toBe(0);
   });
 });
 
 describe("bookings that want the same thing", () => {
-  it("one court: one booking, the rest refused cleanly and quickly", async () => {
+  it("one court: one booking, the rest refused cleanly", async () => {
     for (let round = 0; round < ROUNDS; round++) {
       const c = await court(venues[1]);
       const date = addDays(todayISO(), 3 + round);
@@ -138,7 +146,7 @@ describe("bookings that want the same thing", () => {
       // Every loser was told it was taken: not an error, not "busy".
       for (const r of results) if (!r.ok) expect(r.code ?? r.error).not.toBe("BUSY");
       expect(transactionStats().exhausted).toBe(0);
-      expect(ms).toBeLessThan(QUICK_MS);
+      measure("one court", round, ms);
     }
     expect(await leakedClaims()).toBe(0);
     expect(await checkIntegrity()).toEqual([]);
@@ -154,7 +162,7 @@ describe("bookings that want the same thing", () => {
       );
       expect(results.filter((r) => r.ok), JSON.stringify(transactionStats())).toHaveLength(5);
       expect(transactionStats().exhausted).toBe(0);
-      expect(ms).toBeLessThan(QUICK_MS);
+      measure("a shared floor", round, ms);
     }
     expect(await leakedClaims()).toBe(0);
     expect(await checkIntegrity()).toEqual([]);
@@ -178,7 +186,7 @@ describe("bookings that want the same thing", () => {
       if (won.includes(pitch.id)) expect(won).toEqual([pitch.id]);
       else expect([...won].sort()).toEqual(parts.map((p) => p.id).sort());
       expect(transactionStats().exhausted).toBe(0);
-      expect(ms).toBeLessThan(QUICK_MS);
+      measure("a hall and its courts", round, ms);
     }
     expect(await leakedClaims()).toBe(0);
     expect(await checkIntegrity()).toEqual([]);
@@ -209,9 +217,24 @@ describe("bookings that want the same thing", () => {
       const statuses = results.map((r) => r.status);
       expect(statuses.filter((s) => s === 201), `${statuses} ${JSON.stringify(transactionStats())}`).toHaveLength(1);
       expect(statuses.filter((s) => s >= 500)).toEqual([]);
-      expect(ms).toBeLessThan(QUICK_MS);
+      measure("one coach", round, ms);
     }
     expect(await leakedClaims()).toBe(0);
     expect(await checkIntegrity()).toEqual([]);
+  });
+});
+
+describe("measured on this machine (depends on its load; judged apart from the guarantees above)", () => {
+  // Independent bookings share no row and, since migration 0206, no page of an index they must
+  // check at once (B30): next to none is run again. Measured at 0–2 a round, on a loaded machine too.
+  it(`independent bookings: at most ${RETRIES} retried a round`, () => {
+    const rounds = measured.filter((m) => m.retries !== undefined);
+    expect(rounds.length).toBe(2 * ROUNDS);
+    expect(rounds.filter((m) => (m.retries as number) > RETRIES)).toEqual([]);
+  });
+
+  it(`every round settled within ${QUICK_MS / 1000} seconds`, () => {
+    expect(measured.length).toBe(6 * ROUNDS);
+    expect(measured.filter((m) => m.ms >= QUICK_MS)).toEqual([]);
   });
 });

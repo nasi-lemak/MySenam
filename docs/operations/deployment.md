@@ -115,7 +115,8 @@ remove.
   `TestDatabases yes` (it loads each new database once to test it; 14 s) and
   **about 310–320 MiB** with `TestDatabases no` (4 s); the production app
   about **334 MiB** (proportional set size) and Postgres about **100 MiB**
-  at rest (configured for up to about 300 MB). App, Postgres and clamd come
+  at rest (configured for up to about 300 MB: 281 MB of shared memory,
+  the lock table included, [database](../architecture/database.md#the-lock-table-on-the-2-gb-droplet)). App, Postgres and clamd come
   to about **1.45 GiB**: on a 2 GB Droplet (about 1.9 GiB usable, ESTIMATE)
   that fits only if clamd is not resident while freshclam runs, nor while
   nothing waits. The on-demand mode is built on exactly that: clamd only
