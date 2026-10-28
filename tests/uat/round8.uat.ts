@@ -605,11 +605,15 @@ describe("changing a class", () => {
       expect(await manager.page.locator("tr").filter({ hasText: className }).filter({ hasText: "Cikgu Rina" }).count()).toBe(0);
     });
 
-    await s.step(member, "sees the class with Coach Hafiz on the classes page", async () => {
+    await s.step(member, "sees each session of the class listed with Coach Hafiz on the classes page, none with Cikgu Rina", async () => {
       await member.page.goto(`${url}/classes`);
-      const card = member.page.locator("li, div").filter({ hasText: className }).filter({ hasText: /^.*with / }).last();
-      await card.getByText(/with Coach Hafiz/).first().waitFor();
-      expect(await member.page.getByText(/with Cikgu Rina/).count()).toBe(0);
+      // Each session is one item of the list; other venues' classes (another Cikgu Rina's among them) are not this one.
+      const sessions = member.page.locator("li").filter({ hasText: className });
+      await sessions.first().getByText(/with Coach Hafiz/).waitFor();
+      const shown = await sessions.allTextContents();
+      expect(shown.length).toBeGreaterThan(0);
+      for (const text of shown) expect(text).toMatch(/with Coach Hafiz/);
+      expect(shown.join(" ")).not.toContain("Cikgu Rina");
     });
 
     expect(await activity(mgrApi, centre.venueId)).toContain("class.changed");
