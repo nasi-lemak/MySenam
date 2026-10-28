@@ -2681,6 +2681,13 @@ export const TA: Record<Phrase, string> = {
   "r9a.page.save": "கடவுச்சொல்லை அமைத்து உள்நுழையுங்கள்",
   "r9a.page.done": "உங்கள் கடவுச்சொல் அமைக்கப்பட்டது, நீங்கள் உள்நுழைந்துள்ளீர்கள்.",
   "r9a.page.expired": "உங்களை அழைத்தவரிடம் அதை மீண்டும் அனுப்பச் சொல்லுங்கள்.",
+  "r9d.msg.classChangedSubject": "{what} இல் ஒரு மாற்றம் — {venue}",
+  "r9d.msg.classChanged": "வணக்கம் {name}, {venue} உங்கள் வகுப்பில் ஒரு மாற்றம் செய்துள்ளது, {when}. {changes}\n\nஉங்கள் இடமும் அதன் விலையும் அப்படியே இருக்கும்.\n\nகுறியீடு: {code}",
+  "r9d.msg.classChangedOffered": "வணக்கம் {name}, உங்களுக்கு இடம் வழங்கப்பட்ட வகுப்பில் {venue} ஒரு மாற்றம் செய்துள்ளது, {when}. {changes}\n\nவாய்ப்பு முடியும் வரை அந்த இடம் உங்களுக்காக வைக்கப்பட்டுள்ளது: {link}",
+  "r9d.msg.newName": "அதன் பெயர் இப்போது {name} (முன்பு {old}).",
+  "r9d.msg.newInstructor": "அதன் பயிற்றுநர் இப்போது {instructor} (முன்பு {old}).",
+  "r9d.mail.tourRenamed.s": "புதிய பெயர்: {t}",
+  "r9d.mail.tourRenamed.b": "{venue} இல் {old} இப்போது {t} என அழைக்கப்படுகிறது. வேறு எதுவும் மாறவில்லை: உங்கள் பதிவு அப்படியே உள்ளது.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

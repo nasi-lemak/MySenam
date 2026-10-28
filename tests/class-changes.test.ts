@@ -171,3 +171,71 @@ describe("changing a class", () => {
     expect(joined.ok && cut.ok).toBe(false);
   });
 });
+
+describe("telling people of a change to a class", () => {
+  const mail = async (recipient: string) =>
+    (await getDb()
+      .prepare("SELECT subject, body, locale, channel FROM messages WHERE kind = 'class_changed' AND recipient = ? ORDER BY id")
+      .all(recipient)) as { subject: string; body: string; locale: string; channel: string }[];
+
+  it("tells those enrolled of a new name or instructor, once a person however many sessions, in their language", async () => {
+    const [first, second] = await aClass({ capacity: 3, weeks: 2 });
+    const both = `both-${seq}@class.my`;
+    const malay = `malay-${seq}@class.my`;
+    for (const s of [first, second]) {
+      const r = await enrolInClass({ classId: s.id, name: "Siti Both", phone: `0176${String(seq).padStart(3, "0")}111`, email: both });
+      if (!r.ok) throw new Error(r.error);
+    }
+    const ms = await enrolInClass({ classId: first.id, name: "Mira Melayu", phone: `0176${String(seq).padStart(3, "0")}222`, email: malay });
+    if (!ms.ok) throw new Error(ms.error);
+    await getDb().prepare("UPDATE bookings SET locale = 'ms' WHERE id = ?").run(ms.booking.id);
+    // No address, no email: nobody else is reached.
+    await enrol(second.id, 3);
+
+    const done = await changeClass(first.id, { instructor: "Farah", series: true });
+    expect(done).toMatchObject({ ok: true, told: 2 });
+    const [toBoth] = await mail(both);
+    expect(await mail(both)).toHaveLength(1);
+    expect(toBoth).toMatchObject({ channel: "email", locale: "en" });
+    expect(toBoth.body).toContain("Hi Siti");
+    expect(toBoth.body).toContain("Its instructor is now Farah (it was Aina).");
+    expect(toBoth.body).toContain("2 weekly sessions, the first");
+    const [toMalay] = await mail(malay);
+    expect(toMalay.locale).toBe("ms");
+    expect(toMalay.body).toContain("Pengajarnya kini Farah (dahulu Aina).");
+    expect(toMalay.body).toContain(ms.booking.code);
+
+    // A new name is a change of its own: told again, once.
+    expect(await changeClass(first.id, { name: "Pilates Flow" })).toMatchObject({ ok: true, told: 2 });
+    const renamed = (await mail(both)).at(-1)!;
+    expect(renamed.subject).toContain("Pilates Flow");
+    expect(renamed.body).toContain(`It is now called Pilates Flow (it was ${first.name}).`);
+    expect(renamed.body).not.toContain("weekly sessions");
+
+    // Price and places tell nobody.
+    expect(await changeClass(first.id, { price: 35, series: true })).toMatchObject({ ok: true, told: 0 });
+    expect(await changeClass(first.id, { capacity: 4 })).toMatchObject({ ok: true, told: 0 });
+    expect(await mail(both)).toHaveLength(2);
+    expect(await mail(malay)).toHaveLength(2);
+  });
+
+  it("tells somebody holding an offer of a place, with the offer's link; not somebody still waiting", async () => {
+    const [session] = await aClass({ capacity: 1 });
+    await enrol(session.id, 1);
+    const offered = `offered-${seq}@class.my`;
+    const waiting = `waiting-${seq}@class.my`;
+    expect((await joinClassWaitlist({ classId: session.id, name: "Olivia Offer", phone: "0170000881", email: offered })).ok).toBe(true);
+    expect((await joinClassWaitlist({ classId: session.id, name: "Wira Wait", phone: "0170000882", email: waiting, locale: "zh" })).ok).toBe(true);
+    // One more place: the first in line is offered it.
+    expect(await changeClass(session.id, { capacity: 2 })).toMatchObject({ ok: true, offered: 1, told: 0 });
+    const token = ((await getDb().prepare("SELECT offer_token FROM waitlist WHERE class_id = ? AND status = 'offered'").get(session.id)) as { offer_token: string }).offer_token;
+
+    const res = await patch(session.id, { instructor: "Farah" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).told).toBe(1);
+    const [toOffered] = await mail(offered);
+    expect(toOffered.body).toContain("offered a place in");
+    expect(toOffered.body).toContain(`/waitlist/${token}`);
+    expect(await mail(waiting)).toHaveLength(0);
+  });
+});

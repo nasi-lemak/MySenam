@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readMinute } from "@/lib/api";
 import { isMinute } from "@/lib/interval";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
-import { tellOwners } from "@/lib/owner-alerts";
+import { tellOwnersEach } from "@/lib/owner-alerts";
 import { markDetailsChecked } from "@/lib/setup";
 import { getVenue, setVenueAmenities, setVenuePin, updateVenue } from "@/lib/store";
 import { isAmenity } from "@/lib/facilities";
@@ -161,21 +161,20 @@ export async function PATCH(
   // but the platform owner hears about it, so a venue cannot quietly become
   // "AAA Best Courts" or borrow a better-known name.
   if (!isOwner(admin) && before && before.name !== result.venue.name)
-    await tellOwners(
-      `${before.name} is now called ${result.venue.name}`,
-      `${admin.email} renamed "${before.name}" to "${result.venue.name}".`
-    );
+    await tellOwnersEach((t) => ({
+      subject: t("r9d.renamed.s", { old: before.name, name: result.venue.name }),
+      body: t("r9d.renamed.b", { email: admin.email, old: before.name, name: result.venue.name }),
+    }));
   if (pin) {
     const moved = await setVenuePin(venueId, pin);
     // Where a live venue says it is was checked when it went live. Moving the
     // pin a street is a correction; moving it across town is a different
     // place, and the platform owner hears of it.
     if (!isOwner(admin) && before?.publishedAt && moved !== null && moved > FAR_FROM_ADDRESS_M)
-      await tellOwners(
-        `${result.venue.name} moved its pin ${formatDistance(moved)}`,
-        `${admin.email} moved ${result.venue.name}'s pin on the map by ${formatDistance(moved)}. ` +
-          `Its address is now "${result.venue.address}".`
-      );
+      await tellOwnersEach((t) => ({
+        subject: t("r9d.pin.s", { venue: result.venue.name, distance: formatDistance(moved) }),
+        body: t("r9d.pin.b", { email: admin.email, venue: result.venue.name, distance: formatDistance(moved), address: result.venue.address }),
+      }));
     return NextResponse.json({ venue: (await getVenue(venueId)) ?? result.venue });
   }
   return NextResponse.json({ venue: amenities ? ((await getVenue(venueId)) ?? result.venue) : result.venue });

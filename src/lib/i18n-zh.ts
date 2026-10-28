@@ -2678,6 +2678,13 @@ export const ZH: Record<Phrase, string> = {
   "r9a.page.save": "设置密码并登录",
   "r9a.page.done": "您的密码已设置，且已登录。",
   "r9a.page.expired": "请邀请您的人重新发送。",
+  "r9d.msg.classChangedSubject": "{what} 有变更 — {venue}",
+  "r9d.msg.classChanged": "{name}您好，{venue} 更改了您的课程（{when}）。{changes}\n\n您的名额和价格保持不变。\n\n代码：{code}",
+  "r9d.msg.classChangedOffered": "{name}您好，{venue} 更改了为您保留名额的课程（{when}）。{changes}\n\n在名额邀请到期之前，名额仍为您保留：{link}",
+  "r9d.msg.newName": "课程现名为 {name}（原名 {old}）。",
+  "r9d.msg.newInstructor": "教练现为 {instructor}（原为 {old}）。",
+  "r9d.mail.tourRenamed.s": "新名称：{t}",
+  "r9d.mail.tourRenamed.b": "{venue}的{old}现已更名为{t}。其他一切不变：您的报名保持原样。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

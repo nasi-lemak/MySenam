@@ -231,20 +231,37 @@ language, as before (`staffReaderLocale` in `src/lib/staff-locales.ts`,
   follows it whatever language its address names, and their lesson emails
   (booked, cancelled, moved, handed over: each coach in their own) and the
   emails asking them to review an application are written in it.
+- **Alerts to staff**: everything MySenam tells platform owners and a
+  venue's managers and staff by email on its own is written to each reader
+  in their own staff language, from the staff dictionaries
+  (`src/lib/staff-i18n/alerts.ts`, through `tellOwnersEach` and
+  `tellVenueStaffEach` in `src/lib/owner-alerts.ts`): a venue renamed, its
+  pin moved far, a pile of new courts or classes, a branch opened or a venue
+  asking to go live (its location warnings said as phrases), suspensions and
+  their lifting, unpaid invoices (the warning, being taken off, coming back),
+  reviews reported and hidden, a league or tournament result players could
+  not settle, refunds waiting, payment disputes (a customer's, to the venue;
+  one against the platform, to the owners), refunds made in a gateway's own
+  dashboard, a webhook address turned off, phone codes paused, low or used-up
+  WhatsApp credit, and the owners' *something broke* alerts (`raiseAlert`:
+  its subject and MySenam's own detail lines as phrases; an error's own text,
+  and the few subjects still given as English, as they came). Days are
+  written as staff screens write them (`2026-10-24`). What people typed (a
+  reason, a review, a dispute's note), names, amounts, providers' and
+  gateways' reasons and errors stay as given. The chat webhook
+  (`MYSENAM_ALERT_WEBHOOK`) stays in English.
 - Where one event tells several people (a lesson handed between coaches, an
-  application's reviewers, a two-factor reset's owners), each gets their own
-  message in their own language.
-- **Still in English:** the other emails to staff (alerts to platform owners
-  and to a venue's staff from `tellOwners` and `tellVenueStaff` in
-  `src/lib/owner-alerts.ts`, low WhatsApp credit), and what staff accounts
-  are made with: a manager gives the new account its password, and no
-  invitation is sent.
+  application's reviewers, a two-factor reset's owners, a venue's staff),
+  each gets their own message in their own language.
+- **Still in English:** what staff accounts are made with: a manager gives
+  the new account its password, and no invitation is sent.
 
 Tests: `tests/own-languages.test.ts` (each kind of message per recipient,
 the fallback, the routes, the coach's page and calendar),
 `tests/components/own-language.test.tsx` (the switch saving to the account,
 the dashboard following it, the pickers for alerts, coaches and the coach's
-own link).
+own link), `tests/staff-alert-languages.test.ts` (alerts to a venue's staff
+and to owners, each in their own language, and a broken thing's phrases).
 
 ## Tax (SST and GST)
 

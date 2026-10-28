@@ -2843,6 +2843,14 @@ const EN = {
   "r9a.page.save": "Set password and sign in",
   "r9a.page.done": "Your password is set and you are signed in.",
   "r9a.page.expired": "Ask whoever invited you to send it again.",
+  // A class's name or instructor changed, to those enrolled or offered a place (lib/notify.ts notifyClassChanged); a tournament renamed (r9d)
+  "r9d.msg.classChangedSubject": "A change to {what} — {venue}",
+  "r9d.msg.classChanged": "Hi {name}, {venue} has made a change to your class, {when}. {changes}\n\nYour place stays as it is, and so does its price.\n\nCode: {code}",
+  "r9d.msg.classChangedOffered": "Hi {name}, {venue} has made a change to the class you have been offered a place in, {when}. {changes}\n\nThe place is still held for you until the offer runs out: {link}",
+  "r9d.msg.newName": "It is now called {name} (it was {old}).",
+  "r9d.msg.newInstructor": "Its instructor is now {instructor} (it was {old}).",
+  "r9d.mail.tourRenamed.s": "A new name: {t}",
+  "r9d.mail.tourRenamed.b": "{old} at {venue} is now called {t}. Nothing else has changed: your entry stands as it was.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5634,6 +5642,13 @@ const MS: Record<Phrase, string> = {
   "r9a.page.save": "Tetapkan kata laluan dan log masuk",
   "r9a.page.done": "Kata laluan anda telah ditetapkan dan anda telah log masuk.",
   "r9a.page.expired": "Minta orang yang menjemput anda menghantarnya semula.",
+  "r9d.msg.classChangedSubject": "Perubahan pada {what} — {venue}",
+  "r9d.msg.classChanged": "Hai {name}, {venue} telah membuat perubahan pada kelas anda, {when}. {changes}\n\nTempat anda kekal, begitu juga harganya.\n\nKod: {code}",
+  "r9d.msg.classChangedOffered": "Hai {name}, {venue} telah membuat perubahan pada kelas yang anda ditawarkan tempat, {when}. {changes}\n\nTempat itu masih disimpan untuk anda sehingga tawaran tamat: {link}",
+  "r9d.msg.newName": "Namanya kini {name} (dahulu {old}).",
+  "r9d.msg.newInstructor": "Pengajarnya kini {instructor} (dahulu {old}).",
+  "r9d.mail.tourRenamed.s": "Nama baharu: {t}",
+  "r9d.mail.tourRenamed.b": "{old} di {venue} kini bernama {t}. Tiada perkara lain yang berubah: penyertaan anda kekal seperti sebelumnya.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

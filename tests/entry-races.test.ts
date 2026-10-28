@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.MYSENAM_DB = ":memory:";
 
@@ -9,7 +9,7 @@ import { getDb } from "../src/lib/db";
 import { createLeague, join } from "../src/lib/leagues";
 import { listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
-import { createTournament, enter, withdraw, type TournamentInput } from "../src/lib/tournaments";
+import { changeTournament, createTournament, enter, withdraw, type TournamentInput } from "../src/lib/tournaments";
 
 /**
  * Entries arriving at once (audit R8, X3-4): a tournament's places are
@@ -92,6 +92,67 @@ describe("a tournament's places, entered at once", () => {
     expect(out.ok).toBe(true);
     expect(late.every((r) => r.ok)).toBe(true);
     expect((await counts(id)).entered).toBe(2);
+  });
+
+  it("are never fewer than those entered when staff lower them as entries arrive", async () => {
+    // Under the same tournament row lock as an entry (changeTournament, enterAs): whichever comes second sees the first.
+    for (let round = 0; round < 4; round++) {
+      const id = await knockout(4);
+      for (let i = 0; i < 2; i++) expect(await enter(await player(), id)).toMatchObject({ ok: true, value: { status: "entered" } });
+      const target = 2 + (round % 2);
+      const racers = [await player(), await player()];
+      const [lowered, ...entries] = await Promise.all([changeTournament(id, { maxEntries: target }), ...racers.map((p) => enter(p, id))]);
+      expect(entries.every((r) => r.ok)).toBe(true);
+      const { max } = (await getDb().prepare("SELECT max_entries AS max FROM tournaments WHERE id = ?").get(id)) as { max: number };
+      const c = await counts(id);
+      expect(c.entered).toBeLessThanOrEqual(max);
+      expect((c.entered ?? 0) + (c.waitlisted ?? 0)).toBe(4);
+      if (lowered.ok) expect(max).toBe(target);
+      else {
+        expect(lowered.error).toMatch(/have entered: it cannot take fewer than that\.$/);
+        expect(max).toBe(4);
+      }
+    }
+  });
+
+  it("lowered while an entry is being written, waits for it and then refuses to go below it", async () => {
+    const id = await knockout(4);
+    for (let i = 0; i < 2; i++) expect(await enter(await player(), id)).toMatchObject({ ok: true, value: { status: "entered" } });
+    // The third entry is held after it is written and before it is committed, its lock on the tournament held.
+    let written!: () => void;
+    let release!: () => void;
+    const inside = new Promise<void>((r) => (written = r));
+    const held = new Promise<void>((r) => (release = r));
+    const db = getDb();
+    const real = db.prepare.bind(db);
+    const spy = vi.spyOn(db, "prepare").mockImplementation((sql: string) => {
+      const statement = real(sql);
+      if (!/INSERT INTO tournament_entries/.test(sql)) return statement;
+      return {
+        ...statement,
+        run: async (...params: unknown[]) => {
+          const done = await statement.run(...params);
+          written();
+          await held;
+          return done;
+        },
+      };
+    });
+    try {
+      const third = enter(await player(), id);
+      await inside;
+      spy.mockRestore();
+      const lowered = changeTournament(id, { maxEntries: 2 });
+      await new Promise((r) => setTimeout(r, 100));
+      release();
+      expect(await third).toMatchObject({ ok: true, value: { status: "entered" } });
+      expect(await lowered).toMatchObject({ ok: false, error: "3 have entered: it cannot take fewer than that." });
+    } finally {
+      spy.mockRestore();
+      release();
+    }
+    expect(await counts(id)).toEqual({ entered: 3 });
+    expect(((await getDb().prepare("SELECT max_entries AS max FROM tournaments WHERE id = ?").get(id)) as { max: number }).max).toBe(4);
   });
 
   it("the same player entering twice at once is in once", async () => {

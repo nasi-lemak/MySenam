@@ -131,13 +131,24 @@ in `src/lib/tournaments.ts`), under the tournament's row lock:
   they had closed (by hand or on the old last day);
 - **how many entries** it takes: more take entries off the waiting list in
   the order they came, each told as when somebody withdraws; fewer never
-  below those already entered;
+  below those already entered, counted under the same row lock every entry
+  takes (`enterAs`), so a cut and an entry at the same moment never leave
+  more entered than places (`tests/entry-races.test.ts`, on Postgres too);
 - the **entry fee for new entries**. Each entry keeps the fee it was made at
   (`tournament_entries.fee`, migration 0238; entries made before took their
   tournament's fee then): what it owes and pays online
   (`startEntryPayment`), what the counter's receipt says when it is marked
   paid, and what players see to pay. Nothing already entered, paid or not,
   is repriced.
+
+Who is told: a **new name** is emailed once to every entry entered or
+waiting that an account holds (*A new name: …*, saying what it was), so the
+next email under it is no surprise; those just taken off the waiting list
+hear it in the email saying they are in. Nothing else is told, as nothing
+else changes what an entrant signed up for: the last day for entries
+matters to people not yet entered, the fee is for new entries, more places
+reach those waiting through their own email, and the description is the
+venue's text, which players read on the page.
 
 Its days, hours, courts, format and who may enter are not changed here
 (the rules, until the draw, under *Scoring and ranking*). After the draw it

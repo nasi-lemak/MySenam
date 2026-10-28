@@ -6,7 +6,7 @@ import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { registerUser } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
-import { tellOwners, tellVenueStaff } from "../src/lib/owner-alerts";
+import { tellOwnersEach, tellVenueStaffEach } from "../src/lib/owner-alerts";
 import { drainOutbox, listPlatformMessages, MESSAGES_PER_RECIPIENT_PER_DAY, retryMessage, setTransport, type OutboxMessage } from "../src/lib/outbox";
 import { requestReset, settleResetRequests } from "../src/lib/password-reset";
 import { listVenues } from "../src/lib/store";
@@ -55,7 +55,7 @@ afterEach(() => {
 describe("an alert to the platform's owners", () => {
   it("is queued for each owner, waits out a mail server that is down, and goes once it is back", async () => {
     down = true;
-    await tellOwners("Courts piled up at Hall X", "Hall X added 40 courts today.");
+    await tellOwnersEach(() => ({ subject: "Courts piled up at Hall X", body: "Hall X added 40 courts today." }));
     const queued = (await db().prepare("SELECT id FROM messages WHERE kind = 'staff_alert' AND subject = 'Courts piled up at Hall X'").all()) as { id: number }[];
     expect(queued.length).toBeGreaterThan(0);
     const id = queued[0].id;
@@ -75,7 +75,10 @@ describe("an alert to the platform's owners", () => {
   });
 
   it("is not held to the daily limit per recipient that protects customers", async () => {
-    for (let i = 0; i < MESSAGES_PER_RECIPIENT_PER_DAY + 3; i++) await tellOwners(`Alert ${i} ${++n}`, "Something to know.");
+    for (let i = 0; i < MESSAGES_PER_RECIPIENT_PER_DAY + 3; i++) {
+      const subject = `Alert ${i} ${++n}`;
+      await tellOwnersEach(() => ({ subject, body: "Something to know." }));
+    }
     const owner = (await listAdmins()).find((a) => a.venueId === null && a.businessId === null)!;
     const abandoned = (await db()
       .prepare("SELECT COUNT(*)::int AS n FROM messages WHERE kind = 'staff_alert' AND recipient = ? AND status = 'abandoned'")
@@ -87,7 +90,7 @@ describe("an alert to the platform's owners", () => {
     const venue = (await listVenues())[0];
     const desk = await createAdmin({ name: "Desk", email: `desk${++n}@alerts.my`, password: "desk-password", venueId: venue.id });
     if (!desk.ok) throw new Error(desk.error);
-    await tellVenueStaff(venue.id, "Your venue is suspended", "Reason given.");
+    await tellVenueStaffEach(venue.id, () => ({ subject: "Your venue is suspended", body: "Reason given." }));
     const m = (await db().prepare("SELECT venue_id FROM messages WHERE recipient = ? AND kind = 'staff_alert'").get(desk.admin.email)) as { venue_id: number };
     expect(m.venue_id).toBe(venue.id);
   });
@@ -169,7 +172,8 @@ describe("a password reset link", () => {
 
 describe("who sees the platform's own messages", () => {
   it("the owners do; a venue's staff do not, and cannot resend them", async () => {
-    await tellOwners(`Seen by owners ${++n}`, "x");
+    const seen = `Seen by owners ${++n}`;
+    await tellOwnersEach(() => ({ subject: seen, body: "x" }));
     const owner = (await listAdmins()).find((a) => a.venueId === null && a.businessId === null)!;
     const ownerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(owner.id)).token}`;
     const venue = (await listVenues())[0];

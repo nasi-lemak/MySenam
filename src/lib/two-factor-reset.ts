@@ -58,7 +58,7 @@ async function reset(target: Admin, entry: { by: Admin | null; reason: string })
     venueId: target.venueId,
     locale: own.locale,
   });
-  await tellOwnersEach((t) => ({
+  await tellOwnersEach(({ customer: t }) => ({
     subject: t("sl8.tfa.ownerSubject", { site, name: target.name }),
     body: t("sl8.tfa.ownerBody", { name: target.name, email: target.email, who: who(t), reason: entry.reason.trim() }),
   }));

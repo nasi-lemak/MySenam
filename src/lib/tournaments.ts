@@ -3255,6 +3255,21 @@ export async function changeTournament(id: number, change: TournamentChange): Pr
   const after = (await tournamentById(id))!;
   for (const entryId of done.value)
     await tellEntry(entryId, after, (tr) => tr("mail.tour.promoted.s", { t: after.name }), (tr) => tr("mail.tour.promoted.b", { t: after.name, venue: after.venueName }));
+  // A new name is told to everybody in it or waiting, once, so the next email under it is no surprise; the ones
+  // just promoted heard it already. A new deadline, places, fee or text is told to nobody (docs/features/tournaments.md).
+  if (before.name !== after.name) {
+    const told = (await db
+      .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND status IN ('entered', 'waitlisted') ORDER BY id")
+      .all(id)) as { id: number }[];
+    for (const { id: entryId } of told)
+      if (!done.value.includes(entryId))
+        await tellEntry(
+          entryId,
+          after,
+          (tr) => tr("r9d.mail.tourRenamed.s", { t: after.name }),
+          (tr) => tr("r9d.mail.tourRenamed.b", { t: after.name, old: before.name, venue: after.venueName })
+        );
+  }
   return { ok: true, value: { before, after, promoted: done.value } };
 }
 
