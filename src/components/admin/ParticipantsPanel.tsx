@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useT } from "@/components/Language";
 import { LOCALE_NAMES, offeredLocales, type Locale } from "@/lib/i18n";
 import type { ManagedVenue } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { PhoneCheckAdvice } from "./PhoneCheckAdvice";
 import { startingLanguage } from "./WaitlistJoin";
 
@@ -75,6 +75,7 @@ const EMPTY_EXCEPTION = { category: "guardian_unavailable", reason: "", reviewOn
  */
 export function ParticipantsPanel({ venues, role = "manager", owner = false }: { venues: ManagedVenue[]; role?: "manager" | "desk"; owner?: boolean }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const manager = role !== "desk";
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [phone, setPhone] = useState("");
@@ -372,7 +373,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
                     )}
                     {claimMade?.guardianId === g.id && (
                       <span role="status" className="block w-full rounded border border-emerald-200 bg-emerald-50 p-2 text-emerald-900">
-                        {t("gw5.pp.claimMade", { guardian: g.name, code: claimMade.code, date: new Date(claimMade.expiresAt).toLocaleDateString() })}
+                        {t("gw5.pp.claimMade", { guardian: g.name, code: claimMade.code, date: clock.day(claimMade.expiresAt, venueId) })}
                       </span>
                     )}
                   </li>
@@ -550,7 +551,7 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
                     {t("gv.g.code", {
                       adult: invitee.proposedName || invitee.email,
                       code: made.code,
-                      date: new Date(made.expiresAt).toLocaleDateString(),
+                      date: clock.day(made.expiresAt, venueId),
                       name: p.displayName,
                     })}
                   </p>

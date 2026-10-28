@@ -13,10 +13,10 @@ import type { Court, HireCondition } from "@/lib/types";
 import type { AdminBookingRow, BookingHit } from "@/lib/store";
 import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductions";
 import type { StaffT } from "@/lib/staff-i18n";
-import { localTime, todayLocal } from "./shared";
+import { todayLocal } from "./shared";
 import { clockTime, money, region } from "@/lib/region";
 import { isConcessionPreset } from "@/lib/concessions-shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 import PassAllocation, { passCodesOf, type AllocPass } from "@/components/PassAllocation";
 import type { PlanPlace } from "@/lib/pass-rules";
 import { errorText } from "@/lib/i18n";
@@ -644,7 +644,7 @@ export function BookingsTab() {
                   >
                     <span className="font-mono font-semibold">{h.code}</span>
                     <span>
-                      {h.date} {formatHour(h.startHour)}–{formatHour(h.endHour)}
+                      {h.date} {formatHour(h.startHour, t.locale)}–{formatHour(h.endHour, t.locale)}
                     </span>
                     <span className="text-slate-600">
                       {h.courtName}, {h.venueName}
@@ -771,11 +771,11 @@ export function BookingsTab() {
           }
           onDone={(booking) => {
             setChanging(null);
-            const when = { code: booking.code, date: booking.date, time: `${formatHour(booking.startHour)}–${formatHour(booking.endHour)}` };
+            const when = { code: booking.code, date: booking.date, time: `${formatHour(booking.startHour, t.locale)}–${formatHour(booking.endHour, t.locale)}` };
             setNotice(
               booking.paymentStatus === "paid"
                 ? t("bk.changedPaid", when)
-                : t("bk.changedToPay", { ...when, amount: money(booking.totalPrice.toFixed(2)) })
+                : t("bk.changedToPay", { ...when, amount: money(booking.totalPrice) })
             );
             load();
             window.dispatchEvent(new Event("attention:refresh"));
@@ -970,7 +970,7 @@ export function BookingsTab() {
                       {activityIcon(b.sport)} {b.courtName}
                     </div>
                     <div className="text-sm text-slate-500">
-                      {formatHour(b.startHour)} – {formatHour(b.endHour)} · {b.venueName}
+                      {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)} · {b.venueName}
                     </div>
                   </div>
                   <div className="text-right">
@@ -1031,7 +1031,7 @@ export function BookingsTab() {
                       {activityIcon(b.sport)} {b.courtName}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
-                      {formatHour(b.startHour)} – {formatHour(b.endHour)}
+                      {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
                     </td>
                     <td className="px-3 py-2">
                       {b.participantName ? t("apr.child.bookedFor", { name: b.participantName, adult: b.name }) : b.name}
@@ -1352,6 +1352,7 @@ function NoShowBadge({ b }: { b: AdminBookingRow }) {
 
 function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
   // Held for payment online: it goes by itself if not paid in time.
   if (b.paymentStatus === "unpaid" && b.holdUntil)
@@ -1360,7 +1361,7 @@ function PaymentChip({ b, act }: { b: AdminBookingRow; act: Act }) {
         title={t("bk.heldTitle")}
         className={`${CHIP} bg-amber-50 text-amber-700 ring-1 ring-amber-200`}
       >
-        {t("bk.heldTill", { time: localTime(b.holdUntil) })}
+        {t("bk.heldTill", { time: clock.time(b.holdUntil, b.venueId) })}
       </span>
     );
   // Nothing to take: a free court (a condominium's, say) owes nothing.
@@ -1606,6 +1607,7 @@ function MethodPicker({
 
 function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
   if (b.checkedInAt)
     return (
@@ -1613,8 +1615,8 @@ function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
         onClick={() => act.toggleCheckIn(b.code, !b.checkedOutAt)}
         title={
           b.checkedOutAt
-            ? t("bk.leftAt", { time: localTime(b.checkedOutAt) })
-            : t("bk.arrived", { time: localTime(b.checkedInAt) })
+            ? t("bk.leftAt", { time: clock.time(b.checkedOutAt, b.venueId) })
+            : t("bk.arrived", { time: clock.time(b.checkedInAt, b.venueId) })
         }
         className={`${CHIP} ${
           b.checkedOutAt
@@ -1622,7 +1624,7 @@ function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
             : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
         }`}
       >
-        {b.checkedOutAt ? t("bk.left", { time: localTime(b.checkedOutAt) }) : t("bk.in", { time: localTime(b.checkedInAt) })}
+        {b.checkedOutAt ? t("bk.left", { time: clock.time(b.checkedOutAt, b.venueId) }) : t("bk.in", { time: clock.time(b.checkedInAt, b.venueId) })}
       </button>
     );
   return (
@@ -1769,6 +1771,7 @@ function PlaceConcessionCheck({ b, act, id, concession, name, amount }: { b: Adm
 
 function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   if (b.hire === null && (b.courtDeposit === 0 || b.status !== "confirmed")) return null;
   if (b.hire === null)
     return (
@@ -1784,7 +1787,7 @@ function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
     return (
       <button
         onClick={() => act.openKit(b, "return")}
-        title={t("bk.outTitle", { time: localTime(b.hire.takenAt), amount: money(b.hire.deposit) })}
+        title={t("bk.outTitle", { time: clock.time(b.hire.takenAt, b.venueId), amount: money(b.hire.deposit) })}
         className={`${CHIP} bg-amber-100 text-amber-800 hover:bg-amber-200`}
       >
         {t("bk.out", { amount: money(b.hire.deposit) })}

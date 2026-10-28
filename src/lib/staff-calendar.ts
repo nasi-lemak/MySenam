@@ -1,11 +1,13 @@
 import crypto from "crypto";
 import { fold, icsText, toUtcStamp } from "./booking-links";
 import { getDb } from "./db";
-import { money } from "./region";
+import { clockRange, money } from "./region";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
 import { addDays, todayISO } from "./time";
-import { formatMinute } from "./interval";
+import { linkIn } from "./link-locale";
+import { staffLocale, staffLocales, staffTranslator, STAFF_LOCALES, type StaffLocale } from "./staff-i18n";
+import type { Locale } from "./i18n";
 import { venueZoneOf } from "./zones";
 
 /**
@@ -36,9 +38,19 @@ export async function setFeed(venueId: number, on: boolean): Promise<string | nu
   return token;
 }
 
-/** The address to subscribe to, on the venue's own domain where it has one. */
-export async function feedUrl(venueId: number, token: string): Promise<string> {
-  return `${await venueBaseUrl(venueId)}/api/calendar/${token}.ics`;
+/**
+ * The address to subscribe to, on the venue's own domain where it has one,
+ * naming the staff language its words and times are in (`?lang=`), where one
+ * is given: the language of whoever turned the feed on or looked it up.
+ */
+export async function feedUrl(venueId: number, token: string, locale?: StaffLocale): Promise<string> {
+  const url = `${await venueBaseUrl(venueId)}/api/calendar/${token}.ics`;
+  return locale ? linkIn(url, locale) : url;
+}
+
+/** The feed's language from its address: one of the staff languages this install offers, else its first. */
+export function feedLocale(raw: string | null | undefined): StaffLocale {
+  return typeof raw === "string" && (STAFF_LOCALES as readonly string[]).includes(raw) ? staffLocale(raw as Locale) : staffLocales()[0];
 }
 
 export async function venueForFeed(token: string): Promise<number | null> {
@@ -74,8 +86,14 @@ interface ClassRow {
   enrolled: number;
 }
 
-/** The venue's calendar file, now. */
-export async function staffCalendar(venueId: number): Promise<string> {
+/**
+ * The venue's calendar file, now. What people read (each event's title and
+ * description, the calendar's name) is in the staff language `locale`, times
+ * as it writes them; what calendar apps read (start, end, zone, ids) is as
+ * iCalendar has it.
+ */
+export async function staffCalendar(venueId: number, locale: StaffLocale = staffLocales()[0]): Promise<string> {
+  const t = staffTranslator(locale);
   const db = getDb();
   const venue = (await db.prepare("SELECT name, address, time_zone, lat, lng FROM venues WHERE id = ?").get(venueId)) as {
     name: string;
@@ -126,7 +144,7 @@ export async function staffCalendar(venueId: number): Promise<string> {
     "VERSION:2.0",
     `PRODID:-//${icsText(siteName())}//Staff calendar//EN`,
     "METHOD:PUBLISH",
-    `X-WR-CALNAME:${icsText(`${venue.name} bookings`)}`,
+    `X-WR-CALNAME:${icsText(t("tl7.ics.calName", { venue: venue.name }))}`,
     `X-WR-TIMEZONE:${zone}`,
     // Calendar apps that honour it look again every half hour.
     "REFRESH-INTERVAL;VALUE=DURATION:PT30M",
@@ -137,11 +155,11 @@ export async function staffCalendar(venueId: number): Promise<string> {
         b.date,
         Number(b.start_min),
         Number(b.end_min),
-        `${b.court_name}: ${b.participant_name ? `${b.participant_name}, booked by ${b.name}` : b.name}${b.coach_name ? `, lesson with ${b.coach_name}` : ""}${b.payment_status === "paid" || Number(b.total_price) === 0 ? "" : " (unpaid)"}`,
+        summaryOf(t, b),
         [
-          `${b.code}, ${formatMinute(Number(b.start_min))}–${formatMinute(Number(b.end_min))}`,
+          `${b.code}, ${clockRange(Number(b.start_min), Number(b.end_min), locale)}`,
           `${b.name}, ${b.phone}`,
-          `${money(Number(b.total_price))}, ${b.payment_status === "paid" ? "paid" : "not paid yet"}`,
+          t(b.payment_status === "paid" ? "tl7.ics.paid" : "tl7.ics.notPaid", { amount: money(Number(b.total_price)) }),
         ].join("\n")
       )
     ),
@@ -152,10 +170,17 @@ export async function staffCalendar(venueId: number): Promise<string> {
         Number(k.start_min),
         Number(k.end_min),
         `${k.name} (${k.enrolled}/${k.capacity})`,
-        `${k.court_name}, with ${k.instructor}. ${k.enrolled} of ${k.capacity} places taken.`
+        t("tl7.ics.class", { court: k.court_name, instructor: k.instructor, enrolled: k.enrolled, capacity: k.capacity })
       )
     ),
     "END:VCALENDAR",
   ];
   return lines.map(fold).join("\r\n") + "\r\n";
+}
+
+/** A booking's title: the court and who, the coach of a lesson, and "(unpaid)" while something is owed. */
+function summaryOf(t: ReturnType<typeof staffTranslator>, b: BookingRow): string {
+  let what = t("tl7.ics.summary", { court: b.court_name, who: b.participant_name ? t("tl7.ics.bookedBy", { participant: b.participant_name, name: b.name }) : b.name });
+  if (b.coach_name) what = t("tl7.ics.withCoach", { what, coach: b.coach_name });
+  return b.payment_status === "paid" || Number(b.total_price) === 0 ? what : t("tl7.ics.unpaid", { what });
 }

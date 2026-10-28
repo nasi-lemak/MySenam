@@ -366,12 +366,12 @@ describe("lessons given to another coach, and coaches the venue assigns", () => 
       await row.getByRole("button", { name: "Change time" }).click();
       await coachPick(manager.page).selectOption({ label: "Ben Tan" });
       const terms = manager.page.getByTestId("coach-terms");
-      await terms.getByText("Ana Lim's fee for this lesson: RM80.00. Ben Tan's: RM100.00.").waitFor();
+      await terms.getByText("Ana Lim's fee for this lesson: RM80. Ben Tan's: RM100.").waitFor();
       await terms.getByText("It is paid. Choose what happens to the price:").waitFor();
-      await terms.getByText("the venue absorbs the RM20.00 more the new coach costs, on the record.").waitFor();
+      await terms.getByText("the venue absorbs the RM20 more the new coach costs, on the record.").waitFor();
       // No time is offered until the money is decided.
       expect(await manager.page.getByRole("button", { name: /^10:00 AM–11:00 AM/ }).count()).toBe(0);
-      await terms.getByRole("radio", { name: /^Adjust it: RM20\.00 more owed by the customer, taken at the counter on a receipt of its own\./ }).check();
+      await terms.getByRole("radio", { name: /^Adjust it: RM20 more owed by the customer, taken at the counter on a receipt of its own\./ }).check();
       const { courtId } = await myLesson(customer, lesson1);
       const courtName = courtId === club.courtIds[0] ? "Court 1" : "Court 2";
       await manager.page.getByRole("button", { name: /^10:00 AM–11:00 AM/ }).filter({ hasText: courtName }).click();
@@ -434,8 +434,8 @@ describe("lessons given to another coach, and coaches the venue assigns", () => 
       await row.getByRole("button", { name: "Change time" }).click();
       await coachPick(manager.page).selectOption({ label: "Cara Ong" });
       const terms = manager.page.getByTestId("coach-terms");
-      await terms.getByText("Ana Lim's fee for this lesson: RM80.00. Cara Ong's: RM60.00.").waitFor();
-      await terms.getByRole("radio", { name: /^Adjust it: RM20\.00 back to the customer's credit, with a credit note\./ }).check();
+      await terms.getByText("Ana Lim's fee for this lesson: RM80. Cara Ong's: RM60.").waitFor();
+      await terms.getByRole("radio", { name: /^Adjust it: RM20 back to the customer's credit, with a credit note\./ }).check();
       const { courtId } = await myLesson(customer, lesson2);
       await manager.page.getByRole("button", { name: /^10:00 AM–11:00 AM/ }).filter({ hasText: courtId === club.courtIds[0] ? "Court 1" : "Court 2" }).click();
       await manager.page.getByTestId("move-preview").getByRole("button", { name: "Confirm" }).click();

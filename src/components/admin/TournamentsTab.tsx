@@ -3,7 +3,7 @@
 import { courtOffers } from "@/lib/court-activities";
 import { activityKeys } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
-import { localTime, todayLocal } from "./shared";
+import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { addDays } from "@/lib/time";
 import { formatMinute } from "@/lib/interval";
@@ -17,7 +17,7 @@ import type { MatchReport, Official } from "@/lib/match-reports";
 import { currencySymbol, money } from "@/lib/region";
 import type { RefusalBody } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { CounterEntry } from "./CounterEntry";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
@@ -178,7 +178,7 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
                 {competitions.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <span>
-                      <span className="font-medium">{c.name}</span> · {dates(t, c.startsOn, c.endsOn)}, {formatMinute(c.startMin)}–{formatMinute(c.endMin)} ·{" "}
+                      <span className="font-medium">{c.name}</span> · {dates(t, c.startsOn, c.endsOn)}, {formatMinute(c.startMin, t.locale)}–{formatMinute(c.endMin, t.locale)} ·{" "}
                       {t("tn.divisionCount", { n: list.filter((x) => x.competition?.id === c.id).length })}
                       {c.maxDivisionsPerPlayer !== null && ` · ${t("tn.upToPerPlayer", { n: c.maxDivisionsPerPlayer })}`} · <span className="text-slate-500">{statusLabel(t, c.status)}</span>
                     </span>
@@ -467,8 +467,8 @@ function Create({
             {t("tn.playedIn", {
               name: partOf.name,
               dates: dates(t, partOf.startsOn, partOf.endsOn),
-              from: formatMinute(partOf.startMin),
-              until: formatMinute(partOf.endMin),
+              from: formatMinute(partOf.startMin, t.locale),
+              until: formatMinute(partOf.endMin, t.locale),
               minutes: partOf.matchMinutes,
             })}
           </p>
@@ -1013,6 +1013,7 @@ function Manage({
   close: () => void;
 }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const names = new Map(tn.entries.map((e) => [e.id, e.name]));
   const base = `/api/admin/tournaments/${tn.id}`;
   const [said, setSaid] = useState<Said[]>([]);
@@ -1051,7 +1052,7 @@ function Manage({
             {tn.name} <span className="text-sm font-normal text-slate-500">· {statusLabel(t, tn.status)}</span>
           </h2>
           <p className="text-sm text-slate-500">
-            {dates(t, tn.startsOn, tn.endsOn)}, {formatMinute(tn.startMin)}–{formatMinute(tn.endMin)} ·{" "}
+            {dates(t, tn.startsOn, tn.endsOn)}, {formatMinute(tn.startMin, t.locale)}–{formatMinute(tn.endMin, t.locale)} ·{" "}
             {formatLabel(t, tn.format).toLowerCase()} · {tn.entryKind === "team" ? t("tn.kind.teams") : tn.teamSize === 2 ? t("tn.kind.doubles") : t("tn.kind.singles")} ·{" "}
             {money(tn.entryFee)} ·{" "}
             <a href={`/tournaments/${tn.id}`} target="_blank" rel="noopener" className="underline">
@@ -1303,7 +1304,7 @@ function Manage({
           <ul className="mt-1 space-y-1">
             {tn.corrections.map((c, i) => (
               <li key={i}>
-                {localTime(c.createdAt)} ·{" "}
+                {clock.time(c.createdAt, tn.venueId)} ·{" "}
                 {c.kind === "replace"
                   ? t("tn.corr.replace")
                   : c.kind === "stand"
@@ -1461,7 +1462,7 @@ function MatchRow({
   return (
     <li className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
       <span className="w-40 shrink-0 text-xs text-slate-500">
-        {m.date} {m.minute !== null && `${formatMinute(m.minute)}–${formatMinute(m.minute + m.minutes)}`} · {m.courtName ?? "—"}
+        {m.date} {m.minute !== null && `${formatMinute(m.minute, t.locale)}–${formatMinute(m.minute + m.minutes, t.locale)}`} · {m.courtName ?? "—"}
         <br />
         {label}
         {m.status === "scheduled" && m.date !== null && <MoveFixture m={m} venue={venue} save={save} />}
@@ -1731,7 +1732,7 @@ function HeatEntry({
       <h3 className="font-semibold">
         {unit}{" "}
         <span className="text-xs font-normal text-slate-500">
-          {m.date} {m.minute !== null && formatMinute(m.minute)} · {m.courtName} · {m.status === "done" ? t("tn.perf.resultsIn") : t("tn.perf.toCome")}
+          {m.date} {m.minute !== null && formatMinute(m.minute, t.locale)} · {m.courtName} · {m.status === "done" ? t("tn.perf.resultsIn") : t("tn.perf.toCome")}
         </span>
       </h3>
       <table className="mt-1 w-full">

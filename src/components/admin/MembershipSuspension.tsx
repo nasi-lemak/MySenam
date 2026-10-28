@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { Membership, MembershipSuspensionSummary } from "@/lib/types";
 import type { SuspensionView } from "@/lib/membership-suspensions";
 import { todayLocal } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /** A suspension that still matters today: in force now, or yet to start (not lifted before it began). */
 export function liveSuspension(m: Pick<Membership, "suspensions">, today: string): MembershipSuspensionSummary | null {
@@ -19,6 +19,7 @@ export function liveSuspension(m: Pick<Membership, "suspensions">, today: string
  */
 export function MembershipSuspension({ membership, onChanged }: { membership: Membership; onChanged: () => void }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const today = todayLocal();
   const [history, setHistory] = useState<SuspensionView[] | null>(null);
   const [form, setForm] = useState({ from: today, until: "", reason: "" });
@@ -93,9 +94,9 @@ export function MembershipSuspension({ membership, onChanged }: { membership: Me
                   : s.endsOn === null
                     ? t("ms7.cr.lineOpen", { from: s.from })
                     : t("ms7.cr.lineDated", { from: s.from, until: s.endsOn })}
-                {` · ${t("ms7.cr.suspendedBy", { name: s.by, date: s.at.slice(0, 10) })}: ${s.reason}`}
+                {` · ${t("ms7.cr.suspendedBy", { name: s.by, date: clock.day(s.at, membership.venueId) })}: ${s.reason}`}
                 {s.carried && ` · ${t("ms7.cr.carried")}`}
-                {s.liftedAt && ` · ${t("ms7.cr.liftedBy", { name: s.liftedBy ?? "", date: s.liftedAt.slice(0, 10) })}: ${s.liftReason ?? ""}`}
+                {s.liftedAt && ` · ${t("ms7.cr.liftedBy", { name: s.liftedBy ?? "", date: clock.day(s.liftedAt, membership.venueId) })}: ${s.liftReason ?? ""}`}
                 {s.extendedDays > 0 && ` · ${t.plural("ms7.cr.extended", s.extendedDays)}`}
                 {s.extensionNote && ` · ${t("ms7.cr.notMoved")}`}
               </li>

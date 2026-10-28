@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { Membership } from "@/lib/types";
 import type { CoverChangeView, CoverPlaces } from "@/lib/membership-purchases";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 const CHANGE_PHRASES = {
   named: "mb6.cr.named",
@@ -22,6 +22,7 @@ const CHANGE_PHRASES = {
  */
 export function MembershipCovers({ membership, venueId, onChanged }: { membership: Membership; venueId: number; onChanged: () => void }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [changes, setChanges] = useState<CoverChangeView[] | null>(null);
   const [places, setPlaces] = useState<CoverPlaces | null>(null);
   const [remove, setRemove] = useState<number>(membership.covers?.[0]?.id ?? 0);
@@ -71,7 +72,7 @@ export function MembershipCovers({ membership, venueId, onChanged }: { membershi
         <ul className="mt-1 space-y-0.5 whitespace-normal text-slate-600">
           {changes.map((c, i) => (
             <li key={i}>
-              {c.at.slice(0, 10)} · {t(CHANGE_PHRASES[c.change], { name: c.name ?? t("mb6.cr.someone") })}
+              {clock.day(c.at, venueId)} · {t(CHANGE_PHRASES[c.change], { name: c.name ?? t("mb6.cr.someone") })}
               {c.by && ` · ${t("mb6.cr.by", { name: c.by })}`}
               {c.reason && ` · ${c.reason}`}
             </li>

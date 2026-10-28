@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { OnlinePayment, PaymentDispute, PaymentSettings, RefundInFlight, RefundWorkload } from "@/lib/payments";
-import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { HoldPolicyEditor } from "./HoldPolicyEditor";
 import { money } from "@/lib/region";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * A venue's own online payment account, and what came through it.
@@ -19,6 +18,7 @@ import { useStaffT } from "./StaffLanguage";
  */
 export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   /** What a payment that is not for bookings was for. */
   const PURPOSES: Partial<Record<OnlinePayment["purpose"], string>> = {
     share: t("opay.purpose.share"),
@@ -276,7 +276,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                       ? d.outcome === "won"
                         ? t("opay.decidedKept")
                         : t("opay.decidedReturned")
-                      : `${t.known(`srv.dispute.status.${d.status}`) ?? d.status.replace(/_/g, " ")}${d.dueBy ? ` · ${t("opay.answerBy", { date: d.dueBy.slice(0, 10) })}` : ""}`}
+                      : `${t.known(`srv.dispute.status.${d.status}`) ?? d.status.replace(/_/g, " ")}${d.dueBy ? ` · ${t("opay.answerBy", { date: clock.day(d.dueBy, venueId) })}` : ""}`}
                   </span>
                 </span>
                 {!d.outcome && (
@@ -306,7 +306,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
                   name: r.payerName ?? t("opay.customer"),
                   amount: money(r.amount),
                   state: REFUND_STATE[r.state],
-                  since: localTime(r.since),
+                  since: clock.time(r.since, venueId),
                 })}
               </li>
             ))}
@@ -437,7 +437,7 @@ export function OnlinePaymentsPanel({ venues }: { venues: ManagedVenue[] }) {
               {payments.map((p) => (
                 <tr key={p.id}>
                   <td className="whitespace-nowrap px-3 py-2 text-slate-500">
-                    {p.createdAt.slice(0, 10)} {localTime(p.createdAt)}
+                    {clock.when(p.createdAt, venueId)}
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">{p.bookingCodes.join(", ")}</td>
                   <td className="px-3 py-2">{p.payerName}</td>

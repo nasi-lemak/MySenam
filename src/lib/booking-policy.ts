@@ -1,9 +1,9 @@
 import { getDb } from "./db";
-import { DAY_MINUTES, formatMinute, LATEST_MINUTE } from "./interval";
+import { DAY_MINUTES, LATEST_MINUTE } from "./interval";
 import { isActivity } from "./activities";
 import { MAX_COURT_HOURS, type Sport } from "./types";
 import { parseWeekHours } from "./week-hours";
-import { lengthText, said, type StaffText, type StaffValue } from "./staff-text";
+import { clockValue, lengthText, said, type StaffText, type StaffValue } from "./staff-text";
 import {
   SETTING_KEYS,
   TURNOVERS,
@@ -20,7 +20,7 @@ export * from "./booking-rules";
 /** `describePolicy` (lib/booking-rules.ts) as a phrase, for the staff screen in the staff language: the same words in English. */
 export function policySummary(p: BookingPolicy): StaffText {
   const starts = p.startTimes
-    ? said("srv.pol.startsAt", { times: p.startTimes.map((m) => formatMinute(m)).join(", ") })
+    ? said("srv.pol.startsAt", { times: p.startTimes.map(clockValue) })
     : p.startEvery === 60 && p.startOffset === 0
       ? said("srv.pol.onTheHour")
       : said("srv.pol.startsEvery", { length: lengthText(p.startEvery) });

@@ -432,7 +432,7 @@ export function RevocationFlags({ venueId }: { venueId: number }) {
         {flags.map((f) => (
           <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
             <span>
-              {t("apr.flags.line", { code: f.bookingCode, name: f.name, date: f.date, time: `${formatMinute(f.start)}–${formatMinute(f.end)}`, court: f.courtName })}
+              {t("apr.flags.line", { code: f.bookingCode, name: f.name, date: f.date, time: `${formatMinute(f.start, t.locale)}–${formatMinute(f.end, t.locale)}`, court: f.courtName })}
               {f.supervised ? ` · ${t("apr.flags.supervised")}` : ""}
             </span>
             <button type="button" onClick={() => void resolve(f)} className="rounded-md border border-amber-300 px-2 py-0.5 text-xs font-semibold text-amber-900">

@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Audience } from "@/lib/marketing";
-import { localTime } from "./shared";
 import type { ManagedVenue } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * News and offers by email to customers who asked for them (lib/marketing.ts):
@@ -13,6 +12,7 @@ import { useStaffT } from "./StaffLanguage";
  */
 export function MarketingPanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [data, setData] = useState<Audience | null>(null);
   const [subject, setSubject] = useState("");
@@ -120,7 +120,7 @@ export function MarketingPanel({ venues }: { venues: ManagedVenue[] }) {
             <li key={c.id} className="p-2">
               <p className="font-medium">{c.subject}</p>
               <p className="text-xs text-slate-500">
-                {c.sentAt.slice(0, 10)} {localTime(c.sentAt)} · {t("mkt.sentTo", { n: c.recipients })}
+                {clock.when(c.sentAt, venueId)} · {t("mkt.sentTo", { n: c.recipients })}
                 {c.sentBy && ` · ${t("mkt.sentBy", { name: c.sentBy })}`}
               </p>
             </li>

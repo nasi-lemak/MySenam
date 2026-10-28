@@ -2535,6 +2535,8 @@ export const TA: Record<Phrase, string> = {
   // Round 7 (H7): a lesson paid from stored credit, as a court is
   "rg7.lesson.paidFromCredit": "உங்கள் கிரெடிட் இருப்பிலிருந்து செலுத்தப்பட்டது.",
   "rg7.lesson.creditNotUsed": "உங்கள் கிரெடிட் இருப்பிலிருந்து செலுத்த முடியவில்லை, எனவே இன்னும் செலுத்தப்படவில்லை.",
+  "tl7.coachCal.name": "{venue} இல் பயிற்சி வகுப்புகள்",
+  "tl7.coachCal.lesson": "பயிற்சி வகுப்பு: {student}, {court}",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

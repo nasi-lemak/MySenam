@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { TwoFactorStatus } from "@/lib/two-factor";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * This staff account's two-factor sign-in: set up with an authenticator app,
@@ -10,6 +10,7 @@ import { useStaffT } from "./StaffLanguage";
  */
 export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; onChange: (s: TwoFactorStatus) => void }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [setup, setSetup] = useState<{ secret: string; qr: string } | null>(null);
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState<string[] | null>(null);
@@ -59,7 +60,7 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
       ) : status.enabled ? (
         <div className="mt-2 space-y-2">
           <p className="text-slate-600">
-            {t("tfa.onSince", { date: status.enabledAt?.slice(0, 10) ?? "", n: status.recoveryLeft })}
+            {t("tfa.onSince", { date: status.enabledAt ? clock.day(status.enabledAt) : "", n: status.recoveryLeft })}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input aria-label={t("tfa.code")} inputMode="numeric" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} className={input} />

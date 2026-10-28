@@ -296,6 +296,14 @@ is *Court 1: Name (unpaid)* with its code, times, number and amount. Each class
 is *Yoga Flow (6/8)*. Cancelled bookings drop off at the next refresh, which
 the feed asks for every 30 minutes.
 
+- What people read (each event's title and description, the calendar's
+  name) is in the staff language the address names (`?lang=ms`), with times
+  as that language writes them: the address the dashboard shows names the
+  language of whoever turned the feed on or looked it up. A language staff
+  screens do not have, or none, gives the install's first. What calendar
+  apps read (start, end, zone, ids) is the same in every language
+  ([times for staff](../product/regions-and-tax.md); `tests/staff-times.test.ts`).
+
 - The address is `/api/calendar/<token>.ics` on the venue's own domain where
   it has one. A calendar app cannot sign in, so the long random token is the
   key. It shows customers' names and numbers, so *Make a new address* replaces

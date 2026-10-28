@@ -79,7 +79,7 @@ export function PlanTiersEditor({
               return (
                 <li key={tier.name} className="rounded-lg border border-slate-200 px-3 py-2">
                   <p className="font-semibold">{tier.name}</p>
-                  <p className="text-lg font-bold text-teal-700">{money(tier.monthlyFee.toFixed(2))}</p>
+                  <p className="text-lg font-bold text-teal-700">{money(tier.monthlyFee)}</p>
                   <p className="text-xs text-slate-500">
                     {tier.upTo === null
                       ? t("tier.rangeMore", { from })

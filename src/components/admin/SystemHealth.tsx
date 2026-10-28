@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { SystemAlert } from "@/lib/alerts";
-import { localTime } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * What has broken lately, for the platform owner: shown only when something
@@ -11,6 +10,7 @@ import { useStaffT } from "./StaffLanguage";
  */
 export function SystemHealth() {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [state, setState] = useState<{ alerts: SystemAlert[]; scheduler: { enabled: boolean; alive: boolean } } | null>(null);
 
   useEffect(() => {
@@ -46,7 +46,7 @@ export function SystemHealth() {
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <span className="font-semibold">
                 {t.say(a.subjectPhrase, a.subject)} <span className="font-normal text-red-700">
-                  · {t("sys.countLast", { n: a.count, date: a.lastAt.slice(0, 10), time: localTime(a.lastAt) })}
+                  · {t("sys.countLast", { n: a.count, date: clock.day(a.lastAt), time: clock.time(a.lastAt) })}
                 </span>
               </span>
               <button onClick={() => clear(a.key)} className="text-xs font-semibold text-red-800 underline">

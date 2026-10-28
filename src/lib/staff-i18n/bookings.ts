@@ -595,6 +595,15 @@ const en = {
   "cp7.opay.coach": "difference for a dearer coach",
   "ms7.bk.warnSuspended": "{name}'s membership is suspended on {date}.",
   "ms7.bk.flagSuspended": "membership suspended",
+  // The staff calendar feed's words (lib/staff-calendar.ts), in the language its address names.
+  "tl7.ics.calName": "{venue} bookings",
+  "tl7.ics.summary": "{court}: {who}",
+  "tl7.ics.bookedBy": "{participant}, booked by {name}",
+  "tl7.ics.withCoach": "{what}, lesson with {coach}",
+  "tl7.ics.unpaid": "{what} (unpaid)",
+  "tl7.ics.paid": "{amount}, paid",
+  "tl7.ics.notPaid": "{amount}, not paid yet",
+  "tl7.ics.class": "{court}, with {instructor}. {enrolled} of {capacity} places taken.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1174,6 +1183,14 @@ const ms: Record<keyof typeof en, string> = {
   "cp7.opay.coach": "perbezaan bagi jurulatih yang lebih mahal",
   "ms7.bk.warnSuspended": "Keahlian {name} digantung pada {date}.",
   "ms7.bk.flagSuspended": "keahlian digantung",
+  "tl7.ics.calName": "Tempahan {venue}",
+  "tl7.ics.summary": "{court}: {who}",
+  "tl7.ics.bookedBy": "{participant}, ditempah oleh {name}",
+  "tl7.ics.withCoach": "{what}, kelas bersama {coach}",
+  "tl7.ics.unpaid": "{what} (belum dibayar)",
+  "tl7.ics.paid": "{amount}, sudah dibayar",
+  "tl7.ics.notPaid": "{amount}, belum dibayar",
+  "tl7.ics.class": "{court}, bersama {instructor}. {enrolled} daripada {capacity} tempat telah diambil.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1753,6 +1770,14 @@ const zh: Record<keyof typeof en, string> = {
   "cp7.opay.coach": "较贵教练的差额",
   "ms7.bk.warnSuspended": "{name}的会员资格于 {date} 处于暂停状态。",
   "ms7.bk.flagSuspended": "会员资格已暂停",
+  "tl7.ics.calName": "{venue} 的预订",
+  "tl7.ics.summary": "{court}：{who}",
+  "tl7.ics.bookedBy": "{participant}，由 {name} 预订",
+  "tl7.ics.withCoach": "{what}，与 {coach} 上课",
+  "tl7.ics.unpaid": "{what}（未付款）",
+  "tl7.ics.paid": "{amount}，已付款",
+  "tl7.ics.notPaid": "{amount}，尚未付款",
+  "tl7.ics.class": "{court}，教练 {instructor}。已报名 {enrolled} 人，共 {capacity} 个名额。",
 };
 
 const area = { en, ms, zh };

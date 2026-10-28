@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
 import type { StaffText } from "@/lib/staff-text";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 interface Row {
   number: string;
@@ -26,6 +26,7 @@ interface Row {
  */
 export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [rows, setRows] = useState<Row[] | null>(null);
 
@@ -69,7 +70,7 @@ export function ReceiptsPanel({ venues }: { venues: ManagedVenue[] }) {
                       {r.number}
                     </a>
                   </td>
-                  <td className="py-1.5 pr-2 text-xs text-slate-500">{r.issuedAt.slice(0, 10)}</td>
+                  <td className="py-1.5 pr-2 text-xs text-slate-500">{clock.day(r.issuedAt, venueId)}</td>
                   <td className="py-1.5 pr-2">{r.customer}</td>
                   <td className="py-1.5 pr-2 text-slate-600">
                     {t.say(r.descriptionPhrase, r.description)}

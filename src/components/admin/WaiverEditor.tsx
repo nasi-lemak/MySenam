@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * The venue's waiver (lib/waivers.ts): the words customers agree to before
@@ -9,6 +9,7 @@ import { useStaffT } from "./StaffLanguage";
  */
 export function WaiverEditor({ venueId }: { venueId: number }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [saved, setSaved] = useState<{ since: string | null; signed: number }>({ since: null, signed: 0 });
@@ -18,7 +19,7 @@ export function WaiverEditor({ venueId }: { venueId: number }) {
 
   function take(data: { waiver: { text: string; createdAt: string } | null; signed: number }) {
     setText(data.waiver?.text ?? "");
-    setSaved({ since: data.waiver?.createdAt.slice(0, 10) ?? null, signed: data.signed });
+    setSaved({ since: data.waiver?.createdAt ?? null, signed: data.signed });
   }
 
   useEffect(() => {
@@ -54,7 +55,7 @@ export function WaiverEditor({ venueId }: { venueId: number }) {
         <div className="mt-2 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-xs text-slate-500">{t("wv.intro")}</p>
           {saved.since && (
-            <p className="text-xs text-slate-600">{t.plural("wv.agreed", saved.signed, { since: saved.since })}</p>
+            <p className="text-xs text-slate-600">{t.plural("wv.agreed", saved.signed, { since: clock.day(saved.since, venueId) })}</p>
           )}
           <textarea
             aria-label={t("wv.label")}

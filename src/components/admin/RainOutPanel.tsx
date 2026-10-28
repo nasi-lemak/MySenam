@@ -107,7 +107,7 @@ export function RainOutPanel({
             <select value={from} onChange={(e) => { setPreview(null); setFrom(Number(e.target.value)); }} className={select}>
               {hours.map((h) => (
                 <option key={h} value={h}>
-                  {formatHour(h)}
+                  {formatHour(h, t.locale)}
                 </option>
               ))}
             </select>
@@ -116,7 +116,7 @@ export function RainOutPanel({
             <select value={until} onChange={(e) => { setPreview(null); setUntil(Number(e.target.value)); }} className={select}>
               {hours.map((h) => h + (hours[1] !== undefined ? hours[1] - hours[0] : 1)).map((h) => (
                 <option key={h} value={h}>
-                  {formatHour(h)}
+                  {formatHour(h, t.locale)}
                 </option>
               ))}
             </select>
@@ -136,7 +136,7 @@ export function RainOutPanel({
                   : preview.bookings.length > 0
                     ? "rain.previewList"
                     : "rain.preview",
-                { list: preview.bookings.map((b) => `${formatHour(b.startHour)} ${b.name}`).join(", ") }
+                { list: preview.bookings.map((b) => `${formatHour(b.startHour, t.locale)} ${b.name}`).join(", ") }
               ),
               {
                 // The counts in bold: the phrase for each, with its number left to put in.

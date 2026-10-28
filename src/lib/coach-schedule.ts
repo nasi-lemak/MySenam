@@ -6,7 +6,9 @@ import { coachById, type Coach } from "./coaching";
 import { getDb } from "./db";
 import { toCsv } from "./export";
 import { enqueue } from "./outbox";
-import { money, roundMoney } from "./region";
+import { clockRange, money, roundMoney } from "./region";
+import { isLocale, offeredLocales, translator, type Locale } from "./i18n";
+import { staffLocales } from "./staff-locales";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
 import { addDays, formatHour, todayISO } from "./time";
@@ -152,8 +154,28 @@ export async function coachLessons(coachId: number, from: string, until: string)
   }));
 }
 
-/** Their lessons as a calendar file, from a week back to as far ahead as anybody can book. */
-export async function coachCalendar(found: CoachByToken, venueId: number): Promise<string> {
+/** A coach's calendar's language from its address (`?lang=`): one this install offers, else its first. */
+export function coachFeedLocale(raw: string | null | undefined): Locale {
+  return isLocale(raw) && offeredLocales().includes(raw) ? raw : (offeredLocales()[0] ?? "en");
+}
+
+/**
+ * The language MySenam writes to coaches in: the install's first staff
+ * language, since a coach has no language of their own on record. Times in
+ * it are written as it writes them.
+ */
+export function coachLocale(): Locale {
+  return staffLocales()[0];
+}
+
+/**
+ * Their lessons as a calendar file, from a week back to as far ahead as
+ * anybody can book. What people read is in `locale` (the language the coach's
+ * page linked it in), times as it writes them; what calendar apps read is as
+ * iCalendar has it.
+ */
+export async function coachCalendar(found: CoachByToken, venueId: number, locale: Locale = coachFeedLocale(null)): Promise<string> {
+  const t = translator(locale);
   const today = todayISO(found.zone);
   const lessons = await coachLessons(found.coach.id, addDays(today, -DAYS_BACK), addDays(today, DAYS_AHEAD));
   const host = new URL(await venueBaseUrl(venueId)).host;
@@ -163,7 +185,7 @@ export async function coachCalendar(found: CoachByToken, venueId: number): Promi
     "VERSION:2.0",
     `PRODID:-//${icsText(siteName())}//Coach calendar//EN`,
     "METHOD:PUBLISH",
-    `X-WR-CALNAME:${icsText(`Lessons at ${found.venueName}`)}`,
+    `X-WR-CALNAME:${icsText(t("tl7.coachCal.name", { venue: found.venueName }))}`,
     `X-WR-TIMEZONE:${found.zone}`,
     "REFRESH-INTERVAL;VALUE=DURATION:PT30M",
     "X-PUBLISHED-TTL:PT30M",
@@ -173,8 +195,8 @@ export async function coachCalendar(found: CoachByToken, venueId: number): Promi
       `DTSTAMP:${stamp}`,
       `DTSTART:${toUtcStamp(l.date, l.startHour, found.zone)}`,
       `DTEND:${toUtcStamp(l.date, l.endHour, found.zone)}`,
-      `SUMMARY:${icsText(`Lesson: ${l.student}, ${l.court}`)}`,
-      `DESCRIPTION:${icsText(`${l.code}, ${formatHour(l.startHour)}–${formatHour(l.endHour)}\n${l.student}, ${l.phone}`)}`,
+      `SUMMARY:${icsText(t("tl7.coachCal.lesson", { student: l.student, court: l.court }))}`,
+      `DESCRIPTION:${icsText(`${l.code}, ${formatHour(l.startHour, locale)}–${formatHour(l.endHour, locale)}\n${l.student}, ${l.phone}`)}`,
       `LOCATION:${icsText(found.venueAddress)}`,
       "END:VEVENT",
     ]),
@@ -217,6 +239,7 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
     told: boolean;
   }[];
   let sent = 0;
+  const locale = coachLocale();
   for (const r of rows) {
     const cancelled = r.status === "cancelled";
     if (cancelled && !r.told) continue;
@@ -226,7 +249,7 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
       court: r.court,
       venue: r.venue,
       date: r.date,
-      time: `${formatHour(hoursOf(r.start_min))}–${formatHour(hoursOf(r.end_min))}`,
+      time: clockRange(r.start_min, r.end_min, locale),
       code: r.code,
     };
     await enqueue({
@@ -235,7 +258,7 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
       kind: "coach_lesson",
       channel: "email",
       recipient: r.email,
-      locale: "en",
+      locale,
       subject: cancelled ? "msg.coachCancelledSubject" : "msg.coachNewSubject",
       body: cancelled ? "msg.coachCancelled" : "msg.coachNew",
       dedupeKey: `${cancelled ? "coach-cancel" : "coach-new"}:${r.id}`,
@@ -269,7 +292,8 @@ export async function notifyLessonMoved(bookingId: number, was: { date: string; 
   if (!r || r.coach_id === null || !r.told || r.demo) return 0;
   const coaches = (await db.prepare("SELECT id, name, email FROM coaches WHERE id IN (?, ?)").all(r.coach_id, was.coachId)) as { id: number; name: string; email: string | null }[];
   const coach = (id: number) => coaches.find((k) => k.id === id);
-  const when = (start: number, end: number) => `${formatHour(hoursOf(start))}–${formatHour(hoursOf(end))}`;
+  const locale = coachLocale();
+  const when = (start: number, end: number) => clockRange(start, end, locale);
   const common = { student: r.name, court: r.court, venue: r.venue, code: r.code };
   const tell = async (to: { name: string; email: string | null } | undefined, subject: "fin6.msg.coachMovedSubject" | "msg.coachNewSubject" | "fin6.msg.coachHandedOverSubject", body: "fin6.msg.coachMoved" | "msg.coachNew" | "fin6.msg.coachHandedOver", vars: Record<string, string>) => {
     if (!to?.email) return 0;
@@ -279,7 +303,7 @@ export async function notifyLessonMoved(bookingId: number, was: { date: string; 
       kind: "coach_lesson",
       channel: "email",
       recipient: to.email,
-      locale: "en",
+      locale,
       subject,
       body,
       vars: { name: to.name.split(/\s+/)[0], ...common, ...vars },

@@ -13,8 +13,8 @@ vi.mock("next/headers", () => ({
 
 import { NextRequest } from "next/server";
 import { middleware } from "../src/middleware";
-import { LOCALES } from "../src/lib/i18n";
-import { LINK_LOCALE_HEADER, LINK_LOCALES, linkIn } from "../src/lib/link-locale";
+import { LOCALE_COOKIE, LOCALES } from "../src/lib/i18n";
+import { CHOSEN_LOCALE_COOKIE, LINK_LOCALE_COOKIE, LINK_LOCALE_HEADER, LINK_LOCALES, linkIn } from "../src/lib/link-locale";
 import { currentLocale } from "../src/lib/locale";
 import { notifyBookingConfirmed, notifyPaid, notifyPendingOffers, notifyVenueCancelled } from "../src/lib/notify";
 import { cancelBooking, claimWaitlistOffer, createBooking, joinSlotWaitlist, listVenues, setPaymentStatus } from "../src/lib/store";
@@ -57,6 +57,33 @@ describe("the parameter", () => {
     expect(forwarded("http://localhost/waitlist/abc123?lang=https%3A%2F%2Fevil.example")).toBeNull();
     expect(forwarded("http://localhost/waitlist/abc123", { [LINK_LOCALE_HEADER]: "zh" })).toBeNull();
     expect(forwarded("http://localhost/waitlist/abc123?lang=en", { [LINK_LOCALE_HEADER]: "zh" })).toBe("en");
+  });
+});
+
+describe("the pages reached from a link", () => {
+  const visit = (url: string, cookie?: string) => {
+    const res = middleware(new NextRequest(url, { headers: cookie ? { cookie } : {} }));
+    return { language: res.headers.get(`x-middleware-request-${LINK_LOCALE_HEADER}`), kept: res.cookies.get(LINK_LOCALE_COOKIE) };
+  };
+
+  it("keep the link's language for the visit, by a session cookie of its own, while nobody has chosen one", () => {
+    expect(CHOSEN_LOCALE_COOKIE).toBe(LOCALE_COOKIE);
+    const opened = visit("https://book.example.my/my-booking?lang=ms");
+    expect(opened.language).toBe("ms");
+    // Only the language; for the browser session (no expiry); not for scripts; sent back only over HTTPS here.
+    expect(opened.kept).toMatchObject({ name: LINK_LOCALE_COOKIE, value: "ms", path: "/", httpOnly: true, sameSite: "lax", secure: true });
+    expect(opened.kept?.maxAge).toBeUndefined();
+    expect(opened.kept?.expires).toBeUndefined();
+    // The next page, without the parameter, is in the link's language too.
+    expect(visit("https://book.example.my/venue/3", `${LINK_LOCALE_COOKIE}=ms`)).toEqual({ language: "ms", kept: undefined });
+    // A newer link's language replaces it.
+    expect(visit("https://book.example.my/receipt/R1?lang=zh", `${LINK_LOCALE_COOKIE}=ms`).kept?.value).toBe("zh");
+  });
+
+  it("never override a language chosen with the switch, and keep nothing that is not one of the four", () => {
+    expect(visit("https://book.example.my/my-booking?lang=ms", `${LOCALE_COOKIE}=zh`).kept).toBeUndefined();
+    expect(visit("https://book.example.my/my-booking?lang=fr").kept).toBeUndefined();
+    expect(visit("https://book.example.my/venue/3", `${LINK_LOCALE_COOKIE}=https%3A%2F%2Fevil.example`).language).toBeNull();
   });
 });
 

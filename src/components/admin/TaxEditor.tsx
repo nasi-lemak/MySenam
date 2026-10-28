@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { VenueTax } from "@/lib/tax";
 import type { DeductionReason, DeductionReview, DeductionTreatment } from "@/lib/deposit-deductions";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 type History = { kind: "changed" | "approved"; changed: Record<string, boolean | null> | null; reviewer: string | null; adminName: string | null; createdAt: string }[];
 
@@ -13,6 +13,7 @@ type History = { kind: "changed" | "approved"; changed: Record<string, boolean |
  */
 export function TaxEditor({ venueId }: { venueId: number }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [tax, setTax] = useState<VenueTax | null>(null);
   const [form, setForm] = useState({ name: "", rate: "", regNo: "" });
   const [error, setError] = useState<string | null>(null);
@@ -154,8 +155,8 @@ export function TaxEditor({ venueId }: { venueId: number }) {
           {review ? (
             <p className="mt-2 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
               {review.approvedBy
-                ? t("tax.reviewedRecorded", { reviewer: review.reviewer, date: review.approvedAt.slice(0, 10), by: review.approvedBy })
-                : t("tax.reviewed", { reviewer: review.reviewer, date: review.approvedAt.slice(0, 10) })}
+                ? t("tax.reviewedRecorded", { reviewer: review.reviewer, date: clock.day(review.approvedAt, venueId), by: review.approvedBy })
+                : t("tax.reviewed", { reviewer: review.reviewer, date: clock.day(review.approvedAt, venueId) })}
             </p>
           ) : (
             <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
@@ -205,7 +206,7 @@ export function TaxEditor({ venueId }: { venueId: number }) {
               <ul className="mt-1 space-y-0.5">
                 {history.map((h, i) => (
                   <li key={i}>
-                    {h.createdAt.slice(0, 16)} ·{" "}
+                    {clock.when(h.createdAt, venueId)} ·{" "}
                     {h.kind === "approved"
                       ? t("tax.histReviewed", { reviewer: h.reviewer ?? "" })
                       : t("tax.histChanged", {

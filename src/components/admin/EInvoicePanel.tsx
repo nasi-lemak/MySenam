@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EInvoice, EInvoiceSettings } from "@/lib/myinvois";
 import { STATE_CODES } from "@/lib/myinvois/states";
-import { clockTime, intlTag, money, region } from "@/lib/region";
-import type { Locale } from "@/lib/i18n";
+import { money } from "@/lib/region";
 import type { ManagedVenue } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * LHDN e-invoicing (MyInvois) for a Malaysian venue: its tax details, how
@@ -69,14 +68,9 @@ const blank = (s: EInvoiceSettings): Form => ({
   leaveNamesOut: s.leaveNamesOut,
 });
 
-const when = (at: string, locale: Locale) => {
-  const d = new Date(at.includes("Z") || at.includes("+") ? at : `${at.replace(" ", "T")}Z`);
-  const zone = region().timeZone;
-  return `${d.toLocaleDateString(intlTag(locale), { day: "numeric", month: "short", timeZone: zone })} ${clockTime(d, zone, locale)}`;
-};
-
 export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const STATUS: Record<EInvoice["status"], string> = {
     pending: t("einv.status.pending"),
     submitted: t("einv.status.submitted"),
@@ -371,7 +365,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                   <p className="text-slate-500">
                     {money(e.total)}
                     {e.refersCode && ` · ${t("einv.corrects", { code: e.refersCode })}`} ·{" "}
-                    {e.submittedAt ? t("ei7.sentAt", { when: when(e.submittedAt, t.locale) }) : when(e.createdAt, t.locale)}
+                    {e.submittedAt ? t("ei7.sentAt", { when: clock.when(e.submittedAt, venueId) }) : clock.when(e.createdAt, venueId)}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -427,7 +421,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                     .join(" · ")}
                 </p>
               )}
-              {e.checkedAt && <p className="text-xs text-slate-500">{t("ei7.checkedAt", { when: when(e.checkedAt, t.locale) })}</p>}
+              {e.checkedAt && <p className="text-xs text-slate-500">{t("ei7.checkedAt", { when: clock.when(e.checkedAt, venueId) })}</p>}
               {e.correctedBy.length > 0 && <p className="text-slate-600">{t("ei7.correctedBy", { list: e.correctedBy.join(t("srv.list.comma")) })}</p>}
               <p className="text-xs text-slate-600">{nextStep(e)}</p>
               {e.sentLines && (

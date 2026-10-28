@@ -26,7 +26,7 @@ import { VenuesTab } from "@/components/admin/VenuesTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
 import type { TwoFactorStatus } from "@/lib/two-factor";
-import { useStaffT } from "@/components/admin/StaffLanguage";
+import { StaffZones, useStaffT } from "@/components/admin/StaffLanguage";
 
 type Tab =
   | "bookings"
@@ -224,7 +224,9 @@ export default function AdminPage() {
     ["venues", isOwner ? t("sh.tab.venuesStaff") : isManager ? t("sh.tab.branchesStaff") : t("sh.tab.venueDetails")],
   ];
 
+  // Times on every screen below are read in the zone of the venue they belong to (useStaffClock).
   return (
+    <StaffZones venues={venues}>
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -363,5 +365,6 @@ export default function AdminPage() {
         </>
       )}
     </div>
+    </StaffZones>
   );
 }

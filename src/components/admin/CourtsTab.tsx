@@ -15,11 +15,10 @@ import { SportRulesEditor } from "./SportRulesEditor";
 import { ACCESS_CODE_STALE_DAYS, MAX_ACCESS_CODE, MAX_CAPACITY, MAX_DEPOSIT } from "@/lib/types";
 import type { Court, Induction, Venue } from "@/lib/types";
 import type { AccessReveal } from "@/lib/store";
-import { localTime } from "./shared";
 import { SURFACES, type CourtFeatures } from "@/lib/facilities";
 import { hasPhrase, sportLabel, type T } from "@/lib/i18n";
 import { region } from "@/lib/region";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 
 /** A surface's name as customers read it, in the same language. */
@@ -61,6 +60,7 @@ export function CourtsTab({
   onVenuesChange: (venues: (Venue & { courts: Court[] })[]) => void;
 }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -439,7 +439,7 @@ export function CourtsTab({
 
           <p className="mt-2 text-xs text-slate-600">
             {door.unmanned ? t("ct.unmannedState") : t("ct.staffedState")}
-            {door.changedAt && ` ${t("ct.codeChanged", { when: localTime(door.changedAt) })}`}
+            {door.changedAt && ` ${t("ct.codeChanged", { when: clock.time(door.changedAt, venueId) })}`}
           </p>
           {door.stale && (
             <p className="mt-1 text-xs font-medium text-red-700">
@@ -480,7 +480,7 @@ export function CourtsTab({
                 <tbody>
                   {reveals.map((r, i) => (
                     <tr key={i} className="border-b border-slate-100 last:border-0">
-                      <td className="whitespace-nowrap px-3 py-2">{localTime(r.revealedAt)}</td>
+                      <td className="whitespace-nowrap px-3 py-2">{clock.time(r.revealedAt, venueId)}</td>
                       <td className="px-3 py-2 font-mono text-teal-700">{r.bookingCode}</td>
                       <td className="px-3 py-2">{r.courtName}</td>
                       <td className="px-3 py-2">{r.name}</td>
@@ -732,6 +732,7 @@ function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; on
  */
 function InductionsPanel({ venueId }: { venueId: number }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [inductions, setInductions] = useState<Induction[] | null>(null);
   const [form, setForm] = useState({ phone: "", name: "", note: "" });
   // Who was shown round: the number's holder, or a participant on it (a child; lib/participants.ts).
@@ -882,7 +883,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
                       )}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">{i.phone}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{localTime(i.createdAt)}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{clock.time(i.createdAt, venueId)}</td>
                     <td className="px-3 py-2">{i.adminName ?? "—"}</td>
                     <td className="px-3 py-2 text-slate-500">{i.note ?? "—"}</td>
                     <td className="px-3 py-2 text-right">

@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from "reac
 import type { ApiKey } from "@/lib/api-keys";
 import type { Endpoint } from "@/lib/webhooks";
 import type { ManagedVenue } from "./shared";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /** A phrase with `{name}` places filled by elements (code samples), in the phrase's own word order. */
 function withParts(text: string, parts: Record<string, ReactNode>): ReactNode[] {
@@ -18,6 +18,7 @@ function withParts(text: string, parts: Record<string, ReactNode>): ReactNode[] 
  */
 export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[]; isOwner: boolean }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
@@ -113,9 +114,9 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
               <span className="font-medium">{k.name}</span> · <code>{k.prefix}…</code> · {k.scope === "write" ? t("int.scopeWrite") : k.scope === "availability" ? t("int.scopeAvailability") : t("int.scopeRead")}
               <span className="block text-xs text-slate-500">
                 {k.revokedAt
-                  ? t("int.revokedOn", { date: k.revokedAt.slice(0, 10) })
+                  ? t("int.revokedOn", { date: clock.day(k.revokedAt, venueId) })
                   : k.lastUsedAt
-                    ? t("int.lastUsed", { date: k.lastUsedAt.slice(0, 16) })
+                    ? t("int.lastUsed", { date: clock.when(k.lastUsedAt, venueId) })
                     : t("int.notUsedYet")}
               </span>
             </span>
@@ -173,7 +174,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
               <span className="break-all">
                 <span className="font-medium">{e.url}</span>{" "}
                 <span className={`text-xs ${e.active ? (e.failingSince ? "text-amber-700" : "text-emerald-700") : "text-rose-700"}`}>
-                  {e.active ? (e.failingSince ? t("int.failingSince", { date: e.failingSince.slice(0, 16) }) : t("int.on")) : t("int.turnedOff")}
+                  {e.active ? (e.failingSince ? t("int.failingSince", { date: clock.when(e.failingSince, venueId) }) : t("int.on")) : t("int.turnedOff")}
                 </span>
               </span>
               <span className="flex gap-3">
@@ -195,7 +196,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
               <ul className="mt-1 text-xs text-slate-500">
                 {e.recent.slice(0, 5).map((d, i) => (
                   <li key={i}>
-                    {d.at.slice(0, 16)} {d.event}:{" "}
+                    {clock.when(d.at, venueId)} {d.event}:{" "}
                     {d.deliveredAt
                       ? t("int.delivered", { status: String(d.status) })
                       : d.error

@@ -2693,6 +2693,9 @@ const EN = {
   // Round 7 (H7): a lesson paid from stored credit, as a court is
   "rg7.lesson.paidFromCredit": "Paid from your credit balance.",
   "rg7.lesson.creditNotUsed": "It could not be paid from your credit balance, so it is not paid yet.",
+  // A coach's calendar feed (lib/coach-schedule.ts), in the language its address names.
+  "tl7.coachCal.name": "Lessons at {venue}",
+  "tl7.coachCal.lesson": "Lesson: {student}, {court}",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5338,6 +5341,8 @@ const MS: Record<Phrase, string> = {
   // Round 7 (H7): a lesson paid from stored credit, as a court is
   "rg7.lesson.paidFromCredit": "Dibayar guna baki kredit anda.",
   "rg7.lesson.creditNotUsed": "Ia tidak dapat dibayar guna baki kredit anda, jadi ia belum dibayar.",
+  "tl7.coachCal.name": "Kelas di {venue}",
+  "tl7.coachCal.lesson": "Kelas: {student}, {court}",
 };
 
 /** Exported so a test can hold the two languages against each other. */

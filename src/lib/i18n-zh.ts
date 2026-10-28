@@ -2532,6 +2532,8 @@ export const ZH: Record<Phrase, string> = {
   // Round 7 (H7): a lesson paid from stored credit, as a court is
   "rg7.lesson.paidFromCredit": "已用您的储值余额支付。",
   "rg7.lesson.creditNotUsed": "无法用您的储值余额支付，因此尚未付款。",
+  "tl7.coachCal.name": "{venue} 的课程",
+  "tl7.coachCal.lesson": "课程：{student}，{court}",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

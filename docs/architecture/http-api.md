@@ -183,7 +183,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
 | GET    | `/api/admin/data-request`  | `?venueId&phone` → what the venue holds against a number, as a file (managers) |
 | GET/POST/DELETE | `/api/admin/coaches` | `?venueId` / `{venueId, id?, name, bio?, sports, rate, hours}` / `?venueId&id`: a venue's coaches; `contacts` says until when each coach's private link works, never the link. `{venueId, id, action: "link", on}`: a new link, returned once as `link` (`pageUrl`, `calendarUrl`, `until`), or withdrawn. `choice` (GET) and `{venueId, action: "choice", choice}`: who chooses the coach of a new lesson, `customer` (the default) or `venue` ([who chooses the coach](../features/programmes.md#who-chooses-the-coach)) |
-| GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address; on makes a new one |
+| GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address, naming the staff language of the request (`?lang=`); on makes a new one |
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |
 | GET    | `/api/admin/venue-access`     | `?venueId` → who it is for, and its list             |
@@ -311,8 +311,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/auth/google` | Off to Google, `?next=` being where to come back to |
 | GET | `/api/auth/google/callback` | Back from Google: signed in, and on to where they were going; or back to sign in, saying why |
 | GET | `/api/auth/providers` | Which ways of signing in this address offers, besides a password |
-| GET | `/api/calendar/:token` | A venue's bookings and classes as an iCalendar feed, for its staff's own calendar apps. The token is the only key: a wrong or withdrawn one finds nothing |
-| GET | `/api/coach-calendar/:token` | A coach's lessons as an iCalendar feed. The token is the only key |
+| GET | `/api/calendar/:token` | A venue's bookings and classes as an iCalendar feed, for its staff's own calendar apps. The token is the only key: a wrong or withdrawn one finds nothing. `?lang=` (en, ms, zh) sets the language of its words and times |
+| GET | `/api/coach-calendar/:token` | A coach's lessons as an iCalendar feed. The token is the only key. `?lang=` sets the language of its words and times |
 | POST | `/api/unsubscribe` | `{ token }` from a venue's email → no more news from it; with `confirm`, yes to it. No account needed |
 | POST | `/api/unsubscribe/:token` | One-click unsubscribe from a mail app's own button (RFC 8058): the List-Unsubscribe-Post header on a venue's news says to POST here. Only a POST stops anything, so a scanner fetching links does not |
 

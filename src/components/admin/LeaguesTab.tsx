@@ -309,7 +309,7 @@ function Manage({
               {t.locale === "en" ? l.sport : sportLabel(t.customer, l.sport)} · {l.teamSize === 2 ? t("lg.doublesPairsLower") : t("lg.singlesLower")}
               {l.who !== "anyone" && ` · ${l.who === "women" ? t("lg.who.women") : l.who === "men" ? t("lg.who.men") : l.who}`} · {t("lg.boxesOf", { n: l.boxSize })} ·{" "}
               {t("lg.upAndDown", { n: l.moves })} · {t("lg.seasonLength", { n: l.seasonDays })} ·{" "}
-              {l.fee > 0 ? t("lg.feeASeason", { fee: money(l.fee.toFixed(2)) }) : t("lg.noFee")} · {t("lg.playerCount", { n: l.players })}
+              {l.fee > 0 ? t("lg.feeASeason", { fee: money(l.fee) }) : t("lg.noFee")} · {t("lg.playerCount", { n: l.players })}
               {l.status === "closed" && ` · ${t("lg.stopped")}`}
             </p>
           </div>

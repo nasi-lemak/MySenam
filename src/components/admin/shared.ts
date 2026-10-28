@@ -1,18 +1,17 @@
 import { Court, LATEST_CLOSE_HOUR, OPEN_HOUR, Venue } from "@/lib/types";
-import { intlTag, region } from "@/lib/region";
+import { momentClock, region } from "@/lib/region";
 
 /** A venue as the admin panel sees it: the venue and everything bookable in it. */
 export type ManagedVenue = Venue & { courts: Court[] };
 
-/** A UTC timestamp as Malaysia-time HH:MM. */
-export function localTime(iso: string): string {
-  return new Date(iso.includes("Z") || iso.includes("+") ? iso : `${iso.replace(" ", "T")}Z`)
-    .toLocaleTimeString(intlTag("en"), {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZone: region().timeZone,
-    });
+/**
+ * A stored moment (UTC) as the time of day in a zone, in a language
+ * (lib/region.ts `clockTime`): "6:30 PM", "6:30 PTG", "下午6:30". Screens
+ * use `useStaffClock` (StaffLanguage.tsx), which knows the staff language and
+ * each venue's zone.
+ */
+export function localTime(iso: string, locale: string = "en", zone: string = region().timeZone): string {
+  return momentClock(iso, zone, locale);
 }
 
 /** Every hour a venue may open or close on, closing up to the small hours of the next morning. */

@@ -56,7 +56,7 @@ export default function MembershipFlags({ venueId }: { venueId: number }) {
         {flags.map((f) => (
           <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
             <span>
-              {t("mv6.flags.line", { code: f.bookingCode, name: f.name, date: f.date, time: `${formatMinute(f.start)}–${formatMinute(f.end)}`, court: f.courtName })}
+              {t("mv6.flags.line", { code: f.bookingCode, name: f.name, date: f.date, time: `${formatMinute(f.start, t.locale)}–${formatMinute(f.end, t.locale)}`, court: f.courtName })}
               {` · ${why(f)}`}
               {f.kind === "reservation" ? ` · ${t("mv6.flags.reservation")}` : ""}
             </span>

@@ -252,7 +252,7 @@ export function WaitlistQueue({
               {w.classId === null && w.startMin !== null && w.endMin !== null && (
                 <span className="ml-2 text-xs opacity-70">
                   {w.label ? `${w.label.split(" · ")[0]} · ` : ""}
-                  {formatMinute(w.startMin)}–{formatMinute(w.endMin)}
+                  {formatMinute(w.startMin, t.locale)}–{formatMinute(w.endMin, t.locale)}
                 </span>
               )}
               <span className="ml-2 text-xs opacity-70">

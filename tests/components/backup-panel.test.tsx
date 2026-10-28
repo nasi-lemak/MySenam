@@ -78,7 +78,8 @@ describe("the Backups panel", () => {
       "Backups: active · the newest copy that would survive losing this server is 5 hours old (target: under 24)"
     );
     expect(within(p).getByText("Newest backup 5 hours old")).toBeTruthy();
-    expect(within(p).getByText(/taken automatically every night at 03:00/)).toBeTruthy();
+    // The install's hour, written as the staff language writes a time (lib/region.ts).
+    expect(within(p).getByText(/taken automatically every night at 3:00 AM/)).toBeTruthy();
   });
 
   it("names where off-site copies go, what the storage address itself names, and how the last set left", async () => {
@@ -94,8 +95,8 @@ describe("the Backups panel", () => {
     await tab();
     const rows = within(panel()).getAllByRole("row").slice(1);
     expect(rows.map((r) => [...r.querySelectorAll("td")].map((td) => td.textContent))).toEqual([
-      ["2026-10-27 03:00", "mysenam-2026-10-27T0300.dump", "2100 KB", "Whole"],
-      ["2026-10-26 03:00", "mysenam-2026-10-26T0300.dump", "2000 KB", "No manifest or a part missing"],
+      ["2026-10-27 3:00 AM", "mysenam-2026-10-27T0300.dump", "2100 KB", "Whole"],
+      ["2026-10-26 3:00 AM", "mysenam-2026-10-26T0300.dump", "2000 KB", "No manifest or a part missing"],
     ]);
   });
 

@@ -14,10 +14,15 @@
  * parameter, checks it against the four, and hands it to the page on a
  * request header of its own (any such header the browser sent is dropped);
  * `currentLocale` (lib/locale.ts) uses it only where the person has not
- * chosen a language: an explicit choice (the cookie) wins. Nothing is
- * stored: the next page without the parameter is in their own language
- * again. The link still identifies exactly what it did (its token, its
- * expiry), since the parameter is added beside them, not in place of them.
+ * chosen a language: an explicit choice (the cookie) wins. So that the pages
+ * they reach from there by moving around the site stay in that language, the
+ * middleware also sets a cookie of its own (`LINK_LOCALE_COOKIE`), for the
+ * browser session only, holding nothing but the language, and only while
+ * nobody has chosen one; it hands that on the same header for a page
+ * without the parameter. A newer link's language replaces it; a choice made
+ * with the switch always wins over it. The link still identifies exactly
+ * what it did (its token, its expiry), since the parameter is added beside
+ * them, not in place of them.
  *
  * Kept apart from lib/i18n.ts so the middleware does not load the
  * dictionaries; `tests/link-locale.test.ts` checks the two lists agree.
@@ -27,6 +32,12 @@ export const LINK_LANG_PARAM = "lang";
 
 /** The request header the middleware hands a link's language to the page on. */
 export const LINK_LOCALE_HEADER = "x-mysenam-link-locale";
+
+/** The cookie the language switch sets (lib/i18n.ts `LOCALE_COOKIE`; `tests/link-locale.test.ts` checks they agree). */
+export const CHOSEN_LOCALE_COOKIE = "ms_lang";
+
+/** The session cookie that keeps a followed link's language for the rest of the visit, while none was chosen. */
+export const LINK_LOCALE_COOKIE = "ms_link_lang";
 
 /** The languages a link may carry: lib/i18n.ts `LOCALES`. */
 export const LINK_LOCALES = ["en", "ms", "zh", "ta"] as const;

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logFromRequest } from "@/lib/activity";
-import { feedToken, feedUrl, setFeed } from "@/lib/staff-calendar";
+import { feedLocale, feedToken, feedUrl, setFeed } from "@/lib/staff-calendar";
+import { LOCALE_COOKIE } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +14,15 @@ async function venueOf(req: NextRequest, raw: unknown) {
   return denyVenue(admin, venueId) ?? venueId;
 }
 
+/** The staff language this request is read in (the language switch's cookie), for the feed's address to name. */
+const staffLanguageOf = (req: NextRequest) => feedLocale(req.cookies.get(LOCALE_COOKIE)?.value);
+
 /** `?venueId` → the address staff subscribe to, or null when the feed is off. */
 export async function GET(req: NextRequest) {
   const venueId = await venueOf(req, req.nextUrl.searchParams.get("venueId"));
   if (venueId instanceof NextResponse) return venueId;
   const token = await feedToken(venueId);
-  return NextResponse.json({ url: token ? await feedUrl(venueId, token) : null });
+  return NextResponse.json({ url: token ? await feedUrl(venueId, token, staffLanguageOf(req)) : null });
 }
 
 /** `{ venueId, on }`: on gives a fresh address (the old one stops working); off withdraws it. */
@@ -29,5 +33,5 @@ export async function POST(req: NextRequest) {
   if (venueId instanceof NextResponse) return venueId;
   const token = await setFeed(venueId, body.on === true);
   await logFromRequest(req, { venueId, action: "settings.changed", detail: token ? "Calendar feed: new address" : "Calendar feed: off" });
-  return NextResponse.json({ url: token ? await feedUrl(venueId, token) : null });
+  return NextResponse.json({ url: token ? await feedUrl(venueId, token, staffLanguageOf(req)) : null });
 }

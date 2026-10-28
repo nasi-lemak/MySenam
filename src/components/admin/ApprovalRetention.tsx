@@ -5,7 +5,7 @@ import type { ApprovalRequirement } from "@/lib/approvals";
 import type { HoldBasis, RetentionHold } from "@/lib/approval-retention";
 import type { RetentionPolicy } from "@/lib/retention-policy";
 import { sportLabel } from "@/lib/i18n";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
  * What a venue says about the documents it asks for and how long its
@@ -93,6 +93,7 @@ const BASES: HoldBasis[] = ["legal", "safety", "dispute", "incident"];
  */
 export function ApprovalHolds({ venueId }: { venueId: number }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [holds, setHolds] = useState<RetentionHold[] | null>(null);
   const [form, setForm] = useState({ requestId: "", basis: "legal" as HoldBasis, reason: "", reviewBy: "" });
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +149,7 @@ export function ApprovalHolds({ venueId }: { venueId: number }) {
                 {" · "}
                 {t(`apr.ret.basis.${h.basis}`)}: {h.reason}
                 <span className="block text-xs text-slate-500">
-                  {t("apr.ret.by", { name: h.placedByName, role: t(`apr.ret.role.${h.placedByRole}`), date: h.placedAt.slice(0, 10) })}
+                  {t("apr.ret.by", { name: h.placedByName, role: t(`apr.ret.role.${h.placedByRole}`), date: clock.day(h.placedAt, venueId) })}
                   {!h.active && ` · ${t("apr.ret.ended")}`}
                 </span>
               </span>

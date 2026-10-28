@@ -172,7 +172,7 @@ export function AttentionPanel() {
           <li key={n.id} className="rounded-lg bg-white p-3 text-sm shadow-sm">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-semibold">
-                {n.date} {formatHour(n.startHour)}
+                {n.date} {formatHour(n.startHour, t.locale)}
               </span>
               <span className="text-slate-500">{n.kind === "cancelled" ? t("att.cancelled") : t("att.moved")}</span>
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${REACH_STYLE[n.reach]}`}>{reach[n.reach]}</span>

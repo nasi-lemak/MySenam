@@ -8,7 +8,7 @@ import { sportLabel } from "@/lib/i18n";
 import { region } from "@/lib/region";
 import { MAX_CAPACITY, MAX_DEPOSIT, type Court } from "@/lib/types";
 import type { StaffT } from "@/lib/staff-i18n";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 
 /**
@@ -490,6 +490,7 @@ const EMPTY_SIGN_OFF = { name: "", phone: "", email: "", sport: "", kind: "opera
  */
 export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Court[] }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [rows, setRows] = useState<SignOffRow[]>([]);
   const [form, setForm] = useState(EMPTY_SIGN_OFF);
   // For the number's holder, or a participant on it (a child; lib/participants.ts): theirs alone.
@@ -621,7 +622,7 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
                 {r.businessId ? ` · ${t("res.everyBranchRow")}` : ""}
                 {r.expiresOn ? ` · ${t("res.untilDate", { date: r.expiresOn })}` : ""}
                 {` · ${r.userId ? t("res.accountLinked") : t("res.noAccount")}`}
-                {` · ${t("res.byOn", { name: r.adminName ?? t("res.staff"), date: r.createdAt.slice(0, 10) })}`}
+                {` · ${t("res.byOn", { name: r.adminName ?? t("res.staff"), date: clock.day(r.createdAt, venueId) })}`}
                 {r.note ? ` · ${r.note}` : ""}
               </span>
               <button type="button" onClick={() => revoke(r)} className="text-xs text-red-600 hover:underline">

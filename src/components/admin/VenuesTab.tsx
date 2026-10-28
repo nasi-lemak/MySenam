@@ -5,7 +5,7 @@ import { formatHour } from "@/lib/time";
 import { MAX_EMERGENCY_INFO } from "@/lib/types";
 import type { VenueClosure } from "@/lib/types";
 import type { Admin } from "@/lib/admin-auth";
-import { HOUR_CHOICES, localTime, todayLocal } from "./shared";
+import { HOUR_CHOICES, todayLocal } from "./shared";
 import { ClockField } from "@/components/ClockField";
 import type { DayHours, WeekHours } from "@/lib/week-hours";
 import { MessagesPanel } from "./MessagesPanel";
@@ -38,9 +38,9 @@ import { DataRequestPanel } from "./DataRequestPanel";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
-import { region } from "@/lib/region";
+import { minuteClock, region } from "@/lib/region";
 import type { StaffText } from "@/lib/staff-text";
-import { useStaffT } from "./StaffLanguage";
+import { useStaffClock, useStaffT } from "./StaffLanguage";
 import DocumentPolicy from "./DocumentPolicy";
 
 /* ---------------- Venues & staff tab ---------------- */
@@ -713,7 +713,7 @@ function VenueRow({
               <option value="">{t("vn.always")}</option>
               {HOUR_CHOICES.map((h) => (
                 <option key={h} value={h}>
-                  {formatHour(h)}
+                  {formatHour(h, t.locale)}
                 </option>
               ))}
             </select>
@@ -734,7 +734,7 @@ function VenueRow({
               <option value="">{t("vn.always")}</option>
               {HOUR_CHOICES.map((h) => (
                 <option key={h} value={h}>
-                  {formatHour(h)}
+                  {formatHour(h, t.locale)}
                 </option>
               ))}
             </select>
@@ -744,7 +744,7 @@ function VenueRow({
               ? t("vn.alwaysStaffed")
               : neverStaffed
                 ? t("vn.neverStaffed")
-                : t("vn.unstaffedOutside", { from: formatHour(fields.staffedFrom!), to: formatHour(fields.staffedTo!) })}
+                : t("vn.unstaffedOutside", { from: formatHour(fields.staffedFrom!, t.locale), to: formatHour(fields.staffedTo!, t.locale) })}
           </span>
         </div>
 
@@ -910,8 +910,15 @@ function VenueStanding({
 /** A command, typed as it is in every language. */
 const BACKUP_COMMAND = "npm run backup";
 
+/** A backup's "YYYY-MM-DD HH:MM" (the install's clock, from its name) with the time as the staff language writes it. */
+function takenText(takenAt: string, locale: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2})$/.exec(takenAt);
+  return m ? `${m[1]} ${minuteClock(Number(m[2]) * 60 + Number(m[3]), locale)}` : takenAt;
+}
+
 function BackupsPanel() {
   const t = useStaffT();
+  const clock = useStaffClock();
   const HEALTH: Record<"ok" | "local_only" | "stale" | "paused" | "failing" | "none", string> = {
     ok: t("vn.healthOk"),
     local_only: t("vn.healthLocalOnly"),
@@ -1059,7 +1066,7 @@ function BackupsPanel() {
               <span className="font-mono">{state.directory}</span>
               {" · "}
               {state.schedule
-                ? t("vn.scheduleAt", { time: `${String(state.schedule.hour).padStart(2, "0")}:00` })
+                ? t("vn.scheduleAt", { time: formatHour(state.schedule.hour, t.locale) })
                 : t("vn.scheduleOff", { command: BACKUP_COMMAND })}
             </p>
             <div
@@ -1087,7 +1094,7 @@ function BackupsPanel() {
                     <>
                       {" "}
                       {t("vn.lastCopy")} <span className="font-mono text-xs">{state.offsite.lastCopied.name}</span>{" "}
-                      {t("vn.lastCopyAt", { date: state.offsite.lastCopied.at.slice(0, 10), time: localTime(state.offsite.lastCopied.at) })}
+                      {t("vn.lastCopyAt", { date: clock.day(state.offsite.lastCopied.at), time: clock.time(state.offsite.lastCopied.at) })}
                       {state.offsite.lastCopied.manifest ? t("vn.withManifest") : t("vn.noManifest")}
                       {state.offsite.lastCopied.encrypted ? t("vn.encrypted") : t("vn.notEncrypted")}
                       {state.offsite.lastCopied.signed ? t("vn.signed") : ""}
@@ -1124,7 +1131,7 @@ function BackupsPanel() {
                   <tbody>
                     {state.backups.map((b) => (
                       <tr key={b.name} className="border-b border-slate-100 last:border-0">
-                        <td className="whitespace-nowrap px-3 py-2">{b.takenAt}</td>
+                        <td className="whitespace-nowrap px-3 py-2">{takenText(b.takenAt, t.locale)}</td>
                         <td className="px-3 py-2 font-mono text-xs">{b.name}</td>
                         <td className="whitespace-nowrap px-3 py-2">
                           {Math.round(b.bytes / 1024)} KB
@@ -1154,6 +1161,7 @@ function BackupsPanel() {
  */
 function RetentionPanel() {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [state, setState] = useState<{
     due: { what: string; whatPhrase?: StaffText; days: number; action: string; affected: number }[];
     lastRun: string | null;
@@ -1220,7 +1228,7 @@ function RetentionPanel() {
             {state?.lastRun && (
               <span className="text-slate-500">
                 {" "}
-                {t("vn.lastRun", { time: localTime(state.lastRun) })}
+                {t("vn.lastRun", { time: clock.time(state.lastRun) })}
               </span>
             )}
           </div>

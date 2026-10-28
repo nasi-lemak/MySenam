@@ -23,7 +23,7 @@ import { longEnough } from "./phone";
 import { taxIncluded, venueTax } from "./tax";
 import { receiptPath } from "./receipts";
 import { linkIn } from "./link-locale";
-import { said, type ServerPhrase, type StaffText } from "./staff-text";
+import { clockValue, said, type ServerPhrase, type StaffText } from "./staff-text";
 
 /**
  * What MySenam tells a customer, and when.
@@ -506,7 +506,8 @@ function noticePhrase(
     venue,
     code,
     where: said("srv.urgent.where", { court, venue }),
-    when: said("srv.urgent.when", { date: at.date, ...hourRange(at.startHour, at.endHour) }),
+    // The hours as times of day, said in the staff language where the notice is read; its English as before.
+    when: said("srv.urgent.when", { date: at.date, from: clockValue(at.startHour * 60), to: clockValue(at.endHour * 60) }),
   });
 }
 
