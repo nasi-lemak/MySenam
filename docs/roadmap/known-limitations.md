@@ -400,10 +400,14 @@ API get none ([booking](../features/booking.md)) (P3).
 
 Also: the Tournaments and Leagues tabs still show the front desk their set-up
 forms (the server refuses them), and ticking off or hiding the set-up checklist
-is not refused to the desk by the server (the desk is not shown it); a new
-branch starts blank; a test booking made before going live stays in the books
-unless cancelled (the round 8 audit's X1-15 and X1-16, [planned](roadmap.md))
-(P2). Of hours and prices only opening hours and court rates can be set from a
+is not refused to the desk by the server (the desk is not shown it) (P2). A
+branch started from another's set-up leaves out a court whose main activity
+is the other branch's own (named when it is made), and its extras keep the
+other branch's stock counts until changed; test bookings are cleared only
+when a manager asks, and whether a receipt printed in a test needs anything
+at LHDN is for the venue's adviser
+([marketplace](../product/marketplace.md#test-bookings-before-going-live),
+[tenancy](../architecture/tenancy.md#starting-a-branch-from-another)) (P3). Of hours and prices only opening hours and court rates can be set from a
 later date (peak windows, holidays, set-length prices, fees, concessions and
 membership prices change when saved); once a change applies, earlier periods
 are measured against the hours now (the reports' utilisation, as whenever hours
@@ -945,6 +949,8 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | People enrolled in a class were not told of a new name or instructor | Emailed, with those holding an offer of a place, once each, in their language | `tests/class-changes.test.ts` |
 | Lowering a tournament's places was thought not to be locked against an entry at the same moment | It is taken under the entry lock; tested both at once and with the entry held mid-write | `tests/entry-races.test.ts` |
 | A draft e-invoice sent by the scheduler and by staff at the same moment could reach LHDN twice | Claimed before LHDN is asked (migration 0256), so it is sent once; an interrupted claim is marked not sent for a check in the portal | `tests/einvoice-sending.test.ts` |
+| A new branch started blank, its courts, rates, rules and products entered again by hand | Started from another branch's set-up in one step, never its people, money, accounts or secrets | `tests/branch-copy.test.ts` |
+| Bookings made to try a venue out before it went live stayed in its reports, exports and cash-up | Marked as tests by the database, left out of the figures, marked in the journal and day list; a manager clears them (all given back, nobody told) or keeps one as real | `tests/test-bookings.test.ts`, `tests/components/test-bookings-panel.test.tsx` |
 
 ## Production readiness
 
