@@ -1,6 +1,6 @@
 import { salesJournal, type Category } from "./accounting";
 import { getDb } from "./db";
-import { documentById, documentId, lineText } from "./documents";
+import { documentById, documentId } from "./documents";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { documentStatus, MyInvoisError, submitDocument, validationLink, type Connection, type DocumentStatus } from "./myinvois/client";
 import { buildDocument, STATE_CODES, type DocLine, type Party, type Supplier } from "./myinvois/ubl";
@@ -67,12 +67,6 @@ export interface EInvoiceSettings {
   missingPhrases: StaffText[];
   /** The platform can act as intermediary on this install. */
   intermediaryAvailable: boolean;
-  /**
-   * Leave people's names out of the lines of e-invoices not yet sent (a
-   * customer's own, a large sale's): each says the receipt's number and the
-   * kind of sale instead. Off unless the venue turns it on.
-   */
-  leaveNamesOut: boolean;
 }
 
 interface SettingsRow {
@@ -93,7 +87,6 @@ interface SettingsRow {
   state_code: string | null;
   phone: string | null;
   email: string | null;
-  leave_names_out: number;
 }
 
 const ENGLISH = translator("en");
@@ -156,7 +149,6 @@ export async function einvoiceSettings(venueId: number): Promise<EInvoiceSetting
     missing: missingOf(r),
     missingPhrases: missingPhrases(r),
     intermediaryAvailable: intermediaryAvailable(),
-    leaveNamesOut: r?.leave_names_out === 1,
   };
 }
 
@@ -195,7 +187,6 @@ export async function saveEInvoiceSettings(
     state_code: state,
     phone: text(input.phone, 30),
     email,
-    leave_names_out: input.leaveNamesOut === true ? 1 : 0,
   };
   if (row.enabled === 1) {
     const missing = missingOf({ venue_id: venueId, ...row });
@@ -271,7 +262,8 @@ async function supplierFor(venueId: number): Promise<Supplier | null> {
  *
  * - `pending`: written down, not sent yet: a draft. Its lines are drawn when
  *   it is sent, from the receipts as they are then, so a draft follows its
- *   receipt (a name cleared from the receipt is not sent). A credit note
+ *   receipt; they name nobody (the receipt's number and the kind of sale, or
+ *   for a consolidated one the kind of sale and the month). A credit note
  *   stays pending until what it corrects is valid at LHDN.
  * - `failed`: not sent: the venue's details were incomplete, nothing was
  *   left to send, or MyInvois could not be reached. Still a draft, sent
@@ -287,7 +279,10 @@ async function supplierFor(venueId: number): Promise<Supplier | null> {
  * Once a document has reached LHDN (rejected, submitted or after), what it
  * said, its totals and LHDN's identifiers never change and it is never
  * deleted: the database refuses (migration 0220). Only LHDN's verdict moves
- * on. A correction is always a new document: a replacement, under its own
+ * on, until the statutory period has passed: then the retention run clears
+ * its payload, buyer and LHDN's reasons and keeps the rest as a tombstone
+ * for the books (`pruneEInvoices`, the trigger's one exception, migration
+ * 0226). A correction is always a new document: a replacement, under its own
  * number and linked to the one it replaces, for one LHDN refused, found
  * invalid or reported cancelled; a credit note for a sale reversed after
  * its e-invoice was sent.
@@ -297,8 +292,8 @@ export type EInvoiceStatus = "pending" | "submitted" | "valid" | "invalid" | "fa
 /** LHDN holds none of these as a valid document: put right by a replacement, never by sending it again. */
 export const REFUSED_STATUSES: readonly EInvoiceStatus[] = ["invalid", "rejected", "cancelled"];
 const REFUSED = "('invalid', 'rejected', 'cancelled')";
-/** A row nothing of which has reached LHDN. */
-const UNSENT = "document IS NULL AND submission_uid IS NULL AND uuid IS NULL";
+/** A row nothing of which has reached LHDN (and not a tombstone left by the retention run). */
+const UNSENT = "document IS NULL AND submission_uid IS NULL AND uuid IS NULL AND cleared_at IS NULL";
 
 /**
  * What staff can do with a document now; the route refuses anything else.
@@ -342,6 +337,11 @@ export interface EInvoice {
   replacedByCode: string | null;
   /** Credit notes against it, sent or waiting. */
   correctedBy: string[];
+  /**
+   * When the retention run cleared it, the statutory period over: its
+   * payload, buyer and LHDN's reasons gone, the rest kept for the books.
+   */
+  clearedAt: string | null;
   /** A credit note waiting for what it corrects to be valid: that document's number. */
   waitingFor: string | null;
   actions: EInvoiceAction[];
@@ -378,10 +378,11 @@ interface EInvoiceRow {
   replaces_id: number | null;
   series_code: string | null;
   covers: string | null;
+  cleared_at: string | null;
 }
 
-/** It has reached LHDN: what it holds is LHDN's record too, and never changes. */
-const reached = (r: Pick<EInvoiceRow, "document" | "submission_uid" | "uuid">) => !!(r.document || r.submission_uid || r.uuid);
+/** It has reached LHDN: what it holds is LHDN's record too, and never changes (a tombstone included). */
+const reached = (r: Pick<EInvoiceRow, "document" | "submission_uid" | "uuid" | "cleared_at">) => !!(r.document || r.submission_uid || r.uuid || r.cleared_at);
 /** The number a document and its replacements are looked up by: the first one's. */
 const seriesOf = (r: Pick<EInvoiceRow, "series_code" | "code_number">) => r.series_code ?? r.code_number;
 const isRefused = (s: EInvoiceStatus) => REFUSED_STATUSES.includes(s);
@@ -435,13 +436,15 @@ async function toEInvoice(r: EInvoiceRow): Promise<EInvoice> {
   }
   const actions: EInvoiceAction[] = [];
   let replaceBlocked: EInvoice["replaceBlocked"] = null;
-  if (!reached(r) && r.status === "failed") actions.push("send");
+  // A tombstone (the statutory period over) is the books' record only: nothing more is done with it.
+  const live = !r.cleared_at;
+  if (live && !reached(r) && r.status === "failed") actions.push("send");
   // A refused one; or, from before migration 0220, one sent again in place and left waiting or failed.
-  if (!replacement && reached(r) && (isRefused(r.status) || r.status === "pending" || r.status === "failed")) {
+  if (live && !replacement && reached(r) && (isRefused(r.status) || r.status === "pending" || r.status === "failed")) {
     replaceBlocked = await whyNotReplace(r);
     if (!replaceBlocked) actions.push("replace");
   }
-  if ((r.status === "submitted" || r.status === "valid") && r.uuid) actions.push("recheck");
+  if (live && (r.status === "submitted" || r.status === "valid") && r.uuid) actions.push("recheck");
   return {
     id: r.id,
     venueId: r.venue_id,
@@ -468,6 +471,7 @@ async function toEInvoice(r: EInvoiceRow): Promise<EInvoice> {
     replacesCode: replaced?.code_number ?? null,
     replacedByCode: replacement?.code_number ?? null,
     correctedBy,
+    clearedAt: r.cleared_at,
     waitingFor,
     actions,
     replaceBlocked,
@@ -872,8 +876,9 @@ async function linesFor(r: EInvoiceRow): Promise<{ lines: DocLine[]; covers: str
   if (r.kind === "individual") {
     const receipt = r.receipt_ref ? await receiptFor(r.receipt_ref, (await import("./receipts")).receiptToken(r.receipt_ref)) : null;
     if (!receipt) return { lines: [], covers: null };
-    const namesOut = (await settingsRow(r.venue_id))?.leave_names_out === 1;
-    const words = namesOut ? await kindOfSale(r.venue_id, receipt.number, receipt.paidAt) : receipt.lines[0] ? lineText(receipt.lines[0]) : "sale";
+    // Never whom it was for or who coached: the receipt's number and the kind of sale (the owner's decision of
+    // 28 October 2026). The buyer's own details, on a customer's own, are the buyer party's, not the line's.
+    const words = await kindOfSale(r.venue_id, receipt.number, receipt.paidAt);
     return {
       lines: [
         {
@@ -937,7 +942,7 @@ async function applyVerdict(r: EInvoiceRow, s: DocumentStatus): Promise<boolean>
 export async function checkSubmitted(venueId?: number): Promise<number> {
   const db = getDb();
   const rows = (await db
-    .prepare(`SELECT * FROM e_invoices WHERE status = 'submitted'${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
+    .prepare(`SELECT * FROM e_invoices WHERE status = 'submitted' AND cleared_at IS NULL${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
     .all(...(venueId ? [venueId] : []))) as EInvoiceRow[];
   let decided = 0;
   for (const r of rows) {
@@ -955,7 +960,7 @@ export async function checkSubmitted(venueId?: number): Promise<number> {
 /** Ask LHDN where one it accepted stands now: a cancellation made in the MyInvois portal reaches MySenam this way. */
 export async function recheckEInvoice(id: number, venueId: number): Promise<{ ok: true; einvoice: EInvoice } | { ok: false; error: string }> {
   const r = (await getDb().prepare("SELECT * FROM e_invoices WHERE id = ? AND venue_id = ?").get(id, venueId)) as EInvoiceRow | undefined;
-  if (!r?.uuid || (r.status !== "submitted" && r.status !== "valid")) return { ok: false, error: "Only an e-invoice LHDN has accepted can be checked." };
+  if (!r?.uuid || r.cleared_at || (r.status !== "submitted" && r.status !== "valid")) return { ok: false, error: "Only an e-invoice LHDN has accepted can be checked." };
   const connection = await connectionFor(venueId);
   if (!connection) return { ok: false, error: "Fill in the MyInvois credentials and the TIN first." };
   try {
@@ -1033,4 +1038,103 @@ export async function runEInvoicing(now = new Date()): Promise<void> {
   }
   await submitPending(undefined, now);
   await checkSubmitted();
+}
+
+// ------------------------------------------------------------ the statutory period
+
+/**
+ * The retention run's part for e-invoices (lib/privacy.ts `pruneOldData`;
+ * docs/architecture/privacy.md#e-invoice-records). The install keeps them
+ * for its statutory period (lib/einvoice-retention.ts, provisionally 7
+ * years from each document's issue); once it has passed:
+ *
+ * - a document that reached LHDN becomes a **tombstone**: its stored payload
+ *   (what it said, the buyer's details in it), the buyer's details given and
+ *   LHDN's reasons as given are emptied; its number, kind, dates, total, the
+ *   receipts it covered, LHDN's submission ID, UUID and long ID, what it
+ *   corrects or replaces and its last state stay, so the books still say
+ *   what went to LHDN and LHDN's own record can be found by its UUID. This
+ *   is the one change migration 0226's trigger allows on a sent document,
+ *   only from here (the transaction says it is the retention run) and only
+ *   once the period the database holds has passed;
+ * - a draft that never reached LHDN (waiting, or not sent) is deleted: LHDN
+ *   never had it, and the receipt it was for stays for the books.
+ *
+ * The receipts and credit notes themselves are never deleted (their names go
+ * at 730 days as before). Inside the caller's transaction. Returns how many
+ * rows it cleared or deleted.
+ */
+export async function pruneEInvoices(): Promise<number> {
+  const db = getDb();
+  const cutoff = `-${(await (await import("./einvoice-retention")).einvoiceRetention()).years} years`;
+  // Its own transaction (a savepoint inside the run's): the trigger's permission lasts only for it, and goes
+  // with it if anything is refused.
+  return db.transaction(async () => {
+    const drafts = await db.prepare(`DELETE FROM e_invoices WHERE ${UNSENT} AND created_at < datetime('now', ?)`).run(cutoff);
+    await db.prepare("SELECT set_config('mysenam.einvoice_retention', 'on', true)").get();
+    const cleared = await db
+      .prepare(
+        `UPDATE e_invoices SET cleared_at = datetime('now'), document = NULL, buyer = NULL, error = NULL
+          WHERE cleared_at IS NULL AND NOT (${UNSENT}) AND COALESCE(submitted_at, created_at) < datetime('now', ?)`
+      )
+      .run(cutoff);
+    await db.prepare("SELECT set_config('mysenam.einvoice_retention', '', true)").get();
+    return drafts.changes + cleared.changes;
+  })();
+}
+
+/** How many e-invoice rows the retention run would clear or delete now. */
+export async function einvoicesDue(): Promise<number> {
+  const years = (await (await import("./einvoice-retention")).einvoiceRetention()).years;
+  const row = (await getDb()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM e_invoices
+        WHERE (${UNSENT} AND created_at < datetime('now', ?))
+           OR (cleared_at IS NULL AND NOT (${UNSENT}) AND COALESCE(submitted_at, created_at) < datetime('now', ?))`
+    )
+    .get(`-${years} years`, `-${years} years`)) as { n: number };
+  return Number(row.n);
+}
+
+/**
+ * A customer's e-invoices, for their data export (lib/privacy.ts
+ * `exportCustomerData`): every e-invoice made for a receipt of theirs (their
+ * own, with the buyer details they gave; a large sale's, made out to the
+ * general public) and the credit notes against them, with where each stands.
+ * Kept for the statutory period whether or not the account is, so the
+ * export says what is held on that basis.
+ */
+export async function einvoicesExport(userId: number): Promise<unknown[]> {
+  const rows = (await getDb()
+    .prepare(
+      `WITH mine AS (
+         SELECT e.* FROM e_invoices e
+          WHERE e.kind = 'individual'
+            AND (e.receipt_ref IN (SELECT 'R' || id FROM receipts WHERE user_id = ?)
+                 OR e.receipt_ref IN (SELECT code FROM bookings WHERE user_id = ?))
+       )
+       SELECT e.*, v.name AS venue_name FROM e_invoices e JOIN venues v ON v.id = e.venue_id
+        WHERE e.id IN (SELECT id FROM mine)
+           OR (e.kind = 'consolidated_credit' AND e.venue_id IN (SELECT venue_id FROM mine)
+               AND e.refers_code IN (SELECT COALESCE(series_code, code_number) FROM mine))
+        ORDER BY e.id`
+    )
+    .all(userId, userId)) as (EInvoiceRow & { venue_name: string })[];
+  return rows.map((r) => ({
+    venue: r.venue_name,
+    number: r.code_number,
+    kind: r.type_code === "02" ? "credit note" : r.buyer ? "your own e-invoice" : "a large sale's e-invoice, to the general public",
+    receipt: r.receipt_number,
+    corrects: r.refers_code,
+    total: Number(r.total),
+    status: r.status,
+    askedAt: r.created_at,
+    sentAt: r.submitted_at,
+    lhdnUuid: r.uuid,
+    buyerDetailsGiven: r.buyer ? (JSON.parse(r.buyer) as Party) : null,
+    linesSent: sentLinesOf(r.document),
+    clearedAt: r.cleared_at,
+    keptBecause:
+      "An e-invoice is a tax record the venue must keep for the statutory period (provisionally 7 years from its issue, pending legal verification); it is kept even if this account is closed, and cleared after that period.",
+  }));
 }

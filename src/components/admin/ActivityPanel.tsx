@@ -11,6 +11,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "competition.cancelled": "act.a.competitionCancelled",
   "retention.policy": "act.a.retentionPolicy",
   "retention.reviewed": "act.a.retentionReviewed",
+  "einvoice.retention": "ei8.act.retention",
+  "einvoice.retention_reviewed": "ei8.act.reviewed",
   "tournament.knockout_refilled": "act.a.knockoutRefilled",
   "tournament.match_moved": "act.a.matchMoved",
   "tournament.official_added": "act.a.officialAdded",

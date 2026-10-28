@@ -33,6 +33,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "competition.cancelled": "Called off a competition",
   "retention.policy": "Changed how long applications and documents are kept",
   "retention.reviewed": "Recorded an adviser's review of how long applications are kept (the owner's record, not verified)",
+  "einvoice.retention": "Changed how long e-invoice records are kept",
+  "einvoice.retention_reviewed": "Recorded an adviser's review of how long e-invoice records are kept (the owner's record, not verified)",
   "tournament.knockout_refilled": "Corrected a result and refilled the knockout",
   "tournament.match_moved": "Moved a tournament match",
   "tournament.official_added": "Gave an official a link to enter results",

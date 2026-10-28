@@ -45,7 +45,6 @@ type Form = {
   stateCode: string;
   phone: string;
   email: string;
-  leaveNamesOut: boolean;
 };
 
 const blank = (s: EInvoiceSettings): Form => ({
@@ -65,7 +64,6 @@ const blank = (s: EInvoiceSettings): Form => ({
   stateCode: s.stateCode ?? "",
   phone: s.phone ?? "",
   email: s.email ?? "",
-  leaveNamesOut: s.leaveNamesOut,
 });
 
 export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
@@ -136,6 +134,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
 
   /** What staff can do next with a document in its state: the same rules the server applies (`actions`). */
   const nextStep = (e: EInvoice): string => {
+    if (e.clearedAt) return t("ei8.cleared", { when: clock.when(e.clearedAt, e.venueId) });
     if (e.replacedByCode) return t("ei7.next.replaced");
     if (e.waitingFor) return t("ei7.waitingFor", { code: e.waitingFor });
     if (e.replaceBlocked === "consolidated") return t("ei7.next.blockedConsolidated");
@@ -293,15 +292,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                   {t("einv.on")}
                 </label>
               </div>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.leaveNamesOut}
-                  onChange={(e) => setForm({ ...form, leaveNamesOut: e.target.checked })}
-                  className="mt-1"
-                />
-                <span>{t("ei7.leaveNamesOut")}</span>
-              </label>
+              <p className="text-sm text-slate-600">{t("ei8.namesNever")}</p>
               {form.enabled && !form.sandbox && (
                 <p className="rounded-md bg-rose-50 p-2 text-sm text-rose-800">
                   {t("ei7.productionWarning")}
