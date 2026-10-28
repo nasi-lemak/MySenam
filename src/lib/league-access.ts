@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin, type Admin } from "./admin-auth";
 import { leagueById } from "./leagues";
+import { readJsonObject } from "./api";
 
 /** The league, if this admin runs its venue; else the response to send. */
 export async function staffLeague(req: NextRequest, rawId: string): Promise<{ admin: Admin; id: number } | NextResponse> {
@@ -13,13 +14,7 @@ export async function staffLeague(req: NextRequest, rawId: string): Promise<{ ad
   return { admin, id: league.id };
 }
 
-/** The JSON body, or the response to send. */
+/** The JSON body, or the response to send (lib/api.ts `readJsonObject`). */
 export async function jsonBody(req: NextRequest): Promise<Record<string, unknown> | NextResponse> {
-  try {
-    const body = (await req.json()) as unknown;
-    if (body && typeof body === "object" && !Array.isArray(body)) return body as Record<string, unknown>;
-  } catch {
-    // Falls through.
-  }
-  return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  return readJsonObject(req);
 }

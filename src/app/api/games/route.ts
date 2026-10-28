@@ -2,7 +2,7 @@ import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { isWho, type Who } from "@/lib/who";
 import { phoneRefusal } from "@/lib/phone-check";
-import { refusal } from "@/lib/api";
+import { jsonObject, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { findGames, LEVELS, openGame, type Level } from "@/lib/games";
 import type { Intensity } from "@/lib/player-profiles";
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

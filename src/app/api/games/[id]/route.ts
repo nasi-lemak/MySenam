@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { phoneRefusal } from "@/lib/phone-check";
-import { refusal } from "@/lib/api";
+import { jsonObject, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import {
   askToJoin,
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!Number.isInteger(gameId) || gameId <= 0) return NextResponse.json({ error: "Invalid game." }, { status: 400 });
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

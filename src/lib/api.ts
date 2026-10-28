@@ -3,6 +3,27 @@ import type { Refusal } from "./types";
 import { isMinute, parseClock } from "./interval";
 
 /**
+ * A request's JSON body, which a handler reads fields of: an object, or it
+ * throws, as `req.json()` does on text that is not JSON, for the handler's own
+ * catch to answer 400. `null`, a list, a number or a string is valid JSON
+ * but no body of fields, so it is refused the same way rather than read.
+ */
+export async function jsonObject(req: Request): Promise<Record<string, unknown>> {
+  const body = (await req.json()) as unknown;
+  if (body === null || typeof body !== "object" || Array.isArray(body)) throw new SyntaxError("The JSON body is not an object.");
+  return body as Record<string, unknown>;
+}
+
+/** `jsonObject`, or the 400 to send: for a handler without a catch of its own. */
+export async function readJsonObject(req: Request): Promise<Record<string, unknown> | NextResponse> {
+  try {
+    return await jsonObject(req);
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+}
+
+/**
  * A refusal, on its way to the browser.
  *
  * `error` is the English sentence and goes out whatever happens, so anything

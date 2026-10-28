@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { listErrors, resolveError } from "@/lib/error-log";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
   const denied = requireOwner(admin);
   if (denied) return denied;
-  const body = (await req.json().catch(() => ({}))) as { id?: unknown };
+  const body = (await jsonObject(req).catch(() => ({}))) as { id?: unknown };
   if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
   await resolveError(body.id as number);
   return NextResponse.json({ errors: await listErrors() });

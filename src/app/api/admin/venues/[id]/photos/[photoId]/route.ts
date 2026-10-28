@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { changePhoto, removePhoto } from "@/lib/photos";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (found instanceof NextResponse) return found;
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

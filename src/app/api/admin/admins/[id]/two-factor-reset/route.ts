@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { resetTwoFactorFor } from "@/lib/two-factor-reset";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!Number.isInteger(targetId) || targetId <= 0) return NextResponse.json({ error: "Invalid admin id." }, { status: 400 });
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

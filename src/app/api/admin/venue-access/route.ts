@@ -18,6 +18,7 @@ import {
 import { phoneChecksOn } from "@/lib/phone-check";
 import { logFromRequest } from "@/lib/activity";
 import { guestPolicy, setGuestPolicy, withdrawGuestInvitationByStaff } from "@/lib/guest-invites";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
