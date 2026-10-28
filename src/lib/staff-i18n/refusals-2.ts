@@ -690,4 +690,11 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "This membership has ended.": { ms: "Keahlian ini telah tamat.", zh: "此会员资格已结束。" },
   "That person is not covered by this membership.": { ms: "Orang itu tidak dilindungi oleh keahlian ini.", zh: "此人不在此会员资格的涵盖范围内。" },
   "That person is covered by this membership already.": { ms: "Orang itu sudah dilindungi oleh keahlian ini.", zh: "此人已在此会员资格的涵盖范围内。" },
+  // ei7: e-invoices put right or asked about again (lib/myinvois.ts `retryEInvoice`, `recheckEInvoice`).
+  "Only an e-invoice that was not sent, or that LHDN refused, found invalid or cancelled, can be sent again.": { ms: "Hanya e-invois yang tidak dihantar, atau yang ditolak, didapati tidak sah atau dibatalkan oleh LHDN, boleh dihantar semula.", zh: "只有未提交，或被 LHDN 拒收、判定无效或取消的电子发票才能再次提交。" },
+  "This sale has gone to LHDN in the month's consolidated e-invoice since; a replacement would invoice it twice.": { ms: "Jualan ini telah dihantar ke LHDN dalam e-invois disatukan bulan itu; pengganti akan menginvoisnya dua kali.", zh: "这笔销售已随当月的合并电子发票提交给 LHDN；提交替代文件会重复开票。" },
+  "The customer has asked for another e-invoice for this receipt since.": { ms: "Pelanggan telah meminta e-invois lain untuk resit ini.", zh: "顾客已为此收据申请了另一张电子发票。" },
+  "It has been replaced already.": { ms: "Ia telah pun diganti.", zh: "它已被替代。" },
+  "Only an e-invoice LHDN has accepted can be checked.": { ms: "Hanya e-invois yang telah diterima LHDN boleh disemak.", zh: "只有 LHDN 已接收的电子发票才能查询。" },
+  "MyInvois could not be reached.": { ms: "MyInvois tidak dapat dihubungi.", zh: "无法连接 MyInvois。" },
 };

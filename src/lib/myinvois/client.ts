@@ -5,6 +5,11 @@ import { encodeForSubmission } from "./ubl";
  * became of it. Sandbox is LHDN's pre-production; credentials are an ERP
  * client registered in the MyInvois portal, the venue's own or the platform's
  * as an intermediary acting on the venue's TIN.
+ *
+ * UNVERIFIED: the paths, fields and statuses here are written from LHDN's
+ * published API documentation and tested only against a pretend MyInvois
+ * (tests/myinvois.test.ts), never the sandbox
+ * (docs/integrations/myinvois.md#what-is-assumed-and-not-verified).
  */
 
 export interface Connection {
@@ -99,7 +104,10 @@ export async function submitDocument(c: Connection, codeNumber: string, json: st
   return {
     submissionUid: data.submissionUid ?? data.submissionUID ?? "",
     accepted: accepted ? { uuid: accepted.uuid, codeNumber } : null,
-    rejected: rejected ? (rejected.error?.details?.[0]?.message ?? rejected.error?.message ?? "Rejected") : null,
+    // LHDN's reasons as LHDN gave them: every detail it listed, else its message.
+    rejected: rejected
+      ? (rejected.error?.details?.map((d) => d.message).filter(Boolean).join("; ") || rejected.error?.message || "Rejected")
+      : null,
   };
 }
 

@@ -2,7 +2,7 @@ import { salesJournal, type Category } from "./accounting";
 import { getDb } from "./db";
 import { documentById, documentId, lineText } from "./documents";
 import { errorText, translator, type ErrorCode } from "./i18n";
-import { documentStatus, MyInvoisError, submitDocument, validationLink, type Connection } from "./myinvois/client";
+import { documentStatus, MyInvoisError, submitDocument, validationLink, type Connection, type DocumentStatus } from "./myinvois/client";
 import { buildDocument, STATE_CODES, type DocLine, type Party, type Supplier } from "./myinvois/ubl";
 import { receiptFor } from "./receipts";
 import { region, roundMoney } from "./region";
@@ -30,7 +30,13 @@ import { englishOf, said, type ServerPhrase, type StaffText } from "./staff-text
  * Each is sent as LHDN's UBL 2.1 JSON, version 1.0 (lib/myinvois/ubl.ts),
  * built when it is sent so it carries the venue's details as they are then,
  * and checked afterwards until LHDN says valid or invalid. A valid one gets
- * LHDN's public link, which the receipt shows.
+ * LHDN's public link, which the receipt shows. Once sent, a document is
+ * never rewritten: a correction is a new document (`EInvoiceStatus`).
+ *
+ * The LHDN rules this follows (the seven days, the RM10,000 limit, the
+ * codes and document version) are read from LHDN's published guidance and
+ * samples and marked UNVERIFIED where they are used: none has been checked
+ * against the MyInvois sandbox.
  *
  * MySenam reaches MyInvois with the venue's own ERP client credentials, or as
  * the venue's intermediary with the platform's (MYINVOIS_CLIENT_ID and
@@ -61,6 +67,12 @@ export interface EInvoiceSettings {
   missingPhrases: StaffText[];
   /** The platform can act as intermediary on this install. */
   intermediaryAvailable: boolean;
+  /**
+   * Leave people's names out of the lines of e-invoices not yet sent (a
+   * customer's own, a large sale's): each says the receipt's number and the
+   * kind of sale instead. Off unless the venue turns it on.
+   */
+  leaveNamesOut: boolean;
 }
 
 interface SettingsRow {
@@ -81,6 +93,7 @@ interface SettingsRow {
   state_code: string | null;
   phone: string | null;
   email: string | null;
+  leave_names_out: number;
 }
 
 const ENGLISH = translator("en");
@@ -143,6 +156,7 @@ export async function einvoiceSettings(venueId: number): Promise<EInvoiceSetting
     missing: missingOf(r),
     missingPhrases: missingPhrases(r),
     intermediaryAvailable: intermediaryAvailable(),
+    leaveNamesOut: r?.leave_names_out === 1,
   };
 }
 
@@ -181,6 +195,7 @@ export async function saveEInvoiceSettings(
     state_code: state,
     phone: text(input.phone, 30),
     email,
+    leave_names_out: input.leaveNamesOut === true ? 1 : 0,
   };
   if (row.enabled === 1) {
     const missing = missingOf({ venue_id: venueId, ...row });
@@ -251,7 +266,48 @@ async function supplierFor(venueId: number): Promise<Supplier | null> {
 
 // ------------------------------------------------------------ what is sent
 
-export type EInvoiceStatus = "pending" | "submitted" | "valid" | "invalid" | "failed";
+/**
+ * Where a document stands (docs/integrations/myinvois.md#states-and-what-never-changes):
+ *
+ * - `pending`: written down, not sent yet: a draft. Its lines are drawn when
+ *   it is sent, from the receipts as they are then, so a draft follows its
+ *   receipt (a name cleared from the receipt is not sent). A credit note
+ *   stays pending until what it corrects is valid at LHDN.
+ * - `failed`: not sent: the venue's details were incomplete, nothing was
+ *   left to send, or MyInvois could not be reached. Still a draft, sent
+ *   again as it is once put right.
+ * - `rejected`: LHDN refused it when it was sent: it has a submission ID and
+ *   LHDN's reasons, no UUID.
+ * - `submitted`: LHDN accepted it for validation and gave it a UUID.
+ * - `valid`: LHDN validated it: its long ID makes the public link.
+ * - `invalid`: LHDN validated it and found it invalid, with its reasons.
+ * - `cancelled`: LHDN reported it cancelled (cancelling is done in the
+ *   MyInvois portal; MySenam only records what LHDN says).
+ *
+ * Once a document has reached LHDN (rejected, submitted or after), what it
+ * said, its totals and LHDN's identifiers never change and it is never
+ * deleted: the database refuses (migration 0220). Only LHDN's verdict moves
+ * on. A correction is always a new document: a replacement, under its own
+ * number and linked to the one it replaces, for one LHDN refused, found
+ * invalid or reported cancelled; a credit note for a sale reversed after
+ * its e-invoice was sent.
+ */
+export type EInvoiceStatus = "pending" | "submitted" | "valid" | "invalid" | "failed" | "rejected" | "cancelled";
+
+/** LHDN holds none of these as a valid document: put right by a replacement, never by sending it again. */
+export const REFUSED_STATUSES: readonly EInvoiceStatus[] = ["invalid", "rejected", "cancelled"];
+const REFUSED = "('invalid', 'rejected', 'cancelled')";
+/** A row nothing of which has reached LHDN. */
+const UNSENT = "document IS NULL AND submission_uid IS NULL AND uuid IS NULL";
+
+/**
+ * What staff can do with a document now; the route refuses anything else.
+ * `send`: one never sent, again as it is. `replace`: a new document in place
+ * of one LHDN refused, found invalid or reported cancelled. `recheck`: ask
+ * LHDN where one it accepted stands (how a cancellation made in the portal
+ * reaches MySenam).
+ */
+export type EInvoiceAction = "send" | "replace" | "recheck";
 
 export interface EInvoice {
   id: number;
@@ -263,15 +319,38 @@ export interface EInvoice {
   receiptRef: string | null;
   receiptNumber: string | null;
   buyerName: string | null;
+  /** A single large sale's own e-invoice, made out to the general public at month end. */
+  largeSale: boolean;
   total: number;
   uuid: string | null;
+  submissionUid: string | null;
+  longId: string | null;
   status: EInvoiceStatus;
+  /** Why it was not sent, or LHDN's reasons as LHDN gave them. */
   error: string | null;
   refersCode: string | null;
   createdAt: string;
   submittedAt: string | null;
+  /** When LHDN was last asked about it. */
+  checkedAt: string | null;
   /** LHDN's public page for a valid one. */
   link: string | null;
+  /** Its lines as sent (from the stored document); null until it reaches LHDN. */
+  sentLines: { description: string; amount: number }[] | null;
+  /** The number of the document it replaces, and of the one that replaced it. */
+  replacesCode: string | null;
+  replacedByCode: string | null;
+  /** Credit notes against it, sent or waiting. */
+  correctedBy: string[];
+  /** A credit note waiting for what it corrects to be valid: that document's number. */
+  waitingFor: string | null;
+  actions: EInvoiceAction[];
+  /**
+   * Why one LHDN refused may not be replaced: a customer's own whose sale
+   * has since gone in a consolidated one (`consolidated`), or that the
+   * customer asked for again (`newer`).
+   */
+  replaceBlocked: "consolidated" | "newer" | null;
 }
 
 interface EInvoiceRow {
@@ -295,11 +374,74 @@ interface EInvoiceRow {
   refers_code: string | null;
   created_at: string;
   submitted_at: string | null;
+  checked_at: string | null;
+  replaces_id: number | null;
+  series_code: string | null;
+  covers: string | null;
+}
+
+/** It has reached LHDN: what it holds is LHDN's record too, and never changes. */
+const reached = (r: Pick<EInvoiceRow, "document" | "submission_uid" | "uuid">) => !!(r.document || r.submission_uid || r.uuid);
+/** The number a document and its replacements are looked up by: the first one's. */
+const seriesOf = (r: Pick<EInvoiceRow, "series_code" | "code_number">) => r.series_code ?? r.code_number;
+const isRefused = (s: EInvoiceStatus) => REFUSED_STATUSES.includes(s);
+
+async function rowById(id: number): Promise<EInvoiceRow | undefined> {
+  return (await getDb().prepare("SELECT * FROM e_invoices WHERE id = ?").get(id)) as EInvoiceRow | undefined;
+}
+
+/** The document a number stands for now: the latest of its series (itself, or the last replacement sent in its place). */
+async function currentOf(venueId: number, code: string): Promise<EInvoiceRow | undefined> {
+  return (await getDb()
+    .prepare("SELECT * FROM e_invoices WHERE venue_id = ? AND COALESCE(series_code, code_number) = ? ORDER BY id DESC LIMIT 1")
+    .get(venueId, code)) as EInvoiceRow | undefined;
+}
+
+/** A stored document's lines, as sent: each one's words and amount with its tax. */
+function sentLinesOf(document: string | null): EInvoice["sentLines"] {
+  if (!document) return null;
+  try {
+    type Value = { _: string | number }[];
+    const doc = JSON.parse(document) as {
+      Invoice?: { InvoiceLine?: { Item?: { Description?: Value }[]; LineExtensionAmount?: Value; TaxTotal?: { TaxAmount?: Value }[] }[] }[];
+    };
+    return (doc.Invoice?.[0]?.InvoiceLine ?? []).map((l) => ({
+      description: String(l.Item?.[0]?.Description?.[0]?._ ?? ""),
+      amount: roundMoney(Number(l.LineExtensionAmount?.[0]?._ ?? 0) + Number(l.TaxTotal?.[0]?.TaxAmount?.[0]?._ ?? 0)),
+    }));
+  } catch {
+    return null;
+  }
 }
 
 async function toEInvoice(r: EInvoiceRow): Promise<EInvoice> {
+  const db = getDb();
   const sandbox = (await settingsRow(r.venue_id))?.sandbox === 1;
   const buyer = r.buyer ? (JSON.parse(r.buyer) as Party) : null;
+  const replacement = (await db.prepare("SELECT code_number FROM e_invoices WHERE replaces_id = ?").get(r.id)) as { code_number: string } | undefined;
+  const replaced = r.replaces_id
+    ? ((await db.prepare("SELECT code_number FROM e_invoices WHERE id = ?").get(r.replaces_id)) as { code_number: string } | undefined)
+    : undefined;
+  const correctedBy =
+    r.type_code === "01" && !replacement
+      ? ((await db
+          .prepare("SELECT code_number FROM e_invoices WHERE venue_id = ? AND refers_code = ? AND replaces_id IS NULL ORDER BY id")
+          .all(r.venue_id, seriesOf(r))) as { code_number: string }[]).map((c) => c.code_number)
+      : [];
+  let waitingFor: string | null = null;
+  if (r.status === "pending" && r.refers_code) {
+    const target = await currentOf(r.venue_id, r.refers_code);
+    if (target?.status !== "valid") waitingFor = target?.code_number ?? r.refers_code;
+  }
+  const actions: EInvoiceAction[] = [];
+  let replaceBlocked: EInvoice["replaceBlocked"] = null;
+  if (!reached(r) && r.status === "failed") actions.push("send");
+  // A refused one; or, from before migration 0220, one sent again in place and left waiting or failed.
+  if (!replacement && reached(r) && (isRefused(r.status) || r.status === "pending" || r.status === "failed")) {
+    replaceBlocked = await whyNotReplace(r);
+    if (!replaceBlocked) actions.push("replace");
+  }
+  if ((r.status === "submitted" || r.status === "valid") && r.uuid) actions.push("recheck");
   return {
     id: r.id,
     venueId: r.venue_id,
@@ -310,15 +452,62 @@ async function toEInvoice(r: EInvoiceRow): Promise<EInvoice> {
     receiptRef: r.receipt_ref,
     receiptNumber: r.receipt_number,
     buyerName: buyer?.name ?? null,
+    largeSale: r.kind === "individual" && r.period !== null && !buyer,
     total: Number(r.total),
     uuid: r.uuid,
+    submissionUid: r.submission_uid,
+    longId: r.long_id,
     status: r.status,
     error: r.error,
     refersCode: r.refers_code,
     createdAt: r.created_at,
     submittedAt: r.submitted_at,
+    checkedAt: r.checked_at,
     link: r.status === "valid" && r.uuid && r.long_id ? validationLink(sandbox, r.uuid, r.long_id) : null,
+    sentLines: sentLinesOf(r.document),
+    replacesCode: replaced?.code_number ?? null,
+    replacedByCode: replacement?.code_number ?? null,
+    correctedBy,
+    waitingFor,
+    actions,
+    replaceBlocked,
   };
+}
+
+/**
+ * Why a document LHDN refused may not be replaced. Only a customer's own can
+ * be held back: when they asked for one again since, or when its sale has
+ * gone to LHDN in a consolidated e-invoice since (it would be invoiced
+ * twice). A consolidated one sent before migration 0220 did not record
+ * which receipts it carried, so its month counts as carrying the sale.
+ */
+async function whyNotReplace(r: EInvoiceRow): Promise<EInvoice["replaceBlocked"]> {
+  if (r.kind !== "individual" || r.period !== null || !r.receipt_number || !r.receipt_ref) return null;
+  const db = getDb();
+  const newer = await db
+    .prepare(
+      `SELECT 1 FROM e_invoices WHERE venue_id = ? AND kind = 'individual' AND receipt_number = ?
+          AND COALESCE(series_code, code_number) <> ? AND status NOT IN ${REFUSED}`
+    )
+    .get(r.venue_id, r.receipt_number, seriesOf(r));
+  if (newer) return "newer";
+  const month = await receiptMonth(r.receipt_ref, r.venue_id);
+  if (!month) return null;
+  const con = await currentOf(r.venue_id, `CON-${month}`);
+  if (!con || isRefused(con.status) || !reached(con)) return null;
+  if (con.covers === null) return "consolidated";
+  return (JSON.parse(con.covers) as string[]).includes(r.receipt_number) ? "consolidated" : null;
+}
+
+/** The month, on the venue's calendar, a receipt was paid in. */
+async function receiptMonth(ref: string, venueId: number): Promise<string | null> {
+  const db = getDb();
+  const id = documentId(ref);
+  const at =
+    id !== null
+      ? ((await db.prepare("SELECT issued_at AS at FROM receipts WHERE id = ?").get(id)) as { at: string | null } | undefined)
+      : ((await db.prepare("SELECT paid_at AS at FROM bookings WHERE code = ?").get(ref)) as { at: string | null } | undefined);
+  return at?.at ? localMonth(at.at, await zoneOf(venueId)) : null;
 }
 
 export async function listEInvoices(venueId: number): Promise<EInvoice[]> {
@@ -328,11 +517,17 @@ export async function listEInvoices(venueId: number): Promise<EInvoice[]> {
   return Promise.all(rows.map(toEInvoice));
 }
 
-/** Receipts already e-invoiced for their own buyer, which stay out of the consolidated one. */
+/**
+ * Receipts that stay out of the consolidated one: a large sale's own
+ * e-invoice whatever became of it (it may not be consolidated), and a
+ * customer's own unless LHDN refused it and nothing has replaced it (the
+ * customer may then ask again, or the sale goes in the month's).
+ */
 async function individuallyInvoiced(venueId: number): Promise<Set<string>> {
   const rows = (await getDb()
     .prepare(
-      "SELECT receipt_number FROM e_invoices WHERE venue_id = ? AND kind = 'individual' AND type_code = '01' AND status IN ('pending', 'submitted', 'valid')"
+      `SELECT receipt_number FROM e_invoices WHERE venue_id = ? AND kind = 'individual' AND type_code = '01'
+          AND (period IS NOT NULL OR status NOT IN ${REFUSED})`
     )
     .all(venueId)) as { receipt_number: string }[];
   return new Set(rows.map((r) => r.receipt_number));
@@ -344,7 +539,12 @@ const monthBounds = (period: string) => {
   return { from: `${period}-01`, to: `${period}-${String(last).padStart(2, "0")}` };
 };
 
-/** LHDN: no single transaction above this may be consolidated. */
+/**
+ * No single sale above this goes in a consolidated e-invoice: it gets its
+ * own. UNVERIFIED: taken from LHDN's e-invoice guideline as read when this
+ * was written; not checked against LHDN's current guideline or its sandbox
+ * (docs/integrations/myinvois.md#what-is-assumed-and-not-verified).
+ */
 export const CONSOLIDATION_LIMIT = 10_000;
 
 /** The address part of a receipt's link, from its printed number: a booking's code, or "R<id>". */
@@ -389,7 +589,11 @@ function consolidatedLines(rows: { number: string; category: Category; gross: nu
  * The month as LHDN's consolidated documents, written down to send: the
  * receipts nobody asked an e-invoice of their own for, and the credit notes,
  * each against the e-invoice that carried what it reverses. Once a month:
- * a second call finds them already there.
+ * a second call finds them already there (a replacement of one keeps the
+ * first one's number as its series). UNVERIFIED: that a consolidated
+ * e-invoice and consolidated credit notes are made this way (classification
+ * 004, buyer the general public, one line per kind of sale and tax rate) is
+ * read from LHDN's guideline and samples, not checked in the sandbox.
  */
 export async function consolidate(venueId: number, period: string): Promise<EInvoice[]> {
   const db = getDb();
@@ -453,8 +657,11 @@ export async function consolidate(venueId: number, period: string): Promise<EInv
 }
 
 /**
- * The e-invoice a credit note corrects, by our code: the customer's own where
- * the reversed receipt had one, else the consolidated one of its month.
+ * The e-invoice a credit note corrects, by our code (its series: a
+ * replacement sent in its place is followed when the credit note is sent):
+ * the receipt's own where it was kept out of the consolidated one, else the
+ * consolidated one of its month, whatever LHDN made of it so far (the
+ * credit note waits until it is valid).
  */
 async function creditTarget(venueId: number, creditNumber: string): Promise<string | null> {
   const db = getDb();
@@ -463,7 +670,11 @@ async function creditTarget(venueId: number, creditNumber: string): Promise<stri
     | undefined;
   if (!note?.credits_ref) return null;
   const individual = (await db
-    .prepare("SELECT code_number FROM e_invoices WHERE venue_id = ? AND kind = 'individual' AND type_code = '01' AND receipt_number = ? AND status <> 'invalid'")
+    .prepare(
+      `SELECT COALESCE(series_code, code_number) AS code_number FROM e_invoices
+        WHERE venue_id = ? AND kind = 'individual' AND type_code = '01' AND receipt_number = ?
+          AND (period IS NOT NULL OR status NOT IN ${REFUSED}) ORDER BY id DESC LIMIT 1`
+    )
     .get(venueId, note.credits_ref)) as { code_number: string } | undefined;
   if (individual) return individual.code_number;
   // When the reversed sale happened, on the venue's calendar.
@@ -473,7 +684,7 @@ async function creditTarget(venueId: number, creditNumber: string): Promise<stri
     : ((await db.prepare("SELECT paid_at AS at FROM bookings WHERE code = ?").get(note.credits_ref)) as { at: string | null } | undefined);
   if (!when?.at) return null;
   const month = localMonth(when.at, zone);
-  const consolidated = await db.prepare("SELECT code_number FROM e_invoices WHERE venue_id = ? AND code_number = ? AND status <> 'invalid'").get(venueId, `CON-${month}`);
+  const consolidated = await db.prepare("SELECT 1 FROM e_invoices WHERE venue_id = ? AND code_number = ?").get(venueId, `CON-${month}`);
   return consolidated ? `CON-${month}` : null;
 }
 
@@ -523,7 +734,7 @@ export async function requestEInvoice(ref: string, receiptToken: string, input: 
   const db = getDb();
   if (await monthSent(venueId, receipt.paidAt)) return refuse("EINVOICE_TOO_LATE");
   const already = await db
-    .prepare("SELECT id FROM e_invoices WHERE venue_id = ? AND kind = 'individual' AND receipt_number = ? AND status <> 'invalid'")
+    .prepare(`SELECT id FROM e_invoices WHERE venue_id = ? AND kind = 'individual' AND receipt_number = ? AND status NOT IN ${REFUSED}`)
     .get(venueId, receipt.number);
   if (already) return refuse("EINVOICE_ALREADY");
   const row = (await db
@@ -533,17 +744,18 @@ export async function requestEInvoice(ref: string, receiptToken: string, input: 
     )
     .get(venueId, `EI-${receipt.number}-${Date.now().toString(36)}`, ref, receipt.number, JSON.stringify(buyer), receipt.total)) as { id: number };
   await submitOne(row.id).catch(() => undefined);
-  const fresh = (await db.prepare("SELECT * FROM e_invoices WHERE id = ?").get(row.id)) as EInvoiceRow;
-  return { ok: true, einvoice: await toEInvoice(fresh) };
+  return { ok: true, einvoice: await toEInvoice((await rowById(row.id))!) };
 }
 
-/** Whether the month a sale was paid in has gone to LHDN consolidated. */
+/**
+ * Whether the month a sale was paid in has gone to LHDN consolidated (or is
+ * on its way): its consolidated e-invoice, or the replacement sent in its
+ * place, is not one LHDN refused.
+ */
 async function monthSent(venueId: number, paidAt: string | null): Promise<boolean> {
   const month = localMonth(paidAt ?? new Date().toISOString(), await zoneOf(venueId));
-  const row = await getDb()
-    .prepare("SELECT id FROM e_invoices WHERE venue_id = ? AND code_number = ? AND status <> 'invalid'")
-    .get(venueId, `CON-${month}`);
-  return !!row;
+  const con = await currentOf(venueId, `CON-${month}`);
+  return !!con && !isRefused(con.status);
 }
 
 function readBuyer(input: BuyerInput): Party | string {
@@ -587,13 +799,18 @@ export async function einvoiceForReceipt(ref: string, paidAt: string | null): Pr
 
 // ------------------------------------------------------------ sending and checking
 
-/** Build one document now, with the venue's details as they are, and send it. */
+/**
+ * Build one draft now, with the venue's details and the receipts as they
+ * are, and send it. Only a draft is ever sent: one that has reached LHDN is
+ * left as it is (a replacement is sent in its place, `retryEInvoice`).
+ */
 export async function submitOne(id: number, now = new Date()): Promise<EInvoice> {
   const db = getDb();
-  const r = (await db.prepare("SELECT * FROM e_invoices WHERE id = ?").get(id)) as EInvoiceRow;
+  const r = (await rowById(id))!;
+  if (r.status !== "pending" || reached(r)) return toEInvoice(r);
   const fail = async (error: string) => {
-    await db.prepare("UPDATE e_invoices SET status = 'failed', error = ? WHERE id = ?").run(error.slice(0, 1000), id);
-    return toEInvoice((await db.prepare("SELECT * FROM e_invoices WHERE id = ?").get(id)) as EInvoiceRow);
+    await db.prepare(`UPDATE e_invoices SET status = 'failed', error = ? WHERE id = ? AND ${UNSENT}`).run(error.slice(0, 1000), id);
+    return toEInvoice((await rowById(id))!);
   };
   const connection = await connectionFor(r.venue_id);
   const supplier = await supplierFor(r.venue_id);
@@ -601,15 +818,15 @@ export async function submitOne(id: number, now = new Date()): Promise<EInvoice>
 
   let refers: { codeNumber: string; uuid: string } | null = null;
   if (r.refers_code) {
-    const target = (await db
-      .prepare("SELECT uuid, status FROM e_invoices WHERE venue_id = ? AND code_number = ?")
-      .get(r.venue_id, r.refers_code)) as { uuid: string | null; status: EInvoiceStatus } | undefined;
-    // Waits for what it corrects to be accepted first.
-    if (!target?.uuid || target.status === "pending") return toEInvoice(r);
-    refers = { codeNumber: r.refers_code, uuid: target.uuid };
+    // Waits until what it corrects (or the replacement sent in its place) is
+    // valid at LHDN. MySenam's own order of things, so a credit note never
+    // names a document LHDN may yet find invalid; not an LHDN rule.
+    const target = await currentOf(r.venue_id, r.refers_code);
+    if (!target?.uuid || target.status !== "valid") return toEInvoice(r);
+    refers = { codeNumber: target.code_number, uuid: target.uuid };
   }
 
-  const lines = await linesFor(r);
+  const { lines, covers } = await linesFor(r);
   if (lines.length === 0) return fail("Nothing to send.");
   const doc = buildDocument({
     typeCode: r.type_code,
@@ -621,49 +838,99 @@ export async function submitOne(id: number, now = new Date()): Promise<EInvoice>
     lines,
     refers,
   });
+  let outcome: Awaited<ReturnType<typeof submitDocument>>;
   try {
-    const outcome = await submitDocument(connection, r.code_number, doc.json);
-    if (outcome.rejected || !outcome.accepted) return fail(outcome.rejected ?? "MyInvois did not accept it.");
-    await db
-      .prepare(
-        `UPDATE e_invoices SET status = 'submitted', error = NULL, document = ?, submission_uid = ?, uuid = ?, refers_uuid = ?,
-           submitted_at = datetime('now') WHERE id = ?`
-      )
-      .run(doc.json, outcome.submissionUid, outcome.accepted.uuid, refers?.uuid ?? null, id);
+    outcome = await submitDocument(connection, r.code_number, doc.json);
   } catch (err) {
     return fail(err instanceof MyInvoisError || err instanceof Error ? err.message : "MyInvois could not be reached.");
   }
-  return toEInvoice((await db.prepare("SELECT * FROM e_invoices WHERE id = ?").get(id)) as EInvoiceRow);
+  // From here it is LHDN's record too: kept as sent, with LHDN's identifiers
+  // (and, refused, LHDN's reasons as given), and never changed after.
+  const sent = [doc.json, doc.gross, covers ? JSON.stringify(covers) : null, outcome.submissionUid || null, refers?.uuid ?? null];
+  if (outcome.accepted)
+    await db
+      .prepare(
+        `UPDATE e_invoices SET status = 'submitted', error = NULL, document = ?, total = ?, covers = ?, submission_uid = ?, refers_uuid = ?,
+           uuid = ?, submitted_at = datetime('now') WHERE id = ? AND ${UNSENT}`
+      )
+      .run(...sent, outcome.accepted.uuid, id);
+  else
+    await db
+      .prepare(
+        `UPDATE e_invoices SET status = 'rejected', error = ?, document = ?, total = ?, covers = ?, submission_uid = ?, refers_uuid = ?,
+           submitted_at = datetime('now') WHERE id = ? AND ${UNSENT}`
+      )
+      .run((outcome.rejected ?? "MyInvois did not accept it.").slice(0, 1000), ...sent, id);
+  return toEInvoice((await rowById(id))!);
 }
 
-/** What a document says, drawn now from the receipts it covers. */
-async function linesFor(r: EInvoiceRow): Promise<DocLine[]> {
+/**
+ * What a draft says, drawn now from the receipts it covers, and which
+ * receipts or credit notes those are (for a consolidated one).
+ */
+async function linesFor(r: EInvoiceRow): Promise<{ lines: DocLine[]; covers: string[] | null }> {
   if (r.kind === "individual") {
     const receipt = r.receipt_ref ? await receiptFor(r.receipt_ref, (await import("./receipts")).receiptToken(r.receipt_ref)) : null;
-    if (!receipt) return [];
-    return [
-      {
-        description: `Receipt ${receipt.number}: ${receipt.lines[0] ? lineText(receipt.lines[0]) : "sale"}`,
-        gross: receipt.total,
-        tax: receipt.tax?.amount ?? 0,
-        rate: receipt.tax?.rate ?? null,
-        classification: "022",
-      },
-    ];
+    if (!receipt) return { lines: [], covers: null };
+    const namesOut = (await settingsRow(r.venue_id))?.leave_names_out === 1;
+    const words = namesOut ? await kindOfSale(r.venue_id, receipt.number, receipt.paidAt) : receipt.lines[0] ? lineText(receipt.lines[0]) : "sale";
+    return {
+      lines: [
+        {
+          description: `Receipt ${receipt.number}: ${words}`,
+          gross: receipt.total,
+          tax: receipt.tax?.amount ?? 0,
+          rate: receipt.tax?.rate ?? null,
+          classification: "022",
+        },
+      ],
+      covers: null,
+    };
   }
   const { from, to } = monthBounds(r.period!);
   const journal = await salesJournal(r.venue_id, from, to);
   if (r.kind === "consolidated") {
     const own = await individuallyInvoiced(r.venue_id);
-    return consolidatedLines(
-      journal.filter((j) => j.type === "Receipt" && !own.has(j.number) && j.gross > 0),
-      r.period!
-    );
+    const receipts = journal.filter((j) => j.type === "Receipt" && !own.has(j.number) && j.gross > 0);
+    return { lines: consolidatedLines(receipts, r.period!), covers: [...new Set(receipts.map((j) => j.number))] };
   }
   const credits: typeof journal = [];
   for (const c of journal.filter((j) => j.type === "Credit note"))
     if ((await creditTarget(r.venue_id, c.number)) === r.refers_code) credits.push(c);
-  return consolidatedLines(credits, r.period!);
+  return { lines: consolidatedLines(credits, r.period!), covers: [...new Set(credits.map((j) => j.number))] };
+}
+
+/** A receipt's kind of sale as the books say it (court hire, memberships…): words that name nobody. */
+async function kindOfSale(venueId: number, number: string, paidAt: string | null): Promise<string> {
+  if (!paidAt) return "sale";
+  const { from, to } = monthBounds(localMonth(paidAt, await zoneOf(venueId)));
+  const row = (await salesJournal(venueId, from, to)).find((j) => j.type === "Receipt" && j.number === number);
+  return row ? row.category.toLowerCase() : "sale";
+}
+
+/**
+ * Record what LHDN says of one it accepted: submitted to valid (with its
+ * long ID), invalid (with LHDN's reasons) or cancelled; valid to cancelled.
+ * Anything else changes only when it was last asked. Whether it was decided.
+ */
+async function applyVerdict(r: EInvoiceRow, s: DocumentStatus): Promise<boolean> {
+  const db = getDb();
+  if (r.status === "submitted" && s.status === "Valid") {
+    await db.prepare("UPDATE e_invoices SET status = 'valid', long_id = COALESCE(long_id, ?), checked_at = datetime('now') WHERE id = ?").run(s.longId, r.id);
+    return true;
+  }
+  if (r.status === "submitted" && s.status === "Invalid") {
+    await db
+      .prepare("UPDATE e_invoices SET status = 'invalid', error = ?, checked_at = datetime('now') WHERE id = ?")
+      .run((s.problems.join("; ") || "LHDN found it invalid.").slice(0, 1000), r.id);
+    return true;
+  }
+  if ((r.status === "submitted" || r.status === "valid") && s.status === "Cancelled") {
+    await db.prepare("UPDATE e_invoices SET status = 'cancelled', checked_at = datetime('now') WHERE id = ?").run(r.id);
+    return true;
+  }
+  await db.prepare("UPDATE e_invoices SET checked_at = datetime('now') WHERE id = ?").run(r.id);
+  return false;
 }
 
 /** What LHDN made of those sent and not yet decided. */
@@ -677,18 +944,7 @@ export async function checkSubmitted(venueId?: number): Promise<number> {
     const connection = await connectionFor(r.venue_id);
     if (!connection || !r.uuid) continue;
     try {
-      const s = await documentStatus(connection, r.uuid);
-      if (s.status === "Valid") {
-        await db.prepare("UPDATE e_invoices SET status = 'valid', long_id = ?, checked_at = datetime('now') WHERE id = ?").run(s.longId, r.id);
-        decided++;
-      } else if (s.status === "Invalid") {
-        await db
-          .prepare("UPDATE e_invoices SET status = 'invalid', error = ?, checked_at = datetime('now') WHERE id = ?")
-          .run((s.problems.join("; ") || "LHDN found it invalid.").slice(0, 1000), r.id);
-        decided++;
-      } else {
-        await db.prepare("UPDATE e_invoices SET checked_at = datetime('now') WHERE id = ?").run(r.id);
-      }
+      if (await applyVerdict(r, await documentStatus(connection, r.uuid))) decided++;
     } catch {
       // Asked again next time.
     }
@@ -696,28 +952,78 @@ export async function checkSubmitted(venueId?: number): Promise<number> {
   return decided;
 }
 
+/** Ask LHDN where one it accepted stands now: a cancellation made in the MyInvois portal reaches MySenam this way. */
+export async function recheckEInvoice(id: number, venueId: number): Promise<{ ok: true; einvoice: EInvoice } | { ok: false; error: string }> {
+  const r = (await getDb().prepare("SELECT * FROM e_invoices WHERE id = ? AND venue_id = ?").get(id, venueId)) as EInvoiceRow | undefined;
+  if (!r?.uuid || (r.status !== "submitted" && r.status !== "valid")) return { ok: false, error: "Only an e-invoice LHDN has accepted can be checked." };
+  const connection = await connectionFor(venueId);
+  if (!connection) return { ok: false, error: "Fill in the MyInvois credentials and the TIN first." };
+  try {
+    await applyVerdict(r, await documentStatus(connection, r.uuid));
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "MyInvois could not be reached." };
+  }
+  return { ok: true, einvoice: await toEInvoice((await rowById(id))!) };
+}
+
 /** Send whatever is waiting, for one venue or all. */
 export async function submitPending(venueId?: number, now = new Date()): Promise<number> {
   const rows = (await getDb()
-    .prepare(`SELECT id FROM e_invoices WHERE status = 'pending'${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
+    .prepare(`SELECT id FROM e_invoices WHERE status = 'pending' AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
     .all(...(venueId ? [venueId] : []))) as { id: number }[];
   for (const r of rows) await submitOne(r.id, now);
   return rows.length;
 }
 
-/** One that failed or was invalid, after the venue has put it right: send it again. */
-export async function retryEInvoice(id: number, venueId: number): Promise<EInvoice | null> {
-  const done = await getDb()
-    .prepare("UPDATE e_invoices SET status = 'pending', error = NULL WHERE id = ? AND venue_id = ? AND status IN ('failed', 'invalid')")
-    .run(id, venueId);
-  if (done.changes !== 1) return null;
-  return submitOne(id);
+export type RetryResult = { ok: true; einvoice: EInvoice; from: string } | { ok: false; error: string };
+
+/**
+ * Put one right, once the venue has: one never sent is sent as it is; one
+ * LHDN refused, found invalid or reported cancelled stays as it was sent,
+ * and a new document goes in its place under its own number (`CON-2026-10-R2`),
+ * linked to it, its lines drawn afresh from the receipts. Only what
+ * `actions` offers; anything else is refused.
+ */
+export async function retryEInvoice(id: number, venueId: number): Promise<RetryResult> {
+  const db = getDb();
+  const r = (await db.prepare("SELECT * FROM e_invoices WHERE id = ? AND venue_id = ?").get(id, venueId)) as EInvoiceRow | undefined;
+  const cannot = "Only an e-invoice that was not sent, or that LHDN refused, found invalid or cancelled, can be sent again.";
+  if (!r) return { ok: false, error: cannot };
+  if (!reached(r)) {
+    const done = await db.prepare(`UPDATE e_invoices SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed' AND ${UNSENT}`).run(id);
+    if (done.changes !== 1) return { ok: false, error: cannot };
+    return { ok: true, einvoice: await submitOne(id), from: r.code_number };
+  }
+  const now = await toEInvoice(r);
+  if (!now.actions.includes("replace")) {
+    if (now.replaceBlocked === "consolidated")
+      return { ok: false, error: "This sale has gone to LHDN in the month's consolidated e-invoice since; a replacement would invoice it twice." };
+    if (now.replaceBlocked === "newer") return { ok: false, error: "The customer has asked for another e-invoice for this receipt since." };
+    return { ok: false, error: now.replacedByCode ? "It has been replaced already." : cannot };
+  }
+  const series = seriesOf(r);
+  const { n } = (await db
+    .prepare("SELECT COUNT(*)::int AS n FROM e_invoices WHERE venue_id = ? AND COALESCE(series_code, code_number) = ?")
+    .get(venueId, series)) as { n: number };
+  // Two at once: the second finds the number or the replaced one taken, and nothing is made.
+  const made = (await db
+    .prepare(
+      `INSERT INTO e_invoices (venue_id, kind, type_code, code_number, period, receipt_ref, receipt_number, buyer, total, refers_code, replaces_id, series_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING RETURNING id`
+    )
+    .get(venueId, r.kind, r.type_code, `${series}-R${Number(n) + 1}`, r.period, r.receipt_ref, r.receipt_number, r.buyer, r.total, r.refers_code, r.id, series)) as
+    | { id: number }
+    | undefined;
+  if (!made) return { ok: false, error: "It has been replaced already." };
+  return { ok: true, einvoice: await submitOne(made.id), from: r.code_number };
 }
 
 /**
  * The scheduler's part: in each venue's first seven days of a month, the
  * month before consolidated; then whatever is waiting sent, and whatever was
- * sent checked.
+ * sent checked. UNVERIFIED: the seven days follow LHDN's guideline for
+ * consolidated e-invoices as read when this was written, not checked
+ * against its current guideline.
  */
 export async function runEInvoicing(now = new Date()): Promise<void> {
   const venues = (await getDb().prepare("SELECT venue_id FROM einvoice_settings WHERE enabled = 1").all()) as { venue_id: number }[];

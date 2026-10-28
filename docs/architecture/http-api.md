@@ -428,8 +428,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/court-links` | `{ courtId, parts: number[] }`: the courts booking this one takes too, replacing the list (managers) |
 | GET | `/api/admin/customer-notes` | `?venueId&phone` → the venue's note on that customer |
 | POST | `/api/admin/customer-notes` | `{ venueId, phone, note }`: write it; an empty note takes it away |
-| GET | `/api/admin/einvoicing` | `?venueId=` → the venue's MyInvois settings and its recent e-invoices |
-| POST | `/api/admin/einvoicing` | `{ venueId, action }`: - `save` with the settings' fields; - `test`: sign in to MyInvois with them; - `consolidate`: send last month now, rather than waiting for the scheduler; - `retry` with `id`: send one that failed or was invalid again; - `check`: ask LHDN about those sent and not yet decided |
+| GET | `/api/admin/einvoicing` | `?venueId=` → the venue's MyInvois settings and its recent e-invoices, each with its state, LHDN's identifiers, its lines as sent, what replaced it or corrects it, and the `actions` it takes ([states](../integrations/myinvois.md#states-and-what-never-changes)) |
+| POST | `/api/admin/einvoicing` | `{ venueId, action }`: - `save` with the settings' fields (`leaveNamesOut` among them); - `test`: sign in to MyInvois with them; - `consolidate`: send last month now, rather than waiting for the scheduler; - `retry` with `id`: one never sent is sent as it is, one LHDN refused, found invalid or reported cancelled stays as sent and a new document goes in its place (`409` where its `actions` do not offer it); - `recheck` with `id`: ask LHDN where one it accepted stands now (a cancellation made in the portal); - `check`: ask LHDN about those sent and not yet decided |
 | GET | `/api/admin/enquiries` | The private hire enquiries at the venues this account runs, open ones first, each with `replyLocale` (the language to answer in where known, else null) |
 | POST | `/api/admin/enquiries` | `{ venueId, id, status }`: replied, booked or declined |
 | GET | `/api/admin/errors` | `?resolved=1` for those marked fixed: errors by kind, latest first, for the platform owner |

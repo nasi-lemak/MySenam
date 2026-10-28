@@ -4,17 +4,22 @@ Not yet verified against the MyInvois sandbox or production; see [feature status
 
 > **Not yet tried against LHDN.** This is written from LHDN's published API
 > and sample documents, and tested against a pretend MyInvois
-> (`tests/myinvois.test.ts`). Before a venue uses production, run it in
-> LHDN's sandbox (pre-production) and check the documents there. Whether a
-> venue must e-invoice at all, and from when, depends on its turnover and on
-> thresholds LHDN has changed more than once: that is for the venue and its
-> accountant, and the settings panel says so.
+> (`tests/myinvois.test.ts`, `tests/einvoice-records.test.ts`). Before a
+> venue uses production, run it in LHDN's sandbox (pre-production) and check
+> the documents there. Whether a venue must e-invoice at all, and from when,
+> depends on its turnover and on thresholds LHDN has changed more than once:
+> that is for the venue and its accountant, and the settings panel says so.
+> The LHDN rules MySenam follows are listed under
+> [what is assumed and not verified](#what-is-assumed-and-not-verified).
 
 A venue turns it on under *Venues & staff → E-invoicing* (managers only;
 Malaysian installs only), with its TIN, business registration number, MSIC
 code, registered name, address and contact details (`einvoice_settings`,
 migration 0056). It starts in sandbox; production is a separate tick, with a
-warning that documents cannot be withdrawn after 72 hours.
+warning that MySenam never changes a document once sent and that
+cancelling is done in the MyInvois portal within LHDN's window. *Leave
+people's names out of e-invoice lines* (off by default; migration 0220) is
+[below](#names-in-what-is-sent).
 
 How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
 
@@ -34,12 +39,14 @@ How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
   general public (`CON-2026-10`, buyer TIN `EI00000000010`, classification
   004): a line for each kind of sale (court hire, classes, coaching, passes,
   memberships, credit…) and tax rate, saying how many receipts and which.
+  Which receipts it carried is stored with it when it is sent (`covers`).
   Managers can send it sooner with *Send last month now*.
 - **Credit notes**, by the e-invoice that carried what they reverse: the
   month's consolidated one, or a customer's own, as consolidated credit notes
-  (`CCN-2026-11-CON-2026-10`) naming it by LHDN's UUID. A credit note waits to
-  be sent until what it corrects has been accepted. Reversing a sale from
-  before e-invoicing was on sends nothing.
+  (`CCN-2026-11-CON-2026-10`) naming it by LHDN's UUID. A credit note waits
+  to be sent until what it corrects is valid at LHDN, and names the
+  replacement where one was sent in its place. Reversing a sale from before
+  e-invoicing was on sends nothing.
 - **A customer's own.** A paid receipt shows *Need an e-invoice?* while its
   month has not been consolidated. The customer gives a name, TIN (an
   individual without one uses `EI00000000010` and their IC number), ID,
@@ -47,20 +54,124 @@ How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
   that name and cannot be edited. It is sent straight away
   (`POST /api/receipts/einvoice`, behind the receipt's signed link),
   classification 022, and left out of the consolidated one. The receipt then
-  says where it stands and, once valid, links to LHDN's public page.
+  says where it stands and, once valid, links to LHDN's public page. Where
+  LHDN refused it or found it invalid (or it was cancelled), and nothing was
+  sent in its place, the receipt offers the form again while the month is
+  open, so a customer whose details were wrong can give the right ones.
+- **A single sale over RM10,000** is not consolidated: at month end it gets
+  its own e-invoice (`EI-<receipt number>`), made out to the general public
+  unless the customer already asked for one in their name, and is left out
+  of the consolidated one whatever LHDN makes of it.
 - Each document is UBL 2.1 JSON, version 1.0 (no digital signature), built
-  when it is sent so it carries the venue's details as they are then, base64
-  with its SHA-256. Tax category 02 (service tax) where the venue charges
-  SST, else 06 (not applicable).
+  when it is sent so it carries the venue's details and the receipts as they
+  are then, base64 with its SHA-256. Tax category 02 (service tax) where the
+  venue charges SST, else 06 (not applicable).
 - **Afterwards**, every tick asks LHDN about those sent and not yet decided:
-  *Valid* (with the link) or *Invalid* (with LHDN's reasons). One that LHDN
-  refused or found invalid is listed with why; *Send again* sends it once the
-  venue has put it right.
+  *Valid* (with the link), *Invalid* (with LHDN's reasons) or *Cancelled*.
 
-- **A single sale over RM10,000** may not be consolidated: at month end it
-  gets its own e-invoice (`EI-<receipt number>`), made out to the general
-  public unless the customer already asked for one in their name, and is
-  left out of the consolidated one.
+## States and what never changes
 
-Not covered: cancelling a document within LHDN's 72 hours is done in the
-portal; sales recorded outside MySenam are not included.
+Each document is a row of `e_invoices`. Its state, and what staff can do
+with it on the screen, which offers only what the server allows (the list
+says each one's `actions`; `POST /api/admin/einvoicing` refuses anything
+else):
+
+| State | What it means | What it holds from LHDN | What staff can do next |
+| --- | --- | --- | --- |
+| Waiting to send (`pending`) | Written down, not sent: a draft | Nothing | Nothing: the scheduler sends it. A credit note says which document it waits for |
+| Not sent (`failed`) | The venue's details were incomplete, nothing was left to send, or MyInvois could not be reached | Nothing | *Send*: the same draft, once put right |
+| Refused by LHDN (`rejected`) | LHDN refused it when it was sent | Submission ID, LHDN's reasons as given | *Send a replacement* |
+| Sent, being validated (`submitted`) | LHDN accepted it for validation | Submission ID, UUID | *Check with LHDN*, *Ask LHDN again* |
+| Valid (`valid`) | LHDN validated it | Submission ID, UUID, long ID (the public link) | *Ask LHDN again* (records a cancellation made in the portal); a sale reversed after this goes in a credit note against it |
+| Invalid (`invalid`) | LHDN validated it and found it invalid | Submission ID, UUID, LHDN's reasons as given | *Send a replacement* |
+| Cancelled at LHDN (`cancelled`) | LHDN reported it cancelled (done in the portal) | As it had | *Send a replacement* |
+
+How a state changes: a draft is sent (to `submitted` or `rejected`) or fails
+(`failed`, sent again as it is); LHDN's verdict moves `submitted` to
+`valid`, `invalid` or `cancelled`, and `valid` to `cancelled`. Nothing else
+moves a document that reached LHDN.
+
+**What never changes.** Once a document has reached LHDN (it holds a
+document, a submission ID or a UUID: `rejected`, `submitted` and after), its
+stored payload, lines, buyer, total, the receipts it covered, its number,
+LHDN's submission ID, UUID and long ID, what it corrects and when it was
+sent stay as they are, and it is never deleted. The database refuses
+anything else (trigger `e_invoices_sent_frozen`, migration 0220), whichever
+path tries: clearing names from a receipt, retention, an erasure, a refund,
+a withdrawal or coach change (they make receipts and credit notes, never
+touch `e_invoices`), a retry or a check. Only LHDN's verdict, its reasons,
+the long ID (set once) and when LHDN was last asked move on. A draft
+venue holding an e-invoice is not deleted by the stale-draft clean-up
+(`src/lib/drafts.ts`). Shown by `tests/einvoice-records.test.ts`.
+
+**A correction is a new document**, linked to what it corrects:
+
+- **A replacement**, for one LHDN refused, found invalid or reported
+  cancelled: *Send a replacement* makes a new document under its own number
+  (`CON-2026-10-R2`, then `-R3`), linked to the one it replaces
+  (`replaces_id`), its lines drawn afresh from the receipts. The one replaced
+  stays as it was sent, with LHDN's identifiers and reasons, and says what
+  replaced it; each is replaced once. Lookups by the first number (the
+  month's consolidated one, what a credit note corrects) follow the series
+  to the latest. A customer's own is not replaced once its sale has gone to
+  LHDN in the month's consolidated e-invoice since (it would be invoiced
+  twice; a consolidated one sent before migration 0220 did not record its
+  receipts, so its month counts as carrying the sale), nor once the
+  customer has asked for another; a replacement carries the buyer details
+  the customer gave, so wrong ones are put right by the customer asking
+  again.
+- **A credit note**, for a sale reversed after its e-invoice was sent (a
+  refund, a late cancellation's share, a place taken off): see above. A
+  credit note is a document like any other and is replaced the same way.
+- **Cancelling** is not done through MySenam: the venue cancels in the
+  MyInvois portal within LHDN's window, then *Ask LHDN again* records it
+  as cancelled. MySenam does not issue debit notes (an amount under-invoiced)
+  or refund notes.
+
+**A draft follows its receipt.** A document is built when it is sent, from
+the receipts as they are then: a name cleared from a receipt (retention, an
+erasure) before its e-invoice is sent is not sent, and *Send* on one that
+failed sends the receipt as it now is.
+
+### Names in what is sent
+
+A consolidated document's lines say the kind of sale, the month and the
+receipt numbers: no names. A customer's own, and a large sale's, say the
+receipt's first line as the books do, with whom it was for where the line
+names somebody (a family membership's children). With *Leave people's names
+out of e-invoice lines* on, they say the receipt's number and the kind of
+sale instead (`Receipt R-000012: memberships`). It applies to documents not
+yet sent; one already sent keeps what it said, at LHDN and in its copy here
+([privacy](../architecture/privacy.md#receipts-and-credit-notes)).
+
+## What is assumed and not verified
+
+Each of these is read from LHDN's published guidance, API documentation or
+samples as they stood when the code was written, marked `UNVERIFIED` in the
+code where it is used, and has not been checked against the MyInvois
+sandbox or LHDN's current guidance. None is presented to staff as settled:
+
+- the consolidated e-invoice sent in the first seven days after the month
+  (`runEInvoicing`), made out to the general public (TIN `EI00000000010`,
+  state 17) with classification 004, and consolidated credit notes made the
+  same way;
+- a single sale over RM10,000 kept out of the consolidated one
+  (`CONSOLIDATION_LIMIT`);
+- an individual without a TIN using `EI00000000010` with their IC number;
+- document version 1.0 without a digital signature, the UBL JSON shape,
+  classification 022, tax types 02 and 06, the state codes
+  (`src/lib/myinvois/ubl.ts`);
+- the API's paths, fields and statuses, including how a refusal at
+  submission and a cancellation are reported (`src/lib/myinvois/client.ts`);
+- whether LHDN accepts a document's number again after it refused it or
+  found it invalid: MySenam does not rely on it either way, as a
+  replacement always has its own number;
+- the 72-hour cancellation window, which the screens attribute to LHDN and
+  mark as not verified.
+
+A credit note waiting until what it corrects is valid is MySenam's own order
+of things, not an LHDN rule.
+
+Not covered: cancelling or rejecting a document through MySenam; debit and
+refund notes; editing a buyer's details once given; sales recorded outside
+MySenam.

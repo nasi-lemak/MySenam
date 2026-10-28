@@ -2432,6 +2432,10 @@ export const ZH: Record<Phrase, string> = {
   "gi7.openGame": "前往球局",
   "gi7.openGroup": "前往群组",
   "gi7.noToken": "此链接不完整。请重新打开邀请邮件中的链接。",
+  // 收据上的电子发票状态（ei7.）
+  "ei7.status.rejected": "LHDN 已拒收，场馆将予以更正",
+  "ei7.status.cancelled": "已在 LHDN 取消",
+  "ei7.askAgain": "如果您填写的资料有误，可在下方以正确资料重新申请。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

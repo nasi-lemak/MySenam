@@ -2592,6 +2592,10 @@ const EN = {
   "gi7.openGame": "Go to the game",
   "gi7.openGroup": "Go to the group",
   "gi7.noToken": "This link is not complete. Open the link in the invitation email again.",
+  // E-invoice states on the receipt (ei7.)
+  "ei7.status.rejected": "LHDN refused it; the venue will put it right",
+  "ei7.status.cancelled": "cancelled at LHDN",
+  "ei7.askAgain": "If the details you gave were wrong, you can ask again with the right ones below.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5137,6 +5141,10 @@ const MS: Record<Phrase, string> = {
   "gi7.openGame": "Pergi ke permainan",
   "gi7.openGroup": "Pergi ke kumpulan",
   "gi7.noToken": "Pautan ini tidak lengkap. Buka semula pautan dalam e-mel jemputan.",
+  // Status e-invois pada resit (ei7.)
+  "ei7.status.rejected": "LHDN menolaknya; tempat ini akan membetulkannya",
+  "ei7.status.cancelled": "dibatalkan di LHDN",
+  "ei7.askAgain": "Jika butiran yang anda berikan salah, anda boleh meminta semula dengan butiran yang betul di bawah.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

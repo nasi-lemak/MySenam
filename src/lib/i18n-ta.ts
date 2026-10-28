@@ -2435,6 +2435,10 @@ export const TA: Record<Phrase, string> = {
   "gi7.openGame": "ஆட்டத்திற்குச் செல்",
   "gi7.openGroup": "குழுவுக்குச் செல்",
   "gi7.noToken": "இந்த இணைப்பு முழுமையாக இல்லை. அழைப்பு மின்னஞ்சலில் உள்ள இணைப்பை மீண்டும் திறக்கவும்.",
+  // ரசீதில் மின்-விலைப்பட்டியல் நிலை (ei7.)
+  "ei7.status.rejected": "LHDN அதை நிராகரித்தது; மையம் அதைச் சரிசெய்யும்",
+  "ei7.status.cancelled": "LHDN-இல் ரத்து செய்யப்பட்டது",
+  "ei7.askAgain": "நீங்கள் கொடுத்த விவரங்கள் தவறாக இருந்தால், கீழே சரியான விவரங்களுடன் மீண்டும் கேட்கலாம்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */
