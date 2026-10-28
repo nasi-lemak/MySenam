@@ -316,7 +316,10 @@ Where staff refund by hand (Billplz, or a venue that chose *Staff refund it*):
   limit on what they are owed: it never shortens a period consumer law or
   the payment provider's rules require, and a refund past it is still owed.
   Whether a venue's period is compatible with those obligations is for the
-  operator to check, not settled here.
+  operator to check, not settled here. The date customers and staff are told
+  is the venue's calendar date (`refundClock` takes the venue's time zone), as
+  is the date a refund was made (`refundedOn`); whether it is overdue is
+  counted to the minute (`tests/refund-local-date.test.ts`).
 - **The customer is told the date** when they cancel ("by 27 October"), and
   can follow the refund afterwards by looking the booking up or in their
   account (`refundStatusFor`), in one of these states:

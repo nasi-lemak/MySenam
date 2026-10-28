@@ -1,9 +1,12 @@
--- A venue's staff calendar feed (lib/staff-calendar.ts) kept as a hash, with
--- an expiry, as coaches' links are (0137): the address is shown once, when a
--- manager makes it, and a copy of the database cannot be used to read the
--- venue's bookings. Addresses already given keep working until their new
--- expiry, a year from now; the plain tokens are removed.
+-- A venue's staff calendar feed (lib/staff-calendar.ts) kept as coaches'
+-- links are (0137): found by the hash of its token, with an expiry, so a copy
+-- of the database cannot be used to read the venue's bookings. The copy shown
+-- to staff again is sealed with the install's secret (lib/secrets.ts), which
+-- SQL cannot do: addresses already given keep working, by their hash, until
+-- their new expiry a year from now, but are not shown again (a manager makes a
+-- new one to see it). The plain tokens are removed.
 ALTER TABLE venues ADD COLUMN IF NOT EXISTS calendar_feed_hash TEXT;
+ALTER TABLE venues ADD COLUMN IF NOT EXISTS calendar_feed_sealed TEXT;
 ALTER TABLE venues ADD COLUMN IF NOT EXISTS calendar_feed_made_at TIMESTAMPTZ;
 ALTER TABLE venues ADD COLUMN IF NOT EXISTS calendar_feed_expires_at TIMESTAMPTZ;
 UPDATE venues

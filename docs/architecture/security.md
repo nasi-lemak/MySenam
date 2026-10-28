@@ -54,6 +54,15 @@ the person ([ADR 0020](decisions/0020-approval-to-booking-payment-and-authority.
 Door codes follow eligibility, not the booking's author
 ([door codes](../features/venue-operations.md#resources-nobody-is-standing-next-to)).
 
+A venue's staff calendar feed (`/api/calendar/<token>.ics`) is the same kind
+of key to its customers' names and numbers, shared by its staff: 24 random
+bytes, found by their SHA-256 hash, lapsing a year after the address is made,
+replaced or withdrawn by a manager, each change in the activity log. So that
+staff can copy it again to subscribe another calendar, the copy they are shown
+is sealed with the install's secret as payment keys are (`src/lib/secrets.ts`),
+which a database copy or backup does not carry
+([staff calendars](../integrations/messaging.md#bookings-in-staffs-own-calendar)).
+
 ## No account enumeration
 
 A customer who types somebody else's email address must not learn from the
@@ -130,6 +139,26 @@ proposed by account email) say when none has it: they are used by a venue's
 own staff for the person in front of them, not by customers. Where the rule
 does not yet hold for customers is in
 [known limitations](../roadmap/known-limitations.md).
+
+## What a request may send
+
+- **Bodies.** A handler reads a JSON body only when it is an object: `null`,
+  a list, a number, a string or text that is not JSON is refused with `400`,
+  never read into a `500` (`jsonObject` and `readJsonObject` in
+  `src/lib/api.ts`; `tests/bad-bodies.test.ts` calls every route handler with
+  each).
+- **Names and emails** a booking, a class place, a waiting list or a new
+  account keeps are bounded for every path that keeps them, the booking form,
+  the counter, the venue's API and sign-up, and in the store beneath them
+  (`src/lib/contact-fields.ts`): a name is trimmed and at most 100 characters
+  (`NAME_TOO_LONG`), an email at most 254. They travel on to receipts, staff
+  lists, exports, calendar feeds and message templates, whose providers cap
+  each value (`tests/contact-lengths.test.ts`).
+- **Other free text** reachable without an account is cut to a bound where it
+  is kept: an enquiry's name, email and message, a gift voucher's names, email
+  and message, an application to list a venue, the e-invoice details a
+  customer gives, a browser error report, a review, a coach's note on their
+  days off. A score is read only in the form a result takes.
 
 ## Rate limiting
 

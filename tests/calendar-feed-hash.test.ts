@@ -25,11 +25,11 @@ import { GET as feedGet } from "../src/app/api/calendar/[token]/route";
 
 /**
  * A venue's staff calendar feed is a bearer link to its customers' names and
- * numbers, so it is kept as coaches' links are (S16): only its hash is
- * stored, the address is shown once when a manager makes it, and it lapses
- * after `FEED_DAYS`, when a manager makes a new one. Each change is in the
- * activity log. Migration 0240 keeps addresses already given working, by
- * their hash, for a year.
+ * numbers, so the database keeps no readable copy of it: it is found by its
+ * hash, as coaches' links are (S16), and the copy staff are shown again is
+ * sealed with the install's secret. It lapses after `FEED_DAYS`, when a
+ * manager makes a new one. Each change is in the activity log. Migration
+ * 0240 keeps addresses already given working, by their hash, for a year.
  */
 
 let venueId: number;
@@ -45,8 +45,9 @@ const fetchFeed = async (token: string) =>
   (await feedGet(new NextRequest(`http://localhost/api/calendar/${token}.ics`), { params: Promise.resolve({ token: `${token}.ics` }) })).status;
 const stored = async () =>
   (await getDb()
-    .prepare("SELECT calendar_token, calendar_feed_hash FROM venues WHERE id = ?")
-    .get(venueId)) as { calendar_token: string | null; calendar_feed_hash: string | null };
+    .prepare("SELECT calendar_token, calendar_feed_hash, calendar_feed_sealed FROM venues WHERE id = ?")
+    .get(venueId)) as { calendar_token: string | null; calendar_feed_hash: string | null; calendar_feed_sealed: string | null };
+const looked = async () => (await (await adminFeed.GET(asStaff(`http://localhost/api/admin/calendar-feed?venueId=${venueId}`))).json()) as Record<string, unknown>;
 
 beforeAll(async () => {
   const v = await createVenue({ name: "Hash Hall", area: "PJ", address: "x", phone: "0377771234" });
@@ -60,7 +61,7 @@ beforeAll(async () => {
 describe("the staff calendar feed's address", () => {
   let token: string;
 
-  it("is shown once, when made, and kept only as its hash", async () => {
+  it("is found by its hash, kept readable nowhere in the database, and shown to staff again from its sealed copy", async () => {
     const res = await adminFeed.POST(asStaff("http://localhost/api/admin/calendar-feed", "POST", { venueId, on: true }));
     expect(res.status).toBe(200);
     const made = (await res.json()) as { url: string; on: boolean; expiresAt: string; lapsed: boolean };
@@ -73,18 +74,29 @@ describe("the staff calendar feed's address", () => {
     const row = await stored();
     expect(row.calendar_token).toBeNull();
     expect(row.calendar_feed_hash).toBe(crypto.createHash("sha256").update(token).digest("hex"));
+    expect(row.calendar_feed_sealed).toMatch(/^v1:/);
     expect(JSON.stringify(await getDb().prepare("SELECT * FROM venues WHERE id = ?").get(venueId))).not.toContain(token);
 
-    const again = (await (await adminFeed.GET(asStaff(`http://localhost/api/admin/calendar-feed?venueId=${venueId}`))).json()) as Record<string, unknown>;
-    expect(again).toMatchObject({ url: null, on: true, lapsed: false, expiresAt: made.expiresAt });
-    expect(JSON.stringify(again)).not.toContain(token);
+    // Another member of staff, later, copies the same address to subscribe their own calendar.
+    expect(await looked()).toMatchObject({ url: made.url, on: true, lapsed: false, expiresAt: made.expiresAt });
     expect(await fetchFeed(token)).toBe(200);
+  });
+
+  it("still works, but is not shown, where no copy can be unsealed: made before 0240, or sealed under another install's secret", async () => {
+    const sealed = (await stored()).calendar_feed_sealed;
+    for (const copy of [null, "v1:c2VhbGVkIHVuZGVyIGFub3RoZXIga2V5IGVudGlyZWx5"]) {
+      await getDb().prepare("UPDATE venues SET calendar_feed_sealed = ? WHERE id = ?").run(copy, venueId);
+      expect(await looked()).toMatchObject({ url: null, on: true, lapsed: false });
+      expect(await fetchFeed(token)).toBe(200);
+    }
+    await getDb().prepare("UPDATE venues SET calendar_feed_sealed = ? WHERE id = ?").run(sealed, venueId);
   });
 
   it("lapses at its expiry: the feed answers nothing and staff are told to make a new one", async () => {
     await getDb().prepare("UPDATE venues SET calendar_feed_expires_at = now() - interval '1 minute' WHERE id = ?").run(venueId);
     expect(await fetchFeed(token)).toBe(404);
     expect(await feedStatus(venueId)).toMatchObject({ on: true, lapsed: true });
+    expect(await looked()).toMatchObject({ url: null, on: true, lapsed: true });
 
     const res = await adminFeed.POST(asStaff("http://localhost/api/admin/calendar-feed", "POST", { venueId, on: true }));
     const fresh = (await res.json()) as { url: string };
@@ -98,7 +110,7 @@ describe("the staff calendar feed's address", () => {
   it("is turned off, and every change is in the activity log", async () => {
     const res = await adminFeed.POST(asStaff("http://localhost/api/admin/calendar-feed", "POST", { venueId, on: false }));
     expect(await res.json()).toMatchObject({ url: null, on: false });
-    expect(await stored()).toMatchObject({ calendar_token: null, calendar_feed_hash: null });
+    expect(await stored()).toMatchObject({ calendar_token: null, calendar_feed_hash: null, calendar_feed_sealed: null });
     const log = (await listActivity([venueId])).filter((a) => a.detail?.startsWith("Calendar feed"));
     expect(log.map((a) => a.detail)).toEqual(["Calendar feed: off", "Calendar feed: new address", "Calendar feed: new address"]);
     expect(log.every((a) => a.adminName === "Feed Manager")).toBe(true);

@@ -4,33 +4,40 @@ import { useEffect, useState } from "react";
 import type { FeedStatus } from "@/lib/staff-calendar";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 
+type Feed = FeedStatus & { url: string | null };
+
+const feedOf = (d: Partial<Feed>): Feed => ({
+  on: d.on === true,
+  madeAt: d.madeAt ?? null,
+  expiresAt: d.expiresAt ?? null,
+  lapsed: d.lapsed === true,
+  url: d.url ?? null,
+});
+
 /**
  * The venue's bookings in staff's own calendar app: an address to subscribe
  * to, which a manager turns on, replaces (when it has gone somewhere it
- * should not, or has lapsed) or turns off. The address is kept only as a
- * hash, so it is shown once, when it is made (lib/staff-calendar.ts).
+ * should not, or has lapsed) or turns off. Each address lapses after a year
+ * (lib/staff-calendar.ts).
  */
 export function CalendarFeedEditor({ venueId }: { venueId: number }) {
   const t = useStaffT();
   const clock = useStaffClock();
-  const [status, setStatus] = useState<FeedStatus | undefined>(undefined);
-  // The address just made: shown until the editor is left.
-  const [url, setUrl] = useState<string | null>(null);
+  const [feed, setFeed] = useState<Feed | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setStatus(undefined);
-    setUrl(null);
+    setFeed(undefined);
     void fetch(`/api/admin/calendar-feed?venueId=${venueId}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((d: FeedStatus) => setStatus({ on: d.on === true, madeAt: d.madeAt ?? null, expiresAt: d.expiresAt ?? null, lapsed: d.lapsed === true }));
+      .then((d: Partial<Feed>) => setFeed(feedOf(d)));
   }, [venueId]);
 
   async function set(on: boolean) {
     if (!on && !confirm(t("cal.offConfirm"))) return;
-    if (on && status?.on && !status.lapsed && !confirm(t("cal.newConfirm"))) return;
+    if (on && feed?.on && !feed.lapsed && !confirm(t("cal.newConfirm"))) return;
     setBusy(true);
     setError(null);
     setCopied(false);
@@ -42,8 +49,7 @@ export function CalendarFeedEditor({ venueId }: { venueId: number }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
-      setUrl(data.url ?? null);
-      setStatus({ on: data.on === true, madeAt: data.madeAt ?? null, expiresAt: data.expiresAt ?? null, lapsed: data.lapsed === true });
+      setFeed(feedOf(data));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("vn.couldNotSave"));
     } finally {
@@ -51,9 +57,10 @@ export function CalendarFeedEditor({ venueId }: { venueId: number }) {
     }
   }
 
-  if (status === undefined) return null;
+  if (feed === undefined) return null;
+  const { url } = feed;
   const webcal = url?.replace(/^https?:/, "webcal:");
-  const until = status.expiresAt ? clock.day(status.expiresAt, venueId) : "";
+  const until = feed.expiresAt ? clock.day(feed.expiresAt, venueId) : "";
   const replaceOrOff = (
     <>
       <button disabled={busy} onClick={() => set(true)} className="text-slate-600 underline">
@@ -79,7 +86,7 @@ export function CalendarFeedEditor({ venueId }: { venueId: number }) {
               {copied ? t("c.copied") : t("c.copy")}
             </button>
           </div>
-          <p className="mt-1 text-xs font-medium text-amber-700">{t("d8a.cal.shownOnce", { date: until })}</p>
+          {until && <p className="mt-1 text-xs text-slate-500">{t("d8a.cal.until", { date: until })}</p>}
           <p className="mt-2 flex flex-wrap gap-3 text-xs font-medium">
             <a
               href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal!)}`}
@@ -95,10 +102,10 @@ export function CalendarFeedEditor({ venueId }: { venueId: number }) {
             {replaceOrOff}
           </p>
         </>
-      ) : status.on ? (
+      ) : feed.on ? (
         <>
-          <p className={`mt-2 text-xs ${status.lapsed ? "font-medium text-red-700" : "text-slate-600"}`}>
-            {t(status.lapsed ? "d8a.cal.lapsed" : "d8a.cal.onHidden", { date: until })}
+          <p className={`mt-2 text-xs ${feed.lapsed ? "font-medium text-red-700" : "text-slate-600"}`}>
+            {t(feed.lapsed ? "d8a.cal.lapsed" : "d8a.cal.onHidden", { date: until })}
           </p>
           <p className="mt-2 flex flex-wrap gap-3 text-xs font-medium">{replaceOrOff}</p>
         </>

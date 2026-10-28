@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logFromRequest } from "@/lib/activity";
-import { feedLocale, feedStatus, feedUrl, setFeed } from "@/lib/staff-calendar";
+import { feedLocale, feedStatus, feedToken, feedUrl, setFeed } from "@/lib/staff-calendar";
 import { LOCALE_COOKIE } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
@@ -19,19 +19,20 @@ const staffLanguageOf = (req: NextRequest) => feedLocale(req.cookies.get(LOCALE_
 
 /**
  * `?venueId` → whether the feed is on, since and until when (`on`, `madeAt`,
- * `expiresAt`, `lapsed`). The address is kept only as a hash, so it is never
- * shown again: `url` is always null here.
+ * `expiresAt`, `lapsed`), and the address to subscribe to (`url`): null when
+ * off or lapsed, or when no copy of it can be unsealed (lib/staff-calendar.ts
+ * `feedToken`), when a manager makes a new one.
  */
 export async function GET(req: NextRequest) {
   const venueId = await venueOf(req, req.nextUrl.searchParams.get("venueId"));
   if (venueId instanceof NextResponse) return venueId;
-  return NextResponse.json({ url: null, ...(await feedStatus(venueId)) });
+  const token = await feedToken(venueId);
+  return NextResponse.json({ url: token ? await feedUrl(venueId, token, staffLanguageOf(req)) : null, ...(await feedStatus(venueId)) });
 }
 
 /**
- * `{ venueId, on }`: on makes a fresh address, shown this once in `url`, that
- * works for `FEED_DAYS` (the old one stops working); off withdraws it. Logged
- * either way.
+ * `{ venueId, on }`: on makes a fresh address that works for `FEED_DAYS`
+ * (the old one stops working); off withdraws it. Logged either way.
  */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { venueId?: unknown; on?: unknown } | null;
