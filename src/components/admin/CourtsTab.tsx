@@ -22,6 +22,7 @@ import { region } from "@/lib/region";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 import { ManagerChangesNote, ManagerOnly, useStaffMay } from "./StaffMay";
+import { CourtChangesFromDate } from "./DatedChanges";
 
 /** A surface's name as customers read it, in the same language. */
 const surfaceLabel = (t: T, x: string) => {
@@ -284,6 +285,12 @@ export function CourtsTab({
             </tbody>
           </table>
         </div>
+      )}
+
+      {venue && venue.courts.length > 0 && (
+        <ManagerOnly may="datedCourtChanges">
+          <CourtChangesFromDate key={`dated-${venue.id}`} venueId={venue.id} courts={venue.courts} />
+        </ManagerOnly>
       )}
 
       {venue && venue.courts.filter((c) => c.capacity === 1).length > 1 && (

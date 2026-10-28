@@ -741,4 +741,12 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That invitation has already been accepted or withdrawn.": { ms: "Jemputan itu sudah diterima atau ditarik balik.", zh: "该邀请已被接受或已撤回。" },
   "You cannot change your own role.": { ms: "Anda tidak boleh menukar peranan anda sendiri.", zh: "您不能更改自己的角色。" },
   "Invalid invitation id.": { ms: "ID jemputan tidak sah.", zh: "邀请编号无效。" },
+  // Round 9 (R9B): opening hours and rates from a later date
+  "Choose a date after today: a change from today is saved with the settings as usual.": { ms: "Pilih tarikh selepas hari ini: perubahan mulai hari ini disimpan bersama tetapan seperti biasa.", zh: "请选择今天之后的日期：从今天起的更改照常在设置中保存。" },
+  "That change is not waiting to apply.": { ms: "Perubahan itu tidak sedang menunggu untuk berkuat kuasa.", zh: "该更改并未在等待生效。" },
+  "There is already a change from {0}. Change that one instead.": { ms: "Sudah ada perubahan mulai {0}. Tukar perubahan itu sahaja.", zh: "已有自 {0} 起的更改。请改为修改该项。" },
+  "1 booking already made falls outside those hours. Move or cancel it first.": { ms: "1 tempahan yang sudah dibuat berada di luar waktu itu. Pindahkan atau batalkannya dahulu.", zh: "有 1 笔已完成的预订落在这些营业时间之外。请先调整或取消。" },
+  "{0} bookings already made fall outside those hours. Move or cancel them first.": { ms: "{0} tempahan yang sudah dibuat berada di luar waktu itu. Pindahkan atau batalkannya dahulu.", zh: "有 {0} 笔已完成的预订落在这些营业时间之外。请先调整或取消。" },
+  "The evening before {0} runs past that day's opening. Close earlier, or open later from {1}.": { ms: "Waktu malam sebelum {0} berlanjutan melepasi waktu buka hari itu. Tutup lebih awal, atau buka lebih lewat mulai {1}.", zh: "{0} 前一晚的营业时间超过了当天的开门时间。请提早结束营业，或自 {1} 起延后开门。" },
+  "kind is rates or hours.": { ms: "kind ialah rates atau hours.", zh: "kind 须为 rates 或 hours。" },
 };

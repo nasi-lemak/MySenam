@@ -7,6 +7,7 @@ import { getDb } from "@/lib/db";
 import { getCourt } from "@/lib/store";
 import { type Sport } from "@/lib/types";
 import { courtOffers, courtSports, sportsOf } from "@/lib/court-activities";
+import { applyDueCourtChanges, updatePolicyKeepingBookings } from "@/lib/dated-changes";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,8 @@ export async function GET(req: NextRequest) {
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
+  // Courts' own hours set from a date that has come are their current ones (ADR 0027).
+  await applyDueCourtChanges({ venueId });
   const courts = (await getDb().prepare("SELECT id FROM courts WHERE venue_id = ? ORDER BY id").all(venueId)) as { id: number }[];
   const full = (await Promise.all(courts.map((c) => getCourt(c.id)))).filter((c) => c !== null);
   const resolved = await policiesFor(full.map((c) => ({ id: c.id, venueId: c.venueId, sport: c.sport })));
@@ -113,8 +116,15 @@ export async function POST(req: NextRequest) {
     default:
       return NextResponse.json({ error: "level is business, venue, sport or court." }, { status: 400 });
   }
-  const saved = await updatePolicy(scope, settings as Record<string, unknown>);
-  if (!saved.ok) return NextResponse.json(saved, { status: 400 });
+  // Courts' own hours set from a date that has come are their current ones before these change (ADR 0027).
+  await applyDueCourtChanges({ venueId });
+  // Refused while bookings already made would fall outside the hours it sets, every one listed (as from a date).
+  const reach =
+    "business" in scope
+      ? ((await getDb().prepare("SELECT id FROM venues WHERE business_id = ?").all(scope.business)) as { id: number }[]).map((v) => v.id)
+      : [venueId];
+  const saved = await updatePolicyKeepingBookings(scope, settings as Record<string, unknown>, reach);
+  if (!saved.ok) return NextResponse.json(saved, { status: "stranded" in saved && saved.stranded ? 409 : 400 });
   await logAction(admin, { venueId, action: "settings.changed", detail: `Booking rules for ${label}: ${JSON.stringify(settings).slice(0, 400)}` });
   return NextResponse.json({ settings: saved.settings });
 }

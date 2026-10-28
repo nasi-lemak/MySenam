@@ -92,7 +92,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0023 Participants apart from accounts](architecture/decisions/0023-participants-apart-from-accounts.md) ·
 [0024 Supporting documents scanned before release; retention by configured purpose](architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md) ·
 [0025 Benefits and privileges by the scope they apply to](architecture/decisions/0025-benefits-and-privileges-by-scope.md) ·
-[0026 The same venue policies on every booking path, with audited manager overrides](architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md)
+[0026 The same venue policies on every booking path, with audited manager overrides](architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md) ·
+[0027 Opening hours and rates from a date](architecture/decisions/0027-hours-and-rates-from-a-date.md)
 
 ## Integrations
 

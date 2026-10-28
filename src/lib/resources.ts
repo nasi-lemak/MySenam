@@ -148,6 +148,8 @@ export async function setCourtActivities(
   courtId: number,
   list: { sport: Sport; offPeakRate?: number | null; peakRate?: number | null }[]
 ): Promise<{ ok: true; court: Court } | { ok: false; error: string }> {
+  // Rates set from a date that has come are the current ones before these change (ADR 0027).
+  await (await import("./dated-changes")).applyDueCourtChanges({ courtId });
   const court = await getCourt(courtId);
   if (!court) return { ok: false, error: "Court not found." };
   if (list.length > 12) return { ok: false, error: "A court offers up to 12 activities." };

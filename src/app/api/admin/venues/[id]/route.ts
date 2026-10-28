@@ -150,7 +150,8 @@ export async function PATCH(
     await logFromRequest(req, { venueId, action: "settings.changed", detail: `Venue details: ${Object.keys(changes).join(", ")}` });
   if (!result.ok)
     return NextResponse.json(
-      { error: result.error },
+      // Narrowed hours name every booking they would leave outside (lib/dated-changes.ts).
+      { error: result.error, ...("stranded" in result ? { stranded: result.stranded } : {}) },
       { status: result.error === "Venue not found." ? 404 : 400 }
     );
   if (amenities) await setVenueAmenities(venueId, amenities.filter(isAmenity));

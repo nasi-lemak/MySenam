@@ -89,6 +89,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/bookings\/adjust-price$/, methods: ["POST"] },
   // Staff accounts and their invitations (lib/staff-accounts.ts): the owner, a business manager, or a branch manager for their own front desk.
   { path: /^\/api\/admin\/admins(\/\d+|\/invitations\/\d+)?$/, methods: "all" },
+  // Opening hours and rates from a later date, as changing them now is (lib/dated-changes.ts, ADR 0027); the desk may read them.
+  { path: /^\/api\/admin\/venues\/\d+\/hours-changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
+  { path: /^\/api\/admin\/courts\/\d+\/changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
 ];
 
 export type StaffRole = "manager" | "desk";
@@ -119,6 +122,7 @@ export function deskRefusal(role: StaffRole, method: string, path: string): Next
 export const STAFF_ACTIONS = {
   // Venue details
   venueDetails: "PATCH /api/admin/venues/1",
+  datedHours: "POST /api/admin/venues/1/hours-changes",
   closures: "POST /api/admin/venues/1/closures",
   blockNumber: "POST /api/admin/venues/1/blocked-phones",
   photos: "POST /api/admin/venues/1/photos",
@@ -143,6 +147,7 @@ export const STAFF_ACTIONS = {
   // Courts & rates
   courts: "POST /api/admin/courts",
   courtChange: "PATCH /api/admin/courts/1",
+  datedCourtChanges: "POST /api/admin/courts/1/changes",
   activities: "POST /api/admin/activities",
   courtLinks: "POST /api/admin/court-links",
   bookingPolicies: "POST /api/admin/booking-policies",

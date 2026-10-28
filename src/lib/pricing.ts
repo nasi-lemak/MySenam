@@ -3,6 +3,7 @@ import { instantOf, type Span } from "./interval";
 import { region } from "./region";
 import { DEFAULT_PEAK, forSport, peakWindow, type PeakRules } from "./time";
 import type { Court } from "./types";
+import { changeOn } from "./week-hours";
 
 /**
  * What court time costs (ADR 0010). By default, pro rata: each part of a
@@ -22,7 +23,7 @@ import type { Court } from "./types";
 /** How a number pays: not a member (false), at the courts' member rates (true), or a tier's percent of the public price. */
 export type MemberPricing = boolean | number;
 
-export type CourtRates = Pick<Court, "sport" | "offPeakRate" | "peakRate" | "memberOffPeakRate" | "memberPeakRate" | "perPlayer"> & {
+export type CourtRates = Pick<Court, "sport" | "offPeakRate" | "peakRate" | "memberOffPeakRate" | "memberPeakRate" | "perPlayer" | "rateChanges"> & {
   /** Over one: a shared facility, whose rates are per place, as many as are booked (unless `flatRate`). */
   capacity?: number;
   /** A facility with places whose rates are for the whole booking, however many it takes. */
@@ -132,6 +133,17 @@ function boundaries(date: string, span: Span, rules: PeakRules, discount: Span |
   return [...cuts].sort((a, b) => a - b);
 }
 
+/**
+ * The rates in force on `date` (ADR 0027): those set from that date or an
+ * earlier one (already for the activity booked: lib/court-activities.ts
+ * `courtFor`), else the court's current rates. The date booked decides.
+ */
+export function ratesOn(court: CourtRates, date: string): CourtRates {
+  const c = changeOn(court.rateChanges, date);
+  if (!c) return court;
+  return { ...court, offPeakRate: c.offPeakRate, peakRate: c.peakRate, memberOffPeakRate: c.memberOffPeakRate, memberPeakRate: c.memberPeakRate };
+}
+
 /** Does any of this time fall at peak? */
 export function touchesPeak(date: string, span: Span, rules: PeakRules = DEFAULT_PEAK): boolean {
   const w = peakWindow(date, rules);
@@ -153,7 +165,7 @@ export function priceBooking(input: {
   at?: number;
   players?: number;
 }): Quote {
-  const court = input.court;
+  const court = ratesOn(input.court, input.date);
   const member = input.member ?? false;
   const rules = forSport(input.rules ?? DEFAULT_PEAK, court.sport);
   const pricing = input.pricing ?? NO_PRICING_RULES;

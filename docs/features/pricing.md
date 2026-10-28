@@ -36,6 +36,34 @@ disagree. Member and tier prices, per-player prices and last-minute prices
 apply to each part; concessions and promo codes come off the court time,
 never the fees.
 
+## Prices from a date
+
+A price rise from 1 January is set ahead, under *Courts & rates → Rates and a
+court's own hours from a date*: a court, a date after today, and its off-peak,
+peak and member rates from then, with each of its other activities' own rates
+(blank: the court's), as a whole (`court_changes`, migration 0253;
+`src/lib/dated-changes.ts`;
+[ADR 0027](../architecture/decisions/0027-hours-and-rates-from-a-date.md)).
+The rates table above it changes them from today, as before.
+
+- **The date booked decides.** `priceBooking` prices each date at the rates
+  set for it: the latest set from that date or an earlier one, else today's.
+  So the quote, the booking board and its rates, the booking form, the
+  counter, search and its cheapest-court order, the venue's API and a weekly
+  series (week by week) all show the price of the date asked about.
+- **A booking already made keeps the price it was sold at**: nothing is
+  recalculated when rates are set, changed, withdrawn or come into force. A
+  move prices each date at its own rates, as it always priced the two times.
+- **Waiting to apply**: each set is listed under the form, and can be changed
+  or withdrawn until its date. When its date comes it applies by that rule
+  alone; the next time staff open or change the court's rates it becomes the
+  court's rates in the table.
+- Managers only; each set, change and withdrawal is in the activity log, the
+  rates before and after with the date (`rates.scheduled`, `rates.withdrawn`).
+- Only the rates are set from a date. Peak windows, holidays, a policy's
+  prices for set lengths, minimums and fees, concessions and membership or
+  tier prices change from the moment they are saved.
+
 ## Peak hours and holidays
 
 Each court has an off-peak and a peak rate. **Courts & rates → When peak

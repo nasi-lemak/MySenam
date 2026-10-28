@@ -204,4 +204,9 @@ export const ACTION_LABELS: Record<string, string> = {
   "staff.corrected": "Corrected a member of staff's name",
   "staff.address_invited": "Invited a member of staff's new email address",
   "staff.address_changed": "Changed a member of staff's email address",
+  // Round 9 (R9B): opening hours and rates from a later date
+  "hours.scheduled": "Set opening hours from a later date",
+  "hours.withdrawn": "Withdrew hours set from a later date",
+  "rates.scheduled": "Set a court's rates from a later date",
+  "rates.withdrawn": "Withdrew a court's rates set from a later date",
 };
