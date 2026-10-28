@@ -468,14 +468,15 @@ check-in and the door (the owner's decision of 27 October 2026;
 
 Check-in and the door ask again, for the session's date, about everybody
 taking a place on a members' session (`participationLapses`): a membership
-cancelled, voided by a chargeback or ended for that day since it was booked,
-or a dependant taken off a family membership.
+cancelled, voided by a chargeback, ended or
+[suspended](#suspending-a-membership) for that day since it was booked, or a
+dependant taken off a family membership.
 
 - **Self check-in from the QR code** is refused with the reason (*… was
   cancelled. Check in at the desk: staff will decide*; `MV6_CHECKIN_ENDED`,
-  `MV6_CHECKIN_CANCELLED`, `MV6_CHECKIN_NONE`).
+  `MV6_CHECKIN_CANCELLED`, `MV6_CHECKIN_NONE`, `MS7_CHECKIN_SUSPENDED`).
 - **The door code** is not given, with the reason (`reason: "membership"`,
-  `MV6_DOOR_*`), so nobody is let in unattended
+  `MV6_DOOR_*`, `MS7_DOOR_SUSPENDED`), so nobody is let in unattended
   ([doors](venue-operations.md#resources-nobody-is-standing-next-to)).
 - **At the desk** staff see a clear warning naming each person and why
   (`MV6_DESK_WARNING`, with `warnings`), and decide. Admitting them anyway is
@@ -488,7 +489,8 @@ or a dependant taken off a family membership.
 #### When a membership stops
 
 A paid booking is never cancelled or taken silently. When a membership is
-**cancelled** by staff (*Void*), **voided by a chargeback** (revoked), or a
+**cancelled** by staff (*Void*), **voided by a chargeback** (revoked),
+**suspended** for some days ([below](#suspending-a-membership)), or a
 dependant is **taken off** a family membership, the confirmed bookings from
 today on at a members-only venue of its business that it no longer covers
 are **flagged for staff** (`membership_booking_flags`, migration 0195;
@@ -503,10 +505,108 @@ Staff see them under *Bookings* (*Bookings to decide: a membership no longer
 covers them*, `GET /api/admin/memberships/flags`) and deal with each: cancel
 it the ordinary way (the venue's cancellation terms and refund policy apply
 then, and only then), admit them at the desk, or keep it, and say which
-(`POST`, a note required; in the activity log). Memberships have no
-suspended state: cancelling (staff) and voiding on a chargeback (revoked)
-are the two ways one stops early, besides taking a dependant off a family
-membership.
+(`POST`, a note required; in the activity log). A flag says why: cancelled,
+voided on a chargeback, taken off a family membership, or *membership
+suspended*.
+
+#### Suspending a membership
+
+A manager can suspend a membership for a period and reactivate it (the
+owner's decision of 28 October 2026; `src/lib/membership-suspensions.ts`),
+under *Credit & passes → Memberships → Suspend or reactivate* on the
+membership. The desk reads its history but cannot suspend or reactivate,
+like voiding it or giving days back: both take away or give back what was
+paid for. Another venue's staff cannot see or change it.
+
+- **What is asked.** A reason, the first day (today or later, and on or
+  before the day it ends), and the last day, or none: suspended until it is
+  reactivated. Two suspensions of one membership may not overlap
+  (`MS7_OVERLAP`, `MS7_OVERLAP_OPEN`); one starting the day after another
+  ends is fine.
+- **History is kept, never overwritten.** Each suspension is a record of its
+  own (`membership_suspensions`, migration 0216): its dates, who suspended
+  it, when and why, and who reactivated it, when and why. Staff see them on
+  the membership with its status (*Suspended from … until …*); the holder's
+  account page shows a suspension now or ahead with its dates; the
+  account's data export lists each one, its reasons included. Each person it
+  covers has the suspension and reactivation in their own history. In the
+  activity log: *Suspended a membership* (`membership.suspended`),
+  *Reactivated a membership* (`membership.reactivated`).
+- **The whole membership, everybody together.** On a date inside a
+  suspension the membership covers nobody: its holder, the participant
+  whose own it is, and every dependant a family membership names lose cover
+  together; nobody is split off it, and nobody's cover moves elsewhere. A
+  place on the venue's list is not a membership and is not suspended.
+- **Judged on the date.** Everything a membership gives is asked for the
+  date it is for (`activeMembership`, `participantMembership` in
+  `src/lib/store.ts` leave a suspended membership out on its dates): the
+  member's price for a session inside it is the public one; a members' place
+  inside it is refused with why (*… membership here is suspended on 5 Nov.
+  Ask the venue*; `MS7_SUSPENDED`, `MS7_OWN_SUSPENDED`), and the booking form
+  says so before booking (`lapse.kind` `suspended`, with its dates). A
+  session outside it is as before. The members' booking window and reserving
+  a court at a members-only venue are booking privileges, asked when the
+  booking is made, so a member suspended today has neither, and one booking
+  today for a day inside a suspension that has not started yet keeps the
+  window and the reservation (it was a privilege when booked; the booking
+  is flagged).
+- **Again at check-in and the door, on the day**: self check-in and the door
+  code refuse a place on a members' session inside a suspension
+  (`MS7_CHECKIN_SUSPENDED`, `MS7_DOOR_SUSPENDED`); the desk is warned
+  (*… membership is suspended on …*) and decides, admitting them on the
+  record (`membership_admissions` keeps `suspended`, migration 0217), as
+  [before taking part](#before-taking-part).
+- **Bookings already made are never cancelled or refunded.** Confirmed
+  bookings for dates inside the suspension at a members-only venue of its
+  business are flagged for staff with the reason *membership suspended*
+  (`membership_booking_flags.suspension_id`, migration 0217), as
+  [when a membership stops](#when-a-membership-stops): each place its
+  people take on a members' session, and each resource its holder reserved
+  whole. Staff cancel one on the venue's terms, admit them, or keep it. A
+  booking at an ordinary (public) venue made at a member's price keeps the
+  price it was given and is not flagged, as for a cancelled membership.
+- **A booking made at the same moment** as the suspension: the booking asks
+  about memberships again in its own transaction, and the suspension flags
+  bookings in its, so one made before the suspension is saved is flagged and
+  one after is refused (or priced publicly at an ordinary venue); never
+  neither (`tests/membership-suspensions.test.ts`, Postgres and PGlite).
+- **Reactivating.** A manager lifts it with a reason, from today: the
+  membership covers again from today, and a suspension that had not begun
+  covers no day at all. A dated suspension also ends by itself after its
+  last day. Reactivating clears nothing: the records stay, and the bookings
+  it flagged stay for staff to decide, since flags are not resolved by
+  themselves on a renewal either.
+- **Its end does not move**, unless its plan says so: *a suspension extends
+  the end*, under *Plans and tiers* (`membership_plans.extend_on_suspension`,
+  migration 0218; off unless a manager turns it on). On, the days the
+  suspension takes out of the term are added to the end once its last day is
+  known: when it is suspended with a last day, or when an open-ended one is
+  reactivated. A dated one reactivated early has its extension corrected to
+  the days it actually took; it is never added twice. The days are recorded
+  on the suspension and in the activity log. Where a later term of the same
+  holder (or a membership of somebody it covers) already starts after the
+  end, the end is not moved into it, and staff are told why. A membership on
+  no plan (sold at the counter without one) is not extended; *Give days
+  back* is still there.
+- **Renewing.** A renewal is not skipped: a subscription is still charged on
+  its date and the next term made, running on from the current end (later,
+  where the plan extended it). A suspension still in force when a later term
+  of the same holder starts (renewed by itself, bought again online, or sold
+  at the counter) is carried on to it from its first day to the same end,
+  so a renewal never lifts a suspension silently; reactivating either lifts
+  both. The carried one is in the activity log, by *MySenam*. Nothing pauses
+  a subscription's charges: no plan says it may.
+- **The holder is told** by email, through the outbox, in the language their
+  account last used: when it is suspended (the dates, whether its end moves,
+  that bookings already made are not cancelled, and the venue's reason) and
+  when it is reactivated. The holder is the account that holds the
+  membership or bought it (a family membership's holder; a child's own
+  membership's guardian who bought it). Nobody it covers is written to, nor
+  an account that said it is under 18; one sold at the counter with no
+  account is the venue's to tell. Ending by itself on its last day sends
+  nothing more: the first email gave the date.
+- **Erasure**: closing the holder's account clears the suspensions' reasons
+  with their name; the dates stay with the membership's money.
 
 ### Joining online
 
@@ -725,6 +825,9 @@ set under *Credit → Plans and tiers*:
   bought on. Changing a tier's benefits applies to its members from then on;
   bookings already made keep their price.
 - The venue page lists each plan's benefits beside its price.
+- **A suspension extends the end** (off unless set): a plan's memberships
+  run on by the days a suspension takes out of their term
+  ([suspending a membership](#suspending-a-membership)).
 - **Changing plan** (upgrading or downgrading) takes effect at renewal,
   never mid-term and never silently unprorated: the new plan is bought in
   the renewal window and starts the day after the current membership ends,

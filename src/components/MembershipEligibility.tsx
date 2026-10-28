@@ -33,6 +33,7 @@ export default function MembershipEligibility({ lines, date }: { lines: MemberLi
     if (l.covered) return self ? t("mv6.coveredSelf", { date }) : t("mv6.covered", { name: l.name, date });
     if (l.lapse?.kind === "ended") return self ? t("mv6.endedSelf", { until: l.lapse.until, date }) : t("mv6.ended", { name: l.name, until: l.lapse.until, date });
     if (l.lapse?.kind === "cancelled") return self ? t("mv6.cancelledSelf") : t("mv6.cancelled", { name: l.name });
+    if (l.lapse?.kind === "suspended") return self ? t("ms7.suspendedSelf", { date }) : t("ms7.suspended", { name: l.name, date });
     return self ? t("mv6.noneSelf", { date }) : t("mv6.none", { name: l.name, date });
   };
   return (

@@ -425,7 +425,10 @@ export interface CustomerExport {
   bookings: unknown[];
   wallet: { balance: number; entries: unknown[] };
   passes: unknown[];
-  /** Memberships this account holds or bought, with whom each is for: a participant's own, or the dependants a family one covers. */
+  /**
+   * Memberships this account holds or bought, with whom each is for: a participant's own, or the dependants a family one
+   * covers; and each suspension of it, with its dates and reasons (lib/membership-suspensions.ts).
+   */
   memberships: unknown[];
   /** Places on members-only or private venues' lists linked to this account (lib/access.ts). */
   venueLists: unknown[];
@@ -548,7 +551,11 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       `SELECT m.code, m.starts_on, m.expires_on, m.price, m.status, v.name AS venue, m.holder_kind,
               hp.display_name AS for_participant, hp.display_name AS holder_participant,
               (SELECT string_agg(cp.display_name, ', ' ORDER BY cp.id) FROM membership_participants mp
-                 JOIN participants cp ON cp.id = mp.participant_id WHERE mp.membership_id = m.id) AS covers
+                 JOIN participants cp ON cp.id = mp.participant_id WHERE mp.membership_id = m.id) AS covers,
+              (SELECT json_agg(json_build_object('from', s.starts_on, 'until', s.until_on, 'endsOn', s.ends_on, 'reason', s.reason,
+                      'suspendedAt', s.created_at, 'reactivatedAt', s.lifted_at, 'reactivationReason', s.lift_reason, 'daysAddedToEnd', s.extended_days)
+                      ORDER BY s.starts_on, s.id)
+                 FROM membership_suspensions s WHERE s.membership_id = m.id) AS suspensions
        FROM memberships m JOIN venues v ON v.id = m.venue_id
        LEFT JOIN participants hp ON hp.id = m.holder_participant_id
        WHERE m.user_id = ?`,
@@ -797,7 +804,11 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
       phone
     ),
     memberships: await all(
-      `SELECT m.code, m.holder_name, m.holder_phone, m.starts_on, m.expires_on, m.price, m.status
+      `SELECT m.code, m.holder_name, m.holder_phone, m.starts_on, m.expires_on, m.price, m.status,
+              (SELECT json_agg(json_build_object('from', s.starts_on, 'until', s.until_on, 'endsOn', s.ends_on, 'reason', s.reason,
+                      'suspendedAt', s.created_at, 'reactivatedAt', s.lifted_at, 'reactivationReason', s.lift_reason, 'daysAddedToEnd', s.extended_days)
+                      ORDER BY s.starts_on, s.id)
+                 FROM membership_suspensions s WHERE s.membership_id = m.id) AS suspensions
          FROM memberships m WHERE m.venue_id IN (${marks}) AND phone_key(m.holder_phone) = phone_key(?) ORDER BY m.id`,
       ...venueIds,
       phone
@@ -1064,6 +1075,10 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
     await db.prepare(
       "UPDATE passes SET holder_name = ?, holder_phone = '', user_id = NULL WHERE user_id = ?"
     ).run(ANONYMOUS, userId);
+    // A suspension's reasons are about the holder: cleared with their name; its dates stay with the membership's money.
+    await db
+      .prepare("UPDATE membership_suspensions SET reason = ?, lift_reason = CASE WHEN lift_reason IS NULL THEN NULL ELSE ? END WHERE membership_id IN (SELECT id FROM memberships WHERE user_id = ?)")
+      .run(ANONYMOUS, ANONYMOUS, userId);
     await db.prepare(
       "UPDATE memberships SET holder_name = ?, holder_phone = '', user_id = NULL WHERE user_id = ?"
     ).run(ANONYMOUS, userId);

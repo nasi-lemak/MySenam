@@ -593,6 +593,8 @@ const en = {
   "cp7.bk.adjustOnlineToo": "Where the venue takes payment online, the customer can also pay it online, from the email or their booking page.",
   "cp7.bk.earlierOwed": "{amount} still owed for an earlier change of coach is no longer owed: these amounts count from what the customer has paid for.",
   "cp7.opay.coach": "difference for a dearer coach",
+  "ms7.bk.warnSuspended": "{name}'s membership is suspended on {date}.",
+  "ms7.bk.flagSuspended": "membership suspended",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1170,6 +1172,8 @@ const ms: Record<keyof typeof en, string> = {
   "cp7.bk.adjustOnlineToo": "Jika pusat menerima bayaran dalam talian, pelanggan juga boleh membayarnya dalam talian, melalui e-mel atau halaman tempahan mereka.",
   "cp7.bk.earlierOwed": "{amount} yang masih terhutang bagi pertukaran jurulatih sebelum ini tidak lagi terhutang: amaun ini dikira daripada apa yang telah dibayar oleh pelanggan.",
   "cp7.opay.coach": "perbezaan bagi jurulatih yang lebih mahal",
+  "ms7.bk.warnSuspended": "Keahlian {name} digantung pada {date}.",
+  "ms7.bk.flagSuspended": "keahlian digantung",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1747,6 +1751,8 @@ const zh: Record<keyof typeof en, string> = {
   "cp7.bk.adjustOnlineToo": "如场馆接受网上付款，客户也可通过邮件或其预订页面在网上支付。",
   "cp7.bk.earlierOwed": "此前更换教练尚欠的 {amount} 不再需要支付：以上金额按客户已付款项计算。",
   "cp7.opay.coach": "较贵教练的差额",
+  "ms7.bk.warnSuspended": "{name}的会员资格于 {date} 处于暂停状态。",
+  "ms7.bk.flagSuspended": "会员资格已暂停",
 };
 
 const area = { en, ms, zh };

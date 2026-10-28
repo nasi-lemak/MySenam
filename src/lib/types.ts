@@ -576,6 +576,23 @@ export interface Membership {
   unusableReason?: string;
   /** The same, as a phrase a staff screen says in the staff language. */
   unusablePhrase?: StaffText;
+  /** Its suspensions, oldest first (lib/membership-suspensions.ts): on their dates it covers nobody. */
+  suspensions?: MembershipSuspensionSummary[];
+}
+
+/** A suspension of a membership, as its holder and staff see it on the membership (who did it: its history, for staff). */
+export interface MembershipSuspensionSummary {
+  id: number;
+  from: string;
+  /** The last day as set; null: until reactivated. */
+  until: string | null;
+  /** The last day it applies: `until`, or the day before it was lifted; null while open-ended. */
+  endsOn: string | null;
+  reason: string;
+  liftedAt: string | null;
+  liftReason: string | null;
+  /** Days its plan added to the membership's end for it. */
+  extendedDays: number;
 }
 
 export type MembershipStatus = "active" | "void";
