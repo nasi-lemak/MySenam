@@ -213,7 +213,7 @@ page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
 **87 now** (the two e-invoice decisions taken). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B47, M16–M21 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B47, M16–M22 and
 S12–S25, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (86
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -336,6 +336,12 @@ members-only venue's membership holder not on its list cannot host a guest,
 there is no guest allowance per period and no guest fee, and classes and
 waiting lists do not take a host
 ([booking](../features/booking.md#members-and-residents-guests-at-the-counter-and-through-the-api)) (P3).
+
+Also: staff move a weekly series week by week (cancelling the weeks left is
+one step); closing a day, outages, rain-outs and the venue's API key give a
+counter payment back as paid without recording a counter payout; a corrected
+phone number is not sent a fresh confirmation
+([venue operations](../features/venue-operations.md)) (P3).
 
 Also: staff moving a booking are not asked the house rules; class enrolments
 at the counter take payment as they are made, and overrides, through the
@@ -720,6 +726,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B45 | A member whose membership was suspended today was refused at a members-only venue as a non-member ("ask the venue how to join") rather than told it is suspended; the refusal now gives the suspension and its date. Found by the acceptance scenarios (*Suspension AD*) | `tests/membership-suspensions.test.ts`, `tests/uat/round7.uat.ts` (Suspension AD) |
 | B46 | The front desk opening *Venue details* was shown "Front-desk accounts cannot change this" without doing anything: the online payments panel asked for the venue's payment account and hold policy, both a manager's; the desk now sees the payments only. Found by the acceptance scenarios | `tests/components/online-payments-desk.test.tsx` |
 | B47 | Two guest invitations at once from one resident could both pass the venue's guest allowance and go one over: the running guests were counted in a transaction that locked nothing; the host's list entry is now locked first, on every path | `tests/guest-counting.test.ts` ("two guests registered for one host at once") |
+| M22 | Staff cancelling a booking paid at the counter wrote a full refund in the way it was paid, with no record that the money was handed back, no choice of credit or keeping the venue's late share, and the front desk could do it for a payment taken on any earlier day; staff now choose the outcome after a preview, a counter payout is recorded with who paid it out, and a payment from an earlier day is a manager's to give back. Found by the round 8 audit | `tests/counter-refunds.test.ts` (PGlite and Postgres) |
 
 ### Resolved limitations without a number
 
@@ -816,6 +823,9 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The counter and the venue's API were held to the house rules, strikes and the guest limit while the documents said staff were not (a decision for the owner) | Decided 28 October 2026: one policy check on every path; the counter takes payment as it books where online would hold, the API refuses; a manager overrides selected restrictions where the venue permits, recorded per booking; blocked numbers, the unpaid limit, eligibility, the waiver, the window and capacity never overridden; unblocking says why ([ADR 0026](../architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md)) | `tests/same-policies.test.ts`, `tests/components/counter-overrides.test.tsx` |
 | Staff and coaches' messages were in the install's first language whoever read them | A language of their own per staff account, coach and venue's booking alerts, used for their emails, calendars and pages (the owner, 28 October 2026) | `tests/own-languages.test.ts`, `tests/components/own-language.test.tsx` |
 | The limit on online bookings without an account counted the counter's own walk-ins, so a busy counter hour could trip it; guests registered at the counter did not count against a host's allowance | Bookings record the path they were made on; the limit counts online and API bookings only; members' and residents' guests count against one allowance on every path, a manager overriding where the venue permits (the owner, 28 October 2026) | `tests/guest-counting.test.ts`, `tests/components/guest-at-counter.test.tsx` |
+| Staff could not correct a booking's name, phone or email | Corrected for one booking or its series or group, a new number asked the counter's policy check, logged | `tests/booking-corrections.test.ts` |
+| Staff cancelled a weekly series booking by booking | The weeks still to be played cancelled together, each on its own terms | `tests/counter-refunds.test.ts` |
+| The day list had no filters, cut its actions off on a laptop and had no print view; nothing started a booking from the dashboard, and a click on a free schedule cell blocked the court at once | Filters, an actions menu, a printable day sheet, *New booking*, and *Book this* or *Block* on a free cell | `tests/components/bookings-tab-day.test.tsx` |
 
 ## Production readiness
 
