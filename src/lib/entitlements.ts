@@ -381,10 +381,16 @@ export async function memberPrices(input: {
 /**
  * Why nobody's membership covers a person on a date here: one that would
  * have covered it was cancelled (by staff, or voided by a chargeback),
- * theirs ended before it (`until`), or there is none (including a family
- * membership that no longer names them).
+ * theirs ended before it (`until`), it is suspended on that date
+ * (lib/membership-suspensions.ts: from `from`, until `until` or, null, until
+ * reactivated), or there is none (including a family membership that no
+ * longer names them).
  */
-export type MemberLapse = { kind: "ended"; until: string } | { kind: "cancelled" } | { kind: "none" };
+export type MemberLapse =
+  | { kind: "ended"; until: string }
+  | { kind: "cancelled" }
+  | { kind: "suspended"; from: string; until: string | null }
+  | { kind: "none" };
 
 /** One person taking a place on a members' session, and whether a membership covers them on its date. */
 export interface MemberCover {
@@ -442,10 +448,16 @@ async function lapseOf(venueId: number, participantId: number | null, booker: Bo
   if (participantId === null && !booker?.phone) return { kind: "none" };
   const rows = (await getDb()
     .prepare(
-      `SELECT m.status, m.starts_on, m.expires_on FROM memberships m
+      `SELECT m.id, m.status, m.starts_on, m.expires_on FROM memberships m
         WHERE ${inSameBusiness("m.venue_id")} AND ${whose} AND m.starts_on <= ?`
     )
-    .all(venueId, ...(participantId !== null ? [participantId, participantId] : [booker!.phone]), date)) as { status: string; starts_on: string; expires_on: string }[];
+    .all(venueId, ...(participantId !== null ? [participantId, participantId] : [booker!.phone]), date)) as { id: number; status: string; starts_on: string; expires_on: string }[];
+  // One that would cover the day but is suspended on it (lib/membership-suspensions.ts).
+  const { suspensionOn } = await import("./membership-suspensions");
+  for (const r of rows.filter((r) => r.status === "active" && r.expires_on >= date)) {
+    const s = await suspensionOn(r.id, date);
+    if (s) return { kind: "suspended", from: s.from, until: s.endsOn };
+  }
   if (rows.some((r) => r.status === "void" && r.expires_on >= date)) return { kind: "cancelled" };
   const ended = rows.filter((r) => r.status === "active" && r.expires_on < date).map((r) => r.expires_on).sort();
   return ended.length > 0 ? { kind: "ended", until: ended[ended.length - 1] } : { kind: "none" };
@@ -470,9 +482,13 @@ export async function renewPath(venueId: number, forParticipant: boolean): Promi
  * participant's membership that ended before the session
  * (`MV6_ENDS_BEFORE`) or none (`ENT_MEMBERS_PLACE`); the customer's own
  * (`MV6_OWN_ENDS_BEFORE`, `MV6_OWN_NOT_MEMBER`). `vars.renew` is the path to
- * renew or buy online, "" where the venue does it at the counter.
+ * renew or buy online, "" where the venue does it at the counter. A
+ * membership suspended on the day: `MS7_SUSPENDED`, `MS7_OWN_SUSPENDED`.
  */
 export async function coverRefusal(venueId: number, c: MemberCover): Promise<Refusal> {
+  // Suspended on the day: nothing to renew; the venue reactivates it (lib/membership-suspensions.ts).
+  if (c.lapse?.kind === "suspended")
+    return c.participantId !== null ? refuse("MS7_SUSPENDED", { name: c.name, date: c.date }) : refuse("MS7_OWN_SUSPENDED", { date: c.date });
   const renew = await renewPath(venueId, c.participantId !== null);
   const ended = c.lapse?.kind === "ended" ? c.lapse.until : null;
   if (c.participantId !== null)

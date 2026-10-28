@@ -585,6 +585,8 @@ const en = {
   "co6.ch.venue": "The venue assigns a free coach",
   "co6.ch.help": "Assigned by the venue, the customer books a lesson for a sport and a time, and a coach of that sport who is free then is given it: the one with the fewest lessons that day. Staff can still book a coach by name, and a lesson pack still needs its own coach.",
   "co6.ch.failed": "Could not save who chooses the coach",
+  "ms7.bk.warnSuspended": "{name}'s membership is suspended on {date}.",
+  "ms7.bk.flagSuspended": "membership suspended",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1154,6 +1156,8 @@ const ms: Record<keyof typeof en, string> = {
   "co6.ch.venue": "Pusat menetapkan jurulatih yang lapang",
   "co6.ch.help": "Jika ditetapkan oleh pusat, pelanggan menempah kelas untuk sukan dan masa, dan jurulatih sukan itu yang lapang pada masa tersebut diberikan kelas itu: yang paling sedikit kelas pada hari itu. Kakitangan masih boleh menempah jurulatih mengikut nama, dan pakej kelas masih memerlukan jurulatihnya sendiri.",
   "co6.ch.failed": "Tidak dapat menyimpan siapa yang memilih jurulatih",
+  "ms7.bk.warnSuspended": "Keahlian {name} digantung pada {date}.",
+  "ms7.bk.flagSuspended": "keahlian digantung",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1723,6 +1727,8 @@ const zh: Record<keyof typeof en, string> = {
   "co6.ch.venue": "由场馆安排有空的教练",
   "co6.ch.help": "由场馆安排时，客户按运动项目和时间预订课程，场馆将课程交给当时有空的该项目教练：当天课程最少的教练优先。员工仍可按姓名预订教练，课程套票仍需对应的教练。",
   "co6.ch.failed": "无法保存教练选择方式",
+  "ms7.bk.warnSuspended": "{name}的会员资格于 {date} 处于暂停状态。",
+  "ms7.bk.flagSuspended": "会员资格已暂停",
 };
 
 const area = { en, ms, zh };

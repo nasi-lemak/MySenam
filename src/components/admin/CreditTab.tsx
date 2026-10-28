@@ -11,6 +11,7 @@ import type { BenefitScope, Membership, Pass, PromoCode, WalletEntry } from "@/l
 import type { OfferedFor } from "@/lib/membership-plans";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 import { MembershipCovers } from "./MembershipCovers";
+import { MembershipSuspension } from "./MembershipSuspension";
 import { todayLocal } from "./shared";
 import type { ManagedVenue } from "./shared";
 import { money, region } from "@/lib/region";
@@ -1269,6 +1270,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                     <span className="block text-xs text-slate-600">{t("ent.cr.coversNames", { names: m.covers.map((c) => c.name).join(", ") })}</span>
                   )}
                   {m.covers && m.covers.length > 0 && <MembershipCovers membership={m} venueId={venueId} onChanged={load} />}
+                  <MembershipSuspension membership={m} onChanged={load} />
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">
                   {m.startsOn} → {m.expiresOn}
@@ -1328,6 +1330,8 @@ interface Plan {
   familyLimit?: number | null;
   /** A family plan's people put on in place of others per term (none by default; lib/membership-purchases.ts). */
   coverSwaps?: number;
+  /** Whether a suspension moves its memberships' end by the days suspended (off by default; lib/membership-suspensions.ts). */
+  extendOnSuspension?: boolean;
 }
 
 const OFFERED_FOR: OfferedFor[] = ["account", "participant", "individual", "family"];
@@ -1400,7 +1404,15 @@ function MembershipPlans({ venueId }: { venueId: number }) {
 
   async function benefits(
     plan: Plan,
-    change: { ratePercent?: number | null; aheadDays?: number | null; scope?: BenefitScope; offeredFor?: OfferedFor; familyLimit?: number | null; coverSwaps?: number }
+    change: {
+      ratePercent?: number | null;
+      aheadDays?: number | null;
+      scope?: BenefitScope;
+      offeredFor?: OfferedFor;
+      familyLimit?: number | null;
+      coverSwaps?: number;
+      extendOnSuspension?: boolean;
+    }
   ) {
     setError(null);
     const res = await fetch("/api/admin/membership-plans", {
@@ -1521,6 +1533,14 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                       ))}
                     </select>
                   )}
+                  <label className="inline-flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={p.extendOnSuspension === true}
+                      onChange={(e) => benefits(p, { extendOnSuspension: e.target.checked })}
+                    />
+                    {t("ms7.cr.planExtends")}
+                  </label>
                 </span>
               </span>
               <button

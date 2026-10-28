@@ -52,6 +52,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/memberships\/\d+\/extend$/, methods: ["POST"] },
   // Correcting a person entered wrongly on a membership, with a reason (lib/membership-purchases.ts correctCover).
   { path: /^\/api\/admin\/memberships\/\d+\/covers$/, methods: ["POST"] },
+  // Suspending a membership and reactivating it take away and give back what was paid for, as voiding and giving
+  // days back do (lib/membership-suspensions.ts). The desk reads the history; it does not suspend.
+  { path: /^\/api\/admin\/memberships\/\d+\/(suspension|reactivate)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/promos$/, methods: ["POST"] },
   // Whether a concession price and a promo code go together here (lib/discounts.ts).
   { path: /^\/api\/admin\/promos\/stacking$/, methods: ["POST"] },

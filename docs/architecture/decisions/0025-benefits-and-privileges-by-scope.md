@@ -234,8 +234,8 @@
     cancelled, voided on a chargeback, or a dependant taken off a family
     membership flags the bookings it no longer covers for staff, as a revoked
     approval does (ADR 0020; migration 0195); nothing paid is cancelled.
-    Memberships have no suspended state; none was added
-    ([membership validity](../../features/pricing.md#membership-validity)).
+    Memberships had no suspended state then; one was added on 28 October
+    (below) ([membership validity](../../features/pricing.md#membership-validity)).
   - 2026-10-27 (amendment, the owner's decision on membership purchase
     holds and family dependants): the hour a purchase holds its people is
     fitted to each gateway's page: a Stripe page is closed when the hold
@@ -255,3 +255,17 @@
     cancelling a membership bought online may owe its payment back in full.
     Memberships count no visits or hours, so a change of whom one covers has
     no allowance to reset. Migrations 0191–0194.
+  - 2026-10-28 (the owner's decision on suspending a membership): a manager
+    may suspend a membership for a period, with a reason, and reactivate it.
+    A suspension is a privilege and participation rule like the others,
+    applied to the membership as a whole: on its dates it covers nobody it
+    names, judged on the date asked (prices, members' places, check-in and
+    the door), and the people a family membership covers lose cover
+    together. Bookings already made are flagged for the venue, never
+    cancelled or refunded; its end moves only where the plan says so
+    (migration 0218); a renewal is still made on its date and carries the
+    suspension on. The booking path now asks about memberships again inside
+    its own transaction, so a membership suspended or cancelled while a
+    booking is made either refuses it or flags it
+    ([suspending a membership](../../features/pricing.md#suspending-a-membership);
+    migrations 0216–0218).

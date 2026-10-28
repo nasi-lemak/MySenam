@@ -67,7 +67,9 @@ erasing it unlinks them, leaving the venue's list as it was
 The account page's *Download my data* (`/api/my/data`) covers what is filed
 against the account: bookings, credit, passes and memberships sold to it
 (with the participant each is for and the dependants a family one covers,
-and memberships bought online as chosen and what became of each), places on
+each [suspension](../features/pricing.md#suspending-a-membership) of it with
+its dates and reasons, and memberships bought online as chosen and what
+became of each), places on
 venues' lists linked to it, games, the playing profile, people blocked, reports made and community
 groups, leagues, tournaments, receipts and credit notes, waiting-list places,
 gift vouchers used, applications to be approved for an activity (answers,
@@ -94,7 +96,8 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
 - cancels upcoming bookings made from it, releasing the courts;
 - replaces the name, phone and email on every booking it owns with `(removed)`,
   **keeping the hour and the price**;
-- strips the holder from spent passes and lapsed memberships;
+- strips the holder from spent passes and lapsed memberships, and clears the
+  reasons given for suspending its memberships (their dates stay);
 - takes its name, phone and account off its receipts and credit notes, and
   off those of its bookings that carry no account (a deposit paid online, a
   credit note on a company account the booking was charged to, which keeps

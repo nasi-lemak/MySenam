@@ -45,7 +45,8 @@ export default function MembershipFlags({ venueId }: { venueId: number }) {
   }
 
   if (flags.length === 0 && !error) return null;
-  const why = (f: MembershipFlag) => t(f.reason === "revoked" ? "mv6.flags.revoked" : f.reason === "uncovered" ? "mv6.flags.uncovered" : "mv6.flags.cancelled");
+  const why = (f: MembershipFlag) =>
+    t(f.reason === "revoked" ? "mv6.flags.revoked" : f.reason === "uncovered" ? "mv6.flags.uncovered" : f.reason === "suspended" ? "ms7.bk.flagSuspended" : "mv6.flags.cancelled");
   return (
     <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
       <h3 className="font-semibold text-amber-900">{t("mv6.flags.title")}</h3>

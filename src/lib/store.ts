@@ -27,11 +27,12 @@ import {
 import { creditScope } from "./mode";
 import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
+import { suspendedOn } from "./membership-suspensions";
 import { isDuplicateSpend, memberPrices, membersOnlyRefusal, participationLapses, PASS_SCOPES, placesOf as placeRows, refuse as refuseEnt, soldByPlace, type BenefitScope, type MemberCover } from "./entitlements";
 import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, stackRefusal } from "./discounts";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
-import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, type MembershipSuspensionSummary, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -2126,14 +2127,15 @@ export async function createBookingSeries(
   // participant needs their own membership or a family one naming them, and the customer taking a
   // place their own (or a place on the venue's list), valid on every week booked, not just today. A
   // manager going past the rules may book without, and it is recorded as an override.
-  const notMember = await membersOnlyRefusal({
+  const membersAsk = {
     venueId: court.venueId,
     court,
     classId: input.classId ?? null,
     participants: named,
     customer: customerPlays ? { phone, userId: userId ?? null, ...(input.by ? { by: input.by } : {}) } : null,
     dates: Array.from({ length: weeks }, (_, w) => addDays(date, 7 * w)),
-  });
+  };
+  const notMember = await membersOnlyRefusal(membersAsk);
   if (notMember && !override) return notMember;
   if (notMember) breaches.push("MEMBERSHIP");
 
@@ -2195,6 +2197,13 @@ export async function createBookingSeries(
       // same index page as every other, and Postgres stopped some (B13).
       const bookingIds: number[] = [];
       const skipped: SeriesSkip[] = [];
+      // Asked again in the booking's own transaction: a membership suspended, cancelled or ended while this
+      // booking was being made is either seen here, or sees this booking when it flags its bookings
+      // (lib/membership-suspensions.ts, lib/membership-flags.ts): the transactions are serializable, so never neither.
+      if (!notMember) {
+        const lapsed = await membersOnlyRefusal(membersAsk);
+        if (lapsed) throw new MembershipLapsed(lapsed);
+      }
       // The offer being claimed holds the time for this booking: let it go first.
       if (offer) await release({ kind: "offer", waitlistId: offer });
       // So does an approval request's hold on the slot it asked for.
@@ -2277,6 +2286,7 @@ export async function createBookingSeries(
     for (const id of result.bookingIds) bookings.push((await getBookingById(id))!);
     return { ok: true, bookings, skipped: result.skipped, seriesCode, ...(breaches.length > 0 ? { overrides: breaches } : {}) };
   } catch (err: unknown) {
+    if (err instanceof MembershipLapsed) return err.refusal;
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith("CONFLICT:")) {
       const [, conflictDate, reason] = message.split(":");
@@ -2305,6 +2315,13 @@ export async function createBookingSeries(
     // Inside a group booking the group's transaction is the one that retries and answers.
     if (isBusy(err)) return refuse("BUSY");
     throw err;
+  }
+}
+
+/** A membership that stopped covering somebody while their booking was being made: its refusal, out of the transaction. */
+class MembershipLapsed extends Error {
+  constructor(readonly refusal: Refusal) {
+    super(refusal.error);
   }
 }
 
@@ -4269,7 +4286,9 @@ function deskWarning(warnings: MemberCover[]): string {
       ? `${w.name}'s membership ended on ${w.lapse.until}`
       : w.lapse?.kind === "cancelled"
         ? `${w.name}'s membership was cancelled`
-        : `${w.name} has no membership covering ${w.date}`
+        : w.lapse?.kind === "suspended"
+          ? `${w.name}'s membership is suspended on ${w.date}`
+          : `${w.name} has no membership covering ${w.date}`
   );
   return `This session is for members: ${lines.join("; ")}. Check them in only if you decide to admit them.`;
 }
@@ -4301,6 +4320,7 @@ function lapseRefusal(channel: "CHECKIN" | "DOOR", w: MemberCover): Refusal {
   const door = channel === "DOOR";
   if (w.lapse?.kind === "ended") return refuse(door ? "MV6_DOOR_ENDED" : "MV6_CHECKIN_ENDED", { name: w.name, until: w.lapse.until, date: w.date });
   if (w.lapse?.kind === "cancelled") return refuse(door ? "MV6_DOOR_CANCELLED" : "MV6_CHECKIN_CANCELLED", { name: w.name, date: w.date });
+  if (w.lapse?.kind === "suspended") return refuse(door ? "MS7_DOOR_SUSPENDED" : "MS7_CHECKIN_SUSPENDED", { name: w.name, date: w.date });
   return refuse(door ? "MV6_DOOR_NONE" : "MV6_CHECKIN_NONE", { name: w.name, date: w.date });
 }
 
@@ -6574,6 +6594,7 @@ interface MembershipRow {
   holder_participant_id?: number | null;
   holder_participant_name?: string | null;
   covers?: { id: number; name: string }[] | string | null;
+  suspensions?: MembershipSuspensionSummary[] | string | null;
 }
 
 const MEMBERSHIP_SELECT = `
@@ -6582,7 +6603,10 @@ const MEMBERSHIP_SELECT = `
          m.tier_id, t.name AS tier_name, t.rate_percent AS tier_rate, t.ahead_days AS tier_ahead, t.scope AS tier_scope,
          m.holder_kind, m.holder_participant_id, hp.display_name AS holder_participant_name,
          (SELECT json_agg(json_build_object('id', cp.id, 'name', cp.display_name) ORDER BY cp.id)
-            FROM membership_participants mp JOIN participants cp ON cp.id = mp.participant_id WHERE mp.membership_id = m.id) AS covers
+            FROM membership_participants mp JOIN participants cp ON cp.id = mp.participant_id WHERE mp.membership_id = m.id) AS covers,
+         (SELECT json_agg(json_build_object('id', s.id, 'from', s.starts_on, 'until', s.until_on, 'endsOn', s.ends_on, 'reason', s.reason,
+                 'liftedAt', s.lifted_at, 'liftReason', s.lift_reason, 'extendedDays', s.extended_days) ORDER BY s.starts_on, s.id)
+            FROM membership_suspensions s WHERE s.membership_id = m.id) AS suspensions
   FROM memberships m JOIN venues v ON v.id = m.venue_id
   LEFT JOIN membership_plans t ON t.id = m.tier_id
   LEFT JOIN participants hp ON hp.id = m.holder_participant_id
@@ -6610,6 +6634,11 @@ function toMembership(r: MembershipRow): Membership {
     holderParticipantId: r.holder_kind === "participant" ? (r.holder_participant_id ?? -1) : null,
     holderParticipantName: r.holder_kind === "participant" ? (r.holder_participant_name ?? null) : null,
     covers: (typeof r.covers === "string" ? (JSON.parse(r.covers) as { id: number; name: string }[]) : r.covers) ?? [],
+    suspensions: ((typeof r.suspensions === "string" ? (JSON.parse(r.suspensions) as MembershipSuspensionSummary[]) : r.suspensions) ?? []).map((x) => ({
+      ...x,
+      liftedAt: x.liftedAt === null || x.liftedAt === undefined ? null : String(x.liftedAt),
+      extendedDays: Number(x.extendedDays),
+    })),
   };
   const reason = membershipBlocked(m);
   return reason ? { ...m, unusableReason: englishOf(reason), unusablePhrase: reason } : m;
@@ -6648,9 +6677,10 @@ export async function activeMembership(
   const date = onDate ?? todayISO();
   const rows = await getDb()
     .prepare(
-      `${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.holder_kind = 'customer' AND phone_key(m.holder_phone) = phone_key(?)`
+      `${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.holder_kind = 'customer' AND phone_key(m.holder_phone) = phone_key(?)
+         AND NOT ${suspendedOn("m")}`
     )
-    .all(venueId, phone) as MembershipRow[];
+    .all(venueId, phone, date, date) as MembershipRow[];
   const match = rows.find(
     (r) =>
       normalisePhone(r.holder_phone) === digits &&
@@ -6672,9 +6702,10 @@ export async function participantMembership(venueId: number, participantId: numb
     .prepare(
       `${MEMBERSHIP_SELECT} WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.starts_on <= ? AND m.expires_on >= ?
          AND (m.holder_participant_id = ? OR EXISTS (SELECT 1 FROM membership_participants mp WHERE mp.membership_id = m.id AND mp.participant_id = ?))
+         AND NOT ${suspendedOn("m")}
        ORDER BY COALESCE(m.holder_participant_id = ?, false) DESC, m.id LIMIT 1`
     )
-    .get(venueId, date, date, participantId, participantId, participantId)) as MembershipRow | undefined;
+    .get(venueId, date, date, participantId, participantId, date, date, participantId)) as MembershipRow | undefined;
   return row ? toMembership(row) : null;
 }
 
@@ -6818,6 +6849,9 @@ export async function sellMembership(input: {
         .prepare("INSERT INTO membership_cover_changes (membership_id, participant_id, change, by_user_id, by_admin_id) VALUES (?, ?, 'named', ?, ?)")
         .run(info.lastInsertRowid, participantId, input.adminId ? null : (input.userId ?? null), input.adminId ?? null);
     }
+    // A suspension of the holder's term before, in force when this one starts, carries on to it (lib/membership-suspensions.ts).
+    const { carrySuspensions } = await import("./membership-suspensions");
+    await carrySuspensions(Number(info.lastInsertRowid));
     const membership = (await membershipById(Number(info.lastInsertRowid)))!;
     await issueReceipt({
       source: `membership:${membership.id}`,

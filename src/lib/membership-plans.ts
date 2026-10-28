@@ -51,6 +51,12 @@ export interface MembershipPlan {
    * lib/membership-purchases.ts). 0, the default: none until the next term.
    */
   coverSwaps: number;
+  /**
+   * Whether its memberships run on by the days a suspension takes out of
+   * their term (migration 0218; lib/membership-suspensions.ts). Off by
+   * default: a suspension does not move a membership's end.
+   */
+  extendOnSuspension: boolean;
 }
 
 export const OFFERED_FOR = ["account", "participant", "individual", "family"] as const;
@@ -79,6 +85,7 @@ interface PlanRow {
   offered_for?: string | null;
   family_limit?: number | null;
   cover_swaps?: number | null;
+  extend_on_suspension?: boolean | number | null;
 }
 
 const toPlan = (r: PlanRow): MembershipPlan => ({
@@ -93,9 +100,10 @@ const toPlan = (r: PlanRow): MembershipPlan => ({
   offeredFor: isOfferedFor(r.offered_for) ? r.offered_for : "account",
   familyLimit: r.offered_for === "family" ? (r.family_limit ?? null) : null,
   coverSwaps: r.offered_for === "family" ? (r.cover_swaps ?? 0) : 0,
+  extendOnSuspension: r.extend_on_suspension === true || r.extend_on_suspension === 1,
 });
 
-const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps";
+const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension";
 
 /** The plans a venue has on offer, cheapest first. */
 export async function listPlans(venueId: number): Promise<MembershipPlan[]> {
@@ -156,11 +164,17 @@ function readHolders(
   return { offeredFor, familyLimit: limit as number, coverSwaps: swaps as number };
 }
 
+/** Whether a plan extends by the time suspended, as given: left out, as it is (off for a new plan). */
+function readExtends(input: { extendOnSuspension?: unknown }, current: boolean): boolean | string {
+  const v = input.extendOnSuspension ?? current;
+  return typeof v === "boolean" ? v : "Say whether a suspension extends a membership's end: true or false.";
+}
+
 /** Change a plan's benefits. Memberships already on it get them from now. */
 export async function setPlanBenefits(
   venueId: number,
   planId: number,
-  input: { ratePercent?: unknown; aheadDays?: unknown; scope?: unknown; offeredFor?: unknown; familyLimit?: unknown; coverSwaps?: unknown }
+  input: { ratePercent?: unknown; aheadDays?: unknown; scope?: unknown; offeredFor?: unknown; familyLimit?: unknown; coverSwaps?: unknown; extendOnSuspension?: unknown }
 ): Promise<PlanResult> {
   const benefits = readBenefits(input);
   if (typeof benefits === "string") return { ok: false, error: benefits };
@@ -169,12 +183,15 @@ export async function setPlanBenefits(
   // Not said: whom it is sold to stays as it is. Memberships already sold keep whom they cover.
   const holders = readHolders(input, current);
   if (typeof holders === "string") return { ok: false, error: holders };
+  // Not said: whether a suspension extends its memberships stays as it is.
+  const extendOnSuspension = readExtends(input, current.extendOnSuspension);
+  if (typeof extendOnSuspension === "string") return { ok: false, error: extendOnSuspension };
   // Not said: what the price covers stays as it is.
   const done = await getDb()
     .prepare(
-      "UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope), offered_for = ?, family_limit = ?, cover_swaps = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL"
+      "UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope), offered_for = ?, family_limit = ?, cover_swaps = ?, extend_on_suspension = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL"
     )
-    .run(benefits.ratePercent, benefits.aheadDays, input.scope === undefined || input.scope === null ? null : benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, planId, venueId);
+    .run(benefits.ratePercent, benefits.aheadDays, input.scope === undefined || input.scope === null ? null : benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, extendOnSuspension, planId, venueId);
   if (done.changes !== 1) return { ok: false, error: "That plan is not offered here." };
   return { ok: true, plan: (await planById(planId))! };
 }
@@ -189,7 +206,18 @@ export async function longestPlanWindow(venueId: number): Promise<number | null>
 
 export async function createPlan(
   venueId: number,
-  input: { name: unknown; months: unknown; price: unknown; ratePercent?: unknown; aheadDays?: unknown; scope?: unknown; offeredFor?: unknown; familyLimit?: unknown; coverSwaps?: unknown }
+  input: {
+    name: unknown;
+    months: unknown;
+    price: unknown;
+    ratePercent?: unknown;
+    aheadDays?: unknown;
+    scope?: unknown;
+    offeredFor?: unknown;
+    familyLimit?: unknown;
+    coverSwaps?: unknown;
+    extendOnSuspension?: unknown;
+  }
 ): Promise<PlanResult> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (name.length < 2 || name.length > 60) return { ok: false, error: "Give the plan a name of 2–60 characters." };
@@ -203,11 +231,13 @@ export async function createPlan(
   if (typeof benefits === "string") return { ok: false, error: benefits };
   const holders = readHolders(input, { offeredFor: "account", familyLimit: null, coverSwaps: 0 });
   if (typeof holders === "string") return { ok: false, error: holders };
+  const extendOnSuspension = readExtends(input, false);
+  if (typeof extendOnSuspension === "string") return { ok: false, error: extendOnSuspension };
   const info = await getDb()
     .prepare(
-      "INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays, benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps);
+    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays, benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, extendOnSuspension);
   return { ok: true, plan: (await planById(Number(info.lastInsertRowid)))! };
 }
 

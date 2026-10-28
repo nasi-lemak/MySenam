@@ -58,6 +58,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "membership.voided": "act.a.membershipVoided",
   "membership.extended": "act.a.membershipExtended",
   "membership.cover_corrected": "mb6.act.coverCorrected",
+  "membership.suspended": "ms7.act.suspended",
+  "membership.reactivated": "ms7.act.reactivated",
   "checkin.membership_admitted": "mb6.act.memberAdmitted",
   "membership.flag_resolved": "mb6.act.flagResolved",
   "lesson.coach_changed": "mb6.act.coachChanged",

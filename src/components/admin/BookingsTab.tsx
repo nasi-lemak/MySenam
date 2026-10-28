@@ -441,7 +441,9 @@ export function BookingsTab() {
         ? t("mv6.bk.warnEnded", { name: w.name, until: w.lapse.until ?? "", date: w.date })
         : w.lapse?.kind === "cancelled"
           ? t("mv6.bk.warnCancelled", { name: w.name })
-          : t("mv6.bk.warnNone", { name: w.name, date: w.date })
+          : w.lapse?.kind === "suspended"
+            ? t("ms7.bk.warnSuspended", { name: w.name, date: w.date })
+            : t("mv6.bk.warnNone", { name: w.name, date: w.date })
     );
     if (!window.confirm([t("mv6.bk.warnTitle"), ...lines, "", t("mv6.bk.admitConfirm")].join("\n"))) return null;
     const note = window.prompt(t("mv6.bk.admitNote"));

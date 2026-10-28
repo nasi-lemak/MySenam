@@ -27,7 +27,7 @@ const isoOf = (v: unknown): string => (v === null || v === undefined ? "" : v in
  * `participationLapses`); a `reservation` is not barred.
  */
 
-export type MembershipFlagReason = "cancelled" | "revoked" | "uncovered";
+export type MembershipFlagReason = "cancelled" | "revoked" | "uncovered" | "suspended";
 
 interface MembershipRow {
   id: number;
@@ -41,13 +41,15 @@ interface MembershipRow {
 
 /**
  * Flag the bookings a membership no longer covers, after it was cancelled
- * (`cancelled`), voided by a chargeback (`revoked`), or (`uncovered`) the
- * participants `only` were taken off it. Asked after the change, so another
+ * (`cancelled`), voided by a chargeback (`revoked`), (`uncovered`) the
+ * participants `only` were taken off it, or (`suspended`) it was suspended
+ * (lib/membership-suspensions.ts, `suspensionId`: only the bookings on its
+ * dates are no longer covered). Asked after the change, so another
  * membership still covering somebody on the day leaves their booking alone.
- * Returns how many bookings were flagged (each once per membership and
- * person, however often asked).
+ * Returns how many bookings were flagged (each once per membership, person
+ * and suspension, however often asked).
  */
-export async function flagAfterMembershipLoss(membershipId: number, reason: MembershipFlagReason, only?: number[]): Promise<number> {
+export async function flagAfterMembershipLoss(membershipId: number, reason: MembershipFlagReason, only?: number[], suspensionId?: number): Promise<number> {
   const db = getDb();
   const m = (await db
     .prepare("SELECT id, venue_id, holder_kind, holder_phone, holder_name, holder_participant_id, user_id FROM memberships WHERE id = ?")
@@ -107,10 +109,10 @@ export async function flagAfterMembershipLoss(membershipId: number, reason: Memb
     if (cover.covered) continue;
     const added = await db
       .prepare(
-        `INSERT INTO membership_booking_flags (membership_id, booking_id, venue_id, participant_id, person_name, reason, kind)
-         VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`
+        `INSERT INTO membership_booking_flags (membership_id, booking_id, venue_id, participant_id, person_name, reason, kind, suspension_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`
       )
-      .run(m.id, b.id, b.venue_id, b.pid, b.pname ?? m.holder_name, reason, kind);
+      .run(m.id, b.id, b.venue_id, b.pid, b.pname ?? m.holder_name, reason, kind, suspensionId ?? null);
     if (added.changes > 0) flagged.add(b.id);
   }
   return flagged.size;

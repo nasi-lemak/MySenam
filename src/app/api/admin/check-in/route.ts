@@ -39,7 +39,18 @@ export async function POST(req: NextRequest) {
   const why = typeof note === "string" && note.trim() !== "" ? `: ${note.trim().slice(0, 300)}` : "";
   const admitted = (warnings: MemberCover[]) =>
     warnings
-      .map((w) => `${w.name} (${w.lapse?.kind === "ended" ? `membership ended ${w.lapse.until}` : w.lapse?.kind === "cancelled" ? "membership cancelled" : "no membership"} for ${w.date})`)
+      .map(
+        (w) =>
+          `${w.name} (${
+            w.lapse?.kind === "ended"
+              ? `membership ended ${w.lapse.until}`
+              : w.lapse?.kind === "cancelled"
+                ? "membership cancelled"
+                : w.lapse?.kind === "suspended"
+                  ? "membership suspended"
+                  : "no membership"
+          } for ${w.date})`
+      )
       .join(", ");
 
   if (placeId !== undefined) {
