@@ -41,6 +41,7 @@ import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
 import { minuteClock, region } from "@/lib/region";
 import type { StaffText } from "@/lib/staff-text";
+import type { EInvoiceRetention } from "@/lib/einvoice-retention";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 import DocumentPolicy from "./DocumentPolicy";
 
@@ -1165,8 +1166,9 @@ function RetentionPanel() {
   const t = useStaffT();
   const clock = useStaffClock();
   const [state, setState] = useState<{
-    due: { what: string; whatPhrase?: StaffText; days: number; action: string; affected: number }[];
+    due: { what: string; whatPhrase?: StaffText; days: number; years?: number; action: string; affected: number }[];
     lastRun: string | null;
+    einvoice?: EInvoiceRetention;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -1260,7 +1262,7 @@ function RetentionPanel() {
                   <tr key={line.what} className="border-b border-slate-100 last:border-0">
                     <td className="px-3 py-2">{t.say(line.whatPhrase, line.what)}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600">
-                      {line.days === 0 ? t("vn.untilExpire") : t("vn.daysKept", { n: line.days })}
+                      {line.years ? t("ei8.ret.yearsKept", { n: line.years }) : line.days === 0 ? t("vn.untilExpire") : t("vn.daysKept", { n: line.days })}
                     </td>
                     <td className="px-3 py-2 text-slate-600">{t.known(`srv.ret.action.${line.action}`) ?? line.action}</td>
                     <td className="px-3 py-2 font-medium tabular-nums">
@@ -1275,6 +1277,109 @@ function RetentionPanel() {
 
         <p className="mt-3 text-xs text-slate-500">{t("vn.neverDeleted")}</p>
       </div>
+      {state?.einvoice && <EInvoiceRetentionCard retention={state.einvoice} onSaved={load} />}
     </section>
+  );
+}
+
+/**
+ * How long e-invoice records are kept (lib/einvoice-retention.ts): the
+ * install's statutory period, provisional until the platform owner records
+ * a review; less than the floor only with a review given with it.
+ */
+function EInvoiceRetentionCard({ retention, onSaved }: { retention: EInvoiceRetention; onSaved: () => void }) {
+  const t = useStaffT();
+  const [years, setYears] = useState(String(retention.years));
+  const [review, setReview] = useState({ reviewerName: "", reviewerRole: "", firm: "", reviewedOn: "", adviceReference: "", basis: "" });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const below = Number(years) < retention.floor;
+
+  async function send(body: Record<string, unknown>) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/retention", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("ei8.ret.failed")));
+      setMessage({ ok: true, text: t("ei8.ret.saved") });
+      onSaved();
+    } catch (err) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : t("ei8.ret.failed") });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = (key: keyof typeof review, label: string, type = "text") => (
+    <label key={key} className="block text-xs text-slate-600">
+      {label}
+      <input
+        type={type}
+        value={review[key]}
+        onChange={(e) => setReview({ ...review, [key]: e.target.value })}
+        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+      />
+    </label>
+  );
+
+  return (
+    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="font-semibold">{t("ei8.ret.title")}</h3>
+      <p className="mt-1 text-sm text-slate-700">{t("ei8.ret.years", { n: retention.years })}</p>
+      <p className="mt-1 text-xs text-slate-500">{t("ei8.ret.intro")}</p>
+      <p className={`mt-2 text-xs ${retention.provisional ? "text-amber-700" : "text-slate-600"}`}>
+        {retention.review
+          ? t("ei8.ret.reviewed", {
+              jurisdiction: retention.review.jurisdiction,
+              name: retention.review.reviewerName,
+              role: retention.review.reviewerRole,
+              firm: retention.review.firm,
+              date: retention.review.reviewedOn,
+            })
+          : t("ei8.ret.provisional")}
+      </p>
+      {message && <p className={`mt-2 text-sm ${message.ok ? "text-emerald-700" : "text-red-700"}`}>{message.text}</p>}
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="text-xs text-slate-600">
+          {t("ei8.ret.yearsLabel")}
+          <input
+            type="number"
+            min={retention.bounds[0]}
+            max={retention.bounds[1]}
+            value={years}
+            onChange={(e) => setYears(e.target.value)}
+            className="mt-1 block w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy || Number(years) === retention.years}
+          onClick={() => void send({ action: "einvoice-years", years: Number(years), ...(below ? { review } : {}) })}
+          className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+        >
+          {t("ei8.ret.save")}
+        </button>
+      </div>
+      {below && <p className="mt-2 text-xs text-amber-700">{t("ei8.ret.belowFloor", { floor: retention.floor })}</p>}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {field("reviewerName", t("ei8.ret.reviewerName"))}
+        {field("reviewerRole", t("ei8.ret.reviewerRole"))}
+        {field("firm", t("ei8.ret.firm"))}
+        {field("reviewedOn", t("ei8.ret.reviewedOn"), "date")}
+        {field("adviceReference", t("ei8.ret.adviceReference"))}
+        {field("basis", t("ei8.ret.basis"))}
+      </div>
+      {!below && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void send({ action: "einvoice-review", jurisdiction: "MY", ...review })}
+          className="mt-2 text-xs font-medium text-teal-700 hover:underline disabled:opacity-50"
+        >
+          {t("ei8.ret.recordReview")}
+        </button>
+      )}
+    </div>
   );
 }

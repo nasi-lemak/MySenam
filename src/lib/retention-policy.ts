@@ -284,6 +284,38 @@ export interface ReviewInput {
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
+/** Who reviewed, on what authority as they state it, when, where the written advice is kept and on what basis. */
+export interface ReviewProvenance {
+  reviewerName: string;
+  reviewerRole: string;
+  firm: string;
+  reviewedOn: string;
+  adviceReference: string;
+  basis: string;
+}
+
+/**
+ * What every recorded review must say (this file's, and the e-invoice
+ * period's: lib/einvoice-retention.ts), read and checked: the reviewer's
+ * name, role or qualification and firm, a day today or earlier, a reference
+ * to the written advice kept outside MySenam, and its basis.
+ */
+export function readReviewProvenance(input: ReviewInput): ReviewProvenance | PolicyRefusal {
+  const reviewerName = text(input.reviewerName);
+  if (reviewerName.length < 3 || reviewerName.length > 200) return no("Give the reviewer's name.");
+  const reviewerRole = text(input.reviewerRole);
+  if (reviewerRole.length < 3 || reviewerRole.length > 200) return no("Give the reviewer's role or qualification, as they state it.");
+  const firm = text(input.firm);
+  if (firm.length < 2 || firm.length > 200) return no("Give the reviewer's firm or organisation.");
+  const reviewedOn = typeof input.reviewedOn === "string" ? input.reviewedOn : "";
+  if (!isValidDateString(reviewedOn) || reviewedOn > todayISO()) return no("Give the day of the review: today or earlier.");
+  const adviceReference = text(input.adviceReference);
+  if (adviceReference.length < 3 || adviceReference.length > 200) return no("Give a reference to the written advice, kept outside MySenam.");
+  const basis = text(input.basis);
+  if (basis.length < 10 || basis.length > 2000) return no("Say what the review was based on, in a sentence or two.");
+  return { reviewerName, reviewerRole, firm, reviewedOn, adviceReference, basis };
+}
+
 /**
  * Record a review of the install's periods (the platform owner records it):
  * one row for each jurisdiction it covers, each saying who reviewed them and
@@ -302,21 +334,12 @@ export async function recordPolicyReview(admin: Admin, input: ReviewInput): Prom
   const scope = Array.isArray(input.scope) ? [...new Set(input.scope)] : [];
   if (scope.length === 0 || !scope.every((s) => (REVIEW_SCOPE as readonly unknown[]).includes(s)))
     return no("Say which periods the review covers.");
-  const reviewerName = text(input.reviewerName);
-  if (reviewerName.length < 3 || reviewerName.length > 200) return no("Give the reviewer's name.");
-  const reviewerRole = text(input.reviewerRole);
-  if (reviewerRole.length < 3 || reviewerRole.length > 200) return no("Give the reviewer's role or qualification, as they state it.");
-  const firm = text(input.firm);
-  if (firm.length < 2 || firm.length > 200) return no("Give the reviewer's firm or organisation.");
+  const given = readReviewProvenance(input);
+  if ("ok" in given) return given;
+  const { reviewerName, reviewerRole, firm, reviewedOn, adviceReference, basis } = given;
   const now = await retentionPolicy();
-  const reviewedOn = typeof input.reviewedOn === "string" ? input.reviewedOn : "";
-  if (!isValidDateString(reviewedOn) || reviewedOn > todayISO()) return no("Give the day of the review: today or earlier.");
   // The change's date where the install is, as the review's date is (todayISO), not the UTC date of the moment.
   if (now.changedAt && reviewedOn < localDateOf(now.changedAt)) return no("The review is dated before the periods were last changed: it cannot have reviewed these periods.");
-  const adviceReference = text(input.adviceReference);
-  if (adviceReference.length < 3 || adviceReference.length > 200) return no("Give a reference to the written advice, kept outside MySenam.");
-  const basis = text(input.basis);
-  if (basis.length < 10 || basis.length > 2000) return no("Say what the review was based on, in a sentence or two.");
   const db = getDb();
   const periods = periodsOf(now);
   const covered = (scope as ScopeKey[]).sort((a, b) => REVIEW_SCOPE.indexOf(a) - REVIEW_SCOPE.indexOf(b));

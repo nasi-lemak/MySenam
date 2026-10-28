@@ -117,6 +117,8 @@ export interface RetentionLine {
   whatPhrase: StaffText;
   /** Days after which the record, or the person inside it, goes. */
   days: number;
+  /** A period set in years instead (e-invoice records): `days` is then the same, roughly. */
+  years?: number;
   /** What actually happens when the clock runs out. */
   action: "deleted" | "anonymised";
   affected: number;
@@ -293,6 +295,18 @@ export async function retentionDue(): Promise<RetentionLine[]> {
     });
   // Applications to be approved for an activity: by purpose, per activity, and never while held.
   lines.push(...(await (await import("./approval-retention")).approvalRetentionDue()));
+  // E-invoice records, after the install's statutory period (lib/einvoice-retention.ts): a sent one cleared to a
+  // tombstone for the books, a draft never sent deleted (lib/myinvois.ts pruneEInvoices).
+  const einvoiceYears = (await (await import("./einvoice-retention")).einvoiceRetention()).years;
+  const einvoices = said("ei8.ret.einvoices");
+  lines.push({
+    what: englishOf(einvoices),
+    whatPhrase: einvoices,
+    days: Math.round(einvoiceYears * 365.25),
+    years: einvoiceYears,
+    action: "anonymised",
+    affected: await (await import("./myinvois")).einvoicesDue(),
+  });
   // The erasure ledger, once no backup that could be restored is old enough to need it (lib/erasure-ledger.ts).
   const ledger = await import("./erasure-ledger");
   const erased = said("srv.retx.erasureLedger");
@@ -343,6 +357,7 @@ export async function pruneOldData(): Promise<PruneResult> {
     // Applications first, so an approval's end is noted before the sign-off it rests on can go.
     await approvals.pruneApprovals();
     await ledger.pruneErasureLedger();
+    await (await import("./myinvois")).pruneEInvoices();
     // Those that read other records first (a receipt's names, from its booking), before the other rules clear them.
     for (const rule of RULES) if (rule.apply) await rule.apply(rule.where, addDays(today, -rule.days));
     for (const rule of RULES) {
@@ -451,6 +466,11 @@ export interface CustomerExport {
   leagues: unknown[];
   /** Receipts and credit notes issued to this account. */
   receipts: unknown[];
+  /**
+   * E-invoices made for its receipts, with the buyer details given for its own, and credit notes against them
+   * (lib/myinvois.ts `einvoicesExport`): kept for the statutory period, account or not.
+   */
+  einvoices: unknown[];
   waitlist: unknown[];
   /** Gift vouchers turned into credit on this account. */
   vouchers: unknown[];
@@ -635,6 +655,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE r.user_id = ? ORDER BY r.id`,
       userId
     ),
+    einvoices: await (await import("./myinvois")).einvoicesExport(userId),
     waitlist: await all(
       `SELECT w.status, w.date, w.start_min, w.end_min, w.name, w.phone, w.email, w.created_at, k.name AS class
          FROM waitlist w LEFT JOIN classes k ON k.id = w.class_id

@@ -210,7 +210,7 @@ afterEach(() => vi.unstubAllGlobals());
 // ---------------------------------------------------------------- tests
 
 describe("a draft follows its receipt until it is sent", () => {
-  it("a name cleared from the receipt (the account erased) is not sent; the draft is sent as it is, not replaced", async () => {
+  it("a draft not sent before the account was erased is sent as it is, not replaced, and names nobody", async () => {
     const userId = await account();
     const receipt = await familyReceipt(userId, `${thisMonth}-01 04:00:00`);
     downNext = true;
@@ -221,27 +221,35 @@ describe("a draft follows its receipt until it is sent", () => {
     const again = await retryEInvoice(draft.id, venueId);
     expect(again).toMatchObject({ ok: true, from: draft.codeNumber, einvoice: { id: draft.id, codeNumber: draft.codeNumber, status: "submitted" } });
     const json = docOf(draft.codeNumber);
-    expect(json).toContain("Family membership for (removed)");
+    // Lines never name anybody (migration 0225): the receipt's number and the kind of sale.
+    expect(json).toContain(`Receipt ${receipt.number}: memberships`);
     expect(json).not.toContain("Alya");
     expect(json).not.toContain("Bilal");
   });
 
-  it("a venue that leaves names out sends the receipt's number and kind of sale; off by default, and nothing sent before changes", async () => {
+  it("names are never sent, whatever the retired venue setting says, and a document sent with names before keeps them", async () => {
     const userId = await account();
-    const before = await ask((await familyReceipt(userId, `${thisMonth}-01 04:00:00`)).ref);
-    expect(docOf(before.codeNumber)).toContain("Alya Rahman");
-    const kept = await frozen(before.id);
-
-    expect((await saveEInvoiceSettings(venueId, { ...SETTINGS, leaveNamesOut: true })).ok).toBe(true);
+    // One sent before migration 0225 with the names in its line, as LHDN has it.
+    const legacy = (await getDb()
+      .prepare(
+        `INSERT INTO e_invoices (venue_id, kind, type_code, code_number, total, status, document, submission_uid, uuid, submitted_at)
+         VALUES (?, 'individual', '01', ?, 120, 'valid', '{"Invoice":[{"InvoiceLine":[{"Item":[{"Description":[{"_":"Receipt R-1: Family membership for Alya Rahman"}]}]}]}]}',
+                 'S-LEG', 'U-LEG', datetime('now')) RETURNING id`
+      )
+      .get(venueId, `EI-LEGACY-NAMES-${++n}`)) as { id: number };
+    const kept = await frozen(legacy.id);
+    // The retired column, even if somebody set it, changes nothing.
+    await getDb().prepare("UPDATE einvoice_settings SET leave_names_out = 0 WHERE venue_id = ?").run(venueId);
     const receipt = await familyReceipt(userId, `${thisMonth}-01 04:00:00`);
     const after = await ask(receipt.ref);
     expect(after.sentLines).toHaveLength(1);
-    expect(after.sentLines![0].description).toMatch(new RegExp(`^Receipt ${receipt.number}: [a-z]`));
-    expect(docOf(after.codeNumber)).not.toMatch(/Alya|Bilal|Rahman/);
-    expect(await frozen(before.id)).toEqual(kept);
-
-    expect((await saveEInvoiceSettings(venueId, SETTINGS)).ok).toBe(true);
-    expect(docOf((await ask((await familyReceipt(userId, `${thisMonth}-01 04:00:00`)).ref)).codeNumber)).toContain("Alya Rahman");
+    expect(after.sentLines![0].description).toBe(`Receipt ${receipt.number}: memberships`);
+    expect(docOf(after.codeNumber)).not.toMatch(/Alya|Bilal/);
+    // The buyer's own details are the buyer party's, and stay.
+    expect(docOf(after.codeNumber)).toContain(BUYER.name);
+    expect(docOf(after.codeNumber)).toContain(BUYER.tin);
+    expect(await frozen(legacy.id)).toEqual(kept);
+    expect((await byId(legacy.id)).sentLines![0].description).toContain("Alya Rahman");
   });
 });
 
@@ -276,14 +284,15 @@ describe("a document sent to LHDN is never rewritten", () => {
     expect(await recheckEInvoice(a.id, venueId)).toMatchObject({ ok: true, einvoice: { status: "valid" } });
     await checkSubmitted(venueId);
     await submitPending(venueId);
-    expect((await saveEInvoiceSettings(venueId, { ...SETTINGS, legalName: "Renamed Sdn Bhd", leaveNamesOut: true })).ok).toBe(true);
+    expect((await saveEInvoiceSettings(venueId, { ...SETTINGS, legalName: "Renamed Sdn Bhd" })).ok).toBe(true);
     await submitPending(venueId);
     expect((await saveEInvoiceSettings(venueId, SETTINGS)).ok).toBe(true);
 
     expect(await frozen(a.id)).toEqual(snapA);
     expect(await frozen(b.id)).toEqual(snapB);
-    // What LHDN has keeps the names it was sent with (docs/architecture/privacy.md#receipts-and-credit-notes).
-    expect((snapA as { document: string }).document).toContain("Alya Rahman");
+    // What LHDN has never named the children (migration 0225); the buyer's details it was sent with stay.
+    expect((snapA as { document: string }).document).not.toContain("Alya Rahman");
+    expect((snapA as { buyer: string }).buyer).toContain(BUYER.tin);
   });
 
   it("the database refuses to change or delete one that reached LHDN, or to move its state back", async () => {

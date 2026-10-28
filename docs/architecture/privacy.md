@@ -71,7 +71,8 @@ each [suspension](../features/pricing.md#suspending-a-membership) of it with
 its dates and reasons, and memberships bought online as chosen and what
 became of each), places on
 venues' lists linked to it, games, the playing profile, people blocked, reports made and community
-groups, leagues, tournaments, receipts and credit notes, waiting-list places,
+groups, leagues, tournaments, receipts and credit notes, the e-invoices made
+for its receipts with the buyer details given ([below](#e-invoice-records)), waiting-list places,
 gift vouchers used, applications to be approved for an activity (answers,
 declarations, history, the documents still held with who opened them, and
 what is kept of those already deleted), and the messages still
@@ -127,7 +128,10 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
 - also removes, by the account's numbers, staff notes, places on company
   accounts' booker lists, concession proofs, private hire enquiries and
   marketing consent; and keeps signed waivers, as the venue's record of
-  consent ([venue operations](../features/venue-operations.md#waivers)).
+  consent ([venue operations](../features/venue-operations.md#waivers));
+- keeps the e-invoices made for its receipts, with the buyer details the
+  customer gave for their own, for the statutory period: a legal obligation
+  of the venue, not part of the profile ([below](#e-invoice-records)).
 
 It refuses while the customer is owed something — stored credit, a live pass, a
 running membership — because `wallet_entries` cascades from `users`, so erasing
@@ -148,6 +152,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Names and numbers on receipts and credit notes, with every name inside their lines | 730 days after issue | anonymised; what was sold, the amounts and the tax kept ([below](#receipts-and-credit-notes)) |
+| E-invoice records: each document sent to LHDN as it was sent, the buyer details given for it, LHDN's reasons; a draft never sent | the install's statutory period from issue: 7 years by default, **provisional pending legal verification**; 5 to 20 years, under 7 only with a recorded review ([below](#e-invoice-records)) | a sent one cleared to a tombstone (number, kind, dates, total, the receipts it covered, LHDN's identifiers and its last state kept); a draft deleted |
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Withdrawn activity sign-offs | 365 days | deleted |
 | Names of who took each place on a booking | 730 days | removed, the booking kept |
@@ -214,18 +219,73 @@ out to (name, phone, account) and the people its lines name go
   restored copy's receipts the same way, and the retention run that follows
   catches the rest ([backups](../operations/backups.md#after-a-restore)).
 - **Not reached**: an e-invoice already sent to LHDN keeps what it said
-  there, and its copy in `e_invoices` is never changed or deleted
+  there, and its copy in `e_invoices` is not changed or deleted before the
+  statutory period ends ([below](#e-invoice-records))
   ([MyInvois](../integrations/myinvois.md#states-and-what-never-changes));
-  one not yet sent is built from the receipt when it is sent, so a name
-  cleared before then is not sent, and a venue can leave names out of
-  e-invoice lines altogether
+  e-invoice lines name nobody in any case
   ([names in what is sent](../integrations/myinvois.md#names-in-what-is-sent)).
   The details a customer gave for their own e-invoice (name, TIN, ID
-  number, email, phone, address) stay with it in `e_invoices`, sent or not:
-  no retention rule or erasure clears them. A reason staff typed for a credit
+  number, email, phone, address) stay with it in `e_invoices`, sent or not,
+  for the statutory period ([below](#e-invoice-records)): neither this
+  rule nor an erasure clears them. A reason staff typed for a credit
   top-up loses only the names known for the receipt; coaches' names on lesson receipts stay (they are
   the venue's staff); messages and the staff activity log follow their own
   retention.
+
+### E-invoice records
+
+The owner's decision of 28 October 2026: "Retain legally required e-invoice
+records for the applicable statutory period, generally seven years where
+relevant, with legal verification pending. Keep optional customer-profile
+data separate."
+
+- **What is kept, and why.** Each e-invoice sent to LHDN as it was sent (its
+  stored payload), LHDN's submission ID, UUID and long ID, the buyer details
+  a customer gave for their own (name, TIN, ID number, email, phone,
+  address), and LHDN's reasons as given (`e_invoices`;
+  [MyInvois](../integrations/myinvois.md)). The receipts and credit notes
+  they cover are never deleted (their names go at 730 days as
+  [above](#receipts-and-credit-notes); the amounts, tax and numbers stay).
+  The basis is the venue's legal obligation to keep its tax records, not
+  the customer's account: the buyer details are not copied into the
+  account's profile (nothing reads the account to fill them, or writes them
+  back), closing the account removes the profile and its optional data
+  (phone, saved details, marketing consent) as [above](#erasure-keeps-the-books),
+  and the e-invoice and its buyer details stay. The account's data export
+  lists its e-invoices with the buyer details given and the credit notes
+  against them (`einvoices`), and says why they are kept.
+- **How long.** One install setting (`einvoice_retention`, migration 0225;
+  `src/lib/einvoice-retention.ts`), in years from each document's issue (when
+  it was sent; a draft, from when it was recorded): **7 by default,
+  provisional**, the owner's reading of Malaysia's record-keeping period
+  (generally seven years), not verified by a lawyer. Whether the period runs
+  from the issue or from the end of the year of assessment, and whether it
+  is longer for a venue under audit or dispute, is for the venue's adviser:
+  until then the screen and this page say it is provisional. The platform
+  owner sets it under *Venues & staff → Keeping nothing too long*: longer
+  (up to 20 years) at any time; shorter than the floor of 7 (down to 5) only
+  with a recorded review given with the change, with the same provenance as
+  a review of the application periods (who reviewed, their role or
+  qualification as they state it, their firm, the day, where the written
+  advice is kept, its basis). A review is the owner's record of what a
+  reviewer advised, never a verification by MySenam; one may also be
+  recorded for the period as it stands, and any change lapses it. Every
+  change, review and lapse is in `retention_policy_events` (never pruned)
+  and the staff activity log. The erasure ledger does not carry this
+  setting: after a restore, the restored copy's period applies.
+- **Then.** The daily retention run (`pruneEInvoices` in
+  `src/lib/myinvois.ts`) clears a document sent past the period to a
+  **tombstone**: its payload, the buyer's details and LHDN's reasons go;
+  its number, kind, month, dates, total, the receipt numbers it covered,
+  LHDN's submission ID, UUID and long ID, what it corrects or replaces and
+  its last state stay, so the books still show what went to LHDN and LHDN's
+  own copy can be found by its UUID. A draft that never reached LHDN is
+  deleted. This is the one change the database lets anything make to a sent
+  document (trigger `e_invoices_sent_frozen`, migration 0226): only inside
+  the retention run's transaction, which says so, only once the period the
+  database holds has passed since issue, only those three emptied, once;
+  a tombstone is never filled in again or deleted. Shown by
+  `tests/einvoice-retention.test.ts` (PGlite and Postgres).
 
 ### Applications to be approved for an activity
 

@@ -697,4 +697,12 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "It has been replaced already.": { ms: "Ia telah pun diganti.", zh: "它已被替代。" },
   "Only an e-invoice LHDN has accepted can be checked.": { ms: "Hanya e-invois yang telah diterima LHDN boleh disemak.", zh: "只有 LHDN 已接收的电子发票才能查询。" },
   "MyInvois could not be reached.": { ms: "MyInvois tidak dapat dihubungi.", zh: "无法连接 MyInvois。" },
+  // ei8: how long e-invoice records are kept (lib/einvoice-retention.ts).
+  "Only the platform owner can change how long e-invoice records are kept.": { ms: "Hanya pemilik platform boleh menukar tempoh rekod e-invois disimpan.", zh: "只有平台所有者可以更改电子发票记录的保存期限。" },
+  "E-invoice records are kept 5 to 20 years.": { ms: "Rekod e-invois disimpan 5 hingga 20 tahun.", zh: "电子发票记录保存 5 至 20 年。" },
+  "Keeping e-invoice records less than 7 years needs a recorded review: who advised it, their firm, the day and where the written advice is kept.": { ms: "Menyimpan rekod e-invois kurang daripada 7 tahun memerlukan semakan yang direkodkan: siapa yang menasihatinya, firmanya, tarikhnya dan di mana nasihat bertulis disimpan.", zh: "电子发票记录保存少于 7 年须附有已记录的审查：由谁提供意见、其所属机构、日期以及书面意见存放之处。" },
+  "Only the platform owner can record the review of how long e-invoice records are kept.": { ms: "Hanya pemilik platform boleh merekodkan semakan tempoh rekod e-invois disimpan.", zh: "只有平台所有者可以记录对电子发票记录保存期限的审查。" },
+  "Say which jurisdiction the review covers: Malaysia (MY) or Singapore (SG).": { ms: "Nyatakan bidang kuasa yang diliputi semakan: Malaysia (MY) atau Singapura (SG).", zh: "请说明审查涵盖的司法管辖区：马来西亚（MY）或新加坡（SG）。" },
+  "The review is dated before the period was last changed: it cannot have reviewed this period.": { ms: "Semakan bertarikh sebelum tempoh itu terakhir ditukar: ia tidak mungkin menyemak tempoh ini.", zh: "审查日期早于该期限最近一次更改：它不可能审查了此期限。" },
+  "action is run, einvoice-years or einvoice-review.": { ms: "Tindakan ialah run, einvoice-years atau einvoice-review.", zh: "操作须为 run、einvoice-years 或 einvoice-review。" },
 };

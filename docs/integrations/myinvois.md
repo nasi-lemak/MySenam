@@ -17,9 +17,10 @@ Malaysian installs only), with its TIN, business registration number, MSIC
 code, registered name, address and contact details (`einvoice_settings`,
 migration 0056). It starts in sandbox; production is a separate tick, with a
 warning that MySenam never changes a document once sent and that
-cancelling is done in the MyInvois portal within LHDN's window. *Leave
-people's names out of e-invoice lines* (off by default; migration 0220) is
-[below](#names-in-what-is-sent).
+cancelling is done in the MyInvois portal within LHDN's window. E-invoice
+lines never name people ([below](#names-in-what-is-sent)), and e-invoice
+records are kept for the statutory period
+([privacy](../architecture/privacy.md#e-invoice-records)).
 
 How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
 
@@ -96,11 +97,16 @@ document, a submission ID or a UUID: `rejected`, `submitted` and after), its
 stored payload, lines, buyer, total, the receipts it covered, its number,
 LHDN's submission ID, UUID and long ID, what it corrects and when it was
 sent stay as they are, and it is never deleted. The database refuses
-anything else (trigger `e_invoices_sent_frozen`, migration 0220), whichever
-path tries: clearing names from a receipt, retention, an erasure, a refund,
-a withdrawal or coach change (they make receipts and credit notes, never
-touch `e_invoices`), a retry or a check. Only LHDN's verdict, its reasons,
-the long ID (set once) and when LHDN was last asked move on. A draft
+anything else (trigger `e_invoices_sent_frozen`, migrations 0220 and 0226),
+whichever path tries: clearing names from a receipt, the receipts' retention
+rule, an erasure, a refund, a withdrawal or coach change (they make receipts
+and credit notes, never touch `e_invoices`), a retry or a check. Only LHDN's
+verdict, its reasons, the long ID (set once) and when LHDN was last asked
+move on. The one exception is the end of the statutory period: the
+retention run then clears the stored payload, the buyer's details and
+LHDN's reasons, once, and keeps the rest as a tombstone for the books
+([privacy](../architecture/privacy.md#e-invoice-records)); a tombstone is
+shown as such and nothing more is done with it. A draft
 venue holding an e-invoice is not deleted by the stale-draft clean-up
 (`src/lib/drafts.ts`). Shown by `tests/einvoice-records.test.ts`.
 
@@ -129,20 +135,32 @@ venue holding an e-invoice is not deleted by the stale-draft clean-up
   or refund notes.
 
 **A draft follows its receipt.** A document is built when it is sent, from
-the receipts as they are then: a name cleared from a receipt (retention, an
-erasure) before its e-invoice is sent is not sent, and *Send* on one that
-failed sends the receipt as it now is.
+the receipts as they are then: *Send* on one that failed sends the receipt
+as it now is.
 
 ### Names in what is sent
 
-A consolidated document's lines say the kind of sale, the month and the
-receipt numbers: no names. A customer's own, and a large sale's, say the
-receipt's first line as the books do, with whom it was for where the line
-names somebody (a family membership's children). With *Leave people's names
-out of e-invoice lines* on, they say the receipt's number and the kind of
-sale instead (`Receipt R-000012: memberships`). It applies to documents not
-yet sent; one already sent keeps what it said, at LHDN and in its copy here
-([privacy](../architecture/privacy.md#receipts-and-credit-notes)).
+The owner's decision of 28 October 2026: "Omit unnecessary participant and
+coach names from e-invoice descriptions, while retaining legally required
+information." No line of a document sent names anybody: a consolidated
+one's say the kind of sale, the month and the receipt numbers; a
+customer's own, and a large sale's, say the receipt's number and the kind of
+sale as the books class it (`Receipt R-000012: memberships`,
+`Receipt BK-7Q2M: coaching`), whatever the receipt's own lines say about
+whom it was for (a child's place, a family membership's children) or who
+coached. This holds on every path: court hire, lessons, classes,
+memberships, passes, counter sales, credit notes.
+
+The **buyer's own details** on a customer's own e-invoice (name, TIN, ID
+number, SST number, email, phone, address) are what LHDN requires of a
+buyer, and stay, in the document and in `e_invoices`; the venue's own
+details stay as the supplier's. The *Leave people's names out* setting of
+migration 0220 is retired (migration 0225 keeps its column, unread): there
+is no case for naming a participant or a coach in a line, as the receipt
+number links the e-invoice to the receipt that says more. A document sent
+before keeps what it said, at LHDN and in its copy here, until the
+statutory period ends. Shown by `tests/einvoice-retention.test.ts` and
+`tests/einvoice-records.test.ts`.
 
 ## What is assumed and not verified
 
@@ -167,7 +185,12 @@ sandbox or LHDN's current guidance. None is presented to staff as settled:
   found it invalid: MySenam does not rely on it either way, as a
   replacement always has its own number;
 - the 72-hour cancellation window, which the screens attribute to LHDN and
-  mark as not verified.
+  mark as not verified;
+- how long e-invoice records must be kept (7 years from issue by default,
+  provisional pending legal verification:
+  [privacy](../architecture/privacy.md#e-invoice-records)), and that a
+  tombstone of number, dates, total, covered receipts and LHDN's identifiers
+  is enough after it.
 
 A credit note waiting until what it corrects is valid is MySenam's own order
 of things, not an LHDN rule.
