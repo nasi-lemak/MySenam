@@ -77,7 +77,8 @@ recommendation, not a decision. A decision is recorded by changing the row to
 
 | Limitation | What happens today | Recommendation |
 | ---------- | ------------------ | -------------- |
-| The counter and the venue's API are held to the house rules, the unpaid-bookings limit, no-show strikes and the guest surge, as online bookings are ([booking](../features/booking.md)) | The code (`customerMayBook`, the counter's branch) asks them of staff bookings; the feature document and the code's comments said staff were not held to them, and the refusals' wording ("call the venue", "at the counter only") suggests they should not be. The venue's API and staff- and API-made waiting-list claims now ask what the counter asks (`mayBookOn`) | Decide whether staff and the API are exempt from the house rules, strikes and the guest surge; if so, only the counter's branch of `customerMayBook` changes and the API and claims follow. Keep the refused-number check and the unpaid limit on every path |
+| Names in e-invoice lines ([operations and security](#operations-and-security-s)) | A venue may leave people's names out of the lines of e-invoices not yet sent; off by default, so lines name who played as receipts do | Turn it on by default for new venues: the buyer is named on the document and who played is not needed for tax |
+| How long buyer details for a customer's own e-invoice are kept ([operations and security](#operations-and-security-s)) | The name, TIN, ID number and contact details a customer gives are kept with the e-invoice, with no retention rule or erasure clearing them | Decide a period with the lawyer's review of retention; documents already sent keep what LHDN holds |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
 
 ### Accepted
@@ -129,6 +130,18 @@ asked when booking and a members' place asked for the participation date
 ([membership validity](../features/pricing.md#membership-validity)); the
 `mysenam_guardian_notice` template prepared but not submitted; box leagues
 on their own result functions with the shared rules (`AGENTS.md`).
+The owner's decisions of 28 October 2026: the counter and the venue's API
+are held to the same venue policies as online bookings, a manager overriding
+the house rules' limits, no-show strikes, the guest limit or an assisted
+weekly booking only where the venue permits it, each override recorded, and
+nothing overriding a blocked number, the unpaid limit, eligibility, safety
+prerequisites, capacity or payment
+([ADR 0026](../architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md));
+sign-up by an emailed link, Google sign-in and passwords kept; invitations
+withdrawn before they are accepted; a dearer coach's difference payable
+online; memberships suspended and reactivated without automatic
+cancellation, refund or extension; staff times in the staff language;
+e-invoices sent to LHDN never rewritten.
 
 ### Not affecting the first launch
 
@@ -152,7 +165,7 @@ that could be removed, **4** a missing test, **5** a decision, kept on
 purpose, **6** waiting on an outside service, **7** a legal or commercial
 decision needing approval, **8** not needed until a market or customer
 that needs it. Kinds 1 to 4 are worked off; 5 stays unless the reason
-changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
+changes; 6 to 8 name what they wait for. As of 28 October 2026: no defect
 (kind 1) is open.
 
 | Limitation | Kind | Who it affects | Next action, or what it waits for |
@@ -183,7 +196,7 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 | [An operator's own activity](#activities) named in English unless given; [catalogue changes](#activities) take a minute; [`sport` column name](#activities); [integrity check](#activities) window | 5 | Operators | Kept |
 | [Sign-offs online rest on the account](#activities); [approval applications](#activities): retention periods provisional pending legal review, the off-site erasure ledger unverified against a real bucket | 5 / 7 / 3 | Climbing, archery and hire venues | A lawyer's review of the periods per activity and jurisdiction |
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
-| [Counter and API held to the house rules and strikes](#decisions-the-owner-has-to-make) though the documents said staff were not | 7 | Venues | The owner decides whether staff and the API are exempt |
+| [Staff moves not asked the house rules; the class page without override or pay-now buttons; overrides not in the bookings export](#booking-and-availability-b) | 3 / 5 | Venues | Kept for now: the activity log carries overrides; the class page's buttons when a venue needs them |
 | [Timing tests on one machine; an invitation withdrawn while its email is being sent](#operations-and-security-s) | 5 | Everyone | Kept: equal timing in production is shown only by measuring there; the link is refused either way |
 | [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; the owner decides names in e-invoice lines and how long buyer details are kept |
 | [Staff messages in the install's first language](#languages) | 3 / 5 | Coaches and staff reading Malay or Chinese | A language of their own for coaches and staff, if the owner wants staff emails in other languages |
@@ -192,10 +205,11 @@ changes; 6 to 8 name what they wait for. As of 27 October 2026: no defect
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
-began on 24 October 2026, **86 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B38, M16–M18 and
-S12–S24, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (75
+began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
+**89 now**. Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B43, M16–M21 and
+S12–S25, found and fixed in the same work) and
+[resolved without a number](#resolved-limitations-without-a-number) (86
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
@@ -216,12 +230,20 @@ decisions of 27 October 2026, what changing a lesson's coach, family
 dependants' policy, membership validity and the localised times left, the
 counter's checks the owner is to decide, and what the work on account
 enumeration found next to it (sign-up says an address is taken; email
-invitations cannot be withdrawn), each recorded rather than left unsaid. The owner's decisions of 24 October 2026 (the launch languages,
+invitations cannot be withdrawn, both since resolved), each recorded rather
+than left unsaid; and, from the owner's decisions of 28 October 2026, the
+eleven closures of round 7 (the counter's checks decided, sign-up,
+invitations, the coach difference online, suspension, staff times, the API's
+withdrawal, dashboard refunds, cover history, lesson credit, e-invoice
+states) beside what they left, each narrower: MyInvois's own limits and
+LHDN's rules unverified, two e-invoice questions for the owner, staff
+messages in the install's first language, and what the counter's policies
+leave (staff moves, the class page's buttons, overrides in the export). The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-In the table above, no row is a defect; two are partly of kind 3 (sign-up
-by an emailed link; times on staff screens), one a decision of kind 7 (the
-counter's checks).
+In the table above, no row is a defect; two are partly of kind 3 (staff
+messages in one language; what the counter's policies leave), and the
+e-invoice questions are decisions of kind 7.
 
 ## Suspected defects
 
@@ -284,16 +306,22 @@ published guidance and unverified
 ([MyInvois](../integrations/myinvois.md#what-is-assumed-and-not-verified)) (P3).
 
 Also: a waiting-list offer and claim ask what the booking would ask on the
-path the entry was made (a refused number, the venue open, an online entry's
-access, the house rules, the unpaid-bookings limit, no-show strikes, a
-members' place covered on its date), but not the venue's waiver, which no
-waiting-list join or claim online asks; the members' longer booking window is
-asked at the join, not again at the claim; joining a class's waiting list asks
-the house rules, which enrolling does not; a place freed while a venue was
-unlisted is offered when another place there frees; an offer to a number
+path the entry was made, paid as a claim is (a refused number, the venue
+open, who may book a members-only or private venue, the house rules with the
+members' window, the unpaid-bookings limit, no-show strikes and the guest
+limit, a members' place covered on its date), and the venue's waiver at the
+claim; a class's queue asks what enrolling asks. A place freed while a venue
+was unlisted is offered when another place there frees; an offer to a number
 refused after it was made holds its place until its claim is refused or it
 runs out, and a message about it already sent stays sent (one not yet sent is
 withdrawn) ([booking](../features/booking.md#waitlists)) (P3).
+
+Also: staff moving a booking are not asked the house rules; class enrolments
+at the counter take payment as they are made, and overrides, through the
+route only (the class page has no buttons for them); overrides are not in the
+bookings export (the activity log carries them); a manager's override reason
+is free text kept with the booking
+([booking](../features/booking.md#manager-overrides)) (P3).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -658,6 +686,9 @@ IDs are not reused. Each fix came with the test recommended above.
 | M20 | E-invoicing could invoice a sale twice or name the wrong document: a customer's own e-invoice that failed let its receipt into the month's consolidated one, and sending it again invoiced the sale twice; a large sale whose own e-invoice failed or was refused could go into the consolidated one; a credit note could name a document not yet valid or found invalid, or be dropped against an invalid consolidated one; LHDN's *Cancelled* answer was ignored. Each now follows what the consolidated document records it carried and what LHDN last said | `tests/einvoice-records.test.ts` |
 | M21 | Credit waiting on a closed company or school account could be paid back only outside the app, with no record, and could still come off a later invoice, refunding it twice; a manager now records it paid back by hand, after which no invoice takes it, and closed accounts with credit waiting stay listed | `tests/account-credit-settled.test.ts` (with an invoice racing it, Postgres) |
 | S25 | Google sign-in with an address Google had not verified answered "An account with this email already exists" only where one did, telling anybody whether an address had an account; every unverified address is now refused in the same words and nothing is made. Found by the sign-up work | `tests/sign-in.test.ts` |
+| B41 | The venue's API key was not held to no-show strikes or the guest limit where the venue took payment online: the booking was made neither held nor paid, where online it would have been held until paid; the API now refuses it | `tests/same-policies.test.ts` |
+| B42 | The counter, and waiting-list entries made at the counter, treated a member's number as a non-member's for the members' longer booking window, so they were always refused `LIMIT_AHEAD_MEMBERS`; the number on staff's word now gets the member's window | `tests/same-policies.test.ts` |
+| B43 | A number struck out for no-shows could get a class place through a waiting-list claim (held until paid), though enrolling directly refused it; a class place cannot be held, so the claim is refused as enrolling is | `tests/same-policies.test.ts` |
 
 ### Resolved limitations without a number
 
@@ -751,6 +782,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Family-membership cover history was not in the account's data export | `membershipCoverChanges`, naming only people the holder is shown | `tests/membership-cover-export.test.ts` |
 | The lesson form had no pay-from-credit option | The court form's credit path | `tests/lesson-credit.test.ts`, `tests/components/coach-booking-credit.test.tsx` |
 | An e-invoice's states, corrections and LHDN identifiers were not all shown to staff | Each document's state, identifiers, LHDN's reasons and what can be done next, offering only what the server allows; corrections as replacements linked to what they replace | `tests/einvoice-records.test.ts` |
+| The counter and the venue's API were held to the house rules, strikes and the guest limit while the documents said staff were not (a decision for the owner) | Decided 28 October 2026: one policy check on every path; the counter takes payment as it books where online would hold, the API refuses; a manager overrides selected restrictions where the venue permits, recorded per booking; blocked numbers, the unpaid limit, eligibility, the waiver, the window and capacity never overridden; unblocking says why ([ADR 0026](../architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md)) | `tests/same-policies.test.ts`, `tests/components/counter-overrides.test.tsx` |
 
 ## Production readiness
 
