@@ -207,7 +207,6 @@ changes; 6 to 8 name what they wait for. As of 28 October 2026: no defect
 | [Staff moves not asked the house rules; the class page without override or pay-now buttons; overrides not in the bookings export](#booking-and-availability-b) | 3 / 5 | Venues | Kept for now: the activity log carries overrides; the class page's buttons when a venue needs them |
 | [Timing tests on one machine; an invitation withdrawn while its email is being sent](#operations-and-security-s) | 5 | Everyone | Kept: equal timing in production is shown only by measuring there; the link is refused either way |
 | [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; the statutory period confirmed by the venue's adviser |
-| [Owner and venue-staff alerts in English](#languages) | 3 | Staff reading Malay or Chinese | The remaining alerts written per recipient, as the others now are |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
 Counted mechanically (each bullet, *Also* paragraph and table row in this
@@ -320,8 +319,10 @@ the erasure ledger, so after a restore the restored copy's period applies
 
 Also: MyInvois cancelling is done in the portal and reaches MySenam only when
 LHDN is asked; MySenam issues no debit or refund notes; staff cannot correct
-a buyer's details (the customer asks again); a draft sent by the scheduler
-and a retry at the same moment can reach LHDN twice; the LHDN rules followed
+a buyer's details (the customer asks again); a send interrupted after LHDN
+was asked (the server stopping) is marked not sent after 15 minutes and is
+never sent again by itself: staff check the portal first, since LHDN may
+have it; the LHDN rules followed
 (seven days, RM10,000, codes, version 1.0, the 72-hour window) are read from
 published guidance and unverified
 ([MyInvois](../integrations/myinvois.md#what-is-assumed-and-not-verified)) (P3).
@@ -360,9 +361,10 @@ is free text kept with the booking
 
 Also: when a class's places go up by several, the waiting list is offered
 one place at a time, as it always is, and the other new places are open to
-anyone meanwhile; people enrolled are not told of a change to a class's name
-or instructor; lowering a tournament's places is not locked against an entry
-made at the same moment, so one more could be entered than allowed; the venue's
+anyone meanwhile; a change to a class's name or instructor is told by email
+only, not WhatsApp, and a change to its price or places tells nobody (the
+price holds for those enrolled); a tournament's new name is told to its
+entries, a new deadline, fee or text is not; the venue's
 alerts for online changes need the `mysenam_venue_booking_change` WhatsApp
 template, prepared and not yet submitted to Meta (email works without it)
 ([programmes](../features/programmes.md), [tournaments](../features/tournaments.md),
@@ -628,16 +630,13 @@ Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
   built-in activity names in Malay and Chinese (machine-assisted), and the
   times each language is written in (Malay's PG/PTG and Tamil's 24-hour clock,
   from the common locale data) (P2).
-- **Staff alerts still in English:** a member of staff, a coach and a
-  venue's booking alerts each have a language of their own, in which their
-  password reset, two-factor reset notice, lesson emails, booking alerts,
-  application-review emails and staff calendar address are written
+- **What staff alerts keep in English:** every email to staff, coaches and
+  platform owners is written in the reader's own language
   ([regions](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches));
-  alerts to platform owners and to a venue's staff (suspensions, payment
-  holds, venue changes, reviews, match reports, webhook problems) and the low
-  WhatsApp credit email stay in English. Text stored in English (the activity
-  log's details, receipt descriptions, refusals with no translation) keeps the
-  times it was written with (P3).
+  the chat webhook's message stays English, and what an alert quotes as
+  stored (what people typed, an error's own text, the activity log's details,
+  receipt descriptions, refusals with no translation) stays as stored, with
+  the times it was written with (P3).
 
 The launch promises English, Malay, simplified Chinese and Tamil to
 customers (the owner, 24 October 2026), so these reviews are a
@@ -941,6 +940,10 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The dashboard forgot its tab and day on a reload, and the day list went stale | Tab, day and venue in the address; the day list and schedule kept up | `tests/components/staff-place.test.tsx` |
 | Dates were shown without their weekday | The weekday on every customer date and in messages | `tests/outbox.test.ts`, `tests/waitlist-leave.test.ts` |
 | Dialogs did not hold focus or close on Escape, and 103 staff fields had no name for screen readers | One dialog for all; every staff field named, checked by a test | `tests/components/booking-dialogs.test.tsx`, `tests/form-labels.test.ts` |
+| Alerts to platform owners and to a venue's staff, and the low WhatsApp credit email, were in English | Each written per reader in their own staff language; the English-only senders removed | `tests/staff-alert-languages.test.ts` |
+| People enrolled in a class were not told of a new name or instructor | Emailed, with those holding an offer of a place, once each, in their language | `tests/class-changes.test.ts` |
+| Lowering a tournament's places was thought not to be locked against an entry at the same moment | It is taken under the entry lock; tested both at once and with the entry held mid-write | `tests/entry-races.test.ts` |
+| A draft e-invoice sent by the scheduler and by staff at the same moment could reach LHDN twice | Claimed before LHDN is asked (migration 0256), so it is sent once; an interrupted claim is marked not sent for a check in the portal | `tests/einvoice-sending.test.ts` |
 
 ## Production readiness
 
