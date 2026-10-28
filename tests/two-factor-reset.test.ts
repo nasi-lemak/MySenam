@@ -16,7 +16,8 @@ import { resetFromConsole, resetTwoFactorFor } from "../src/lib/two-factor-reset
  * by someone without two-factor, never an owner by a manager.
  */
 
-let clock = Date.parse("2026-10-25T08:00:00Z");
+// Today, on a 30-second step: the database's own clock judges session expiry, so a fixed date would lapse a week on.
+let clock = Math.floor(Date.now() / 30_000) * 30_000;
 const secrets = new Map<number, Buffer>();
 const code = (id: number) => {
   clock += 30_000;

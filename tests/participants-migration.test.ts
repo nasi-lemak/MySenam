@@ -99,8 +99,13 @@ describe("migrations 0138–0140 on people managed from accounts, their bookings
       { booking_id: gone, takes_part_as: "participant", participant_id: null, name: "Old name", added_by_user_id: mum },
     ]);
     expect((await db.query("SELECT 1 FROM booking_participants WHERE booking_id IN ($1, $2)", [sitiOwn, linWei])).rows).toEqual([]);
-    // The bookings themselves, money and all, exactly as they were.
-    expect((await db.query("SELECT row_to_json(b)::text AS row FROM bookings b ORDER BY id")).rows).toEqual(bookingsBefore);
+    // The bookings themselves, money and all, exactly as they were: every column they had, unchanged (columns later
+    // migrations add to bookings are new, and not this migration's to keep).
+    const before = (bookingsBefore as { row: string }[]).map((r) => JSON.parse(r.row) as Record<string, unknown>);
+    const after = ((await db.query("SELECT row_to_json(b)::text AS row FROM bookings b ORDER BY id")).rows as { row: string }[]).map(
+      (r) => JSON.parse(r.row) as Record<string, unknown>
+    );
+    expect(after.map((row, i) => Object.fromEntries(Object.keys(before[i]).map((k) => [k, row[k]])))).toEqual(before);
     // The sign-off stays the child's.
     expect((await db.query("SELECT managed_person_id FROM sign_offs WHERE id = $1", [signOff])).rows).toEqual([{ managed_person_id: aisyah }]);
 

@@ -26,7 +26,8 @@ let secret: Buffer;
 let recovery: string[];
 const EMAIL = "manager@twofactor.my";
 const PASSWORD = "a long enough password";
-let clock = Date.parse("2026-10-21T08:00:00Z");
+// Today, on a 30-second step: the database's own clock judges session expiry, so a fixed date would lapse a week on.
+let clock = Math.floor(Date.now() / 30_000) * 30_000;
 
 const codeAt = (offsetSteps = 0) => totpCode(secret, currentStep(clock) + offsetSteps);
 const tick = () => {
