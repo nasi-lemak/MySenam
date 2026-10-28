@@ -4,20 +4,21 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
+import { REGISTRATION_MINUTES, SIGN_UP_NEXT } from "@/lib/registration-shared";
 
 export default function LoginPage() {
   const router = useRouter();
   const t = useT();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   // Nobody sees this field; a script filling in every field fills it too.
   const [website, setWebsite] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [google, setGoogle] = useState(false);
+  // Signing up asks for the address only, and always answers "check your email" (lib/registration.ts).
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   // Whether this address offers Google; and a sign-in that came back refused says why.
   useEffect(() => {
@@ -44,12 +45,17 @@ export default function LoginPage() {
       const res = await fetch(`/api/auth/${mode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          mode === "login" ? { email, password } : { name, email, phone, password, website }
-        ),
+        body: JSON.stringify(mode === "login" ? { email, password } : { email, website, locale: t.locale }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("auth.failed"));
+      if (mode === "register") {
+        // Where to go once the emailed link has made the account, if it is opened in this browser.
+        rememberNext(nextParam());
+        setSentTo(email.trim());
+        setBusy(false);
+        return;
+      }
       // Back where they were, if they were sent here from somewhere on this site.
       router.push(nextParam());
       router.refresh();
@@ -69,10 +75,9 @@ export default function LoginPage() {
           {mode === "login" ? t("auth.welcomeBack") : t("auth.createAccount")}
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          {mode === "login"
-            ? t("auth.signInIntro")
-            : t("auth.registerIntro")}
+          {mode === "login" ? t("auth.signInIntro") : t("auth.registerIntro")}
         </p>
+        {mode === "register" && !sentTo && <p className="mt-1 text-sm text-slate-600">{t("su7.intro")}</p>}
       </div>
 
       <div className="flex rounded-lg bg-slate-100 p-1 text-sm font-medium">
@@ -82,6 +87,7 @@ export default function LoginPage() {
             onClick={() => {
               setMode(m);
               setError(null);
+              setSentTo(null);
             }}
             className={`flex-1 rounded-md py-1.5 transition ${
               mode === m ? "bg-white text-teal-700 shadow" : "text-slate-500"
@@ -118,6 +124,16 @@ export default function LoginPage() {
         </div>
       )}
 
+      {mode === "register" && sentTo ? (
+        <div role="status" className="space-y-3 rounded-xl border border-teal-200 bg-teal-50 p-5 text-sm text-teal-900">
+          <h2 className="text-base font-semibold">{t("su7.checkTitle")}</h2>
+          <p>{t("su7.check", { email: sentTo, minutes: REGISTRATION_MINUTES })}</p>
+          <p className="text-teal-800">{t("su7.notArrived")}</p>
+          <button type="button" onClick={() => setSentTo(null)} className="text-teal-700 underline">
+            {t("su7.otherAddress")}
+          </button>
+        </div>
+      ) : (
       <form
         onSubmit={submit}
         className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -131,32 +147,22 @@ export default function LoginPage() {
           className="hidden"
           name="website"
         />
-        {mode === "register" && (
-          <>
-            <label className="block text-sm font-medium text-slate-700">
-              {t("auth.name")}
-              <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("auth.namePlaceholder")} className={inputClass} />
-            </label>
-            <label className="block text-sm font-medium text-slate-700">
-              {t("auth.phone")}
-              <input required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t("auth.phonePlaceholder")} className={inputClass} />
-            </label>
-          </>
-        )}
         <label className="block text-sm font-medium text-slate-700">
           {t("auth.email")}
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("auth.emailPlaceholder")} className={inputClass} />
         </label>
-        <label className="block text-sm font-medium text-slate-700">
-          {t("auth.password")}
-          <input type="password" required minLength={mode === "register" ? 8 : 1} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === "register" ? t("auth.passwordHint") : t("auth.password")} className={inputClass} />
-        </label>
+        {mode === "login" && (
+          <label className="block text-sm font-medium text-slate-700">
+            {t("auth.password")}
+            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("auth.password")} className={inputClass} />
+          </label>
+        )}
         <button
           type="submit"
           disabled={busy}
           className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
         >
-          {busy ? t("auth.working") : mode === "login" ? t("auth.signIn") : t("auth.creating")}
+          {busy ? t("auth.working") : mode === "login" ? t("auth.signIn") : t("su7.send")}
         </button>
         {error && <p className="text-sm text-red-600">{error}</p>}
         {mode === "login" && (
@@ -165,6 +171,16 @@ export default function LoginPage() {
           </a>
         )}
       </form>
+      )}
     </div>
   );
+}
+
+/** Kept in this browser only, for the page the emailed link opens (src/app/register/page.tsx). */
+function rememberNext(next: string): void {
+  try {
+    window.localStorage.setItem(SIGN_UP_NEXT, next);
+  } catch {
+    // No storage (a private window): the account page, then.
+  }
 }

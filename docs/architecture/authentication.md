@@ -1,6 +1,6 @@
 # Authentication and sessions
 
-Authoritative for customer and staff sign-in, sessions, two-factor sign-in, Google sign-in, phone checks and password resets.
+Authoritative for customer sign-up, customer and staff sign-in, sessions, two-factor sign-in, Google sign-in, phone checks and password resets.
 
 ## Admin access
 
@@ -29,6 +29,8 @@ enforced on every admin route, is in [tenancy and roles](tenancy.md).
 
 Customer accounts are separate (`users`, `src/lib/auth.ts`): an email and
 scrypt-hashed password, or Google sign-in, and an HTTP-only session cookie.
+An account with a password is made by a link emailed to its address
+([signing up](#signing-up)).
 Signing in, a customer's or staff's, hashes the password given even when no
 account has the address or the account has no password, so a wrong address
 takes about as long as a wrong password
@@ -102,6 +104,66 @@ with `403` when its `Origin` is another site or its `Sec-Fetch-Site` says
 `cross-site` ([security](security.md#requests-from-another-site)). There is
 no CSRF token.
 
+## Signing up
+
+A customer account with a password is made by a link emailed to its address,
+so the sign-up form never says whether an address already has an account
+(the owner's decision of 28 October 2026; `src/lib/registration.ts`). Google
+sign-in and signing in with a password are unchanged, and nobody has to use
+one rather than the other.
+
+- **The form** (*Register* at `/login`) asks for the email address only and
+  always answers the same: *check your email*, `202 {ok: true}`, no cookie,
+  whether the address is new, has an account, has a link already out, or has
+  had its fill of emails. Nothing else is taken before the address is proved:
+  a name, number or password kept for an address nobody has proved would be
+  data about somebody who may not have asked, and a password set before then
+  is what Google sign-in has to clear (below). The reply waits only on writing
+  the request down (`registration_requests`); finding out whether an account
+  holds the address, and what to send, happen afterwards, in the background
+  and on the scheduler's next tick, as a [forgotten password's](#forgotten-passwords)
+  request does, so the time taken does not tell either. A request not worked
+  through within a link's life is dropped.
+- **The email**, through the outbox in the language the page was in, held
+  like a password reset's (no venue's, its text not kept once sent, never
+  readdressed, not sent once its link would have run out):
+  - an address no account holds gets a link to `/register` to finish;
+  - an address with an account gets a notice saying it already has one, that
+    nothing was made or changed, with a link to sign in and one to ask for a
+    password reset (to set a first password, for an account made with Google),
+    and, where the account uses Google and the install offers it, to continue
+    with Google. It carries no token: nothing in it creates an account, sets a
+    password or joins a sign-in method.
+- **The link** is 24 random bytes, kept only as a keyed hash
+  (`registration_links`), never logged. It works **once**, for **60
+  minutes**: twice a reset's, since mail can be slow and nothing exists yet to
+  take over. Only the **newest** for an address works: asking again replaces
+  it, and the database allows one open link per address. The page shows the
+  address and asks for the name, phone number and password (at least 8
+  characters), as signing up always has; the browser that asked is taken back
+  where it was, another browser to the account page. The page sends no
+  `Referer`, and the token goes in request bodies, not addresses.
+- **One account per address.** Using the link and making the account are one
+  transaction; the unique address on `users` is the backstop. The same link
+  used twice at once, a replaced link, or a link for an address that has an
+  account by now (another link, Google, staff) makes nothing, and every link
+  that cannot be used gets one answer, `REGISTRATION_INVALID`, which says to
+  sign in or ask for a new link. Whoever holds a link was sent it at the
+  address, so that says nothing they could not find out.
+- **Limits.** Asking counts against the registration limit per client
+  address ([rate limiting](security.md#rate-limiting)); an address is sent at
+  most 3 emails an hour and 5 a day, links and notices together
+  (`registration_links`, kept a day for the count), past which requests are
+  answered the same and nothing is sent; the outbox's daily cap per recipient
+  stands behind both. Checking and using a link count against the sign-in
+  limit, as a reset does. The form's hidden field, filled in only by scripts,
+  gets the same answer, and nothing is sent.
+
+The app does not record that an address was confirmed: an account made by a
+link has proved it, one made before this flow may not have. So Google sign-in still clears the password of an
+account it joins (below). Tests and the demo make accounts directly with
+`registerUser` (`src/lib/auth.ts`), which no route exposes.
+
 ## Signing in with Google
 
 With `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` set, the sign-in page
@@ -117,7 +179,9 @@ offers *Continue with Google* above the email and password form, which stays.
   it. The first time, an existing account with the same email is joined to it
   only if Google says it has verified that email — otherwise anybody could
   create a Google account with somebody else's address and walk into theirs.
-  Failing both, a new account is made, with no password and no phone number.
+  Failing both, a new account is made, with no password and no phone number;
+  a [sign-up link](#signing-up) still out for that address can no longer be
+  used.
 - **Only at the main address.** Google sends people back to the one redirect
   registered with it, so the button is not shown on a venue's own storefront
   domain, where the session would land on another site.

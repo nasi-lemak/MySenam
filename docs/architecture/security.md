@@ -82,6 +82,14 @@ not stop it, so the answer itself must say nothing:
   password, hashes the password given all the same, so it takes about as long
   as a wrong password (`verifyPassword` in `src/lib/auth.ts`, for customers
   and staff).
+- **Signing up** takes the address only and answers `202` *check your email*
+  whether it is new, has an account, has a link out or has had its fill of
+  emails, with the same body and headers and after the same awaited work
+  (the request queued, as a reset's); an address with an account is told so
+  by email, with how to sign in and no link that changes anything, and only
+  the link emailed to an address can make an account for it
+  ([signing up](authentication.md#signing-up);
+  `tests/registration.test.ts`).
 - **Inviting a player to an open game or a group by email**
   (`src/lib/player-invitations.ts`): the address is never looked up. The
   reply, its status and its keys are the same whether or not an account holds
@@ -102,10 +110,11 @@ not stop it, so the answer itself must say nothing:
   knows here, picked from their lists, names an account they have seen and is
   unchanged.
 
-The timing of signing in and of asking for a reset is measured in
-`tests/no-enumeration-timing.test.ts`, with bounds generous enough for a busy
-machine: they show the unknown address is not systematically faster, not
-that the two take exactly the same time.
+The timing of signing in, of asking for a reset and of asking to sign up is
+measured in `tests/no-enumeration-timing.test.ts`, with bounds generous
+enough for a busy machine: they show the unknown address is not
+systematically faster (for signing up, nor slower), not that the two take
+exactly the same time.
 
 Guardians invite another guardian with a code they pass on, not an address.
 Staff tools that find an account by email (linking a list entry, selling a
@@ -124,7 +133,8 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 | -------- | ------ |
 | Admin & customer sign-in | 10 per 10 min, per pair of IP and email; and 20 wrong passwords per 30 min for one account from any address (a right password is never counted; somebody failing on purpose can hold an account at this for the window) |
 | Forgot / reset / change password | Same budget as signing in |
-| Registration | 5 per hour |
+| Registration (asking for the emailed link) | 5 per hour; and at most 3 emails an hour and 5 a day to one address, with the same answer past them ([signing up](authentication.md#signing-up)) |
+| Checking or using a sign-up link | Same budget as signing in |
 | Booking lookup / cancel by code | 20 per 10 min |
 | Booking creation | 20 per hour |
 

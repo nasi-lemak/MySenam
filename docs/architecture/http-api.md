@@ -122,7 +122,9 @@ Account endpoints (session cookie):
 
 | Method | Path                      | Description                                     |
 | ------ | ------------------------- | ----------------------------------------------- |
-| POST   | `/api/auth/register`      | `{name, email, phone, password}` → sign up + in |
+| POST   | `/api/auth/register`      | `{email, locale?}` → always `202 {ok: true}`, whatever the address: a link to finish signing up is emailed to an address no account holds, a notice with how to sign in to one that has an account; `400` only for what is not an address, `429` per client ([signing up](authentication.md#signing-up)) |
+| POST   | `/api/auth/register/link` | `{token}` → `{email}` the emailed link is for, while it can be used; else `400 REGISTRATION_INVALID` |
+| POST   | `/api/auth/register/complete` | `{token, name, phone, password}` → `201 {user}`, the account made and signed in; the link used up; `400 REGISTRATION_INVALID` for any link that cannot be used (run out, used, replaced, or the address has an account by now) |
 | POST   | `/api/auth/login`         | `{email, password}`                             |
 | POST   | `/api/auth/logout`        | Ends the session                                |
 | GET    | `/api/auth/me`            | Current user or `null`                          |

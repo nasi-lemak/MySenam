@@ -22,7 +22,7 @@
  * artifacts/staging/<id>/. No credential goes into the image or the record
  * beyond the synthetic owner password made for that deployment.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -215,12 +215,27 @@ async function test(id, suite) {
   else {
     const config = suite === "uat" ? "vitest.uat.config.mts" : "vitest.e2e.config.mts";
     const started = Date.now();
+    // An account is made by the link emailed to finish it, and the deployment sends with MYSENAM_SEND=log:
+    // its output is followed into a file for the scenarios to read those links from (tests/uat/harness.ts, signUp).
+    const signUpLog = path.join(ARTIFACTS, id, "app-during-uat.log");
+    fs.mkdirSync(path.dirname(signUpLog), { recursive: true });
+    const out = fs.openSync(signUpLog, "a");
+    const follow = suite === "uat" ? spawn("docker", ["logs", "--follow", "--since", "1s", `${id}-app`], { stdio: ["ignore", out, out] }) : null;
     const run = spawnSync(path.join(ROOT, "node_modules", ".bin", "vitest"), ["run", "--config", config], {
       cwd: ROOT,
       stdio: "inherit",
       // The tests drive this deployment instead of starting a server of their own.
-      env: { ...process.env, E2E_URL: dep.url, E2E_OWNER_EMAIL: dep.owner.email, E2E_OWNER_PASSWORD: dep.owner.password, UAT_ARTIFACTS: path.join(ARTIFACTS, id, "uat") },
+      env: {
+        ...process.env,
+        E2E_URL: dep.url,
+        E2E_OWNER_EMAIL: dep.owner.email,
+        E2E_OWNER_PASSWORD: dep.owner.password,
+        UAT_ARTIFACTS: path.join(ARTIFACTS, id, "uat"),
+        ...(follow ? { UAT_SIGNUP_LOG: signUpLog } : {}),
+      },
     });
+    follow?.kill();
+    fs.closeSync(out);
     results[suite] = { ok: run.status === 0, seconds: seconds(started) };
   }
   dep.tests = results;

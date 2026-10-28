@@ -60,7 +60,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | What is guaranteed under concurrent requests | [Booking concurrency](architecture/booking-concurrency.md) |
 | Court time as intervals: claims, spaces, booking policies, prices from minutes, the migration from half hours | [Booking time model](architecture/booking-time-model.md) |
 | Platform, business, branch, venue; staff roles; how boundaries are enforced | [Tenancy](architecture/tenancy.md) |
-| Sign-in, sessions, two-factor, Google, phone checks, passwords | [Authentication](architecture/authentication.md) |
+| Sign-up, sign-in, sessions, two-factor, Google, phone checks, passwords | [Authentication](architecture/authentication.md) |
 | Rate limits and abuse controls | [Security](architecture/security.md) |
 | Export, erasure, retention | [Privacy](architecture/privacy.md) |
 | The app's own HTTP routes (partial reference) | [HTTP routes](architecture/http-api.md) |
