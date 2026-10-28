@@ -133,6 +133,9 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "guest_invitation.withdrawn": "rv7.act.withdrawn",
   "payment.gateway_refund": "rg7.act.gatewayRefund",
   "account.credit_settled": "rg7.act.creditSettled",
+  "booking.details_corrected": "p8a.act.detailsCorrected",
+  "booking.series_cancelled": "p8a.act.seriesCancelled",
+  "payment.paid_out": "p8a.act.paidOut",
 };
 
 /**

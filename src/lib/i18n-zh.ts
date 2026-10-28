@@ -2565,6 +2565,9 @@ export const ZH: Record<Phrase, string> = {
   "r9.form.overrideReason": "原因（与预订一起保存，并记入操作日志）",
   "r9.form.overrideBook": "破例放行并预订",
   "r9.form.askManager": "请找经理：本场馆允许经理为一笔预订破例放行此项。",
+  "p8a.msg.credit": "您所付款项中的 {amount} 已存入您在该场馆的储值余额，可用于其他预订。",
+  "p8a.msg.kept": "根据场馆的迟取消条款，场馆保留了您所付款项中的 {kept}；其余 {amount} 将由场馆退还。",
+  "p8a.msg.keptAll": "根据场馆的迟取消条款，场馆保留了您所付的款项。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

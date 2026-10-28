@@ -51,7 +51,13 @@ staff to cancel on the venue's terms or keep.
 Staff book on the venue's own booking page while signed in to the dashboard
 (the counter): the customer is whoever stands in front of them, by name and
 number, and sign-offs are checked as the venue's staff see them
-([sign-offs](activities.md#sign-offs)). For a child or anybody else taking
+([sign-offs](activities.md#sign-offs)). *New booking* on the Bookings tab
+opens that page in a new tab on the day being shown (for staff of several
+venues, a choice of venue). On *Court schedule*, a click on a free cell asks
+first: *Book this* opens the venue's page at that court, day and time
+(`/venue/:id?court=&date=&start=&sport=`, which the page already reads),
+and *Block* takes it off sale as a click did before; a blocked cell is
+released and a booked one queued for, as before. For a child or anybody else taking
 part other than that person ([booking for somebody else](booking.md#booking-for-somebody-else)):
 
 - Staff type the guardian's number and choose *for somebody on this number*:
@@ -347,6 +353,55 @@ chosen, and the rules above (an entry counts only for a linked account or a
 proved number; a claim needs a proved number and a code) are unchanged.
 Tests: `tests/components/phone-check-advice.test.tsx` (the notice by access
 mode and phone-check setting, in the staff language).
+
+### The day list
+
+The Bookings tab lists the day's bookings, as a table on a wide screen and as
+cards on a narrow one, with the day's expected, collected and outstanding
+money. Filters narrow it to bookings still unpaid, those not yet checked in,
+one court, or (for staff of several venues) one venue, saying how many of
+the day's are shown. The venue column appears only when more than one venue
+is shown. On the table each booking's actions (move, change time, correct
+details, cancel, cancel weeks of its series, block the number) are in one
+*Actions* menu, so nothing is cut off at laptop width; the cards keep them
+as buttons. *Print day sheet* prints the list alone, as a table without its
+actions or the dashboard around it. Money handed back at the counter that
+day for cancelled bookings is listed above it for the till
+([cancelling a booking paid at the counter](payments-and-credit.md#cancelling-a-booking-paid-at-the-counter)).
+Tests: `tests/components/bookings-tab-day.test.tsx`.
+
+### Correcting a booking's details
+
+Staff (front desk too) put right a booking's name, phone number or email
+with *Correct details* (`PATCH /api/admin/bookings`,
+`src/lib/booking-corrections.ts`): a name spelt wrong, a mistyped number
+that confirmations, reminders and offers would otherwise go to. On a weekly
+series or a group booking they may correct every week or court of it that
+still carries the details being corrected; a week since put in somebody
+else's details keeps them. Bookings are chosen by the series or group, never
+because another booking's details match.
+
+- **A new number is asked what booking on it at the counter would be**
+  ([the same policies on every path](booking.md#the-same-policies-on-every-path),
+  `policyCheck` on the counter's path, for the dates still to come): who may
+  book a members-only or private venue, the house rules, the guest limit, a
+  blocked number, no-show strikes and the unpaid-bookings limit, a booking
+  already paid counting as paid at the counter. A refusal is said as the
+  counter says it (`R9_DESK_…`), and a manager may override what the venue
+  lets its managers override, with a reason, recorded with the booking as
+  any override is ([manager overrides](booking.md#manager-overrides)). A
+  name or email alone asks nothing.
+- **A correction, not a change of customer.** The account it was made from,
+  its payments and the receipts and credit notes already issued stay as they
+  are; what is drawn from the booking afresh (its receipt, reminders, the
+  door) uses the corrected details.
+- **Erasure and the log.** A booking whose customer asked to be forgotten is
+  not given details back. The activity log keeps who corrected what
+  (`booking.details_corrected`): the name before and after, as it already
+  names customers; a number only by its last four digits; an email by its
+  first letter and domain.
+
+Tests: `tests/booking-corrections.test.ts`.
 
 ### Self-service check-in
 

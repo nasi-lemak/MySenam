@@ -3061,8 +3061,31 @@ export async function unblockSlots(courtId: number, date: string, when: number[]
   return { ok: true, changed, blockIds: [] };
 }
 
+/**
+ * How staff settle the money on a booking they cancel (lib/counter-refunds.ts
+ * works it out from the venue's terms and the outcome staff chose): what
+ * share goes back, whether the venue's late share was kept, how the credit
+ * note says it went back, and what else is written in the cancellation's own
+ * transaction (the counter payout, or the credit given), so a booking is
+ * cancelled and settled together or not at all.
+ */
+export interface StaffCancelSettlement {
+  /** Of what was paid, the part that goes back: 1 all of it; less where the venue's late share is kept. */
+  share: number;
+  /** The venue's late-cancellation share kept, recorded on the booking as a late cancel; absent where none was. */
+  keptPercent?: number;
+  /** How the credit note says it went back, where not the way it was paid. */
+  backAs?: string;
+  /** Written after the refund, inside the same transaction, with the booking's row claimed. */
+  settle?: (bookingId: number) => Promise<void>;
+}
+
 /** Admin cancellation by code — no phone check, works even after start time. */
-async function adminCancelBookingOnce(code: string): Promise<CancelResult> {
+async function adminCancelBookingOnce(
+  code: string,
+  /** Staff at the counter: the outcome they chose, as terms for this booking, or why it may not be had. Others: all of it back. */
+  settlement?: (booking: Booking) => Promise<StaffCancelSettlement | Refusal>
+): Promise<CancelResult> {
   const db = getDb();
   const row = await db
     .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
@@ -3079,12 +3102,17 @@ async function adminCancelBookingOnce(code: string): Promise<CancelResult> {
   // power cut) and refunded.
   const { zone } = await venueHours((await getCourt(booking.courtId))!.venueId);
   if (isPastSlot(booking.date, booking.endHour, zone)) return refuse("CANCEL_PLAYED");
+  const plan = settlement ? await settlement(booking) : { share: 1 };
+  if ("ok" in plan) return plan;
 
   const claimed = await db.transaction(async () => {
     const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
     if (done.changes !== 1) return false;
     await releaseBooking(booking.id);
-    await refundBooking(booking.id);
+    if (plan.keptPercent !== undefined)
+      await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(plan.keptPercent, booking.id);
+    await refundBooking(booking.id, plan.share, plan.backAs);
+    await plan.settle?.(booking.id);
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
@@ -6525,11 +6553,16 @@ export async function depositGone(bookingId: number): Promise<number> {
   return roundMoney(Number(row?.gone ?? 0));
 }
 
-async function refundBooking(bookingId: number, share = 1): Promise<void> {
+async function refundBooking(
+  bookingId: number,
+  share = 1,
+  /** How a counter payment went back where not as it was paid: as stored credit (lib/counter-refunds.ts). */
+  backAs?: string
+): Promise<void> {
   // Places already taken off it while paid were settled then: only what is left goes back now.
   const left = await paidPartLeft(bookingId);
   // A paid booking's receipt is reversed, whoever gives the money back and how.
-  await creditBooking(bookingId, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share, left);
+  await creditBooking(bookingId, share < 1 ? "receipt.why.lateCancelled" : "receipt.why.cancelled", share, left, backAs);
   await refundBookingToWallet(bookingId, share * left);
   // A pass's spends are each given back once: a place taken off already settled its own.
   await refundBookingToPass(bookingId, share);

@@ -2727,6 +2727,10 @@ const EN = {
   "r9.form.overrideReason": "Why (kept with the booking and in the activity log)",
   "r9.form.overrideBook": "Override and book",
   "r9.form.askManager": "Ask a manager: this venue lets its managers override this for one booking.",
+  // p8a: what became of the money on a booking the venue cancelled, where staff settled it otherwise than in full as paid.
+  "p8a.msg.credit": "{amount} of what you paid has been put on your credit at the venue, to spend on another booking.",
+  "p8a.msg.kept": "As its late-cancellation terms say, the venue kept {kept} of what you paid; the other {amount} will be refunded by the venue.",
+  "p8a.msg.keptAll": "As its late-cancellation terms say, the venue kept what you paid.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5405,6 +5409,9 @@ const MS: Record<Phrase, string> = {
   "r9.form.overrideReason": "Sebab (disimpan bersama tempahan dan dalam log aktiviti)",
   "r9.form.overrideBook": "Atasi dan tempah",
   "r9.form.askManager": "Minta pengurus: pusat ini membenarkan pengurusnya mengatasi perkara ini untuk satu tempahan.",
+  "p8a.msg.credit": "{amount} daripada bayaran anda telah ditambah ke kredit anda di pusat ini, untuk digunakan pada tempahan lain.",
+  "p8a.msg.kept": "Mengikut terma pembatalan lewatnya, pusat ini menyimpan {kept} daripada bayaran anda; baki {amount} akan dipulangkan oleh pihak tempat.",
+  "p8a.msg.keptAll": "Mengikut terma pembatalan lewatnya, pusat ini menyimpan bayaran anda.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

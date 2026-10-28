@@ -393,6 +393,64 @@ Tested in `tests/stripe-gateway-refunds.test.ts` against a stand-in for
 Stripe only; the Stripe check is still to be passed against Stripe itself
 ([integrations](../roadmap/known-limitations.md#integrations-awaiting-live-verification-or-a-partner)).
 
+### Cancelling a booking paid at the counter
+
+Staff cancelling a booking are first shown what cancelling it would do
+(`POST /api/admin/bookings/cancel` with `preview`; `src/lib/counter-refunds.ts`):
+what was paid towards it, how and when, any deposit paid online, and the
+venue's terms as a customer cancelling now would meet them (free up to the
+cutoff; past it, the share the venue keeps of a late cancellation, or that
+customers cannot cancel late at all). Staff may still cancel past the cutoff
+and while it is being played, and choose how what was paid is settled:
+
+- **Back the way it was paid.** A counter payment (cash, QR, transfer, card
+  terminal, or a tick whose method was never recorded) is handed back from
+  the till. The booking's credit note says how, and the payout is written
+  down (`counter_payouts`, migration 0231: the amount, the method, the
+  credit note, the member of staff and when), listed for the till under the
+  day's bookings as *Handed back at the counter* (`payouts` on
+  `GET /api/admin/bookings`) and in the activity log (`payment.paid_out`).
+  Credit goes back to credit and a pass to the pass; money paid online is
+  owed back on the payment and refunded at once where the venue refunds
+  through its gateway, as every staff cancellation already did. Where a
+  request names no outcome, this is what happens.
+- **As stored credit.** A counter payment is given as credit on the account
+  the booking was made from (a `wallet_entries` row with the booking and the
+  member of staff), the credit note saying *Stored credit*; nothing leaves
+  the till. Not for a booking made without an account, and not for money
+  paid online, which staff send back to the card
+  ([business rules](../product/business-rules.md)).
+- **Keeping the venue's late share.** Only past the cutoff where the venue
+  keeps a share of late cancellations: the booking is recorded as a late
+  cancellation at that share (a paid one is no strike), the credit note is
+  for the rest, and the rest goes back the way it was paid (a payout for the
+  rest, at the counter). A share is never kept where the venue's terms keep
+  none.
+
+**Who gives it back.** The front desk gives back its own counter takings of
+the day; a counter payment marked on an earlier day is a manager's to give
+back, whichever way, as taking one back with *Mark unpaid* is. Bookings
+paid online, with credit or with a pass are cancelled by the desk as before.
+
+It is the cancellation and the refund every staff cancellation was
+(`adminCancelBooking`, `refundBooking` in `src/lib/store.ts`), not a second
+refund engine: the outcome only says what share goes back and records where
+the counter's money went. The booking is claimed in one statement and
+settled in the same transaction, so two members of staff cancelling at once
+settle it once; what goes back is worked out again as it is cancelled, and
+refused if it is not what staff were shown (`expectRefund`). The customer's
+cancellation message says what the venue kept, or that it went to their
+credit, where not all of it went back as paid. A weekly series is cancelled
+the same way, week by week on each week's terms
+([cancelling a weekly series](booking.md#cancellation-and-no-shows)).
+Closed days, outages, rain-outs and the venue's API key cancel as before:
+all of it back the way it was paid, with no payout written down.
+
+Tested in `tests/counter-refunds.test.ts` on PGlite and Postgres: each
+outcome, the desk and the manager, a booking paid online, a changed amount,
+and two cancellations at the same moment (one settles; one payout or one
+credit, never both).
+
 ### Refunds for one person's place
 
 Taking one person off a paid booking, the others staying booked

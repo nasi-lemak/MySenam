@@ -90,13 +90,15 @@ describe("what front desk may not do", () => {
     const cancelled = await call("../src/app/api/admin/bookings/cancel/route.ts", "POST", deskCookie, { code: made.booking.code });
     expect(cancelled.status).toBe(200);
 
-    // Both written down, with who and how.
+    // Each written down, with who and how: the cash handed back too (lib/counter-refunds.ts).
     const log = await listActivity([venueId], { bookingCode: made.booking.code });
     expect(log.map((a) => [a.action, a.adminName])).toEqual([
+      ["payment.paid_out", "Dina Desk"],
       ["booking.cancelled", "Dina Desk"],
       ["payment.paid", "Dina Desk"],
     ]);
-    expect(log[1].detail).toContain("by Cash");
+    expect(log[0].detail).toContain("by Cash");
+    expect(log[2].detail).toContain("by Cash");
   });
 });
 

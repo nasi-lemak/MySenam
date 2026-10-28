@@ -53,6 +53,8 @@ export function ScheduleTab({
   // Time somebody holds, picked to queue a caller for (WaitlistJoin.tsx); the day's queues fetched again after.
   const [queueFor, setQueueFor] = useState<{ courtId: number; name: string; start: number; end: number } | null>(null);
   const [queued, setQueued] = useState(0);
+  // A free cell clicked: book it at the counter, or block it (X1-9).
+  const [choose, setChoose] = useState<{ courtId: number; name: string; sport: string; hour: number; minute: number } | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -219,6 +221,37 @@ export function ScheduleTab({
         </div>
       )}
 
+      {choose && (
+        <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3 text-sm" data-testid="free-cell-choice">
+          <p>{t("p8a.sch.choose", { court: choose.name, time: formatMinute(choose.minute, t.locale) })}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <a
+              href={`/venue/${venueId}?court=${choose.courtId}&date=${date}&start=${choose.minute}&sport=${encodeURIComponent(choose.sport)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setChoose(null)}
+              className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
+            >
+              {t("p8a.sch.bookThis")}
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                const c = choose;
+                setChoose(null);
+                void toggle(c.courtId, c.hour, "free");
+              }}
+              className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+            >
+              {t("p8a.sch.block")}
+            </button>
+            <button type="button" onClick={() => setChoose(null)} className="text-xs text-slate-500 underline">
+              {t("c.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+
       {queueFor && (
         <WaitlistJoin
           key={`${queueFor.courtId}-${queueFor.start}-${date}`}
@@ -258,10 +291,12 @@ export function ScheduleTab({
                     <td key={slot.hour} className="p-1 text-center">
                       <button
                         onClick={() =>
-                          // Taken: a caller can queue for it.
+                          // Taken: a caller can queue for it. Free: book it at the counter, or block it.
                           slot.status === "booked"
                             ? setQueueFor({ courtId: court.id, name: court.name, start: slot.minute, end: slot.minute + (courts.find((c) => c.court.id === court.id)?.grid ?? 60) })
-                            : toggle(court.id, slot.hour, slot.status)
+                            : slot.status === "free"
+                              ? setChoose({ courtId: court.id, name: court.name, sport: court.sport, hour: slot.hour, minute: slot.minute })
+                              : toggle(court.id, slot.hour, slot.status)
                         }
                         title={
                           isShared(court)
@@ -283,7 +318,7 @@ export function ScheduleTab({
                                   : t("sch.blockedRelease")
                                 : slot.status === "past"
                                   ? t("sch.past")
-                                  : t("sch.freeBlock")
+                                  : t("p8a.sch.freeTitle")
                         }
                         className={`h-9 w-12 rounded-md text-[10px] font-semibold transition ${
                           slot.status === "booked"

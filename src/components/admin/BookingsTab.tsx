@@ -21,13 +21,15 @@ import PassAllocation, { passCodesOf, type AllocPass } from "@/components/PassAl
 import type { PlanPlace } from "@/lib/pass-rules";
 import { errorText } from "@/lib/i18n";
 import { lengthLabel } from "@/lib/length-label";
+import type { CancelOutcome, CounterPayout, StaffCancelOption, StaffCancelPreview, StaffSeriesWeek } from "@/lib/counter-refunds";
+import type { CorrectionScope } from "@/lib/booking-corrections";
 
 /* ---------------- Bookings tab ---------------- */
 
-function columns(t: StaffT): string[] {
+function columns(t: StaffT, showVenue: boolean): string[] {
   return [
     t("bk.col.code"),
-    t("c.venue"),
+    ...(showVenue ? [t("c.venue")] : []),
     t("bk.col.court"),
     t("c.time"),
     t("bk.col.customer"),
@@ -49,8 +51,25 @@ function statusLabels(t: StaffT): Record<BookingStatus, string> {
   return { confirmed: t("bk.status.confirmed"), cancelled: t("bk.status.cancelled") };
 }
 
-export function BookingsTab() {
+/**
+ * The day sheet printed (X1-18): only the list of the day, as a table, without
+ * the dashboard around it or the actions in it.
+ */
+const PRINT_CSS = `@media print {
+  body * { visibility: hidden; }
+  #day-sheet, #day-sheet * { visibility: visible; }
+  #day-sheet { position: absolute; left: 0; top: 0; width: 100%; }
+}`;
+
+/** A venue the staff member works at, for the *New booking* link and the filters. */
+export interface DayVenue {
+  id: number;
+  name: string;
+}
+
+export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const [date, setDate] = useState(todayLocal);
   // A customer at the desk asking about a booking: by code, number, email or name.
   const [query, setQuery] = useState("");
@@ -97,6 +116,19 @@ export function BookingsTab() {
   const [outstanding, setOutstanding] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Money handed back at the counter that day (lib/counter-refunds.ts), for the till.
+  const [payouts, setPayouts] = useState<CounterPayout[]>([]);
+  // A booking being cancelled: what was paid and how, the venue's terms, and the ways to settle it.
+  const [cancelling, setCancelling] = useState<{ preview: StaffCancelPreview; venueId: number | null } | null>(null);
+  // Weeks of a series being cancelled, with how what was paid is settled.
+  const [seriesCx, setSeriesCx] = useState<{ seriesCode: string; weeks: StaffSeriesWeek[]; chosen: string[]; outcome: CancelOutcome } | null>(null);
+  // A booking's name, number or email being corrected.
+  const [correcting, setCorrecting] = useState<{ b: AdminBookingRow; name: string; phone: string; email: string; scope: CorrectionScope } | null>(null);
+  // The day list's filters: unpaid, not checked in, one court, one venue.
+  const [onlyUnpaid, setOnlyUnpaid] = useState(false);
+  const [onlyNotIn, setOnlyNotIn] = useState(false);
+  const [courtFilter, setCourtFilter] = useState("");
+  const [venueFilter, setVenueFilter] = useState("");
 
   // The latest day asked for: an answer for a day asked for earlier that arrives later is dropped,
   // so the list never shows one day's bookings under another day's heading.
@@ -113,6 +145,7 @@ export function BookingsTab() {
       if (mine !== asked.current) return;
       if (!res.ok) throw new Error(t.err(data, t("bk.loadFailed")));
       setBookings(data.bookings);
+      setPayouts(Array.isArray(data.payouts) ? data.payouts : []);
       setRevenue(data.revenue);
       setCollected(data.collected);
       setOutstanding(data.outstanding);
@@ -259,21 +292,142 @@ export function BookingsTab() {
     }
   }
 
+  /** Cancelling: first what was paid and how, and the venue's terms (lib/counter-refunds.ts), then a choice. */
   async function cancelBooking(code: string) {
-    if (!window.confirm(t("bk.cancelConfirm", { code }))) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/bookings/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, preview: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("bk.cancelFailed")));
+      setCancelling({ preview: data.preview, venueId: bookings?.find((b) => b.code === code)?.venueId ?? null });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("bk.cancelFailed"));
+    }
+  }
+
+  /** Cancel it, settled as chosen, on the amount staff were shown. */
+  async function confirmCancel(option: StaffCancelOption) {
+    if (!cancelling) return;
+    const code = cancelling.preview.code;
     setError(null);
     try {
       const res = await fetch("/api/admin/bookings/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, outcome: option.outcome, expectRefund: option.refund }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("bk.cancelFailed")));
+      const settled = data.settled as { outcome: CancelOutcome; kept: number; paidOut?: { amount: number }; credited?: number } | null;
+      setNotice(
+        settled?.paidOut
+          ? t("p8a.cx.donePaidOut", { code, amount: money(settled.paidOut.amount) })
+          : settled?.credited
+            ? t("p8a.cx.doneCredit", { code, amount: money(settled.credited) })
+            : settled?.outcome === "keep"
+              ? t("p8a.cx.doneKept", { code, kept: money(settled.kept) })
+              : t("p8a.cx.done", { code })
+      );
+      setCancelling(null);
       load();
       window.dispatchEvent(new Event("attention:refresh"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("bk.cancelFailed"));
+    }
+  }
+
+  /** The weeks of a series still to come, each with its own terms. */
+  async function openSeriesCancel(seriesCode: string) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/bookings/cancel-series", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seriesCode, preview: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("p8a.sx.failed")));
+      const weeks = data.weeks as StaffSeriesWeek[];
+      setSeriesCx({ seriesCode, weeks, chosen: weeks.filter((w) => w.open).map((w) => w.code), outcome: "back" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("p8a.sx.failed"));
+    }
+  }
+
+  async function confirmSeriesCancel() {
+    if (!seriesCx) return;
+    setError(null);
+    const expect = Object.fromEntries(
+      seriesCx.weeks.filter((w) => seriesCx.chosen.includes(w.code)).map((w) => [w.code, weekOption(w, seriesCx.outcome).refund])
+    );
+    try {
+      const res = await fetch("/api/admin/bookings/cancel-series", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seriesCode: seriesCx.seriesCode, codes: seriesCx.chosen, outcome: seriesCx.outcome, expect }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(t.err(data, t("p8a.sx.failed")));
+      const left = data.left as { code: string; error: string }[];
+      setNotice(
+        [t("p8a.sx.done", { n: data.cancelled.length }), left.length > 0 ? t("p8a.sx.left", { list: left.map((l) => `${l.code} (${t.err(l.error)})`).join(", ") }) : ""]
+          .filter(Boolean)
+          .join(" ")
+      );
+      setSeriesCx(null);
+      load();
+      window.dispatchEvent(new Event("attention:refresh"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("p8a.sx.failed"));
+    }
+  }
+
+  function openCorrect(b: AdminBookingRow) {
+    setError(null);
+    setNotice(null);
+    setCorrecting({ b, name: b.name, phone: b.phone, email: b.email ?? "", scope: "booking" });
+  }
+
+  /**
+   * A booking's name, number or email put right (lib/booking-corrections.ts).
+   * A new number refused by a policy this venue lets its managers override:
+   * a manager is asked why, and it is sent again with the override.
+   */
+  async function submitCorrection(override?: { policy: string; reason: string }) {
+    if (!correcting) return;
+    const { b, name, phone, email, scope } = correcting;
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/bookings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: b.code,
+          name,
+          phone,
+          email: email.trim() === "" ? null : email.trim(),
+          scope,
+          ...(override ? { overridePolicies: [override.policy], overrideReason: override.reason } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok && !override && data.overridable === true && typeof data.policy === "string") {
+        const reason = window.prompt(t("p8a.fix.overridePrompt", { error: t.err(data) }));
+        if (reason === null) return;
+        return await submitCorrection({ policy: data.policy, reason });
+      }
+      if (!res.ok) throw new Error(t.err(data, t("p8a.fix.failed")));
+      setNotice(t("p8a.fix.saved", { codes: (data.codes as string[]).join(", ") }));
+      setCorrecting(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("p8a.fix.failed"));
     }
   }
 
@@ -584,6 +738,8 @@ export function BookingsTab() {
     openMove,
     openChange,
     cancelBooking,
+    openSeriesCancel,
+    openCorrect,
     paySeries,
     blockNumber,
     forgiveStrikes,
@@ -597,8 +753,22 @@ export function BookingsTab() {
     collectCoachDifference,
   };
 
+  // Through the filters; the venue column only where more than one venue is shown.
+  const shown = (bookings ?? []).filter(
+    (b) =>
+      (!onlyUnpaid || (b.status === "confirmed" && b.paymentStatus !== "paid" && b.totalPrice > 0)) &&
+      (!onlyNotIn || (b.status === "confirmed" && !b.checkedInAt)) &&
+      (courtFilter === "" || String(b.courtId) === courtFilter) &&
+      (venueFilter === "" || String(b.venueId) === venueFilter)
+  );
+  const dayVenues = [...new Map((bookings ?? []).map((b) => [b.venueId, b.venueName])).entries()];
+  const showVenue = new Set(shown.map((b) => b.venueId)).size > 1;
+  const dayCourts = [...new Map((bookings ?? []).filter((b) => venueFilter === "" || String(b.venueId) === venueFilter).map((b) => [b.courtId, showVenue ? `${b.courtName} · ${b.venueName}` : b.courtName])).entries()];
+  const filtered = onlyUnpaid || onlyNotIn || courtFilter !== "" || venueFilter !== "";
+
   return (
     <div className="space-y-4">
+      <style>{PRINT_CSS}</style>
       <AttentionPanel />
       <EnquiriesPanel />
       <form
@@ -673,6 +843,7 @@ export function BookingsTab() {
             className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
           />
         </label>
+        <NewBooking venues={venues} date={date} />
         {bookings && (
           <>
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm shadow-sm">
@@ -701,6 +872,51 @@ export function BookingsTab() {
         )}
       </div>
 
+      {bookings && bookings.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="day-filters">
+          <label className="inline-flex items-center gap-1.5">
+            <input type="checkbox" checked={onlyUnpaid} onChange={(e) => setOnlyUnpaid(e.target.checked)} />
+            {t("p8a.day.unpaid")}
+          </label>
+          <label className="inline-flex items-center gap-1.5">
+            <input type="checkbox" checked={onlyNotIn} onChange={(e) => setOnlyNotIn(e.target.checked)} />
+            {t("p8a.day.notIn")}
+          </label>
+          {dayVenues.length > 1 && (
+            <select
+              aria-label={t("p8a.day.filterVenue")}
+              value={venueFilter}
+              onChange={(e) => {
+                setVenueFilter(e.target.value);
+                setCourtFilter("");
+              }}
+              className="min-h-9 rounded-md border border-slate-300 px-2 text-sm"
+            >
+              <option value="">{t("p8a.day.allVenues")}</option>
+              {dayVenues.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          )}
+          {dayCourts.length > 1 && (
+            <select aria-label={t("p8a.day.filterCourt")} value={courtFilter} onChange={(e) => setCourtFilter(e.target.value)} className="min-h-9 rounded-md border border-slate-300 px-2 text-sm">
+              <option value="">{t("p8a.day.allCourts")}</option>
+              {dayCourts.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          )}
+          {filtered && <span className="text-slate-500">{t("p8a.day.shown", { shown: shown.length, total: bookings.length })}</span>}
+          <button type="button" onClick={() => window.print()} className="ml-auto min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-teal-500">
+            {t("p8a.day.print")}
+          </button>
+        </div>
+      )}
+
       {notice && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {notice}
@@ -728,6 +944,89 @@ export function BookingsTab() {
               {t("c.cancel")}
             </button>
           </div>
+        </div>
+      )}
+
+      {cancelling && (
+        <CancelPanel preview={cancelling.preview} venueId={cancelling.venueId} onChoose={(o) => void confirmCancel(o)} onClose={() => setCancelling(null)} />
+      )}
+
+      {seriesCx && (
+        <SeriesCancelPanel
+          state={seriesCx}
+          onChange={setSeriesCx}
+          onConfirm={() => void confirmSeriesCancel()}
+          onClose={() => setSeriesCx(null)}
+        />
+      )}
+
+      {correcting && (
+        <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3 text-sm" data-testid="correct-details">
+          <p className="font-semibold">{t("p8a.fix.title", { code: correcting.b.code })}</p>
+          <p className="mt-0.5 text-xs text-slate-600">{t("p8a.fix.help")}</p>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            {(
+              [
+                ["name", t("p8a.fix.name"), "text"],
+                ["phone", t("p8a.fix.phone"), "tel"],
+                ["email", t("p8a.fix.email"), "email"],
+              ] as const
+            ).map(([key, label, type]) => (
+              <label key={key} className="text-xs font-medium text-slate-600">
+                {label}
+                <input
+                  type={type}
+                  value={correcting[key]}
+                  onChange={(e) => setCorrecting({ ...correcting, [key]: e.target.value })}
+                  className="mt-1 block w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+                />
+              </label>
+            ))}
+          </div>
+          {(correcting.b.seriesCode || correcting.b.groupCode) && (
+            <div className="mt-2 flex flex-wrap gap-3 text-xs">
+              {(
+                [
+                  ["booking", t("p8a.fix.scope.booking")],
+                  ...(correcting.b.seriesCode ? [["series", t("p8a.fix.scope.series")] as const] : []),
+                  ...(correcting.b.groupCode ? [["group", t("p8a.fix.scope.group")] as const] : []),
+                ] as const
+              ).map(([scope, label]) => (
+                <label key={scope} className="inline-flex items-center gap-1">
+                  <input type="radio" name="correct-scope" checked={correcting.scope === scope} onChange={() => setCorrecting({ ...correcting, scope })} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 flex gap-2">
+            <button type="button" onClick={() => void submitCorrection()} className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700">
+              {t("p8a.fix.save")}
+            </button>
+            <button type="button" onClick={() => setCorrecting(null)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700">
+              {t("c.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {payouts.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm" data-testid="payouts">
+          <p className="font-semibold text-amber-900">{t("p8a.day.payouts", { date })}</p>
+          <ul className="mt-1 space-y-0.5 text-xs text-amber-900">
+            {payouts.map((p) => (
+              <li key={p.id}>
+                {t("p8a.day.payoutLine", {
+                  time: clock.time(p.paidOutAt, p.venueId),
+                  amount: money(p.amount),
+                  via: p.via ? t(`c.via.${p.via}`) : t("p8a.day.viaUnrecorded"),
+                  code: p.creditNote ? `${p.bookingCode} (${p.creditNote})` : p.bookingCode,
+                  by: p.adminName,
+                })}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs font-semibold text-amber-900">{t("p8a.day.payoutTotal", { amount: money(payouts.reduce((sum, p) => sum + p.amount, 0)) })}</p>
         </div>
       )}
 
@@ -950,14 +1249,17 @@ export function BookingsTab() {
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
           {t("bk.noBookings", { date })}
         </div>
+      ) : bookings && shown.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">{t("p8a.day.noneMatch")}</div>
       ) : bookings ? (
-        <>
+        <div id="day-sheet">
+          <h2 className="mb-2 hidden text-lg font-bold print:block">{t("p8a.day.sheet", { date })}</h2>
           {/* A counter runs on a phone as often as a screen. Below `lg` the
               same bookings are a list of cards, because a twelve-column table
               on a 390px screen means scrolling sideways to find the button you
               press the most. */}
-          <ul className="space-y-3 lg:hidden">
-            {bookings.map((b) => (
+          <ul className="space-y-3 lg:hidden print:hidden">
+            {shown.map((b) => (
               <li
                 key={b.id}
                 className={`rounded-xl border bg-white p-4 shadow-sm ${b.code === found ? "border-teal-500 ring-2 ring-teal-200" : "border-slate-200"}`}
@@ -970,7 +1272,8 @@ export function BookingsTab() {
                       {activityIcon(b.sport)} {b.courtName}
                     </div>
                     <div className="text-sm text-slate-500">
-                      {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)} · {b.venueName}
+                      {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
+                      {showVenue ? ` · ${b.venueName}` : ""}
                     </div>
                   </div>
                   <div className="text-right">
@@ -1009,25 +1312,25 @@ export function BookingsTab() {
             ))}
           </ul>
 
-          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm lg:block">
-            <table className="w-full min-w-[860px] text-sm">
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm lg:block print:block print:overflow-visible print:shadow-none">
+            <table className="w-full min-w-[860px] text-sm print:min-w-0">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  {columns(t).map((label, i) => (
-                    <th key={i} className="px-3 py-2 font-semibold">
+                  {columns(t, showVenue).map((label, i, all) => (
+                    <th key={i} className={`px-3 py-2 font-semibold${i === all.length - 1 ? " print:hidden" : ""}`}>
                       {label}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {bookings.map((b) => (
+                {shown.map((b) => (
                   <tr key={b.id} className={`border-b border-slate-100 last:border-0 ${b.code === found ? "bg-teal-50" : ""}`}>
                     <td className="px-3 py-2 font-mono font-medium text-teal-700">
                       {b.code}
                       <SeriesChip b={b} act={act} />
                     </td>
-                    <td className="px-3 py-2">{b.venueName}</td>
+                    {showVenue && <td className="px-3 py-2">{b.venueName}</td>}
                     <td className="px-3 py-2">
                       {activityIcon(b.sport)} {b.courtName}
                     </td>
@@ -1070,17 +1373,15 @@ export function BookingsTab() {
                     <td className="px-3 py-2">
                       <KitChip b={b} act={act} />
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap justify-end gap-1.5">
-                        <RowActions b={b} act={act} />
-                      </div>
+                    <td className="px-3 py-2 text-right print:hidden">
+                      <RowMenu b={b} act={act} />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </>
+        </div>
       ) : null}
     </div>
   );
@@ -1104,6 +1405,8 @@ interface Act {
   openMove: (code: string) => void;
   openChange: (b: AdminBookingRow) => void;
   cancelBooking: (code: string) => void;
+  openSeriesCancel: (seriesCode: string) => void;
+  openCorrect: (b: AdminBookingRow) => void;
   paySeries: (seriesCode: string, via?: CounterMethod) => void;
   blockNumber: (b: AdminBookingRow) => void;
   forgiveStrikes: (b: AdminBookingRow) => void;
@@ -1858,11 +2161,25 @@ function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
         </button>
       )}
       <button
+        onClick={() => act.openCorrect(b)}
+        className="inline-flex min-h-7 items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
+      >
+        {t("p8a.fix.action")}
+      </button>
+      <button
         onClick={() => act.cancelBooking(b.code)}
         className="inline-flex min-h-7 items-center rounded-md border border-red-300 px-2.5 text-xs font-medium text-red-600 hover:bg-red-50"
       >
         {t("c.cancel")}
       </button>
+      {b.seriesCode && (
+        <button
+          onClick={() => act.openSeriesCancel(b.seriesCode!)}
+          className="inline-flex min-h-7 items-center rounded-md border border-red-200 px-2.5 text-xs font-medium text-red-600 hover:bg-red-50"
+        >
+          {t("p8a.sx.action")}
+        </button>
+      )}
       <button
         onClick={() => act.blockNumber(b)}
         title={t("bk.blockTitle")}
@@ -1871,5 +2188,231 @@ function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
         {t("bk.blockNumber")}
       </button>
     </>
+  );
+}
+
+/**
+ * A row's actions in a compact menu (X1-18), so nothing is cut off at laptop
+ * width. Each action closes the menu as it is chosen.
+ */
+function RowMenu({ b, act }: { b: AdminBookingRow; act: Act }) {
+  const t = useStaffT();
+  if (b.status !== "confirmed") return null;
+  return (
+    <details className="relative inline-block text-left">
+      <summary className="inline-flex min-h-7 cursor-pointer list-none items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500">
+        {t("p8a.day.actions")} ▾
+      </summary>
+      <div
+        className="absolute right-0 z-20 mt-1 flex w-48 flex-col items-stretch gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+        onClick={(e) => (e.target as HTMLElement).closest("button") && e.currentTarget.parentElement?.removeAttribute("open")}
+      >
+        <RowActions b={b} act={act} />
+      </div>
+    </details>
+  );
+}
+
+/** *New booking*: the venue's own booking page, where the counter books, on the day shown (X1-9). */
+function NewBooking({ venues, date }: { venues: DayVenue[]; date: string }) {
+  const t = useStaffT();
+  if (venues.length === 0) return null;
+  const link = "inline-flex min-h-10 items-center rounded-md bg-teal-600 px-3 text-sm font-semibold text-white hover:bg-teal-700";
+  if (venues.length === 1)
+    return (
+      <a href={`/venue/${venues[0].id}?date=${date}`} target="_blank" rel="noopener noreferrer" title={t("p8a.day.newBookingTitle")} className={link}>
+        {t("p8a.day.newBooking")}
+      </a>
+    );
+  return (
+    <details className="relative">
+      <summary className={`${link} cursor-pointer list-none`} title={t("p8a.day.newBookingTitle")}>
+        {t("p8a.day.newBooking")} ▾
+      </summary>
+      <div className="absolute z-20 mt-1 flex w-64 flex-col rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+        {venues.map((v) => (
+          <a key={v.id} href={`/venue/${v.id}?date=${date}`} target="_blank" rel="noopener noreferrer" className="rounded px-3 py-2 text-sm hover:bg-teal-50">
+            {t("p8a.day.newBookingAt", { venue: v.name })}
+          </a>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+/** How one way of settling is said on its button. */
+function optionLabel(t: StaffT, p: StaffCancelPreview, o: StaffCancelOption): string {
+  if (o.outcome === "credit") return t("p8a.cx.credit", { amount: money(o.refund) });
+  if (o.outcome === "keep")
+    return o.refund > 0
+      ? t("p8a.cx.keep", { kept: money(o.kept), pct: p.keptPercent ?? 0, amount: money(o.refund) })
+      : t("p8a.cx.keepAll", { pct: p.keptPercent ?? 0 });
+  if (o.refund <= 0) return t("p8a.cx.confirm");
+  if (p.how === "counter" && p.deposit <= 0) return t("p8a.cx.backTill", { amount: money(o.refund), via: p.paidVia ? t(`c.via.${p.paidVia}`) : t("p8a.day.viaUnrecorded") });
+  return t("p8a.cx.back", { amount: money(o.refund) });
+}
+
+/**
+ * Cancelling a booking (X1-1): what was paid and how, the venue's terms as a
+ * customer would meet them, and a button for each way to settle it. A counter
+ * payment from an earlier day is a manager's to give back.
+ */
+function CancelPanel({
+  preview: p,
+  venueId,
+  onChoose,
+  onClose,
+}: {
+  preview: StaffCancelPreview;
+  venueId: number | null;
+  onChoose: (o: StaffCancelOption) => void;
+  onClose: () => void;
+}) {
+  const t = useStaffT();
+  const clock = useStaffClock();
+  const amount = money(p.paid);
+  const paidLine =
+    p.how === "none"
+      ? t("p8a.cx.unpaid")
+      : p.how === "counter"
+        ? p.paidVia
+          ? t("p8a.cx.paidVia", { amount, via: t(`c.via.${p.paidVia}`), date: p.paidAt ? clock.when(p.paidAt, venueId) : "?" })
+          : t("p8a.cx.paidCounter", { amount, date: p.paidAt ? clock.when(p.paidAt, venueId) : "?" })
+        : p.how === "online"
+          ? t("p8a.cx.paidOnline", { amount })
+          : p.how === "credit"
+            ? t("p8a.cx.paidCredit", { amount })
+            : p.how === "pass"
+              ? t("p8a.cx.paidPass")
+              : t("p8a.cx.paidAccount");
+  const terms = !p.late
+    ? t("p8a.cx.inWindow", { n: p.cutoffHours })
+    : p.keptPercent !== null
+      ? t("p8a.cx.late", { n: p.cutoffHours, pct: p.keptPercent })
+      : t("p8a.cx.lateNone", { n: p.cutoffHours });
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50/40 px-4 py-3 text-sm" data-testid="cancel-panel">
+      <p className="font-semibold">{t("p8a.cx.title", { code: p.code })}</p>
+      <p className="mt-1 text-slate-700">{paidLine}</p>
+      {p.deposit > 0 && <p className="text-slate-700">{t("p8a.cx.deposit", { amount: money(p.deposit) })}</p>}
+      <p className="text-slate-600">{terms}</p>
+      {p.how === "counter" && p.paid > 0 && !p.account && <p className="text-xs text-slate-500">{t("p8a.cx.noAccount")}</p>}
+      {p.managerOnly && <p className="mt-1 font-medium text-amber-800">{t("p8a.cx.managerOnly")}</p>}
+      {p.kitOut ? (
+        <p className="mt-1 font-medium text-amber-800">{t("p8a.cx.kitOut")}</p>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {p.options.map((o) => (
+            <button
+              key={o.outcome}
+              type="button"
+              disabled={p.managerOnly && o.refund > 0}
+              onClick={() => onChoose(o)}
+              className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {optionLabel(t, p, o)}
+            </button>
+          ))}
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700">
+            {t("p8a.cx.dont")}
+          </button>
+        </div>
+      )}
+      {p.how === "counter" && p.paid > 0 && !p.kitOut && <p className="mt-2 text-xs text-slate-500">{t("p8a.cx.tillNote")}</p>}
+    </div>
+  );
+}
+
+/** A week's way of settling for the outcome chosen: as chosen where the week offers it, else back as paid. */
+function weekOption(w: StaffSeriesWeek, outcome: CancelOutcome): StaffCancelOption {
+  return w.options.find((o) => o.outcome === outcome) ?? w.options[0];
+}
+
+/**
+ * Cancelling weeks of a series (X1-10): each upcoming week on its own terms,
+ * as the customer's series preview gives them, the weeks to go ticked, and how
+ * what was paid is settled.
+ */
+function SeriesCancelPanel({
+  state,
+  onChange,
+  onConfirm,
+  onClose,
+}: {
+  state: { seriesCode: string; weeks: StaffSeriesWeek[]; chosen: string[]; outcome: CancelOutcome };
+  onChange: (s: { seriesCode: string; weeks: StaffSeriesWeek[]; chosen: string[]; outcome: CancelOutcome }) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const t = useStaffT();
+  const chosen = state.weeks.filter((w) => state.chosen.includes(w.code));
+  const back = chosen.reduce((sum, w) => sum + weekOption(w, state.outcome).refund, 0);
+  const kept = chosen.reduce((sum, w) => sum + weekOption(w, state.outcome).kept, 0);
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50/40 px-4 py-3 text-sm" data-testid="series-cancel">
+      <p className="font-semibold">{t("p8a.sx.title", { series: state.seriesCode })}</p>
+      <p className="mt-0.5 text-xs text-slate-600">{t("p8a.sx.help")}</p>
+      {state.weeks.length === 0 ? (
+        <p className="mt-2 text-slate-600">{t("p8a.sx.none")}</p>
+      ) : (
+        <>
+          <ul className="mt-2 space-y-1">
+            {state.weeks.map((w) => (
+              <li key={w.code}>
+                <label className="inline-flex flex-wrap items-center gap-2">
+                  <input
+                    type="checkbox"
+                    disabled={!w.open}
+                    checked={state.chosen.includes(w.code)}
+                    onChange={(e) =>
+                      onChange({ ...state, chosen: e.target.checked ? [...state.chosen, w.code] : state.chosen.filter((c) => c !== w.code) })
+                    }
+                  />
+                  <span className="font-mono">{w.code}</span>
+                  <span>
+                    {w.date} {formatHour(w.startHour, t.locale)}–{formatHour(w.endHour, t.locale)}
+                  </span>
+                  <span className="text-slate-500">
+                    {[
+                      w.kitOut ? t("p8a.sx.kit") : w.late ? t("p8a.sx.late") : t("p8a.sx.free"),
+                      w.paid > 0 ? t("p8a.sx.paid", { amount: money(w.paid) }) : t("p8a.sx.unpaid"),
+                      w.managerOnly ? t("p8a.sx.manager") : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <fieldset className="mt-3 space-y-1 text-xs">
+            <legend className="font-medium text-slate-600">{t("p8a.sx.how")}</legend>
+            {(
+              [
+                ["back", t("p8a.sx.back")],
+                ["credit", t("p8a.sx.credit")],
+                ["keep", t("p8a.sx.keep")],
+              ] as const
+            ).map(([outcome, label]) => (
+              <label key={outcome} className="mr-3 inline-flex items-center gap-1">
+                <input type="radio" name="series-outcome" checked={state.outcome === outcome} onChange={() => onChange({ ...state, outcome })} />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+          <p className="mt-2 text-xs text-slate-700">{t("p8a.sx.total", { n: chosen.length, amount: money(back), kept: money(kept) })}</p>
+        </>
+      )}
+      <div className="mt-3 flex gap-2">
+        {chosen.length > 0 && (
+          <button type="button" onClick={onConfirm} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700">
+            {t("p8a.sx.submit")}
+          </button>
+        )}
+        <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700">
+          {t("p8a.cx.dont")}
+        </button>
+      </div>
+    </div>
   );
 }

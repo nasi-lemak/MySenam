@@ -835,9 +835,13 @@ the time goes while the customer rebooks.
 
 Each venue carries a `cancel_cutoff_hours` (default 2, max 72). Customer-facing
 cancellation — by code, from an account, or for a whole series — is refused
-inside that window with a message naming the cutoff, while
-`/api/admin/bookings/cancel` always succeeds so the front desk can make
-exceptions.
+inside that window with a message naming the cutoff, while staff may cancel
+past it (`/api/admin/bookings/cancel`), until the booking has been played, so
+the front desk can make exceptions. Staff are shown first what was paid and
+how and the venue's terms, and choose how a paid booking is settled: back the
+way it was paid, as stored credit, or keeping the venue's late share where
+its terms keep one
+([cancelling a booking paid at the counter](payments-and-credit.md#cancelling-a-booking-paid-at-the-counter)).
 
 **Cancelling a weekly series** shows each upcoming week and what cancelling it
 would do before anything is done: inside the free window, all of it back;
@@ -851,6 +855,22 @@ since (it crossed the cutoff, or the venue changed its policy), nothing is
 cancelled and they are asked to look again (`SERIES_CHANGED`). Asked without a
 choice (an older client), only the weeks free to cancel go, and the weeks left
 are returned by name (`tests/series-cancel.test.ts`).
+
+**Staff cancel weeks of a series** from the day list (*Cancel weeks of the
+series*; `POST /api/admin/bookings/cancel-series`): every week still to be
+played is listed with its own terms as above, what was paid on it and how,
+and whether it is a manager's to refund; staff tick the weeks and choose how
+what was paid is settled, as for one booking. Each week goes on its own
+terms: where it does not offer the outcome chosen (keeping the late share on
+a week inside the free window, credit on a week not paid at the counter) it
+goes back the way it was paid. Unlike a customer, staff may cancel weeks past
+the cutoff. Each week is cancelled and settled once, in its own transaction;
+a week that cannot go (kit still out, a counter payment from an earlier day
+for the front desk) is named with why and the others still go. The customer
+gets one message for the weeks cancelled; the activity log has each week and
+the series (`booking.series_cancelled`) (`tests/counter-refunds.test.ts`).
+Moving a whole series to another weekday or time is not offered: staff move
+week by week.
 
 After a slot has passed, staff can flag it a no-show from the Bookings tab. The
 flag is reversible, never applies to a cancelled booking, and the day list shows
