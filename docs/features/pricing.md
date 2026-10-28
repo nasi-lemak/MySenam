@@ -249,6 +249,22 @@ Withdrawing a code stops further claims; discounts already given stand. A
 percentage is rounded **down** to the sen (15% of RM10.05 is RM1.50) and no
 discount ever exceeds the price, so a total cannot go negative.
 
+### Checked before booking
+
+The booking form checks a code as it is typed, with the price
+(`GET /api/quote?…&promoCode=`, `quotePromo` in `src/lib/store.ts`): valid,
+it says what the code takes off and the total on *Book* includes it, by the
+same arithmetic the booking uses (`promoDiscount`, `src/lib/promo-math.ts`,
+after the concession chosen where the venue and the code allow both);
+refused, it says why (not valid here, not started or run out, not this sport,
+too short a booking, used up) and *Book* waits until the code is put right or
+cleared, so nobody is booked at full price by surprise. A code that does not
+go with the concession chosen is refused there as the booking would refuse it.
+The check is advisory: the booking checks the code again with its use limits
+(one customer's uses, the last use), and a code that runs out in between
+still leaves the booking at full price with the reason, as above. A weekly
+series is checked on its first date.
+
 ## Discounts together
 
 Which benefits are discounts, which go together, and the one order every path

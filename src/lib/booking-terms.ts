@@ -32,6 +32,8 @@ export interface BookingTerms {
   depositPercent?: number;
   /** Money paid online for a booking the customer cancels comes back as stored credit here, not to the card. */
   refundsAsCredit: boolean;
+  /** No late cancelling for a share back, but the court may be given back late, nothing refunded (lib/cancel-policy.ts). Left out when not. */
+  giveBack?: true;
   version: string;
 }
 
@@ -60,6 +62,7 @@ export async function bookingTerms(venueId: number, sport?: Sport): Promise<Book
     holdMinutes: hold.active ? hold.minutes : null,
     refundsAsCredit: policy.onlineRefunds === "credit" && (await takesPaymentOnline(venueId)),
     ...(hold.active && hold.depositPercent ? { depositPercent: hold.depositPercent } : {}),
+    ...(policy.lateKeep === null && policy.giveBack ? { giveBack: true as const } : {}),
   };
   const version = crypto.createHash("sha256").update(JSON.stringify(terms)).digest("hex").slice(0, 16);
   return { ...terms, version };

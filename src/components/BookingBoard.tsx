@@ -31,6 +31,8 @@ import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory"
 import ChatLink from "@/components/ChatLink";
 import MembershipEligibility, { type MemberLine } from "@/components/MembershipEligibility";
 import { lengthLabel } from "@/lib/length-label";
+import { promoDiscount } from "@/lib/promo-math";
+import type { PromoKind } from "@/lib/types";
 import { money, intlTag, region, plainAmount, localTimeOf, shortDate } from "@/lib/region";
 
 interface Props {
@@ -67,7 +69,11 @@ interface Quote {
   error?: string;
   code?: string;
   vars?: Record<string, string | number>;
-  others: { courtId: number; total: number; allowed: boolean }[];
+  others: { courtId: number; total: number; court?: number; allowed: boolean }[];
+  /** A promo code checked as the booking will check it (app/api/quote): what it takes off, or why not. */
+  promo?:
+    | { ok: true; code: string; kind: PromoKind; value: number; combinable: boolean; discount: number }
+    | { ok: false; error: string; code?: string; vars?: Record<string, string | number> };
   /** A members-only session: whether each person taking a place is a member on its date (components/MembershipEligibility.tsx). */
   members?: MemberLine[];
 }
@@ -875,6 +881,9 @@ function BookingForm({
   // The people a booking online names, for its quote: one court, the account's own people.
   const peopleKey =
     !atCounter && !split && named.length > 0 ? `&participantIds=${named.join(",")}${customerTakesPart ? "&customerTakesPart=1" : ""}` : "";
+  // A promo code, checked with the price before booking (app/api/quote), so nobody is booked at full price by surprise.
+  const [promoCode, setPromoCode] = useState("");
+  const promoAsked = !concession || codeWithConcession ? promoCode.trim() : "";
   // The price, as the server will charge it: worked out there, shown before booking.
   const [quote, setQuote] = useState<Quote | null>(null);
   const moreKey = moreChosen.map((c) => (c.capacity > 1 ? `${c.id}:${countOf(c)}` : String(c.id))).join(",");
@@ -888,7 +897,7 @@ function BookingForm({
         `/api/quote?${where}&date=${date}&start=${start}&end=${end}${counted ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}${
           // Who takes part, so each person's own membership prices their place as the booking will (lib/entitlements.ts).
           peopleKey ? peopleKey : forOthers ? "&forOthers=1" : ""
-        }`,
+        }${promoAsked ? `&promoCode=${encodeURIComponent(promoAsked)}` : ""}`,
         { cache: "no-store" }
       )
         .then((res) => res.json())
@@ -899,7 +908,7 @@ function BookingForm({
       live = false;
       clearTimeout(timer);
     };
-  }, [court.id, court.venueId, court.sport, counted, date, start, end, players, moreKey, forOthers, peopleKey]);
+  }, [court.id, court.venueId, court.sport, counted, date, start, end, players, moreKey, forOthers, peopleKey, promoAsked]);
   const othersTotal = (quote?.others ?? []).filter((o) => more.includes(o.courtId)).reduce((sum, o) => sum + o.total, 0);
   // A concession for one person's place (lib/entitlements.ts): whose, among those taking part; off their place's share alone.
   const onePlace = concession?.scope === "participant";
@@ -911,16 +920,31 @@ function BookingForm({
   const concessionPerson = whoCanHave.some((w) => w.id === concessionFor) ? concessionFor! : (whoCanHave[0]?.id ?? null);
   const off = onePlace ? 0 : (concession?.percent ?? 0) / 100;
   const placeOff = onePlace && quote && pricedByQuantity(court) ? ((quote.court / Math.max(1, players)) * (concession?.percent ?? 0)) / 100 : 0;
+  // A code is off each court's time after its concession (lib/discounts.ts), by the booking's own arithmetic; one that
+  // does not go with the concession chosen is refused here as the booking would refuse it.
+  const codeOk = promoAsked && quote?.promo?.ok && (!concession || quote.promo.combinable) ? quote.promo : null;
+  const codeRefusal: string | null = !promoAsked || !quote?.promo
+    ? null
+    : !quote.promo.ok
+      ? translateError(t, quote.promo)
+      : concession && !quote.promo.combinable
+        ? t("err.STK_NOT_COMBINABLE")
+        : null;
+  const promoOff = codeOk && quote
+    ? [quote.court * (1 - off) - placeOff, ...quote.others.filter((o) => more.includes(o.courtId)).map((o) => (o.court ?? o.total) * (1 - off))].reduce(
+        (sum, base) => sum + promoDiscount(codeOk, base),
+        0
+      )
+    : 0;
   // A concession is off the court time, not a setup or cleanup fee.
   const totalPrice = quote
-    ? Math.round((quote.court * (1 - off) - placeOff + quote.fees + othersTotal * (1 - off)) * 100) / 100
+    ? Math.round((quote.court * (1 - off) - placeOff + quote.fees + othersTotal * (1 - off) - promoOff) * 100) / 100
     : null;
   const optionAt = starts.find((s) => s.minute === start);
   const lengths = optionAt ? startLengths(policy, optionAt) : lengthsUpTo(policy, length);
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
   const [passCode, setPassCode] = useState("");
-  const [promoCode, setPromoCode] = useState("");
   const [myPasses, setMyPasses] = useState<Pass[]>([]);
   // Which pass pays for whom (components/PassAllocation.tsx): one for the whole booking, or each person's own for their place.
   const [passChoice, setPassChoice] = useState<string[]>([]);
@@ -1208,7 +1232,7 @@ function BookingForm({
         )}
         <button
           type="submit"
-          disabled={submitting || withExtras === null || (quote !== null && !quote.allowed && !override)}
+          disabled={submitting || withExtras === null || (quote !== null && !quote.allowed && !override) || codeRefusal !== null}
           className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:opacity-50"
         >
           {submitting
@@ -1511,9 +1535,18 @@ function BookingForm({
           placeholder="RAYA20"
           className="w-32 rounded-md border border-slate-300 px-2 py-1 font-mono focus:border-teal-500 focus:outline-none"
         />
-        {promoCode.trim() !== "" && (
-          <span className="text-slate-500">{t("form.promoChecked")}</span>
-        )}
+        {promoAsked !== "" &&
+          (codeRefusal !== null ? (
+            <span role="alert" className="basis-full text-red-700" data-testid="promo-refused">
+              {codeRefusal} {t("q8a.promo.fix")}
+            </span>
+          ) : codeOk ? (
+            <span className="text-emerald-700" data-testid="promo-applied">
+              {t("q8a.promo.applied", { code: codeOk.code, amount: money(Math.round(promoOff * 100) / 100) })}
+            </span>
+          ) : (
+            <span className="text-slate-500">{t("q8a.promo.checking")}</span>
+          ))}
         {concession && <span className="text-slate-500">{t("stk.form.codeWithConcession")}</span>}
       </div>
       )}

@@ -44,6 +44,18 @@ it is let go for somebody else and the customer is charged nothing.
   gateway account (Billplz or Stripe); without one it cannot be turned on.
 - A held booking with a deposit paid on it is never let go as unpaid, even in
   the moment before its hold is cleared.
+- Every page that shows a held booking says it is held and until when, in the
+  reader's language, with the way to pay: the booking form's confirmation,
+  My Booking, the account page (*Held*, never *Confirmed (pay at counter)*),
+  a waiting-list claim ([waitlists](booking.md#waitlists)), and the payment
+  return page.
+- **A payment that fails or is abandoned** (the bank page fails, the customer
+  presses back): the return page shows the booking's code, and, held, *Held
+  until 6:45 PM while you pay online* with *Pay again to keep it* (the
+  booking's signed link, [links that open a booking](booking.md#links-that-open-a-booking));
+  let go already, that it was let go and nothing was taken. Only a booking not
+  held is said to still stand, to pay at the counter or again here. *Go to My
+  Booking* opens the booking itself.
 
 **A booking made on approval** ([registering online for approval](activities.md#registering-online-for-approval);
 [ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md)).
@@ -105,8 +117,12 @@ running booking software and running a payments business.
   says where to report back, which is why `MYSENAM_URL` must be the install's
   public `https://` address.
 - **Paying** — a *Pay online* button appears on the booking confirmation, on
-  `/my-booking`, and the confirmation message says the booking can be paid
-  online. A weekly series is paid in one bill; weeks already settled are left
+  `/my-booking`, on the account page's bookings, after a class enrolment
+  (the customer's own, online; the counter takes payment as it enrols), on a
+  waiting-list claim and on the payment return page after a failed attempt,
+  and the confirmation message says the booking can be paid online. Where no
+  phone is to hand (a claim, an enrolment, the return page) the button pays by
+  the booking's signed link ([links that open a booking](booking.md#links-that-open-a-booking)). A weekly series is paid in one bill; weeks already settled are left
   out. Pressing the button twice sends the customer to the same bill.
 - **Marked paid** only when Billplz says so, in a callback or the customer's
   redirect back, and only after its signature checks out under that venue's

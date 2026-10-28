@@ -23,6 +23,8 @@ import { GuestInvites } from "@/components/GuestInvites";
 import ManagedPeople from "@/components/ManagedPeople";
 import { useT } from "@/components/Language";
 import { SeriesCancel } from "@/components/SeriesCancel";
+import { BookingPayment, HoldNotice, isHeld } from "@/components/BookingPayment";
+import { ChangeTime } from "@/components/ChangeTime";
 import { WithdrawPeople } from "@/components/WithdrawPeople";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
@@ -30,13 +32,26 @@ import type { RefundStatus } from "@/lib/payments";
 import type { T } from "@/lib/i18n";
 import { money } from "@/lib/region";
 
+/**
+ * One of the account's bookings, with what My Booking says of it while it is
+ * still to come (app/api/my/bookings): so this page offers the same.
+ */
+type AccountBooking = UserBookingRow & { payOnline?: boolean; depositPercent?: number | null; lastDate?: string };
+
+/** Past the free-cancellation cutoff, and what cancelling online does then: the share kept, all of it (giving the court back), or nothing to do online. */
+function lateNow(b: UserBookingRow): { late: boolean; keep: number | null; giveBack: boolean } {
+  const late = hoursUntilSlot(b.date, b.startHour, b.venueTimeZone) < b.venueCancelCutoffHours;
+  const giveBack = b.venueLateCancelKeep === null && b.venueLateGiveBack;
+  return { late, keep: b.venueLateCancelKeep ?? (giveBack ? 100 : null), giveBack };
+}
+
 export default function AccountPage() {
   const router = useRouter();
   const t = useT();
   const [user, setUser] = useState<User | null>(null);
   const [phone, setPhone] = useState<PhoneStatus | null>(null);
   const [gender, setGender] = useState<string | null>(null);
-  const [bookings, setBookings] = useState<UserBookingRow[] | null>(null);
+  const [bookings, setBookings] = useState<AccountBooking[] | null>(null);
   const [refunds, setRefunds] = useState<RefundStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -75,22 +90,29 @@ export default function AccountPage() {
   }
 
   /** The series whose weeks are being chosen to cancel (components/SeriesCancel.tsx). */
-  const [seriesOpen, setSeriesOpen] = useState<string | null>(null);
-  function cancelSeries(seriesCode: string) {
+  const [seriesOpen, setSeriesOpen] = useState<{ code: string; phone: string } | null>(null);
+  function cancelSeries(seriesCode: string, phone: string) {
     setError(null);
-    setSeriesOpen(seriesCode);
+    setSeriesOpen({ code: seriesCode, phone });
   }
 
 
   async function cancel(b: UserBookingRow) {
-    const keep = b.venueLateCancelKeep;
-    const late = keep !== null && hoursUntilSlot(b.date, b.startHour, b.venueTimeZone) < b.venueCancelCutoffHours;
+    const terms = lateNow(b);
+    const keep = terms.keep;
+    const late = keep !== null && terms.late;
     const askLate = late && keep > 0 && b.paymentStatus === "paid" && b.totalPrice > 0;
     // Late and unpaid: no fee, but a strike against the number, where the venue counts them.
     const strike = late && b.paymentStatus !== "paid" && b.venueStrikeLimit !== null;
     if (
       !window.confirm(
-        askLate ? t("mine.lateCancelConfirm", { pct: keep }) : strike ? t("mine.lateStrikeConfirm") : t("mine.cancelConfirm")
+        askLate
+          ? terms.giveBack
+            ? t("q8a.giveBackConfirm")
+            : t("mine.lateCancelConfirm", { pct: keep })
+          : strike
+            ? t("mine.lateStrikeConfirm")
+            : t("mine.cancelConfirm")
       )
     )
       return;
@@ -248,10 +270,10 @@ export default function AccountPage() {
         {seriesOpen && (
           <div className="mt-3">
             <SeriesCancel
-              key={seriesOpen}
+              key={seriesOpen.code}
               t={t}
-              seriesCode={seriesOpen}
-              phone={user.phone}
+              seriesCode={seriesOpen.code}
+              phone={seriesOpen.phone}
               onClose={() => setSeriesOpen(null)}
               onDone={(data) => {
                 setSeriesOpen(null);
@@ -281,7 +303,7 @@ export default function AccountPage() {
                 booking={b}
                 onCancel={() => cancel(b)}
                 onCancelSeries={
-                  b.seriesCode ? () => cancelSeries(b.seriesCode!) : undefined
+                  b.seriesCode ? () => cancelSeries(b.seriesCode!, b.phone) : undefined
                 }
                 onChanged={(message) => {
                   setNotice(message);
@@ -530,7 +552,7 @@ function BookingCard({
   onChanged,
 }: {
   t: T;
-  booking: UserBookingRow;
+  booking: AccountBooking;
   onCancel: () => void;
   onCancelSeries?: () => void;
   /** Somebody was taken off it (lib/place-withdrawals.ts): what happened, to show, and the list read again. */
@@ -547,6 +569,10 @@ function BookingCard({
     timeZone: b.venueTimeZone,
     totalPrice: b.totalPrice,
   };
+  // Held until paid online (lib/holds.ts): said so, never "confirmed" or "pay at the counter" while it runs.
+  const held = isHeld(b);
+  const [changing, setChanging] = useState(false);
+  const terms = lateNow(b);
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
@@ -560,8 +586,11 @@ function BookingCard({
               🔁 {b.seriesCode}
             </span>
           )}
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-            {t("mine.confirmed")}
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${held ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}
+            data-testid="booking-pill"
+          >
+            {held ? t("hold.pill") : t("mine.confirmed")}
           </span>
         </div>
       </div>
@@ -578,14 +607,23 @@ function BookingCard({
           📅 {b.date} · {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
         </div>
         <div className="font-medium">
-          {b.totalPrice === 0 ? t("price.free") : `${money(b.totalPrice)}`}{" "}
-          {b.totalPrice === 0 ? null : b.paymentStatus === "paid" ? (
-            <span className="text-emerald-700">{t("acct.paid")}</span>
+          {held ? (
+            t("hold.total", { amount: b.totalPrice })
           ) : (
-            <span className="text-slate-500">{t("acct.payAtCounter")}</span>
+            <>
+              {b.totalPrice === 0 ? t("price.free") : `${money(b.totalPrice)}`}{" "}
+              {b.totalPrice === 0 ? null : b.paymentStatus === "paid" ? (
+                <span className="text-emerald-700">{t("acct.paid")}</span>
+              ) : (
+                <span className="text-slate-500">{t("acct.payAtCounter")}</span>
+              )}
+            </>
           )}
         </div>
       </div>
+      <HoldNotice booking={b} timeZone={b.venueTimeZone} />
+      {/* Pay online, or split the cost: the same as My Booking offers (components/BookingPayment.tsx). */}
+      <BookingPayment booking={b} phone={b.phone} payOnline={!!b.payOnline} depositPercent={b.depositPercent ?? null} venueName={b.venueName} />
       {b.checkedInAt ? (
         <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700">
           {t("mine.checkedIn")}
@@ -618,6 +656,40 @@ function BookingCard({
           ⬇️ .ics
         </button>
       </div>
+      {/* Another time, as My Booking moves it: by its code and the phone it was booked with. */}
+      {onChanged && b.classId === null &&
+        (changing ? (
+          <div className="mt-3">
+            {b.coachId && <p className="mb-2 text-xs text-slate-500">{t("fin6.lessonKeepsCoach")}</p>}
+            <ChangeTime
+              booking={b}
+              lastDate={b.lastDate}
+              optionsUrl={(date) =>
+                `/api/bookings/reschedule?code=${encodeURIComponent(b.code)}&phone=${encodeURIComponent(b.phone)}&date=${date}`
+              }
+              submit={(o, date) =>
+                fetch("/api/bookings/reschedule", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ code: b.code, phone: b.phone, date, start: o.startMin }),
+                })
+              }
+              onDone={(_booking, message) => {
+                setChanging(false);
+                onChanged(message);
+              }}
+              onClose={() => setChanging(false)}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setChanging(true)}
+            className="mt-3 w-full rounded-lg border border-teal-300 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+          >
+            {t("resched.button")}
+          </button>
+        ))}
       {/* Several people on it: one can be taken off, the others staying booked. */}
       {onChanged && b.classId === null && (b.participantName || (b.players ?? 1) > 1) && (
         <WithdrawPeople source={{ bookingId: b.id }} onDone={(_booking, message) => onChanged(message)} />
@@ -627,7 +699,8 @@ function BookingCard({
           onClick={onCancel}
           className="w-full rounded-lg border border-red-300 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
         >
-          {t("mine.cancelBooking")}
+          {/* Past the cutoff where the venue lets a court be given back, nothing refunded (lib/cancel-policy.ts). */}
+          {terms.late && terms.giveBack ? t("q8a.giveBack") : t("mine.cancelBooking")}
         </button>
         {onCancelSeries && (
           <button

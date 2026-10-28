@@ -139,7 +139,8 @@ describe("links in messages", () => {
     await notifyBookingConfirmed([booking], "zh", null);
     const { messagesForBooking } = await import("../src/lib/outbox");
     const sent = await messagesForBooking(booking.id);
-    expect(sent.find((m) => m.kind === "booking_confirmed")!.body).toMatch(/\/my-booking\?lang=zh\b/);
+    // On the booking itself, by its signed link (lib/booking-access.ts), the language after it.
+    expect(sent.find((m) => m.kind === "booking_confirmed")!.body).toMatch(/\/my-booking\?code=[A-Z0-9-]+&t=[0-9a-z]+\.[0-9a-f]+&lang=zh\b/);
 
     const { rememberLocale } = await import("../src/lib/notify");
     await rememberLocale([booking.id], "ta");

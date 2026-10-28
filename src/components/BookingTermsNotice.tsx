@@ -66,7 +66,9 @@ export default function BookingTermsNotice({ venueId, sport }: { venueId: number
 
   const lines = [
     terms.cutoffHours > 0 ? t.plural("mine.freeCancel", terms.cutoffHours) : t("terms.untilStart"),
-    ...(terms.cutoffHours > 0 ? [terms.lateKeep !== null ? t("terms.lateKeep", { pct: terms.lateKeep }) : t("terms.lateCall")] : []),
+    ...(terms.cutoffHours > 0
+      ? [terms.lateKeep !== null ? t("terms.lateKeep", { pct: terms.lateKeep }) : terms.giveBack ? t("q8a.terms.giveBack") : t("terms.lateCall")]
+      : []),
     t("terms.noShow"),
     ...(terms.strikeLimit !== null
       ? [t(terms.struckOutPays ? "terms.strikes" : "terms.strikesCounter", { n: terms.strikeLimit, days: terms.strikeDays })]

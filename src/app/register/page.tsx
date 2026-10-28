@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { SIGN_UP_NEXT } from "@/lib/registration-shared";
+import { safePath } from "@/lib/safe-path";
 
 /**
  * Where an emailed sign-up link lands (lib/registration.ts): the address it
@@ -115,7 +116,8 @@ function takeNext(): string {
   try {
     const next = window.localStorage.getItem(SIGN_UP_NEXT);
     window.localStorage.removeItem(SIGN_UP_NEXT);
-    if (next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")) return next;
+    // Only a page on this site (lib/safe-path.ts): storage is the browser's, not ours.
+    return safePath(next);
   } catch {
     // No storage: the account page.
   }

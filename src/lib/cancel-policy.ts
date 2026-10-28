@@ -8,7 +8,11 @@ import { addDays, todayISO } from "./time";
  * Free cancellation up to the venue's cutoff is unchanged. After it, by
  * default, a customer cannot cancel online at all and has to call; a venue
  * can instead let them, keeping a share of what was paid (`lateKeep`, a
- * percentage) and sending the rest back the way it came.
+ * percentage) and sending the rest back the way it came. Where it does not,
+ * it may still let them give the court back (`giveBack`, off by default):
+ * cancelled online until the slot starts, nothing refunded (the venue keeps
+ * all of it, the same path as keeping 100%), the slot offered again and the
+ * waiting list told.
  *
  * A strike is a no-show, or a late cancellation of a booking nobody paid for
  * (one that was paid has paid its fee). After `strikeLimit` strikes in
@@ -28,6 +32,8 @@ const ONLINE_REFUNDS: OnlineRefunds[] = ["staff", "gateway", "credit"];
 export interface CancelPolicy {
   /** Percent of what was paid the venue keeps on a late cancellation; null: no late cancelling online. */
   lateKeep: number | null;
+  /** With `lateKeep` null: a customer may still give the court back late, nothing refunded. Off by default. */
+  giveBack: boolean;
   strikeLimit: number | null;
   strikeDays: number;
   onlineRefunds: OnlineRefunds;
@@ -37,12 +43,13 @@ export interface CancelPolicy {
 
 export async function cancelPolicy(venueId: number): Promise<CancelPolicy> {
   const row = (await getDb()
-    .prepare("SELECT late_cancel_keep, strike_limit, strike_days, online_refunds, refund_within_days FROM venues WHERE id = ?")
+    .prepare("SELECT late_cancel_keep, late_give_back, strike_limit, strike_days, online_refunds, refund_within_days FROM venues WHERE id = ?")
     .get(venueId)) as
-    | { late_cancel_keep: number | null; strike_limit: number | null; strike_days: number; online_refunds: OnlineRefunds; refund_within_days: number }
+    | { late_cancel_keep: number | null; late_give_back: boolean; strike_limit: number | null; strike_days: number; online_refunds: OnlineRefunds; refund_within_days: number }
     | undefined;
   return {
     lateKeep: row?.late_cancel_keep ?? null,
+    giveBack: row?.late_give_back === true,
     strikeLimit: row?.strike_limit ?? null,
     strikeDays: row?.strike_days ?? 90,
     onlineRefunds: row?.online_refunds ?? "staff",
@@ -62,11 +69,14 @@ export async function cancelPolicyFor(venueId: number, sport: string): Promise<C
 
 export async function setCancelPolicy(
   venueId: number,
-  input: { lateKeep?: unknown; strikeLimit?: unknown; strikeDays?: unknown; onlineRefunds?: unknown; refundWithinDays?: unknown }
+  input: { lateKeep?: unknown; giveBack?: unknown; strikeLimit?: unknown; strikeDays?: unknown; onlineRefunds?: unknown; refundWithinDays?: unknown }
 ): Promise<{ ok: true; policy: CancelPolicy } | { ok: false; error: string }> {
   const keep = input.lateKeep ?? null;
   if (keep !== null && (!Number.isInteger(keep) || (keep as number) < 0 || (keep as number) > 100))
     return { ok: false, error: "Keep 0 to 100 percent, or leave late cancelling off." };
+  // Left out: as it is (a form or a script that does not know of it changes nothing).
+  const giveBack = input.giveBack === undefined ? (await cancelPolicy(venueId)).giveBack : input.giveBack;
+  if (typeof giveBack !== "boolean") return { ok: false, error: "Say whether customers may give a court back late: true or false." };
   const limit = input.strikeLimit ?? null;
   if (limit !== null && (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 20))
     return { ok: false, error: "Strikes before paying online: 1 to 20, or off." };
@@ -78,8 +88,8 @@ export async function setCancelPolicy(
   if (!Number.isInteger(within) || (within as number) < 1 || (within as number) > 30)
     return { ok: false, error: "Say how many days refunds by hand take: 1 to 30." };
   await getDb()
-    .prepare("UPDATE venues SET late_cancel_keep = ?, strike_limit = ?, strike_days = ?, online_refunds = ?, refund_within_days = ? WHERE id = ?")
-    .run(keep, limit, days, refunds, within, venueId);
+    .prepare("UPDATE venues SET late_cancel_keep = ?, late_give_back = ?, strike_limit = ?, strike_days = ?, online_refunds = ?, refund_within_days = ? WHERE id = ?")
+    .run(keep, giveBack, limit, days, refunds, within, venueId);
   return { ok: true, policy: await cancelPolicy(venueId) };
 }
 
@@ -118,4 +128,14 @@ export async function forgiveStrikes(venueId: number, phone: string, adminId: nu
        ON CONFLICT (venue_id, phone_key) DO UPDATE SET forgiven_on = excluded.forgiven_on, admin_id = excluded.admin_id`
     )
     .run(venueId, phoneKey(phone), todayISO(), adminId);
+}
+
+/**
+ * What cancelling online past the cutoff does at this venue, for this sport:
+ * the share kept (`lateKeep`), or, where the venue lets customers give the
+ * court back instead, all of it (`giveBack`); null: it cannot be done online.
+ */
+export function lateCancelTerms(policy: Pick<CancelPolicy, "lateKeep" | "giveBack">): { keep: number; giveBack: boolean } | null {
+  if (policy.lateKeep !== null) return { keep: policy.lateKeep, giveBack: false };
+  return policy.giveBack ? { keep: 100, giveBack: true } : null;
 }

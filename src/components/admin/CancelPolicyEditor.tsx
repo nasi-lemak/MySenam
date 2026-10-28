@@ -71,6 +71,16 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
         {t("cxl.lateKeepAfter")}
       </label>
       <p className="ml-6 text-xs text-slate-500">{t("cxl.lateKeepNote")}</p>
+      {/* With no late cancelling for a share back: whether a court may still be given back, nothing refunded (lib/cancel-policy.ts). */}
+      {policy.lateKeep === null && (
+        <>
+          <label className="mt-3 flex flex-wrap items-center gap-2">
+            <input type="checkbox" checked={policy.giveBack} onChange={(e) => setPolicy({ ...policy, giveBack: e.target.checked })} />
+            {t("q8a.cxl.giveBack")}
+          </label>
+          <p className="ml-6 text-xs text-slate-500">{t("q8a.cxl.giveBackNote")}</p>
+        </>
+      )}
       <label className="mt-3 flex flex-wrap items-center gap-2">
         <input
           type="checkbox"
