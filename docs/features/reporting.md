@@ -11,6 +11,9 @@ answered by exporting the database.
 
 Everything is keyed on the date the slot was **played**, not the date the
 booking was taken, because that is how an operator thinks about a month.
+[Test bookings](../product/marketplace.md#test-bookings-before-going-live),
+made before the venue went live, are left out of every figure here, the
+customer report and the bookings export.
 
 - **Revenue** is split into *booked* and *collected*, so the gap between them is
   the number a venue chases. Cancellations are counted as their own figure
@@ -106,7 +109,7 @@ customers by what they spent, with their hours and since when they have been
 coming; and the regulars who have stopped: four or more bookings in the six
 months before, none in the last 45 days and none coming, with a number to
 call. A customer is a phone number however it was typed; demo bookings,
-class enrolments and bookings whose names the retention policy removed are
+test bookings from before going live, class enrolments and bookings whose names the retention policy removed are
 left out. Managers only, like the other reports.
 
 **The period** is any from and to (up to 400 days), typed in the two date
@@ -132,7 +135,10 @@ its own period as a document of its own, and the credit note is dated when it
 was lost. Each row carries the number, the customer, a category (*Court hire*,
 *Classes*, *Memberships*, *Passes*, *Tournament entries*, *League fees*,
 *Game shares*, *Stored credit*, *Gift vouchers*), the net, the tax inside it,
-the gross and how it was paid. Credit notes are negative. Two categories are
+the gross and how it was paid, and in its last column whether it is a
+[test booking's](../product/marketplace.md#test-bookings-before-going-live)
+from before going live (kept, as every numbered document is, but left out of
+the cash-up and the consolidated e-invoice). Credit notes are negative. Two categories are
 marked *not takings*: **stored credit** and **gift vouchers** are owed to
 customers until they are spent, so the booking they pay for is the sale (shown
 as paid by *Stored credit*). A **booking paid with a pass** is not a row: the

@@ -571,6 +571,14 @@ export function previousPeriod(today: string): string {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
 }
 
+/**
+ * The month's documents that go to LHDN consolidated: the sales journal's, less a test booking's receipt and its
+ * credit notes, from before the venue went live (lib/test-bookings.ts): no sale was made, so neither is sent.
+ */
+async function consolidable(venueId: number, from: string, to: string) {
+  return (await salesJournal(venueId, from, to)).filter((j) => !j.test);
+}
+
 /** Lines of a consolidated document: one per kind of sale and tax rate, saying which receipts. */
 function consolidatedLines(rows: { number: string; category: Category; gross: number; tax: number; taxRate: number | null }[], period: string): DocLine[] {
   const groups = new Map<string, typeof rows>();
@@ -607,7 +615,7 @@ export async function consolidate(venueId: number, period: string): Promise<EInv
   const exists = await db.prepare("SELECT id FROM e_invoices WHERE venue_id = ? AND code_number = ?").get(venueId, code);
   if (exists) return [];
   const { from, to } = monthBounds(period);
-  const journal = await salesJournal(venueId, from, to);
+  const journal = await consolidable(venueId, from, to);
   // A single sale over the limit may not go in a consolidated e-invoice: it
   // gets its own, made out to the general public unless the customer asked
   // for one in their name already.
@@ -913,7 +921,7 @@ async function linesFor(r: EInvoiceRow): Promise<{ lines: DocLine[]; covers: str
     };
   }
   const { from, to } = monthBounds(r.period!);
-  const journal = await salesJournal(r.venue_id, from, to);
+  const journal = await consolidable(r.venue_id, from, to);
   if (r.kind === "consolidated") {
     const own = await individuallyInvoiced(r.venue_id);
     const receipts = journal.filter((j) => j.type === "Receipt" && !own.has(j.number) && j.gross > 0);

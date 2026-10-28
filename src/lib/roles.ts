@@ -92,6 +92,10 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   // Opening hours and rates from a later date, as changing them now is (lib/dated-changes.ts, ADR 0027); the desk may read them.
   { path: /^\/api\/admin\/venues\/\d+\/hours-changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/courts\/\d+\/changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
+  // Clearing test bookings from before going live gives back what was paid; keeping one as real puts it in the books (lib/test-bookings.ts).
+  { path: /^\/api\/admin\/test-bookings$/, methods: ["POST"] },
+  // Adding a branch, and starting it from another's set-up (lib/branch-copy.ts): a business manager's.
+  { path: /^\/api\/admin\/branches$/, methods: ["POST"] },
 ];
 
 export type StaffRole = "manager" | "desk";
@@ -140,6 +144,8 @@ export const STAFF_ACTIONS = {
   timeZone: "POST /api/admin/venue-time-zone",
   holdPolicy: "POST /api/admin/hold-policy",
   goLive: "POST /api/admin/go-live",
+  testBookings: "POST /api/admin/test-bookings",
+  addBranch: "POST /api/admin/branches",
   reviews: "POST /api/admin/reviews",
   dataRequest: "GET /api/admin/data-request",
   billing: "POST /api/admin/billing",

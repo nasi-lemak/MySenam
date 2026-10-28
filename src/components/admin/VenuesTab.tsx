@@ -143,7 +143,16 @@ export function VenuesTab({
 
       {isOwner && <RecentPhotosPanel />}
 
-      {isManager && <BranchRequestPanel businessName={admin.businessName ?? t("vn.yourBusiness")} onChange={() => void onChange()} />}
+      {isManager && (
+        <ManagerOnly may="addBranch">
+          <BranchRequestPanel
+            businessName={admin.businessName ?? t("vn.yourBusiness")}
+            // A business manager's venues are their business's branches (the server checks the one chosen).
+            branches={venues.map((v) => ({ id: v.id, name: v.name }))}
+            onChange={() => void onChange()}
+          />
+        </ManagerOnly>
+      )}
 
       <section>
         <h2 className="text-lg font-bold">{t("vn.closedDays")}</h2>

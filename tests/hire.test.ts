@@ -421,7 +421,7 @@ describe("money kept back from a deposit", () => {
 
     // The journal says which footing each amount kept was taxed on.
     const csv = await journalCsv(venue.id, todayISO(), todayISO());
-    expect(csv.split(/\r?\n/)[0]).toMatch(/"Tax basis"$/);
+    expect(csv.split(/\r?\n/)[0]).toMatch(/"Tax basis","Test booking"$/);
     expect(csv).toContain("Provisional default, not reviewed");
     expect(csv).toContain("Reviewed by the venue's adviser");
   });

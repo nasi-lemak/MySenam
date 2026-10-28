@@ -1306,6 +1306,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                   <StaffNote b={b} act={act} />
                   <WaiverChip b={b} act={act} />
                   <OverrideNote b={b} />
+                  <TestChip b={b} />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -1356,6 +1357,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                       <StaffNote b={b} act={act} />
                       <WaiverChip b={b} act={act} />
                       <OverrideNote b={b} />
+                      <TestChip b={b} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {b.phone}
@@ -1477,6 +1479,17 @@ function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
     >
       📝 {b.staffNote}
     </button>
+  );
+}
+
+/** A test booking, made before the venue went live: out of its figures (lib/test-bookings.ts). */
+function TestChip({ b }: { b: AdminBookingRow }) {
+  const t = useStaffT();
+  if (!b.test) return null;
+  return (
+    <span title={t("r9c.test.chipTitle")} className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-xs font-semibold text-slate-700">
+      {t("r9c.test.chip")}
+    </span>
   );
 }
 

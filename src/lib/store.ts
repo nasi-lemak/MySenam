@@ -457,6 +457,7 @@ interface BookingRow {
   ends_at?: Date | string | null;
   fee_amount?: number | string;
   policy_override?: boolean;
+  test?: boolean;
   name: string;
   phone: string;
   email: string | null;
@@ -563,6 +564,7 @@ function toBooking(r: BookingRow): Booking {
     ...(r.ends_at ? { endsAt: new Date(r.ends_at).toISOString() } : {}),
     feeAmount: Number(r.fee_amount ?? 0),
     policyOverride: r.policy_override === true,
+    ...(r.test === true ? { test: true as const } : {}),
     name: r.name,
     phone: r.phone,
     email: r.email,
@@ -3183,7 +3185,12 @@ export interface StaffCancelSettlement {
 async function adminCancelBookingOnce(
   code: string,
   /** Staff at the counter: the outcome they chose, as terms for this booking, or why it may not be had. Others: all of it back. */
-  settlement?: (booking: Booking) => Promise<StaffCancelSettlement | Refusal>
+  settlement?: (booking: Booking) => Promise<StaffCancelSettlement | Refusal>,
+  /**
+   * Clearing a test booking (lib/test-bookings.ts): only one still a test, and one already played too, since
+   * nothing was played for real; all of it back.
+   */
+  opts: { test?: boolean } = {}
 ): Promise<CancelResult> {
   const db = getDb();
   const row = await db
@@ -3192,6 +3199,7 @@ async function adminCancelBookingOnce(
   if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
   if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
+  if (opts.test && row.test !== true) return { ok: false, error: "This is not a test booking." };
   // Cancelling would drop the only record of what is out and what is held
   // against it, so settle the hire first even from the admin side.
   if (await hasOpenHire(booking.id))
@@ -3200,12 +3208,15 @@ async function adminCancelBookingOnce(
   // an hour that was used. One under way can still be called off (a leak, a
   // power cut) and refunded.
   const { zone } = await venueHours((await getCourt(booking.courtId))!.venueId);
-  if (isPastSlot(booking.date, booking.endHour, zone)) return refuse("CANCEL_PLAYED");
+  const played = isPastSlot(booking.date, booking.endHour, zone);
+  if (played && !opts.test) return refuse("CANCEL_PLAYED");
   const plan = settlement ? await settlement(booking) : { share: 1 };
   if ("ok" in plan) return plan;
 
   const claimed = await db.transaction(async () => {
-    const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
+    const done = await db
+      .prepare(`UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'${opts.test ? " AND test" : ""}`)
+      .run(booking.id);
     if (done.changes !== 1) return false;
     await releaseBooking(booking.id);
     if (plan.keptPercent !== undefined)
@@ -3215,7 +3226,8 @@ async function adminCancelBookingOnce(
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
-  // A freed place goes to whoever has waited longest.
+  // A freed place goes to whoever has waited longest (not one already played).
+  if (played) return { ok: true, booking: { ...booking, status: "cancelled" } };
   if (booking.classId) await offerClassPlace(booking.classId);
   else await offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
@@ -5845,7 +5857,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
                   AND b.date > COALESCE((SELECT forgiven_on FROM strike_forgiveness f WHERE f.venue_id = c.venue_id AND f.phone_key = b.phone_key), '')
                   AND b.date >= ? AS strike
            FROM bookings b JOIN courts c ON c.id = b.court_id
-          WHERE c.venue_id IN (${venueIds.map(() => "?").join(",")}) AND b.phone_key IN (${keys.map(() => "?").join(",")})
+          WHERE c.venue_id IN (${venueIds.map(() => "?").join(",")}) AND b.phone_key IN (${keys.map(() => "?").join(",")}) AND NOT b.test
             AND (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid' AND b.deposit_paid = 0))`
       )
       .all(addDays(todayISO(), -longest), ...venueIds, ...keys)) as {

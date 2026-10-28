@@ -12,7 +12,8 @@ independent venues, players booking across them.
   account opens with the venue as a **draft**: theirs to set up — courts,
   rates, hours, staff, classes, passes, test bookings — and nobody else's to
   see. A banner on their dashboard says it is a draft, lists anything missing
-  (a court, a pin), and sends it to **go live**.
+  (a court, a pin), and sends it to **go live**. Bookings made meanwhile are
+  [test bookings](#test-bookings-before-going-live).
 - **Going live is what the platform owner approves**, under *Venues & staff →
   Going live*, with the evidence set out — see *Checking a venue is real*. Not
   yet? They are told why, keep everything they set up, and can ask again.
@@ -63,6 +64,48 @@ independent venues, players booking across them.
   advice: have a Malaysian lawyer review them before relying on them.** Set
   `OPERATOR_NAME`, `OPERATOR_REG_NO`, `OPERATOR_ADDRESS` and `OPERATOR_EMAIL`;
   until `OPERATOR_NAME` is set the page says it has not been completed.
+
+## Test bookings before going live
+
+A booking made while its venue is a draft is a **test booking**: the set-up
+checklist asks for one, and staff try the counter, take a payment and print a
+receipt on them (`src/lib/test-bookings.ts`, migration 0254). The database
+marks each as it is written (`bookings.test`), whichever path writes it.
+Bookings already made at venues still in draft when the migration ran were
+marked too; nothing at a venue already live changed.
+
+- **It stays a booking.** It holds its court, and its receipt and credit
+  notes are kept and numbered as any are. A receipt is never deleted or
+  numbered again: one given in a test is reversed by a credit note.
+- **It is not the venue's trade**, so it is left out of the period report
+  and the occupancy measures, the customer report, the bookings export
+  ([reporting](../features/reporting.md#reporting)), the
+  [cash-up](../features/payments-and-credit.md#cash-up) and the month's
+  [consolidated e-invoice](../integrations/myinvois.md), as demonstration
+  bookings are left out of what they would distort. It counts as nobody's
+  strike, earns no free hour, and asks for no review. The sales journal still
+  lists its receipt and credit notes, marked *Test booking* in its last
+  column, so every numbered document is accounted for.
+- **Staff see it marked** *Test* in the day list.
+- **A manager clears them**, from the go-live banner (*Clear all test
+  bookings*), or by ticking *Also clear my test bookings* when sending the
+  venue to go live (unticked until asked). Each test booking still standing
+  is cancelled with everything paid given back the way it was paid (credit
+  to credit, a pass's entry to the pass, money paid online owed back on the
+  payment, the receipt by a credit note), played or not; nobody is messaged,
+  no strike is counted, and no money is recorded as handed back at the
+  counter. One with kit still out on hire is left, and said. The list stays
+  on the dashboard after going live until none is left.
+- **Or keeps one as real** (an advance booking entered while setting up):
+  *Keep as real* puts it in the figures like any other booking, on the days
+  it was played and paid; not once its receipt's month has gone to LHDN
+  consolidated without it.
+- Clearing and keeping are a manager's (`MANAGER_ONLY`), each in the
+  activity log (`booking.test_cleared`, `booking.test_kept`).
+
+Clearing is offered, never automatic: going live is decided by the platform
+owner, and a venue may have entered real advance bookings while setting up
+(`tests/test-bookings.test.ts`, `tests/components/test-bookings-panel.test.tsx`).
 
 ## Checking a venue is real
 

@@ -842,7 +842,10 @@ who counted and who checked it.
   the accountant's, row for row (`tests/cash-up.test.ts`). One addition:
   where credit is the install's own (`MYSENAM_CREDIT_SCOPE=platform`), credit
   sold over this venue's counter is in its till though not in its books, and
-  is counted too (`receipts.counter_venue_id`).
+  is counted too (`receipts.counter_venue_id`). One subtraction: a
+  [test booking's](../product/marketplace.md#test-bookings-before-going-live)
+  receipt and credit notes, from before the venue went live, are no money in
+  the till and are left out (`tests/test-bookings.test.ts`).
 - **What is not money** is shown apart: a booking paid from stored credit
   already sold moves no money, and is left out of the total.
 - **Front desk sees its own**: what it took and gave back itself, today or

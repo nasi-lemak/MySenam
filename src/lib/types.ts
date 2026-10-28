@@ -337,6 +337,8 @@ export interface Booking {
   feeAmount?: number;
   /** Made by staff outside the court's booking policy (what, and who, is in the activity log). */
   policyOverride?: boolean;
+  /** A test booking, made while its venue was not yet live: out of the venue's figures (lib/test-bookings.ts). Absent otherwise. */
+  test?: true;
   name: string;
   phone: string;
   email: string | null;

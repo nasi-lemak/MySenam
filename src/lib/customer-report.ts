@@ -55,8 +55,8 @@ export const LAPSED_DAYS = 45;
 /** How many bookings in half a year make a regular. */
 export const REGULAR_BOOKINGS = 4;
 
-/** Bookings that name a customer: not demo, not anonymised, not a class enrolment. */
-const COUNTED = "b.demo = 0 AND b.phone <> '' AND b.class_id IS NULL";
+/** Bookings that name a customer: not demo, not a test from before going live, not anonymised, not a class enrolment. */
+const COUNTED = "b.demo = 0 AND NOT b.test AND b.phone <> '' AND b.class_id IS NULL";
 
 export async function customerReport(venueId: number, from: string, to: string): Promise<CustomerReport> {
   const db = getDb();
@@ -95,7 +95,7 @@ export async function customerReport(venueId: number, from: string, to: string):
               (array_agg(b.phone ORDER BY b.date DESC, b.id DESC))[1] AS phone,
               COUNT(*)::int AS bookings, (SUM(b.end_min - b.start_min) / 60.0)::float AS hours, SUM(b.total_price)::float AS spent,
               (SELECT MIN(x.date) FROM bookings x WHERE x.phone_key = b.phone_key AND x.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
-                 AND x.status = 'confirmed' AND x.demo = 0) AS since
+                 AND x.status = 'confirmed' AND x.demo = 0 AND NOT x.test) AS since
          FROM bookings b
         WHERE ${at} AND ${COUNTED} AND b.status = 'confirmed' AND b.date BETWEEN ? AND ?
         GROUP BY b.phone_key ORDER BY spent DESC, bookings DESC LIMIT 10`

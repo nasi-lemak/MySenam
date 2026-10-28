@@ -63,6 +63,14 @@ How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
   its own e-invoice (`EI-<receipt number>`), made out to the general public
   unless the customer already asked for one in their name, and is left out
   of the consolidated one whatever LHDN makes of it.
+- **Test bookings** made before the venue went live
+  ([marketplace](../product/marketplace.md#test-bookings-before-going-live)):
+  their receipts and the credit notes reversing them are left out of the
+  consolidated e-invoice and the consolidated credit notes alike (no sale was
+  made), though the sales journal lists them, marked. One kept as a real
+  booking before its month is consolidated goes in it as any sale; once the
+  month has gone, it stays a test. Whether a receipt printed in a test needs
+  anything at LHDN is the venue's adviser's question, not settled here.
 - Each document is UBL 2.1 JSON, version 1.0 (no digital signature), built
   when it is sent so it carries the venue's details and the receipts as they
   are then, base64 with its SHA-256. Tax category 02 (service tax) where the

@@ -100,6 +100,8 @@ export async function strikesFor(venueId: number, phone: string, days?: number):
     .prepare(
       `SELECT COUNT(*)::int AS n FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.phone_key = ? AND b.date >= ?
+          -- A test booking, from before the venue went live, is nobody's strike (lib/test-bookings.ts).
+          AND NOT b.test
           -- Forgiven by the venue: only what came after counts again.
           AND b.date > COALESCE((SELECT forgiven_on FROM strike_forgiveness f WHERE f.venue_id = c.venue_id AND f.phone_key = b.phone_key), '')
           -- A late cancellation the venue was paid something for (in full, or a deposit it kept part of) is not one.

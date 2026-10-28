@@ -70,6 +70,11 @@ export interface JournalRow {
   /** Who took or gave back the money, where staff did (migration 0234). */
   staffId: number | null;
   staffName: string | null;
+  /**
+   * Of a test booking, made while the venue was not yet live (lib/test-bookings.ts): its receipt, or a credit note
+   * reversing it. Listed like every document, and left out of the cash-up and the consolidated e-invoice.
+   */
+  test: boolean;
 }
 
 const BASIS_LABEL = { provisional: "Provisional default, not reviewed", venue: "Venue's choice, not reviewed", reviewed: "Reviewed by the venue's adviser" };
@@ -190,6 +195,38 @@ export const bookingCredited = (b: string, column: "total" | "tax_amount") =>
        AND (r.source = 'booking:' || ${b}.id OR r.source LIKE 'booking:' || ${b}.id || ':%'
             OR r.source IN (SELECT 'account-credit:' || ac.id FROM account_credits ac WHERE ac.booking_id = ${b}.id)))`;
 
+/**
+ * The booking a stored document was written for, where it was one's: its receipt kept or credit notes
+ * (`booking:<id>…`, `booking-part:<id>…`, `booking-paid:<id>…`), a dearer coach's difference (`lesson-coach:<change>`),
+ * its credit on a company account (`account-credit:<id>`), its deposit paid online (`payment:<id>`), or a credit note
+ * reversing any of those (`credit:<receipt>`). Null for anything else.
+ */
+async function bookingOfSource(source: string): Promise<number | null> {
+  const m = /^([a-z-]+):(\d+)/.exec(source);
+  if (!m) return null;
+  const id = Number(m[2]);
+  const db = getDb();
+  const one = async (sql: string) => ((await db.prepare(sql).get(id)) as { id: number | null } | undefined)?.id ?? null;
+  switch (m[1]) {
+    case "booking":
+    case "booking-part":
+    case "booking-paid":
+      return id;
+    case "lesson-coach":
+      return one("SELECT booking_id AS id FROM lesson_coach_changes WHERE id = ?");
+    case "account-credit":
+      return one("SELECT booking_id AS id FROM account_credits WHERE id = ?");
+    case "payment":
+      return one("SELECT MIN(booking_id) AS id FROM online_payment_bookings WHERE payment_id = ?");
+    case "credit": {
+      const original = (await db.prepare("SELECT source FROM receipts WHERE id = ?").get(id)) as { source: string } | undefined;
+      return original ? bookingOfSource(original.source) : null;
+    }
+    default:
+      return null;
+  }
+}
+
 /** A stored time as one ISO string, whichever way the driver hands it back. */
 const stamp = (v: unknown): string => {
   if (v instanceof Date) return v.toISOString();
@@ -214,7 +251,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
   const bookings = (await db
     .prepare(
       `SELECT ${onDay("b.paid_at")} AS day, b.code, b.name, b.class_id, b.coach_id, b.date, c.name AS court,
-              ${bookingGross("b")}::float AS gross, b.tax_rate, b.paid_via, b.paid_at, b.paid_by, b.paid_by_name
+              ${bookingGross("b")}::float AS gross, b.tax_rate, b.paid_via, b.paid_at, b.paid_by, b.paid_by_name, b.test
          FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.payment_status = 'paid' AND b.paid_at IS NOT NULL
           AND COALESCE(b.paid_via, '') <> 'pass' AND ${bookingGross("b")} > 0
@@ -234,6 +271,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
     paid_at: unknown;
     paid_by: number | null;
     paid_by_name: string | null;
+    test: boolean;
   }[];
 
   const documents = (await db
@@ -283,8 +321,15 @@ export async function salesJournal(venueId: number, from: string, to: string, op
       method: b.paid_via,
       staffId: b.paid_by,
       staffName: b.paid_by_name,
+      test: b.test === true,
     };
   });
+  // Test bookings' documents, where the venue has any (usually none, and nothing more is read).
+  const tests = new Set(
+    ((await db
+      .prepare("SELECT b.id FROM bookings b JOIN courts c ON c.id = b.court_id WHERE c.venue_id = ? AND b.test")
+      .all(venueId)) as { id: number }[]).map((r) => r.id)
+  );
   for (const d of documents) {
     const category = await categoryOf(d.source);
     const sign = d.kind === "credit_note" ? -1 : 1;
@@ -313,6 +358,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
       method: paidHowOf(d.paid_via)?.via ?? null,
       staffId: d.staff_id,
       staffName: d.staff_name,
+      test: tests.size > 0 && tests.has((await bookingOfSource(d.source)) ?? 0),
     });
   }
   return rows.sort((a, b) => a.date.localeCompare(b.date) || a.number.localeCompare(b.number));
@@ -324,7 +370,7 @@ export async function journalCsv(venueId: number, from: string, to: string): Pro
   const rows = await salesJournal(venueId, from, to);
   const cur = currencySymbol();
   return toCsv(
-    ["Date", "Number", "Type", "Customer", "Description", "Category", "Takings", `Net (${cur})`, `${taxName()} (${cur})`, `${taxName()} rate (%)`, `Gross (${cur})`, "Paid by", "Tax basis"],
+    ["Date", "Number", "Type", "Customer", "Description", "Category", "Takings", `Net (${cur})`, `${taxName()} (${cur})`, `${taxName()} rate (%)`, `Gross (${cur})`, "Paid by", "Tax basis", "Test booking"],
     rows.map((r) => [
       r.date,
       r.number,
@@ -339,6 +385,8 @@ export async function journalCsv(venueId: number, from: string, to: string): Pro
       money(r.gross),
       r.paidVia,
       r.taxBasis ? BASIS_LABEL[r.taxBasis] : "",
+      // Made before the venue went live: not in the cash-up or the consolidated e-invoice (lib/test-bookings.ts).
+      r.test ? "Yes, before going live" : "",
     ])
   );
 }

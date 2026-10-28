@@ -81,7 +81,9 @@ account make it; the dashboard keeps no list of its own
   rules, *Changes and reviews* under tax).
 - Controls that are only buttons are not shown at all: *Block number* and
   letting strikes off in the day list (the strike count still shows), whose an
-  older induction is, *Ask to go live*.
+  older induction is, *Ask to go live*, clearing or keeping
+  [test bookings](../product/marketplace.md#test-bookings-before-going-live)
+  (the list still shows).
 - What the desk may not even read is not asked for: retention holds on
   applications, a customer's data request, staff accounts.
 - The set-up checklist is a manager's, and is not shown to the desk.
@@ -136,7 +138,8 @@ that venue as its first branch and the applicant as its manager.
 - **New branches** start as drafts the manager sets up, and go live like the
   first one did — on the platform owner's approval, or on their own where the
   install sets `MYSENAM_AUTO_APPROVE_BRANCHES=on` and the branch's pin and
-  address agree (see *Checking a venue is real*).
+  address agree (see *Checking a venue is real*). A new branch may
+  [start from another's set-up](#starting-a-branch-from-another).
 - **Credit, passes and memberships** bought at any branch work at every
   branch of that business, and nowhere else. A member pays each branch's
   member rate wherever they play, and is not sold a second membership at
@@ -151,6 +154,48 @@ that venue as its first branch and the applicant as its manager.
 fee. Its managers pay it, online or otherwise. A venue that is not in a
 business is still invoiced on its own, and invoices issued before a venue
 joined a business stay as they were.
+
+### Starting a branch from another
+
+*Add a branch* offers **Start from** one of the business's branches the
+manager sees (`copyFrom` on `POST /api/admin/branches`; `src/lib/branch-copy.ts`).
+Its settings are copied in the transaction that adds the branch, so the new
+one prices and offers what the other does and the manager changes only what
+differs; the branch is a draft like any other, and the copy is in the
+activity log (`venue.branch_added`). A business manager's (`MANAGER_ONLY`);
+only a branch of their own business.
+
+**Copied**, as the source stands: the venue's settings named in
+`VENUE_SETTINGS` (opening and staffed hours, booking limits and how far
+ahead, holding unpaid and deposits, weekly series, guests, peak hours,
+cancellation, late shares, strikes and refunds, last-minute prices, the free
+hour for regulars, discount stacking, choosing a coach, asking for reviews);
+its hours from a later date (`venue_hours_changes`, in force and waiting);
+each court with every setting but its door code and unstaffed opening, with
+its activities at their rates, the courts it takes when booked, its rates and
+own hours from a later date (`court_changes`) and its booking rules; the
+venue's booking rules, sport rules, holidays still to come, the waiver in
+use, what is asked before approving somebody online, competition templates,
+and what is on sale and not retired: concessions, extras, membership plans
+and passes (not a coach's lesson pack).
+
+**Not copied**, and why: anything of a person or of money (bookings,
+customers, staff and coaches, memberships, passes and credit sold, receipts,
+accounts, notes, access and blocked lists, photos, reviews, messages);
+accounts and secrets of the branch's own (payment gateway, e-invoicing, API
+keys, webhooks, calendar links, door codes, WhatsApp); what belongs to its
+own place (name, address, pin, time zone, facilities, emergency details,
+closed days, notices); declarations its own manager makes (tax registration,
+a deduction tax reviewed by an adviser, which policies managers may
+override); who may book (members only or private) and promo codes; and
+booking alerts, which start off. A court whose main activity is the source
+venue's own (not its business's) cannot be offered by another branch: it is
+left out, and named.
+
+`tests/branch-copy.test.ts` checks that the copy prices and opens as its
+source does, today and on a date its hours and rates from a later date apply
+(member, peak, holiday and second-activity prices, starts, linked courts),
+and that no table outside the copied ones holds anything for the new branch.
 
 ## A venue business's own copy
 

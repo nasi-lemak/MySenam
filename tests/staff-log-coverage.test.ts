@@ -43,8 +43,6 @@ const NEEDS_NO_ENTRY: Record<string, string> = {
   "storefronts POST": "the platform owner's marketplace storefronts",
   "storefronts DELETE": "the platform owner's marketplace storefronts",
   "billing POST": "the platform's own invoices to venues: the owner's records of them, or a venue starting an online payment the gateway confirms",
-  // A business manager's new branch starts as a draft that sells nothing until it goes live (logged as venue.go_live).
-  "branches POST": "a business manager adding a draft branch, which sells nothing until it goes live",
   "setup POST": "ticking off or hiding the set-up checklist: a reminder, not a setting",
 };
 
