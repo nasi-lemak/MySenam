@@ -7,7 +7,8 @@ export { courtFor, courtOffers } from "./court-activities";
 import { isActivity, venueMayOffer } from "./activities";
 import { randomBytes, randomInt } from "crypto";
 import { notesFor } from "./customer-notes";
-import { signaturesFor } from "./waivers";
+import { signaturesFor, signWaiver, waiverRefusal } from "./waivers";
+import { overridesFor, recordOverrides, type BookingOverride, type PolicyOverrideRecord } from "./policy-overrides";
 import { reviewPath } from "./review-links";
 import { getDb, isBusy, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
@@ -773,6 +774,8 @@ export async function createBookingOnAnyCourt(input: {
   participants?: { id: number; name: string }[];
   customerTakesPart?: boolean;
   addedBy?: { userId?: number | null; adminId?: number | null };
+  /** A manager's override of the venue's policies (createBookingSeries). */
+  policyOverride?: PolicyOverrideRecord;
 } & WhenInput): Promise<CreateSeriesResult> {
   const { venueId, sport, date, ...rest } = input;
 
@@ -854,6 +857,8 @@ export async function createGroupBooking(input: {
    */
   assign?: Record<number, { participants: { id: number; name: string }[]; customerTakesPart: boolean }>;
   addedBy?: { userId?: number | null; adminId?: number | null };
+  /** A manager's override of the venue's policies, kept with each court's booking (createBookingSeries). */
+  policyOverride?: PolicyOverrideRecord;
 } & WhenInput): Promise<CreateSeriesResult> {
   const courtIds = [...new Set(input.courtIds)];
   if (courtIds.length < 2 || courtIds.length > MAX_GROUP_COURTS) return refuse("GROUP_COURTS", { max: MAX_GROUP_COURTS });
@@ -2043,6 +2048,12 @@ export async function createBookingSeries(
      * venue's staff, or the venue's own system through its API key.
      */
     by?: SignOffChannel;
+    /**
+     * A manager's override of the venue's policies that let this booking
+     * through (lib/policy-overrides.ts), authorised by the counter's route:
+     * written with each booking, in its transaction.
+     */
+    policyOverride?: PolicyOverrideRecord;
   } & WhenInput,
   attempt = 0
 ): Promise<CreateSeriesResult> {
@@ -2093,7 +2104,10 @@ export async function createBookingSeries(
   // An activity that needs a staff sign-off or a certification first (a belay
   // check, a range briefing; lib/sign-offs.ts), good until the last week
   // booked. Online it must be the customer's own; a manager going past the
-  // rules may book without one, and it is recorded as an override.
+  // rules may book without one, and it is recorded as an override. On an
+  // unmanned resource that opens no door: the door code still waits for the
+  // person's own sign-off (`accessCodeFor`), a safety prerequisite no
+  // override goes past (ADR 0026).
   const signOffNeed = input.classId || input.approval?.assessment ? null : policy.certification ? "certification" : policy.signOff ? "any" : null;
   if (signOffNeed) {
     const channel = input.by ?? "customer";
@@ -2124,8 +2138,9 @@ export async function createBookingSeries(
   }
   // A place on a members' session is each person's own to hold (lib/entitlements.ts, ADR 0025): a
   // participant needs their own membership or a family one naming them, and the customer taking a
-  // place their own (or a place on the venue's list), valid on every week booked, not just today. A
-  // manager going past the rules may book without, and it is recorded as an override.
+  // place their own (or a place on the venue's list), valid on every week booked, not just today.
+  // Eligibility, which no override goes past, a manager's going past the court's rules included
+  // (the owner's decision of 28 October 2026; ADR 0026): sell the membership instead.
   const notMember = await membersOnlyRefusal({
     venueId: court.venueId,
     court,
@@ -2134,8 +2149,7 @@ export async function createBookingSeries(
     customer: customerPlays ? { phone, userId: userId ?? null, ...(input.by ? { by: input.by } : {}) } : null,
     dates: Array.from({ length: weeks }, (_, w) => addDays(date, 7 * w)),
   });
-  if (notMember && !override) return notMember;
-  if (notMember) breaches.push("MEMBERSHIP");
+  if (notMember) return notMember;
 
   const db = getDb();
   const seriesCode = weeks > 1 ? generateSeriesCode() : null;
@@ -2242,6 +2256,8 @@ export async function createBookingSeries(
                 customerName: name,
                 addedBy: input.addedBy ?? { userId: userId ?? null },
               });
+              // A manager's override of the venue's policies, kept with the booking it let through, or neither is.
+              if (input.policyOverride) await recordOverrides(id.id, input.policyOverride);
               // Each member's own place at the member's price, kept per place (lib/entitlements.ts).
               if (memberPlaces.length > 0) {
                 const places = await placeRows(id.id);
@@ -3369,11 +3385,11 @@ async function rescheduleBookingOnce(
       customer: placesNow.some((p) => p.customer) ? { phone: booking.phone, userId: movedBy, by } : null,
       dates: [to.date],
     });
-    if (notMember && !(by === "staff" && to.override === true)) {
+    // Eligibility: no override goes past it (ADR 0026).
+    if (notMember) {
       firstRefusal ??= notMember;
       continue;
     }
-    if (notMember) breaches.push("MEMBERSHIP");
     // Another coach's fee in place of the one on it.
     const feeChange = lesson ? lesson.fee - (booking.coachFee ?? 0) : 0;
     const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players).total - oldPrice + feeChange) * 100) / 100;
@@ -4089,6 +4105,8 @@ export interface AdminBookingRow extends Booking {
   placeConcessions?: { id: number; name: string | null; concessionName: string; concessionPreset: string | null; amount: number; check: "due" | "seen" | "refused" | null }[];
   /** A paid lesson given to a dearer coach, the price adjusted: each difference still owed, to take at the counter (lib/lesson-coaches.ts). */
   coachOwed?: { changeId: number; amount: number; coach: string }[];
+  /** A manager's overrides of the venue's policies that let it through: which, why, by whom (lib/policy-overrides.ts). */
+  policyOverrides?: BookingOverride[];
 }
 
 export interface UserBookingRow extends Booking {
@@ -5654,6 +5672,8 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     }
   }
 
+  // A manager's overrides of the venue's policies, on the bookings they let through (lib/policy-overrides.ts).
+  const overridden = await overridesFor(rows.map((r) => r.id));
   const list: AdminBookingRow[] = [];
   for (const r of rows) {
     const booking = toBooking(r);
@@ -5684,6 +5704,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       people: (people.get(booking.id) ?? []).some((p) => !p.customer) ? people.get(booking.id)! : [],
       ...(placeConcessions.has(booking.id) ? { placeConcessions: placeConcessions.get(booking.id)! } : {}),
       ...(coachOwed.has(booking.id) ? { coachOwed: coachOwed.get(booking.id)! } : {}),
+      ...(overridden.has(booking.id) ? { policyOverrides: overridden.get(booking.id)! } : {}),
     });
   }
   return list;
@@ -5948,6 +5969,8 @@ async function enrolPeopleOnce(input: {
   /** Who takes each place: `null` the customer themself, or a participant. */
   people: ({ id: number; name: string } | null)[];
   addedBy?: { userId?: number | null; adminId?: number | null };
+  /** A manager's override of the venue's policies, kept with each enrolment (createBookingSeries). */
+  policyOverride?: PolicyOverrideRecord;
 }): Promise<EnrolPeopleResult> {
   if (input.people.length === 0) return refuse("PLAYERS_RANGE", { max: 1 });
   return withTransaction(async () => {
@@ -5989,6 +6012,7 @@ async function enrolPeopleOnce(input: {
         userId: input.userId,
         classId: session.id,
         ...(person ? { participants: [person], addedBy: input.addedBy ?? { userId: input.userId ?? null } } : {}),
+        ...(input.policyOverride ? { policyOverride: input.policyOverride } : {}),
       });
       // One place not had takes the others back with it (the transaction).
       // Its code and values ride along, so a refusal (a member's place, say) is said in the reader's language.
@@ -6055,6 +6079,8 @@ export async function enrolInTerm(input: {
   /** Who takes each place in every session (`enrolPeople`): the customer alone unless said. */
   people?: ({ id: number; name: string } | null)[];
   addedBy?: { userId?: number | null; adminId?: number | null };
+  /** A manager's override of the venue's policies, kept with each session's enrolment (`enrolPeople`). */
+  policyOverride?: PolicyOverrideRecord;
 }): Promise<TermResult> {
   const term = await classTerm(input.classId);
   if (!term) return refuse("CLASS_NO_TERM");
@@ -7899,30 +7925,40 @@ async function dropEntry(id: number): Promise<void> {
 /**
  * May the entry still book at its venue, now that a place is offered or
  * claimed? Asked as the booking the claim makes would be asked on the path
- * the entry was made (lib/limits.ts `mayBookOn`, the function the booking
- * routes' checks are): online, the counter or the API. `leaves`: the venue
- * refuses its number now (lib/limits.ts `isBlocked`), and the entry leaves
- * the queue, as one no longer for whom it was made does. Otherwise it waits,
- * keeping its place: the venue not open to customers (a draft, or unlisted);
- * for an entry made online, the venue's access no longer admitting the
- * account (members only, a private list; not asked of the counter or the
- * API, as at their bookings); the house rules (court time only: a class
- * place is limited by the class, as an enrolment is); the unpaid-bookings
- * limit; no-show strikes where the venue takes nothing online (where it
- * does, the claimed booking is held until paid instead); a members' place
- * that nobody's membership on the entry covers on its date any more
- * (lib/entitlements.ts). Null: it may.
+ * the entry was made (lib/limits.ts `mayBookOn`, the one policy check every
+ * booking path asks): online, the counter or the API, each paid as the claim
+ * is, through its link (held until paid online where the venue takes payment
+ * online). `leaves`: the venue refuses its number now (lib/limits.ts
+ * `isBlocked`), and the entry leaves the queue, as one no longer for whom it
+ * was made does. Otherwise it waits, keeping its place: the venue not open
+ * to customers (a draft, or unlisted); who may book a members-only or
+ * private venue (for an entry made online the account; for one the counter
+ * or the API made, its number or each participant named, as at their
+ * bookings); the house rules, the members' longer window among them, for
+ * court time and a class place alike, as booking and enrolling ask them; the
+ * unpaid-bookings limit; no-show strikes and the guest limit where the venue
+ * takes nothing online (where it does, the claimed booking is held until
+ * paid instead); a members' place that nobody's membership on the entry
+ * covers on its date any more (lib/entitlements.ts). Null: it may.
  */
 async function entryRefused(row: WaitlistRow, named: { id: number; name: string }[]): Promise<{ refusal: Refusal; leaves: boolean } | null> {
   const venueId = await entryVenue(row);
   if (venueId === null) return { refusal: refuse("OFFER_INVALID"), leaves: true };
   const { isBlocked, mayBookOn } = await import("./limits");
   if (await isBlocked(venueId, row.phone)) return { refusal: refuse("PHONE_BLOCKED"), leaves: true };
+  const day = row.class_id ? (await getClass(row.class_id))?.date : row.date;
   const refused = await mayBookOn(channelOf(row), {
     venueId,
     phone: row.phone,
     userId: row.user_id,
-    ...(row.class_id === null && row.date ? { dates: [row.date] } : {}),
+    ...(day ? { dates: [day] } : {}),
+    // Claimed through its link, by the customer: paid as a booking online is.
+    settle: "online",
+    // A class place is never held until paid, as enrolling asks: refused instead.
+    ...(row.class_id ? { canPayOnline: false } : {}),
+    // At the counter and through the API, who is booked: the number, or each person named where only they take places.
+    participants: named,
+    customerTakesPart: row.customer_takes_part !== false || named.length === 0,
     // As at the join: places only for people a parent books for, each a member themself, at a members-only venue.
     placesForOthers:
       row.customer_takes_part === false &&
@@ -8223,7 +8259,7 @@ export type ClaimResult =
  * sign-offs, the account still acting for them, the price as it stands now):
  * never the customer in a child's place, never fewer places than asked.
  */
-async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
+async function claimWaitlistOfferOnce(token: string, opts: { agreeWaiver?: boolean } = {}): Promise<ClaimResult> {
   return withTransaction(async () => {
     await expireStaleOffers();
     const db = getDb();
@@ -8257,6 +8293,15 @@ async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
       return refused.refusal;
     }
     const takesPart = row.customer_takes_part !== false || named.length === 0;
+    // The venue's waiver, asked here, where the booking is made, as a booking asks it (lib/waivers.ts): the
+    // version in force now, for each person taking a place, agreed by the customer claiming through the link
+    // (whoever made the entry). Not agreed yet: the offer stays as it is, to tick the box and claim again.
+    const venueId = (await entryVenue(row))!;
+    const who = [...(takesPart ? [null] : []), ...named];
+    for (const p of who) {
+      const unsigned = await waiverRefusal(venueId, row.phone, opts.agreeWaiver === true, p?.id ?? null);
+      if (unsigned) return { ...unsigned, vars: { venueId, venue: (await getVenue(venueId))?.name ?? "" } } as Refusal;
+    }
 
     let bookings: Booking[];
     if (row.class_id) {
@@ -8305,6 +8350,9 @@ async function claimWaitlistOfferOnce(token: string): Promise<ClaimResult> {
       return refuse("OFFER_INVALID");
     }
 
+    // Agreed now: kept, by the customer for themself where they take part and on behalf of each person named.
+    if (opts.agreeWaiver === true)
+      for (const p of who) await signWaiver(venueId, { phone: row.phone, name: row.name, bookingId: bookings[0].id, participant: p });
     await db.prepare("UPDATE waitlist SET status = 'claimed', offer_token = NULL WHERE id = ?").run(row.id);
     return { ok: true, booking: bookings[0], bookings, entry: await readEntry(row.id) };
   });

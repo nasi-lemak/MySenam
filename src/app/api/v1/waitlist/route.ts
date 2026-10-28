@@ -4,6 +4,8 @@ import { listVenueWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import type { WaitlistEntry } from "@/lib/types";
 import { joinAtVenue, removeAtVenue } from "@/lib/waitlist-venue";
+import { asksStaffPowers } from "@/lib/policy-overrides";
+import { errorText, translator } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +58,9 @@ export async function POST(req: NextRequest) {
   if (caller instanceof NextResponse) return caller;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  // A key never overrides the venue's policies, nor takes payment: refused, never ignored (lib/policy-overrides.ts).
+  if (asksStaffPowers(body) || body.override !== undefined)
+    return NextResponse.json({ error: errorText(translator("en"), "R9_API_NO_OVERRIDE"), code: "R9_API_NO_OVERRIDE" }, { status: 400 });
   const made = await joinAtVenue(caller.venueId, { channel: "api", apiKeyId: caller.keyId, name: `API key ${caller.keyId}` }, body);
   if (!made.ok) return NextResponse.json({ error: made.error, code: made.code, vars: made.vars }, { status: made.status });
   return NextResponse.json({ entry: apiEntry(made.entry), position: made.position }, { status: 201 });

@@ -172,7 +172,9 @@ describe("a number a venue has refused", () => {
   });
 
   it("can be let back in", async () => {
-    expect((await blocks("DELETE", { phone: "018-444 4444" })).status).toBe(200);
+    // Unblocking says why, and is kept in the activity log (ADR 0026).
+    expect((await blocks("DELETE", { phone: "018-444 4444" })).status).toBe(400);
+    expect((await blocks("DELETE", { phone: "018-444 4444", reason: "Paid what was owed; spoke to the manager" })).status).toBe(200);
     expect((await book(courtsA[1], "0184444444")).status).toBe(201);
   });
 

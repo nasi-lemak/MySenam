@@ -12,11 +12,12 @@ interface Blocked {
 }
 
 /**
- * Numbers a venue does not take online bookings from.
+ * Numbers a venue does not take bookings from, online, at its counter or
+ * through its API key (lib/limits.ts `policyCheck`; no override books one).
  *
  * For the person who books every evening and never comes, or fills a night
- * with names that do not exist. They can still ring the venue; they just
- * cannot hold its courts from a phone without anybody speaking to them.
+ * with names that do not exist. Taking a number off the list is how a
+ * refusal is lifted, and asks why, kept in the activity log.
  */
 export function BlockedPhonesPanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
@@ -44,6 +45,9 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
   const [blocked, setBlocked] = useState<Blocked[]>([]);
   const [phone, setPhone] = useState("");
   const [reason, setReason] = useState("");
+  // Unblocking says why, kept in the activity log: the number being unblocked, and the reason typed.
+  const [unblocking, setUnblocking] = useState<string | null>(null);
+  const [why, setWhy] = useState("");
   const [error, setError] = useState<string | null>(null);
   const url = `/api/admin/venues/${venue.id}/blocked-phones`;
 
@@ -64,6 +68,9 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
     if (method === "POST") {
       setPhone("");
       setReason("");
+    } else {
+      setUnblocking(null);
+      setWhy("");
     }
   }
 
@@ -80,12 +87,37 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
                 <span className="font-medium">{b.phone}</span>
                 {b.reason && <span className="ml-2 text-slate-500">{b.reason}</span>}
               </span>
-              <button
-                onClick={() => send("DELETE", { phone: b.phone })}
-                className="text-xs text-slate-500 underline hover:text-teal-700"
-              >
-                {t("blk.unblock")}
-              </button>
+              {unblocking === b.phone ? (
+                <form
+                  className="flex flex-wrap items-center gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void send("DELETE", { phone: b.phone, reason: why });
+                  }}
+                >
+                  <input
+                    value={why}
+                    onChange={(e) => setWhy(e.target.value)}
+                    placeholder={t("r9.blk.why")}
+                    aria-label={t("r9.blk.why")}
+                    minLength={3}
+                    maxLength={200}
+                    required
+                    className="w-56 rounded-md border border-slate-300 px-2 py-1 text-xs"
+                  />
+                  <button className="rounded-md bg-slate-800 px-2 py-1 text-xs font-medium text-white hover:bg-slate-900">{t("r9.blk.confirm")}</button>
+                </form>
+              ) : (
+                <button
+                  onClick={() => {
+                    setUnblocking(b.phone);
+                    setWhy("");
+                  }}
+                  className="text-xs text-slate-500 underline hover:text-teal-700"
+                >
+                  {t("blk.unblock")}
+                </button>
+              )}
             </li>
           ))}
         </ul>

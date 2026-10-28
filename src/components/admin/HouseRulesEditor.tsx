@@ -16,8 +16,8 @@ const fields = (t: StaffT): { key: keyof HouseRules; label: string; hint: string
 
 /**
  * Fair use for online bookings: limits per person, or per household where
- * the venue's list gives people the same unit. Blank is no limit. Staff at the
- * counter are not held to them.
+ * the venue's list gives people the same unit. Blank is no limit. Asked on
+ * every path, the counter and the API too (lib/limits.ts `policyCheck`).
  */
 export function HouseRulesEditor({ venueId }: { venueId: number }) {
   const t = useStaffT();

@@ -185,7 +185,7 @@ describe("a place on a members' session is each person's own to hold", () => {
     expect((await book(parent, { courtId: hall, date: day(4), start: at(9), end: at(10), participantIds: [a.id, b.id] })).status).toBe(201);
   });
 
-  it("the counter and the venue's own system are held to it too; a manager may go past it, on the record", async () => {
+  it("the counter and the venue's own system are held to it too, a manager going past the court's rules included", async () => {
     const ph = phone();
     const kid = await createAtVenue({ venueId: members, admin: { id: manager.id, name: manager.name }, displayName: "Puteri", guardian: { name: "Puan Q", phone: ph, relationship: "parent", authority: true } });
     if (!kid.ok) throw new Error(kid.error);
@@ -198,11 +198,12 @@ describe("a place on a members' session is each person's own to hold", () => {
     const api = await apiBookingsRoute.POST(req("http://localhost/api/v1/bookings", "POST", null, body, { authorization: `Bearer ${key.key}` }));
     expect(api.status).toBe(409);
     expect(((await api.json()) as { code: string }).code).toBe("ENT_MEMBERS_PLACE");
-    // A manager going past the rules: booked, and the override recorded with its reason.
+    // A manager going past the court's rules does not go past eligibility (the owner's decision of 28 October
+    // 2026, ADR 0026; until then it booked, recorded as an override): sell the membership instead.
     const over = await book({ cookie: manager.cookie }, { ...body, override: true });
-    expect(over.status).toBe(201);
-    const log = await listActivity([members], { bookingCode: over.body.booking.code });
-    expect(log.some((e) => e.action === "booking.override" && e.bookingCode === over.body.booking.code && /members/.test(e.detail ?? ""))).toBe(true);
+    expect(over.status).toBe(409);
+    expect(over.body.code).toBe("ENT_MEMBERS_PLACE");
+    expect((await listActivity([members])).some((e) => e.action === "booking.override")).toBe(false);
     // Sold their own membership at the counter, for that child by the guardian's number: the desk books them.
     const sold = await membershipsRoute.POST(
       req("http://localhost/api/admin/memberships", "POST", manager.cookie, {

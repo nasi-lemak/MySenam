@@ -76,6 +76,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/inductions\/\d+$/, methods: ["PATCH"] },
   // Asking now whether bookings and court time agree at their venues: a manager's (lib/integrity.ts).
   { path: /^\/api\/admin\/integrity$/, methods: "all" },
+  // Which of the venue's policies its managers may override for one booking (lib/policy-overrides.ts; ADR 0026).
+  { path: /^\/api\/admin\/policy-overrides$/, methods: ["POST"] },
 ];
 
 export type StaffRole = "manager" | "desk";

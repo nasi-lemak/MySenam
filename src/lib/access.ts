@@ -160,7 +160,8 @@ export async function eligible(venueId: number, userId: number, mode?: VenueAcce
 
 /**
  * Why this customer may not book, enrol, queue or join here, or null if they
- * may. Not asked of staff booking at the counter.
+ * may. The account, online; at the counter and through the API the person
+ * booked is asked instead (`numberAccessRefusal`).
  */
 export async function accessRefusal(venueId: number, userId: number | null): Promise<Refusal | null> {
   const { access } = await accessSettings(venueId);
@@ -168,6 +169,55 @@ export async function accessRefusal(venueId: number, userId: number | null): Pro
   if (userId === null) return refuse(access === "members" ? "MEMBERS_SIGN_IN" : "PRIVATE_SIGN_IN");
   if (await eligible(venueId, userId, access)) return null;
   return refuse(access === "members" ? "MEMBERS_ONLY" : "PRIVATE_VENUE");
+}
+
+/**
+ * Who may be booked at a members-only or private venue at the counter or
+ * through the venue's API key (the owner's decision of 28 October 2026;
+ * lib/limits.ts `policyCheck`): the person being booked, not whoever is
+ * signed in, so staff are never asked to sign in as the member (B20).
+ *
+ * - Members only: the number, on the venue's word, holds a membership here
+ *   or is on the venue's list, on every date booked (lib/entitlements.ts
+ *   `memberCover`, as the customer's own place is checked); or, where only
+ *   people named take places, each of them is covered on every date by
+ *   their own membership or a family one naming them.
+ * - Private: the number is on the venue's list on every date booked.
+ *
+ * No dates (a class place asked without its date): today. Null where they may.
+ */
+export async function numberAccessRefusal(
+  venueId: number,
+  who: { phone: string; by: "staff" | "api"; participants: { id: number; name: string }[]; customerTakesPart: boolean },
+  dates: string[]
+): Promise<Refusal | null> {
+  const { access } = await accessSettings(venueId);
+  if (access === "public") return null;
+  const days = dates.length > 0 ? [...new Set(dates)] : [todayISO()];
+  const booker = { phone: who.phone, by: who.by };
+  if (access === "private") {
+    for (const day of days) if (!(await listedOn(venueId, booker, day))) return refuse("R9_NOT_LISTED");
+    return null;
+  }
+  // Imported here, not at the top: lib/entitlements.ts reads this module.
+  const { coverRefusal, memberCover } = await import("./entitlements");
+  const lacking = async (participantId: number | null, name: string) => {
+    for (const day of days) {
+      const cover = await memberCover(venueId, { participantId, name }, participantId === null ? booker : null, day);
+      if (!cover.covered) return cover;
+    }
+    return null;
+  };
+  if (!(await lacking(null, ""))) return null;
+  // Only people named take places: each their own member, the first who is not named with why.
+  if (!who.customerTakesPart && who.participants.length > 0) {
+    for (const p of who.participants) {
+      const short = await lacking(p.id, p.name);
+      if (short) return coverRefusal(venueId, short);
+    }
+    return null;
+  }
+  return refuse("R9_NOT_MEMBER");
 }
 
 /** Private venues this account is on the list of, for its account page. */

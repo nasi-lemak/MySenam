@@ -4,7 +4,7 @@ import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import BookingTermsNotice from "@/components/BookingTermsNotice";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Booking, busyness, Court, CourtAvailability, isHire, isShared, MAX_RECUR_WEEKS, MAX_GROUP_COURTS, Sport, Pass, PublicPolicy, StartOption, VenueClosure } from "@/lib/types";
+import { Booking, busyness, COUNTER_METHODS, Court, CourtAvailability, isHire, isShared, MAX_RECUR_WEEKS, MAX_GROUP_COURTS, Sport, Pass, PublicPolicy, StartOption, VenueClosure, type CounterMethod } from "@/lib/types";
 import { headedRows, placesPerBooking } from "@/lib/court-activities";
 import { concessionWords } from "@/lib/concessions-shared";
 import { pricedByQuantity } from "@/lib/pricing";
@@ -998,8 +998,23 @@ function BookingForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [splitKey]);
 
+  // At the counter, what the last refusal lets staff do (lib/counter-policy.ts): take payment now (no-show
+  // strikes, the guest limit), override it for this booking (a manager, where the venue allows), or ask a manager.
+  const [counterOffer, setCounterOffer] = useState<{ payNow: boolean; policy: string | null; overridable: boolean; askManager: boolean } | null>(null);
+  const [counterExtra, setCounterExtra] = useState<{ paidAtCounter?: CounterMethod; overridePolicies?: string[]; overrideReason?: string }>({});
+  const [payVia, setPayVia] = useState<CounterMethod>("cash");
+  const [overrideWhy, setOverrideWhy] = useState("");
+  useEffect(() => {
+    setCounterOffer(null);
+    setCounterExtra({});
+  }, [court.id, start, length, date, phone, weeks]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    await send(counterExtra);
+  }
+
+  async function send(extra: typeof counterExtra) {
     if (!atCounter && forIds.length === 0 && !meToo) {
       onError(t("pbk.nobody"));
       return;
@@ -1051,9 +1066,17 @@ function BookingForm({
               : { concessionId: concession.id }
             : {}),
           ...(counted ? { players } : {}),
+          // At the counter: paid as it is booked, or a manager's override with its reason.
+          ...(atCounter ? extra : {}),
         }),
       });
       const data = await res.json();
+      if (atCounter)
+        setCounterOffer(
+          !res.ok && (data?.payNow === true || data?.overridable === true || data?.askManager === true)
+            ? { payNow: data.payNow === true, policy: typeof data.policy === "string" ? data.policy : null, overridable: data.overridable === true, askManager: data.askManager === true }
+            : null
+        );
       // Back to this very selection once the phone is sorted out.
       if (
         !res.ok &&
@@ -1183,6 +1206,67 @@ function BookingForm({
               : t("form.book", { amount: withExtras ?? 0 })}
         </button>
       </div>
+      {atCounter && counterOffer && (
+        <div className="mt-2 space-y-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-slate-700">
+          {counterOffer.payNow && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{t("r9.form.payNow")}</span>
+              <label className="flex items-center gap-1">
+                {t("r9.form.payVia")}
+                <select value={payVia} onChange={(e) => setPayVia(e.target.value as CounterMethod)} className="rounded-md border border-slate-300 px-1 py-0.5 text-xs">
+                  {COUNTER_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {t(`r9.form.via.${m}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => {
+                  const next = { ...counterExtra, paidAtCounter: payVia };
+                  setCounterExtra(next);
+                  void send(next);
+                }}
+                className="rounded-md bg-teal-600 px-2 py-1 font-semibold text-white disabled:opacity-50"
+              >
+                {t("r9.form.payNowBook")}
+              </button>
+            </div>
+          )}
+          {counterOffer.overridable && counterOffer.policy && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{t("r9.form.override")}</span>
+              <input
+                value={overrideWhy}
+                onChange={(e) => setOverrideWhy(e.target.value)}
+                placeholder={t("r9.form.overrideReason")}
+                aria-label={t("r9.form.overrideReason")}
+                maxLength={300}
+                className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs"
+              />
+              <button
+                type="button"
+                disabled={submitting || overrideWhy.trim().length < 5}
+                onClick={() => {
+                  const next = {
+                    ...counterExtra,
+                    overridePolicies: [...new Set([...(counterExtra.overridePolicies ?? []), counterOffer.policy!])],
+                    overrideReason: overrideWhy.trim(),
+                  };
+                  setCounterExtra(next);
+                  void send(next);
+                }}
+                className="rounded-md bg-amber-600 px-2 py-1 font-semibold text-white disabled:opacity-50"
+              >
+                {t("r9.form.overrideBook")}
+              </button>
+            </div>
+          )}
+          {counterOffer.askManager && <p>{t("r9.form.askManager")}</p>}
+        </div>
+      )}
       {counted && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <label className="flex items-center gap-2">

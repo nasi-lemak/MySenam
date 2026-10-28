@@ -12,9 +12,11 @@ import { phoneKey } from "./phone";
  *
  * "One household" is the people a venue's list gives the same unit
  * (lib/access.ts): a family sharing unit A-12-3 shares its allowance. Anybody
- * else is counted by their own number and account. Only court bookings count
- * (a class place is limited by the class). Staff booking at the counter are
- * not held to these.
+ * else is counted by their own number and account. Only court bookings are
+ * counted; a class place asked for is checked against them as one more. Every
+ * path asks them: online, the counter and the venue's API key (lib/limits.ts
+ * `policyCheck`); a manager may go past the limits for one booking where the
+ * venue allows it (lib/policy-overrides.ts).
  *
  * How far ahead: the site's 14 days unless the venue says otherwise, from
  * today only up to 90 days. Its members (a live membership, lib/store.ts

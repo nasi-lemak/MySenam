@@ -268,7 +268,8 @@ describe("at the counter", () => {
     await blockPhone({ venueId: venue, phone: refused, adminId: manager.id });
     const blocked = await counter(desk, { courtId: hall, date, start: at(11), end: at(12), name: "Refused", phone: refused });
     expect(blocked.status).toBe(403);
-    expect(blocked.body.code).toBe("PHONE_BLOCKED");
+    // Said for staff at the counter (ADR 0026).
+    expect(blocked.body.code).toBe("R9_DESK_PHONE_BLOCKED");
 
     // A members' session at a members-only club: the child needs their own membership even to wait (asked before anything else).
     const made = await createClassSessions({ courtId: clubPool, name: "Junior swim", instructor: "Coach", date, start: at(17), end: at(18), capacity: 1, price: 15 });
