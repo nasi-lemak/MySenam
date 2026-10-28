@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { ApprovalRequest, Decision } from "@/lib/approvals";
 import { activityIcon } from "@/lib/activity-registry";
@@ -260,7 +261,7 @@ export function ApprovalReview({
   const load = useCallback(() => {
     fetch(listUrl, { cache: "no-store" })
       .then(async (r) => {
-        const data = await r.json();
+        const data = await readJson(r);
         if (!r.ok) throw new Error(explain(data));
         setRequests(data.requests as ApprovalRequest[]);
       })
@@ -289,7 +290,7 @@ export function ApprovalReview({
     setError(null);
     try {
       const res = await fetch(decideUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(decideBody(r.id, action, reason, payLater)) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(explain(data));
       load();
       onChange?.();

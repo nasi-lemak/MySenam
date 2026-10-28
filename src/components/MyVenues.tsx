@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -13,7 +14,7 @@ export function MyVenues() {
   const [venues, setVenues] = useState<{ id: number; name: string; area: string }[]>([]);
   useEffect(() => {
     void fetch("/api/my/venues", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : { venues: [] }))
+      .then((r) => (r.ok ? readJson(r) : { venues: [] }))
       .then((d: { venues?: { id: number; name: string; area: string }[] }) => setVenues(d.venues ?? []))
       .catch(() => setVenues([]));
   }, []);

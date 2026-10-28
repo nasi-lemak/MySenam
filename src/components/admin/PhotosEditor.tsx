@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import { MAX_CAPTION, MAX_PHOTOS, type Photo } from "@/lib/photos-shared";
 import type { ManagedVenue } from "./shared";
@@ -20,7 +21,7 @@ export function PhotosEditor({ venue }: { venue: ManagedVenue }) {
 
   const load = useCallback(async () => {
     const res = await fetch(base, { cache: "no-store" });
-    if (res.ok) setPhotos((await res.json()).photos);
+    if (res.ok) setPhotos((await readJson(res)).photos);
   }, [base]);
   // Only when opened: an owner looking at a hundred venues does not need a hundred galleries.
   useEffect(() => {
@@ -35,7 +36,7 @@ export function PhotosEditor({ venue }: { venue: ManagedVenue }) {
       const form = new FormData();
       form.set("file", file);
       const res = await fetch(base, { method: "POST", body: form });
-      const data = await res.json().catch(() => ({}));
+      const data = await readJson(res).catch(() => ({}));
       if (!res.ok) {
         setError(`${file.name}: ${t.err(data, t("ph.couldNotAdd"))}`);
         break;
@@ -52,7 +53,7 @@ export function PhotosEditor({ venue }: { venue: ManagedVenue }) {
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("ph.failed")));
     setPhotos(data.photos);
   }

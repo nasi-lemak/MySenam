@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { mostPerBookingAllowed, placesPerBooking, sportsOf } from "@/lib/court-activities";
 import { activity, activityIcon } from "@/lib/activity-registry";
 import { PeakHoursEditor } from "./PeakHoursEditor";
@@ -80,7 +81,7 @@ export function CourtsTab({
   async function refreshVenues() {
     // The venues this admin manages, not the public list, which is paged.
     const res = await fetch("/api/admin/auth/me", { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     onVenuesChange(data.venues);
   }
 
@@ -103,7 +104,7 @@ export function CourtsTab({
           deposit: Number(deposit),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setNotice(t("ct.saved", { name: data.court.name }));
       refreshVenues();
@@ -122,7 +123,7 @@ export function CourtsTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setNotice(t("ct.savedFeatures", { name: data.court.name }));
       refreshVenues();
@@ -149,7 +150,7 @@ export function CourtsTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setNotice(t("ct.savedBooking", { name: data.court.name }));
       refreshVenues();
@@ -164,7 +165,7 @@ export function CourtsTab({
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/courts/${court.id}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setDoor({
         court,
@@ -193,7 +194,7 @@ export function CourtsTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(changes),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setDoor({
         court: data.court,
@@ -216,7 +217,7 @@ export function CourtsTab({
     setError(null);
     try {
       const res = await fetch(`/api/admin/access?venueId=${venueId}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setReveals(data.reveals);
     } catch (err) {
@@ -226,7 +227,7 @@ export function CourtsTab({
 
   return (
     <div className="space-y-4">
-      <select
+      <select aria-label={t("q8b.l.venue")}
         value={venueId}
         onChange={(e) => setVenueId(Number(e.target.value))}
         className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
@@ -402,7 +403,7 @@ export function CourtsTab({
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <div>
               <label className="block text-xs font-medium text-slate-600">{t("ct.lockCode")}</label>
-              <input
+              <input aria-label={t("ct.lockCode")}
                 value={door.code}
                 onChange={(e) => setDoor({ ...door, code: e.target.value })}
                 maxLength={MAX_ACCESS_CODE}
@@ -561,7 +562,7 @@ function CourtRow({
   return (
     <tr className="border-b border-slate-100 last:border-0">
       <td className="px-3 py-2">
-        <input
+        <input aria-label={t("ct.col.court")}
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="w-44 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
@@ -571,7 +572,7 @@ function CourtRow({
         {activityIcon(court.sport)} {sportLabel(t.customer, court.sport)}
       </td>
       <td className="px-3 py-2">
-        <input
+        <input aria-label={t("q8b.l.of", { field: t("ct.col.offPeak"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -581,7 +582,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input
+        <input aria-label={t("q8b.l.of", { field: t("ct.col.peak"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -591,7 +592,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input
+        <input aria-label={t("q8b.l.of", { field: t("ct.col.memberOffPeak"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -603,7 +604,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input
+        <input aria-label={t("q8b.l.of", { field: t("ct.col.memberPeak"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -615,7 +616,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input
+        <input aria-label={t("q8b.l.of", { field: t("ct.col.capacity"), thing: court.name })}
           type="number"
           min={1}
           max={MAX_CAPACITY}
@@ -626,7 +627,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input
+        <input aria-label={t("q8b.l.of", { field: t("ct.col.deposit"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -745,7 +746,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
     setError(null);
     try {
       const res = await fetch(`/api/admin/inductions?venueId=${venueId}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setInductions(data.inductions);
     } catch (err) {
@@ -768,7 +769,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...form, ...(who ? { participantId: who.id } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setNotice(t("ct.inducted", { name: data.induction.name }));
       setForm({ phone: "", name: "", note: "" });
@@ -785,7 +786,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/inductions/${induction.id}`, { method: "DELETE" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setNotice(t("ct.withdrawn", { name: induction.name }));
       load();
@@ -815,10 +816,10 @@ function InductionsPanel({ venueId }: { venueId: number }) {
           required
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder={t("c.name")}
+          placeholder={t("c.name")} aria-label={t("c.name")}
           className="w-40 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
         />
-        <input
+        <input aria-label={t("c.phone")}
           required
           value={form.phone}
           onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -828,7 +829,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
         <input
           value={form.note}
           onChange={(e) => setForm({ ...form, note: e.target.value })}
-          placeholder={t("ct.inductNotePh")}
+          placeholder={t("ct.inductNotePh")} aria-label={t("ct.inductNotePh")}
           className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
         />
         <button
@@ -938,7 +939,7 @@ function WhoseInduction({ induction, venueId, onDone }: { induction: Induction; 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ participantId: who?.id ?? null, reason }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       onDone();
     } catch (err) {
@@ -953,7 +954,7 @@ function WhoseInduction({ induction, venueId, onDone }: { induction: Induction; 
       <input
         value={reason}
         onChange={(e) => setReason(e.target.value)}
-        placeholder={t("ptc.ind.reason")}
+        placeholder={t("ptc.ind.reason")} aria-label={t("ptc.ind.reason")}
         className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
       />
       {error && <p className="text-xs text-red-700">{error}</p>}
@@ -983,7 +984,7 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/court-links?venueId=${venueId}`, { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     if (res.ok) setLinks(data.links);
   }, [venueId]);
   useEffect(() => {
@@ -1005,7 +1006,7 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ courtId: editing.wholeId, parts: editing.parts }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setEditing(null);
       await load();

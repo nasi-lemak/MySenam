@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { ClockField } from "@/components/ClockField";
 import { useCallback, useEffect, useState } from "react";
@@ -55,7 +56,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     setError(null);
     try {
       const res = await fetch(`/api/admin/classes?venueId=${venueId}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cls.loadFailed")));
       setClasses(data.classes);
       setWaiting(data.waiting ?? {});
@@ -91,7 +92,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           who: form.who,
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cls.scheduleFailed")));
       setNotice(
         data.classes.length > 1
@@ -111,7 +112,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/classes/${session.id}`, { method: "DELETE" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cls.cancelFailed")));
       setNotice(t("cls.cancelled", { n: data.released }));
       load();
@@ -124,7 +125,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     setError(null);
     try {
       const res = await fetch(`/api/admin/classes/${session.id}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cls.rosterFailed")));
       setRoster(data);
     } catch (err) {
@@ -134,6 +135,8 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
 
   const inputClass =
     "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+  // A field's name above it.
+  const fieldClass = "flex flex-col gap-1 text-xs font-medium text-slate-500";
   // The sentence around the link-like name, so each language can put it where it reads naturally.
   const [needsBefore, needsAfter] = t("cls.needsShared", { place: "\u0000" }).split("\u0000");
   const headings: (StaffPhrase | null)[] = [
@@ -150,17 +153,20 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
 
   return (
     <div className="space-y-4">
-      <select
-        value={venueId}
-        onChange={(e) => setVenueId(Number(e.target.value))}
-        className={inputClass}
-      >
-        {venues.map((v) => (
-          <option key={v.id} value={v.id}>
-            {v.name}
-          </option>
-        ))}
-      </select>
+      <label className={fieldClass}>
+        {t("q8b.l.venue")}
+        <select
+          value={venueId}
+          onChange={(e) => setVenueId(Number(e.target.value))}
+          className={inputClass}
+        >
+          {venues.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -270,81 +276,112 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
         >
           <div className="w-full text-sm font-semibold text-slate-700">{t("cls.scheduleTitle")}</div>
-          <input
-            required minLength={2} placeholder={t("cls.namePh")} value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className={`w-40 ${inputClass}`}
-          />
-          <input
-            required minLength={2} placeholder={t("cls.col.instructor")} value={form.instructor}
-            onChange={(e) => setForm({ ...form, instructor: e.target.value })}
-            className={`w-36 ${inputClass}`}
-          />
-          <select
-            required value={form.courtId}
-            onChange={(e) => setForm({ ...form, courtId: e.target.value })}
-            className={inputClass}
-          >
-            <option value="">{t("cls.wherePh")}</option>
-            {hostable.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.capacity})
-              </option>
-            ))}
-          </select>
-          <input
-            required type="date" value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })}
-            className={inputClass}
-          />
-          <ClockField label={t("cls.starts")} value={form.start} onChange={(m) => setForm({ ...form, start: m })} className={`w-28 ${inputClass}`} />
-          <ClockField label={t("cls.ends")} value={form.end} after={form.start} onChange={(m) => setForm({ ...form, end: m })} className={`w-28 ${inputClass}`} />
-          <input
-            required type="number" min={1} value={form.capacity}
-            onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-            title={t("cls.seats")} className={`w-20 ${inputClass}`}
-          />
-          <input
-            required type="number"
-            step={0.01} min={0} value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })}
-            title={t("cls.pricePer")} className={`w-20 ${inputClass}`}
-          />
-          <select
-            value={form.who}
-            onChange={(e) => setForm({ ...form, who: e.target.value })}
-            title={t("cls.whoCan")}
-            className={inputClass}
-          >
-            <option value="anyone">{t("cls.anyone")}</option>
-            <option value="women">{t("cls.womenOnly")}</option>
-            <option value="men">{t("cls.menOnly")}</option>
-          </select>
-          <select
-            value={form.weeks}
-            onChange={(e) => setForm({ ...form, weeks: e.target.value })}
-            title={t("cls.repeat")}
-            className={inputClass}
-          >
-            {Array.from({ length: MAX_CLASS_WEEKS }, (_, i) => i + 1).map((w) => (
-              <option key={w} value={w}>
-                {w === 1 ? t("cls.once") : t("cls.nWeeks", { n: w })}
-              </option>
-            ))}
-          </select>
-          {Number(form.weeks) > 1 && (
+          {/* Each field named where it is seen, so a half-filled form can still be read (audit R8 X2-18). */}
+          <label className={fieldClass}>
+            {t("cls.namePh")}
+            <input
+              required minLength={2} value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className={`w-40 ${inputClass}`}
+            />
+          </label>
+          <label className={fieldClass}>
+            {t("cls.col.instructor")}
+            <input
+              required minLength={2} value={form.instructor}
+              onChange={(e) => setForm({ ...form, instructor: e.target.value })}
+              className={`w-36 ${inputClass}`}
+            />
+          </label>
+          <label className={fieldClass}>
+            {t("cls.col.where")}
             <select
-              value={form.termOff}
-              onChange={(e) => setForm({ ...form, termOff: e.target.value })}
-              title={t("cls.termOffTitle")}
+              required value={form.courtId}
+              onChange={(e) => setForm({ ...form, courtId: e.target.value })}
               className={inputClass}
             >
-              {[0, 5, 10, 15, 20, 25, 30].map((p) => (
-                <option key={p} value={p}>
-                  {p === 0 ? t("cls.noTermDiscount") : t("cls.termOff", { p })}
+              <option value="">{t("cls.wherePh")}</option>
+              {hostable.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.capacity})
                 </option>
               ))}
             </select>
+          </label>
+          <label className={fieldClass}>
+            {t("q8b.l.date")}
+            <input
+              required type="date" value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              className={inputClass}
+            />
+          </label>
+          <label className={fieldClass}>
+            {t("cls.starts")}
+            <ClockField label={t("cls.starts")} value={form.start} onChange={(m) => setForm({ ...form, start: m })} className={`w-28 ${inputClass}`} />
+          </label>
+          <label className={fieldClass}>
+            {t("cls.ends")}
+            <ClockField label={t("cls.ends")} value={form.end} after={form.start} onChange={(m) => setForm({ ...form, end: m })} className={`w-28 ${inputClass}`} />
+          </label>
+          <label className={fieldClass}>
+            {t("cls.seats")}
+            <input
+              required type="number" min={1} value={form.capacity}
+              onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+              className={`w-20 ${inputClass}`}
+            />
+          </label>
+          <label className={fieldClass}>
+            {t("cls.pricePer")}
+            <input
+              required type="number"
+              step={0.01} min={0} value={form.price}
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
+              className={`w-20 ${inputClass}`}
+            />
+          </label>
+          <label className={fieldClass}>
+            {t("cls.whoCan")}
+            <select
+              value={form.who}
+              onChange={(e) => setForm({ ...form, who: e.target.value })}
+              className={inputClass}
+            >
+              <option value="anyone">{t("cls.anyone")}</option>
+              <option value="women">{t("cls.womenOnly")}</option>
+              <option value="men">{t("cls.menOnly")}</option>
+            </select>
+          </label>
+          <label className={fieldClass}>
+            {t("cls.repeat")}
+            <select
+              value={form.weeks}
+              onChange={(e) => setForm({ ...form, weeks: e.target.value })}
+              className={inputClass}
+            >
+              {Array.from({ length: MAX_CLASS_WEEKS }, (_, i) => i + 1).map((w) => (
+                <option key={w} value={w}>
+                  {w === 1 ? t("cls.once") : t("cls.nWeeks", { n: w })}
+                </option>
+              ))}
+            </select>
+          </label>
+          {Number(form.weeks) > 1 && (
+            <label className={fieldClass} title={t("cls.termOffTitle")}>
+              {t("q8b.l.termOff")}
+              <select
+                value={form.termOff}
+                onChange={(e) => setForm({ ...form, termOff: e.target.value })}
+                className={inputClass}
+              >
+                {[0, 5, 10, 15, 20, 25, 30].map((p) => (
+                  <option key={p} value={p}>
+                    {p === 0 ? t("cls.noTermDiscount") : t("cls.termOff", { p })}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
           <button
             type="submit"

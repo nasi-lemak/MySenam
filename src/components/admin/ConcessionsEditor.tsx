@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityKeys } from "@/lib/activity-registry";
 import { sportLabel } from "@/lib/i18n";
 import { useCallback, useEffect, useState } from "react";
@@ -50,7 +51,7 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/concessions?venueId=${venueId}`, { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     if (res.ok) setList(data.concessions);
   }, [venueId]);
   useEffect(() => {
@@ -69,7 +70,7 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...form, percent: Number(form.percent), sport: form.sport || null, preset: unchanged }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       setForm({ name: "", percent: "20", proof: "", sport: "", offPeakOnly: false, preset: null, scope: "booking" });
       await load();
@@ -83,7 +84,7 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
   async function withdraw(c: Concession) {
     if (!window.confirm(t("con.withdrawConfirm", { name: nameOf(c) }))) return;
     const res = await fetch(`/api/admin/concessions?venueId=${venueId}&id=${c.id}`, { method: "DELETE" });
-    if (!res.ok) setError(t.err(await res.json()));
+    if (!res.ok) setError(t.err(await readJson(res)));
     await load();
   }
 

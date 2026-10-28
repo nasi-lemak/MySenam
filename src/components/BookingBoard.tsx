@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import BookingTermsNotice from "@/components/BookingTermsNotice";
@@ -29,6 +30,10 @@ import { SplitCost } from "@/components/SplitCost";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
+import Dialog from "@/components/Dialog";
+import VenueContact from "@/components/VenueContact";
+import type { VenueContact as VenueContactInfo } from "@/lib/venue-contact";
+import LeaveLink from "@/components/WaitlistLeaveLink";
 import MembershipEligibility, { type MemberLine } from "@/components/MembershipEligibility";
 import { lengthLabel } from "@/lib/length-label";
 import { money, intlTag, region, plainAmount, localTimeOf, shortDate } from "@/lib/region";
@@ -41,6 +46,8 @@ interface Props {
   dates: string[];
   /** A booking to pre-select, e.g. when arriving from a search result: its start and length in minutes. */
   initial?: { sport?: Sport; date?: string; courtId?: number; start?: number; minutes?: number; heading?: string };
+  /** The venue's number (and WhatsApp), shown with a refusal that may send them to call it (lib/venue-contact.ts). */
+  contact?: VenueContactInfo | null;
 }
 
 /** A selection on the "Any court" row, rather than on a named court. */
@@ -169,7 +176,7 @@ function formatDateLabel(t: T, date: string): { day: string; num: string } {
   };
 }
 
-export default function BookingBoard({ venueId, venueName = "", sports, dates, initial }: Props) {
+export default function BookingBoard({ venueId, venueName = "", sports, dates, initial, contact = null }: Props) {
   const t = useT();
   const [sport, setSport] = useState<Sport>(
     initial?.sport && sports.includes(initial.sport) ? initial.sport : sports[0]
@@ -258,7 +265,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
         `/api/availability?venueId=${venueId}&date=${date}&sport=${sport}${taking ? `&taking=${taking}` : ""}`,
         { cache: "no-store" }
       );
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("board.loadFailed"));
       const courts: CourtAvailability[] = data.availability;
       setAvailability(courts);
@@ -490,15 +497,17 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
           {error}
         </div>
       )}
-      {bookingError && (
+      {/* With the form open, it says why itself, where it is seen (audit R8 X2-6). */}
+      {bookingError && !selection && (
         <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {bookingError}
+          <VenueContact t={t} venue={venueName} contact={contact} />
         </div>
       )}
 
       {closure && !loading && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <strong>{t("board.closed", { date: closure.date })}</strong>{" "}
+          <strong>{t("board.closed", { date: shortDate(closure.date, t.locale, true) })}</strong>{" "}
           {t("board.pickAnother")}
           {closure.reason && <div className="mt-0.5 text-amber-700">{closure.reason}</div>}
         </div>
@@ -716,11 +725,15 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
         </div>
       )}
 
-      {/* Booking bar */}
+      {/* Booking bar: a bottom sheet on a phone, with room below the grid to scroll every row clear of it. */}
+      {selection && selectedCourt && picked && <div aria-hidden="true" className="h-[60vh] sm:hidden" />}
       {selection && selectedCourt && picked && (
         <BookingForm
           t={t}
           venueName={venueName}
+          contact={contact}
+          error={bookingError}
+          onClose={() => setSelection(null)}
           court={selectedCourt}
           date={date}
           selection={selection}
@@ -773,6 +786,9 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
 function BookingForm({
   t,
   venueName,
+  contact = null,
+  error = null,
+  onClose,
   court,
   date,
   selection,
@@ -792,6 +808,12 @@ function BookingForm({
 }: {
   t: T;
   venueName: string;
+  /** The venue's number, shown under a refusal (lib/venue-contact.ts). */
+  contact?: VenueContactInfo | null;
+  /** Why the last try was refused: said in the form, by the button, and given the focus. */
+  error?: string | null;
+  /** Closes the form, letting the time go: the sheet's ×. */
+  onClose: () => void;
   court: Court;
   date: string;
   selection: Selection;
@@ -891,7 +913,7 @@ function BookingForm({
         }`,
         { cache: "no-store" }
       )
-        .then((res) => res.json())
+        .then((res) => readJson(res))
         .then((data) => live && typeof data.total === "number" && setQuote({ others: [], ...data }))
         .catch(() => {});
     }, 200);
@@ -944,7 +966,7 @@ function BookingForm({
   // Prefill contact details: from the account, or from this device's last booking.
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => res.json())
+      .then((res) => readJson(res))
       .then((data) => {
         if (!data.user) {
           const guest = rememberedGuest();
@@ -961,21 +983,21 @@ function BookingForm({
         setPhone((v) => v || data.user.phone);
         setEmail((v) => v || data.user.email);
         fetch(`/api/my/accounts?venueId=${court.venueId}`, { cache: "no-store" })
-          .then((res) => (res.ok ? res.json() : null))
+          .then((res) => (res.ok ? readJson(res) : null))
           .then((data) => data && setAccounts(data.accounts))
           .catch(() => {});
         fetch("/api/my/people", { cache: "no-store" })
-          .then((res) => (res.ok ? res.json() : null))
+          .then((res) => (res.ok ? readJson(res) : null))
           .then((data) => data && setPeople(data.people))
           .catch(() => {});
         return fetch(`/api/my/wallet?venueId=${court.venueId}`, { cache: "no-store" });
       })
-      .then((res) => (res && res.ok ? res.json() : null))
+      .then((res) => (res && res.ok ? readJson(res) : null))
       .then((wallet) => {
         if (wallet) setBalance(wallet.balance);
         return fetch("/api/my/passes", { cache: "no-store" });
       })
-      .then((res) => (res && res.ok ? res.json() : null))
+      .then((res) => (res && res.ok ? readJson(res) : null))
       .then((data) => {
         if (!data) return;
         // Only passes that could actually pay for this court.
@@ -1023,6 +1045,12 @@ function BookingForm({
     e.preventDefault();
     await send(counterExtra);
   }
+
+  // A refusal is given the focus, so a screen reader says it and a phone scrolls the sheet to it.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
 
   async function send(extra: typeof counterExtra) {
     if (!atCounter && forIds.length === 0 && !meToo) {
@@ -1082,7 +1110,7 @@ function BookingForm({
           ...(atCounter && guestsOfMembers && asGuest && hostPhone.trim() !== "" ? { guestOf: hostPhone.trim() } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (atCounter)
         setCounterOffer(
           !res.ok && (data?.payNow === true || data?.overridable === true || data?.askManager === true)
@@ -1111,14 +1139,29 @@ function BookingForm({
   return (
     <form
       onSubmit={submit}
-      // Above the grid's sticky court names, which would otherwise draw over it on a phone.
-      className="sticky bottom-4 z-20 rounded-xl border border-teal-200 bg-white p-4 shadow-lg"
+      aria-label={t("q8b.form.label")}
+      data-testid="booking-form"
+      // A bottom sheet on a phone, scrolling inside and no taller than 60% of the screen, so the grid stays in
+      // reach above it (audit R8 X2-6); on a wider screen it sits under the grid. Above the grid's sticky court
+      // names either way, which would otherwise draw over it.
+      className="fixed inset-x-0 bottom-0 z-30 max-h-[60vh] overflow-y-auto rounded-t-2xl border-t border-teal-200 bg-white p-4 pb-6 shadow-[0_-8px_24px_rgba(15,23,42,0.18)] sm:sticky sm:inset-x-auto sm:bottom-4 sm:z-20 sm:max-h-none sm:overflow-visible sm:rounded-xl sm:border sm:pb-4 sm:shadow-lg"
     >
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[12rem] flex-1">
-          <div className="font-semibold text-teal-700">{court.heading ? `${court.heading} · ${court.name}` : court.name}</div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="font-semibold text-teal-700">{court.heading ? `${court.heading} · ${court.name}` : court.name}</div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t("q8b.form.close")}
+              title={t("q8b.form.close")}
+              className="-mr-1 -mt-1 rounded-full px-2 text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            >
+              ×
+            </button>
+          </div>
           <div className="text-sm text-slate-600">
-            {date} · {formatMinute(start, t.locale)} – {formatMinute(end, t.locale)} · {lengthLabel(t, length)} ·{" "}
+            {shortDate(date, t.locale, true)} · {formatMinute(start, t.locale)} – {formatMinute(end, t.locale)} · {lengthLabel(t, length)} ·{" "}
             <span className="font-semibold text-slate-900">
               {withExtras === null ? t("quote.loading") : withExtras === 0 ? t("price.free") : `${money(withExtras)}`}
             </span>
@@ -1206,17 +1249,6 @@ function BookingForm({
           </select>
         </label>
         )}
-        <button
-          type="submit"
-          disabled={submitting || withExtras === null || (quote !== null && !quote.allowed && !override)}
-          className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:opacity-50"
-        >
-          {submitting
-            ? t("form.booking")
-            : weeks > 1
-              ? t("form.bookWeeks", { weeks, amount: withExtras ?? 0 })
-              : t("form.book", { amount: withExtras ?? 0 })}
-        </button>
       </div>
       {atCounter && guestsOfMembers && (
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
@@ -1587,6 +1619,27 @@ function BookingForm({
       <div className="mt-3">
         <BookingTermsNotice venueId={court.venueId} sport={court.sport} />
       </div>
+      {/* Why the last try was refused, here by the button where it is seen, and read out (audit R8 X2-6). */}
+      {error && (
+        <div ref={errorRef} tabIndex={-1} role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 focus:outline-none">
+          {error}
+          <VenueContact t={t} venue={venueName} contact={contact} className="mt-1 text-xs text-red-800" />
+        </div>
+      )}
+      {/* Last, after everything still to choose (who takes part, the waiver, a code, the terms), with the price it will be. */}
+      <div className="mt-3 flex justify-end">
+        <button
+          type="submit"
+          disabled={submitting || withExtras === null || (quote !== null && !quote.allowed && !override)}
+          className="w-full rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:opacity-50 sm:w-auto"
+        >
+          {submitting
+            ? t("form.booking")
+            : weeks > 1
+              ? t("form.bookWeeks", { weeks, amount: withExtras ?? 0 })
+              : t("form.book", { amount: withExtras ?? 0 })}
+        </button>
+      </div>
     </form>
   );
 }
@@ -1727,11 +1780,10 @@ function ConfirmationModal({
     totalPrice: isSeries || isGroup ? seriesTotal : booking.totalPrice,
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+    <Dialog labelledBy="booking-done-title" describedBy={isGroup ? undefined : "booking-done-code"} onClose={onClose} className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
         <div className="text-center">
-          <div className="text-4xl">{holdUntil ? "⏳" : "✅"}</div>
-          <h2 className="mt-2 text-xl font-bold">
+          <div className="text-4xl" aria-hidden="true">{holdUntil ? "⏳" : "✅"}</div>
+          <h2 id="booking-done-title" className="mt-2 text-xl font-bold">
             {holdUntil
               ? t("hold.title")
               : isSeries
@@ -1752,7 +1804,7 @@ function ConfirmationModal({
             </p>
           )}
           {!isGroup && (
-            <div className="mt-4 rounded-xl bg-teal-50 py-4 text-3xl font-bold tracking-widest text-teal-700">
+            <div id="booking-done-code" className="mt-4 rounded-xl bg-teal-50 py-4 text-3xl font-bold tracking-widest text-teal-700">
               {seriesCode ?? booking.code}
             </div>
           )}
@@ -1764,7 +1816,7 @@ function ConfirmationModal({
             [t("done.court"), isGroup ? bookings.map((b) => courtName(b.courtId)).join(", ") : court.name],
             ...(isSeries
               ? ([] as [string, string][])
-              : ([[t("done.date"), booking.date]] as [string, string][])),
+              : ([[t("done.date"), shortDate(booking.date, t.locale, true)]] as [string, string][])),
             [t("done.time"), `${formatMinute(booking.startMin, t.locale)} – ${formatMinute(booking.endMin, t.locale)}`],
             ...((booking.players ?? 1) > 1 ? ([[t("done.players"), String(booking.players)]] as [string, string][]) : ([] as [string, string][])),
             ...(confirmation.addons?.length
@@ -1842,7 +1894,7 @@ function ConfirmationModal({
             <ul className="mt-1 space-y-0.5">
               {bookings.map((b) => (
                 <li key={b.id} className="flex justify-between">
-                  <span>📅 {b.date}</span>
+                  <span>📅 {shortDate(b.date, t.locale, true)}</span>
                   <span className="font-mono text-xs text-slate-500">
                     {b.code} · {b.totalPrice === 0 ? t("price.free") : `${money(b.totalPrice)}`}
                   </span>
@@ -1850,7 +1902,7 @@ function ConfirmationModal({
               ))}
               {skipped.map((s) => (
                 <li key={s.date} className="flex justify-between text-slate-400">
-                  <span>📅 {s.date}</span>
+                  <span>📅 {shortDate(s.date, t.locale, true)}</span>
                   <span className="text-xs">{t("done.skipped", { reason: s.reason })}</span>
                 </li>
               ))}
@@ -1880,7 +1932,7 @@ function ConfirmationModal({
             rel="noopener noreferrer"
             className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
           >
-            📅 Google Cal
+            📅 {t("q8b.googleCal")}
           </a>
           <button
             type="button"
@@ -1896,8 +1948,7 @@ function ConfirmationModal({
         >
           {t("done.close")}
         </button>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1923,6 +1974,8 @@ function SlotWaitlistModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [position, setPosition] = useState<number | null>(null);
+  // The private link that takes this entry off the list again (lib/store.ts leaveWaitlistByToken).
+  const [leaveToken, setLeaveToken] = useState<string | null>(null);
   // Who the place is for: the entry keeps them, and an offer is booked for them (lib/participant-bookings.ts).
   const [signedIn, setSignedIn] = useState(false);
   const people = useManagedPeople(signedIn);
@@ -1931,7 +1984,7 @@ function SlotWaitlistModal({
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => res.json())
+      .then((res) => readJson(res))
       .then((data) => {
         if (!data.user) {
           const guest = rememberedGuest();
@@ -1969,10 +2022,11 @@ function SlotWaitlistModal({
           ...whoBody(forIds, meToo),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok && typeof data?.code === "string" && (data.code.startsWith("GUARD_") || data.code.startsWith("PBK_"))) throw new Error(explainGuard(t, data));
       if (!res.ok) throw new Error(translateError(t, data) || t("queue.failed"));
       setPosition(data.position);
+      setLeaveToken(typeof data.leaveToken === "string" ? data.leaveToken : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("queue.failed"));
     } finally {
@@ -1984,12 +2038,11 @@ function SlotWaitlistModal({
     "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+    <Dialog labelledBy="slot-waitlist-title" onClose={onClose}>
         {position !== null ? (
           <div className="text-center">
-            <div className="text-4xl">⏳</div>
-            <h2 className="mt-2 text-xl font-bold">{t("queue.onTitle")}</h2>
+            <div className="text-4xl" aria-hidden="true">⏳</div>
+            <h2 id="slot-waitlist-title" className="mt-2 text-xl font-bold">{t("queue.onTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
               {t("queue.onBody", {
                 position,
@@ -2007,6 +2060,7 @@ function SlotWaitlistModal({
             <p className="mt-3 text-xs text-slate-500">
               {t("queue.onNote")}
             </p>
+            {leaveToken && <LeaveLink t={t} token={leaveToken} />}
             <button
               onClick={onClose}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
@@ -2016,9 +2070,9 @@ function SlotWaitlistModal({
           </div>
         ) : (
           <>
-            <h2 className="text-lg font-bold">{court.name}</h2>
+            <h2 id="slot-waitlist-title" className="text-lg font-bold">{court.name}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {date} · {formatMinute(minute, t.locale)} – {formatMinute(minute + length, t.locale)}
+              {shortDate(date, t.locale, true)} · {formatMinute(minute, t.locale)} – {formatMinute(minute + length, t.locale)}
             </p>
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               {t("queue.taken")}
@@ -2026,7 +2080,7 @@ function SlotWaitlistModal({
             <form onSubmit={submit} className="mt-4 space-y-3">
               <label className="block text-sm font-medium text-slate-700">
                 {t("form.name")}
-                <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+                <input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} data-autofocus />
               </label>
               <label className="block text-sm font-medium text-slate-700">
                 {t("form.phone")}
@@ -2046,7 +2100,7 @@ function SlotWaitlistModal({
                   setMeToo(me);
                 }}
               />
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
@@ -2066,7 +2120,7 @@ function SlotWaitlistModal({
             </form>
           </>
         )}
-      </div>
-    </div>
+    </Dialog>
   );
 }
+

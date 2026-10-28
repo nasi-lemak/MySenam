@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useState } from "react";
 import { Booking, Court } from "@/lib/types";
 import { formatHour, hoursUntilSlot } from "@/lib/time";
@@ -14,14 +15,16 @@ import { WithdrawPeople } from "@/components/WithdrawPeople";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
-import { money, intlTag, region } from "@/lib/region";
+import { money, region, localTimeOf, shortDate } from "@/lib/region";
+import VenueContact from "@/components/VenueContact";
+import type { VenueContact as VenueContactInfo } from "@/lib/venue-contact";
 import { concessionWords } from "@/lib/concessions-shared";
 import type { RefundStatus } from "@/lib/payments";
 
 interface Result {
   booking: Booking;
   court: Court;
-  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null; strikeLimit?: number | null; lastDate?: string };
+  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null; strikeLimit?: number | null; lastDate?: string; contact?: VenueContactInfo | null };
   payOnline?: boolean;
   /** On an unmanned resource: the door code or the counter, for the booking's whole time. */
   door?: { by: "code" | "counter"; partly: boolean } | null;
@@ -78,7 +81,7 @@ export default function MyBookingPage() {
         `/api/bookings?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}`,
         { cache: "no-store" }
       );
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.lookupFailed"));
       setResult(data);
       setDoor(null);
@@ -103,7 +106,7 @@ export default function MyBookingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, phone }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("door.failed"));
       setDoor({
         accessCode: data.accessCode,
@@ -142,7 +145,7 @@ export default function MyBookingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, phone }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
       setResult({ ...result, booking: data.booking });
       setKept(data.kept ?? null);
@@ -199,8 +202,9 @@ export default function MyBookingPage() {
       </form>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+          {result && <VenueContact t={t} venue={result.venue.name} contact={result.venue.contact} code={result.booking.code} className="mt-1 text-xs text-red-800" />}
         </div>
       )}
 
@@ -250,13 +254,7 @@ export default function MyBookingPage() {
           )}
           {b.status === "confirmed" && b.paymentStatus === "unpaid" && b.holdUntil && (
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
-              {t("hold.pending", {
-                time: new Date(`${b.holdUntil.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
-                  timeZone: result.venue.timeZone ?? region().timeZone,
-                  hour: "numeric",
-                  minute: "2-digit",
-                }),
-              })}
+              {t("hold.pending", { time: localTimeOf(b.holdUntil, result.venue.timeZone ?? region().timeZone, t.locale) })}
             </p>
           )}
           <dl className="mt-4 space-y-1.5 text-sm">
@@ -265,7 +263,7 @@ export default function MyBookingPage() {
               [t("mine.address"), result.venue.address],
               [t("mine.court"), result.court.name],
               ...((b.players ?? 1) > 1 ? [[t("done.players"), String(b.players)]] : []),
-              [t("mine.date"), b.date],
+              [t("mine.date"), shortDate(b.date, t.locale, true)],
               [t("mine.time"), `${formatHour(b.startHour, t.locale)} – ${formatHour(b.endHour, t.locale)}`],
               // Who takes part, where the booking is for somebody else (a child; ADR 0023).
               [t("mine.bookedBy"), b.participantName ? `${b.name} · ${t("guard.forLine", { name: b.participantName })}` : b.name],
@@ -291,6 +289,8 @@ export default function MyBookingPage() {
               </div>
             ))}
           </dl>
+          {/* Its number, for whatever here says to call the venue (audit R8 X2-10). */}
+          <VenueContact t={t} venue={result.venue.name} contact={result.venue.contact} code={b.code} />
           {result.receiptUrl && (
             <a href={result.receiptUrl} target="_blank" rel="noopener" className="mt-3 inline-block text-sm font-semibold text-teal-700 underline">
               {t("mine.receipt")}
@@ -451,7 +451,7 @@ export default function MyBookingPage() {
                         rel="noopener noreferrer"
                         className="rounded-lg border border-slate-300 py-2 text-center text-slate-700 hover:border-teal-500 hover:text-teal-700"
                       >
-                        📅 Google Cal
+                        📅 {t("q8b.googleCal")}
                       </a>
                       <button
                         type="button"
@@ -489,7 +489,7 @@ export default function MyBookingPage() {
                           `/api/bookings?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}`,
                           { cache: "no-store" }
                         );
-                        if (res.ok) setResult(await res.json());
+                        if (res.ok) setResult(await readJson(res));
                       }}
                       onClose={() => setChanging(false)}
                     />
@@ -513,7 +513,7 @@ export default function MyBookingPage() {
                   onDone={async (_booking, message) => {
                     setChanged(message);
                     const res = await fetch(`/api/bookings?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}`, { cache: "no-store" });
-                    if (res.ok) setResult(await res.json());
+                    if (res.ok) setResult(await readJson(res));
                   }}
                 />
               )}

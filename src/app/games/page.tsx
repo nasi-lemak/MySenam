@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { WHO, type Who } from "@/lib/who-shared";
 import { accountDetour } from "@/lib/phone-detour";
@@ -78,22 +79,22 @@ export default function GamesPage() {
       params.set("km", String(near.km));
     }
     const res = await fetch(`/api/games?${params}`, { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     setGames(data.games ?? []);
     setSignedIn(Boolean(data.signedIn));
     if (data.signedIn) {
       const [m, l] = await Promise.all([fetch("/api/my/games", { cache: "no-store" }), fetch("/api/my/levels", { cache: "no-store" })]);
-      if (m.ok) setMine(await m.json());
-      if (l.ok) setLevels((await l.json()).levels);
+      if (m.ok) setMine(await readJson(m));
+      if (l.ok) setLevels((await readJson(l)).levels);
       const s = await fetch("/api/games/series", { cache: "no-store" });
-      if (s.ok) setSeries((await s.json()).series);
+      if (s.ok) setSeries((await readJson(s)).series);
     }
     const q = new URLSearchParams(window.location.search);
     const sharedId = Number(q.get("game"));
     const link = q.get("link");
     if (sharedId > 0 && link) {
       const one = await fetch(`/api/games/${sharedId}?link=${encodeURIComponent(link)}`, { cache: "no-store" });
-      setShared(one.ok ? { game: (await one.json()).game, link } : null);
+      setShared(one.ok ? { game: (await readJson(one)).game, link } : null);
     }
     setRefreshKey((k) => k + 1);
   }, [sport, date, level, who, near]);
@@ -106,7 +107,7 @@ export default function GamesPage() {
     setError(null);
     setNotice(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok && accountDetour(data)) return;
     if (!res.ok) return setError(translateError(t, data) || data.error);
     if (data.url) {
@@ -123,7 +124,7 @@ export default function GamesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sport: s, level: l }),
     });
-    if (res.ok) setLevels((await res.json()).levels);
+    if (res.ok) setLevels((await readJson(res)).levels);
   }
 
   const chip = (on: boolean) =>
@@ -564,7 +565,7 @@ function OpenOne({
 
   useEffect(() => {
     fetch("/api/my/bookings", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : { bookings: [] }))
+      .then((r) => (r.ok ? readJson(r) : { bookings: [] }))
       .then((d) => setBookings(d.bookings ?? []));
   }, []);
 
@@ -615,7 +616,7 @@ function OpenOne({
             <select value={chosen?.code} onChange={(e) => setCode(e.target.value)} className={input}>
               {upcoming.map((b) => (
                 <option key={b.code} value={b.code}>
-                  {b.venueName}, {b.courtName}, {b.date} {formatHour(b.startHour, t.locale)}
+                  {b.venueName}, {b.courtName}, {shortDate(b.date, t.locale, true)} {formatHour(b.startHour, t.locale)}
                 </option>
               ))}
             </select>

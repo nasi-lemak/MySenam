@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { activityIcon } from "@/lib/activity-registry";
@@ -24,7 +25,7 @@ export function Suggested({ t, refreshKey, join }: { t: T; refreshKey: number; j
   const [rec, setRec] = useState<GameRecommendations | null>(null);
   useEffect(() => {
     fetch("/api/games/recommended?limit=6", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then(setRec);
   }, [refreshKey]);
   if (!rec) return null;

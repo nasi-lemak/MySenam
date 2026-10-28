@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -28,7 +29,7 @@ export default function LoginPage() {
     // Sent here to make an account (an emailed guest invitation): open on that.
     if (params.get("mode") === "register") setMode("register");
     void fetch("/api/auth/providers", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((p: { google?: boolean }) => setGoogle(Boolean(p.google)))
       .catch(() => {});
   }, [t]);
@@ -47,7 +48,7 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(mode === "login" ? { email, password } : { email, website, locale: t.locale }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("auth.failed"));
       if (mode === "register") {
         // Where to go once the emailed link has made the account, if it is opened in this browser.

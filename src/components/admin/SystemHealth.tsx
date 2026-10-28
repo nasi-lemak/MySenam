@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { SystemAlert } from "@/lib/alerts";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
@@ -15,7 +16,7 @@ export function SystemHealth() {
 
   useEffect(() => {
     void fetch("/api/admin/system", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then(setState)
       .catch(() => setState(null));
   }, []);
@@ -31,7 +32,7 @@ export function SystemHealth() {
       body: JSON.stringify({ key }),
     });
     if (res.ok) {
-      const data = await res.json();
+      const data = await readJson(res);
       setState((s) => (s ? { ...s, alerts: data.alerts } : s));
     }
   }

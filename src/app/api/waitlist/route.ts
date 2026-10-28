@@ -12,6 +12,8 @@ import { isMinute } from "@/lib/interval";
 import { currentLocale } from "@/lib/locale";
 import { isRefusal } from "@/lib/participants";
 import { readSelection, selectionForAccount, type Selection } from "@/lib/participant-bookings";
+import { notifyWaitlistJoined } from "@/lib/notify";
+import { hoursOf } from "@/lib/interval";
 
 export const dynamic = "force-dynamic";
 
@@ -128,11 +130,36 @@ export async function POST(req: NextRequest) {
       });
   if (!result.ok) return refusal(result);
 
+  // On the list: said by email where they gave an address, with the private link to leave it again (audit R8 X2-9).
+  const joinedSession = forClass ? await getClass(classId as number) : null;
+  const joinedCourt = forClass ? null : await getCourt(courtId as number);
+  if (venueId !== undefined && person.email) {
+    const what = forClass ? joinedSession?.name : joinedCourt?.name;
+    const when = forClass ? joinedSession?.date : (date as string);
+    const startHour = forClass ? joinedSession?.startHour : hoursOf(start as number);
+    if (what && when && startHour !== undefined)
+      await notifyWaitlistJoined({
+        entryId: result.entry.id,
+        venueId,
+        name: person.name,
+        phone: person.phone,
+        email: person.email,
+        locale: person.locale,
+        what,
+        date: when,
+        startHour,
+        position: result.position,
+        leaveToken: result.leaveToken,
+      });
+  }
+
   return NextResponse.json(
     {
       entry: result.entry,
       position: result.position,
-      session: forClass ? await getClass(classId as number) : null,
+      session: joinedSession,
+      // The entry's own link to leave the list: given this once, to whoever joined (lib/store.ts leaveWaitlistByToken).
+      leaveToken: result.leaveToken,
     },
     { status: 201 }
   );

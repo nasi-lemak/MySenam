@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Court } from "@/lib/types";
 import { offsetMs } from "@/lib/region";
@@ -48,7 +49,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/outages?venueId=${venueId}`, { cache: "no-store" });
     if (res.ok) {
-      const data = await res.json();
+      const data = await readJson(res);
       setOutages(data.outages);
       setLateOpen(data.lateHoursOpen ?? []);
     }
@@ -65,7 +66,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, id: o.id }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("out.couldNotDo")));
       const repairs = (data.repairs ?? []) as { courtName: string; date: string; claimed: { start: number; end: number }[]; collisions: Affected[]; busy?: boolean }[];
       setNotice(
@@ -107,7 +108,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
           cancelAffected,
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) {
         setAffected(data.affected ?? null);
         throw new Error(t.err(data, t("out.couldNotTakeOut")));
@@ -133,7 +134,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
     if (res.ok) {
       setNotice(t("out.backToday", { court: o.courtName }));
       await load();
-    } else setError(t.err(await res.json(), t("out.couldNotDo")));
+    } else setError(t.err(await readJson(res), t("out.couldNotDo")));
   }
 
   if (courts.length === 0) return null;
@@ -204,7 +205,7 @@ export function OutagesPanel({ venueId, courts }: { venueId: number; courts: Cou
           {t("out.untilNotice")}
         </label>
         <input
-          placeholder={t("out.why")}
+          placeholder={t("out.why")} aria-label={t("out.why")}
           value={form.reason}
           maxLength={200}
           onChange={(e) => setForm({ ...form, reason: e.target.value })}

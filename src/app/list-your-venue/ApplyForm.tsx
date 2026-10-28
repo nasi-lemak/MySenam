@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useState } from "react";
 import { useT } from "@/components/Language";
@@ -38,7 +39,7 @@ export default function ApplyForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, ...pin }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("apply.failed"));
       setSent({ to: form.email, confirm: data.emailSent !== false });
       setForm(EMPTY);

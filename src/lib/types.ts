@@ -45,6 +45,8 @@ export interface Venue {
   /** Shown to anyone letting themselves in. */
   emergencyPhone: string | null;
   emergencyInfo: string | null;
+  /** Customers may message `phone` on WhatsApp: a click-to-chat link beside it (lib/venue-contact.ts). */
+  phoneWhatsapp?: boolean;
   /** When customers could first reach it; null for a draft (lib/listing.ts). */
   publishedAt: string | null;
   /** Taken off the marketplace; null otherwise. */

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { VenueTax } from "@/lib/tax";
 import type { DeductionReason, DeductionReview, DeductionTreatment } from "@/lib/deposit-deductions";
@@ -27,7 +28,7 @@ export function TaxEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     setTax(null);
     void fetch(`/api/admin/venue-tax?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { tax?: VenueTax; usual?: { name: string; venueRate: number }; deductions?: DeductionTreatment[]; deductionReview?: DeductionReview | null; deductionHistory?: History }) => {
         if (!d.tax || !d.usual) return;
         setDeductions(d.deductions ?? []);
@@ -52,7 +53,7 @@ export function TaxEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, registered, name: form.name, rate: Number(form.rate), regNo: form.regNo }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("tax.couldNotSave")));
       setTax(data.tax);
       setNotice(registered ? t("tax.savedRegistered", { name: data.tax.name, rate: data.tax.rate }) : t("tax.savedNotRegistered"));
@@ -72,7 +73,7 @@ export function TaxEditor({ venueId }: { venueId: number }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, deductions: { [reason]: value } }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) setError(t.err(data, t("tax.couldNotSave")));
     else {
       setDeductions(data.deductions);
@@ -90,7 +91,7 @@ export function TaxEditor({ venueId }: { venueId: number }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, approveDeductions: { reviewer } }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("tax.couldNotSave")));
     setDeductions(data.deductions);
     setReview(data.deductionReview);

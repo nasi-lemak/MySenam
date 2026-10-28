@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { useEffect, useState } from "react";
 import { Pass } from "@/lib/types";
@@ -14,7 +15,7 @@ export default function MyPasses() {
 
   useEffect(() => {
     fetch("/api/my/passes", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data) => setPasses(data?.passes ?? []))
       .catch(() => setPasses([]));
   }, []);

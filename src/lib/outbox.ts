@@ -71,7 +71,9 @@ export type MessageKind =
    * On WhatsApp only, to a guardian a venue recorded by name and number whose number a code has come back from: what changed in
    * who acts for a child, and the venue's page. The venue's name only, never the child's (lib/contact-guardians.ts).
    */
-  | "guardian_notice";
+  | "guardian_notice"
+  /** By email only: on a waiting list now, with the link to leave it (lib/notify.ts `notifyWaitlistJoined`). */
+  | "waitlist_joined";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the

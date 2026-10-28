@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ACTIVITY_CATEGORIES, RESOURCE_MODELS, RESOURCE_NOUNS } from "@/lib/activity-catalogue";
 import { activityIcon, type Activity } from "@/lib/activity-registry";
@@ -39,7 +40,7 @@ const nameOf = (t: StaffT, a: Activity) => a.names[t.locale] ?? a.names.en;
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 
 async function json<T>(res: Response, t: StaffT): Promise<T> {
-  const data = await res.json();
+  const data = await readJson(res);
   if (!res.ok) throw new Error(t.err(data));
   return data as T;
 }
@@ -414,7 +415,7 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
               type="number"
               step={0.01}
               min={0}
-              placeholder={t("res.offPeakPh")}
+              placeholder={t("res.offPeakPh")} aria-label={t("res.offPeakPh")}
               value={r.offPeak}
               onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, offPeak: e.target.value } : x)))}
               className={`w-28 ${input}`}
@@ -423,7 +424,7 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
               type="number"
               step={0.01}
               min={0}
-              placeholder={t("res.peakPh")}
+              placeholder={t("res.peakPh")} aria-label={t("res.peakPh")}
               value={r.peak}
               onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, peak: e.target.value } : x)))}
               className={`w-28 ${input}`}
@@ -435,7 +436,7 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
         ))}
       </ul>
       <div className="flex flex-wrap items-end gap-2">
-        <select value={adding} onChange={(e) => setAdding(e.target.value)} className={input}>
+        <select aria-label={t("res.alsoFor")} value={adding} onChange={(e) => setAdding(e.target.value)} className={input}>
           <option value="">{t("res.alsoFor")}</option>
           {activities
             .filter((a) => !offered.includes(a.key) && !rows.some((r) => r.sport === a.key))
@@ -565,11 +566,11 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
           <option value="operational">{t("res.signOff")}</option>
           <option value="certification">{t("res.certification")}</option>
         </select>
-        <input required placeholder={t("c.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-36 ${input}`} />
-        <input required placeholder={region().phone.example} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-36 ${input}`} />
+        <input required placeholder={t("c.name")} aria-label={t("c.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-36 ${input}`} />
+        <input aria-label={t("c.phone")} required placeholder={region().phone.example} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`w-36 ${input}`} />
         <input
           type="email"
-          placeholder={t("res.accountEmail")}
+          placeholder={t("res.accountEmail")} aria-label={t("res.accountEmail")}
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
           className={`w-52 ${input}`}
@@ -585,7 +586,7 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
         {certification && (
           <input
             required
-            placeholder={t("res.certRef")}
+            placeholder={t("res.certRef")} aria-label={t("res.certRef")}
             value={form.reference}
             onChange={(e) => setForm({ ...form, reference: e.target.value })}
             className={`w-52 ${input}`}
@@ -601,7 +602,7 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
             className={`mt-1 ${input}`}
           />
         </label>
-        <input placeholder={t("res.note")} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={`w-40 ${input}`} />
+        <input placeholder={t("res.note")} aria-label={t("res.note")} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={`w-40 ${input}`} />
         <label className="flex items-center gap-1 text-xs text-slate-600">
           <input type="checkbox" checked={form.wholeBusiness} onChange={(e) => setForm({ ...form, wholeBusiness: e.target.checked })} />
           {t("res.everyBranch")}

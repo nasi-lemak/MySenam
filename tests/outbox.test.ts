@@ -32,6 +32,7 @@ import {
 import { getDb } from "../src/lib/db";
 import { setWhatsappMode } from "../src/lib/whatsapp-credit";
 import { addDays, todayISO } from "../src/lib/time";
+import { shortDate } from "../src/lib/region";
 
 let courtId: number;
 let venueId: number;
@@ -95,8 +96,8 @@ describe("writing a message down", () => {
   it("keeps the text it was written with, not a template", async () => {
     const booking = await book(addDays(todayISO(), 2), 12);
     const [message] = await messagesForBooking(booking.id);
-    // Everything needed to read it is in the row.
-    expect(message.body).toContain(booking.date);
+    // Everything needed to read it is in the row: the day with its weekday, as the reader's language writes it (audit R8 X2-16).
+    expect(message.body).toContain(shortDate(booking.date, "en", true));
     expect(message.body).not.toContain("{");
   });
 

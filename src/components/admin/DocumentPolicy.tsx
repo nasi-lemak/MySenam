@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { FailedDocument, OnDemandHealth, ScannerHealth, ScannerProblem } from "@/lib/document-scanning";
 import { fileSize } from "@/components/ApprovalDocumentLink";
@@ -74,7 +75,7 @@ export default function DocumentPolicy() {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/document-policy", { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("apr.scan.readFailed")));
       setState(data);
       const p = data.policy as RetentionPolicy;
@@ -97,7 +98,7 @@ export default function DocumentPolicy() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "retry", documentId, reason: reasons[documentId] ?? "" }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("apr.scan2.retryFailed")));
       // What the scan that followed found, where it answered at once; otherwise it waits in quarantine.
       setNotice(
@@ -125,7 +126,7 @@ export default function DocumentPolicy() {
     setNotice(null);
     try {
       const res = await fetch("/api/admin/document-policy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("apr.retx.failed")));
       setNotice(done);
       await load();

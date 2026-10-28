@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { formatHour } from "@/lib/time";
 import type { Court } from "@/lib/types";
@@ -49,7 +50,7 @@ export function RepeatBlockPanel({
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/repeat-blocks?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setRepeats((await res.json()).repeats);
+    if (res.ok) setRepeats((await readJson(res)).repeats);
   }, [venueId]);
 
   useEffect(() => {
@@ -66,7 +67,7 @@ export function RepeatBlockPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, courtIds: chosen, from: date, days, fromHour: from, untilHour: until, weeks, reason }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("rep.saveFailed")));
     const clashes = data.clashes as { courtName: string; date: string; hour: number }[];
     const list = clashes
@@ -88,7 +89,7 @@ export function RepeatBlockPanel({
   async function end(code: string) {
     if (!confirm(t("rep.endConfirm"))) return;
     const res = await fetch(`/api/admin/repeat-blocks?venueId=${venueId}&code=${code}`, { method: "DELETE" });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) setError(t.err(data, t("rep.endFailed")));
     else setNotice(t.plural("rep.freed", data.removed));
     await load();
@@ -153,7 +154,7 @@ export function RepeatBlockPanel({
             <input aria-label={t("rep.weeks")} type="number" min={1} max={52} value={weeks} onChange={(e) => setWeeks(Number(e.target.value))} className={`w-16 ${select}`} />
           ),
         })}
-        <input placeholder={t("rep.whatFor")} value={reason} onChange={(e) => setReason(e.target.value)} className={`w-56 ${select}`} />
+        <input placeholder={t("rep.whatFor")} aria-label={t("rep.whatFor")} value={reason} onChange={(e) => setReason(e.target.value)} className={`w-56 ${select}`} />
         <button
           onClick={save}
           disabled={chosen.length === 0 || days.length === 0 || reason.trim().length < 2}

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
@@ -47,7 +48,7 @@ export function GoLiveBanner({
 
   useEffect(() => {
     fetch(`/api/admin/go-live?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then(setStatus)
       .catch(() => setStatus(null));
   }, [venueId, refreshKey, saved]);
@@ -61,7 +62,7 @@ export function GoLiveBanner({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("live.couldNotSend")));
       setStatus(data.status);
       if (data.live) onChange();

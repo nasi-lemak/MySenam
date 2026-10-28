@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -21,7 +22,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const load = useCallback(async () => {
     const res = await fetch(`/api/groups/${id}`, { cache: "no-store" });
     if (!res.ok) return setMissing(true);
-    const data = await res.json();
+    const data = await readJson(res);
     setGroup(data.group);
     setSignedIn(Boolean(data.signedIn));
   }, [id]);
@@ -33,7 +34,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     setError(null);
     setNotice(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(translateError(t, data) || data.error);
     if (done) setNotice(done);
     await load();
@@ -154,7 +155,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             }}
             className="flex flex-wrap items-center gap-2"
           >
-            <input type="email" required placeholder={t("games.inviteEmail")} value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1 text-sm" name="groupInviteEmail" />
+            <input type="email" required placeholder={t("games.inviteEmail")} aria-label={t("games.inviteEmail")} value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1 text-sm" name="groupInviteEmail" />
             <button className={small}>{t("games.invite")}</button>
           </form>
           <button onClick={() => void post(`/api/groups/${group.id}`, { action: "close" })} className={`${small} text-red-700`}>

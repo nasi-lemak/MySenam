@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
@@ -26,7 +27,7 @@ export default function OfficialPage() {
   const load = useCallback(async () => {
     const res = await fetch(`/api/officials/${token}`, { cache: "no-store" });
     if (!res.ok) return setGone(true);
-    setData(await res.json());
+    setData(await readJson(res));
   }, [token]);
   useEffect(() => {
     void load();
@@ -74,7 +75,7 @@ export default function OfficialPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ matchId: m.id, ...r }),
                   });
-                  const out = await res.json();
+                  const out = await readJson(res);
                   if (!res.ok) return setError(translateError(t, out) || out.error);
                   setNotice(t("official.saved"));
                   setData({ ...data, tournament: out.tournament });

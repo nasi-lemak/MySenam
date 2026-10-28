@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import Link from "next/link";
 import { useT } from "@/components/Language";
@@ -105,7 +106,7 @@ export default function JoinMembership({
     setError(null);
     try {
       const res = await fetch(`/api/my/membership?renewal=${r.id}`, { method: "DELETE" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
       setRenewing(renewing.filter((x) => x.id !== r.id));
       setStopped(true);
@@ -131,7 +132,7 @@ export default function JoinMembership({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(bodyOf(c)),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(explain(t, data));
       setQuote(data as Quote);
     } catch (err) {
@@ -159,7 +160,7 @@ export default function JoinMembership({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...bodyOf(c), autoRenew: canAutoRenew && autoRenew }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok || typeof data.url !== "string") throw new Error(explain(t, data));
       window.location.assign(data.url);
     } catch (err) {
@@ -178,7 +179,7 @@ export default function JoinMembership({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ membershipId: f.id, covers, ...(at === "renewal" ? { at } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(explain(t, data));
       const now = (data.membership?.covers ?? []) as Dependant[];
       setFamily(family.map((x) => (x.id === f.id ? { ...x, covers: now, ...(data.standing ? { standing: data.standing } : {}) } : x)));

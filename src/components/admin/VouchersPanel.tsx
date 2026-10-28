@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Voucher } from "@/lib/vouchers";
 import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
@@ -31,7 +32,7 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
   const load = useCallback(async () => {
     if (!venueId) return;
     const res = await fetch(`/api/admin/vouchers?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setVouchers((await res.json()).vouchers);
+    if (res.ok) setVouchers((await readJson(res)).vouchers);
   }, [venueId]);
 
   useEffect(() => {
@@ -48,7 +49,7 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...form, amount: Number(form.amount) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vch.sellFailed")));
       setNotice({ text: t("vch.sold", { code: data.voucher.code, amount: money(data.voucher.amount) }), printUrl: data.voucher.printUrl });
       setForm({ ...form, buyerName: "", buyerEmail: "", recipientName: "", message: "" });
@@ -72,7 +73,7 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
     setError(null);
     setNotice(null);
     const res = await fetch(`/api/admin/vouchers/${v.id}/void`, { method: "POST" });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) setError(t.err(data, t("vch.cancelFailed")));
     else setNotice({ text: t("vch.cancelled", { code: v.code }) });
     await load();
@@ -86,7 +87,7 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
         {t("vch.intro")}
       </p>
       {venues.length > 1 && (
-        <select value={venueId} onChange={(e) => setVenueId(Number(e.target.value))} className={`mt-3 ${input}`}>
+        <select aria-label={t("q8b.l.venue")} value={venueId} onChange={(e) => setVenueId(Number(e.target.value))} className={`mt-3 ${input}`}>
           {venues.map((v) => (
             <option key={v.id} value={v.id}>
               {v.name}

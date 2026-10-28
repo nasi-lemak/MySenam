@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -21,7 +22,7 @@ export default function GuestInvitationPage() {
   useEffect(() => {
     setToken(new URLSearchParams(window.location.search).get("token") ?? "");
     void fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((me: { user?: unknown }) => setSignedIn(Boolean(me?.user)))
       .catch(() => setSignedIn(false));
   }, []);
@@ -35,7 +36,7 @@ export default function GuestInvitationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("err.GUEST_INVITATION_INVALID"));
       setDone(data);
     } catch (err) {

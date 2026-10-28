@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { LOCALE_NAMES, offeredLocales, translateError, type Locale } from "@/lib/i18n";
@@ -27,7 +28,7 @@ export default function CoachLanguage({ token, chosen }: { token: string; chosen
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ locale: next || null }),
     }).catch(() => null);
-    const data = res ? await res.json().catch(() => ({})) : {};
+    const data = res ? await readJson(res).catch(() => ({})) : {};
     setBusy(false);
     if (!res?.ok) {
       setValue(chosen ?? "");

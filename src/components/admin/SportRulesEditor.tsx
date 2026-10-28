@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { sportLabel } from "@/lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { clockOf, parseClock } from "@/lib/interval";
@@ -38,7 +39,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/sport-rules?venueId=${venueId}`, { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     if (res.ok) setRules(data.rules);
   }, [venueId]);
   useEffect(() => {
@@ -55,7 +56,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, ...next }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) setError(t.err(data));
     else setNotice(t("spr.saved", { sport: sportLabel(t.customer, next.sport) }));
     await load();
@@ -89,7 +90,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
             const peak = r.peak ?? { weekdayFrom: 18 * 60, weekdayUntil: 24 * 60, weekendFrom: 0, weekendUntil: 24 * 60 };
             // Any minute; an end at or before the start runs into the next morning (00:00 is midnight).
             const hourSel = (key: keyof SportPeak) => (
-              <input
+              <input aria-label={t(key.startsWith("weekday") ? (key.endsWith("From") ? "q8b.l.peakFromWeekdays" : "q8b.l.peakUntilWeekdays") : key.endsWith("From") ? "q8b.l.peakFromWeekends" : "q8b.l.peakUntilWeekends", { sport: sportLabel(t.customer, sport) })}
                 type="time"
                 step={60}
                 defaultValue={clockOf(peak[key])}
@@ -107,7 +108,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
               <tr key={sport} className="border-t border-slate-100 align-top">
                 <td className="py-1.5 pr-2 font-medium">{sportLabel(t.customer, sport)}</td>
                 <td className="py-1.5 pr-2">
-                  <select
+                  <select aria-label={t("q8b.l.of", { field: t("spr.colFreeCancel"), thing: sportLabel(t.customer, sport) })}
                     value={r.cutoffHours ?? ""}
                     onChange={(e) => save({ ...r, cutoffHours: e.target.value === "" ? null : Number(e.target.value) })}
                     className={sel}
@@ -121,7 +122,7 @@ export function SportRulesEditor({ venueId, sports }: { venueId: number; sports:
                   </select>
                 </td>
                 <td className="py-1.5 pr-2">
-                  <select
+                  <select aria-label={t("q8b.l.of", { field: t("spr.colLate"), thing: sportLabel(t.customer, sport) })}
                     value={r.lateKeep === null ? "" : String(r.lateKeep)}
                     onChange={(e) =>
                       save({ ...r, lateKeep: e.target.value === "" ? null : e.target.value === "none" ? "none" : Number(e.target.value) })

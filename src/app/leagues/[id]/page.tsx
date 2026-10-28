@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import Link from "next/link";
@@ -34,7 +35,7 @@ export default function LeaguePage() {
   const load = useCallback(async () => {
     const res = await fetch(`/api/leagues/${id}${season ? `?season=${season}` : ""}`, { cache: "no-store" });
     if (!res.ok) return setMissing(true);
-    setData(await res.json());
+    setData(await readJson(res));
   }, [id, season]);
   useEffect(() => {
     void load();
@@ -43,7 +44,7 @@ export default function LeaguePage() {
   async function post(url: string, body: object) {
     setError(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const out = await res.json();
+    const out = await readJson(res);
     if (!res.ok && accountDetour(out)) return false;
     if (!res.ok) {
       setError(translateError(t, out) || out.error);

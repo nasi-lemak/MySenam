@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { HouseRules } from "@/lib/house-rules";
 import type { StaffT } from "@/lib/staff-i18n";
@@ -40,7 +41,7 @@ export function HouseRulesEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     if (!open || values) return;
     void fetch(`/api/admin/house-rules?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { rules?: HouseRules }) => d.rules && take(d.rules));
   }, [open, values, venueId]);
 
@@ -55,7 +56,7 @@ export function HouseRulesEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...values }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
       take(data.rules);
       setNotice(t("hr.saved"));

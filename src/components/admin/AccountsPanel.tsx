@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Account, AccountInvoice } from "@/lib/accounts";
 import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
@@ -32,7 +33,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
     if (!venueId) return;
     const res = await fetch(`/api/admin/accounts?venueId=${venueId}`, { cache: "no-store" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setAccounts(data.accounts);
     setInvoices(data.invoices);
     setLanguages(data.languages ?? []);
@@ -50,7 +51,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
       headers: { "Content-Type": "application/json" },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) {
       setError(t.err(data));
       return null;
@@ -84,7 +85,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
       <h2 className="text-lg font-bold">{t("acc.title")}</h2>
       <p className="mt-1 text-sm text-slate-600">{t("acc.intro")}</p>
       {venues.length > 1 && (
-        <select value={venueId} onChange={(e) => setVenueId(Number(e.target.value))} className={`mt-3 ${input}`}>
+        <select aria-label={t("q8b.l.venue")} value={venueId} onChange={(e) => setVenueId(Number(e.target.value))} className={`mt-3 ${input}`}>
           {venues.map((v) => (
             <option key={v.id} value={v.id}>
               {v.name}
@@ -161,13 +162,13 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 }}
               >
                 <input
-                  placeholder={t("acc.whoMayBook")}
+                  placeholder={t("acc.whoMayBook")} aria-label={t("acc.whoMayBook")}
                   value={booker[a.id]?.name ?? ""}
                   onChange={(e) => setBooker({ ...booker, [a.id]: { phone: booker[a.id]?.phone ?? "", name: e.target.value } })}
                   className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs"
                 />
                 <input
-                  placeholder={t("acc.theirPhone")}
+                  placeholder={t("acc.theirPhone")} aria-label={t("acc.theirPhone")}
                   value={booker[a.id]?.phone ?? ""}
                   onChange={(e) => setBooker({ ...booker, [a.id]: { name: booker[a.id]?.name ?? "", phone: e.target.value } })}
                   className="w-28 rounded-md border border-slate-300 px-2 py-1 text-xs"
@@ -234,11 +235,11 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
 
       <form onSubmit={save} className="mt-4 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-3">
         <p className="text-sm font-semibold sm:col-span-3">{form.id ? t("acc.changeName", { name: form.name }) : t("acc.open")}</p>
-        <input required placeholder={t("acc.org")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
-        <input placeholder={t("acc.contact")} value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} className={input} />
-        <input required type="email" placeholder={t("acc.email")} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
-        <input placeholder={t("acc.address")} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={input} />
-        <input placeholder={t("acc.taxNo")} value={form.taxNo} onChange={(e) => setForm({ ...form, taxNo: e.target.value })} className={input} />
+        <input required placeholder={t("acc.org")} aria-label={t("acc.org")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
+        <input placeholder={t("acc.contact")} aria-label={t("acc.contact")} value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} className={input} />
+        <input required type="email" placeholder={t("acc.email")} aria-label={t("acc.email")} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
+        <input placeholder={t("acc.address")} aria-label={t("acc.address")} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={input} />
+        <input placeholder={t("acc.taxNo")} aria-label={t("acc.taxNo")} value={form.taxNo} onChange={(e) => setForm({ ...form, taxNo: e.target.value })} className={input} />
         <div className="flex gap-2">
           <label className="flex flex-1 flex-col text-xs text-slate-500">
             {t("acc.daysToPay")}

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 
@@ -26,7 +27,7 @@ export function OccupancyTab({
       const res = await fetch(`/api/admin/occupancy?venueId=${venueId}&days=7`, {
         cache: "no-store",
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("occ.loadFailed")));
       setReport(data);
     } catch (err) {
@@ -49,7 +50,7 @@ export function OccupancyTab({
 
   return (
     <div className="space-y-4">
-      <select
+      <select aria-label={t("q8b.l.venue")}
         value={venueId}
         onChange={(e) => setVenueId(Number(e.target.value))}
         className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"

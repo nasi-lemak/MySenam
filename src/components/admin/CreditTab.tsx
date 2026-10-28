@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { ReceiptsPanel } from "./ReceiptsPanel";
 import { VouchersPanel } from "./VouchersPanel";
@@ -50,7 +51,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
         `/api/admin/wallet?q=${encodeURIComponent(query)}&venueId=${creditVenueId}`,
         { cache: "no-store" }
       );
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.lookupFailed")));
       setScope(data.scope);
       setCustomer(data.customer);
@@ -72,7 +73,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: customer.id, amount: Number(amount), venueId: creditVenueId }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.topUpFailed")));
       setNotice(t("cr.added", { amount: money(amount), balance: money(data.balance) }));
       setCustomer({ ...customer, balance: data.balance });
@@ -115,7 +116,7 @@ export function CreditTab({ venues }: { venues: ManagedVenue[] }) {
           required
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("cr.findPlaceholder")}
+          placeholder={t("cr.findPlaceholder")} aria-label={t("cr.findPlaceholder")}
           className={`w-64 ${inputClass}`}
         />
         <button
@@ -264,9 +265,9 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
       fetch(`/api/admin/passes?venueId=${venueId}`, { cache: "no-store" }),
       fetch(`/api/admin/coaches?venueId=${venueId}`, { cache: "no-store" }).catch(() => null),
     ]);
-    if (c?.ok) setCoaches(((await c.json()).coaches ?? []).filter((x: { active: boolean }) => x.active));
+    if (c?.ok) setCoaches(((await readJson(c)).coaches ?? []).filter((x: { active: boolean }) => x.active));
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setPasses(data.passes);
   }, [venueId]);
 
@@ -301,7 +302,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
           ...(form.scope === "participant" && passFor ? { holderParticipantId: passFor.id } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.passIssueFailed")));
       setNotice(t("cr.passSold", { code: data.pass.code, name: data.pass.holderParticipantName ?? data.pass.holderName }));
       setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
@@ -318,7 +319,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/passes/${pass.id}/void`, { method: "POST" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.passCancelFailed")));
       setNotice(t("cr.passCancelled", { code: pass.code }));
       await load();
@@ -639,7 +640,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
     if (!venueId) return;
     const res = await fetch(`/api/admin/promos?venueId=${venueId}`, { cache: "no-store" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setPromos(data.promos);
     setStacking(data.stacking === "promotion" ? "promotion" : "never");
   }, [venueId]);
@@ -671,7 +672,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           combinable: form.combinable,
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.promoCreateFailed")));
       setNotice(t("cr.promoLive", { code: data.promo.code }));
       setForm({ ...form, code: "", description: "" });
@@ -690,7 +691,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, stacking: value }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("stk.stackingFailed")));
       setStacking(data.stacking);
       setNotice(t("stk.stackingSaved", { rule: t(data.stacking === "promotion" ? "stk.stackingPromotion" : "stk.stackingNever") }));
@@ -705,7 +706,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
     setNotice(null);
     try {
       const res = await fetch(`/api/admin/promos/${promo.id}/void`, { method: "POST" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.promoWithdrawFailed")));
       setNotice(t("cr.promoWithdrawn", { code: promo.code }));
       await load();
@@ -990,10 +991,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
     if (!venueId) return;
     const res = await fetch(`/api/admin/memberships?venueId=${venueId}`, { cache: "no-store" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setMembers(data.memberships);
     const plans = await fetch(`/api/admin/membership-plans?venueId=${venueId}`, { cache: "no-store" });
-    if (plans.ok) setTiers((await plans.json()).plans);
+    if (plans.ok) setTiers((await readJson(plans)).plans);
   }, [venueId]);
 
   useEffect(() => {
@@ -1021,7 +1022,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
           ...(covers.length > 0 ? { covers: covers.map((c) => c.id) } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.memberSellFailed")));
       setNotice(t("cr.memberSold", { code: data.membership.code, name: data.membership.holderParticipantName ?? data.membership.holderName }));
       setForm({ ...form, holderName: "", holderPhone: "", accountEmail: "" });
@@ -1045,7 +1046,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ days: Number(answer), reason }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("cr.extendFailed")));
     setNotice(t("cr.extended", { code: m.code, date: data.membership.expiresOn }));
     await load();
@@ -1063,7 +1064,7 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refund }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.memberCancelFailed")));
       setNotice(
         typeof data.owedBack === "number"
@@ -1372,7 +1373,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/membership-plans?venueId=${venueId}`, { cache: "no-store" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setPlans(data.plans);
     setOnline(data.online);
   }, [venueId]);
@@ -1396,7 +1397,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
         aheadDays: form.aheadDays ? Number(form.aheadDays) : null,
       }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("cr.planAddFailed")));
     setForm({ name: "", months: "12", price: "", ratePercent: "", aheadDays: "" });
     await load();
@@ -1420,7 +1421,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, id: plan.id, ratePercent: plan.ratePercent, aheadDays: plan.aheadDays, ...change }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("cr.planChangeFailed")));
     await load();
   }
@@ -1429,7 +1430,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
     if (!window.confirm(t("cr.planRetireConfirm", { name: plan.name }))) return;
     setError(null);
     const res = await fetch(`/api/admin/membership-plans?venueId=${venueId}&id=${plan.id}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("cr.planRetireFailed")));
     await load();
   }
@@ -1458,7 +1459,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                 </span>
                 <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
                   {t("cr.membersPay")}
-                  <select
+                  <select aria-label={t("q8b.l.memberRate")}
                     value={p.ratePercent ?? ""}
                     onChange={(e) => benefits(p, { ratePercent: e.target.value === "" ? null : Number(e.target.value) })}
                     className="rounded border border-slate-300 px-1 py-0.5"
@@ -1471,7 +1472,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                     ))}
                   </select>
                   {t("cr.andBook")}
-                  <select
+                  <select aria-label={t("q8b.l.aheadDays")}
                     value={p.aheadDays ?? ""}
                     onChange={(e) => benefits(p, { aheadDays: e.target.value === "" ? null : Number(e.target.value) })}
                     className="rounded border border-slate-300 px-1 py-0.5"
@@ -1484,7 +1485,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                     ))}
                   </select>
                   {t("ent.cr.planScope")}
-                  <select
+                  <select aria-label={t("q8b.l.planScope")}
                     value={p.scope ?? "booking"}
                     onChange={(e) => benefits(p, { scope: e.target.value as BenefitScope })}
                     className="rounded border border-slate-300 px-1 py-0.5"
@@ -1493,7 +1494,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                     <option value="participant">{t("ent.cr.planScopeOwn")}</option>
                   </select>
                   {t("mbo.cr.offeredFor")}
-                  <select
+                  <select aria-label={t("q8b.l.offeredFor")}
                     value={p.offeredFor ?? "account"}
                     onChange={(e) => {
                       const offeredFor = e.target.value as OfferedFor;
@@ -1508,7 +1509,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                     ))}
                   </select>
                   {p.offeredFor === "family" && (
-                    <select
+                    <select aria-label={t("q8b.l.familyLimit")}
                       value={p.familyLimit ?? DEFAULT_FAMILY_LIMIT}
                       onChange={(e) => benefits(p, { familyLimit: Number(e.target.value) })}
                       className="rounded border border-slate-300 px-1 py-0.5"
@@ -1521,7 +1522,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                     </select>
                   )}
                   {p.offeredFor === "family" && (
-                    <select
+                    <select aria-label={t("q8b.l.coverSwaps")}
                       value={p.coverSwaps ?? 0}
                       onChange={(e) => benefits(p, { coverSwaps: Number(e.target.value) })}
                       className="rounded border border-slate-300 px-1 py-0.5"

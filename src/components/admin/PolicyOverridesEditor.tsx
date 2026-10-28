@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { OverridePolicy } from "@/lib/policy-overrides";
 import type { StaffPhrase } from "@/lib/staff-i18n";
@@ -30,7 +31,7 @@ export function PolicyOverridesEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     if (!open || on) return;
     void fetch(`/api/admin/policy-overrides?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { policies?: OverridePolicy[]; overridable?: OverridePolicy[] }) => {
         if (d.policies) setOn(d.policies);
         if (d.overridable) setAll(d.overridable);
@@ -47,7 +48,7 @@ export function PolicyOverridesEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, policies: next }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
       setOn(data.policies);
       setNotice(t("r9.set.saved"));

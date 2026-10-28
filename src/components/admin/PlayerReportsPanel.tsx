@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { PlayerReport } from "@/lib/player-safety";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
@@ -33,7 +34,7 @@ export function PlayerReportsPanel() {
         if (which !== "all") q.set("status", which);
         if (before) q.set("before", String(before));
         const res = await fetch(`/api/admin/player-reports?${q}`, { cache: "no-store" });
-        const data = await res.json().catch(() => null);
+        const data = await readJson(res).catch(() => null);
         if (!res.ok) throw new Error(t.err(data, t("ow5.rep.loadFailed")));
         const page = (data?.reports ?? []) as PlayerReport[];
         setReports((had) => (before && had ? [...had, ...page] : page));
@@ -58,7 +59,7 @@ export function PlayerReportsPanel() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
-    const data = await res.json().catch(() => null);
+    const data = await readJson(res).catch(() => null);
     if (!res.ok) setError(t.err(data, t("ow5.rep.reviewFailed")));
     // Refused as not open (another owner reviewed it first) is open no longer either.
     if (!res.ok && res.status !== 404) return;

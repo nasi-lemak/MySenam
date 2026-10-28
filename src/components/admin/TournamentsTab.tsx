@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { courtOffers } from "@/lib/court-activities";
 import { activityKeys } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
@@ -18,6 +19,7 @@ import { currencySymbol, money } from "@/lib/region";
 import type { RefusalBody } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { LoadFailed } from "./place";
 import { CounterEntry } from "./CounterEntry";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
@@ -72,32 +74,45 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
   const [catalog, setCatalog] = useState<{ templates: CompetitionTemplate[]; venueTemplates: VenueTemplate[] }>({ templates: [], venueTemplates: [] });
   const [open, setOpen] = useState<TournamentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The list could not be read: said so, with Try again, never "None yet" (audit R8 X2-7).
+  const [loadError, setLoadError] = useState<string | null>(null);
   const venue = venues.find((v) => v.id === venueId);
 
   const load = useCallback(async () => {
     if (!venueId) return;
-    const res = await fetch(`/api/admin/tournaments?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) {
-      const data = await res.json();
+    try {
+      const res = await fetch(`/api/admin/tournaments?venueId=${venueId}`, { cache: "no-store" });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("q8b.loadFailed")));
       setList(data.tournaments);
       setCompetitions(data.competitions ?? []);
       setCatalog({ templates: data.templates ?? [], venueTemplates: data.venueTemplates ?? [] });
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : t("q8b.loadFailed"));
     }
-  }, [venueId]);
+  }, [venueId, t]);
   useEffect(() => {
     void load();
   }, [load]);
 
   async function show(id: number) {
-    const res = await fetch(`/api/admin/tournaments/${id}`, { cache: "no-store" });
-    if (res.ok) setOpen((await res.json()).tournament);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/tournaments/${id}`, { cache: "no-store" });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("q8b.loadFailed")));
+      setOpen(data.tournament);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("q8b.loadFailed"));
+    }
   }
 
   /** A request whose answer the caller reads (previews, corrections); errors shown as for `post`. */
   async function call(url: string, body: object): Promise<{ ok: boolean; data: Record<string, unknown> }> {
     setError(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const data = (await readJson(res).catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) setError(t.err(data as RefusalBody));
     else {
       if (data.tournament && typeof data.tournament === "object" && "entries" in data.tournament) setOpen(data.tournament as TournamentDetail);
@@ -109,7 +124,7 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
   async function post(url: string, body: object): Promise<boolean> {
     setError(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) {
       setError(t.err(data));
       return false;
@@ -123,7 +138,7 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
     if (!confirm(t("tn.callOffCompetitionConfirm", { name: c.name }))) return;
     setError(null);
     const res = await fetch(`/api/admin/competitions/${c.id}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) setError(t.err(data));
     await load();
   }
@@ -132,7 +147,7 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
   return (
     <div className="space-y-4">
       {venues.length > 1 && (
-        <select value={venueId} onChange={(e) => { setVenueId(Number(e.target.value)); setOpen(null); }} className={input}>
+        <select aria-label={t("q8b.l.venue")} value={venueId} onChange={(e) => { setVenueId(Number(e.target.value)); setOpen(null); }} className={input}>
           {venues.map((v) => (
             <option key={v.id} value={v.id}>
               {v.name}
@@ -148,7 +163,9 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
         <>
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-semibold">{t("tn.title")}</h2>
-            {list.length === 0 ? (
+            {loadError ? (
+              <LoadFailed message={loadError} onRetry={() => void load()} />
+            ) : list.length === 0 ? (
               <p className="mt-1 text-sm text-slate-500">{t("tn.noneYet")}</p>
             ) : (
               <ul className="mt-2 divide-y divide-slate-100 text-sm">
@@ -548,7 +565,7 @@ function Create({
       {(f.ageMin || f.ageMax) && (
         <p className="text-xs text-slate-500">{t("tn.ageNote")}</p>
       )}
-      <textarea placeholder={t("tn.aboutPlaceholder")} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} rows={2} className={`w-full ${input}`} />
+      <textarea placeholder={t("tn.aboutPlaceholder")} aria-label={t("tn.aboutPlaceholder")} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} rows={2} className={`w-full ${input}`} />
       <p className="text-xs text-slate-500">
         {t.known(`srv.tpl.${template.key}.note`) ?? template.note} {t("tn.templateCaveat")}
       </p>
@@ -688,7 +705,7 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
   const load = useCallback(async () => {
     const res = await fetch(base, { cache: "no-store" });
     if (res.ok) {
-      const data = await res.json();
+      const data = await readJson(res);
       setState({ reports: data.reports ?? [], officials: data.officials ?? [] });
     }
   }, [base]);
@@ -743,7 +760,7 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
                 onClick={async () => {
                   setError(null);
                   const res = await fetch(`${base}/officials/${o.id}`, { method: "DELETE" });
-                  if (!res.ok) setError(t.err(await res.json()));
+                  if (!res.ok) setError(t.err(await readJson(res)));
                   await load();
                 }}
                 className="text-xs text-red-700 underline"
@@ -758,7 +775,7 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
             e.preventDefault();
             setError(null);
             const res = await fetch(`${base}/officials`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
-            const data = await res.json();
+            const data = await readJson(res);
             if (!res.ok) return setError(t.err(data));
             setLink(data.link);
             setName("");
@@ -766,7 +783,7 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
           }}
           className="mt-2 flex flex-wrap items-center gap-2"
         >
-          <input required minLength={2} placeholder={t("tn.officialName")} value={name} onChange={(e) => setName(e.target.value)} className={input} />
+          <input required minLength={2} placeholder={t("tn.officialName")} aria-label={t("tn.officialName")} value={name} onChange={(e) => setName(e.target.value)} className={input} />
           <button className="rounded-md border border-slate-300 px-3 py-1 text-sm">{t("tn.giveLink")}</button>
         </form>
         {link && (
@@ -1472,7 +1489,7 @@ function MatchRow({
       <span className={`min-w-[10rem] flex-1 ${m.winner === m.b && m.b !== null ? "font-semibold" : ""}`}>{side(m.b)}</span>
       {known && (
         <>
-          <input
+          <input aria-label={t("q8b.l.score")}
             value={score}
             onChange={(e) => setScore(e.target.value)}
             placeholder={tally ? (m.stage === "knockout" ? t("tn.penaltiesPlaceholder") : "3-2") : "21-15, 18-21, 21-10"}
@@ -1490,7 +1507,7 @@ function MatchRow({
             {t("tn.nameWon", { name: names.get(m.b!)?.split(" ")[0] ?? "" })}
           </button>
           {m.status !== "done" && (
-            <select
+            <select aria-label={t("tn.walkoverTo")}
               value=""
               onChange={(e) => e.target.value && void save({ winner: Number(e.target.value), walkover: true })}
               className="rounded-md border border-slate-300 px-1 py-1 text-xs"
@@ -1569,7 +1586,7 @@ function IssuePanel({
   const url = `/api/admin/tournaments/${tn.id}/issues/${issueId}`;
   const issue = tn.issues.find((i) => i.id === issueId)!;
   useEffect(() => {
-    void fetch(url, { cache: "no-store" }).then(async (r) => r.ok && setReview(await r.json()));
+    void fetch(url, { cache: "no-store" }).then(async (r) => r.ok && setReview(await readJson(r)));
   }, [url, tn]);
   const courts = venue.courts.filter((c) => courtOffers(c, tn.sport));
   async function resolve(action: "stand" | "replay") {

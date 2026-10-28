@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Admin } from "@/lib/admin-auth";
 import { BookingsTab } from "@/components/admin/BookingsTab";
@@ -27,18 +28,10 @@ import type { ManagedVenue } from "@/components/admin/shared";
 import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
 import type { TwoFactorStatus } from "@/lib/two-factor";
 import { StaffZones, useAccountLanguage, useStaffT } from "@/components/admin/StaffLanguage";
+import { useTabInAddress } from "@/components/admin/place";
 
-type Tab =
-  | "bookings"
-  | "schedule"
-  | "occupancy"
-  | "reports"
-  | "courts"
-  | "classes"
-  | "tournaments"
-  | "leagues"
-  | "credit"
-  | "venues";
+const TABS = ["bookings", "schedule", "occupancy", "reports", "courts", "classes", "tournaments", "leagues", "credit", "venues"] as const;
+type Tab = (typeof TABS)[number];
 
 /** A phrase with elements (a button, a link) where its `{name}` placeholders are. */
 function withElements(text: string, parts: Record<string, ReactNode>): ReactNode[] {
@@ -58,14 +51,15 @@ export default function AdminPage() {
   const [twoFactor, setTwoFactor] = useState<TwoFactorStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<Tab>("bookings");
+  // The tab is in the address (?tab=schedule), so a reload, Back or a link keeps the place (components/admin/place.tsx).
+  const [addressedTab, setTab] = useTabInAddress<Tab>(TABS, "bookings");
   // Signed in: the dashboard in the account's own language, where it has one.
   useAccountLanguage(admin?.locale);
 
   /** Re-read the session and the venues this admin may manage. */
   const refreshVenues = useCallback(async () => {
     const res = await fetch("/api/admin/auth/me", { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     setAdmin(data.admin);
     setVenues(data.venues);
     setTwoFactor(data.twoFactor ?? null);
@@ -88,7 +82,7 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(ticket ? { ticket, code } : { email, password }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) {
         // A ticket that ran out (or too many wrong codes) means the password again.
         if (ticket && /timed out|again/i.test(data.error ?? "")) setTicket(null);
@@ -213,6 +207,8 @@ export default function AdminPage() {
   const isManager = admin.businessId !== null;
   // Front desk runs the day; the money totals and the staff log are a manager's.
   const desk = admin.role === "desk";
+  // A link to a tab this account does not have opens on the first.
+  const tab: Tab = desk && addressedTab === "reports" ? "bookings" : addressedTab;
   const tabs: [Tab, string][] = [
     ["bookings", t("sh.tab.bookings")],
     ["schedule", t("sh.tab.schedule")],
@@ -324,11 +320,12 @@ export default function AdminPage() {
       {/* Bookings to decide after a membership stopped covering somebody on them: shown only when there are some. */}
       {!isOwner && tab === "bookings" && venues.map((venue) => <MembershipFlags key={`membership-flags-${venue.id}`} venueId={venue.id} />)}
 
-      <div className="flex flex-wrap gap-2">
+      <nav aria-label={t("q8b.tabs")} className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
+            aria-current={tab === id ? "page" : undefined}
             className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
               tab === id
                 ? "bg-teal-600 text-white shadow"
@@ -338,7 +335,7 @@ export default function AdminPage() {
             {label}
           </button>
         ))}
-      </div>
+      </nav>
 
       {venues.length === 0 && tab !== "venues" ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">

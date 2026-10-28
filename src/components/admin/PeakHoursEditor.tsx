@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { Holiday } from "@/lib/peak";
 import { calendarUntil, MY_STATES } from "@/lib/holiday-calendar";
@@ -33,7 +34,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
 
   useEffect(() => {
     void fetch(`/api/admin/loyalty?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then((d: { every: number | null } | null) => setLoyalty(d?.every ?? null));
   }, [venueId]);
 
@@ -45,7 +46,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, every }),
     });
-    const d = await res.json().catch(() => ({}));
+    const d = await readJson(res).catch(() => ({}));
     setBusy(false);
     if (!res.ok) return setError(t.err(d));
     setLoyalty(d.every);
@@ -55,7 +56,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     setRules(null);
     void fetch(`/api/admin/peak-rules?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { rules?: Rules; holidays?: Holiday[] }) => {
         if (!d.rules) return;
         setRules(d.rules);
@@ -75,7 +76,7 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
         headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       return data;
     } catch (err) {

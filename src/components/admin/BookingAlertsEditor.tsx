@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { BookingAlerts } from "@/lib/notify";
 import { region } from "@/lib/region";
@@ -19,7 +20,7 @@ export function BookingAlertsEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     setAlerts(null);
     void fetch(`/api/admin/booking-alerts?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { alerts?: BookingAlerts }) => {
         if (!d.alerts) return;
         setAlerts(d.alerts);
@@ -37,7 +38,7 @@ export function BookingAlertsEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...form, locale: form.locale || null }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
       setAlerts(data.alerts);
       setNotice(data.alerts.email || data.alerts.phone ? t("alr.savedOn") : t("alr.savedOff"));

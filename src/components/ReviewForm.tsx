@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -34,7 +35,7 @@ export function ReviewForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, t: token, rating, body }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data));
       setDone(true);
     } catch (err) {

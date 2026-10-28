@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { ManagedVenue } from "./shared";
 import { region } from "@/lib/region";
@@ -53,7 +54,7 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
 
   const load = useCallback(async () => {
     const res = await fetch(url, { cache: "no-store" });
-    if (res.ok) setBlocked((await res.json()).blocked);
+    if (res.ok) setBlocked((await readJson(res)).blocked);
   }, [url]);
   useEffect(() => {
     void load();
@@ -62,7 +63,7 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
   async function send(method: "POST" | "DELETE", body: object) {
     setError(null);
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data));
     setBlocked(data.blocked);
     if (method === "POST") {

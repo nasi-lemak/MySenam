@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
 import { MAX_EMERGENCY_INFO } from "@/lib/types";
@@ -75,7 +76,7 @@ export function VenuesTab({
     if (!managesStaff) return;
     const res = await fetch("/api/admin/admins", { cache: "no-store" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setAdmins(data.admins);
   }, [managesStaff]);
 
@@ -98,7 +99,7 @@ export function VenuesTab({
         headers: { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")));
       setNotice(okMessage);
       await onChange();
@@ -209,22 +210,22 @@ export function VenuesTab({
               className="mt-2 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
             >
               <input
-                required minLength={2} placeholder={t("vn.venueName")} value={newVenue.name}
+                required minLength={2} placeholder={t("vn.venueName")} aria-label={t("vn.venueName")} value={newVenue.name}
                 onChange={(e) => setNewVenue({ ...newVenue, name: e.target.value })}
                 className={`w-48 ${inputClass}`}
               />
               <input
-                required minLength={2} placeholder={t("vn.areaExample")} value={newVenue.area}
+                required minLength={2} placeholder={t("vn.areaExample")} aria-label={t("vn.areaExample")} value={newVenue.area}
                 onChange={(e) => setNewVenue({ ...newVenue, area: e.target.value })}
                 className={`w-40 ${inputClass}`}
               />
               <input
-                required minLength={2} placeholder={t("vn.address")} value={newVenue.address}
+                required minLength={2} placeholder={t("vn.address")} aria-label={t("vn.address")} value={newVenue.address}
                 onChange={(e) => setNewVenue({ ...newVenue, address: e.target.value })}
                 className={`w-64 ${inputClass}`}
               />
               <input
-                required minLength={2} placeholder={t("c.phone")} value={newVenue.phone}
+                required minLength={2} placeholder={t("c.phone")} aria-label={t("c.phone")} value={newVenue.phone}
                 onChange={(e) => setNewVenue({ ...newVenue, phone: e.target.value })}
                 className={`w-40 ${inputClass}`}
               />
@@ -343,22 +344,22 @@ export function VenuesTab({
               className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
             >
               <input
-                required minLength={2} placeholder={t("c.name")} value={newStaff.name}
+                required minLength={2} placeholder={t("c.name")} aria-label={t("c.name")} value={newStaff.name}
                 onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
                 className={`w-40 ${inputClass}`}
               />
               <input
-                required type="email" placeholder={t("c.email")} value={newStaff.email}
+                required type="email" placeholder={t("c.email")} aria-label={t("c.email")} value={newStaff.email}
                 onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
                 className={`w-52 ${inputClass}`}
               />
               <input
-                required type="password" minLength={8} placeholder={t("vn.password")}
+                required type="password" minLength={8} placeholder={t("vn.password")} aria-label={t("vn.password")}
                 value={newStaff.password}
                 onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
                 className={`w-40 ${inputClass}`}
               />
-              <select
+              <select aria-label={t("q8b.l.venue")}
                 value={newStaff.venueId}
                 onChange={(e) => setNewStaff({ ...newStaff, venueId: e.target.value })}
                 className={inputClass}
@@ -425,7 +426,7 @@ function ClosuresRow({
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/venues/${venue.id}/closures`, { cache: "no-store" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setClosures(data.closures);
   }, [venue.id]);
 
@@ -442,7 +443,7 @@ function ClosuresRow({
         headers: { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
-      let data = await res.json();
+      let data = await readJson(res);
       // A day with bookings on it: only with a yes, and then they are told.
       if (res.status === 409 && typeof data.bookings === "number") {
         if (!window.confirm(t("vn.cancelAffectedConfirm", { error: t.err(data) })))
@@ -452,7 +453,7 @@ function ClosuresRow({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...(body as object), cancelAffected: true }),
         });
-        data = await res.json();
+        data = await readJson(res);
       }
       if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")));
       if (okMessage) onNotice(data.cancelled ? `${okMessage} ${t("vn.cancelledTold", { n: data.cancelled })}` : okMessage);
@@ -566,6 +567,7 @@ function VenueRow({
     partlyUnstaffed: venue.partlyUnstaffed ?? "code",
     emergencyPhone: venue.emergencyPhone ?? "",
     emergencyInfo: venue.emergencyInfo ?? "",
+    phoneWhatsapp: venue.phoneWhatsapp === true,
   });
   const dirty =
     fields.name !== venue.name ||
@@ -580,7 +582,8 @@ function VenueRow({
     fields.staffedTo !== venue.staffedTo ||
     fields.partlyUnstaffed !== (venue.partlyUnstaffed ?? "code") ||
     fields.emergencyPhone !== (venue.emergencyPhone ?? "") ||
-    fields.emergencyInfo !== (venue.emergencyInfo ?? "");
+    fields.emergencyInfo !== (venue.emergencyInfo ?? "") ||
+    fields.phoneWhatsapp !== (venue.phoneWhatsapp === true);
 
   // null on both ends is the default and means somebody is always here.
   const alwaysStaffed = fields.staffedFrom === null || fields.staffedTo === null;
@@ -622,6 +625,15 @@ function VenueRow({
           onChange={(e) => setFields({ ...fields, phone: e.target.value })}
           className={`mt-1 w-36 ${inputClass}`}
         />
+      </label>
+      <label className="flex items-center gap-1.5 self-end pb-1.5 text-xs text-slate-600" title={t("q8b.vn.phoneWhatsappHelp")}>
+        <input
+          type="checkbox"
+          checked={fields.phoneWhatsapp}
+          onChange={(e) => setFields({ ...fields, phoneWhatsapp: e.target.checked })}
+          className="accent-teal-600"
+        />
+        {t("q8b.vn.phoneWhatsapp")}
       </label>
       <label className="flex flex-col text-xs font-medium text-slate-500">
         {t("vn.opens")}
@@ -980,7 +992,7 @@ function BackupsPanel() {
     setError(null);
     try {
       const res = await fetch("/api/admin/backup", { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.backupsReadFailed")));
       setState(data);
     } catch (err) {
@@ -998,7 +1010,7 @@ function BackupsPanel() {
     setNotice(null);
     try {
       const res = await fetch("/api/admin/backup", { method: "POST" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.backupFailed")));
       setNotice(
         t("vn.backupTaken", { name: data.file.name, kb: Math.round(data.file.bytes / 1024), bookings: data.bookings }) +
@@ -1190,7 +1202,7 @@ function RetentionPanel() {
     setError(null);
     try {
       const res = await fetch("/api/admin/retention", { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.retentionReadFailed")));
       setState(data);
     } catch (err) {
@@ -1208,7 +1220,7 @@ function RetentionPanel() {
     setNotice(null);
     try {
       const res = await fetch("/api/admin/retention", { method: "POST" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.housekeepingFailed")));
       setNotice(data.total === 0 ? t("vn.nothingOld") : t("vn.recordsRemoved", { n: data.total }));
       load();
@@ -1312,7 +1324,7 @@ function EInvoiceRetentionCard({ retention, onSaved }: { retention: EInvoiceRete
     setMessage(null);
     try {
       const res = await fetch("/api/admin/retention", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("ei8.ret.failed")));
       setMessage({ ok: true, text: t("ei8.ret.saved") });
       onSaved();

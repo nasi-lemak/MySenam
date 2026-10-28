@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { OnlinePayment, PaymentDispute, PaymentSettings, RefundInFlight, RefundWorkload } from "@/lib/payments";
 import type { ManagedVenue } from "./shared";
@@ -61,9 +62,9 @@ export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedV
         desk ? null : fetch(`/api/admin/venues/${venueId}/payment-settings`, { cache: "no-store" }),
         fetch(`/api/admin/online-payments?venueId=${venueId}`, { cache: "no-store" }),
       ]);
-      const paymentsData = await p.json();
+      const paymentsData = await readJson(p);
       if (s) {
-        const settingsData = await s.json();
+        const settingsData = await readJson(s);
         if (!s.ok) throw new Error(t.err(settingsData, t("opay.couldNotLoadSettings")));
         const current: PaymentSettings = settingsData.settings;
         setSettings(current);
@@ -100,7 +101,7 @@ export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedV
         headers: { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("opay.requestFailed")));
       setNotice(ok);
       await load();
@@ -130,7 +131,7 @@ export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedV
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">{t("opay.title")}</h2>
         {venues.length > 1 && (
-          <select
+          <select aria-label={t("q8b.l.venue")}
             value={venueId}
             onChange={(e) => setVenueId(Number(e.target.value))}
             className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { TwoFactorStatus } from "@/lib/two-factor";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
@@ -26,7 +27,7 @@ export function TwoFactorPanel({ status, onChange }: { status: TwoFactorStatus; 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("tfa.couldNotSave")));
       return data;
     } catch (err) {

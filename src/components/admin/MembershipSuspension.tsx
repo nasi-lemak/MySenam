@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useState } from "react";
 import type { Membership, MembershipSuspensionSummary } from "@/lib/types";
 import type { SuspensionView } from "@/lib/membership-suspensions";
@@ -30,7 +31,7 @@ export function MembershipSuspension({ membership, onChanged }: { membership: Me
 
   async function load() {
     const res = await fetch(`/api/admin/memberships/${membership.id}/suspension`, { cache: "no-store" });
-    if (res.ok) setHistory((await res.json()).suspensions);
+    if (res.ok) setHistory((await readJson(res)).suspensions);
   }
 
   async function suspend(e: React.FormEvent) {
@@ -42,7 +43,7 @@ export function MembershipSuspension({ membership, onChanged }: { membership: Me
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ from: form.from, until: form.until || null, reason: form.reason }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("ms7.cr.failed")));
     setNotice(t.plural("ms7.cr.suspendedFlagged", Number(data.flagged ?? 0)));
     setForm({ from: today, until: "", reason: "" });
@@ -59,7 +60,7 @@ export function MembershipSuspension({ membership, onChanged }: { membership: Me
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason: liftReason }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("ms7.cr.failed")));
     setNotice(t("ms7.cr.reactivated"));
     setLiftReason("");

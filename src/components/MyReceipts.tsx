@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { money } from "@/lib/region";
@@ -24,7 +25,7 @@ export default function MyReceipts() {
 
   useEffect(() => {
     fetch("/api/my/receipts", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? readJson(res) : null))
       .then((data) => setRows(data?.receipts ?? []))
       .catch(() => setRows([]));
   }, []);

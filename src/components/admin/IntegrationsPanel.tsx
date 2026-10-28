@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ApiKey } from "@/lib/api-keys";
 import type { Endpoint } from "@/lib/webhooks";
@@ -32,7 +33,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
   const load = useCallback(async () => {
     if (!venueId) return;
     const res = await fetch(`/api/admin/integrations?venueId=${venueId}`, { cache: "no-store" });
-    const d = await res.json();
+    const d = await readJson(res);
     if (!res.ok) return setError(t.err(d, t("int.couldNotLoad")));
     setKeys(d.keys);
     setEndpoints(d.endpoints);
@@ -51,7 +52,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, ...body }),
     });
-    const d = await res.json();
+    const d = await readJson(res);
     if (!res.ok) {
       setError(t.err(d, t("int.requestFailed")));
       return null;

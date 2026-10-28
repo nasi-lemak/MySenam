@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { sportsOf } from "@/lib/court-activities";
 import { sportLabel } from "@/lib/i18n";
 import { useCallback, useEffect, useState } from "react";
@@ -26,7 +27,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/addons?venueId=${venue.id}`, { cache: "no-store" });
-    if (res.ok) setAddons((await res.json()).addons);
+    if (res.ok) setAddons((await readJson(res)).addons);
   }, [venue.id]);
   useEffect(() => {
     if (open && addons === null) void load();
@@ -39,7 +40,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
-    const out = await res.json();
+    const out = await readJson(res);
     if (!res.ok) {
       setError(t.err(out));
       return false;

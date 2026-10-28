@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { ApprovalRequirement } from "@/lib/approvals";
 import type { HoldBasis, RetentionHold } from "@/lib/approval-retention";
@@ -56,7 +57,7 @@ export function RetentionFields({ value, onChange }: { value: RetentionForm; onC
   const [install, setInstall] = useState<Pick<RetentionPolicy, "documentDays" | "reviewDays" | "recordDays" | "provisional" | "home" | "coverage"> | null>(null);
   useEffect(() => {
     fetch("/api/admin/document-policy", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then((data) => data && setInstall(data.policy))
       .catch(() => undefined);
   }, []);
@@ -103,7 +104,7 @@ export function ApprovalHolds({ venueId }: { venueId: number }) {
     fetch(`/api/admin/approvals/holds?venueId=${venueId}`, { cache: "no-store" })
       .then(async (r) => {
         if (r.status === 403) return setHolds(null);
-        const data = await r.json();
+        const data = await readJson(r);
         if (!r.ok) throw new Error(t.err(data));
         setHolds(data.holds);
       })
@@ -116,7 +117,7 @@ export function ApprovalHolds({ venueId }: { venueId: number }) {
     setDone(false);
     try {
       const res = await fetch("/api/admin/approvals/holds", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ venueId, ...body }) });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data));
       if (method === "POST") {
         setDone(true);

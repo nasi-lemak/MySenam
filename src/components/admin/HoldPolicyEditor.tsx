@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { HoldPolicy } from "@/lib/holds";
 import { DEPOSIT_PERCENTS } from "@/lib/types";
@@ -21,7 +22,7 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
   useEffect(() => {
     setPolicy(null);
     void fetch(`/api/admin/hold-policy?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { policy?: HoldPolicy }) => {
         if (!d.policy) return;
         setPolicy(d.policy);
@@ -40,7 +41,7 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, on, minutes: Number(minutes), depositPercent: deposit ? Number(deposit) : null }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("hold.couldNotSave")));
       setPolicy(data.policy);
       setNotice(

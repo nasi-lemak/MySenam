@@ -31,7 +31,8 @@ import { onlineTopUpsAllowed, renewalsFor, renewsByItself, takesPaymentOnline } 
 import { listCoaches } from "@/lib/coaching";
 import { coachChoice } from "@/lib/lesson-coaches";
 import { sportLabel } from "@/lib/i18n";
-import { intlTag, money } from "@/lib/region";
+import { intlTag, money, shortDate } from "@/lib/region";
+import { venueContact } from "@/lib/venue-contact";
 import JoinMembership, { type Dependant, type FamilyMembership, type JoinStanding } from "@/components/JoinMembership";
 import type { Metadata } from "next";
 import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
@@ -398,7 +399,7 @@ export default async function VenuePage({
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="font-semibold">{t("venue.closures")}</span>{" "}
           {closures
-            .map((c) => (c.reason ? `${c.date} (${c.reason})` : c.date))
+            .map((c) => (c.reason ? `${shortDate(c.date, t.locale, true)} (${c.reason})` : shortDate(c.date, t.locale, true)))
             .join(" · ")}
         </div>
       )}
@@ -422,7 +423,7 @@ export default async function VenuePage({
       {/* Activities that need the venue's approval first: apply online. */}
       <ApprovalOffers t={t} venueId={venue.id} />
       {/* Booking first: it is what nearly everybody came for. */}
-      <BookingBoard venueId={venue.id} venueName={venue.name} sports={sports} dates={dates} initial={initial} />
+      <BookingBoard venueId={venue.id} venueName={venue.name} sports={sports} dates={dates} initial={initial} contact={venueContact(venue)} />
       <LiveOccupancy venueId={venue.id} />
       {/* What it has, and where it is, side by side on a wide screen. */}
       <div className="grid gap-4 md:grid-cols-2">

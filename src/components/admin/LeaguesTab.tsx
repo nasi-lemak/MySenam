@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { activityKeys } from "@/lib/activity-registry";
 import { useCallback, useEffect, useState } from "react";
 import { todayLocal } from "./shared";
@@ -12,6 +13,7 @@ import { money, currencySymbol } from "@/lib/region";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 import { CounterEntry } from "./CounterEntry";
+import { LoadFailed } from "./place";
 import { sportLabel } from "@/lib/i18n";
 import { levelLabel } from "./TournamentsTab";
 
@@ -55,30 +57,43 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
   const [templates, setTemplates] = useState<CompetitionTemplate[]>([]);
   const [open, setOpen] = useState<LeagueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The list could not be read: said so, with Try again, never "None yet" (audit R8 X2-7).
+  const [loadError, setLoadError] = useState<string | null>(null);
   const venue = venues.find((v) => v.id === venueId);
 
   const load = useCallback(async () => {
     if (!venueId) return;
-    const res = await fetch(`/api/admin/leagues?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) {
-      const data = await res.json();
+    try {
+      const res = await fetch(`/api/admin/leagues?venueId=${venueId}`, { cache: "no-store" });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("q8b.loadFailed")));
       setList(data.leagues);
       setTemplates(data.templates ?? []);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : t("q8b.loadFailed"));
     }
-  }, [venueId]);
+  }, [venueId, t]);
   useEffect(() => {
     void load();
   }, [load]);
 
   async function show(id: number, season?: number) {
-    const res = await fetch(`/api/admin/leagues/${id}${season ? `?season=${season}` : ""}`, { cache: "no-store" });
-    if (res.ok) setOpen((await res.json()).league);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/leagues/${id}${season ? `?season=${season}` : ""}`, { cache: "no-store" });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("q8b.loadFailed")));
+      setOpen(data.league);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("q8b.loadFailed"));
+    }
   }
 
   async function post(url: string, body: object): Promise<boolean> {
     setError(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) {
       setError(t.err(data));
       return false;
@@ -92,7 +107,7 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
   return (
     <div className="space-y-4">
       {venues.length > 1 && (
-        <select
+        <select aria-label={t("q8b.l.venue")}
           value={venueId}
           onChange={(e) => {
             setVenueId(Number(e.target.value));
@@ -115,7 +130,9 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
         <>
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-semibold">{t("lg.title")}</h2>
-            {list.length === 0 ? (
+            {loadError ? (
+              <LoadFailed message={loadError} onRetry={() => void load()} />
+            ) : list.length === 0 ? (
               <p className="mt-1 text-sm text-slate-500">{t("tn.noneYet")}</p>
             ) : (
               <ul className="mt-2 divide-y divide-slate-100 text-sm">
@@ -321,7 +338,7 @@ function Manage({
         {current?.status === "forming" && (
           <div className="flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 text-sm">
             <span className="flex-1">{withStrong(t, "lg.formingNote", { n: current.number, players: l.players }, "date", current.startsOn)}</span>
-            <input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className={input} />
+            <input aria-label={t("q8b.l.startsOn")} type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className={input} />
             <button onClick={() => void post(base, { action: "plan", startsOn })} className="rounded-md border border-slate-300 px-3 py-1.5">
               {t("lg.moveStart")}
             </button>
@@ -540,11 +557,11 @@ function Decide({
   const small = "rounded-md border border-slate-300 px-2 py-1 text-xs";
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2">
-      <select value={winner} onChange={(e) => setWinner(Number(e.target.value))} className={small}>
+      <select aria-label={t("q8b.l.winner")} value={winner} onChange={(e) => setWinner(Number(e.target.value))} className={small}>
         <option value={m.a}>{t("tn.nameWon", { name: names.get(m.a) ?? "" })}</option>
         <option value={m.b}>{t("tn.nameWon", { name: names.get(m.b) ?? "" })}</option>
       </select>
-      <input value={score} onChange={(e) => setScore(e.target.value)} placeholder="21-15, 21-18" className={`w-32 ${small}`} />
+      <input aria-label={t("q8b.l.score")} value={score} onChange={(e) => setScore(e.target.value)} placeholder="21-15, 21-18" className={`w-32 ${small}`} />
       {/* Each decision is on the result as shown here (its version): one a player changed since is refused, to look at again. */}
       <button onClick={() => void post({ winner, score, version: m.version })} className="rounded-md bg-teal-600 px-2 py-1 text-xs font-semibold text-white">
         {t("c.save")}

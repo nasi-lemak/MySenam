@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { StaffReview } from "@/lib/reviews";
 import type { ManagedVenue } from "./shared";
@@ -25,7 +26,7 @@ export function ReviewsPanel({ venues, isOwner }: { venues: ManagedVenue[]; isOw
   const load = useCallback(async () => {
     if (!venueId) return;
     const res = await fetch(`/api/admin/reviews?venueId=${venueId}`, { cache: "no-store" });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("rev.loadFailed")));
     setReviews(data.reviews);
     setRequests(data.requests);
@@ -43,7 +44,7 @@ export function ReviewsPanel({ venues, isOwner }: { venues: ManagedVenue[]; isOw
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId: forVenue, ...body }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) setError(t.err(data, t("rev.failed")));
     await load();
     return res.ok;
@@ -69,7 +70,7 @@ export function ReviewsPanel({ venues, isOwner }: { venues: ManagedVenue[]; isOw
             maxLength={1000}
             value={drafts[r.id] ?? r.reply ?? ""}
             onChange={(e) => setDrafts({ ...drafts, [r.id]: e.target.value })}
-            placeholder={t("rev.replyPh")}
+            placeholder={t("rev.replyPh")} aria-label={t("rev.replyPh")}
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
           />
           <div className="flex flex-wrap gap-3 text-sm">

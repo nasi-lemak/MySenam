@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
@@ -7,6 +8,8 @@ import { Booking, ClassSession } from "@/lib/types";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import WaiverTick from "@/components/WaiverTick";
+import DeclineOffer from "@/components/DeclineOffer";
+import { shortDate } from "@/lib/region";
 
 export default function ClaimPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -19,6 +22,8 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
   // The venue's waiver, asked here where the place is booked: its venue, once the claim says one is needed.
   const [waiverVenue, setWaiverVenue] = useState<{ id: number; name: string } | null>(null);
   const [agreeWaiver, setAgreeWaiver] = useState(false);
+  // Turned down: the place has gone to the next person waiting (components/DeclineOffer.tsx).
+  const [declined, setDeclined] = useState(false);
 
   const claim = useCallback(async () => {
     setBusy(true);
@@ -29,7 +34,7 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, ...(agreeWaiver ? { agreeWaiver: true } : {}) }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       // Not agreed to yet: the offer still stands; tick the box and claim again.
       if (!res.ok && data?.code === "WAIVER_NEEDED" && Number.isInteger(data?.vars?.venueId)) {
         setWaiverVenue({ id: data.vars.venueId, name: typeof data.vars.venue === "string" ? data.vars.venue : "" });
@@ -63,7 +68,7 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
                   instructor: result.session.instructor,
                 })}
                 <br />
-                {result.session.date} · {formatHour(result.session.startHour, t.locale)} –{" "}
+                {shortDate(result.session.date, t.locale, true)} · {formatHour(result.session.startHour, t.locale)} –{" "}
                 {formatHour(result.session.endHour, t.locale)}
               </p>
             )}
@@ -77,6 +82,12 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
             <p className="mt-2 text-xs text-slate-500">
               {t("claim.payable", { amount: result.booking.totalPrice })}
             </p>
+          </>
+        ) : declined ? (
+          <>
+            <div className="text-5xl" aria-hidden="true">👋</div>
+            <h1 className="mt-3 text-xl font-bold">{t("q8b.wl.declinedTitle")}</h1>
+            <p role="status" className="mt-2 text-sm text-slate-600">{t("q8b.wl.declinedBody")}</p>
           </>
         ) : error ? (
           <>
@@ -107,6 +118,7 @@ export default function ClaimPage({ params }: { params: Promise<{ token: string 
             >
               {busy ? t("claim.working") : t("claim.button")}
             </button>
+            <DeclineOffer token={token} disabled={busy} onDeclined={() => setDeclined(true)} />
           </>
         )}
         <Link href="/classes" className="mt-5 inline-block text-sm font-medium text-teal-700 underline">

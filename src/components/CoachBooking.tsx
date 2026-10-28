@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useManagedPeople, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -66,7 +67,7 @@ export default function CoachBooking({
 
   useEffect(() => {
     void fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { user?: { name: string; phone: string; email: string } }) => {
         if (d.user) {
           setWho({ name: d.user.name, phone: d.user.phone, email: d.user.email });
@@ -74,7 +75,7 @@ export default function CoachBooking({
           return fetch(`/api/my/wallet?venueId=${venueId}`, { cache: "no-store" });
         }
       })
-      .then((res) => (res && res.ok ? res.json() : null))
+      .then((res) => (res && res.ok ? readJson(res) : null))
       .then((wallet: { balance?: number } | null) => {
         if (wallet && typeof wallet.balance === "number") setBalance(wallet.balance);
       })
@@ -85,7 +86,7 @@ export default function CoachBooking({
     setStarts(null);
     setStart(null);
     void fetch(assigns ? `/api/coaching/slots?venueId=${venueId}&date=${date}&sport=${sport}` : `/api/coaching/slots?coachId=${coach.id}&date=${date}&sport=${sport}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { starts?: StartOption[]; policy?: PublicPolicy }) => {
         setPolicy(d.policy ?? null);
         setStarts(d.starts ?? []);
@@ -119,7 +120,7 @@ export default function CoachBooking({
           ...(payFromWallet ? { payFromWallet: true } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
       setWalletError(payFromWallet && data.walletError ? t("rg7.lesson.creditNotUsed") : null);
       setGiven(data.lessonCoach?.name ?? null);

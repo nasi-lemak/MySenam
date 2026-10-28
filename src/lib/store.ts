@@ -5,7 +5,7 @@ import { signOffHolds, type SignOffChannel } from "./sign-offs";
 import { bookingPlaces, CUSTOMER_TAKES_PART, guardianshipOf, PARTICIPANT_TAKES_PART, placeParticipants, placesInducted } from "./participants";
 export { courtFor, courtOffers } from "./court-activities";
 import { isActivity, venueMayOffer } from "./activities";
-import { randomBytes, randomInt } from "crypto";
+import { createHash, randomBytes, randomInt } from "crypto";
 import { notesFor } from "./customer-notes";
 import { signaturesFor, signWaiver, waiverRefusal } from "./waivers";
 import { overridesFor, recordOverrides, type BookingOverride, type PolicyOverrideRecord } from "./policy-overrides";
@@ -105,6 +105,7 @@ import {
 import { priceBooking, readQuantityPrices, type MemberPricing, type Quote } from "./pricing";
 import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
+import { venueContact, type VenueContact } from "./venue-contact";
 import { hoursOn, parseWeekHours, validateUsualHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
@@ -176,6 +177,7 @@ interface VenueRow {
   partly_unstaffed?: "code" | "counter";
   emergency_phone: string | null;
   emergency_info: string | null;
+  phone_whatsapp?: boolean | null;
   published_at: string | null;
   suspended_at: string | null;
   suspended_by: "payment" | "owner" | null;
@@ -205,6 +207,7 @@ function toVenue(r: VenueRow): Venue {
     partlyUnstaffed: r.partly_unstaffed ?? "code",
     emergencyPhone: r.emergency_phone,
     emergencyInfo: r.emergency_info,
+    phoneWhatsapp: r.phone_whatsapp === true,
     publishedAt: r.published_at,
     suspendedAt: r.suspended_at,
     suspendedBy: r.suspended_by,
@@ -3999,6 +4002,8 @@ export async function updateVenue(
     partlyUnstaffed?: "code" | "counter";
     emergencyPhone?: string | null;
     emergencyInfo?: string | null;
+    /** Customers may message the venue's number on WhatsApp (migration 0249). */
+    phoneWhatsapp?: boolean;
   }
 ): Promise<VenueEditResult> {
   const db = getDb();
@@ -4052,7 +4057,7 @@ export async function updateVenue(
   await db.prepare(
     `UPDATE venues SET name = ?, area = ?, address = ?, phone = ?, cancel_cutoff_hours = ?,
                        open_min = ?, close_min = ?, week_hours = ?, staffed_from = ?, staffed_to = ?,
-                       partly_unstaffed = ?, emergency_phone = ?, emergency_info = ? WHERE id = ?`
+                       partly_unstaffed = ?, emergency_phone = ?, emergency_info = ?, phone_whatsapp = ? WHERE id = ?`
   ).run(
     changes.name?.trim() ?? current.name,
     changes.area?.trim() ?? current.area,
@@ -4071,6 +4076,7 @@ export async function updateVenue(
     changes.emergencyInfo !== undefined
       ? nullIfBlank(changes.emergencyInfo)
       : current.emergencyInfo,
+    changes.phoneWhatsapp ?? current.phoneWhatsapp === true,
     venueId
   );
   return {
@@ -4166,6 +4172,8 @@ export interface UserBookingRow extends Booking {
   reviewUrl: string | null;
   /** The most players an open game on it can look for (lib/court-activities.ts `mostSpots`). */
   mostSpots: number;
+  /** The venue's number, and its WhatsApp where it takes it (lib/venue-contact.ts). */
+  venueContact?: VenueContact | null;
 }
 
 export async function listUserBookings(userId: number): Promise<UserBookingRow[]> {
@@ -4179,6 +4187,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
              COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS venue_cutoff,
              CASE WHEN sr.late_keep = -1 THEN NULL ELSE COALESCE(sr.late_keep, v.late_cancel_keep) END AS venue_late_keep,
              v.strike_limit AS venue_strike_limit,
+             v.phone AS venue_phone, v.phone_whatsapp AS venue_phone_whatsapp,
              ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
@@ -4203,6 +4212,8 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venue_cutoff: number;
     venue_late_keep: number | null;
     venue_strike_limit: number | null;
+    venue_phone: string | null;
+    venue_phone_whatsapp: boolean | null;
   })[];
   return rows.map((r) => ({
     ...toBooking(r),
@@ -4217,6 +4228,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venueStrikeLimit: r.venue_strike_limit,
     reviewUrl: mayReviewByDate(r, venueZoneOf({ time_zone: r.venue_time_zone, lat: r.venue_lat, lng: r.venue_lng })) ? reviewPath(r.code) : null,
     mostSpots: mostSpots({ capacity: r.court_capacity, perPlayer: r.court_per_player === 1, maxPlayers: r.court_max_players }),
+    venueContact: venueContact({ phone: r.venue_phone, phoneWhatsapp: r.venue_phone_whatsapp }),
   }));
 }
 
@@ -8123,19 +8135,27 @@ async function alreadyQueued(
   return false;
 }
 
-/** Write an entry and who it is for, in the caller's transaction. */
+/** A waiting-list entry's leave link as it is kept: its SHA-256, never the link itself (migration 0248). */
+const leaveHash = (token: string) => createHash("sha256").update(token.trim()).digest("hex");
+
+/**
+ * Write an entry and who it is for, in the caller's transaction. With it, its
+ * private link to leave the list again: returned this once, to whoever joined,
+ * and kept only as its hash.
+ */
 async function insertEntry(
   cols: { class_id?: number; court_id?: number; date?: string; start_min?: number; end_min?: number },
   input: { name: string; phone: string; email?: string; userId?: number; locale?: string; madeBy?: WaitlistMaker },
   q: Queuer
-): Promise<number> {
+): Promise<{ id: number; leaveToken: string }> {
   const db = getDb();
   const by = input.madeBy;
+  const leaveToken = randomBytes(16).toString("hex");
   const row = (await db
     .prepare(
       `INSERT INTO waitlist (class_id, court_id, date, start_min, end_min, name, phone, email, user_id, locale, places, customer_takes_part,
-                             made_by, made_by_admin_id, made_by_api_key_id, made_by_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                             made_by, made_by_admin_id, made_by_api_key_id, made_by_name, leave_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
     .get(
       cols.class_id ?? null,
@@ -8153,11 +8173,12 @@ async function insertEntry(
       by?.channel ?? "customer",
       by?.channel === "staff" ? by.adminId : null,
       by?.channel === "api" ? by.apiKeyId : null,
-      by ? by.name.slice(0, 120) : null
+      by ? by.name.slice(0, 120) : null,
+      leaveHash(leaveToken)
     )) as { id: number };
   for (const p of q.participants)
     await db.prepare("INSERT INTO waitlist_participants (waitlist_id, participant_id, name) VALUES (?, ?, ?)").run(row.id, p.id, p.name);
-  return row.id;
+  return { id: row.id, leaveToken };
 }
 
 /** datetime('now') is UTC without a zone marker. */
@@ -8213,7 +8234,8 @@ export async function passOnExpiredOffers(): Promise<number> {
 }
 
 export type WaitlistResult =
-  | { ok: true; entry: WaitlistEntry; position: number }
+  /** `leaveToken`: the entry's private link to leave the list, given this once (`leaveWaitlistByToken`). */
+  | { ok: true; entry: WaitlistEntry; position: number; leaveToken: string }
   | Refusal;
 
 /**
@@ -8260,8 +8282,8 @@ export async function joinClassWaitlist(input: {
       if (await db.prepare(`SELECT b.id FROM bookings b WHERE b.class_id = ? AND b.status = 'confirmed' AND ${PARTICIPANT_TAKES_PART("b")}`).get(input.classId, p.id))
         return refuse("ALREADY_ENROLLED");
 
-    const id = await insertEntry({ class_id: input.classId }, input, q);
-    return { ok: true, entry: await readEntry(id), position: (await classQueue(input.classId)).length };
+    const { id, leaveToken } = await insertEntry({ class_id: input.classId }, input, q);
+    return { ok: true, entry: await readEntry(id), position: (await classQueue(input.classId)).length, leaveToken };
   });
 }
 
@@ -8328,7 +8350,7 @@ async function claimWaitlistOfferOnce(token: string, opts: { agreeWaiver?: boole
     await expireStaleOffers();
     const db = getDb();
     const row = await db
-      .prepare("SELECT * FROM waitlist WHERE offer_token = ?")
+      .prepare("SELECT * FROM waitlist WHERE offer_token = ? FOR UPDATE")
       .get(token.trim()) as WaitlistRow | undefined;
     if (!row) return refuse("OFFER_INVALID");
     if (row.status !== "offered")
@@ -8426,20 +8448,90 @@ async function claimWaitlistOfferOnce(token: string, opts: { agreeWaiver?: boole
 /** Give up a place in the queue. */
 export async function leaveWaitlist(entryId: number, phone: string): Promise<{ ok: true } | Refusal> {
   return withTransaction(async () => {
-    const db = getDb();
-    const row = await db
-      .prepare("SELECT * FROM waitlist WHERE id = ? AND phone_key(phone) = phone_key(?)")
+    const row = await getDb()
+      .prepare("SELECT * FROM waitlist WHERE id = ? AND phone_key(phone) = phone_key(?) FOR UPDATE")
       .get(entryId, phone.trim()) as WaitlistRow | undefined;
     if (!row) return refuse("WAITLIST_NOT_FOUND");
-    if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
-
-    await db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ?").run(row.id);
-    await release({ kind: "offer", waitlistId: row.id });
-    // Someone dropping out may free a live offer for the next person.
-    if (row.class_id) await offerClassPlace(row.class_id);
-    else if (row.court_id && row.date) await offerSlotPlace(row.court_id, row.date);
-    return { ok: true };
+    return await leaveRow(row);
   });
+}
+
+/**
+ * Leave by the entry's private link (audit R8 X2-9): the guest who joined
+ * from the grid or a class has no account to do it from. Asked twice, or
+ * once the place is taken up or the entry has run its course, the link says
+ * so and changes nothing.
+ */
+export async function leaveWaitlistByToken(token: string): Promise<{ ok: true } | Refusal> {
+  return withTransaction(async () => {
+    await expireStaleOffers();
+    const row = await getDb().prepare("SELECT * FROM waitlist WHERE leave_hash = ? FOR UPDATE").get(leaveHash(token)) as WaitlistRow | undefined;
+    if (!row) return refuse("WAITLIST_NOT_FOUND");
+    if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
+    if (row.status !== "waiting" && row.status !== "offered") return refuse("WAITLIST_NOT_FOUND");
+    return await leaveRow(row);
+  });
+}
+
+/**
+ * Turn an offer down, by its own link (audit R8 X2-9): the entry leaves the
+ * list and the place is offered at once to the next person waiting, as
+ * leaving does, rather than held for the rest of the offer's time. Anybody
+ * holding the offer's link may, as anybody holding it may claim it.
+ */
+export async function declineWaitlistOffer(offerToken: string): Promise<{ ok: true } | Refusal> {
+  return withTransaction(async () => {
+    await expireStaleOffers();
+    const row = await getDb().prepare("SELECT * FROM waitlist WHERE offer_token = ? FOR UPDATE").get(offerToken.trim()) as WaitlistRow | undefined;
+    if (!row) return refuse("OFFER_INVALID");
+    if (row.status !== "offered") return refuse("OFFER_EXPIRED");
+    return await leaveRow(row);
+  });
+}
+
+/**
+ * What an entry is waiting for, read by its leave link, for the page that
+ * asks whether to leave: the class or the resource, the venue, the day and
+ * the time, and whether it is still on the list. Nothing about who joined.
+ */
+export async function waitlistEntryByLeaveToken(token: string): Promise<{
+  status: WaitlistStatus;
+  what: string;
+  venueName: string;
+  date: string | null;
+  startMin: number | null;
+  endMin: number | null;
+} | null> {
+  await expireStaleOffers();
+  const row = await getDb().prepare("SELECT * FROM waitlist WHERE leave_hash = ?").get(leaveHash(token)) as WaitlistRow | undefined;
+  if (!row) return null;
+  const venueId = await entryVenue(row);
+  const venueName = venueId === null ? "" : ((await getVenue(venueId))?.name ?? "");
+  if (row.class_id) {
+    const session = await getClass(row.class_id);
+    return { status: row.status, what: session?.name ?? "", venueName, date: session?.date ?? null, startMin: session?.startMin ?? null, endMin: session?.endMin ?? null };
+  }
+  const court = row.court_id ? await getCourt(row.court_id) : null;
+  return { status: row.status, what: court?.name ?? "", venueName, date: row.date, startMin: row.start_min, endMin: row.end_min };
+}
+
+/**
+ * An entry taken off its list, in the caller's transaction: its hold let go,
+ * and the place offered to the next person waiting. Only one of two at once
+ * changes it (the update is conditional on the status it was read in), so a
+ * leave racing a claim or an expiry either wins or is told the entry has gone.
+ */
+async function leaveRow(row: WaitlistRow): Promise<{ ok: true } | Refusal> {
+  if (row.status === "claimed") return refuse("PLACE_ALREADY_CLAIMED");
+  const done = await getDb()
+    .prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ? AND status = ?")
+    .run(row.id, row.status);
+  if (done.changes !== 1) return refuse("WAITLIST_NOT_FOUND");
+  await release({ kind: "offer", waitlistId: row.id });
+  // Someone dropping out may free a live offer for the next person.
+  if (row.class_id) await offerClassPlace(row.class_id);
+  else if (row.court_id && row.date) await offerSlotPlace(row.court_id, row.date);
+  return { ok: true };
 }
 
 /** The queue for a class, for staff. */
@@ -8618,8 +8710,8 @@ export async function joinSlotWaitlist(input: {
     if (await alreadyQueued(q, input.phone, { sql: "w.court_id = ? AND w.date = ? AND w.start_min = ?", params: [courtId, date, start] }))
       return refuse("ALREADY_WAITING");
 
-    const id = await insertEntry({ court_id: courtId, date, start_min: start, end_min: end }, input, q);
-    return { ok: true, entry: await readEntry(id), position: (await slotQueue(courtId, date)).length };
+    const { id, leaveToken } = await insertEntry({ court_id: courtId, date, start_min: start, end_min: end }, input, q);
+    return { ok: true, entry: await readEntry(id), position: (await slotQueue(courtId, date)).length, leaveToken };
   });
 }
 

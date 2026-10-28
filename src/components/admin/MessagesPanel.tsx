@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { OutboxMessage, OutboxSummary } from "@/lib/outbox";
 import type { ManagedVenue } from "./shared";
@@ -19,6 +20,7 @@ const KIND_LABELS: Record<string, StaffPhrase> = {
   booking_cancelled: "msg.kind.bookingCancelled",
   waitlist_offer: "msg.kind.waitlistOffer",
   class_enrolled: "msg.kind.classEnrolled",
+  waitlist_joined: "q8b.msg.kindJoined",
 };
 
 const STATE_LABELS: Record<string, StaffPhrase> = {
@@ -57,7 +59,7 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
       const res = await fetch(venueId === PLATFORM ? "/api/admin/messages?platform=1" : `/api/admin/messages?venueId=${venueId}`, {
         cache: "no-store",
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("msg.loadFailed")));
       setMessages(data.messages);
       setSummary(data.summary);
@@ -80,7 +82,7 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, recipient }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("msg.requeueFailed")));
       setNotice(t("msg.requeued"));
       setFixing(null);
@@ -95,7 +97,7 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">{t("msg.title")}</h2>
         {(venues.length > 1 || isOwner) && (
-          <select
+          <select aria-label={t("q8b.l.venue")}
             value={venueId}
             onChange={(e) => setVenueId(Number(e.target.value))}
             className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
@@ -220,7 +222,7 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
                     {m.status !== "sent" &&
                       (fixing?.id === m.id ? (
                         <div className="flex items-center justify-end gap-1.5">
-                          <input
+                          <input aria-label={t("q8b.l.recipient")}
                             value={fixing.recipient}
                             onChange={(e) => setFixing({ id: m.id, recipient: e.target.value })}
                             className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-teal-500 focus:outline-none"

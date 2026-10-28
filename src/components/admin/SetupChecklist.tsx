@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useStaffT } from "./StaffLanguage";
 
@@ -55,7 +56,7 @@ export function SetupChecklist({
 
   useEffect(() => {
     fetch(`/api/admin/setup?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then(setSetup)
       .catch(() => setSetup(null));
   }, [venueId, refreshKey, saved]);
@@ -66,7 +67,7 @@ export function SetupChecklist({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId, action }),
     });
-    if (res.ok) setSetup(await res.json());
+    if (res.ok) setSetup(await readJson(res));
   }
 
   if (!setup || setup.dismissed || setup.complete) return null;

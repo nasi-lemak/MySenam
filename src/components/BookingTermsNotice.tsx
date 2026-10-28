@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import type { BookingTerms, YourStanding } from "@/lib/booking-terms";
@@ -38,7 +39,7 @@ export default function BookingTermsNotice({ venueId, sport }: { venueId: number
 
   useEffect(() => {
     void fetch(`/api/venues/${venueId}/terms${sport ? `?sport=${sport}` : ""}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? readJson(r) : null))
       .then((d: { terms: BookingTerms; dismissed: boolean | null; you: YourStanding | null } | null) => {
         if (!d) return;
         setTerms(d.terms);

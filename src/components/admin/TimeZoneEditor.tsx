@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { ZoneSettings } from "@/lib/zones";
 import { useStaffT } from "./StaffLanguage";
@@ -17,7 +18,7 @@ export function TimeZoneEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     setSettings(null);
     void fetch(`/api/admin/venue-time-zone?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { settings?: ZoneSettings }) => setSettings(d.settings ?? null));
   }, [venueId]);
 
@@ -30,7 +31,7 @@ export function TimeZoneEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, zone }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
       setSettings(data.settings);
     } catch (err) {

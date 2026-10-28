@@ -52,6 +52,7 @@ import { accountsForUser, chargeToAccount } from "@/lib/accounts";
 import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
 import { readSelection, recordBookedFor, selectionAtVenue, selectionForAccount, type Named, type Selection } from "@/lib/participant-bookings";
+import { venueContact } from "@/lib/venue-contact";
 
 export const dynamic = "force-dynamic";
 
@@ -670,6 +671,8 @@ export async function GET(req: NextRequest) {
       strikeLimit: (await cancelPolicy(venue.id)).strikeLimit,
       // As far as it can be moved: the venue's window, a member's where this number is one.
       lastDate: addDays(todayISO(venue.timeZone), await windowFor(venue.id, [booking.phone])),
+      // Its number, and its WhatsApp where it takes it: for whatever on the page says to call it (lib/venue-contact.ts).
+      contact: venueContact(venue),
     },
     payOnline: await takesPaymentOnline(venue.id),
     // On an unmanned resource: whether the door code or the counter lets them in, by the booking's whole time.

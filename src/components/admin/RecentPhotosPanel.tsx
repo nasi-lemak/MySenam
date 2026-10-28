@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Photo } from "@/lib/photos-shared";
 import { useStaffT } from "./StaffLanguage";
@@ -16,7 +17,7 @@ export function RecentPhotosPanel() {
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/photos", { cache: "no-store" });
-    if (res.ok) setPhotos((await res.json()).photos);
+    if (res.ok) setPhotos((await readJson(res)).photos);
   }, []);
   useEffect(() => {
     void load();
@@ -26,7 +27,7 @@ export function RecentPhotosPanel() {
     if (!window.confirm(t("rph.removeConfirm"))) return;
     setError(null);
     const res = await fetch(`/api/admin/venues/${p.venueId}/photos/${p.id}`, { method: "DELETE" });
-    if (!res.ok) return setError(t.err(await res.json().catch(() => null), t("rph.removeFailed")));
+    if (!res.ok) return setError(t.err(await readJson(res).catch(() => null), t("rph.removeFailed")));
     await load();
   }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { sportsOf } from "@/lib/court-activities";
 import { useCallback, useEffect, useState } from "react";
 import type { Coach, CoachHours } from "@/lib/coaching";
@@ -52,7 +53,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/coaches?venueId=${venue.id}`, { cache: "no-store" });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJson(res);
     setCoaches(data.coaches);
     setContacts(data.contacts ?? {});
     setChoice(data.choice === "venue" ? "venue" : "customer");
@@ -65,7 +66,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId: venue.id, action: "choice", choice: next }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("co6.ch.failed")));
     setChoice(data.choice);
   }
@@ -77,7 +78,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId: venue.id, id, ...body }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("coach.saveFailed")));
     setCoaches(data.coaches);
     setContacts(data.contacts ?? {});
@@ -118,7 +119,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
         hours: draft.days.map((weekday) => ({ weekday, from: draft.from, until: draft.until })),
       }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
     if (!res.ok) return setError(t.err(data, t("coach.saveFailed")));
     setCoaches(data.coaches);
     setDraft(null);
@@ -127,7 +128,7 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
   async function retire(c: Coach) {
     if (!confirm(t("coach.stopConfirm", { name: c.name }))) return;
     const res = await fetch(`/api/admin/coaches?venueId=${venue.id}&id=${c.id}`, { method: "DELETE" });
-    if (res.ok) setCoaches((await res.json()).coaches);
+    if (res.ok) setCoaches((await readJson(res)).coaches);
   }
 
   const input = "rounded-md border border-slate-300 px-2 py-1 text-sm";

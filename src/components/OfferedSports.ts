@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { Sport } from "@/lib/types";
 
@@ -13,7 +14,7 @@ export function useOfferedSports(): Sport[] {
   useEffect(() => {
     let live = true;
     fetch("/api/sports")
-      .then((res) => (res.ok ? res.json() : { sports: [] }))
+      .then((res) => (res.ok ? readJson(res) : { sports: [] }))
       .then((data: { sports?: Sport[] }) => {
         if (live) setSports(data.sports ?? []);
       })

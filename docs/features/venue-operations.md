@@ -654,3 +654,42 @@ A number can send three a day to one venue, the form has a field only scripts
 fill in, and the route is rate-limited. An enquiry goes out with what the venue
 holds against the number and with the customer's own data, is erased with
 their account, and is deleted after a year.
+
+## The venue's number
+
+Wherever a customer may be told to call the venue (a change inside the
+cutoff, a refund to be made by hand, a refused number, a booking refused for
+any reason), the venue's number is there with it, as a link to dial
+(`components/VenueContact.tsx`, `lib/venue-contact.ts`): on My Booking under
+the booking's details and under any refusal, on each of an account's
+upcoming bookings, and in the booking form under a refusal. Where the venue
+says its number takes WhatsApp (*Customers may WhatsApp this number* under
+*Venue details*; `venues.phone_whatsapp`, migration 0249, off until a manager
+ticks it, in the activity log as a change to the venue's details), a *Chat on
+WhatsApp* link opens a chat with that number, the booking's code written in
+(`tests/venue-contact.test.ts`).
+
+## The staff dashboard: its place, keeping up, its fields
+
+- **Its place is in its address.** The tab is `?tab=` (Bookings, Schedule,
+  Reports…), and on the day list and the schedule the day (`&date=`) and, on
+  the schedule, the venue (`&venue=`), so a reload, the Back button or a link
+  somebody was sent lands where they were. Each tab is a step in the
+  browser's history; changing the day or venue is not. A tab this account
+  does not have (a front desk's link to Reports) opens on Bookings; a venue
+  it does not run is ignored. The current tab is marked for screen readers
+  (`aria-current`) as well as by colour (`components/admin/place.tsx`).
+- **The day list and the schedule keep up by themselves.** While on screen
+  they read the day again every minute, and at once on coming back to a tab
+  hidden for a while; not while hidden. Only their data is read: what is
+  being typed stays. *Updated 6:31 PM* says when, on the venue's clock. An
+  answer for a day left since is dropped.
+- **A list that could not be read says so**, with *Try again*, rather than
+  its *None yet* (tournaments, leagues); any answer that is not the app's is
+  said as such in the staff language, never as a parser error
+  ([HTTP routes](../architecture/http-api.md#how-every-route-behaves)).
+- **Every field has a name** a screen reader says and a person can still read
+  once they have typed: a visible label (the class form) or, where a row has
+  no room for one, an `aria-label`; a placeholder is never the name.
+  `tests/form-labels.test.ts` reads every staff component and fails on a
+  field without one (`tests/components/staff-place.test.tsx` for the rest).

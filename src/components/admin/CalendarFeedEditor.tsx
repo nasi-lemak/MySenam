@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useStaffT } from "./StaffLanguage";
 
@@ -18,7 +19,7 @@ export function CalendarFeedEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     setUrl(undefined);
     void fetch(`/api/admin/calendar-feed?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { url?: string | null }) => setUrl(d.url ?? null));
   }, [venueId]);
 
@@ -34,7 +35,7 @@ export function CalendarFeedEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, on }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
       setUrl(data.url);
     } catch (err) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { Enquiry, EnquiryStatus } from "@/lib/enquiries";
 import { internationalNumber } from "@/lib/phone";
@@ -44,7 +45,7 @@ export function EnquiriesPanel() {
 
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/enquiries", { cache: "no-store" });
-    if (res.ok) setEnquiries((await res.json()).enquiries ?? []);
+    if (res.ok) setEnquiries((await readJson(res)).enquiries ?? []);
   }, []);
 
   useEffect(() => {
@@ -58,7 +59,7 @@ export function EnquiriesPanel() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venueId: e.venueId, id: e.id, status }),
     });
-    if (!res.ok) setError(t.err(await res.json(), t("enq.saveFailed")));
+    if (!res.ok) setError(t.err(await readJson(res), t("enq.saveFailed")));
     await load();
   }
 

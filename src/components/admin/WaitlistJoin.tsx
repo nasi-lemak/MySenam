@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import { ClockField } from "@/components/ClockField";
 import { useT } from "@/components/Language";
@@ -84,7 +85,7 @@ export function WaitlistJoin({
           ...(who !== "anyone" ? { confirmWho } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("wl5.failed")));
       setNotice(t("wl5.added", { n: data.position }));
       setForm({ name: "", phone: "", email: "" });
@@ -205,7 +206,7 @@ export function WaitlistQueue({
     if (!date) return;
     try {
       const res = await fetch(`/api/admin/waitlist?venueId=${venueId}&date=${date}`, { cache: "no-store" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("wl5.loadFailed")));
       setFetched(data.entries);
     } catch (err) {
@@ -226,7 +227,7 @@ export function WaitlistQueue({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, entryId: entry.id }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("wl5.removeFailed")));
       await load();
       onChange?.();

@@ -1,5 +1,6 @@
 "use client";
 
+import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { CancelPolicy } from "@/lib/cancel-policy";
 import { useStaffT } from "./StaffLanguage";
@@ -19,7 +20,7 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
   useEffect(() => {
     setPolicy(null);
     void fetch(`/api/admin/cancel-policy?venueId=${venueId}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((d: { policy?: CancelPolicy }) => setPolicy(d.policy ?? null));
   }, [venueId]);
 
@@ -33,7 +34,7 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ venueId, ...policy }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cxl.couldNotSave")));
       setPolicy(data.policy);
       setNotice(t("c.saved"));
