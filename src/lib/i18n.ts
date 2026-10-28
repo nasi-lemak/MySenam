@@ -2759,6 +2759,10 @@ const EN = {
   "gc8.form.guest": "A member's or resident's guest",
   "gc8.form.hostPhone": "Host's phone number",
   "gc8.form.note": "Counts towards the host's guest allowance; the guest goes on the venue's list until the day booked.",
+  // p8a: what became of the money on a booking the venue cancelled, where staff settled it otherwise than in full as paid.
+  "p8a.msg.credit": "{amount} of what you paid has been put on your credit at the venue, to spend on another booking.",
+  "p8a.msg.kept": "As its late-cancellation terms say, the venue kept {kept} of what you paid; the other {amount} will be refunded by the venue.",
+  "p8a.msg.keptAll": "As its late-cancellation terms say, the venue kept what you paid.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5468,6 +5472,9 @@ const MS: Record<Phrase, string> = {
   "gc8.form.guest": "Tetamu ahli atau penghuni",
   "gc8.form.hostPhone": "Nombor telefon tuan rumah",
   "gc8.form.note": "Dikira dalam had tetamu tuan rumah; tetamu dimasukkan ke senarai pusat sehingga hari yang ditempah.",
+  "p8a.msg.credit": "{amount} daripada bayaran anda telah ditambah ke kredit anda di pusat ini, untuk digunakan pada tempahan lain.",
+  "p8a.msg.kept": "Mengikut terma pembatalan lewatnya, pusat ini menyimpan {kept} daripada bayaran anda; baki {amount} akan dipulangkan oleh pihak tempat.",
+  "p8a.msg.keptAll": "Mengikut terma pembatalan lewatnya, pusat ini menyimpan bayaran anda.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

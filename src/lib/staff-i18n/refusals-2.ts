@@ -709,4 +709,18 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "The dashboard is not offered in that language.": { ms: "Papan pemuka tidak ditawarkan dalam bahasa itu.", zh: "后台不提供该语言。" },
   "That language is not offered here.": { ms: "Bahasa itu tidak ditawarkan di sini.", zh: "此处不提供该语言。" },
   "locale is required.": { ms: "Bahasa diperlukan.", zh: "需要提供语言。" },
+  // p8a: staff cancelling a paid booking or a series (lib/counter-refunds.ts), and correcting a booking's details (lib/booking-corrections.ts).
+  "That way of settling is not offered for this booking. Look at it again.": { ms: "Cara penyelesaian itu tidak ditawarkan untuk tempahan ini. Lihat semula.", zh: "此预订不提供该结算方式。请重新查看。" },
+  "What was paid on this booking, or the venue's terms, changed since you looked. Look at it again.": { ms: "Bayaran tempahan ini, atau terma pusat ini, telah berubah sejak anda melihatnya. Lihat semula.", zh: "自您查看以来，此预订的付款或场馆条款已有变动。请重新查看。" },
+  "The front desk can only give back a counter payment taken today. Ask a manager.": { ms: "Kaunter hanya boleh memulangkan bayaran kaunter yang diambil hari ini. Minta pengurus.", zh: "前台只能退还今天收取的柜台付款。请联系经理。" },
+  "This booking was not made from an account, so it cannot be given as credit.": { ms: "Tempahan ini tidak dibuat daripada akaun, jadi tidak boleh diberi sebagai kredit.", zh: "此预订并非通过账户预订，因此无法以储值退还。" },
+  "Choose the weeks to cancel.": { ms: "Pilih minggu untuk dibatalkan.", zh: "请选择要取消的周。" },
+  "This booking is cancelled: there is nothing to correct.": { ms: "Tempahan ini telah dibatalkan: tiada apa-apa untuk dibetulkan.", zh: "此预订已取消：无需更正。" },
+  "This booking's customer asked to be forgotten: their details cannot be put back on it.": { ms: "Pelanggan tempahan ini telah meminta untuk dilupakan: butiran mereka tidak boleh diletakkan semula.", zh: "此预订的顾客已要求删除其资料：不能再将其资料填回。" },
+  "Nothing to correct: give a new name, phone number or email.": { ms: "Tiada apa-apa untuk dibetulkan: berikan nama, nombor telefon atau e-mel baharu.", zh: "没有需要更正的内容：请提供新的姓名、电话号码或电邮。" },
+  "Please provide the customer's name.": { ms: "Sila berikan nama pelanggan.", zh: "请提供顾客的姓名。" },
+  "Please provide a valid phone number.": { ms: "Sila berikan nombor telefon yang sah.", zh: "请提供有效的电话号码。" },
+  "Please provide a valid email address.": { ms: "Sila berikan alamat e-mel yang sah.", zh: "请提供有效的电邮地址。" },
+  "This booking is not part of a weekly series.": { ms: "Tempahan ini bukan sebahagian daripada siri mingguan.", zh: "此预订不属于每周系列。" },
+  "This booking is not part of a group booking.": { ms: "Tempahan ini bukan sebahagian daripada tempahan berkumpulan.", zh: "此预订不属于组合预订。" },
 };

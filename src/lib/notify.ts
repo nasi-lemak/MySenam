@@ -585,7 +585,13 @@ export async function rememberLocale(bookingIds: number[], locale: Locale): Prom
  * parameter, so the WhatsApp template stays as Meta approved it): a built-in
  * reason in the customer's own language, or what staff typed, as typed.
  */
-export async function notifyVenueCancelled(booking: Booking, what?: string, why?: CancelReason): Promise<number | null> {
+export async function notifyVenueCancelled(
+  booking: Booking,
+  what?: string,
+  why?: CancelReason,
+  /** What became of the money, where staff settled it otherwise than in full the way it was paid (lib/counter-refunds.ts). */
+  settled?: { phrase: Phrase; vars: Record<string, string> }
+): Promise<number | null> {
   const court = await getCourt(booking.courtId);
   if (!court) return null;
   const venue = await getVenue(court.venueId);
@@ -595,7 +601,7 @@ export async function notifyVenueCancelled(booking: Booking, what?: string, why?
   const place = what ? `${what} (${court.name})` : court.name;
   const { where, when } = slot(locale, place, venue.name, booking);
   const reason = why ? ("phrase" in why ? t(why.phrase) : why.text.trim()) : "";
-  const owed = t(booking.paymentStatus === "paid" ? "msg.refundOwed" : "msg.nothingOwed");
+  const owed = settled ? t(settled.phrase, settled.vars) : t(booking.paymentStatus === "paid" ? "msg.refundOwed" : "msg.nothingOwed");
   const notice = await createNotice({
     venueId: venue.id,
     bookingId: booking.id,

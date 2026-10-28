@@ -146,4 +146,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "phone.blocked": "Blocked a phone number",
   "phone.unblocked": "Unblocked a phone number, saying why",
   "guest.registered": "Registered a member's or resident's guest at the counter",
+  "booking.details_corrected": "Corrected a booking's name, number or email",
+  "booking.series_cancelled": "Cancelled weeks of a weekly series",
+  "payment.paid_out": "Handed money back at the counter for a cancelled booking",
 };

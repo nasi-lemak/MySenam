@@ -2596,6 +2596,9 @@ export const ZH: Record<Phrase, string> = {
   "gc8.form.guest": "会员或住户的访客",
   "gc8.form.hostPhone": "主人的电话号码",
   "gc8.form.note": "计入主人的访客限额；访客将列入场馆名单，直至预订当天。",
+  "p8a.msg.credit": "您所付款项中的 {amount} 已存入您在该场馆的储值余额，可用于其他预订。",
+  "p8a.msg.kept": "根据场馆的迟取消条款，场馆保留了您所付款项中的 {kept}；其余 {amount} 将由场馆退还。",
+  "p8a.msg.keptAll": "根据场馆的迟取消条款，场馆保留了您所付的款项。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

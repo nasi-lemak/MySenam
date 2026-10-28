@@ -352,7 +352,7 @@ export default function AdminPage() {
         </div>
       ) : (
         <>
-          {tab === "bookings" && <BookingsTab />}
+          {tab === "bookings" && <BookingsTab venues={venues} />}
           {tab === "schedule" && <ScheduleTab venues={venues} />}
           {tab === "occupancy" && <OccupancyTab venues={venues} />}
           {tab === "reports" && <ReportsTab venues={venues} />}

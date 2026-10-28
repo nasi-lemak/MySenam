@@ -104,7 +104,9 @@ change, update this page, and update [feature status](feature-status.md).
 - **Marking unpaid is not a refund.** A booking paid online, with credit or
   with a pass cannot be ticked back to unpaid; it is refunded instead. Front
   desk can take back only a counter payment marked today; anything older is a
-  manager's.
+  manager's. The same holds for giving a counter payment back when cancelling
+  a booking, in cash or as credit
+  ([cancelling a booking paid at the counter](../features/payments-and-credit.md#cancelling-a-booking-paid-at-the-counter)).
 - **What staff cancel is refunded at once**: a booking cancelled by staff, by
   the API or by a closed day has what was paid online refunded, to the card
   where the venue refunds through its gateway, even if it gives credit when a

@@ -29,7 +29,8 @@ managers, so nobody lost anything; new ones default to front desk.
 
 | | Front desk | Manager |
 | - | :-: | :-: |
-| Bookings: make, mark paid (and how), check in, move, change, cancel, no-show | ✓ | ✓ |
+| Bookings: make, mark paid (and how), check in, move, change, cancel, no-show, correct the customer's details | ✓ | ✓ |
+| Giving back a counter payment taken on an earlier day, on cancelling ([cancelling a booking paid at the counter](../features/payments-and-credit.md#cancelling-a-booking-paid-at-the-counter)) | | ✓ |
 | Kit hire, passes, memberships and credit sold at the counter, blocking an hour | ✓ | ✓ |
 | Courts and prices, classes, leagues and tournaments set up | | ✓ |
 | Venue details, closures, outages, who it is for, house rules, pay to hold | | ✓ |

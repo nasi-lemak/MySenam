@@ -557,7 +557,9 @@ export async function creditBooking(
    * What is left of the booking's price once places taken off it while it was
    * paid are left out (lib/place-withdrawals.ts): each has its own credit note.
    */
-  remaining = 1
+  remaining = 1,
+  /** How it went back, where not the way it was paid: given as stored credit at the counter (lib/counter-refunds.ts). */
+  via?: string
 ): Promise<Document | null> {
   const full = await bookingSale(bookingId);
   if (!full || full.paymentStatus !== "paid" || full.total <= 0 || share <= 0 || remaining <= 0) return null;
@@ -591,7 +593,7 @@ export async function creditBooking(
     tax_rate: sale.taxRate,
     tax_amount: sale.taxRate ? taxIncluded(sale.total, sale.taxRate) : 0,
     tax_reg_no: sale.taxRate ? tax!.regNo : null,
-    paid_via: paidVia(sale.paidVia),
+    paid_via: via ?? paidVia(sale.paidVia),
     note: why,
   });
 }

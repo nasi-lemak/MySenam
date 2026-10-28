@@ -136,6 +136,9 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "payment.gateway_refund": "rg7.act.gatewayRefund",
   "account.credit_settled": "rg7.act.creditSettled",
   "guest.registered": "gc8.act.registered",
+  "booking.details_corrected": "p8a.act.detailsCorrected",
+  "booking.series_cancelled": "p8a.act.seriesCancelled",
+  "payment.paid_out": "p8a.act.paidOut",
 };
 
 /**
