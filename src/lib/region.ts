@@ -249,7 +249,10 @@ function clockFormat(locale: string, zone: string): Intl.DateTimeFormat {
   let f = clockFormats.get(key);
   if (!f) {
     const tag = locale === "en" ? "en-US" : ["ms", "zh", "ta"].includes(locale) ? intlTag(locale) : "en-US";
-    f = new Intl.DateTimeFormat(tag, { timeZone: zone, hour: "numeric", minute: "2-digit", ...(locale === "ta" ? { hourCycle: "h23" as const } : {}) });
+    // Chinese is asked for the 12-hour clock outright: browsers without data for "zh-Hans-MY" (Chromium's) fall
+    // back to "zh-Hans", whose default is 24-hour ("18:30"), while the server's full data says "下午6:30".
+    const cycle = locale === "ta" ? { hourCycle: "h23" as const } : locale === "zh" ? { hourCycle: "h12" as const } : {};
+    f = new Intl.DateTimeFormat(tag, { timeZone: zone, hour: "numeric", minute: "2-digit", ...cycle });
     clockFormats.set(key, f);
   }
   return f;

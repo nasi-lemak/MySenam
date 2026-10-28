@@ -220,6 +220,24 @@ describe("a suspension covers nobody on its dates, and everybody it covers toget
     expect(events).toHaveLength(1);
   });
 
+  it("suspended today, the member is told her membership is suspended, not asked to join; reactivated, she books", async () => {
+    const holder = await adult("Today");
+    const own = await membership(holder);
+    expect((await suspendVia(manager, own.id, { from: day(0), until: day(7), reason: "Unpaid locker fees" })).status).toBe(200);
+    // Reserving at a members-only venue is asked for today: refused, with the suspension as the reason, inside it or after.
+    for (const d of [day(3), day(10)]) {
+      const refused = await book(holder, { courtId: pool, date: d, start: at(15), end: at(16) });
+      expect(refused.status).toBe(409);
+      expect(refused.body).toMatchObject({ code: "MS7_OWN_SUSPENDED", vars: { date: day(0) } });
+      expect(refused.body.error).toBe(`This session is for members, and your membership here is suspended on ${day(0)}. Ask the venue.`);
+    }
+    // Somebody who is no member here is still asked to join.
+    const stranger = await adult("Stranger");
+    expect((await book(stranger, { courtId: pool, date: day(3), start: at(15), end: at(16) })).body).toMatchObject({ code: "MEMBERS_ONLY" });
+    expect((await reactivateVia(manager, own.id, { reason: "Fees paid" })).status).toBe(200);
+    expect((await book(holder, { courtId: pool, date: day(3), start: at(15), end: at(16) })).status).toBe(201);
+  });
+
   it("check-in and the door on a day inside it: refused with the reason; the desk is warned, and admitting them is kept as such", async () => {
     expect((await updateVenue(club, { staffedFrom: 0, staffedTo: 0 })).ok).toBe(true);
     expect((await updateCourt(floor, { unmanned: true, accessCode: "1357" })).ok).toBe(true);

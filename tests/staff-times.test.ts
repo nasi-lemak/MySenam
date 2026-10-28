@@ -53,6 +53,21 @@ describe("the shared formatter", () => {
     expect(clockRange(23 * 60, 25 * 60)).toBe("11:00 PM–1:00 AM");
   });
 
+  it("writes Chinese on the 12-hour clock where a browser has no data for Malaysia's Chinese (Chromium's)", () => {
+    // Such a browser formats "zh-Hans-MY" as plain "zh-Hans", whose own default is the 24-hour clock ("18:30").
+    const Real = Intl.DateTimeFormat;
+    const spy = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (tag?: string | string[], options?: Intl.DateTimeFormatOptions) {
+      return new Real(typeof tag === "string" ? tag.replace(/^zh-Hans-[A-Z]{2}$/, "zh-Hans") : tag, options);
+    } as unknown as typeof Intl.DateTimeFormat);
+    try {
+      // A zone no other test formats in, so the formatter is made afresh under the stand-in.
+      expect(clockTime(new Date(Date.UTC(2026, 9, 28, 10, 30)), "Asia/Kuching", "zh")).toBe("下午6:30");
+      expect(clockTime(new Date(Date.UTC(2026, 9, 28, 1, 5)), "Asia/Kuching", "zh")).toBe("上午9:05");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("heads a column of hours briefly, English as the schedule always did", () => {
     expect(["en", "ms", "zh", "ta"].map((l) => hourHeading(18 * 60, l))).toEqual(["6PM", "6 PTG", "下午6", "18"]);
     expect(hourHeading(9 * 60 + 30, "en")).toBe("9:30AM");

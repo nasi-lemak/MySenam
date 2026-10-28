@@ -74,7 +74,9 @@ table in `src/lib/region.ts`:
   `clockTime` in `src/lib/region.ts`; `formatHour` and `formatMinute` use
   it), on customers' pages and in messages alike: English *6:30 PM*, as the
   pages always wrote it; Malay *6:30 PTG* (*PG* before noon); Chinese
-  *下午6:30*; Tamil on the 24-hour clock, *18:30*, because its 12-hour form
+  *下午6:30*, asked for the 12-hour clock outright, since a browser without
+  data for Malaysia's Chinese (Chromium's) falls back to plain Chinese, whose
+  default is *18:30*; Tamil on the 24-hour clock, *18:30*, because its 12-hour form
   differs between the server's CLDR data (*6:30 PM*) and browsers'
   (*பிற்பகல் 6:30*) and a page must read the same on both. A booking's
   hours are the venue's wall clock and written as they stand; a moment (a

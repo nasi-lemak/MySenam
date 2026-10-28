@@ -1,3 +1,4 @@
+import { inSameBusiness } from "./branches";
 import { getDb } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { phoneChecksOn } from "./phone-check";
@@ -170,7 +171,32 @@ export async function accessRefusal(venueId: number, userId: number | null): Pro
   if (access === "public") return null;
   if (userId === null) return refuse(access === "members" ? "MEMBERS_SIGN_IN" : "PRIVATE_SIGN_IN");
   if (await eligible(venueId, userId, access)) return null;
+  // A member whose membership here is suspended today is told so, not asked to join: reserving at a members-only
+  // venue is a privilege asked for today (lib/membership-suspensions.ts), and the suspension is why it is refused.
+  if (access === "members") {
+    const suspended = await suspendedToday(venueId, userId);
+    if (suspended) return { ok: false, error: errorText(ENGLISH, "MS7_OWN_SUSPENDED", { date: suspended }), code: "MS7_OWN_SUSPENDED", vars: { date: suspended } };
+  }
   return refuse(access === "members" ? "MEMBERS_ONLY" : "PRIVATE_VENUE");
+}
+
+/**
+ * Today, if the account's own number (as `eligible` reads it) holds a membership in this venue's business that
+ * would cover today but is suspended today; null otherwise.
+ */
+async function suspendedToday(venueId: number, userId: number): Promise<string | null> {
+  const phone = await accountPhone(userId);
+  if (phone === null) return null;
+  const today = todayISO();
+  const { suspendedOn } = await import("./membership-suspensions");
+  const row = await getDb()
+    .prepare(
+      `SELECT 1 FROM memberships m WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.holder_kind = 'customer'
+         AND phone_key(m.holder_phone) = phone_key(?) AND m.starts_on <= ? AND m.expires_on >= ? AND ${suspendedOn("m")} LIMIT 1`
+    )
+    .get(venueId, phone, today, today, today, today);
+  if (!row || !(await memberNumberTrusted(phone, { userId, by: "customer" }))) return null;
+  return today;
 }
 
 /**

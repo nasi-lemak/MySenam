@@ -549,7 +549,9 @@ paid for. Another venue's staff cannot see or change it.
   booking is made, so a member suspended today has neither, and one booking
   today for a day inside a suspension that has not started yet keeps the
   window and the reservation (it was a privilege when booked; the booking
-  is flagged).
+  is flagged). A member suspended today is told so when a members-only
+  venue refuses her, whatever the date she asks for (*… your membership here
+  is suspended on* today; `MS7_OWN_SUSPENDED`), never asked to join it.
 - **Again at check-in and the door, on the day**: self check-in and the door
   code refuse a place on a members' session inside a suspension
   (`MS7_CHECKIN_SUSPENDED`, `MS7_DOOR_SUSPENDED`); the desk is warned
