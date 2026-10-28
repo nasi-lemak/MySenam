@@ -715,6 +715,44 @@ Chinese and Tamil await native review, now including the times each language
 is written in; the retention periods are product policy awaiting legal
 review; the owner's decision on the counter's checks is open.
 
+#### 28 October 2026, commit `21d251b`
+
+The owner's round 7 decisions: the same venue policies on the counter and
+through the venue's API as online, with audited manager overrides where the
+venue permits (ADR 0026; B41–B43); sign-up by an emailed link that never says
+whether an address has an account, and Google sign-in that does not either
+(S25); emailed invitations withdrawn before they are accepted; a dearer
+coach's difference paid online (B39); memberships suspended and reactivated
+(B40); staff times in the staff language (B44); e-invoices sent to LHDN never
+rewritten, corrections as new documents (M19, M20); the venue API's
+withdrawal of one person, refunds made in Stripe's dashboard recorded, cover
+history in the data export, lessons paid from credit, account credit paid
+back by hand (M21); the lock table's memory on the 2 GB Droplet measured; and
+what the acceptance scenarios found (B45, B46). Not a launch. Run on one
+cloud container (four cores), Node 22, all on `21d251b`, at the first
+attempt.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 105 passed (with this record's documentation, the commit after) |
+| Suite on PGlite | 320 files (3 Postgres-only skipped); 3384 passed, 12 skipped |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server, `max_locks_per_transaction` 256) | 320 files; 3396 passed |
+| Concurrency, money and security inside both suites | Among them: `tests/contention.test.ts` (guarantees, then its measurements judged apart against the unchanged bounds), `tests/booking-references-deferred.test.ts`, `tests/same-policies.test.ts`, `tests/registration.test.ts` (six uses of one link, a link racing Google), `tests/invitation-withdrawals.test.ts` (withdrawal racing acceptance), `tests/coach-difference-online.test.ts` (counter racing a callback), `tests/membership-suspensions.test.ts` (suspending while somebody books), `tests/account-credit-settled.test.ts` and `tests/api-withdrawals.test.ts` on Postgres; `tests/einvoice-records.test.ts` (a sent document refused any change by the database) |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Email 4 and Invitations AA and AB, Coaches AC, Suspension AD, Times AE, Credit AF, Accounts AG and Counter AH among them | 16 files; 64 of 64 |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments against the fake gateways and the Billplz stand-in, messages through the outbox only (the acceptance server logs them), MyInvois against a stand-in (no acceptance scenario: no state can be shown without LHDN), Google sign-in against a stand-in |
+
+Before this run, the batches merged this round were tested file by file on
+both engines as they came in; the acceptance scenarios found B44, B45 and
+B46, fixed with tests before the run. Gaps: no live integration has passed
+its check; machine-assisted Malay, Chinese and Tamil await native review;
+the retention periods are product policy awaiting legal review; the memory
+figures for the lock table come from the development container, not the
+Droplet.
+
 #### 26 October 2026, commit `8f62ccf`
 
 Participants apart from accounts (ADR 0023), booking for somebody else on
