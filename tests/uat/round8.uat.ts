@@ -40,7 +40,8 @@ import { STAFF_PASSWORD, staffApi, staffSignIn } from "./families";
  *   desk), the customer cancels another online, and the venue's inbox gets
  *   one alert, in Malay, with who, where, when and the code.
  * - **Classes AO** (docs/features/programmes.md#changing-a-class): the front
- *   desk is refused changing a class's instructor; a manager changes it for
+ *   desk is offered no change of a class's instructor, and refused one asked
+ *   for directly; a manager changes it for
  *   the session and the later ones of its weekly series; customers see the
  *   new instructor on the classes page, and the change is in the activity
  *   log.
@@ -582,14 +583,14 @@ describe("changing a class", () => {
     const firstRow = (p: Page) => p.locator("tr").filter({ hasText: className }).filter({ hasText: slot.date });
     const editor = (p: Page) => p.getByRole("dialog").or(p.locator("form").filter({ has: p.getByRole("heading", { name: `Change ${className} on ${slot.date}` }) }));
 
-    await s.step(desk, "opens Change on the first session and gives it another instructor: refused, a manager's to change", async () => {
+    await s.step(desk, "on Classes, is offered no Change on the session (a manager's to change); asked anyway, the server refuses it", async () => {
       await staffSignIn(desk, centre.desk.email);
       await desk.page.getByRole("button", { name: "Classes", exact: true }).click();
-      await firstRow(desk.page).getByRole("button", { name: "Change", exact: true }).click();
-      const form = editor(desk.page);
-      await form.getByLabel("Instructor").fill("Coach Hafiz");
-      await form.getByRole("button", { name: "Save changes" }).click();
-      await form.getByText("Front-desk accounts cannot change this. Ask a manager.", { exact: false }).waitFor();
+      await firstRow(desk.page).first().waitFor();
+      expect(await firstRow(desk.page).getByRole("button", { name: "Change", exact: true }).count()).toBe(0);
+      const refused = await desk.api("PATCH", `/api/admin/classes/${classId}`, { instructor: "Coach Hafiz" });
+      expect(refused.status).toBe(403);
+      expect(String(refused.body.error)).toContain("Front-desk accounts cannot change this.");
     });
 
     await s.step(manager, "changes the instructor to Coach Hafiz for this session and every later one of the weekly class", async () => {
