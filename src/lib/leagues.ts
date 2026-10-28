@@ -15,7 +15,7 @@ import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
 import { tellVenueStaff } from "./owner-alerts";
 import { toWhatsAppNumber } from "./transports";
 import { addDays, isValidDateString, todayISO } from "./time";
-import { type Sport } from "./types";
+import { type CounterMethod, type Sport } from "./types";
 import { money } from "./region";
 
 /**
@@ -718,7 +718,12 @@ export async function setStartBox(playerId: number, box: number | null): Promise
 }
 
 /** Staff: a season's fee paid at the counter, or not. */
-export async function setPlacePaid(placeId: number, paid: boolean): Promise<Result<{ id: number; paid: boolean }>> {
+export async function setPlacePaid(
+  placeId: number,
+  paid: boolean,
+  /** How the desk took the fee, for its receipt and the cash-up (lib/cash-up.ts). */
+  via?: CounterMethod | null
+): Promise<Result<{ id: number; paid: boolean }>> {
   const db = getDb();
   const was = (await db.prepare("SELECT paid_at FROM league_places WHERE id = ?").get(placeId)) as { paid_at: string | null } | undefined;
   if (!was) return { ok: false, error: "Not found." };
@@ -730,7 +735,7 @@ export async function setPlacePaid(placeId: number, paid: boolean): Promise<Resu
   const changed = await db
     .prepare(`UPDATE league_places SET paid_at = ${paid ? "datetime('now')" : "NULL"} WHERE id = ? AND paid_at IS ${paid ? "NULL" : "NOT NULL"}`)
     .run(placeId);
-  if (changed.changes === 1) await receiptFee("place", placeId, paid);
+  if (changed.changes === 1) await receiptFee("place", placeId, paid, via);
   return { ok: true, value: { id: placeId, paid } };
 }
 

@@ -4,6 +4,7 @@ import { membershipById, voidMembership } from "@/lib/store";
 import { oweBackMembership, stopRenewalOf } from "@/lib/payments";
 import { logAction } from "@/lib/activity";
 import { withTransaction } from "@/lib/db";
+import { asStaff } from "@/lib/acting-staff";
 import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
@@ -35,10 +36,13 @@ export async function POST(
   const body = (await req.json().catch(() => null)) as { refund?: unknown } | null;
   const refund = body?.refund === true;
   // Voided and owed back together, or neither.
-  const { result, owed } = await withTransaction(async () => {
-    const voided = await voidMembership(membershipId, { refund });
-    return { result: voided, owed: voided.ok && refund ? await oweBackMembership(membershipId) : null };
-  });
+  // As the manager cancelling it, so its credit note says who (lib/acting-staff.ts).
+  const { result, owed } = await asStaff(admin, () =>
+    withTransaction(async () => {
+      const voided = await voidMembership(membershipId, { refund });
+      return { result: voided, owed: voided.ok && refund ? await oweBackMembership(membershipId) : null };
+    })
+  );
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   // One that renews itself stops charging too; if the gateway will not say so, staff are told to stop it there.
   const renewal = await stopRenewalOf(membershipId);

@@ -304,6 +304,8 @@ const en = {
   "p8c.cls.saved_other": "Changed {n} sessions.",
   "p8c.cls.offered": "The first person waiting has been offered a place.",
   "p8c.cls.saveFailed": "Could not change the class",
+  // Round 8 (P8b): the month the accountant asks for
+  "p8b.rpt.lastMonth": "Last month",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -605,6 +607,8 @@ const ms: Record<keyof typeof en, string> = {
   "p8c.cls.saved_other": "{n} sesi diubah.",
   "p8c.cls.offered": "Orang pertama dalam senarai menunggu telah ditawarkan tempat.",
   "p8c.cls.saveFailed": "Tidak dapat mengubah kelas",
+  // Round 8 (P8b): the month the accountant asks for
+  "p8b.rpt.lastMonth": "Bulan lepas",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -906,6 +910,8 @@ const zh: Record<keyof typeof en, string> = {
   "p8c.cls.saved_other": "已修改 {n} 个课次。",
   "p8c.cls.offered": "已向候补名单中的第一位提供名额。",
   "p8c.cls.saveFailed": "无法修改课程",
+  // Round 8 (P8b): the month the accountant asks for
+  "p8b.rpt.lastMonth": "上个月",
 };
 
 const area = { en, ms, zh };

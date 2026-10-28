@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { getCounterSale, voidCounterSale } from "@/lib/counter-sales";
 import { money } from "@/lib/region";
+import { asStaff } from "@/lib/acting-staff";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const denied = denyVenue(admin, existing.venueId);
   if (denied) return denied;
   const body = (await req.json().catch(() => null)) as { reason?: unknown } | null;
-  const voided = await voidCounterSale(id, admin.id, body?.reason);
+  // As the manager voiding it, so its credit note says who (lib/acting-staff.ts).
+  const voided = await asStaff(admin, () => voidCounterSale(id, admin.id, body?.reason));
   if (!voided.ok) return NextResponse.json({ error: voided.error }, { status: 409 });
   await logAction(admin, { venueId: existing.venueId, action: "sale.voided", detail: `${existing.receipt?.number ?? `Sale ${id}`}, ${money(existing.total)}: ${voided.sale.voidReason}` });
   return NextResponse.json({ sale: voided.sale });

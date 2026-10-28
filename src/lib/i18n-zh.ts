@@ -2611,6 +2611,11 @@ export const ZH: Record<Phrase, string> = {
   // Round 8 (D8b): what closing an account does to the money on upcoming bookings
   "d8b.data.money":
     "每笔预订都按场馆的取消条款取消，就像您自己取消一样：您在线支付的款项会退还，扣除任何逾时取消费用；在场馆规定的截止时间内，如场馆不允许逾时取消，已付款项归场馆所有。已经开始的预订保持不变。",
+  // Round 8 (P8b): a manager's price adjustment on a booking, as the customer's receipt and refusals say it
+  "p8b.rcpt.adjusted": "场馆调整的价格",
+  "p8b.rcpt.complimentary": "免费（场馆赠送）",
+  "receipt.p8b.adjusted": "场馆在付款后降低了价格；此为差额。",
+  "err.P8B_PRICE_ADJUSTED": "场馆已为此预订定价：现在无法再使用优惠码或优惠价。请联系场馆。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

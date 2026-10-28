@@ -22,6 +22,7 @@ import { CounterEntry } from "./CounterEntry";
 import { TournamentDetailsEditor } from "./TournamentDetailsEditor";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
+import { PayMark } from "./CounterMethod";
 
 /** A sentence the server wrote: its English, and its phrase for the staff language where it sent one. */
 type Said = { text: string; phrase?: StaffText };
@@ -1209,9 +1210,15 @@ function Manage({
                 </td>
                 <td>
                   {(e.fee ?? tn.entryFee) > 0 && (
-                    <button onClick={() => void post(`${base}/entries/${e.id}`, { paid: !e.paid })} className={`${small} ${e.paid ? "bg-emerald-50 text-emerald-700" : ""}`}>
-                      {e.paid ? t("tn.paidMark") : t("tn.unpaidMark")}
-                    </button>
+                    // Marked paid at the counter says how (X1-2).
+                    <PayMark
+                      paid={e.paid}
+                      paidLabel={t("tn.paidMark")}
+                      unpaidLabel={t("tn.unpaidMark")}
+                      onPaid={(via) => void post(`${base}/entries/${e.id}`, { paid: true, via })}
+                      onUnpaid={() => void post(`${base}/entries/${e.id}`, { paid: false })}
+                      className={small}
+                    />
                   )}
                 </td>
                 <td>

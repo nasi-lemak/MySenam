@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { counterDay, sellAtCounter } from "@/lib/counter-sales";
 import { money } from "@/lib/region";
+import { asStaff } from "@/lib/acting-staff";
 
 export const dynamic = "force-dynamic";
 
@@ -28,14 +29,17 @@ export async function POST(req: NextRequest) {
   const venueId = body.venueId as number;
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  const sold = await sellAtCounter({
-    venueId,
-    adminId: admin.id,
-    items: body.items,
-    via: body.via,
-    customerName: body.customerName,
-    customerPhone: body.customerPhone,
-  });
+  // As the member of staff selling it, so its receipt says who took the money (lib/acting-staff.ts).
+  const sold = await asStaff(admin, () =>
+    sellAtCounter({
+      venueId,
+      adminId: admin.id,
+      items: body.items,
+      via: body.via,
+      customerName: body.customerName,
+      customerPhone: body.customerPhone,
+    })
+  );
   if (!sold.ok) return NextResponse.json({ error: sold.error }, { status: 400 });
   await logAction(admin, {
     venueId,

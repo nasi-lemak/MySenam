@@ -12,7 +12,9 @@ terminal (a whole recurring series can be settled the same way). Online
 payments, passes and stored credit record themselves. The Reports tab splits
 what was collected by method, so the till and the bank account can be squared
 at the end of the month; counter payments marked before methods were asked
-show as *not recorded*. Customers see the payment
+show as *not recorded*. Every other counter sale says how it was paid too
+([how each counter sale was paid](#how-each-counter-sale-was-paid)), and the
+[cash-up](#cash-up) adds a day's up by method. Customers see the payment
 state on `/account` and in the `/my-booking` lookup. The daily view splits
 **expected** vs **collected** vs **outstanding** revenue so a shift can be
 reconciled at closing.
@@ -792,6 +794,64 @@ managers.
   included, and they go into the monthly consolidated e-invoice where the
   venue e-invoices.
 - **Not counted: stock.** The list says what is sold, not how many are left.
+
+## How each counter sale was paid
+
+Everything the desk takes money for says how: cash, the QR scheme, a bank
+transfer or a card terminal (`COUNTER_METHODS`). A booking marked paid and a
+counter sale always asked; so now do a credit top-up, a pass, a membership,
+and a tournament entry fee or league fee marked paid (each refused without
+one, `P8B_VIA_REQUIRED`, unless it is free). The method is written on the
+receipt, and the receipt keeps who took the money (`receipts.staff_id`,
+`staff_name`; a booking marked paid keeps it on the booking, `paid_by`,
+migration 0234). Receipts written before this say *At the counter*, and are
+shown as such. The forms start with no method chosen, so nothing is put down
+as cash by default.
+
+## Cash-up
+
+*Credit & passes → Cash-up* (`src/lib/cash-up.ts`, `GET /api/admin/cash-up`)
+is what a shift's till is counted against: for a day on the venue's
+calendar, every receipt and credit note from every source (bookings paid,
+counter sales, credit, passes, memberships, vouchers, entry and league fees,
+money kept from deposits, credit notes for cancellations, voids and price
+adjustments), summed by method: taken, given back and in hand, each way.
+Below the totals, every entry in the order it was written, with its number,
+what it was for, the customer, the method and who took or gave back the
+money. *Print the cash-up* opens a sheet (`/admin/cash-up`) with lines for
+who counted and who checked it.
+
+- **It is the sales journal, not a second ledger**: the day's rows of
+  `salesJournal` (lib/accounting.ts), so its figures are the journal's and
+  the accountant's, row for row (`tests/cash-up.test.ts`). One addition:
+  where credit is the install's own (`MYSENAM_CREDIT_SCOPE=platform`), credit
+  sold over this venue's counter is in its till though not in its books, and
+  is counted too (`receipts.counter_venue_id`).
+- **What is not money** is shown apart: a booking paid from stored credit
+  already sold moves no money, and is left out of the total.
+- **Front desk sees its own**: what it took and gave back itself, today or
+  yesterday (a shift past midnight). **A manager** sees everybody's, or one
+  person's, on any day.
+- **Who took it** is known for what staff did from this change on: sales,
+  payments marked, fees, voids, adjustments, invoices marked paid. A credit
+  note written by a cancellation is attributed where the route that cancels
+  says who is acting (`asStaff`, lib/acting-staff.ts); one written by the
+  system or a customer's own payment names nobody, and shows only in
+  everybody's.
+
+## Finding a record
+
+The lists that grow under *Credit & passes* (memberships, passes, receipts
+and credit notes, gift vouchers, company invoices) come fifty at a time,
+newest first, with *Newer* and *Older* (`src/lib/list-search.ts`). Each is
+searched by a code or number, any part of a name, or a phone number however
+it is typed (the booking search's way, `phone_key`), and filtered by a status
+of its own: memberships active, *ending within 30 days* (soonest first), not
+started, ended or cancelled; passes active, ending within 30 days, used up,
+ended or cancelled; receipts or credit notes; vouchers active, ending within
+30 days, turned into credit, ended or cancelled; invoices not yet due,
+overdue or paid. Suspending, giving days back, correcting, cancelling,
+reprinting and marking paid work on any record found this way.
 
 ## Company and school accounts
 

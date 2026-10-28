@@ -2614,6 +2614,11 @@ export const TA: Record<Phrase, string> = {
   // Round 8 (D8b): what closing an account does to the money on upcoming bookings
   "d8b.data.money":
     "ஒவ்வொன்றும் மையத்தின் ரத்து விதிமுறைகளின்படி, நீங்களே ரத்து செய்தது போல் ரத்து செய்யப்படும்: நீங்கள் இணையத்தில் செலுத்தியது திருப்பித் தரப்படும், தாமத ரத்துக் கட்டணம் ஏதேனும் இருந்தால் அது கழிக்கப்படும்; மையத்தின் காலக்கெடுவுக்குள், தாமதமாக ரத்து செய்ய மையம் அனுமதிக்காவிட்டால், செலுத்தியதை மையம் வைத்துக்கொள்ளும். ஏற்கெனவே தொடங்கிய முன்பதிவு அப்படியே இருக்கும்.",
+  // Round 8 (P8b): a manager's price adjustment on a booking, as the customer's receipt and refusals say it
+  "p8b.rcpt.adjusted": "மையம் சரிசெய்த விலை",
+  "p8b.rcpt.complimentary": "இலவசம் (மையத்தின் அன்பளிப்பு)",
+  "receipt.p8b.adjusted": "பணம் செலுத்திய பின் மையம் விலையைக் குறைத்தது; இது அந்த வித்தியாசம்.",
+  "err.P8B_PRICE_ADJUSTED": "இந்த முன்பதிவின் விலையை மையம் நிர்ணயித்துள்ளது: இப்போது குறியீடு அல்லது சலுகை எதையும் சேர்க்க முடியாது. மையத்திடம் கேளுங்கள்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

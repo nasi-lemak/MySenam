@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getPassById, listPassEntries, voidPass } from "@/lib/store";
 import { logAction } from "@/lib/activity";
 import { money } from "@/lib/region";
+import { asStaff } from "@/lib/acting-staff";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,8 @@ export async function POST(
   if (denied) return denied;
 
   const body = (await req.json().catch(() => null)) as { refund?: unknown } | null;
-  const result = await voidPass(passId, { refund: body?.refund === true });
+  // As the manager cancelling it, so its credit note says who (lib/acting-staff.ts).
+  const result = await asStaff(admin, () => voidPass(passId, { refund: body?.refund === true }));
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   const refunded = result.refunded;
   await logAction(admin, {

@@ -152,6 +152,9 @@ describe("the counter linking a sale to an account", () => {
           holderPhone: "0197778888",
           expiresOn: addDays(todayISO(), 90),
           accountEmail: "real-owner@example.com",
+          // Not from the venue's list: a manager's price, with the reason, and how it was paid (X1-19, X1-2).
+          via: "cash",
+          priceReason: "Counter pass, not on the list",
         }),
       })
     );
@@ -180,6 +183,8 @@ describe("the counter linking a sale to an account", () => {
           holderPhone: "0191230000",
           expiresOn: addDays(todayISO(), 90),
           accountEmail: "typo@example.com",
+          via: "cash",
+          priceReason: "Counter pass, not on the list",
         }),
       })
     );

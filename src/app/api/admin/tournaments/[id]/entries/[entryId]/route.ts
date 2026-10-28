@@ -4,11 +4,14 @@ import { getDb } from "@/lib/db";
 import { previewTakeOut, setEntry, takeOut, tournamentDetail } from "@/lib/tournaments";
 import { OUT_REASONS, type OutReason } from "@/lib/tournament-rules";
 import { staffTournament } from "@/lib/tournament-access";
+import { asStaff } from "@/lib/acting-staff";
+import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 /**
- * `{ paid?, seed?, checkedIn?, eligibilityChecked? }` — staff on one entry (an eligibility check records who checked,
+ * `{ paid?, via?, seed?, checkedIn?, eligibilityChecked? }` — staff on one entry (a fee marked paid says how: cash, qr,
+ * transfer or card, required for a fee; an eligibility check records who checked,
  * never the document seen); or `{ withdraw: true, reason?, note?, preview?, token? }` to take them out
  * (withdrawn, retired or disqualified): with `preview`, what it would change and a token, nothing changed; after
  * the draw, made only with that token (code CONFIRM without one, CHANGED if the tournament changed since).
@@ -55,12 +58,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
     return NextResponse.json({ tournament: d, changes: out.value.changes, changePhrases: out.value.changePhrases });
   }
-  const result = await setEntry(entry.id, {
+  // How the desk took a fee (cash, qr, transfer or card): on its receipt and in the cash-up; asked for any fee.
+  const via = body.via === undefined || body.via === null || body.via === "" ? null : body.via;
+  if (via !== null && !COUNTER_METHODS.includes(via as CounterMethod))
+    return NextResponse.json({ error: `via must be one of ${COUNTER_METHODS.join(", ")}.` }, { status: 400 });
+  if (body.paid === true && via === null) {
+    // The entry's own fee (migration 0238), which a later change of the tournament's fee leaves as it was.
+    const { fee } = (await getDb()
+      .prepare("SELECT COALESCE(e.fee, t.entry_fee)::float AS fee FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.id = ?")
+      .get(entry.id)) as { fee: number | null };
+    if (Number(fee ?? 0) > 0) return NextResponse.json({ error: "Say how it was paid.", code: "P8B_VIA_REQUIRED" }, { status: 400 });
+  }
+  // As the member of staff, so the receipt or credit note says who (lib/acting-staff.ts).
+  const result = await asStaff(found.admin, () => setEntry(entry.id, {
     paid: typeof body.paid === "boolean" ? body.paid : undefined,
+    via: via as CounterMethod | null,
     seed: body.seed === null ? null : body.seed !== undefined ? Number(body.seed) : undefined,
     checkedIn: typeof body.checkedIn === "boolean" ? body.checkedIn : undefined,
     eligibilityCheckedBy: typeof body.eligibilityChecked === "boolean" ? (body.eligibilityChecked ? found.admin.name || found.admin.email : null) : undefined,
-  });
+  }));
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });
 }

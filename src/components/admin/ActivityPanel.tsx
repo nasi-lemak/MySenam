@@ -181,6 +181,10 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "league.result_cleared": "p8c.act.leagueResultCleared",
   "message.resent": "p8c.act.messageResent",
   "whatsapp.pack": "p8c.act.whatsappPack",
+  "pass_product.added": "p8b.act.productAdded",
+  "pass_product.retired": "p8b.act.productRetired",
+  "sale.price_set": "p8b.act.priceSet",
+  "booking.price_adjusted": "p8b.act.priceAdjusted",
 };
 
 /**

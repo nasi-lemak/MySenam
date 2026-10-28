@@ -534,7 +534,7 @@ export async function POST(req: NextRequest) {
   if (payNow && desk)
     for (const booking of result.bookings) {
       if (booking.paymentStatus === "paid") continue;
-      const paid = await setPaymentStatus(booking.code, true, payNow, desk.role);
+      const paid = await setPaymentStatus(booking.code, true, payNow, desk.role, desk);
       if (!paid.ok) {
         payErrors.push(paid.error);
         continue;

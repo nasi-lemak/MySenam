@@ -8,6 +8,7 @@ import { money } from "@/lib/region";
 import { LOCALE_NAMES, type Locale } from "@/lib/i18n";
 import { todayLocal } from "./shared";
 import { useStaffT } from "./StaffLanguage";
+import { FIRST_PAGE, ListFilter, listParams, type ListQuery } from "./ListFilter";
 
 const BLANK = { name: "", contact: "", email: "", address: "", taxNo: "", termsDays: "30", creditLimit: "", locale: "" };
 
@@ -27,16 +28,26 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [paying, setPaying] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Invoices found by number or account, open, overdue or paid, a page at a time (X1-7).
+  const [query, setQuery] = useState<ListQuery>(FIRST_PAGE);
+  const [more, setMore] = useState(false);
 
   const load = useCallback(async () => {
     if (!venueId) return;
-    const res = await fetch(`/api/admin/accounts?venueId=${venueId}`, { cache: "no-store" });
+    const [res, inv] = await Promise.all([
+      fetch(`/api/admin/accounts?venueId=${venueId}`, { cache: "no-store" }),
+      fetch(`/api/admin/accounts/invoices?venueId=${venueId}${listParams(query)}`, { cache: "no-store" }),
+    ]);
     if (!res.ok) return;
     const data = await res.json();
     setAccounts(data.accounts);
-    setInvoices(data.invoices);
     setLanguages(data.languages ?? []);
-  }, [venueId]);
+    if (inv.ok) {
+      const found = await inv.json();
+      setInvoices(found.invoices ?? []);
+      setMore(found.more === true);
+    }
+  }, [venueId, query]);
 
   useEffect(() => {
     load();
@@ -271,6 +282,19 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
         </div>
       </form>
 
+      {(invoices.length > 0 || query !== FIRST_PAGE) && (
+        <ListFilter
+          query={query}
+          onChange={setQuery}
+          more={more}
+          placeholder="p8b.list.searchInvoices"
+          statuses={[
+            { value: "open", label: "p8b.list.open" },
+            { value: "overdue", label: "p8b.list.overdue" },
+            { value: "paid", label: "p8b.list.paid" },
+          ]}
+        />
+      )}
       {invoices.length > 0 && (
         <table className="mt-4 w-full text-sm">
           <thead>

@@ -219,7 +219,8 @@ afterEach(() => {
 
 describe("a membership sold at the counter", () => {
   const sell = (body: Record<string, unknown>, who: Staff = manager) =>
-    membershipsRoute.POST(req("http://localhost/api/admin/memberships", "POST", who.cookie, { venueId: together, price: 80, startsOn: todayISO(ZONE), ...body }));
+    // No plan: a manager's price, with the reason, and how it was paid (X1-19, X1-2).
+    membershipsRoute.POST(req("http://localhost/api/admin/memberships", "POST", who.cookie, { venueId: together, price: 80, startsOn: todayISO(ZONE), via: "cash", priceReason: "Agreed rate, no plan here", ...body }));
 
   it("refuses a participant already covered, by a family membership or their own, with the reason buying online gives", async () => {
     const ph = phone();

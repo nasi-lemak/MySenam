@@ -109,10 +109,16 @@ call. A customer is a phone number however it was typed; demo bookings,
 class enrolments and bookings whose names the retention policy removed are
 left out. Managers only, like the other reports.
 
+**The period** is any from and to (up to 400 days), typed in the two date
+fields, or one of *Last 30 days*, *This month*, *Last month* (its first day to
+its last, as the accountant asks for at the start of the next) and *Last 3
+months*; the exports below take the same period.
+
 **Spreadsheets for the accountant.** *Reports* has *Bookings (CSV)*,
 *Online payments (CSV)*, *Sales journal* and *Sales summary* for the period shown (`src/lib/export.ts`): every
 booking with its price, whether and how it was paid, promo discount, extras,
-check-in and no-show; and every payment taken online with what is owed back.
+a manager's price adjustment, check-in and no-show; and every payment taken
+online with what is owed back.
 They open straight in Excel (byte-order mark, quoted cells, and a cell that
 would start a formula is kept as text). Managers only, and each download is
 in the activity log, since customers' names and numbers leave with it.
@@ -144,8 +150,10 @@ writes down who did what, when, at which venue and to which booking:
 payments marked at the desk and how, bookings cancelled, moved or changed,
 no-shows, court and price changes (as they were and as they are), refunds,
 credit, passes and memberships sold or voided, promo codes, settings, and
-staff added, removed or given another role. It squares the till at the end
-of a shift and answers "who cancelled my booking?"; search it by booking code
+staff added, removed or given another role. It answers "who cancelled my
+booking?"; the till is squared at the end of a shift with the
+[cash-up](payments-and-credit.md#cash-up), which front desk sees for its own
+shift; search it by booking code
 for one booking's history. Entries keep the person's name, so they read right
 after an account is removed, and are kept two years.
 

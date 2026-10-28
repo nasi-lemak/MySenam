@@ -13,6 +13,7 @@ import { venueTax } from "./tax";
 import { addDays, todayISO } from "./time";
 import { MAX_TOP_UP, type Refusal } from "./types";
 import { linkIn } from "./link-locale";
+import { LAPSING_DAYS, pageSql, paged, textMatch, type ListQuery, type Page } from "./list-search";
 
 /**
  * Gift vouchers: an amount somebody buys for somebody else, at the counter or
@@ -193,6 +194,36 @@ export async function listVouchers(venueId: number): Promise<Voucher[]> {
     .prepare(`${SELECT} WHERE g.venue_id = ? AND g.status <> 'pending' ORDER BY g.id DESC LIMIT 200`)
     .all(venueId)) as VoucherRow[];
   return rows.map(toVoucher);
+}
+
+/** What the counter's voucher list filters by (lib/list-search.ts). */
+export const VOUCHER_LIST_STATUSES = ["active", "lapsing", "redeemed", "expired", "cancelled"] as const;
+
+/**
+ * A venue's vouchers found by code, buyer's or recipient's name or email, or
+ * the buyer's number; by status (`lapsing`: not yet used and ending within 30
+ * days, soonest first); a page at a time, newest first. Not those still being
+ * paid for.
+ */
+export async function searchVouchers(venueId: number, query: ListQuery): Promise<Page<Voucher>> {
+  const today = todayISO();
+  const match = textMatch(query.q, { codes: ["g.code"], names: ["g.buyer_name", "g.recipient_name", "g.buyer_email"], phones: ["g.buyer_phone"] });
+  const STATUS: Record<string, { sql: string; params: unknown[] }> = {
+    active: { sql: "g.status = 'active' AND g.expires_on >= ?", params: [today] },
+    lapsing: { sql: "g.status = 'active' AND g.expires_on BETWEEN ? AND ?", params: [today, addDays(today, LAPSING_DAYS)] },
+    redeemed: { sql: "g.status = 'redeemed'", params: [] },
+    expired: { sql: "g.status = 'active' AND g.expires_on < ?", params: [today] },
+    cancelled: { sql: "g.status = 'void'", params: [] },
+  };
+  const status = query.status ? STATUS[query.status] : { sql: "TRUE", params: [] };
+  const rows = (await getDb()
+    .prepare(
+      `${SELECT} WHERE g.venue_id = ? AND g.status <> 'pending' AND ${match.sql} AND ${status.sql}
+        ORDER BY ${query.status === "lapsing" ? "g.expires_on, g.id" : "g.id DESC"} ${pageSql(query.page)}`
+    )
+    .all(venueId, ...match.params, ...status.params)) as VoucherRow[];
+  const page = paged(rows, query.page);
+  return { ...page, items: page.items.map(toVoucher) };
 }
 
 /** Staff selling one at the counter: it is good at once, with a receipt. */

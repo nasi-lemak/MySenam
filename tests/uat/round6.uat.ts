@@ -396,7 +396,7 @@ describe("lessons given to another coach, and coaches the venue assigns", () => 
 
     // The customer's credit, RM200, and a second lesson with Ana paid from it (setup: through the booking API, since the
     // lesson form takes payment at the venue or online).
-    const topUp = await mgrApi.api("POST", "/api/admin/wallet", { userId: customer.id, amount: 200, venueId: club.venueId, reason: "Prepaid coaching" });
+    const topUp = await mgrApi.api("POST", "/api/admin/wallet", { userId: customer.id, amount: 200, venueId: club.venueId, reason: "Prepaid coaching", via: "cash" });
     expect(topUp.status, JSON.stringify(topUp.body)).toBe(201);
     const booked2 = await customer.api("POST", "/api/bookings", {
       venueId: club.venueId,
@@ -579,6 +579,9 @@ describe.skipIf(gateway === null)("membership validity on the session's date", (
       startsOn: dayAhead(0),
       expiresOn: ends,
       price: 30,
+      // No plan: a manager's price, with the reason, and how it was paid (round 8, X1-19 and X1-2).
+      priceReason: "A short trial membership",
+      via: "cash",
     });
     expect(sold.status, JSON.stringify(sold.body)).toBe(201);
     const counterCode = (sold.body.membership as { code: string }).code;

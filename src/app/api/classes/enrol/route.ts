@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
     if (payNow)
       for (const b of made) {
         if (b.paymentStatus === "paid") continue;
-        const paid = await setPaymentStatus(b.code, true, payNow, desk.role);
+        const paid = await setPaymentStatus(b.code, true, payNow, desk.role, desk);
         if (!paid.ok) continue;
         b.paymentStatus = "paid";
         await logAction(desk, {

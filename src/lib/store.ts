@@ -9,6 +9,9 @@ import { randomBytes, randomInt } from "crypto";
 import { notesFor } from "./customer-notes";
 import { signaturesFor, signWaiver, waiverRefusal } from "./waivers";
 import { overridesFor, recordOverrides, type BookingOverride, type PolicyOverrideRecord } from "./policy-overrides";
+import { actingStaff, type ActingStaff } from "./acting-staff";
+import { recordPriceOverride, type CounterPriceOverride } from "./counter-prices";
+import { LAPSING_DAYS, pageSql, paged, textMatch, type ListQuery, type Page } from "./list-search";
 import { reviewPath } from "./review-links";
 import { getDb, isBusy, isUniqueViolation, withTransaction } from "./db";
 import { inSameBusiness, SAME_CREDIT, sameBusiness } from "./branches";
@@ -112,7 +115,7 @@ import { venueZoneOf } from "./zones";
 import { utilisationByDay, type UseSplit } from "./reports";
 import { cancelPolicy, cancelPolicyFor } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
-import { creditBooking, creditReceipt, issueReceipt, saidLine, WHO } from "./documents";
+import { creditBooking, creditReceipt, issueReceipt, paidVia as paidViaLabel, saidLine, WHO } from "./documents";
 import { venueTax } from "./tax";
 import { englishOf, lengthText, readStaffText, said, withPhrase, type StaffText } from "./staff-text";
 
@@ -4285,7 +4288,9 @@ export async function setPaymentStatus(
   paid: boolean,
   via: CounterMethod | null = null,
   /** Front desk: may take back only a counter payment it marked today. */
-  by: "manager" | "desk" = "manager"
+  by: "manager" | "desk" = "manager",
+  /** Who took the money, for the cash-up (lib/cash-up.ts); whoever is acting (lib/acting-staff.ts) where not said. */
+  staff: ActingStaff | null = actingStaff()
 ): Promise<PaymentResult> {
   return withTransaction(async () => {
     const db = getDb();
@@ -4310,8 +4315,15 @@ export async function setPaymentStatus(
 
     // Marked by hand: whatever the desk says it was paid with, never the gateway.
     await db.prepare(
-      "UPDATE bookings SET payment_status = ?, paid_at = ?, paid_via = ? WHERE id = ?"
-    ).run(paid ? "paid" : "unpaid", paid ? new Date().toISOString() : null, paid ? via : null, booking.id);
+      "UPDATE bookings SET payment_status = ?, paid_at = ?, paid_via = ?, paid_by = ?, paid_by_name = ? WHERE id = ?"
+    ).run(
+      paid ? "paid" : "unpaid",
+      paid ? new Date().toISOString() : null,
+      paid ? via : null,
+      paid ? (staff?.id ?? null) : null,
+      paid ? (staff?.name ?? null) : null,
+      booking.id
+    );
     return {
       ok: true,
       booking: {
@@ -4334,11 +4346,12 @@ export async function paySeries(
   // so the counter never writes over it (and the online money is not lost).
   const paid = (await getDb()
     .prepare(
-      `UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = ?
+      `UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = ?, paid_by = ?, paid_by_name = ?
         WHERE UPPER(series_code) = UPPER(?) AND status = 'confirmed' AND payment_status = 'unpaid'
         RETURNING id`
     )
-    .all(new Date().toISOString(), via, seriesCode.trim())) as { id: number }[];
+    // Who took the money, for the cash-up: whoever is acting (lib/acting-staff.ts).
+    .all(new Date().toISOString(), via, actingStaff()?.id ?? null, actingStaff()?.name ?? null, seriesCode.trim())) as { id: number }[];
   if (paid.length === 0) return { ok: false, paid: 0, error: "No unpaid sessions found for that series." };
   return { ok: true, paid: paid.length };
 }
@@ -6357,6 +6370,10 @@ export async function topUpWallet(input: {
   adminId: number;
   reason?: string;
   venueId?: number;
+  /** How the desk took the money, for its receipt and the cash-up; "At the counter" where not said. */
+  via?: CounterMethod | null;
+  /** Where credit is the install's own: the venue whose counter took the money, for its cash-up. */
+  counterVenueId?: number | null;
 }): Promise<WalletResult> {
   return withTransaction(async () => {
     if (!isAmount(input.amount, 1, MAX_TOP_UP))
@@ -6388,7 +6405,8 @@ export async function topUpWallet(input: {
       name: ((await db.prepare("SELECT name FROM users WHERE id = ?").get(input.userId)) as { name: string }).name,
       // What staff typed stays as typed, inside the line's words.
       lines: [saidLine(said("srv.line.credit", { what: input.reason?.trim() || said("srv.line.counterTopUp") }), input.amount)],
-      paidVia: "At the counter",
+      paidVia: paidViaLabel(input.via) ?? "At the counter",
+      counterVenueId: input.counterVenueId ?? null,
       // Credit is taxed when it is spent, on what it buys.
       taxable: false,
       note: venueId !== null && (await venueTax(venueId)).registered ? "receipt.creditNoTax" : null,
@@ -6614,17 +6632,19 @@ export async function paymentPageOpen(bookingId: number): Promise<boolean> {
 
 /**
  * The part of a paid booking's price still on it: all of it, less places taken
- * off while it was paid (lib/place-withdrawals.ts) and what went back for a
- * cheaper coach (lib/lesson-coaches.ts), whose money was settled then. What a
- * cancellation gives back is of this part only. The booking's own part, that
- * is: what was settled from a deposit is the deposit's (`depositGone`).
+ * off while it was paid (lib/place-withdrawals.ts), what went back for a
+ * cheaper coach (lib/lesson-coaches.ts) and what a manager took off the price
+ * after it was paid (lib/price-adjustments.ts), whose money was settled then.
+ * What a cancellation gives back is of this part only. The booking's own part,
+ * that is: what was settled from a deposit is the deposit's (`depositGone`).
  */
 export async function paidPartLeft(bookingId: number): Promise<number> {
   const row = (await getDb()
     .prepare(
       `SELECT (b.total_price - b.shares_paid)::float AS base,
               ((SELECT COALESCE(SUM(w.price - w.deposit_part), 0) FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid)
-               + (SELECT COALESCE(SUM(l.refunded), 0) FROM lesson_coach_changes l WHERE l.booking_id = b.id AND l.paid))::float AS gone
+               + (SELECT COALESCE(SUM(l.refunded), 0) FROM lesson_coach_changes l WHERE l.booking_id = b.id AND l.paid)
+               + (SELECT COALESCE(SUM(-a.delta), 0) FROM booking_price_adjustments a WHERE a.booking_id = b.id AND a.paid))::float AS gone
          FROM bookings b WHERE b.id = ?`
     )
     .get(bookingId)) as { base: number; gone: number } | undefined;
@@ -6885,6 +6905,39 @@ export async function listMembershipsForVenue(venueId: number, limit = 200): Pro
   return rows.map(toMembership);
 }
 
+/** What the counter's membership list filters by (lib/list-search.ts). */
+export const MEMBERSHIP_LIST_STATUSES = ["active", "lapsing", "upcoming", "expired", "cancelled"] as const;
+
+/**
+ * A venue's memberships found by code, holder's or covered person's name, or
+ * the holder's number; by status (`lapsing`: running and ending within 30
+ * days, soonest first); a page at a time, newest first (lib/list-search.ts).
+ */
+export async function searchMembershipsForVenue(venueId: number, query: ListQuery): Promise<Page<Membership>> {
+  const today = todayISO();
+  const match = textMatch(query.q, {
+    codes: ["m.code"],
+    names: ["m.holder_name", "hp.display_name", "(SELECT string_agg(cp.display_name, ' ') FROM membership_participants mp JOIN participants cp ON cp.id = mp.participant_id WHERE mp.membership_id = m.id)"],
+    phones: ["m.holder_phone"],
+  });
+  const STATUS: Record<string, { sql: string; params: unknown[] }> = {
+    active: { sql: "m.status = 'active' AND m.starts_on <= ? AND m.expires_on >= ?", params: [today, today] },
+    lapsing: { sql: "m.status = 'active' AND m.starts_on <= ? AND m.expires_on BETWEEN ? AND ?", params: [today, today, addDays(today, LAPSING_DAYS)] },
+    upcoming: { sql: "m.status = 'active' AND m.starts_on > ?", params: [today] },
+    expired: { sql: "m.status = 'active' AND m.expires_on < ?", params: [today] },
+    cancelled: { sql: "m.status = 'void'", params: [] },
+  };
+  const status = query.status ? STATUS[query.status] : { sql: "TRUE", params: [] };
+  const rows = (await getDb()
+    .prepare(
+      `${MEMBERSHIP_SELECT} WHERE m.venue_id = ? AND ${match.sql} AND ${status.sql}
+        ORDER BY ${query.status === "lapsing" ? "m.expires_on, m.id" : "m.id DESC"} ${pageSql(query.page)}`
+    )
+    .all(venueId, ...match.params, ...status.params)) as MembershipRow[];
+  const page = paged(rows, query.page);
+  return { ...page, items: page.items.map(toMembership) };
+}
+
 export async function membershipById(id: number): Promise<Membership | null> {
   const row = await getDb().prepare(`${MEMBERSHIP_SELECT} WHERE m.id = ?`).get(id) as
     | MembershipRow
@@ -6920,6 +6973,8 @@ export async function sellMembership(input: {
   holderParticipantId?: number | null;
   /** A family membership: the participants it covers besides its holder, checked by the caller as above. */
   covers?: number[];
+  /** A price or term other than the plan's, or no plan: a manager's, with the reason (lib/counter-prices.ts), kept with the sale. */
+  priceOverride?: CounterPriceOverride | null;
 }): Promise<MembershipResult> {
   const covers = [...new Set(input.covers ?? [])];
   if (input.holderParticipantId && covers.includes(input.holderParticipantId))
@@ -7013,6 +7068,8 @@ export async function sellMembership(input: {
     const { carrySuspensions } = await import("./membership-suspensions");
     await carrySuspensions(Number(info.lastInsertRowid));
     const membership = (await membershipById(Number(info.lastInsertRowid)))!;
+    // A manager's price or term, kept with the sale in its transaction (lib/counter-prices.ts).
+    if (input.priceOverride) await recordPriceOverride("membership", membership.id, input.venueId, input.price, input.priceOverride);
     await issueReceipt({
       source: `membership:${membership.id}`,
       venueId: input.venueId,
@@ -7554,6 +7611,36 @@ export async function listPassesForVenue(venueId: number, limit = 100): Promise<
   return rows.map(toPass);
 }
 
+/** What the counter's pass list filters by (lib/list-search.ts). */
+export const PASS_LIST_STATUSES = ["active", "lapsing", "used", "expired", "cancelled"] as const;
+
+/**
+ * A venue's passes found by code, holder's or the person's name, or the
+ * holder's number; by status (`used`: nothing left; `lapsing`: usable and
+ * ending within 30 days, soonest first); a page at a time, newest first.
+ */
+export async function searchPassesForVenue(venueId: number, query: ListQuery): Promise<Page<Pass>> {
+  const today = todayISO();
+  const left = "(p.entries + COALESCE((SELECT SUM(e.delta) FROM pass_entries e WHERE e.pass_id = p.id), 0))";
+  const match = textMatch(query.q, { codes: ["p.code"], names: ["p.holder_name", "hp.display_name", "p.name"], phones: ["p.holder_phone"] });
+  const STATUS: Record<string, { sql: string; params: unknown[] }> = {
+    active: { sql: `p.status = 'active' AND p.expires_on >= ? AND ${left} > 0`, params: [today] },
+    lapsing: { sql: `p.status = 'active' AND p.expires_on BETWEEN ? AND ? AND ${left} > 0`, params: [today, addDays(today, LAPSING_DAYS)] },
+    used: { sql: `p.status = 'active' AND ${left} <= 0`, params: [] },
+    expired: { sql: `p.status = 'active' AND p.expires_on < ? AND ${left} > 0`, params: [today] },
+    cancelled: { sql: "p.status = 'void'", params: [] },
+  };
+  const status = query.status ? STATUS[query.status] : { sql: "TRUE", params: [] };
+  const rows = (await getDb()
+    .prepare(
+      `${PASS_SELECT} WHERE p.venue_id = ? AND ${match.sql} AND ${status.sql}
+        ORDER BY ${query.status === "lapsing" ? "p.expires_on, p.id" : "p.id DESC"} ${pageSql(query.page)}`
+    )
+    .all(venueId, ...match.params, ...status.params)) as PassRow[];
+  const page = paged(rows, query.page);
+  return { ...page, items: page.items.map(toPass) };
+}
+
 export async function listPassEntries(passId: number, limit = 50): Promise<PassEntry[]> {
   const rows = await getDb()
     .prepare(
@@ -7610,6 +7697,12 @@ export async function issuePass(input: {
    * knows them with a guardian on the holder's number.
    */
   holderParticipantId?: number | null;
+  /** How it was paid, for its receipt and the cash-up: "Cash". At the counter where not said. */
+  paidVia?: string | null;
+  /** The venue's pass product it was sold from (lib/pass-products.ts), whose terms the caller copied. */
+  productId?: number | null;
+  /** A price other than the product's, or no product: a manager's, with the reason (lib/counter-prices.ts), kept with the sale. */
+  priceOverride?: CounterPriceOverride | null;
 }): Promise<PassResult> {
   const scope = input.scope ?? "booking";
   if (!PASS_SCOPES.includes(scope)) return { ok: false, error: "A pass covers a booking, a resource hired whole, one person's place, or each place." };
@@ -7667,8 +7760,8 @@ export async function issuePass(input: {
     const info = await db
       .prepare(`
         INSERT INTO passes (code, venue_id, sport, name, kind, entry_minutes, max_minutes, entries, price, holder_name,
-                            holder_phone, user_id, expires_on, admin_id, coach_id, scope, holder_kind, holder_participant_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            holder_phone, user_id, expires_on, admin_id, coach_id, scope, holder_kind, holder_participant_id, product_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         randomCode("PS-"),
@@ -7688,9 +7781,12 @@ export async function issuePass(input: {
         input.coachId ?? null,
         scope,
         input.holderParticipantId ? "participant" : "customer",
-        input.holderParticipantId ?? null
+        input.holderParticipantId ?? null,
+        input.productId ?? null
       );
     const pass = (await passById(Number(info.lastInsertRowid)))!;
+    // A manager's price, kept with the sale in its transaction (lib/counter-prices.ts).
+    if (input.priceOverride) await recordPriceOverride("pass", pass.id, input.venueId, input.price, input.priceOverride);
     await issueReceipt({
       source: `pass:${pass.id}`,
       venueId: input.venueId,
@@ -7698,7 +7794,7 @@ export async function issuePass(input: {
       name: holderName,
       phone: holderPhone,
       lines: [saidLine(said("srv.line.pass", { name, code: pass.code, amount: passUnits(pass, input.entries), date: input.expiresOn }), input.price)],
-      paidVia: input.price === 0 ? null : "At the counter",
+      paidVia: input.price === 0 ? null : (input.paidVia ?? "At the counter"),
       taxable: true,
     });
     return { ok: true, pass };

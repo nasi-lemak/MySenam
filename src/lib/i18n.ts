@@ -2775,6 +2775,11 @@ const EN = {
   // Round 8 (D8b): what closing an account does to the money on upcoming bookings
   "d8b.data.money":
     "Each is cancelled on the venue's cancellation terms, as if you cancelled it yourself: what you paid online is refunded, less any late-cancellation fee; inside the venue's cutoff, where it allows no late cancelling, the venue keeps what was paid. A booking already under way stands.",
+  // Round 8 (P8b): a manager's price adjustment on a booking, as the customer's receipt and refusals say it
+  "p8b.rcpt.adjusted": "Price adjusted by the venue",
+  "p8b.rcpt.complimentary": "Complimentary",
+  "receipt.p8b.adjusted": "The venue lowered the price after it was paid; this is the difference.",
+  "err.P8B_PRICE_ADJUSTED": "The venue has set this booking's price: no code or concession can be added to it now. Ask the venue.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5499,6 +5504,11 @@ const MS: Record<Phrase, string> = {
   // Round 8 (D8b): what closing an account does to the money on upcoming bookings
   "d8b.data.money":
     "Setiap satu dibatalkan mengikut syarat pembatalan pusat, seolah-olah anda membatalkannya sendiri: bayaran dalam talian anda dikembalikan, tolak sebarang fi pembatalan lewat; dalam tempoh had pusat, jika pusat tidak membenarkan pembatalan lewat, pusat menyimpan apa yang telah dibayar. Tempahan yang sudah bermula kekal.",
+  // Round 8 (P8b): a manager's price adjustment on a booking, as the customer's receipt and refusals say it
+  "p8b.rcpt.adjusted": "Harga dilaraskan oleh pusat",
+  "p8b.rcpt.complimentary": "Percuma (ihsan pusat)",
+  "receipt.p8b.adjusted": "Pusat menurunkan harga selepas ia dibayar; ini ialah perbezaannya.",
+  "err.P8B_PRICE_ADJUSTED": "Pusat telah menetapkan harga tempahan ini: tiada kod atau konsesi boleh ditambah sekarang. Tanya pusat.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

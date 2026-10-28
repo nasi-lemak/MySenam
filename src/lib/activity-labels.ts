@@ -191,4 +191,9 @@ export const ACTION_LABELS: Record<string, string> = {
   "league.result_cleared": "Cleared a league result",
   "message.resent": "Sent a message again",
   "whatsapp.pack": "Ordered, gave or settled WhatsApp messages",
+  // Round 8 (P8b): prices at the counter
+  "pass_product.added": "Added a pass to the venue's list",
+  "pass_product.retired": "Took a pass off the venue's list",
+  "sale.price_set": "Sold a pass or membership at a price other than the list's, saying why",
+  "booking.price_adjusted": "Adjusted a booking's price, saying why",
 };

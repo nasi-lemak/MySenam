@@ -23,6 +23,7 @@ import { errorText } from "@/lib/i18n";
 import { lengthLabel } from "@/lib/length-label";
 import type { CancelOutcome, CounterPayout, StaffCancelOption, StaffCancelPreview, StaffSeriesWeek } from "@/lib/counter-refunds";
 import type { CorrectionScope } from "@/lib/booking-corrections";
+import { AdjustPrice } from "./AdjustPrice";
 
 /* ---------------- Bookings tab ---------------- */
 
@@ -1301,6 +1302,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   <PaymentChip b={b} act={act} />
                   <AccountChip b={b} act={act} />
+                  <AdjustPrice b={b} onDone={() => void load()} />
                   <AttendanceChip b={b} act={act} />
                   <KitChip b={b} act={act} />
                 </div>
@@ -1365,6 +1367,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                     <td className="px-3 py-2">
                       <PaymentChip b={b} act={act} />
                       <AccountChip b={b} act={act} />
+                      <AdjustPrice b={b} onDone={() => void load()} />
                     </td>
                     <td className="px-3 py-2">
                       <AttendanceChip b={b} act={act} />

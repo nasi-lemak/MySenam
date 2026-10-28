@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canAccessVenue, requireAdmin } from "@/lib/admin-auth";
+import { asStaff } from "@/lib/acting-staff";
 import { refusal } from "@/lib/api";
 import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
@@ -51,10 +52,13 @@ export async function POST(req: NextRequest) {
       : undefined;
   if (expect !== undefined && !expected) return NextResponse.json({ error: "expect must map booking codes to amounts." }, { status: 400 });
 
-  const result = await staffCancelSeries(seriesCode, codes as string[], admin, {
-    ...(outcome !== undefined ? { outcome } : {}),
-    ...(expected ? { expect: expected } : {}),
-  });
+  // As the member of staff, so each credit note or counter payout says who gave the money back (lib/acting-staff.ts).
+  const result = await asStaff(admin, () =>
+    staffCancelSeries(seriesCode, codes as string[], admin, {
+      ...(outcome !== undefined ? { outcome } : {}),
+      ...(expected ? { expect: expected } : {}),
+    })
+  );
   if (!result.ok) return refusal(result);
   const ids = result.cancelled.map((c) => c.booking.id);
   // Paid online: owed back on the payment now, to the card where the venue refunds through its gateway.

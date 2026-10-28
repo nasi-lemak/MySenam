@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { asStaff } from "@/lib/acting-staff";
 import { getVenueIdForBookingCode } from "@/lib/store";
 import { notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 import { refusal } from "@/lib/api";
@@ -44,10 +45,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ preview: seen.preview });
   }
 
-  const { result, settled } = await staffCancel(code, admin, {
-    ...(outcome !== undefined ? { outcome } : {}),
-    ...(expectRefund !== undefined ? { expectRefund: expectRefund as number } : {}),
-  });
+  // As the member of staff, so a credit note or counter payout says who gave the money back (lib/acting-staff.ts).
+  const { result, settled } = await asStaff(admin, () =>
+    staffCancel(code, admin, {
+      ...(outcome !== undefined ? { outcome } : {}),
+      ...(expectRefund !== undefined ? { expectRefund: expectRefund as number } : {}),
+    })
+  );
   if (!result.ok) return refusal(result);
   // Paid online: it goes back now, as when a customer cancels, rather than waiting on staff.
   await refundCancelled([result.booking.id], { byVenue: true });
