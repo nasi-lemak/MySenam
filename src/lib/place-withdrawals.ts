@@ -1,5 +1,5 @@
 import { policyFor } from "./booking-policy";
-import { getDb, withTransaction } from "./db";
+import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { creditBookingPlace, creditReceipt, WHO } from "./documents";
 import { placeShares, placesOf, refuse, soldByPlace, type BookingPlace } from "./entitlements";
 import { isLocale, translator, type Locale } from "./i18n";
@@ -57,7 +57,11 @@ import type { Booking, Court, Refusal } from "./types";
 /** What to take off: one participant, the customer taking part themself, or so many places nobody is named on. */
 export type WithdrawWhat = { participantId: number } | { customer: true } | { unnamed: number } | { placeId: number };
 
-export type WithdrawBy = { kind: "customer"; userId: number | null; name: string } | { kind: "staff"; adminId: number; name: string };
+/** Who takes them off: the customer (or guardian), staff at the counter, or the venue's own system through its API key (on the counter's terms). */
+export type WithdrawBy =
+  | { kind: "customer"; userId: number | null; name: string }
+  | { kind: "staff"; adminId: number; name: string }
+  | { kind: "api"; keyId: number; name: string };
 
 export interface WithdrawOutcome {
   /** Who, as named on the booking (null for places nobody was named on). */
@@ -186,8 +190,8 @@ async function bookingTerms(
   const policy = await policyFor(court);
   if (!policy.separatePlaces) return { refusal: refuse("ENT_WITHDRAW_SOLD_WHOLE") };
   const zone = await store.courtZone(booking.courtId);
-  if (by.kind === "staff") {
-    // The counter, as an admin cancellation: until it has been played, in full.
+  if (by.kind === "staff" || by.kind === "api") {
+    // The counter, as an admin cancellation: until it has been played, in full. The venue's API key is its counter.
     if (isPastSlot(booking.date, booking.endHour, zone)) return { refusal: refuse("CANCEL_PLAYED") };
     return { share: 1, late: false, keptPercent: null };
   }
@@ -360,12 +364,54 @@ export async function withdrawOptions(booking: Booking, by: WithdrawBy): Promise
   return out;
 }
 
-export type WithdrawResult = { ok: true; booking: Booking; withdrawal: WithdrawOutcome & { id: number } } | Refusal;
+export type WithdrawResult =
+  | {
+      ok: true;
+      booking: Booking;
+      withdrawal: WithdrawOutcome & { id: number };
+      /** The same request (its `Idempotency-Key`) made it before: this is that withdrawal, nothing taken off again. */
+      replayed?: boolean;
+    }
+  | Refusal;
 
 class Refused extends Error {
   constructor(readonly refusal: Refusal) {
     super("WITHDRAW_REFUSED");
   }
+}
+
+/** A withdrawal the same API request made before: what it answered then. */
+class Replayed extends Error {
+  constructor(readonly done: { id: number; outcome: WithdrawOutcome; bookingId: number }) {
+    super("WITHDRAW_REPLAYED");
+  }
+}
+
+/** An API key's `Idempotency-Key` already used for a different request (another booking, or somebody else on it). No code: the API's own, said in English. */
+export const KEY_REUSED: Refusal = { ok: false, error: "That Idempotency-Key was already used for a different request. Use a new key for each withdrawal." };
+
+/**
+ * The withdrawal an API key's request (its `Idempotency-Key`) already made,
+ * or null; `KEY_REUSED` where the key made a different one.
+ */
+async function madeBefore(keyId: number, requestKey: string, bookingId: number, what: WithdrawWhat): Promise<Replayed | Refusal | null> {
+  const row = (await getDb()
+    .prepare("SELECT id, booking_id, place_id, takes_part_as, participant_id, places, request_outcome FROM place_withdrawals WHERE by_api_key_id = ? AND request_key = ?")
+    .get(keyId, requestKey)) as
+    | { id: number; booking_id: number; place_id: number | null; takes_part_as: string; participant_id: number | null; places: number; request_outcome: string | null }
+    | undefined;
+  if (!row) return null;
+  const same =
+    row.booking_id === bookingId &&
+    ("unnamed" in what
+      ? row.takes_part_as === "unnamed" && row.places === what.unnamed
+      : "customer" in what
+        ? row.takes_part_as === "customer"
+        : "placeId" in what
+          ? row.place_id === what.placeId
+          : row.participant_id === what.participantId);
+  if (!same || !row.request_outcome) return KEY_REUSED;
+  return new Replayed({ id: row.id, outcome: JSON.parse(row.request_outcome) as WithdrawOutcome, bookingId: row.booking_id });
 }
 
 /**
@@ -375,14 +421,28 @@ class Refused extends Error {
  * the guardian told. Money paid online is noted as owed back here; the caller
  * sends it through the venue's refund path (lib/payments.ts `refundCancelled`).
  */
-export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: WithdrawBy, reason?: string | null): Promise<WithdrawResult> {
+export async function withdrawPlace(
+  bookingId: number,
+  what: WithdrawWhat,
+  by: WithdrawBy,
+  reason?: string | null,
+  /** The venue's API request's `Idempotency-Key`: the same key again answers with the withdrawal it made. */
+  requestKey?: string | null
+): Promise<WithdrawResult> {
   const store = await storeModule();
   const db = getDb();
+  const keyed = by.kind === "api" && requestKey ? { keyId: by.keyId, requestKey } : null;
   let done: { id: number; outcome: WithdrawOutcome } | null = null;
   try {
     done = await withTransaction(async () => {
       const lock = (await db.prepare("SELECT id FROM bookings WHERE id = ? FOR UPDATE").get(bookingId)) as { id: number } | undefined;
       if (!lock) throw new Refused(refuse("BOOKING_NOT_FOUND"));
+      // Asked again under the same key: what it made then, read under the booking's lock so a request racing its own retry sees it.
+      if (keyed) {
+        const before = await madeBefore(keyed.keyId, keyed.requestKey, bookingId, what);
+        if (before instanceof Replayed) throw before;
+        if (before) throw new Refused(before);
+      }
       const booking = (await store.getBookingById(bookingId))!;
       const court = await store.bookedCourt(booking);
       if (!court) throw new Refused(refuse("COURT_NOT_FOUND"));
@@ -392,8 +452,9 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
       const w = (await db
         .prepare(
           `INSERT INTO place_withdrawals (booking_id, place_id, takes_part_as, participant_id, name, places, price, paid, refunded, kept, late, kept_percent,
-             units_returned, released, by_kind, by_user_id, by_admin_id, by_name, reason, promo_share, deposit_part, deposit_refunded)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+             units_returned, released, by_kind, by_user_id, by_admin_id, by_name, reason, promo_share, deposit_part, deposit_refunded,
+             by_api_key_id, request_key, request_outcome)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
         )
         .get(
           booking.id,
@@ -417,7 +478,10 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
           reason?.trim().slice(0, 300) || null,
           a.promoShare,
           a.depositPart,
-          o.deposit
+          o.deposit,
+          by.kind === "api" ? by.keyId : null,
+          keyed?.requestKey ?? null,
+          keyed ? JSON.stringify(o) : null
         )) as { id: number };
 
       // Whom it was, apart from the words of its credit notes, so retention and erasure can clear it (lib/receipt-names.ts).
@@ -533,13 +597,33 @@ export async function withdrawPlace(bookingId: number, what: WithdrawWhat, by: W
     });
   } catch (err) {
     if (err instanceof Refused) return err.refusal;
+    const replay = async (r: Replayed): Promise<WithdrawResult> => ({
+      ok: true,
+      booking: (await store.getBookingById(r.done.bookingId))!,
+      withdrawal: { id: r.done.id, ...r.done.outcome },
+      replayed: true,
+    });
+    if (err instanceof Replayed) return replay(err);
+    // Its own retry, sent at the same moment, made it first: answer with that one.
+    if (keyed && isUniqueViolation(err, "place_withdrawals")) {
+      const before = await madeBefore(keyed.keyId, keyed.requestKey, bookingId, what);
+      if (before instanceof Replayed) return replay(before);
+      if (before) return before;
+    }
     throw err;
   }
   const booking = (await store.getBookingById(bookingId))!;
   // The freed place goes to whoever has waited longest for it.
   if (done.outcome.released > 0) await store.offerSlotPlace(booking.courtId, booking.date);
   if (done.outcome.participantId !== null) {
-    const actor: Actor = by.kind === "staff" ? { adminId: by.adminId, name: by.name } : by.userId ? { userId: by.userId, name: by.name } : { system: true };
+    const actor: Actor =
+      by.kind === "staff"
+        ? { adminId: by.adminId, name: by.name }
+        : by.kind === "api"
+          ? { adminId: null, name: by.name }
+          : by.userId
+            ? { userId: by.userId, name: by.name }
+            : { system: true };
     const venueId = (await store.getCourt(booking.courtId))?.venueId ?? null;
     await participantEvent(done.outcome.participantId, "booking.withdrawn", actor, { venueId, detail: `${booking.code}${reason ? `: ${reason}` : ""}` });
   }
@@ -558,6 +642,23 @@ export function readWithdrawWhat(body: Record<string, unknown>): WithdrawWhat | 
   if (body.customer === true) return { customer: true };
   if (Number.isInteger(body.unnamed) && (body.unnamed as number) > 0 && (body.unnamed as number) <= 50) return { unnamed: body.unnamed as number };
   return null;
+}
+
+/** A withdrawal as the staff activity log says it (`booking.place_withdrawn`), made at the counter or through the venue's API key. */
+export function withdrawalLogDetail(code: string, w: WithdrawOutcome, reason: string | null): string {
+  // The booker's own part (back the way it was paid, or a credit note on an account invoiced), and the deposit's.
+  const own = roundMoney(w.refund - w.deposit);
+  return `${w.name ?? `${w.places} unnamed place${w.places === 1 ? "" : "s"}`} taken off ${code}${
+    w.participantId !== null ? ` (participant ${w.participantId})` : ""
+  }: ${[
+    w.owedLess > 0 ? `${money(w.owedLess)} off what is owed` : "",
+    own > 0 ? (w.how === "account" ? `${money(own)} as a credit note on the account` : `${money(own)} back`) : "",
+    w.deposit > 0 ? `${money(w.deposit)} of the deposit back` : "",
+  ]
+    .filter(Boolean)
+    .join(", ") || "nothing priced per person"}${
+    w.units > 0 ? `, ${w.units} pass entr${w.units === 1 ? "y" : "ies"} back` : ""
+  }${w.released > 0 ? `, ${w.released} place${w.released === 1 ? "" : "s"} freed` : ""}${reason ? `. ${reason.trim().slice(0, 200)}` : ""}`;
 }
 
 /** The language a booking was made in, for what staff's changes to it tell the customer; English for one made before that was kept. */

@@ -275,6 +275,8 @@ const en = {
   "ow5.int.kind.refund_overdue": "Money owed back for over a week, not yet refunded",
   "ow5.int.kind.refund_failed": "A refund failed at the payment gateway: the money is owed again",
   "fin6.int.own": "Only your own venues are checked, and only their problems are shown.",
+  // Round 7 (H7): a refund made in the gateway's own dashboard that nothing here owed (lib/integrity.ts)
+  "ow5.int.kind.refund_unasked": "Refunded in the payment gateway's own dashboard, with nothing here owed back: decide what it was for",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -548,6 +550,8 @@ const ms: Record<keyof typeof en, string> = {
   "ow5.int.kind.refund_overdue": "Wang terhutang balik lebih daripada seminggu, belum dibayar balik",
   "ow5.int.kind.refund_failed": "Bayaran balik gagal di gerbang pembayaran: wang itu terhutang semula",
   "fin6.int.own": "Hanya pusat anda sendiri disemak, dan hanya masalahnya ditunjukkan.",
+  // Round 7 (H7): a refund made in the gateway's own dashboard that nothing here owed (lib/integrity.ts)
+  "ow5.int.kind.refund_unasked": "Dibayar balik dalam papan pemuka gerbang pembayaran sendiri, tanpa apa-apa yang terhutang balik di sini: tentukan untuk apa ia dibuat",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -821,6 +825,8 @@ const zh: Record<keyof typeof en, string> = {
   "ow5.int.kind.refund_overdue": "应退款项已超过一周仍未退还",
   "ow5.int.kind.refund_failed": "退款在支付网关失败：该款项再次待退",
   "fin6.int.own": "只检查您自己的场馆，也只显示这些场馆的问题。",
+  // Round 7 (H7): a refund made in the gateway's own dashboard that nothing here owed (lib/integrity.ts)
+  "ow5.int.kind.refund_unasked": "在支付网关后台直接办理的退款，而此处并无应退款项：请确定其用途",
 };
 
 const area = { en, ms, zh };

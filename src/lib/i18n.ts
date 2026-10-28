@@ -2690,6 +2690,9 @@ const EN = {
   "ms7.acct.suspendedDated": "Suspended from {from} until {until}",
   "ms7.acct.suspendedOpen": "Suspended from {from} until the venue reactivates it",
   "ms7.acct.suspendedNote": "On those days it gives no member's price or members-only place, to you or anybody it covers. Bookings already made are not cancelled: the venue reviews them.",
+  // Round 7 (H7): a lesson paid from stored credit, as a court is
+  "rg7.lesson.paidFromCredit": "Paid from your credit balance.",
+  "rg7.lesson.creditNotUsed": "It could not be paid from your credit balance, so it is not paid yet.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5332,6 +5335,9 @@ const MS: Record<Phrase, string> = {
   "ms7.acct.suspendedDated": "Digantung dari {from} hingga {until}",
   "ms7.acct.suspendedOpen": "Digantung dari {from} sehingga pusat mengaktifkannya semula",
   "ms7.acct.suspendedNote": "Pada hari-hari itu ia tidak memberikan harga ahli atau tempat khas ahli, kepada anda atau sesiapa yang dilindunginya. Tempahan yang sudah dibuat tidak dibatalkan: pusat akan menyemaknya.",
+  // Round 7 (H7): a lesson paid from stored credit, as a court is
+  "rg7.lesson.paidFromCredit": "Dibayar guna baki kredit anda.",
+  "rg7.lesson.creditNotUsed": "Ia tidak dapat dibayar guna baki kredit anda, jadi ia belum dibayar.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

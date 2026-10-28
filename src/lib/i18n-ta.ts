@@ -2532,6 +2532,9 @@ export const TA: Record<Phrase, string> = {
   "ms7.acct.suspendedDated": "{from} முதல் {until} வரை இடைநிறுத்தப்பட்டுள்ளது",
   "ms7.acct.suspendedOpen": "{from} முதல், மையம் மீண்டும் செயல்படுத்தும் வரை இடைநிறுத்தப்பட்டுள்ளது",
   "ms7.acct.suspendedNote": "அந்த நாட்களில் உங்களுக்கோ அது உள்ளடக்கும் எவருக்கோ உறுப்பினர் விலை அல்லது உறுப்பினர்களுக்கு மட்டுமான இடம் கிடைக்காது. ஏற்கெனவே செய்யப்பட்ட முன்பதிவுகள் ரத்து செய்யப்படாது: மையம் அவற்றை மதிப்பாய்வு செய்யும்.",
+  // Round 7 (H7): a lesson paid from stored credit, as a court is
+  "rg7.lesson.paidFromCredit": "உங்கள் கிரெடிட் இருப்பிலிருந்து செலுத்தப்பட்டது.",
+  "rg7.lesson.creditNotUsed": "உங்கள் கிரெடிட் இருப்பிலிருந்து செலுத்த முடியவில்லை, எனவே இன்னும் செலுத்தப்படவில்லை.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

@@ -434,6 +434,12 @@ export interface CustomerExport {
   venueLists: unknown[];
   /** Memberships bought online, as chosen before paying, and what became of each: made, released, owed back (lib/membership-purchases.ts). */
   membershipPurchases: unknown[];
+  /**
+   * Every change to whom the account's memberships cover, oldest first
+   * (lib/membership-purchases.ts `coverChangesExport`): named, added, removed
+   * or corrected, when, and whether by the account or the venue's staff.
+   */
+  membershipCoverChanges: unknown[];
   doorCodesShown: unknown[];
   /** Open games they hosted or asked to join, and the levels they gave. */
   games: unknown[];
@@ -568,6 +574,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId
     ),
     membershipPurchases: await (await import("./membership-purchases")).purchasesExport(userId),
+    membershipCoverChanges: await (await import("./membership-purchases")).coverChangesExport(userId),
     doorCodesShown: await all(
       `SELECT r.revealed_at, b.code AS booking, c.name AS court
        FROM access_reveals r

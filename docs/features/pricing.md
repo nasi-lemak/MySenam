@@ -774,6 +774,15 @@ replacements.
   staff, with the term's places. A person whose record is erased stays
   counted, unnamed. Memberships sold before this keep whom they cover now as
   named when they were added (changes made before were not recorded).
+- **In the holder's data export** (`membershipCoverChanges`;
+  `coverChangesExport`): every change on the memberships the account holds,
+  oldest first, with the membership, the venue, what changed and when, and
+  whether the account (`you`) or the venue's staff (`staff`, never a name)
+  made it. A person is named, and a correction's reason given, only where the
+  holder is already shown them: the membership covers them now, or the
+  account acts for them; anybody else (somebody corrected off who is not the
+  account's, an erased person) is left unnamed. Tested in
+  `tests/membership-cover-export.test.ts`.
 
 #### Renewing automatically
 

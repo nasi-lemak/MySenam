@@ -302,6 +302,13 @@ const en = {
   "ms7.cr.reactivated": "Reactivated from today. Bookings flagged by the suspension stay for you to decide under Bookings.",
   "ms7.cr.failed": "Could not change it.",
   "ms7.cr.planExtends": "a suspension extends the end",
+  // Round 7 (H7): refunds made in the gateway's own dashboard; an account's credit paid back by hand
+  "rg7.act.gatewayRefund": "A refund made in the payment gateway's own dashboard was recorded",
+  "rg7.act.creditSettled": "Paid back an account's credit by hand",
+  "rg7.acc.closed": "closed",
+  "rg7.acc.settle": "Paid back by hand",
+  "rg7.acc.settlePrompt": "Has the {amount} of credit on {name} been paid back by hand (a bank transfer, say)? It will then never come off an invoice. Write down how, to find it again:",
+  "rg7.acc.settled": "Recorded {amount} paid back to {name} by hand. It will not come off an invoice.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -605,6 +612,13 @@ const ms: Record<keyof typeof en, string> = {
   "ms7.cr.reactivated": "Diaktifkan semula mulai hari ini. Tempahan yang ditandakan oleh penggantungan kekal untuk anda putuskan di bawah Tempahan.",
   "ms7.cr.failed": "Tidak dapat mengubahnya.",
   "ms7.cr.planExtends": "penggantungan melanjutkan tarikh tamat",
+  // Round 7 (H7): refunds made in the gateway's own dashboard; an account's credit paid back by hand
+  "rg7.act.gatewayRefund": "Bayaran balik yang dibuat dalam papan pemuka gerbang pembayaran sendiri telah direkodkan",
+  "rg7.act.creditSettled": "Membayar balik kredit akaun secara manual",
+  "rg7.acc.closed": "ditutup",
+  "rg7.acc.settle": "Dibayar balik secara manual",
+  "rg7.acc.settlePrompt": "Adakah kredit {amount} pada {name} telah dibayar balik secara manual (contohnya pindahan bank)? Ia tidak akan ditolak daripada mana-mana invois selepas ini. Catat caranya, supaya mudah dicari semula:",
+  "rg7.acc.settled": "{amount} yang dibayar balik kepada {name} secara manual telah direkodkan. Ia tidak akan ditolak daripada invois.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -908,6 +922,13 @@ const zh: Record<keyof typeof en, string> = {
   "ms7.cr.reactivated": "自今天起重新启用。暂停时标记的预订仍在“预订”下等待您决定。",
   "ms7.cr.failed": "无法更改。",
   "ms7.cr.planExtends": "暂停会延后到期日",
+  // Round 7 (H7): refunds made in the gateway's own dashboard; an account's credit paid back by hand
+  "rg7.act.gatewayRefund": "已记录在支付网关后台直接办理的退款",
+  "rg7.act.creditSettled": "以人工方式退还了账户的抵扣额",
+  "rg7.acc.closed": "已关闭",
+  "rg7.acc.settle": "已人工退还",
+  "rg7.acc.settlePrompt": "{name} 账户上的 {amount} 抵扣额是否已以人工方式退还（例如银行转账）？此后将不会再从任何发票中扣除。请记下退还方式，以便日后查找：",
+  "rg7.acc.settled": "已记录以人工方式向 {name} 退还 {amount}。该款项不会再从发票中扣除。",
 };
 
 const area = { en, ms, zh };

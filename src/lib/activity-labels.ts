@@ -138,4 +138,6 @@ export const ACTION_LABELS: Record<string, string> = {
   "participant.guardian_reported": "Reported a guardian's relationship for review, for a guardian without an account",
   "participant.guardian_told": "Told a guardian without an account about a change",
   "guest_invitation.withdrawn": "Withdrew the invitation a resident emailed for a guest",
+  "payment.gateway_refund": "A refund made in the payment gateway's own dashboard was recorded",
+  "account.credit_settled": "Paid back an account's credit by hand",
 };

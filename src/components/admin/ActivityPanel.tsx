@@ -129,6 +129,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "participant.guardian_reported": "gw5.act.reported",
   "participant.guardian_told": "gw5.act.told",
   "guest_invitation.withdrawn": "rv7.act.withdrawn",
+  "payment.gateway_refund": "rg7.act.gatewayRefund",
+  "account.credit_settled": "rg7.act.creditSettled",
 };
 
 /**

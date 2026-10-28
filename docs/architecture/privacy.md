@@ -472,7 +472,9 @@ participant's name only while it acts for them, and never the other adult.
 Of its own bookings: the places taken off them (`placeWithdrawals`) and the
 benefits redeemed per place (`placeBenefits`); its passes and memberships
 say whose each is (`holder_kind`, the participant it was sold for) and whom a
-family membership covers.
+family membership covers, and every change to whom the account's memberships
+cover (`membershipCoverChanges`), naming only people the holder is already
+shown ([pricing](../features/pricing.md#changing-whom-a-family-membership-covers)).
 
 **Concession proofs** (`participant_concession_proofs` for a participant,
 `concession_proofs` for the account's own number) are exported as structured

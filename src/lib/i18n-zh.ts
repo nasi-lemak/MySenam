@@ -2529,6 +2529,9 @@ export const ZH: Record<Phrase, string> = {
   "ms7.acct.suspendedDated": "从 {from} 暂停至 {until}",
   "ms7.acct.suspendedOpen": "从 {from} 起暂停，直到场馆重新启用",
   "ms7.acct.suspendedNote": "在这些日子里，您及其涵盖的任何人都不享有会员价或会员专属名额。已做的预订不会被取消：由场馆审核。",
+  // Round 7 (H7): a lesson paid from stored credit, as a court is
+  "rg7.lesson.paidFromCredit": "已用您的储值余额支付。",
+  "rg7.lesson.creditNotUsed": "无法用您的储值余额支付，因此尚未付款。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

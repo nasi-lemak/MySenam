@@ -141,6 +141,28 @@ export interface Inbound {
    */
   dispute?: boolean;
   verifyDispute?(account: GatewayAccount): Promise<DisputeEvent | null>;
+  /**
+   * About refunds on a payment (made by MySenam or in the gateway's own
+   * dashboard), which names no page: found as a dispute is. Null for a
+   * signature that does not check out; throws where the signature checks out
+   * but the gateway could not be asked for the refunds (answered so the
+   * gateway sends it again).
+   */
+  refunds?: boolean;
+  verifyRefunds?(account: GatewayAccount): Promise<RefundsEvent | null>;
+}
+
+/** Every refund the gateway holds on one payment, as it says now. */
+export interface RefundsEvent {
+  /** The gateway's id for the payment, to find the page it was made on. */
+  paymentRef: string;
+  refunds: {
+    id: string;
+    amountMinor: number;
+    status: "succeeded" | "pending" | "failed";
+    /** Made by MySenam: it carries the key MySenam gives each refund it asks for. */
+    ours: boolean;
+  }[];
 }
 
 /** One thing a venue types in to connect its account. */
