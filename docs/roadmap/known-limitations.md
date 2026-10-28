@@ -78,6 +78,7 @@ recommendation, not a decision. A decision is recorded by changing the row to
 | Limitation | What happens today | Recommendation |
 | ---------- | ------------------ | -------------- |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
+| Cancellations by the venue refund online payments on some paths only ([money](#money-m)) | Closing a day and a rain-out refund online payments by themselves; a court taken out of service and a cancelled class (also when a day is closed) leave them in *Refunds owed* for staff | Refund by themselves on every path where the venue cancels, as a closed day does: the customer did nothing, and the refunds owed list stays for manual venues |
 
 ### Accepted
 
@@ -350,6 +351,16 @@ bookings export (the activity log carries them); a manager's override reason
 is free text kept with the booking
 ([booking](../features/booking.md#manager-overrides)) (P3).
 
+Also: when a class's places go up by several, the waiting list is offered
+one place at a time, as it always is, and the other new places are open to
+anyone meanwhile; people enrolled are not told of a change to a class's name
+or instructor; lowering a tournament's places is not locked against an entry
+made at the same moment, so one more could be entered than allowed; the venue's
+alerts for online changes need the `mysenam_venue_booking_change` WhatsApp
+template, prepared and not yet submitted to Meta (email works without it)
+([programmes](../features/programmes.md), [tournaments](../features/tournaments.md),
+[booking alerts](../features/venue-operations.md#booking-alerts)) (P3).
+
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
 The content security policy still allows inline *styles* (a style cannot run
@@ -589,6 +600,11 @@ review is part of the same blocker.
 
 None open.
 
+Also: a cancellation by the venue refunds an online payment by itself after
+a closed day or a rain-out, but leaves it in *Refunds owed* for staff after a
+court taken out of service or a cancelled class; which is intended is with the
+owner ([decisions](#decisions-the-owner-has-to-make)) (P2).
+
 Also: a refund made by hand (every Billplz refund) depends on the venue's
 staff. MySenam tracks it — the date customers are told, overdue refunds on
 the dashboard and in a daily reminder, and the workload month by month
@@ -732,6 +748,10 @@ IDs are not reused. Each fix came with the test recommended above.
 | B48 | Names and emails on bookings, class places, waiting lists and sign-up had no length limit (a 20,000-character name was stored); names are capped at 100 characters and emails at 254 on every path and in the store | `tests/contact-lengths.test.ts` |
 | B49 | 29 route handlers answered 500 to a JSON body that was not an object (`null`, a list, a number); they now answer 400, and a test sends every writing handler such bodies | `tests/bad-bodies.test.ts` |
 | B50 | The date a refund was due by, the date it was made and a customer's receipt dates were UTC dates, a day early before 08:00 in Malaysia; they are the venue's calendar dates | `tests/refund-local-date.test.ts`, `tests/manual-refunds.test.ts` |
+| S28 | Closing a day, cancelling a class, a rain-out and a court taken out of service cancelled bookings and enrolments with no entry for each in the activity log, and about thirty staff write routes (class scheduling, blocks, hire deposits kept, extras, notices, inductions, go-live, tournaments, competitions, leagues and their fees, messages sent again, WhatsApp settings, photos, a venue suspended by the platform) wrote none; each now does, and a source check fails for any admin write handler that logs nothing and is not allowed with a reason. Found by the round 8 audit | `tests/staff-log-coverage.test.ts`, `tests/activity-log-coverage.test.ts` |
+| B51 | The schedule listed a day's neighbours' bookings that only touched it (zero-minute rows at midnight) and showed an after-midnight booking under the following day; it now lists only what overlaps the day's own window, the evening's late hours with the evening | `tests/schedule-own-day.test.ts` |
+| B52 | Twelve kinds of activity-log entry (tournament rules, results and corrections, league results and joining) had no label and showed their raw names; they are labelled in every staff language, and the label test reads every way an action is chosen | `tests/activity-labels.test.ts` |
+| M23 | A tournament's entry fee was read from the tournament at payment and on the counter receipt, so changing the fee would have repriced entries already made; each entry keeps its own fee (migration 0238, backfilled) | `tests/tournament-changes.test.ts` |
 
 ### Resolved limitations without a number
 
@@ -831,6 +851,8 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Staff could not correct a booking's name, phone or email | Corrected for one booking or its series or group, a new number asked the counter's policy check, logged | `tests/booking-corrections.test.ts` |
 | Staff cancelled a weekly series booking by booking | The weeks still to be played cancelled together, each on its own terms | `tests/counter-refunds.test.ts` |
 | The day list had no filters, cut its actions off on a laptop and had no print view; nothing started a booking from the dashboard, and a click on a free schedule cell blocked the court at once | Filters, an actions menu, a printable day sheet, *New booking*, and *Book this* or *Block* on a free cell | `tests/components/bookings-tab-day.test.tsx` |
+| Staff could change nothing about a class or a tournament once made, short of cancelling it | A class's name, instructor, places (more offered to the waiting list, fewer never below those taken) and price for new enrolments, for one session or the rest of the series; a tournament's name, description, deadline, places and fee for new entries before its draw; a manager's, logged | `tests/class-changes.test.ts`, `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
+| The venue heard about bookings made online but not about customers' online cancellations and changes | Optional alerts for cancellations and changes, a day ahead unless widened, at the new-booking alerts' address and number, in their language | `tests/booking-change-alerts.test.ts` |
 
 ## Production readiness
 
