@@ -18,6 +18,8 @@ import { getDb } from "../../src/lib/db";
 import { managerOnly, staffMay, type StaffRole } from "../../src/lib/roles";
 import { listVenuesByIds } from "../../src/lib/store";
 import { addDays, todayISO } from "../../src/lib/time";
+import { staffTranslator } from "../../src/lib/staff-i18n";
+import { MAX_PHOTOS } from "../../src/lib/photos-shared";
 import { forgetStaffRole } from "../../src/components/admin/useStaffRole";
 import { StaffMayProvider } from "../../src/components/admin/StaffMay";
 import { StaffZones } from "../../src/components/admin/StaffLanguage";
@@ -272,6 +274,115 @@ describe("front desk", () => {
       expect(calls.filter((c) => c.code === "MANAGER_ONLY")).toEqual([]);
       // What it may not change is said once, in its language, where it is shown.
       if (name !== "the day list") expect(container.textContent).toContain("A manager changes this.");
+    }, 120_000);
+});
+
+/**
+ * Open every section on screen that opens: each summary not yet open (a
+ * disabled fieldset does not stop one, so those inside what the desk sees
+ * read-only too), round after round as opening shows more.
+ */
+async function openEverything(container: HTMLElement): Promise<void> {
+  for (let round = 0; round < 6; round++) {
+    const closed = Array.from(container.querySelectorAll("details:not([open]) > summary"));
+    if (closed.length === 0) return;
+    for (const summary of closed) {
+      await act(async () => {
+        fireEvent.click(summary);
+      });
+      await settle();
+    }
+  }
+}
+
+const en = staffTranslator("en");
+
+/** A field by its accessible name, or the start of its label (a label may carry a hint after it). */
+function field(container: HTMLElement, label: string): HTMLInputElement | HTMLTextAreaElement {
+  const named = Array.from(container.querySelectorAll("input, textarea")).find((i) => i.getAttribute("aria-label") === label);
+  const found = Array.from(container.querySelectorAll("label")).find((l) => l.textContent?.trim().startsWith(label));
+  const input = named ?? found?.querySelector("input, textarea");
+  if (!input) throw new Error(`no field labelled ${label}`);
+  return input as HTMLInputElement | HTMLTextAreaElement;
+}
+
+/** What a manager has set up, asked for through the app's own routes as the manager. */
+async function asManager(method: string, path: string, body: unknown): Promise<void> {
+  const was = cookie;
+  cookie = managerCookie;
+  try {
+    const res = await serve(path, { method, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
+  } finally {
+    cookie = was;
+  }
+}
+
+describe("front desk reads what a manager changes", () => {
+  it("opens every section of venue details and reads what is behind it: the access list, house rules, waiver, overrides, extras, notices, facilities, photos and WhatsApp", async () => {
+    const venueId = venues[0].id;
+    const waiver = "Climbing is at your own risk. Use the auto-belay as shown at the desk.";
+    await asManager("PATCH", `/api/admin/venues/${venueId}`, { amenities: ["showers"] });
+    await asManager("POST", "/api/admin/venue-access", { venueId, action: "add", phone: "012-777 1234", name: "Siti Listed", label: "A-12-3", kind: "resident", expiresOn: "", account: "" });
+    await asManager("POST", "/api/admin/house-rules", { venueId, upcoming: "", perWeek: "", perDay: "", aheadDays: "", memberAheadDays: "", seriesWeeks: "6" });
+    await asManager("POST", "/api/admin/waiver", { venueId, text: waiver });
+    await asManager("POST", "/api/admin/policy-overrides", { venueId, policies: ["strikes"] });
+    await asManager("POST", "/api/admin/addons", { venueId, name: "Racket hire", kind: "rental", price: "5", stock: "", sport: "" });
+    await asManager("POST", "/api/admin/notices", { venueId, text: "Court 2 is relit this week", link: "", startsOn: todayISO(), endsOn: addDays(todayISO(), 3) });
+    venues = (await listVenuesByIds([venueId])) as ManagedVenue[];
+    calls = [];
+    try {
+      const container = await show("desk", (admin) => <VenuesTab admin={admin} venues={venues} onChange={async () => admin} />);
+      await useEverything(container);
+      await openEverything(container);
+      const text = container.textContent ?? "";
+
+      // Who it is for: the venue's list, with the person on it.
+      const listed = Array.from(container.querySelectorAll("tr")).find((tr) => tr.textContent?.includes("Siti Listed"));
+      expect(listed?.textContent).toContain("A-12-3");
+      expect(text).toContain(en("acs.pasteLine"));
+      // House rules, as set.
+      expect(text).toContain(en("hr.intro"));
+      expect(field(container, en("hr.seriesWeeks")).value).toBe("6");
+      // The waiver's words.
+      expect(text).toContain(en("wv.intro"));
+      expect(field(container, en("wv.label")).value).toBe(waiver);
+      // Which overrides managers may make.
+      expect(text).toContain(en("r9.set.intro"));
+      expect((field(container, en("r9.set.strikes")) as HTMLInputElement).checked).toBe(true);
+      // Extras, notices, facilities, photos, WhatsApp.
+      expect(text).toContain(en("add.intro"));
+      expect(text).toContain("Racket hire");
+      expect(text).toContain("Court 2 is relit this week");
+      expect(text).toContain(en("fac.intro"));
+      const showers = Array.from(container.querySelectorAll("label")).find((l) => /Showers/i.test(l.textContent ?? ""));
+      expect(showers?.querySelector("input")?.checked).toBe(true);
+      expect(text).toContain(en("ph.intro", { more: MAX_PHOTOS - 1 }));
+      expect(text).toContain(en("wa.intro"));
+      // Every section that opens is open, and nothing a manager alone changes was asked for or offered.
+      expect(container.querySelectorAll("details:not([open])").length).toBe(0);
+      expect(refusedToDesk()).toEqual([]);
+      expect(calls.filter((c) => c.code === "MANAGER_ONLY")).toEqual([]);
+      // What it reads it cannot change: its fields are disabled, and it has no button to save them.
+      expect(field(container, en("wv.label")).matches(":disabled")).toBe(true);
+      expect(field(container, en("hr.seriesWeeks")).matches(":disabled")).toBe(true);
+    } finally {
+      // Fair-use limits and a waiver hold at the counter too: the tabs after this one see the venue as it was.
+      await asManager("POST", "/api/admin/house-rules", { venueId, upcoming: "", perWeek: "", perDay: "", aheadDays: "", memberAheadDays: "", seriesWeeks: "" });
+      await asManager("POST", "/api/admin/waiver", { venueId, text: "" });
+      await asManager("POST", "/api/admin/policy-overrides", { venueId, policies: [] });
+    }
+  }, 120_000);
+
+  for (const { name, ui, before } of TABS.filter((tab) => tab.name !== "venue details"))
+    it(`opens every section on ${name}`, async () => {
+      const container = await show("desk", ui);
+      await before?.(container, "desk");
+      await useEverything(container);
+      await openEverything(container);
+      expect(container.querySelectorAll("details:not([open])").length).toBe(0);
+      expect(refusedToDesk()).toEqual([]);
+      expect(calls.filter((c) => c.code === "MANAGER_ONLY")).toEqual([]);
     }, 120_000);
 });
 

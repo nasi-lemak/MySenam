@@ -8,6 +8,7 @@ import type { Addon } from "@/lib/addons";
 import type { ManagedVenue } from "./shared";
 import { money } from "@/lib/region";
 import { useStaffT } from "./StaffLanguage";
+import { ManagerOnly } from "./StaffMay";
 
 const BLANK = { name: "", kind: "rental" as "rental" | "sale", price: "", stock: "", sport: "" };
 
@@ -58,6 +59,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
         {open ? t("add.close") : active ? t("add.toggleCount", { n: active }) : t("add.toggleOptional")}
       </button>
       {open && (
+        <ManagerOnly may="addons" note={false}>
         <div className="mt-2 space-y-2">
           <p className="text-xs text-slate-500">
             {t("add.intro")}
@@ -165,6 +167,7 @@ export function AddonsEditor({ venue }: { venue: ManagedVenue }) {
             )}
           </form>
         </div>
+        </ManagerOnly>
       )}
     </div>
   );

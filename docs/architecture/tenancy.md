@@ -73,6 +73,12 @@ account make it; the dashboard keeps no list of its own
   membership covers, membership plans, the venue's passes, promo codes and
   how they combine, voiding a counter sale, opening, changing, invoicing and
   closing company accounts).
+- What only opens or closes a section stays usable, so the desk reads what is
+  behind it: *Facilities*, *Photos*, *Extras*, *WhatsApp*, *Who it is for*
+  (its access list), *House rules*, *Manager overrides*, *Waiver* and
+  *Notices* open for the desk as for a manager, read-only inside, as does
+  every folded section (*Different hours on some days*, *More* in booking
+  rules, *Changes and reviews* under tax).
 - Controls that are only buttons are not shown at all: *Block number* and
   letting strikes off in the day list (the strike count still shows), whose an
   older induction is, *Ask to go live*.

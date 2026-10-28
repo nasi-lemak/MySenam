@@ -657,26 +657,25 @@ function VenueRow({
         {t("c.save")}
       </button>
       <VenueStanding venue={venue} isOwner={isOwner} onSave={onSave} />
-      <FacilitiesEditor key={venue.amenities.join(",")} venue={venue} onSave={onSave} />
       </ManagerOnly>
-      <ManagerOnly may="photos" note={false} className="w-full"><PhotosEditor venue={venue} /></ManagerOnly>
-      <ManagerOnly may="addons" note={false} className="w-full"><AddonsEditor venue={venue} /></ManagerOnly>
-      <ManagerOnly may="whatsapp" note={false} className="w-full"><WhatsAppEditor venueId={venue.id} isOwner={isOwner} /></ManagerOnly>
-      <ManagerOnly may="venueAccess" note={false} className="w-full"><AccessEditor venueId={venue.id} /></ManagerOnly>
-      <ManagerOnly may="houseRules" note={false} className="w-full"><HouseRulesEditor venueId={venue.id} /></ManagerOnly>
-      <ManagerOnly may="policyOverrides" note={false} className="w-full"><PolicyOverridesEditor venueId={venue.id} /></ManagerOnly>
-      <ManagerOnly may="waiver" note={false} className="w-full"><WaiverEditor venueId={venue.id} /></ManagerOnly>
+      {/* These open to be read, by front desk too: each is read-only inside for the desk (its own ManagerOnly). */}
+      <FacilitiesEditor key={venue.amenities.join(",")} venue={venue} onSave={onSave} />
+      <PhotosEditor venue={venue} />
+      <AddonsEditor venue={venue} />
+      <WhatsAppEditor venueId={venue.id} isOwner={isOwner} />
+      <AccessEditor venueId={venue.id} />
+      <HouseRulesEditor venueId={venue.id} />
+      <PolicyOverridesEditor venueId={venue.id} />
+      <WaiverEditor venueId={venue.id} />
       <ManagerOnly may="cancelPolicy" note={false} className="w-full"><CancelPolicyEditor venueId={venue.id} /></ManagerOnly>
       <ManagerOnly may="bookingAlerts" note={false} className="w-full"><BookingAlertsEditor venueId={venue.id} /></ManagerOnly>
       <ManagerOnly may="calendarFeed" note={false} className="w-full"><CalendarFeedEditor venueId={venue.id} /></ManagerOnly>
       <ManagerOnly may="venueTax" note={false} className="w-full"><TaxEditor venueId={venue.id} /></ManagerOnly>
       <ManagerOnly may="timeZone" note={false} className="w-full"><TimeZoneEditor venueId={venue.id} /></ManagerOnly>
-      <ManagerOnly may="notices" note={false} className="w-full">
       <NoticesEditor
         venueId={venue.id}
         intro={t("vn.noticeIntro")}
       />
-      </ManagerOnly>
     </div>
   );
 }

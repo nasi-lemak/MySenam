@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { OverridePolicy } from "@/lib/policy-overrides";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { ManagerOnly } from "./StaffMay";
 
 const LABELS: Record<OverridePolicy, StaffPhrase> = {
   house_rules: "r9.set.house_rules",
@@ -65,6 +66,7 @@ export function PolicyOverridesEditor({ venueId }: { venueId: number }) {
         {open ? t("r9.set.hide") : t("r9.set.show")}
       </button>
       {open && on && (
+        <ManagerOnly may="policyOverrides" note={false}>
         <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-xs text-slate-500">{t("r9.set.intro")}</p>
           {all.map((p) => (
@@ -83,6 +85,7 @@ export function PolicyOverridesEditor({ venueId }: { venueId: number }) {
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}
           {notice && <p className="text-sm font-medium text-emerald-700">{notice}</p>}
         </div>
+        </ManagerOnly>
       )}
     </div>
   );

@@ -31,6 +31,11 @@ export function useStaffMay(): (action: StaffActionName) => boolean {
  * disabled fieldset (every field and button in it disabled), its buttons
  * hidden, under one line saying a manager changes this (`note`, unless a
  * line above already says so).
+ *
+ * What only shows or hides something stays outside it, so the desk can still
+ * read what is behind it: a section opened by a button wraps only what opens
+ * (the button stays out), and a `<details>` summary works inside it as it is.
+ * `tests/components/desk-sees-what-it-may.test.tsx` opens every one as the desk.
  */
 export function ManagerOnly({ may, note = true, className = "", children }: { may: StaffActionName; note?: boolean; className?: string; children: ReactNode }) {
   const t = useStaffT();
