@@ -214,10 +214,16 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
-**87 now** (the two e-invoice decisions taken). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B50, M16–M22 and
-S12–S27, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (86
+**89 at commit `f4812fa`** after round 7, and **98 now**: round 8 closed the
+two e-invoice decisions, the staff languages and the guest count the owner
+decided, and 45 of the round 8 audit's 50 findings (the other five are
+[planned](roadmap.md)), and recorded what its new workflows leave
+(counter payouts, change alerts, booking links, the cash-up, leaving a waiting
+list), each narrower than the gap it replaced, with two new decisions for the
+owner. Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B56, M16–M28 and
+S12–S28, found and fixed in the same work) and
+[resolved without a number](#resolved-limitations-without-a-number) (114
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
@@ -381,6 +387,21 @@ booking's link can do what its code and phone allow, until it expires after the
 booking; a promo code on a weekly series is checked on its first date only
 before booking (the booking checks every week)
 ([finding your booking](../features/booking.md)) (P3).
+
+Also: the grid's cells are named by their price only for screen readers, and
+the grid's pale hint text is below the contrast asked of body text; there are
+no links to a section inside *Venue details*; the staff day list is ordered
+by court, then time; dates show no year; someone who
+joined a waiting list by phone alone gets no message with its leave link (its
+WhatsApp template would be a new one), and joins at the counter or through the
+API get none ([booking](../features/booking.md)) (P3).
+
+Also: the front desk is shown some managers' controls and refused on use;
+opening hours and prices change only from today; staff are given a password by
+a manager rather than invited, and a branch manager cannot add or remove the
+branch's desk staff; a new branch starts blank; a test booking made before going
+live stays in the books unless cancelled (the round 8 audit's X1-5, X1-13 to
+X1-16, [planned](roadmap.md)) (P2).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -780,6 +801,8 @@ IDs are not reused. Each fix came with the test recommended above.
 | M28 | The sales journal subtracted the credit note of a cancelled booking paid with a pass without ever having counted it as a sale (the pass was), understating takings; such credit notes are left out | `tests/void-credit-notes.test.ts` |
 | B53 | Entries made at once could overfill a tournament, and a division's cap or a league join could race (two joins of one player hit a database error); entries are counted and taken under the tournament's (and competition's) lock, league joins under the league's | `tests/entry-races.test.ts` |
 | B54 | Two first splits of one booking at once failed with a database error, and a re-split while a friend was paying left a paid share at the old amount; splitting runs under the booking's lock and a re-split is refused while a share is paid or being paid | `tests/split-races.test.ts` |
+| B55 | The schedule kept no track of which answer it was waiting for: an answer for a day or venue left a moment before could arrive late and show under the one now chosen; a late answer is dropped | `tests/components/staff-place.test.tsx` |
+| B56 | Claiming a waiting-list offer read the entry without locking it, so a claim and the entry being left or turned down at the same moment could both go through; the entry is locked by each | `tests/waitlist-leave.test.ts` |
 
 ### Resolved limitations without a number
 
@@ -895,6 +918,13 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A customer past a no-late-cancel cutoff could not give the court back for others | A venue setting, off by default, to cancel late keeping it all | `tests/q8a-booking-flows.test.ts` |
 | Bookings made before signing up did not show on the account | Shown and cancellable once the account's email is proved | `tests/q8a-booking-flows.test.ts` |
 | A class enrolled online could not be paid online | Pay online after enrolling | `tests/q8a-booking-flows.test.ts` |
+| On a phone the booking form sat under the grid, a refusal appeared far above it, and Book came before the questions it depends on | A sheet over the grid, the refusal beside Book with the venue's number, Book last with its price | `tests/components/booking-dialogs.test.tsx` |
+| A proxy's error page showed as a parser error, and a list that could not be read showed as empty | One reader for every answer; *the site is busy* in the reader's language; *Try again* | `tests/read-response.test.ts`, `tests/components/staff-place.test.tsx` |
+| A waiting list could not be left without the venue, nor an offer turned down | A private leave link and *No thanks*, passing the place on at once | `tests/waitlist-leave.test.ts` |
+| Customers were told to call the venue without its number | The number to dial, and WhatsApp where the venue says so | `tests/venue-contact.test.ts` |
+| The dashboard forgot its tab and day on a reload, and the day list went stale | Tab, day and venue in the address; the day list and schedule kept up | `tests/components/staff-place.test.tsx` |
+| Dates were shown without their weekday | The weekday on every customer date and in messages | `tests/outbox.test.ts`, `tests/waitlist-leave.test.ts` |
+| Dialogs did not hold focus or close on Escape, and 103 staff fields had no name for screen readers | One dialog for all; every staff field named, checked by a test | `tests/components/booking-dialogs.test.tsx`, `tests/form-labels.test.ts` |
 
 ## Production readiness
 
