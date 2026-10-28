@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ policy: await cancelPolicy(venueId) });
 }
 
-/** `{ venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds }`; null turns the first two off. */
+/** `{ venueId, lateKeep, giveBack, strikeLimit, strikeDays, onlineRefunds }`; null turns lateKeep and strikeLimit off; giveBack left out stays as it is. */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   await logFromRequest(req, {
     venueId,
     action: "settings.changed",
-    detail: `Late cancelling: ${p.lateKeep === null ? "off" : `keep ${p.lateKeep}%`}; strikes: ${
+    detail: `Late cancelling: ${p.lateKeep === null ? (p.giveBack ? "off, but a court may be given back (nothing refunded)" : "off") : `keep ${p.lateKeep}%`}; strikes: ${
       p.strikeLimit === null ? "off" : `${p.strikeLimit} in ${p.strikeDays} days`
     }; online refunds: ${p.onlineRefunds}`,
   });

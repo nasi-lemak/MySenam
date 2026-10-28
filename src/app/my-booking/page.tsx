@@ -1,27 +1,26 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Booking, Court } from "@/lib/types";
 import { formatHour, hoursUntilSlot } from "@/lib/time";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
 import { ChangeTime } from "@/components/ChangeTime";
 import { BookAgain } from "@/components/BookAgain";
-import PayOnline from "@/components/PayOnline";
 import { CoachDifference, type CoachDifferenceItem } from "@/components/CoachDifference";
-import { SplitCost } from "@/components/SplitCost";
+import { BookingPayment, HoldNotice } from "@/components/BookingPayment";
 import { WithdrawPeople } from "@/components/WithdrawPeople";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
-import { money, intlTag, region } from "@/lib/region";
+import { money, region } from "@/lib/region";
 import { concessionWords } from "@/lib/concessions-shared";
 import type { RefundStatus } from "@/lib/payments";
 
 interface Result {
   booking: Booking;
   court: Court;
-  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null; strikeLimit?: number | null; lastDate?: string };
+  venue: { name: string; area: string; address: string; cancelCutoffHours: number; timeZone?: string; lateCancelKeep?: number | null; lateGiveBack?: boolean; strikeLimit?: number | null; lastDate?: string };
   payOnline?: boolean;
   /** On an unmanned resource: the door code or the counter, for the booking's whole time. */
   door?: { by: "code" | "counter"; partly: boolean } | null;
@@ -36,6 +35,8 @@ interface Result {
   refunds?: RefundStatus[];
   /** A dearer coach's difference on a paid lesson: owed, being paid, or paid. */
   coachDifferences?: CoachDifferenceItem[];
+  /** This booking's own signed link (lib/booking-access.ts): put in the address once it is found. */
+  link?: string;
 }
 
 export default function MyBookingPage() {
@@ -66,28 +67,58 @@ export default function MyBookingPage() {
     [code, phone]
   );
 
+  /**
+   * Find the booking: by its code and phone, typed; or by the signed link a
+   * message, the payment return page or an earlier lookup put in the address
+   * (lib/booking-access.ts), which answers with the booking's phone for every
+   * action after. Found, the address becomes its link, so a refresh or the
+   * Back button keeps it; the phone is never in the address.
+   */
+  const open = useCallback(
+    async (by: { code: string; phone: string } | { code: string; link: string }) => {
+      setBusy(true);
+      setError(null);
+      setResult(null);
+      setKept(null);
+      setRefunded([]);
+      try {
+        const proof = "link" in by ? `t=${encodeURIComponent(by.link)}` : `phone=${encodeURIComponent(by.phone)}`;
+        const res = await fetch(`/api/bookings?code=${encodeURIComponent(by.code)}&${proof}`, { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(translateError(t, data) || t("mine.lookupFailed"));
+        setResult(data);
+        if ("link" in by) setPhone(data.booking.phone);
+        if (typeof data.link === "string") {
+          try {
+            window.history.replaceState(null, "", data.link);
+          } catch {
+            // An address that cannot be changed (a preview frame): the page works without it.
+          }
+        }
+        setDoor(null);
+        setDoorError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t("mine.lookupFailed"));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [t]
+  );
+
+  // Opened from a link: the code filled in, and the booking found where the link carries its proof.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fromLink = params.get("code")?.trim().toUpperCase();
+    if (!fromLink) return;
+    setCode(fromLink);
+    const link = params.get("t");
+    if (link) void open({ code: fromLink, link });
+  }, [open]);
+
   async function lookup(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    setKept(null);
-    setRefunded([]);
-    try {
-      const res = await fetch(
-        `/api/bookings?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}`,
-        { cache: "no-store" }
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(translateError(t, data) || t("mine.lookupFailed"));
-      setResult(data);
-      setDoor(null);
-      setDoorError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("mine.lookupFailed"));
-    } finally {
-      setBusy(false);
-    }
+    await open({ code, phone });
   }
 
   /**
@@ -122,7 +153,9 @@ export default function MyBookingPage() {
   async function cancel() {
     if (!result) return;
     const { booking: bk, venue } = result;
-    const keep = venue.lateCancelKeep ?? null;
+    // With no late cancelling for a share back, giving the court back where the venue allows it: all of it kept (lib/cancel-policy.ts).
+    const giveBack = (venue.lateCancelKeep ?? null) === null && venue.lateGiveBack === true;
+    const keep = venue.lateCancelKeep ?? (giveBack ? 100 : null);
     const late =
       keep !== null && hoursUntilSlot(bk.date, bk.startHour, venue.timeZone ?? region().timeZone) < venue.cancelCutoffHours;
     const askLate = late && keep > 0 && bk.paymentStatus === "paid" && bk.totalPrice > 0;
@@ -130,7 +163,13 @@ export default function MyBookingPage() {
     const strike = late && bk.paymentStatus !== "paid" && venue.strikeLimit != null;
     if (
       !window.confirm(
-        askLate ? t("mine.lateCancelConfirm", { pct: keep }) : strike ? t("mine.lateStrikeConfirm") : t("mine.cancelConfirm")
+        askLate
+          ? giveBack
+            ? t("q8a.giveBackConfirm")
+            : t("mine.lateCancelConfirm", { pct: keep })
+          : strike
+            ? t("mine.lateStrikeConfirm")
+            : t("mine.cancelConfirm")
       )
     )
       return;
@@ -248,17 +287,8 @@ export default function MyBookingPage() {
           {b.releasedUnpaid && (
             <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{t("hold.released")}</p>
           )}
-          {b.status === "confirmed" && b.paymentStatus === "unpaid" && b.holdUntil && (
-            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
-              {t("hold.pending", {
-                time: new Date(`${b.holdUntil.replace(" ", "T")}Z`).toLocaleTimeString(intlTag("en"), {
-                  timeZone: result.venue.timeZone ?? region().timeZone,
-                  hour: "numeric",
-                  minute: "2-digit",
-                }),
-              })}
-            </p>
-          )}
+          {/* Held until paid online: until when, in the reader's language (components/BookingPayment.tsx). */}
+          <HoldNotice booking={b} timeZone={result.venue.timeZone} />
           <dl className="mt-4 space-y-1.5 text-sm">
             {[
               [t("mine.venue"), `${result.venue.name} (${result.venue.area})`],
@@ -308,15 +338,14 @@ export default function MyBookingPage() {
           )}
           {b.status === "confirmed" && (
             <>
-              {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && (
-                <PayOnline
-                  codes={[b.code]}
-                  phone={phone}
-                  amount={Math.round((b.totalPrice - (b.sharesPaid ?? 0)) * 100) / 100}
-                  held={!!b.holdUntil}
-                  depositPercent={result.depositPercent ?? null}
-                />
-              )}
+              {/* Pay online, or split the cost: the same as the account page offers (components/BookingPayment.tsx). */}
+              <BookingPayment
+                booking={b}
+                phone={phone}
+                payOnline={!!result.payOnline}
+                depositPercent={result.depositPercent ?? null}
+                venueName={result.venue.name}
+              />
               {(result.coachDifferences ?? []).length > 0 && (
                 <CoachDifference items={result.coachDifferences!} source={{ code, phone }} payOnline={!!result.payOnline} />
               )}
@@ -336,15 +365,13 @@ export default function MyBookingPage() {
                   })}
                 </p>
               )}
-              {result.payOnline && b.paymentStatus === "unpaid" && b.totalPrice > 0 && !b.holdUntil && b.classId === null && (
-                <SplitCost code={b.code} phone={phone} total={b.totalPrice - (b.sharesPaid ?? 0)} venueName={result.venue.name} date={b.date} />
-              )}
               {result.venue.cancelCutoffHours > 0 && (
                 <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                   {t.plural("mine.freeCancel", result.venue.cancelCutoffHours)}
                   {result.venue.lateCancelKeep != null && result.venue.lateCancelKeep > 0 && (
                     <> {t("mine.lateCancelNote", { pct: result.venue.lateCancelKeep })}</>
                   )}
+                  {result.venue.lateCancelKeep == null && result.venue.lateGiveBack && <> {t("q8a.terms.giveBack")}</>}
                 </p>
               )}
               {result.court.unmanned && result.door?.by === "counter" ? (
@@ -522,7 +549,12 @@ export default function MyBookingPage() {
                 disabled={busy}
                 className="mt-3 w-full rounded-lg border border-red-300 py-2.5 font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
-                {t("mine.cancelBooking")}
+                {/* Past the cutoff where the venue lets a court be given back, nothing refunded (lib/cancel-policy.ts). */}
+                {result.venue.lateCancelKeep == null &&
+                result.venue.lateGiveBack &&
+                hoursUntilSlot(b.date, b.startHour, result.venue.timeZone ?? region().timeZone) < result.venue.cancelCutoffHours
+                  ? t("q8a.giveBack")
+                  : t("mine.cancelBooking")}
               </button>
             </>
           )}

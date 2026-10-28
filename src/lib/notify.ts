@@ -23,6 +23,7 @@ import { longEnough } from "./phone";
 import { taxIncluded, venueTax } from "./tax";
 import { receiptPath } from "./receipts";
 import { linkIn } from "./link-locale";
+import { bookingLinkPath } from "./booking-access";
 import { clockValue, said, type ServerPhrase, type StaffText } from "./staff-text";
 import { chosenStaffLocale, staffReaderLocale, type StaffLocale } from "./staff-locales";
 
@@ -143,8 +144,9 @@ export async function notifyBookingConfirmed(
       weeks: bookings.length,
       ...slot(locale, where, venue.name, first),
       total: await totalLine(locale, total, bookings.every((b) => b.paymentStatus === "paid"), venue.id),
-      // Back to the site they booked on: the venue's storefront, if it has one.
-      link: linkIn(`${await venueBaseUrl(venue.id)}/my-booking`, locale),
+      // Back to the site they booked on (the venue's storefront, if it has one), on the booking itself:
+      // its signed link opens it without the code and phone typed again (lib/booking-access.ts).
+      link: linkIn(`${await venueBaseUrl(venue.id)}${bookingLinkPath(first.code, first.date)}`, locale),
     },
   });
 }
@@ -720,7 +722,7 @@ export async function notifyRescheduled(
           where,
           when,
           money,
-          link: linkIn(`${await venueBaseUrl(venue.id)}/my-booking`, locale),
+          link: linkIn(`${await venueBaseUrl(venue.id)}${bookingLinkPath(booking.code, booking.date)}`, locale),
         },
       },
       false
@@ -864,7 +866,7 @@ export async function notifyReminders(now = new Date()): Promise<number> {
           name: firstName(r.name as string),
           code: r.code as string,
           ...slot(locale, forWhom(locale, court.name, (r.participant_name as string | null) ?? null), venue.name, { date: r.date as string, startHour: hoursOf(r.start_min as number), endHour: hoursOf(r.end_min as number) }),
-          link: linkIn(`${await venueBaseUrl(venue.id)}/my-booking`, locale),
+          link: linkIn(`${await venueBaseUrl(venue.id)}${bookingLinkPath(r.code as string, r.date as string)}`, locale),
         },
       },
       r.whatsapp_reminders === 1

@@ -4,7 +4,7 @@ import { readTime, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { courtsForAnyBooking, getCourt, quoteFor } from "@/lib/store";
+import { courtsForAnyBooking, getCourt, quotePromo, quoteFor } from "@/lib/store";
 import { MAX_GROUP_COURTS, type Sport } from "@/lib/types";
 import { isValidDateString } from "@/lib/time";
 import { MAX_NAMED, selectionForAccount } from "@/lib/participant-bookings";
@@ -28,6 +28,11 @@ export const dynamic = "force-dynamic";
  * membership, or a family one naming them, by the scope of its benefit.
  * `allowed` says whether the court's booking rules take that time;
  * when not, `error` says why. Whether it is free is found by booking it.
+ * `promoCode` checks a code against it as the booking will (lib/store.ts
+ * `quotePromo`): `promo` is `{ ok: true, code, kind, value, combinable,
+ * discount }` (the discount on this court's time before any concession), or
+ * `{ ok: false, error, code? }` with the reason. Advisory: the booking checks
+ * it again, with its use limits, when it is made.
  */
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
@@ -91,7 +96,7 @@ export async function GET(req: NextRequest) {
     .map((item) => item.split(":").map(Number))
     .filter(([id, n]) => Number.isInteger(id) && id > 0 && id !== courtId && (n === undefined || (Number.isInteger(n) && n > 0)))
     .slice(0, MAX_GROUP_COURTS);
-  const others: { courtId: number; total: number; allowed: boolean }[] = [];
+  const others: { courtId: number; total: number; court: number; allowed: boolean }[] = [];
   for (const [id, places] of also) {
     const other = await getCourt(id);
     if (!other || other.venueId !== court.venueId) continue;
@@ -106,7 +111,7 @@ export async function GET(req: NextRequest) {
       players: places ?? players,
       ...(activity ? { sport: activity } : {}),
     });
-    if (quote.ok) others.push({ courtId: id, total: quote.quote.total, allowed: quote.allowed });
+    if (quote.ok) others.push({ courtId: id, total: quote.quote.total, court: quote.quote.court, allowed: quote.allowed });
   }
 
   // A place on a members' session (a members-only venue's shared session): whether each person taking
@@ -134,8 +139,26 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // A code typed in the form, checked before booking as the booking checks it, on this court's time.
+  const asked = (q.get("promoCode") ?? "").trim().slice(0, 40);
+  let promo: Record<string, unknown> | undefined;
+  if (asked) {
+    const checked = await quotePromo({
+      venueId: court.venueId,
+      code: asked,
+      sport: activity ?? court.sport,
+      date,
+      hours: (priced.span.end - priced.span.start) / 60,
+      price: priced.quote.court,
+    });
+    promo = checked.ok
+      ? { ok: true, code: checked.promo.code, kind: checked.promo.kind, value: checked.promo.value, combinable: checked.promo.combinable === true, discount: checked.discount }
+      : { ok: false, error: checked.error, ...(checked.code ? { code: checked.code } : {}), ...(checked.vars ? { vars: checked.vars } : {}) };
+  }
+
   return NextResponse.json({
     ...(members ? { members } : {}),
+    ...(promo ? { promo } : {}),
     courtId,
     date,
     start: priced.span.start,

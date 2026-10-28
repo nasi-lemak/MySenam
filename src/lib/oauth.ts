@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { getDb } from "./db";
 import { baseUrl } from "./outbox";
+import { safePath, type SignInError } from "./safe-path";
 
 /**
  * Signing in with Google, for customers.
@@ -64,9 +65,9 @@ export function googleOfferedAt(host: string | null): boolean {
   }
 }
 
-/** Only a path on this site: never somewhere else, never `//elsewhere`. */
+/** Only a path on this site: never somewhere else (lib/safe-path.ts, the one check every page uses). */
 export function safeNext(next: string | null | undefined): string {
-  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next.slice(0, 500) : "/account";
+  return safePath(next);
 }
 
 const b64url = (buf: Buffer) => buf.toString("base64url");
@@ -118,7 +119,8 @@ export function decodePending(raw: string | undefined): PendingSignIn | null {
   }
 }
 
-export type SignInResult = { ok: true; userId: number; created: boolean } | { ok: false; error: string };
+/** Refused: in words, and as the code the sign-in page shows it by (`?error=`, lib/safe-path.ts). */
+export type SignInResult = { ok: true; userId: number; created: boolean } | { ok: false; error: string; code: SignInError };
 
 /** Google has sent the browser back with a code: turn it into an account. */
 export async function finishGoogle(
@@ -126,12 +128,12 @@ export async function finishGoogle(
   pending: PendingSignIn | null
 ): Promise<SignInResult> {
   const config = googleConfig();
-  if (!config) return { ok: false, error: "Signing in with Google is not set up here." };
-  if (query.error) return { ok: false, error: "Google sign-in was cancelled." };
+  if (!config) return { ok: false, error: "Signing in with Google is not set up here.", code: "unavailable" };
+  if (query.error) return { ok: false, error: "Google sign-in was cancelled.", code: "cancelled" };
   if (!pending || !query.state || query.state.length !== pending.state.length ||
       !crypto.timingSafeEqual(Buffer.from(query.state), Buffer.from(pending.state)))
-    return { ok: false, error: "That sign-in did not start here, or took too long. Try again." };
-  if (!query.code) return { ok: false, error: "Google sent no answer. Try again." };
+    return { ok: false, error: "That sign-in did not start here, or took too long. Try again.", code: "expired" };
+  if (!query.code) return { ok: false, error: "Google sent no answer. Try again.", code: "google" };
 
   let tokens: { id_token?: string };
   try {
@@ -148,16 +150,16 @@ export async function finishGoogle(
       }),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) return { ok: false, error: "Google did not accept the sign-in. Try again." };
+    if (!res.ok) return { ok: false, error: "Google did not accept the sign-in. Try again.", code: "google" };
     tokens = (await res.json()) as { id_token?: string };
   } catch {
-    return { ok: false, error: "Google could not be reached. Try again." };
+    return { ok: false, error: "Google could not be reached. Try again.", code: "google" };
   }
   const claims = readIdToken(tokens.id_token);
-  if (!claims) return { ok: false, error: "Google's answer could not be read. Try again." };
+  if (!claims) return { ok: false, error: "Google's answer could not be read. Try again.", code: "google" };
   if (!ISSUERS.includes(claims.iss) || claims.aud !== config.clientId || claims.exp * 1000 < Date.now() || claims.nonce !== pending.nonce)
-    return { ok: false, error: "Google's answer was not for this sign-in. Try again." };
-  if (!claims.email) return { ok: false, error: "Google did not share an email address." };
+    return { ok: false, error: "Google's answer was not for this sign-in. Try again.", code: "google" };
+  if (!claims.email) return { ok: false, error: "Google did not share an email address.", code: "noemail" };
   return signInWithIdentity({
     provider: "google",
     subject: claims.sub,
@@ -206,7 +208,7 @@ export async function signInWithIdentity(who: {
 
   // Not verified by Google: refused whether an account has the address or not, in the same words.
   if (!who.emailVerified)
-    return { ok: false, error: "Google has not confirmed this email address. Sign up or sign in with your email address instead." };
+    return { ok: false, error: "Google has not confirmed this email address. Sign up or sign in with your email address instead.", code: "unverified" };
   const email = who.email.trim();
   const name = (who.name?.trim() || email.split("@")[0]).slice(0, 100);
   // No password, so none can match; no phone yet, so one is asked for before booking. Losing a race for

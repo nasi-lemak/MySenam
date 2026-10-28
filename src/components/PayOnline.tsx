@@ -14,12 +14,15 @@ import { translateError } from "@/lib/i18n";
 export default function PayOnline({
   codes,
   phone,
+  link,
   amount,
   held = false,
   depositPercent = null,
 }: {
   codes: string[];
-  phone: string;
+  /** The proof the booking route takes: the booking's phone, or its signed link (lib/booking-access.ts) where no phone is to hand. */
+  phone?: string;
+  link?: string;
   amount: number;
   /** Held until paid online: the counter is not an option. */
   held?: boolean;
@@ -40,7 +43,7 @@ export default function PayOnline({
       const res = await fetch("/api/payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ codes, phone, ...(asDeposit ? { deposit: true } : {}) }),
+        body: JSON.stringify({ codes, ...(phone ? { phone } : { t: link }), ...(asDeposit ? { deposit: true } : {}) }),
       });
       const data = await res.json();
       if (!res.ok || typeof data.url !== "string")

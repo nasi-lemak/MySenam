@@ -2,7 +2,11 @@ import Link from "next/link";
 import { allGateways, type PaymentResult } from "@/lib/gateways";
 import { accountForBill, paymentByBill, settleBill } from "@/lib/payments";
 import { serverT } from "@/lib/locale";
-import { money } from "@/lib/region";
+import { localTimeOf, money } from "@/lib/region";
+import { bookingLinkPath, bookingLinkToken } from "@/lib/booking-access";
+import { findBookingByCode, getCourt, getVenue } from "@/lib/store";
+import type { Booking } from "@/lib/types";
+import PayOnline from "@/components/PayOnline";
 import { receiptOfPayment } from "@/lib/documents";
 import { receiptPath } from "@/lib/receipts";
 import { voucherOfPayment, voucherPath } from "@/lib/vouchers";
@@ -224,7 +228,7 @@ export default async function PaymentReturnPage({
             </a>
           )}
           <Link
-            href="/my-booking"
+            href={await myBookingLink(payment.bookingCodes)}
             className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
           >
             {t("pay.toMyBooking")}
@@ -267,6 +271,23 @@ export default async function PaymentReturnPage({
         ? "unknown"
         : "notPaid";
 
+  // Not paid: the bookings as they stand now. One held until it is paid online (lib/holds.ts) is said to be
+  // held until when, and let go then, never "pay at the counter"; one already let go says so; and each still
+  // to pay can be paid again here, by its signed link (lib/booking-access.ts), its code shown.
+  const booked: Booking[] = [];
+  if (payment && outcome !== "paid")
+    for (const code of payment.bookingCodes) {
+      const b = await findBookingByCode(code);
+      if (b) booked.push(b);
+    }
+  const toPay = booked.filter((b) => b.status === "confirmed" && b.paymentStatus === "unpaid" && b.totalPrice > 0);
+  const held = toPay.filter((b) => !!b.holdUntil);
+  const released = booked.some((b) => b.releasedUnpaid);
+  const zone = booked[0] ? (await getVenue((await getCourt(booked[0].courtId))?.venueId ?? 0))?.timeZone : undefined;
+  // The earliest hold to run out is the one to say.
+  const holdEnds = held.map((b) => b.holdUntil!).sort()[0] ?? null;
+  const due = Math.round(toPay.reduce((sum, b) => sum + b.totalPrice - (b.sharesPaid ?? 0), 0) * 100) / 100;
+
   return (
     <div className="mx-auto max-w-sm">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
@@ -282,16 +303,47 @@ export default async function PaymentReturnPage({
           {outcome === "paid" && payment
             ? t("pay.receivedBody", { amount: payment.amount, codes: payment.bookingCodes.join(", ") })
             : outcome === "notPaid"
-              ? t("pay.notPaidBody")
+              ? holdEnds
+                ? t("q8a.pay.notPaidHeld")
+                : released
+                  ? t("q8a.pay.notPaidReleased")
+                  : t("pay.notPaidBody")
               : t("pay.unknownBody")}
         </p>
+        {outcome !== "paid" && booked.length > 0 && (
+          <div className="mt-4 rounded-xl bg-teal-50 py-3 font-mono text-xl font-bold tracking-widest text-teal-700" data-testid="return-codes">
+            {booked.map((b) => b.code).join(", ")}
+          </div>
+        )}
+        {outcome === "notPaid" && holdEnds && (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900" data-testid="hold-notice">
+            {t("hold.pending", { time: localTimeOf(holdEnds, zone, t.locale) })}
+          </p>
+        )}
+        {outcome === "notPaid" && released && !holdEnds && (
+          <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{t("hold.released")}</p>
+        )}
+        {outcome === "notPaid" && toPay.length > 0 && due > 0 && (
+          <div data-testid="pay-again">
+            <p className="mt-4 text-sm font-semibold text-slate-700">{t("q8a.pay.again")}</p>
+            <PayOnline codes={toPay.map((b) => b.code)} link={bookingLinkToken(toPay[0].code, toPay[0].date)} amount={due} held={held.length > 0} />
+          </div>
+        )}
         <Link
-          href="/my-booking"
-          className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          href={payment ? await myBookingLink(payment.bookingCodes) : "/my-booking"}
+          className={`mt-5 inline-block w-full rounded-lg py-2.5 font-semibold ${
+            outcome === "notPaid" && toPay.length > 0 ? "border border-teal-600 text-teal-700 hover:bg-teal-50" : "bg-teal-600 text-white hover:bg-teal-700"
+          }`}
         >
           {t("pay.toMyBooking")}
         </Link>
       </div>
     </div>
   );
+}
+
+/** My Booking, opened on the first of these bookings by its signed link (lib/booking-access.ts); the bare page if none is found. */
+async function myBookingLink(codes: string[]): Promise<string> {
+  const first = codes[0] ? await findBookingByCode(codes[0]) : null;
+  return first ? bookingLinkPath(first.code, first.date) : "/my-booking";
 }

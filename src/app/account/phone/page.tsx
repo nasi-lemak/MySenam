@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { safePath } from "@/lib/safe-path";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
@@ -26,7 +27,7 @@ export default function PhonePage() {
   const next = (() => {
     if (typeof window === "undefined") return "/account";
     const n = new URLSearchParams(window.location.search).get("next");
-    return n && n.startsWith("/") && !n.startsWith("//") ? n : "/account";
+    return safePath(n);
   })();
 
   // Waiting for the customer's WhatsApp message: on as soon as it arrives.

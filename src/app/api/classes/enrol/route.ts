@@ -21,6 +21,19 @@ import { notifyBookingConfirmed, notifyClassEnrolled, rememberLocale, tickOutbox
 import { chatNumber } from "@/lib/outbox";
 import { chatOfferedFor } from "@/lib/whatsapp-credit";
 import { attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
+import { takesPaymentOnline } from "@/lib/payments";
+import { bookingLinkToken } from "@/lib/booking-access";
+
+/**
+ * Paying online for an enrolment, as the court booking's confirmation offers
+ * it: where the venue takes payment online, and only for the customer online
+ * (the counter takes payment as it enrols). The first enrolment's signed link
+ * is the proof (lib/booking-access.ts), so the page needs no phone kept.
+ */
+async function payOnlineFor(venueId: number | undefined, byStaff: boolean, bookings: Booking[]) {
+  if (byStaff || venueId === undefined || bookings.length === 0) return { payOnline: false, link: null };
+  return { payOnline: await takesPaymentOnline(venueId), link: bookingLinkToken(bookings[0].code, bookings[0].date) };
+}
 
 export const dynamic = "force-dynamic";
 
@@ -215,7 +228,14 @@ export async function POST(req: NextRequest) {
     await notifyBookingConfirmed(joined.bookings, locale, joined.seriesCode);
     await tickOutbox();
     return NextResponse.json(
-      { bookings: joined.bookings, skipped: joined.skipped, seriesCode: joined.seriesCode, session: await getClass(classId as number), walletError },
+      {
+        bookings: joined.bookings,
+        skipped: joined.skipped,
+        seriesCode: joined.seriesCode,
+        session: await getClass(classId as number),
+        walletError,
+        ...(await payOnlineFor(forClass?.venueId, byStaff, joined.bookings)),
+      },
       { status: 201 }
     );
   }
@@ -273,5 +293,6 @@ export async function POST(req: NextRequest) {
       addons: addonLines,
       addonError,
       chatNumber: session && (await chatOfferedFor(session.venueId)) ? chatNumber() : null,
+      ...(await payOnlineFor(forClass?.venueId, byStaff, [result.booking, ...others])),
     }, { status: 201 });
 }

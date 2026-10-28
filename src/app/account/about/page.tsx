@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { safePath } from "@/lib/safe-path";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { GENDERS, type Gender } from "@/lib/who-shared";
@@ -18,7 +19,7 @@ export default function AboutPage() {
   const next = (() => {
     if (typeof window === "undefined") return "/account";
     const n = new URLSearchParams(window.location.search).get("next");
-    return n && n.startsWith("/") && !n.startsWith("//") ? n : "/account";
+    return safePath(n);
   })();
 
   useEffect(() => {

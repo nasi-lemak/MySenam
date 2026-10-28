@@ -2,7 +2,8 @@ import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { concessionById } from "@/lib/concessions";
 import { applyAskedDiscounts } from "@/lib/booking-discounts";
-import { readPlaceConcessions } from "@/lib/entitlements";
+import { readPlaceConcessions, refuse } from "@/lib/entitlements";
+import { bookingLinkPath, phoneForLink } from "@/lib/booking-access";
 import { phoneRefusal } from "@/lib/phone-check";
 import { readTime, refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
@@ -639,14 +640,24 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const code = params.get("code");
-  const phone = params.get("phone");
-  if (!code || !phone)
+  // The phone, or the signed link a message or this route handed out (lib/booking-access.ts) in its place.
+  const link = params.get("t");
+  if (!code || (!params.get("phone") && !link))
     return NextResponse.json({ error: "code and phone are required." }, { status: 400 });
 
   const limited = await rateLimit(req, "bookingLookup");
   if (limited) return limited;
 
-  const booking = await findBooking(code, phone);
+  let phone = params.get("phone");
+  if (!phone && link) {
+    const opened = await phoneForLink(code, link);
+    if ("refused" in opened)
+      return opened.refused === "expired"
+        ? refusal(refuse("Q8A_LINK_EXPIRED"), 410)
+        : NextResponse.json({ error: "Booking not found. Check the code and phone number." }, { status: 404 });
+    phone = opened.phone;
+  }
+  const booking = await findBooking(code, phone!);
   if (!booking)
     return NextResponse.json(
       { error: "Booking not found. Check the code and phone number." },
@@ -667,11 +678,15 @@ export async function GET(req: NextRequest) {
       cancelCutoffHours: await cutoffFor(venue.id, booking.sport, venue.cancelCutoffHours),
       timeZone: venue.timeZone,
       lateCancelKeep: (await cancelPolicyFor(venue.id, booking.sport)).lateKeep,
+      // Or, with none, giving the court back late, nothing refunded (lib/cancel-policy.ts).
+      lateGiveBack: (await cancelPolicyFor(venue.id, booking.sport)).giveBack,
       strikeLimit: (await cancelPolicy(venue.id)).strikeLimit,
       // As far as it can be moved: the venue's window, a member's where this number is one.
       lastDate: addDays(todayISO(venue.timeZone), await windowFor(venue.id, [booking.phone])),
     },
     payOnline: await takesPaymentOnline(venue.id),
+    // This booking's own link, for the address bar and to share with nobody but the booker (lib/booking-access.ts).
+    link: bookingLinkPath(booking.code, booking.date),
     // On an unmanned resource: whether the door code or the counter lets them in, by the booking's whole time.
     door: court.unmanned ? doorFor(venue, Math.round(booking.startHour * 60), Math.round(booking.endHour * 60)) : null,
     // A deposit to hold it, while it is held and none is paid yet.

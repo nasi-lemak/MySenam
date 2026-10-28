@@ -610,6 +610,23 @@ blocked, class-reserved or past time is not queueable, and the booking grid
 only turns those cells into a waitlist button when they are genuinely just
 taken.
 
+**The offer's page** (`/waitlist/<token>`, from the link in the offer's
+message) says what is offered before anything is claimed
+(`GET /api/waitlist/claim`, `src/lib/waitlist-offer.ts`): the venue, the court
+or class (and instructor), the day and time, who it is for, the price as it
+would be booked now, until when the offer is theirs, and, where claiming it
+holds the booking until it is paid online (the venue holds unpaid bookings,
+or the number is past its strikes, or a guest books while the venue is
+flooded with unpaid guest bookings: the same rule the claim applies), for how
+many minutes. Claimed, the page shows the booking as the booking form's
+confirmation does: its code, court or class, day and time, and, held, *Held
+until 6:45 PM while you pay online* with the button to pay (by the booking's
+own link, [below](#links-that-open-a-booking)); booked outright, payable at
+the counter, or online where the venue takes it. It never says "payable at the
+counter" for a booking that will be let go. It links back to the venue and to
+My Booking. The offer's message itself is unchanged (its WhatsApp template is
+fixed), so the page is where the hold is said.
+
 A live offer **holds the place**: it is a claim on the court that lapses with
 the offer, so the grid shows it taken and nobody can book it directly for
 those 30 minutes, so the person offered it does not tap the
@@ -883,6 +900,20 @@ refunds and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
   as an amount owed back on the online payment. A credit note covers the share
   given back. My Booking and the account page say what the venue keeps before
   the customer confirms, and how much it kept afterwards.
+- **Giving the court back.** Where late cancelling is off, the venue may still
+  let a customer give the court back online until it starts, nothing refunded
+  (*Still let customers give the court back after the cutoff, with no refund*,
+  `venues.late_give_back`, migration 0246; off by default, so past the cutoff
+  a customer calls, as before). It goes through the same cancellation as any
+  late one, the venue keeping all of it: recorded as a late cancellation
+  keeping 100%, no credit note, the slot offered again and the waiting list
+  told; one never paid for is a strike where the venue counts them. My
+  Booking and the account page offer *Give the court back (no refund)* past
+  the cutoff and say so before the customer confirms; the booking terms say
+  it before booking. Where the venue (or the sport) keeps a share on a late
+  cancellation, that share is what applies. The same terms go for a week of a
+  series and for one person taken off a booking. Changing it is logged as any
+  change to the policy.
 - **Strikes.** A no-show, or a late cancellation of a booking nobody had paid
   for, is a strike against the phone number at that venue. A paid late
   cancellation is not: its fee was its cost. After the venue's limit (1–20) in
@@ -1325,6 +1356,44 @@ they are free** — the same weekday first, since most regulars play the same
 night each week — else another court of the same sport. It is a link, not a
 booking: the customer still sees the price and taps *Book*. `/my-booking` has
 the same button for a booking looked up by code and phone.
+
+## Finding your booking
+
+### Links that open a booking
+
+Every message that sends a customer to their booking (the confirmation, a
+change they made, the reminder), the payment return page, a waiting-list
+claim and a class enrolment links to it directly:
+`/my-booking?code=MS-…&t=…`, the booking's signed link
+(`src/lib/booking-access.ts`;
+[security](../architecture/security.md#links-that-open-a-booking)). My Booking
+opens it without the code and phone being typed, and every action there
+(pay, change the time, split the cost, cancel) then works as with them typed.
+Looked up by code and phone, the page puts the booking's link in the address,
+so a refresh or the Back button keeps it; the phone is never in the address.
+The link runs out 30 days after the booking's day (`Q8A_LINK_EXPIRED`: type
+the code and phone instead). A series' and a group's messages link to their
+first booking.
+
+### Bookings on the account
+
+The account page lists the account's own bookings and, once the account has
+proved its email address (made by the emailed sign-up link, given a password
+by a reset link, or signed in with Google with an address Google verified:
+`users.email_confirmed_at`), the bookings made without an account under that
+address (`ACCOUNT_BOOKING` in `src/lib/store.ts`; index in migration 0245).
+That is where every message about them already went. An address only typed
+in, never proved, shows nothing; a phone number never does. Nothing moves:
+the booking keeps no account, so the venue's records, limits and any
+participant on it are as they were; the account may cancel it, take somebody
+off it, and do what My Booking does with it.
+
+Each booking still to come shows what My Booking shows for it, through the
+same components (`src/components/BookingPayment.tsx`, `ChangeTime`,
+`SplitCost`): a booking held until paid online says *Held* and *Held until
+6:45 PM while you pay online*, its price *pay online to keep it*, with the
+button to pay (or the venue's deposit); one not held offers paying online
+where the venue takes it, and splitting the cost; *Change date or time*.
 
 ## Your booking link and QR poster
 

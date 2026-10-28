@@ -109,7 +109,7 @@ import { hoursOn, parseWeekHours, validateUsualHours, validateWeekHours } from "
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
 import { utilisationByDay, type UseSplit } from "./reports";
-import { cancelPolicy, cancelPolicyFor } from "./cancel-policy";
+import { cancelPolicy, cancelPolicyFor, lateCancelTerms } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, issueReceipt, saidLine, WHO } from "./documents";
 import { venueTax } from "./tax";
@@ -2392,9 +2392,10 @@ export async function lateTerms(booking: Booking): Promise<{ late: boolean; shar
   const zone = await courtZone(booking.courtId);
   if (isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone)) return { late: false, share: 1, keptPercent: null, allowed: true };
   const court = await getCourt(booking.courtId);
-  const { lateKeep } = court ? await cancelPolicyFor(court.venueId, booking.sport) : { lateKeep: null };
-  if (lateKeep === null || isPastSlot(booking.date, booking.startHour, zone)) return { late: true, share: 0, keptPercent: null, allowed: false };
-  return { late: true, share: (100 - lateKeep) / 100, keptPercent: lateKeep, allowed: true };
+  // The share kept, or all of it where the venue lets a court be given back late (lib/cancel-policy.ts).
+  const terms = court ? lateCancelTerms(await cancelPolicyFor(court.venueId, booking.sport)) : null;
+  if (terms === null || isPastSlot(booking.date, booking.startHour, zone)) return { late: true, share: 0, keptPercent: null, allowed: false };
+  return { late: true, share: (100 - terms.keep) / 100, keptPercent: terms.keep, allowed: true };
 }
 
 async function seriesRows(seriesCode: string, phone: string): Promise<BookingRow[]> {
@@ -2610,11 +2611,12 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   const late = !isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone);
   if (late) {
     const court = await getCourt(booking.courtId);
-    const { lateKeep } = court ? await cancelPolicyFor(court.venueId, booking.sport) : { lateKeep: null };
-    if (lateKeep === null || isPastSlot(booking.date, booking.startHour, zone))
+    // The share the venue keeps; or, giving the court back where the venue allows that, all of it (lib/cancel-policy.ts).
+    const terms = court ? lateCancelTerms(await cancelPolicyFor(court.venueId, booking.sport)) : null;
+    if (terms === null || isPastSlot(booking.date, booking.startHour, zone))
       return { ok: false, error: cutoffMessage(cutoff) };
-    share = (100 - lateKeep) / 100;
-    keptPercent = lateKeep;
+    share = (100 - terms.keep) / 100;
+    keptPercent = terms.keep;
   }
 
   const db = getDb();
@@ -4149,6 +4151,7 @@ export interface AdminBookingRow extends Booking {
 }
 
 export interface UserBookingRow extends Booking {
+  venueId: number;
   courtName: string;
   sport: Sport;
   venueName: string;
@@ -4160,12 +4163,31 @@ export interface UserBookingRow extends Booking {
   venueCancelCutoffHours: number;
   /** After that, the percent of what was paid the venue keeps; null: no cancelling online. */
   venueLateCancelKeep: number | null;
+  /** With no late cancelling, a court may still be given back late, nothing refunded (lib/cancel-policy.ts). */
+  venueLateGiveBack: boolean;
   /** Strikes before a number pays online to book here; null when the venue counts none. */
   venueStrikeLimit: number | null;
   /** Where to rate the visit, once it has been played (lib/reviews.ts); null otherwise. */
   reviewUrl: string | null;
   /** The most players an open game on it can look for (lib/court-activities.ts `mostSpots`). */
   mostSpots: number;
+}
+
+/**
+ * The bookings an account sees as its own (two `?`: the account's id, twice):
+ * those it made, and those made without an account under the address the
+ * account has proved is its own (`users.email_confirmed_at`: by the sign-up
+ * link, a reset link, or Google), which is where every message about them
+ * went already. An address only typed in, never proved, shows nothing. The
+ * booking is not moved: it keeps no account, and the venue's records stay
+ * as they were (docs/features/booking.md#bookings-on-the-account).
+ */
+export const ACCOUNT_BOOKING = (b: string) => `(${b}.user_id = ? OR (${b}.user_id IS NULL AND ${b}.email IS NOT NULL AND EXISTS (
+  SELECT 1 FROM users u WHERE u.id = ? AND u.email_confirmed_at IS NOT NULL AND lower(u.email) = lower(${b}.email))))`;
+
+/** Is this one of the account's bookings (`ACCOUNT_BOOKING`)? */
+export async function accountHasBooking(userId: number, bookingId: number): Promise<boolean> {
+  return !!(await getDb().prepare(`SELECT 1 FROM bookings b WHERE b.id = ? AND ${ACCOUNT_BOOKING("b")}`).get(bookingId, userId, userId));
 }
 
 export async function listUserBookings(userId: number): Promise<UserBookingRow[]> {
@@ -4178,17 +4200,17 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
              v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng,
              COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS venue_cutoff,
              CASE WHEN sr.late_keep = -1 THEN NULL ELSE COALESCE(sr.late_keep, v.late_cancel_keep) END AS venue_late_keep,
-             v.strike_limit AS venue_strike_limit,
+             v.strike_limit AS venue_strike_limit, v.late_give_back AS venue_give_back, v.id AS venue_id,
              ci.checked_in_at, ci.checked_out_at
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       JOIN venues v ON v.id = c.venue_id
       LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = b.sport
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
-      WHERE b.user_id = ?
+      WHERE ${ACCOUNT_BOOKING("b")}
       ORDER BY b.date DESC, b.start_min DESC
     `)
-    .all(userId) as (BookingRow & {
+    .all(userId, userId) as (BookingRow & {
     court_name: string;
     court_sport: Sport;
     court_capacity: number;
@@ -4203,9 +4225,12 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venue_cutoff: number;
     venue_late_keep: number | null;
     venue_strike_limit: number | null;
+    venue_give_back: boolean;
+    venue_id: number;
   })[];
   return rows.map((r) => ({
     ...toBooking(r),
+    venueId: r.venue_id,
     courtName: r.court_name,
     sport: r.court_sport,
     venueName: r.venue_name,
@@ -4215,6 +4240,7 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
     venueCancelCutoffHours: r.venue_cutoff,
     venueLateCancelKeep: r.venue_late_keep,
     venueStrikeLimit: r.venue_strike_limit,
+    venueLateGiveBack: r.venue_give_back === true,
     reviewUrl: mayReviewByDate(r, venueZoneOf({ time_zone: r.venue_time_zone, lat: r.venue_lat, lng: r.venue_lng })) ? reviewPath(r.code) : null,
     mostSpots: mostSpots({ capacity: r.court_capacity, perPlayer: r.court_per_player === 1, maxPlayers: r.court_max_players }),
   }));
@@ -4230,8 +4256,8 @@ function mayReviewByDate(r: BookingRow, zone: string): boolean {
 export async function cancelUserBooking(userId: number, bookingId: number): Promise<CancelResult> {
   const db = getDb();
   const row = await db
-    .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ? AND b.user_id = ?")
-    .get(bookingId, userId) as BookingRow | undefined;
+    .prepare(`SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ? AND ${ACCOUNT_BOOKING("b")}`)
+    .get(bookingId, userId, userId) as BookingRow | undefined;
   if (!row) return refuse("BOOKING_NOT_FOUND");
   return customerCancel(toBooking(row));
 }

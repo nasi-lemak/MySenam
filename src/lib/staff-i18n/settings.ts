@@ -437,6 +437,9 @@ const en = {
   "ei8.ret.failed": "Could not save.",
   "ei8.act.retention": "Changed how long e-invoice records are kept",
   "ei8.act.reviewed": "Recorded an adviser's review of how long e-invoice records are kept (the owner's record, not verified)",
+  // Giving a court back late, nothing refunded (q8a.)
+  "q8a.cxl.giveBack": "Still let customers give the court back after the cutoff, with no refund",
+  "q8a.cxl.giveBackNote": "Off: past the cutoff they have to call you. On: they can release it online until it starts; you keep everything paid, the court is offered again and the waiting list is told. Unpaid, it counts as a strike where you count them.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -870,6 +873,8 @@ const ms: Record<keyof typeof en, string> = {
   "ei8.ret.failed": "Tidak dapat disimpan.",
   "ei8.act.retention": "Menukar tempoh rekod e-invois disimpan",
   "ei8.act.reviewed": "Merekodkan semakan penasihat tentang tempoh rekod e-invois disimpan (rekod pemilik, tidak disahkan)",
+  "q8a.cxl.giveBack": "Masih benarkan pelanggan memulangkan gelanggang selepas had masa, tanpa bayaran balik",
+  "q8a.cxl.giveBackNote": "Tutup: selepas had masa mereka perlu menelefon anda. Buka: mereka boleh melepaskannya dalam talian sehingga ia bermula; anda menyimpan semua yang dibayar, gelanggang ditawarkan semula dan senarai menunggu dimaklumkan. Jika belum dibayar, ia dikira sebagai satu kesalahan jika anda mengiranya.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1303,6 +1308,8 @@ const zh: Record<keyof typeof en, string> = {
   "ei8.ret.failed": "无法保存。",
   "ei8.act.retention": "更改电子发票记录的保存期限",
   "ei8.act.reviewed": "记录顾问对电子发票记录保存期限的审查（所有者的记录，未经核实）",
+  "q8a.cxl.giveBack": "过了取消期限后，仍允许顾客交还场地（不退款）",
+  "q8a.cxl.giveBackNote": "关闭：过了期限顾客须致电给您。开启：开场前顾客可在线释放场地；已付款项全部由您保留，场地重新开放预订，并通知候补名单。未付款的，若您计算违规次数，则计为一次违规。",
 };
 
 const area = { en, ms, zh };

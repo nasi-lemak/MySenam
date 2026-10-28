@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { placeShares, refuse, soldByPlace, splitInProportion } from "./entitlements";
-import { region, roundMoney } from "./region";
+import { promoDiscount } from "./promo-math";
+import { roundMoney } from "./region";
 import type { PromoKind, Refusal } from "./types";
 
 /**
@@ -60,17 +61,8 @@ export async function setDiscountStacking(venueId: number, value: unknown): Prom
   return { ok: true, stacking: value };
 }
 
-/**
- * What a code takes off a price: a percentage rounded down to the sen or
- * cent (in the venue's favour), or a fixed amount; never more than the price.
- */
-export function promoDiscount(p: { kind: PromoKind; value: number }, price: number): number {
-  const scale = 10 ** region().currency.minorUnits;
-  const base = Math.max(0, roundMoney(price));
-  // The small allowance is for floating point (10.05 × 20% is 2.0100000000000002), not for rounding.
-  const off = p.kind === "percent" ? Math.floor((base * p.value * scale) / 100 + 1e-6) / scale : p.value;
-  return roundMoney(Math.max(0, Math.min(off, base)));
-}
+/** What a code takes off a price (lib/promo-math.ts, where the booking form reads it too). */
+export { promoDiscount };
 
 /** The discounts standing on a booking, as the rule reads them. */
 interface Standing {

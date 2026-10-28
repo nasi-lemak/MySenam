@@ -35,6 +35,44 @@ cookies (gateway callbacks, WhatsApp's webhook) and the key-authorised public
 API under `/api/v1/` are not checked. A proxy that rewrites `Host` must pass
 the original in `X-Forwarded-Host`, or `MYSENAM_URL` must name the site.
 
+## Where sign-in sends you next
+
+A page that goes on somewhere it was handed (`?next=` on sign-in, Google
+sign-in, the phone and about pages, and the page a sign-up link opens, from
+the browser's own storage) goes only to a page on this site, by one check,
+`safePath` (`src/lib/safe-path.ts`; `safeNext` in `src/lib/oauth.ts` is the
+same). It refuses, for the account page instead: anything not starting with
+one `/`; a backslash anywhere (`/\elsewhere` is `//elsewhere` to a browser);
+control characters anywhere (the URL parser drops a tab or a newline, so
+`/<TAB>/elsewhere` is `//elsewhere`); the same percent-encoded, however many
+times (`/%5C…`, `/%09/…`, `/%2F/…`, `/%252F/…`); anything over 500 characters;
+and, last, anything that resolved against this site lands on another. The
+bypasses found in audit R8 X2-1 are in `tests/q8a-booking-flows.test.ts`.
+
+The sign-in page's `?error=` is one of a fixed set of codes (`cancelled`,
+`unverified`, `expired`, `noemail`, `unavailable`, `google`), each said in the
+page's own words in the reader's language; anything else shows the general
+failure, never the text in the address, so a link cannot put a made-up
+instruction under the site's sign-in form. Google sign-in comes back with one
+of those codes, never its message.
+
+## Links that open a booking
+
+The link in a booking's messages (confirmation, change, reminder), on the
+payment return page, a waiting-list claim and a class enrolment opens that
+booking on My Booking without the code and phone being typed:
+`/my-booking?code=<code>&t=<token>` (`src/lib/booking-access.ts`). The token is
+the expiry and a keyed hash of the code and the expiry under the install's key
+(`keyedHash`, as receipts' links), so it cannot be made from a booking code,
+names one booking only, and runs out 30 days after the booking's day (never
+sooner than 14 days after it was made); the phone number is never in it. Whoever
+holds it may do what the code and phone allow: the booking route answers it
+with the booking's phone, which the page uses for every action after, and
+`POST /api/payments` takes it in place of the phone. It goes where the
+booking's messages already go, so it gives nobody more than the inbox did.
+Pages keep it out of other sites' logs by the referrer policy
+(`strict-origin-when-cross-origin`), and the error log keeps no query.
+
 ## Private links and who decides approvals
 
 A private link (a coach's schedule, `/coach/<token>`; a tournament official's)

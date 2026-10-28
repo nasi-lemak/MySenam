@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
-import { getDb } from "@/lib/db";
 import { currentLocale } from "@/lib/locale";
 import { tickOutbox } from "@/lib/notify";
 import { refundCancelled } from "@/lib/payments";
 import { notifyWithdrawn, readWithdrawWhat, withdrawOptions, withdrawPlace } from "@/lib/place-withdrawals";
-import { getBookingById } from "@/lib/store";
+import { accountHasBooking, getBookingById } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 /** The account's own booking, or null. */
 async function ownBooking(userId: number, bookingId: unknown) {
   if (!Number.isInteger(bookingId)) return null;
-  const mine = await getDb().prepare("SELECT 1 FROM bookings WHERE id = ? AND user_id = ?").get(bookingId, userId);
-  return mine ? getBookingById(bookingId as number) : null;
+  // Made by it, or as a guest under the address it has proved (lib/store.ts `ACCOUNT_BOOKING`).
+  return (await accountHasBooking(userId, bookingId as number)) ? getBookingById(bookingId as number) : null;
 }
 
 /**

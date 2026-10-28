@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { REGISTRATION_MINUTES, SIGN_UP_NEXT } from "@/lib/registration-shared";
+import { safePath, signInError } from "@/lib/safe-path";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,8 +24,9 @@ export default function LoginPage() {
   // Whether this address offers Google; and a sign-in that came back refused says why.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const failed = params.get("error");
-    if (failed) setError(failed === "google" ? t("auth.failed") : failed);
+    // Only a code this page has words for: never text from the address (lib/safe-path.ts).
+    const failed = signInError(params.get("error"));
+    if (failed) setError(failed === "google" ? t("auth.failed") : t(`q8a.auth.${failed}`));
     // Sent here to make an account (an emailed guest invitation): open on that.
     if (params.get("mode") === "register") setMode("register");
     void fetch("/api/auth/providers", { cache: "no-store" })
@@ -33,8 +35,8 @@ export default function LoginPage() {
       .catch(() => {});
   }, [t]);
   const nextParam = () => {
-    const next = new URLSearchParams(window.location.search).get("next");
-    return next && next.startsWith("/") && !next.startsWith("//") ? next : "/account";
+    // Only a page on this site (lib/safe-path.ts).
+    return safePath(new URLSearchParams(window.location.search).get("next"));
   };
 
   async function submit(e: React.FormEvent) {

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
 import ChatLink from "@/components/ChatLink";
+import PayOnline from "@/components/PayOnline";
 import { formatHour } from "@/lib/time";
 import { ClassSession, Sport } from "@/lib/types";
 import { useOfferedSports } from "@/components/OfferedSports";
@@ -203,6 +204,8 @@ function EnrolModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null);
+  // Still to pay, where the venue takes payment online: the codes, the amount, and the first one's signed link (lib/booking-access.ts).
+  const [toPay, setToPay] = useState<{ codes: string[]; amount: number; link: string } | null>(null);
   const [queued, setQueued] = useState<number | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [confirmWho, setConfirmWho] = useState(false);
@@ -280,6 +283,13 @@ function EnrolModal({
           translateError(t, data) || (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))
         );
       if (!signedIn) rememberGuest({ name, phone, email });
+      if (!isFull && data.payOnline && typeof data.link === "string") {
+        const unpaid = ((data.bookings ?? [data.booking]) as { code: string; totalPrice: number; paymentStatus: string; sharesPaid?: number }[]).filter(
+          (b) => b.paymentStatus === "unpaid" && b.totalPrice > 0
+        );
+        const amount = Math.round(unpaid.reduce((sum, b) => sum + b.totalPrice - (b.sharesPaid ?? 0), 0) * 100) / 100;
+        if (unpaid.length > 0 && amount > 0) setToPay({ codes: unpaid.map((b) => b.code), amount, link: data.link });
+      }
       if (isFull) setQueued(data.position);
       else if (wholeTerm) {
         setCode(data.seriesCode);
@@ -344,6 +354,8 @@ function EnrolModal({
             {extrasNote && <p className="mt-2 text-xs text-slate-600">{extrasNote}</p>}
             {termNote && <p className="mt-2 text-xs text-slate-600">{termNote}</p>}
             <ChatLink t={t} number={chat} code={code} />
+            {/* Pay now online, as a court booking's confirmation offers it (the counter still takes it otherwise). */}
+            {toPay && <PayOnline codes={toPay.codes} link={toPay.link} amount={toPay.amount} />}
             <p className="mt-2 text-xs text-slate-500">
               {t("classes.enrolledNote")}
             </p>
