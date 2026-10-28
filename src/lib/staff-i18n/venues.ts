@@ -348,6 +348,16 @@ const en = {
   "d8a.cal.until": "This address works until {date}; make a new one before then.",
   "d8a.cal.onHidden": "On, until {date}, at an address that cannot be shown again (made before addresses were kept locked, or on another server). To subscribe another calendar, make a new address: calendars on the old one stop updating.",
   "d8a.cal.lapsed": "The address lapsed on {date} and shows nothing now. Make a new one to carry on.",
+  // p8c
+  "p8c.alr.changesTitle": "Also tell me when a customer, online:",
+  "p8c.alr.cancellations": "cancels a booking",
+  "p8c.alr.changes": "changes a booking's time, or takes somebody off it",
+  "p8c.alr.within": "For bookings starting within",
+  "p8c.alr.day": "a day",
+  "p8c.alr.twoDays": "two days",
+  "p8c.alr.week": "a week",
+  "p8c.alr.any": "any time ahead",
+  "p8c.alr.note": "Off unless you tick them. They go to the same email address and WhatsApp number; each WhatsApp alert counts against this venue's WhatsApp messages.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -693,6 +703,16 @@ const ms: Record<keyof typeof en, string> = {
   "d8a.cal.until": "Alamat ini sah hingga {date}; buat alamat baharu sebelum itu.",
   "d8a.cal.onHidden": "Hidup, hingga {date}, pada alamat yang tidak boleh ditunjukkan lagi (dibuat sebelum alamat disimpan berkunci, atau pada pelayan lain). Untuk melanggan kalendar lain, buat alamat baharu: kalendar yang melanggan alamat lama akan berhenti dikemas kini.",
   "d8a.cal.lapsed": "Alamat ini luput pada {date} dan tidak menunjukkan apa-apa sekarang. Buat alamat baharu untuk meneruskan.",
+  // p8c
+  "p8c.alr.changesTitle": "Maklumkan juga apabila pelanggan, dalam talian:",
+  "p8c.alr.cancellations": "membatalkan tempahan",
+  "p8c.alr.changes": "mengubah masa tempahan, atau mengeluarkan seseorang daripadanya",
+  "p8c.alr.within": "Untuk tempahan yang bermula dalam tempoh",
+  "p8c.alr.day": "sehari",
+  "p8c.alr.twoDays": "dua hari",
+  "p8c.alr.week": "seminggu",
+  "p8c.alr.any": "bila-bila masa",
+  "p8c.alr.note": "Dimatikan melainkan anda menandakannya. Ia dihantar ke alamat e-mel dan nombor WhatsApp yang sama; setiap makluman WhatsApp dikira dalam mesej WhatsApp pusat ini.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1038,6 +1058,16 @@ const zh: Record<keyof typeof en, string> = {
   "d8a.cal.until": "此地址有效至 {date}；请在此之前生成新地址。",
   "d8a.cal.onHidden": "已开启，有效至 {date}，但该地址无法再次显示（生成于地址加密保存之前，或来自另一台服务器）。如需订阅另一个日历，请生成新地址：订阅旧地址的日历将停止更新。",
   "d8a.cal.lapsed": "此地址已于 {date} 失效，现在不显示任何内容。请生成新地址以继续使用。",
+  // p8c
+  "p8c.alr.changesTitle": "顾客在线进行以下操作时也通知我：",
+  "p8c.alr.cancellations": "取消预订",
+  "p8c.alr.changes": "更改预订时间，或将某人移出预订",
+  "p8c.alr.within": "适用于开始时间在以下范围内的预订",
+  "p8c.alr.day": "一天内",
+  "p8c.alr.twoDays": "两天内",
+  "p8c.alr.week": "一周内",
+  "p8c.alr.any": "任何时间",
+  "p8c.alr.note": "默认关闭，勾选后才会发送。通知发送到同一电子邮件地址和 WhatsApp 号码；每条 WhatsApp 通知计入本场馆的 WhatsApp 消息额度。",
 };
 
 const area = { en, ms, zh };

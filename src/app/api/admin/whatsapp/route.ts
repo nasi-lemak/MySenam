@@ -23,6 +23,7 @@ import {
 } from "@/lib/whatsapp-credit";
 import { usageOf } from "@/lib/whatsapp-usage";
 import { jsonObject } from "@/lib/api";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -76,15 +77,18 @@ export async function POST(req: NextRequest) {
     if (b.mode !== "off" && b.mode !== "urgent" && b.mode !== "all")
       return NextResponse.json({ error: "Off, urgent only, or everything." }, { status: 400 });
     await setWhatsappMode(venueId, b.mode as WhatsappMode);
+    await logAction(admin, { venueId, action: "settings.changed", detail: `WhatsApp messages: ${b.mode as string}` });
     return NextResponse.json(await state(venueId));
   }
   if (b.action === "remindersOn" || b.action === "remindersOff") {
     await setWhatsappReminders(venueId, b.action === "remindersOn");
+    await logAction(admin, { venueId, action: "settings.changed", detail: `WhatsApp reminders ${b.action === "remindersOn" ? "on" : "off"}` });
     return NextResponse.json(await state(venueId));
   }
   if (b.action === "buy") {
     if (!creditsApply()) return NextResponse.json({ error: "Nothing to buy: this install pays Meta itself." }, { status: 400 });
     const pack = await orderPack(venueId, admin.id);
+    await logAction(admin, { venueId, action: "whatsapp.pack", detail: `Ordered a pack of WhatsApp messages` });
     return NextResponse.json({ ...(await state(venueId)), ordered: pack });
   }
   const pack = Number.isInteger(b.packId) ? await packById(b.packId as number) : null;
@@ -99,12 +103,14 @@ export async function POST(req: NextRequest) {
   if (b.action === "grant") {
     const granted = await grantCredit(venueId, Number(b.messages), admin.id);
     if (!granted.ok) return NextResponse.json({ error: granted.error }, { status: 400 });
+    await logAction(admin, { venueId, action: "whatsapp.pack", detail: `Platform gave ${Number(b.messages)} WhatsApp message(s)` });
     return NextResponse.json(await state(venueId));
   }
   if (b.action === "markPaid" || b.action === "void") {
     if (!pack || pack.venueId !== venueId) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const done = b.action === "markPaid" ? await settlePack(pack.id, "manual", admin.id) : await voidPack(pack.id);
     if (!done) return NextResponse.json({ error: "That pack is not waiting to be paid." }, { status: 409 });
+    await logAction(admin, { venueId, action: "whatsapp.pack", detail: `WhatsApp pack ${pack.id} ${b.action === "markPaid" ? "marked paid by the platform" : "voided by the platform"}` });
     return NextResponse.json(await state(venueId));
   }
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });

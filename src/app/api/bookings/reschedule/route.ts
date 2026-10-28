@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   }
   const result = await rescheduleBooking(booking.code, { date, start }, "customer");
   if (!result.ok) return refusal(result);
-  await notifyRescheduled(result.booking, "customer", result.priceChange);
+  await notifyRescheduled(result.booking, "customer", result.priceChange, booking);
   await tickOutbox();
   return NextResponse.json({ booking: result.booking, priceChange: result.priceChange });
 }

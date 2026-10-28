@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { createNotice, listNotices } from "@/lib/notices";
 import { jsonObject } from "@/lib/api";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -47,5 +48,10 @@ export async function POST(req: NextRequest) {
     found.admin.id
   );
   if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 });
+  await logAction(found.admin, {
+    venueId: found.venueId,
+    action: "notice.posted",
+    detail: `${made.value.startsOn} to ${made.value.endsOn}: ${made.value.text.slice(0, 200)}`,
+  });
   return NextResponse.json({ notice: made.value, notices: await listNotices(found.venueId) }, { status: 201 });
 }

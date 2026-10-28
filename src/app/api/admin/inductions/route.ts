@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getVenue, listInductions, recordInduction } from "@/lib/store";
 import { participantAtVenue } from "@/lib/participants";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -67,5 +68,11 @@ export async function POST(req: NextRequest) {
     participant: participant ? { id: participant.id, name: participant.displayName } : null,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  // A participant by their id only: the log names no child.
+  await logAction(admin, {
+    venueId: venueId as number,
+    action: "induction.recorded",
+    detail: participant ? `Participant ${participant.id} shown round` : `${result.induction.name} shown round`,
+  });
   return NextResponse.json({ induction: result.induction }, { status: 201 });
 }

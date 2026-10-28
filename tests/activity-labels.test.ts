@@ -21,8 +21,21 @@ describe("the staff activity log's words", () => {
   it("name every kind of entry the code writes", () => {
     const written = new Set<string>();
     for (const file of sources(path.join(__dirname, "..", "src")))
-      for (const m of fs.readFileSync(file, "utf8").matchAll(/action: "([a-z_]+\.[a-z_.]+)"/g)) written.add(m[1]);
+      for (const m of fs.readFileSync(file, "utf8").matchAll(/action:([\s\S]{0,400})/g)) {
+        // The whole value, up to the next property: a kind chosen by `? :` (over lines) is a kind written too.
+        const [first, ...rest] = m[1].split("\n");
+        const lines = [first];
+        for (const line of rest) {
+          // A value starting on the next line, then the `? :` lines that go on with it.
+          if (!/^\s*[?:]/.test(line) && lines.join("").trim() !== "") break;
+          lines.push(line);
+        }
+        const value = lines.join("\n").split(/,\s*(?:[a-zA-Z_]+\s*[:,]|\.\.\.)|\}/)[0];
+        for (const s of value.matchAll(/"([a-z_]+\.[a-z_.]+)"/g)) written.add(s[1]);
+      }
     expect(written.size).toBeGreaterThan(50);
+    // Read through a choice over lines and a typed parameter too (once missed, so shown raw in the log).
+    expect([...written]).toEqual(expect.arrayContaining(["tournament.final_chosen", "league.result_cleared", "league.joined"]));
     expect([...written].filter((a) => !(a in ACTION_LABELS)).sort()).toEqual([]);
   });
 });

@@ -367,6 +367,22 @@ const en = {
   "lg5.done": "{name} is in.",
   "lg5.atCounter": "Entered at the counter by {by}",
   "lg5.forParticipant": "Entered for a participant",
+  // p8c
+  "p8c.tn.edit": "Change details",
+  "p8c.tn.editTitle": "Change {name}",
+  "p8c.tn.name": "Name",
+  "p8c.tn.description": "Description for players",
+  "p8c.tn.closeOn": "Last day for entries",
+  "p8c.tn.maxEntries": "Most entries",
+  "p8c.tn.fee": "Entry fee for new entries ({cur})",
+  "p8c.tn.closeHint": "Leave the last day empty for no deadline. A new last day, today or later, opens entries again if they had closed.",
+  "p8c.tn.maxHint": "{n} entered. More places take entries off the waiting list in the order they came; fewer, never below those entered.",
+  "p8c.tn.feeHint": "Entries already made keep the fee they were made at, paid or not.",
+  "p8c.tn.save": "Save changes",
+  "p8c.tn.saved": "Saved.",
+  "p8c.tn.promoted_one": "Saved. {n} entry came in off the waiting list.",
+  "p8c.tn.promoted_other": "Saved. {n} entries came in off the waiting list.",
+  "p8c.tn.saveFailed": "Could not save the changes",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -734,6 +750,22 @@ const ms: Record<keyof typeof en, string> = {
   "lg5.done": "{name} telah dimasukkan.",
   "lg5.atCounter": "Didaftarkan di kaunter oleh {by}",
   "lg5.forParticipant": "Didaftarkan untuk peserta",
+  // p8c
+  "p8c.tn.edit": "Ubah butiran",
+  "p8c.tn.editTitle": "Ubah {name}",
+  "p8c.tn.name": "Nama",
+  "p8c.tn.description": "Penerangan untuk pemain",
+  "p8c.tn.closeOn": "Hari terakhir penyertaan",
+  "p8c.tn.maxEntries": "Penyertaan maksimum",
+  "p8c.tn.fee": "Yuran penyertaan untuk penyertaan baharu ({cur})",
+  "p8c.tn.closeHint": "Biarkan hari terakhir kosong jika tiada tarikh tutup. Hari terakhir baharu, hari ini atau kemudian, membuka semula penyertaan jika ia telah ditutup.",
+  "p8c.tn.maxHint": "{n} telah menyertai. Tempat tambahan mengambil penyertaan daripada senarai menunggu mengikut urutan; jika dikurangkan, tidak kurang daripada yang telah menyertai.",
+  "p8c.tn.feeHint": "Penyertaan yang sudah dibuat kekal dengan yuran semasa ia dibuat, sudah dibayar atau belum.",
+  "p8c.tn.save": "Simpan perubahan",
+  "p8c.tn.saved": "Disimpan.",
+  "p8c.tn.promoted_one": "Disimpan. {n} penyertaan masuk daripada senarai menunggu.",
+  "p8c.tn.promoted_other": "Disimpan. {n} penyertaan masuk daripada senarai menunggu.",
+  "p8c.tn.saveFailed": "Tidak dapat menyimpan perubahan",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1101,6 +1133,22 @@ const zh: Record<keyof typeof en, string> = {
   "lg5.done": "{name} 已登记。",
   "lg5.atCounter": "由 {by} 在柜台登记",
   "lg5.forParticipant": "为参与者报名",
+  // p8c
+  "p8c.tn.edit": "修改详情",
+  "p8c.tn.editTitle": "修改 {name}",
+  "p8c.tn.name": "名称",
+  "p8c.tn.description": "给参赛者的说明",
+  "p8c.tn.closeOn": "报名截止日",
+  "p8c.tn.maxEntries": "报名上限",
+  "p8c.tn.fee": "新报名的报名费（{cur}）",
+  "p8c.tn.closeHint": "截止日留空即不设截止。若报名已截止，设定今天或之后的新截止日会重新开放报名。",
+  "p8c.tn.maxHint": "已有 {n} 个报名。增加名额会按先后顺序从候补名单中递补；减少时不能低于已报名数。",
+  "p8c.tn.feeHint": "已有的报名无论是否已付款，都按报名时的费用计算。",
+  "p8c.tn.save": "保存修改",
+  "p8c.tn.saved": "已保存。",
+  "p8c.tn.promoted_one": "已保存。有 {n} 个报名从候补名单递补。",
+  "p8c.tn.promoted_other": "已保存。有 {n} 个报名从候补名单递补。",
+  "p8c.tn.saveFailed": "无法保存修改",
 };
 
 const area = { en, ms, zh };

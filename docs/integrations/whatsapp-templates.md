@@ -531,6 +531,67 @@ Tamil (`ta`) — {{1}} name, {{2}} phone, {{3}} where, {{4}} when, {{5}} code, {
 குறியீடு {{5}}, {{6}}, {{7}}. இது உங்கள் முன்பதிவுகள் பட்டியலில் உள்ளது.
 ```
 
+### `mysenam_venue_booking_change`
+
+**Status: prepared, not submitted to Meta** (28 October 2026). Until Meta
+approves it, an alert sent on WhatsApp fails and shows under delivery; the
+email alert is unaffected.
+
+To the venue itself, at the number it chose under *Venue details → New-booking
+alerts*, when it also asked to hear about customers' online cancellations or
+changes ([booking alerts](../features/venue-operations.md#booking-alerts)).
+{{1}} is what happened, in the template's language: *cancelled*, *changed*,
+*changed (it was …)* with the old date and time, or *changed (somebody taken
+off it)* (phrases `p8c.msg.what*`).
+
+English (`en`) — {{1}} what, {{2}} name, {{3}} phone, {{4}} where, {{5}} when, {{6}} code
+
+```text
+A booking was {{1}} online.
+
+{{2}}, {{3}}
+{{4}}
+{{5}}
+
+Code {{6}}. Your Bookings list shows it as it is now.
+```
+
+Malay (`ms`) — {{1}} what, {{2}} name, {{3}} phone, {{4}} where, {{5}} when, {{6}} code
+
+```text
+Satu tempahan telah {{1}} dalam talian.
+
+{{2}}, {{3}}
+{{4}}
+{{5}}
+
+Kod {{6}}. Senarai Tempahan anda menunjukkannya seperti sekarang.
+```
+
+Chinese (`zh_CN`) — {{1}} what, {{2}} name, {{3}} phone, {{4}} where, {{5}} when, {{6}} code
+
+```text
+有一项预订已在线{{1}}。
+
+{{2}}，{{3}}
+{{4}}
+{{5}}
+
+代码 {{6}}。您的预订列表显示其最新情况。
+```
+
+Tamil (`ta`) — {{1}} what, {{2}} name, {{3}} phone, {{4}} where, {{5}} when, {{6}} code
+
+```text
+ஒரு முன்பதிவு ஆன்லைனில் {{1}}.
+
+{{2}}, {{3}}
+{{4}}
+{{5}}
+
+குறியீடு {{6}}. உங்கள் முன்பதிவுகள் பட்டியல் அதை இப்போதுள்ளபடி காட்டுகிறது.
+```
+
 ### `mysenam_guardian_notice`
 
 **Status: prepared, not submitted to Meta** (27 October 2026). Nobody has

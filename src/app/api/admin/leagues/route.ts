@@ -6,6 +6,8 @@ import { TEMPLATES } from "@/lib/competition-templates";
 import type { Level } from "@/lib/games";
 import type { Who } from "@/lib/who";
 import type { Sport } from "@/lib/types";
+import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -50,5 +52,10 @@ export async function POST(req: NextRequest) {
     admin.id
   );
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  await logAction(admin, {
+    venueId,
+    action: "league.created",
+    detail: `${result.value.name}: seasons of ${result.value.seasonDays} days, fee ${money(result.value.fee)}`,
+  });
   return NextResponse.json({ league: result.value }, { status: 201 });
 }

@@ -129,6 +129,8 @@ export interface Entry {
   status: EntryStatus;
   seed: number | null;
   paid: boolean;
+  /** The entry fee as it was when this entry was made (the tournament's `entryFee` may have changed since, for new entries). */
+  fee?: number;
   /** Only for staff, and for the player themselves. */
   userId?: number | null;
   /** Why they are out, and when: null while they are in (or waiting). */
@@ -394,7 +396,7 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
     (await db
       .prepare(
         `SELECT id, name, status, seed, paid_at, user_id, out_reason, out_stage, roster, entry_mark, checked_in_at,
-                guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date, participant_id, contact_phone, entered_by_name FROM tournament_entries
+                guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date, participant_id, contact_phone, entered_by_name, fee FROM tournament_entries
           WHERE tournament_id = ? ORDER BY status = 'entered' DESC, seed NULLS LAST, id`
       )
       .all(id)) as EntryRow[]
@@ -478,6 +480,7 @@ interface EntryRow {
   participant_id?: number | null;
   contact_phone?: string | null;
   entered_by_name?: string | null;
+  fee?: number | string | null;
 }
 
 function toEntry(e: EntryRow, forStaff: boolean): Entry {
@@ -487,6 +490,7 @@ function toEntry(e: EntryRow, forStaff: boolean): Entry {
     status: e.status,
     seed: e.seed,
     paid: e.paid_at !== null,
+    ...(e.fee !== undefined && e.fee !== null ? { fee: Number(e.fee) } : {}),
     ...(forStaff
       ? {
           userId: e.user_id,
@@ -1187,8 +1191,10 @@ export async function enterAs(entrant: Entrant, tournamentId: number, input: Ent
   const info = await db
     .prepare(
       `INSERT INTO tournament_entries (tournament_id, user_id, name, partner_name, partner_gender, status, team_name, roster, entry_mark, birth_date, partner_birth_date,
-                                       guardian_name, guardian_consent_at, participant_id, entrant_gender, contact_phone, entered_by_admin_id, entered_by_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${guardianName ? "datetime('now')" : "NULL"}, ?, ?, ?, ?, ?)`
+                                       guardian_name, guardian_consent_at, participant_id, entrant_gender, contact_phone, entered_by_admin_id, entered_by_name, fee)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${guardianName ? "datetime('now')" : "NULL"}, ?, ?, ?, ?, ?,
+               -- The fee as it is as this entry is made: a later change is for new entries (changeTournament).
+               (SELECT entry_fee FROM tournaments WHERE id = ?))`
     )
     .run(
       tournamentId,
@@ -1207,7 +1213,8 @@ export async function enterAs(entrant: Entrant, tournamentId: number, input: Ent
       declaredGender(entrant, t.category, input.gender),
       entrant.kind === "counter" ? entrant.phone : null,
       entrant.kind === "counter" ? entrant.adminId : null,
-      entrant.kind === "counter" ? entrant.adminName : null
+      entrant.kind === "counter" ? entrant.adminName : null,
+      tournamentId
     );
   await recordEntered(entrant, t.venueId, "tournament.entered", t.name);
   if (userId !== null)
@@ -1232,7 +1239,7 @@ async function entryById(id: number): Promise<Entry | null> {
   const r = (await getDb()
     .prepare(
       `SELECT id, name, status, seed, paid_at, user_id, out_reason, out_stage, roster, entry_mark, checked_in_at,
-              guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date, participant_id, contact_phone, entered_by_name FROM tournament_entries WHERE id = ?`
+              guardian_name, guardian_consent_at, eligibility_checked_at, eligibility_checked_by, birth_date, participant_id, contact_phone, entered_by_name, fee FROM tournament_entries WHERE id = ?`
     )
     .get(id)) as EntryRow | undefined;
   return r ? toEntry(r, true) : null;
@@ -3138,4 +3145,104 @@ async function tellFirstMatches(d: TournamentDetail): Promise<void> {
             : tr("mail.tour.draw.made", { t: d.name });
     await tellEntry(r.id, d, (tr) => tr("mail.tour.draw.s", { t: d.name }), text);
   }
+}
+
+/** What staff may change in a tournament before its draw (`changeTournament`). */
+export interface TournamentChange {
+  name?: unknown;
+  /** Text shown to players; empty or null clears it. */
+  description?: unknown;
+  /** The last day entries are taken (before the first day), or null for no deadline. */
+  entriesCloseOn?: unknown;
+  maxEntries?: unknown;
+  /** For entries made from now on: each entry keeps the fee it was made at (migration 0238). */
+  entryFee?: unknown;
+}
+
+/**
+ * Change a tournament's details before its draw: its name and text, the last
+ * day entries are taken, how many it takes, and the fee for entries made from
+ * now on. Nothing already entered is repriced: each entry owes, pays online and
+ * is receipted at the fee it was made at. More places take entries off the
+ * waiting list in the order they came, each told as when somebody withdraws;
+ * fewer never below those entered. A new deadline of today or later opens
+ * entries that had closed. Done under the tournament's row lock.
+ */
+export async function changeTournament(id: number, change: TournamentChange): Promise<Result<{ before: Tournament; after: Tournament; promoted: number[] }>> {
+  const before = await tournamentById(id);
+  if (!before) return { ok: false, error: "Not found." };
+  if (before.status !== "open" && before.status !== "closed") return { ok: false, error: "A tournament's details are changed before its draw." };
+  const name = change.name === undefined ? undefined : typeof change.name === "string" ? change.name.trim() : "";
+  if (name !== undefined && (name.length < 3 || name.length > 100)) return { ok: false, error: "Give it a name." };
+  const description =
+    change.description === undefined ? undefined : typeof change.description === "string" ? change.description.trim().slice(0, 2000) || null : null;
+  const today = todayISO((await venueHours(before.venueId)).zone);
+  let closeOn: string | null | undefined;
+  if (change.entriesCloseOn !== undefined) {
+    closeOn = change.entriesCloseOn === null || change.entriesCloseOn === "" ? null : String(change.entriesCloseOn);
+    if (closeOn !== null) {
+      if (!isValidDateString(closeOn)) return { ok: false, error: "Give the last day entries are taken." };
+      if (closeOn >= before.startsOn) return { ok: false, error: "Entries must close before the first day." };
+      if (closeOn < today) return { ok: false, error: "The last day for entries cannot be in the past." };
+    }
+  }
+  const maxEntries = change.maxEntries === undefined ? undefined : Number(change.maxEntries);
+  if (maxEntries !== undefined && (!Number.isInteger(maxEntries) || maxEntries < 2 || maxEntries > 128))
+    return { ok: false, error: "Between 2 and 128 entries." };
+  const fee = change.entryFee === undefined ? undefined : Number(change.entryFee);
+  if (fee !== undefined && (!Number.isFinite(fee) || fee < 0 || fee > 10000)) return { ok: false, error: "Check the entry fee." };
+  if (name === undefined && description === undefined && closeOn === undefined && maxEntries === undefined && fee === undefined)
+    return { ok: false, error: "Nothing to change." };
+
+  const db = getDb();
+  const done = await withTransaction(async (): Promise<Result<number[]>> => {
+    await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(id);
+    const now = (await tournamentById(id))!;
+    if (now.status !== "open" && now.status !== "closed") return { ok: false, error: "A tournament's details are changed before its draw." };
+    if (maxEntries !== undefined && maxEntries < now.entered)
+      return { ok: false, error: `${now.entered} have entered: it cannot take fewer than that.` };
+    // A new deadline, today or later, opens entries that had closed.
+    const reopen = now.status === "closed" && closeOn !== undefined && closeOn !== null && closeOn !== now.entriesCloseOn;
+    await db
+      .prepare(
+        `UPDATE tournaments SET name = ?, description = ?, entries_close_on = ?, max_entries = ?, entry_fee = ?, status = ? WHERE id = ?`
+      )
+      .run(
+        name ?? now.name,
+        description === undefined ? now.description : description,
+        closeOn === undefined ? now.entriesCloseOn : closeOn,
+        maxEntries ?? now.maxEntries,
+        fee === undefined ? now.entryFee : Math.round(fee * 100) / 100,
+        reopen ? "open" : now.status,
+        id
+      );
+    // More places: whoever waits longest comes in first, as when somebody withdraws.
+    const room = (maxEntries ?? now.maxEntries) - now.entered;
+    const promoted =
+      room > 0 && now.waitlisted > 0
+        ? ((await db
+            .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND status = 'waitlisted' ORDER BY id LIMIT ?")
+            .all(id, room)) as { id: number }[]).map((r) => r.id)
+        : [];
+    for (const entryId of promoted) await db.prepare("UPDATE tournament_entries SET status = 'entered' WHERE id = ?").run(entryId);
+    return { ok: true, value: promoted };
+  });
+  if (!done.ok) return done;
+  const after = (await tournamentById(id))!;
+  for (const entryId of done.value)
+    await tellEntry(entryId, after, (tr) => tr("mail.tour.promoted.s", { t: after.name }), (tr) => tr("mail.tour.promoted.b", { t: after.name, venue: after.venueName }));
+  return { ok: true, value: { before, after, promoted: done.value } };
+}
+
+/** The change in words, for the activity log. */
+export function tournamentChangeDetail(before: Tournament, after: Tournament, promoted: number): string {
+  const parts: string[] = [];
+  if (before.name !== after.name) parts.push(`name ${before.name} → ${after.name}`);
+  if (before.description !== after.description) parts.push("description changed");
+  if (before.entriesCloseOn !== after.entriesCloseOn) parts.push(`entries close ${before.entriesCloseOn ?? "—"} → ${after.entriesCloseOn ?? "—"}`);
+  if (before.maxEntries !== after.maxEntries) parts.push(`places ${before.maxEntries} → ${after.maxEntries}`);
+  if (before.entryFee !== after.entryFee) parts.push(`fee ${money(before.entryFee)} → ${money(after.entryFee)} (new entries)`);
+  if (before.status !== after.status) parts.push("entries open again");
+  if (promoted > 0) parts.push(`${promoted} taken off the waiting list`);
+  return `${before.name}: ${parts.join("; ") || "no change"}`;
 }

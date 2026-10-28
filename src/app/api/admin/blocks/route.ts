@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { blockSlots, getCourt, unblockSlots } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
-import { readTime } from "@/lib/api";
+import { readTime, type RequestedTime } from "@/lib/api";
+import { logAction } from "@/lib/activity";
+import { formatMinute } from "@/lib/interval";
 
 export const dynamic = "force-dynamic";
 
@@ -48,21 +50,34 @@ async function resolve(req: NextRequest) {
   const denied = denyVenue(admin, court.venueId);
   if (denied) return { error: denied };
 
-  return { input };
+  return { input, admin, court };
+}
+
+/** The time asked for, in words for the activity log. */
+function timeOf(when: RequestedTime): string {
+  if (when.start !== undefined)
+    return `${formatMinute(when.start)}–${formatMinute(when.end ?? when.start + (when.minutes ?? 0))}`;
+  return (when.hours ?? []).map((h) => formatMinute(Math.round(h * 60))).join(", ");
 }
 
 export async function POST(req: NextRequest) {
-  const { error, input } = await resolve(req);
+  const { error, input, admin, court } = await resolve(req);
   if (error) return error;
   const result = await blockSlots(input.courtId, input.date, input.when, input.reason, input.places);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, {
+    venueId: court.venueId,
+    action: "block.added",
+    detail: `${court.name}, ${input.date} ${timeOf(input.when)}${input.places ? `, ${input.places} place(s)` : ""}${input.reason ? `: ${input.reason}` : ""}`,
+  });
   return NextResponse.json({ changed: result.changed });
 }
 
 export async function DELETE(req: NextRequest) {
-  const { error, input } = await resolve(req);
+  const { error, input, admin, court } = await resolve(req);
   if (error) return error;
   const result = await unblockSlots(input.courtId, input.date, input.when);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, { venueId: court.venueId, action: "block.removed", detail: `${court.name}, ${input.date} ${timeOf(input.when)}` });
   return NextResponse.json({ changed: result.changed });
 }

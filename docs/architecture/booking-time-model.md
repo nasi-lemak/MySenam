@@ -131,6 +131,13 @@ time, not of storing it.
   time and its separation) is what the board's cells, the staff schedule's
   buffers and a block's placement treat as held; `clearZones` is the time a
   facility turned over whole is closed to everybody.
+- **The staff schedule's list to the minute** (`getAdminSlots` in
+  `src/lib/store.ts`) lists only what is in the day's own time: from where the
+  evening before ran on past midnight (its closing, if after midnight) to
+  midnight, or this day's closing if later. Days share no minute, so a booking
+  is listed on its own day only, an after-midnight booking with the evening it
+  belongs to; the days either side are still read, so the grid's cells show
+  what runs over into this day (`tests/schedule-own-day.test.ts`).
 
 ## Booking policies
 

@@ -3,6 +3,8 @@ import { jsonObject, readMinute } from "@/lib/api";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createCompetition, listCompetitions } from "@/lib/competitions";
 import type { Sport } from "@/lib/types";
+import { logAction } from "@/lib/activity";
+import { formatMinute } from "@/lib/interval";
 
 export const dynamic = "force-dynamic";
 
@@ -51,5 +53,11 @@ export async function POST(req: NextRequest) {
     admin.id
   );
   if (!result.ok) return NextResponse.json({ error: result.error, clashes: result.clashes }, { status: 400 });
+  const made = result.value;
+  await logAction(admin, {
+    venueId,
+    action: "competition.created",
+    detail: `${made.name}: ${made.startsOn}${made.endsOn !== made.startsOn ? ` to ${made.endsOn}` : ""}, ${formatMinute(made.startMin)}–${formatMinute(made.endMin)} on ${made.courtIds.length} court(s)`,
+  });
   return NextResponse.json({ competition: result.value }, { status: 201 });
 }

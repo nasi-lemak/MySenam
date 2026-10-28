@@ -331,7 +331,7 @@ export async function settleMove(gameId: number): Promise<void> {
   }
   const moved = (await gameById(gameId))!;
   const { notifyRescheduled } = await import("./notify");
-  await notifyRescheduled(outcome.booking, "customer", outcome.priceChange);
+  await notifyRescheduled(outcome.booking, "customer", outcome.priceChange, { date: game.date, startMin: Math.round(game.startHour * 60) });
   const kept = (await getDb()
     .prepare(
       `SELECT p.user_id FROM game_move_answers a JOIN open_game_players p ON p.id = a.player_id

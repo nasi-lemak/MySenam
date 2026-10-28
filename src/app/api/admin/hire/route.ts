@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getVenue, getVenueIdForBookingCode, listOpenHires, returnHire, takeHire } from "@/lib/store";
 import { deductionTreatments } from "@/lib/deposit-deductions";
+import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 import { COUNTER_METHODS, type CounterMethod, HIRE_CONDITIONS, HireCondition } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +53,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "deposit must be a number." }, { status: 400 });
     const result = await takeHire(code, deposit as number | undefined);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+    await logAction(admin, {
+      venueId,
+      action: "hire.taken",
+      bookingCode: result.hire.bookingCode,
+      detail: `${result.hire.name}: kit handed out, ${money(result.hire.deposit)} deposit held`,
+    });
     return NextResponse.json({ hire: result.hire, booking: result.booking });
   }
 
@@ -74,5 +82,15 @@ export async function POST(req: NextRequest) {
     via: via as CounterMethod | undefined,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  // Money kept back from a deposit is the venue's takings: who kept it, how much, and why.
+  const kept = result.hire.withheld ?? 0;
+  await logAction(admin, {
+    venueId,
+    action: "hire.returned",
+    bookingCode: result.hire.bookingCode,
+    detail: `${result.hire.name}: kit back (${result.hire.condition ?? condition}); ${
+      kept > 0 ? `${money(kept)} of ${money(result.hire.deposit)} kept${via ? ` (${via as string})` : ""}` : `${money(result.hire.deposit)} deposit given back`
+    }${result.hire.note ? `: ${result.hire.note}` : ""}`,
+  });
   return NextResponse.json({ hire: result.hire, booking: result.booking });
 }

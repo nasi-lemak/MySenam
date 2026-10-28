@@ -81,6 +81,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/integrity$/, methods: "all" },
   // Which of the venue's policies its managers may override for one booking (lib/policy-overrides.ts; ADR 0026).
   { path: /^\/api\/admin\/policy-overrides$/, methods: ["POST"] },
+  // Changing a class's or a tournament's places and price after it is set up, as setting it up is (lib/class-changes.ts, lib/tournaments.ts).
+  { path: /^\/api\/admin\/(classes|tournaments)\/\d+$/, methods: ["PATCH"] },
 ];
 
 export type StaffRole = "manager" | "desk";

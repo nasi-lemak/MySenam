@@ -4,6 +4,7 @@ import { adminCancelBooking, courtDaysFor, courtZone, getCourt, releaseBlockTime
 import { addDays, isValidDateString, todayISO } from "./time";
 import { claim, isConflict, lockCourts, occupantsOn, unclaim, type Occupant } from "./claims";
 import { DAY_MINUTES, freeWithin, hoursOf, merge, overlaps, type Span } from "./interval";
+import type { Booking, ClassSession } from "./types";
 
 /**
  * A court out of service for days at a time — resurfacing, a torn net, a
@@ -145,7 +146,13 @@ async function claimOutage(outageId: number, courtId: number, startsOn: string, 
 }
 
 export type OutageResult =
-  | { ok: true; outage: Outage; cancelled: number }
+  | {
+      ok: true;
+      outage: Outage;
+      cancelled: number;
+      bookingsOff?: Booking[];
+      classesOff?: { session: ClassSession; enrolments: Booking[] }[];
+    }
   | { ok: false; error: string; affected?: Affected[] };
 
 export async function createOutage(input: {
@@ -185,6 +192,9 @@ export async function createOutage(input: {
   });
 
   let cancelled = 0;
+  // What it called off, for the activity log (api/admin/outages): each booking, and each class with its enrolments.
+  const bookingsOff: Booking[] = [];
+  const classesOff: { session: ClassSession; enrolments: Booking[] }[] = [];
   // A booking can land while what was there is being cancelled: the court is
   // closed in one transaction that finds nothing in the way, or it goes round
   // again for what arrived (a few times, then it says so).
@@ -206,12 +216,16 @@ export async function createOutage(input: {
     // refunded or messaged for a court that then failed to close.
     for (const a of affected) {
       if (a.kind === "class") {
-        if ((await cancelClassAndTell(Number(a.ref))).ok) cancelled++;
+        const off = await cancelClassAndTell(Number(a.ref));
+        if (!off.ok) continue;
+        cancelled++;
+        if (off.session) classesOff.push({ session: off.session, enrolments: off.cancelled ?? [] });
         continue;
       }
       const done = await adminCancelBooking(a.ref);
       if (!done.ok) continue;
       cancelled++;
+      bookingsOff.push(done.booking);
       await notifyVenueCancelled(done.booking);
     }
     if (affected.length > 0) await tickOutbox();
@@ -249,7 +263,7 @@ export async function createOutage(input: {
       closed = null;
     }
     if (closed && !closed.ok) return closed;
-    if (closed) return { ok: true, outage: (await outageById(closed.id))!, cancelled };
+    if (closed) return { ok: true, outage: (await outageById(closed.id))!, cancelled, bookingsOff, classesOff };
   }
   return { ok: false, error: "Bookings keep arriving for those days. Try again in a moment." };
 }

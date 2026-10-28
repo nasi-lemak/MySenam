@@ -276,6 +276,11 @@ are not announced back to the desk.
   (*Alerts written in*; `venues.alert_locale`), else the install's first
   staff language, their hours as it writes them
   ([a language of their own](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches)).
+- Where the venue asked, customers' online cancellations and changes are
+  announced the same way, in the same language (kind `venue_booking_change`,
+  template `mysenam_venue_booking_change`, prepared and not yet submitted to
+  Meta); which ones, and how far ahead, is in
+  [booking alerts](../features/venue-operations.md#booking-alerts).
 
 A lesson's confirmation names the coach where it names the court (*Court 1,
 lesson with Ana Lim*). A booking, class enrolment or waiting-list offer made for

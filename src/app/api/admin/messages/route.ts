@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { listMessages, listPlatformMessages, messageById, outboxSummary, retryMessage } from "@/lib/outbox";
 import { tickOutbox } from "@/lib/notify";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,13 @@ export async function POST(req: NextRequest) {
   const retried = await retryMessage(id as number, recipient as string | undefined);
   if (!retried) return NextResponse.json({ error: "Message not found." }, { status: 404 });
   if (!retried.ok) return NextResponse.json({ error: retried.error }, { status: 409 });
+  // Who sent it again, and where, when staff gave a corrected address or number.
+  const redirected = typeof recipient === "string" && recipient.trim() !== "" && recipient.trim() !== existing.recipient;
+  await logAction(admin, {
+    venueId: existing.venueId,
+    action: "message.resent",
+    detail: `${existing.kind.replace(/_/g, " ")} (${existing.channel}) message ${existing.id}${redirected ? ` to ${retried.message.recipient}, not ${existing.recipient}` : ""}`,
+  });
   await tickOutbox();
   return NextResponse.json({ message: retried.message });
 }

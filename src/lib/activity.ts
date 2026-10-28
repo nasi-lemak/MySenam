@@ -1,6 +1,9 @@
 import type { NextRequest } from "next/server";
 import { getDb } from "./db";
 import { getSessionAdmin, type Admin } from "./admin-auth";
+import { formatMinute } from "./interval";
+import { money } from "./region";
+import type { Booking, ClassSession } from "./types";
 
 /**
  * Who did what: the staff activity log.
@@ -92,4 +95,40 @@ export async function listActivity(
     detail: r.detail,
     createdAt: r.created_at,
   }));
+}
+
+/**
+ * One `booking.cancelled` entry for each booking a bulk action called off
+ * (a closed day, a cancelled class), worded as the single cancellation's
+ * (api/admin/bookings/cancel) with what did it, so "who cancelled my
+ * booking?" has an answer by the booking's code however it went.
+ */
+export async function logCancelledBookings(
+  admin: Pick<Admin, "name"> & { id: number | null },
+  venueId: number,
+  bookings: Pick<Booking, "code" | "date" | "startMin" | "name" | "totalPrice" | "paymentStatus">[],
+  why: string
+): Promise<void> {
+  for (const b of bookings)
+    await logAction(admin, {
+      venueId,
+      action: "booking.cancelled",
+      bookingCode: b.code,
+      detail: `${b.date} ${formatMinute(b.startMin)}, ${b.name}, ${money(b.totalPrice)}${b.paymentStatus === "paid" ? " (was paid)" : ""}; ${why}`,
+    });
+}
+
+/** A class called off: one `class.cancelled` entry with its count, and a `booking.cancelled` for each enrolment it cancelled. */
+export async function logClassCancelled(
+  admin: Pick<Admin, "name"> & { id: number | null },
+  session: Pick<ClassSession, "id" | "venueId" | "name" | "date" | "startMin">,
+  enrolments: Parameters<typeof logCancelledBookings>[2],
+  why?: string
+): Promise<void> {
+  await logAction(admin, {
+    venueId: session.venueId,
+    action: "class.cancelled",
+    detail: `${session.name}, ${session.date} ${formatMinute(session.startMin)}: ${enrolments.length} enrolment(s) cancelled${why ? `; ${why}` : ""}`,
+  });
+  await logCancelledBookings(admin, session.venueId, enrolments, `class ${session.name} cancelled${why ? `, ${why}` : ""}`);
 }

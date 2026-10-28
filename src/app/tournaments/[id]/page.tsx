@@ -500,15 +500,16 @@ function HeldEntry({
     <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm">
       <span className="font-medium text-teal-900">{label}</span>
       <span className="flex flex-wrap items-center gap-3">
-        {e.status === "entered" && x.entryFee > 0 &&
+        {/* The fee as it was when this entry was made: a later change is for new entries. */}
+        {e.status === "entered" && (e.fee ?? x.entryFee) > 0 &&
           (e.paid ? (
             <span className="font-semibold text-emerald-700">{t("tour.feePaid")}</span>
           ) : x.payOnline ? (
             <button onClick={() => void act({ action: "pay", ...(entryId ? { entryId } : {}) })} className={button}>
-              {forName ? t("fin5.tour.payFeeFor", { name: forName, amount: x.entryFee.toFixed(2) }) : t("tour.payFee", { amount: x.entryFee.toFixed(2) })}
+              {forName ? t("fin5.tour.payFeeFor", { name: forName, amount: (e.fee ?? x.entryFee).toFixed(2) }) : t("tour.payFee", { amount: (e.fee ?? x.entryFee).toFixed(2) })}
             </button>
           ) : (
-            <span>{t("tour.payAtVenue", { amount: x.entryFee.toFixed(2) })}</span>
+            <span>{t("tour.payAtVenue", { amount: (e.fee ?? x.entryFee).toFixed(2) })}</span>
           ))}
         {(x.status === "open" || x.status === "closed") && (
           <button onClick={() => void act({ action: "withdraw", ...(entryId ? { entryId } : {}) })} className="text-slate-600 underline">

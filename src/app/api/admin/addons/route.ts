@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createAddon, listAddons, readAddonInput } from "@/lib/addons";
 import { jsonObject } from "@/lib/api";
+import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -32,5 +34,10 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
   const made = await createAddon(venueId, readAddonInput(b));
   if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 });
+  await logAction(admin, {
+    venueId,
+    action: "addon.created",
+    detail: `${made.value.name} (${made.value.kind}), ${money(made.value.price)}${made.value.stock !== null ? `, ${made.value.stock} in stock` : ""}`,
+  });
   return NextResponse.json({ addon: made.value, addons: await listAddons(venueId) }, { status: 201 });
 }

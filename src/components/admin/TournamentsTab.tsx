@@ -19,6 +19,7 @@ import type { RefusalBody } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { CounterEntry } from "./CounterEntry";
+import { TournamentDetailsEditor } from "./TournamentDetailsEditor";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
 
@@ -143,7 +144,7 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {open ? (
-        <Manage tn={open} venue={venue} post={post} call={call} close={() => setOpen(null)} />
+        <Manage tn={open} venue={venue} post={post} call={call} close={() => setOpen(null)} replace={(tn) => { setOpen(tn); void load(); }} />
       ) : (
         <>
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1005,18 +1006,22 @@ function Manage({
   post,
   call,
   close,
+  replace,
 }: {
   tn: TournamentDetail;
   venue: ManagedVenue;
   post: (url: string, body: object) => Promise<boolean>;
   call: (url: string, body: object) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
   close: () => void;
+  /** The tournament as a change left it. */
+  replace: (tn: TournamentDetail) => void;
 }) {
   const t = useStaffT();
   const clock = useStaffClock();
   const names = new Map(tn.entries.map((e) => [e.id, e.name]));
   const base = `/api/admin/tournaments/${tn.id}`;
   const [said, setSaid] = useState<Said[]>([]);
+  const [editingDetails, setEditingDetails] = useState(false);
   const [fixing, setFixing] = useState<{ matchId: number; input: ResultInput; preview: CorrectionPreview } | null>(null);
 
   /** Out of the competition, after seeing what it changes. */
@@ -1061,6 +1066,11 @@ function Manage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {(tn.status === "open" || tn.status === "closed") && (
+            <button onClick={() => setEditingDetails(!editingDetails)} className={small}>
+              {t("p8c.tn.edit")}
+            </button>
+          )}
           {tn.status === "open" && (
             <button onClick={() => void post(base, { action: "close" })} className={small}>
               {t("tn.closeEntries")}
@@ -1093,6 +1103,19 @@ function Manage({
           )}
         </div>
       </div>
+
+      {editingDetails && (tn.status === "open" || tn.status === "closed") && (
+        <TournamentDetailsEditor
+          key={tn.id}
+          tn={tn}
+          onClose={() => setEditingDetails(false)}
+          onSaved={(now, notice) => {
+            setEditingDetails(false);
+            setSaid([{ text: notice }]);
+            replace(now);
+          }}
+        />
+      )}
 
       {tn.format !== "performance" && tn.status !== "cancelled" && tn.status !== "finished" && <ResultsByPeople tn={tn} />}
 
@@ -1185,7 +1208,7 @@ function Manage({
                   )}
                 </td>
                 <td>
-                  {tn.entryFee > 0 && (
+                  {(e.fee ?? tn.entryFee) > 0 && (
                     <button onClick={() => void post(`${base}/entries/${e.id}`, { paid: !e.paid })} className={`${small} ${e.paid ? "bg-emerald-50 text-emerald-700" : ""}`}>
                       {e.paid ? t("tn.paidMark") : t("tn.unpaidMark")}
                     </button>

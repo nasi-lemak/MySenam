@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { logAction } from "@/lib/activity";
+import { logAction, logCancelledBookings, logClassCancelled } from "@/lib/activity";
+import type { Booking } from "@/lib/types";
 import { rainOut } from "@/lib/rain-outs";
 import { formatMinute } from "@/lib/interval";
 import { readMinute } from "@/lib/api";
@@ -33,11 +34,17 @@ export async function POST(req: NextRequest) {
     preview: body.preview === true,
   });
   if (!result.ok) return NextResponse.json(result, { status: 400 });
-  if (body.preview !== true)
+  const { classesOff, ...shown } = result;
+  if (body.preview !== true) {
     await logAction(admin, {
       venueId: body.venueId as number,
       action: "booking.cancelled",
       detail: `Rained off ${body.date} ${formatMinute(readMinute(body, "fromMin", "fromHour"))}–${formatMinute(readMinute(body, "untilMin", "untilHour"))}: ${result.bookings.length} booking(s), ${result.classes} class(es) called off`,
     });
-  return NextResponse.json(result);
+    // And each one under its own code, as a closed day's are.
+    const why = `rained off ${String(body.date)}`;
+    for (const c of classesOff ?? []) await logClassCancelled(admin, c.session, c.enrolments, why);
+    await logCancelledBookings(admin, body.venueId as number, result.bookings as Booking[], why);
+  }
+  return NextResponse.json(shown);
 }

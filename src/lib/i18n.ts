@@ -2765,6 +2765,13 @@ const EN = {
   "p8a.msg.keptAll": "As its late-cancellation terms say, the venue kept what you paid.",
   // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
   "err.NAME_TOO_LONG": "Please keep the name to {max} characters.",
+  // p8c: to the venue, where it asked, when a customer cancels or changes a booking online (lib/notify.ts alertVenueChange).
+  "p8c.msg.venueChangeSubject": "Booking {what}: {when}",
+  "p8c.msg.venueChange": "A booking was {what} online.\n\n{name}, {phone}\n{where}\n{when}\n\nCode {code}. Your Bookings list shows it as it is now.",
+  "p8c.msg.whatCancelled": "cancelled",
+  "p8c.msg.whatChanged": "changed",
+  "p8c.msg.whatChangedFrom": "changed (it was {was})",
+  "p8c.msg.whatWithdrawn": "changed (somebody taken off it)",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5479,6 +5486,13 @@ const MS: Record<Phrase, string> = {
   "p8a.msg.keptAll": "Mengikut terma pembatalan lewatnya, pusat ini menyimpan bayaran anda.",
   // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
   "err.NAME_TOO_LONG": "Sila hadkan nama kepada {max} aksara.",
+  // p8c
+  "p8c.msg.venueChangeSubject": "Tempahan {what}: {when}",
+  "p8c.msg.venueChange": "Satu tempahan telah {what} dalam talian.\n\n{name}, {phone}\n{where}\n{when}\n\nKod {code}. Senarai Tempahan anda menunjukkannya seperti sekarang.",
+  "p8c.msg.whatCancelled": "dibatalkan",
+  "p8c.msg.whatChanged": "diubah",
+  "p8c.msg.whatChangedFrom": "diubah (asalnya {was})",
+  "p8c.msg.whatWithdrawn": "diubah (seorang dikeluarkan daripadanya)",
 };
 
 /** Exported so a test can hold the two languages against each other. */

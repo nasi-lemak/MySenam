@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { goLiveStatus, requestGoLive } from "@/lib/applications";
 import { jsonObject } from "@/lib/api";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -39,5 +40,10 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
   const result = await requestGoLive(admin, venueId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, {
+    venueId,
+    action: "venue.go_live",
+    detail: result.live ? "Put the venue live" : "Sent the venue to the platform to go live",
+  });
   return NextResponse.json({ live: result.live, status: await goLiveStatus(venueId) });
 }

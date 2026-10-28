@@ -2604,6 +2604,13 @@ export const TA: Record<Phrase, string> = {
   "p8a.msg.keptAll": "அதன் தாமத ரத்து விதிமுறைகளின்படி, நீங்கள் செலுத்தியதை மையம் வைத்துக்கொண்டது.",
   // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
   "err.NAME_TOO_LONG": "பெயரை {max} எழுத்துகளுக்குள் வையுங்கள்.",
+  // p8c
+  "p8c.msg.venueChangeSubject": "முன்பதிவு {what}: {when}",
+  "p8c.msg.venueChange": "ஒரு முன்பதிவு ஆன்லைனில் {what}.\n\n{name}, {phone}\n{where}\n{when}\n\nகுறியீடு {code}. உங்கள் முன்பதிவுகள் பட்டியல் அதை இப்போதுள்ளபடி காட்டுகிறது.",
+  "p8c.msg.whatCancelled": "ரத்து செய்யப்பட்டது",
+  "p8c.msg.whatChanged": "மாற்றப்பட்டது",
+  "p8c.msg.whatChangedFrom": "மாற்றப்பட்டது (முன்பு {was})",
+  "p8c.msg.whatWithdrawn": "மாற்றப்பட்டது (ஒருவர் நீக்கப்பட்டார்)",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */
