@@ -210,7 +210,15 @@ out to (name, phone, account) and the people its lines name go
   restored copy's receipts the same way, and the retention run that follows
   catches the rest ([backups](../operations/backups.md#after-a-restore)).
 - **Not reached**: an e-invoice already sent to LHDN keeps what it said
-  there (and its copy in `e_invoices`); a reason staff typed for a credit
+  there, and its copy in `e_invoices` is never changed or deleted
+  ([MyInvois](../integrations/myinvois.md#states-and-what-never-changes));
+  one not yet sent is built from the receipt when it is sent, so a name
+  cleared before then is not sent, and a venue can leave names out of
+  e-invoice lines altogether
+  ([names in what is sent](../integrations/myinvois.md#names-in-what-is-sent)).
+  The details a customer gave for their own e-invoice (name, TIN, ID
+  number, email, phone, address) stay with it in `e_invoices`, sent or not:
+  no retention rule or erasure clears them. A reason staff typed for a credit
   top-up loses only the names known for the receipt; coaches' names on lesson receipts stay (they are
   the venue's staff); messages and the staff activity log follow their own
   retention.

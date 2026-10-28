@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EInvoice, EInvoiceSettings } from "@/lib/myinvois";
 import { STATE_CODES } from "@/lib/myinvois/states";
-import { intlTag, money, region } from "@/lib/region";
+import { clockTime, intlTag, money, region } from "@/lib/region";
 import type { Locale } from "@/lib/i18n";
 import type { ManagedVenue } from "./shared";
 import { useStaffT } from "./StaffLanguage";
@@ -12,6 +12,11 @@ import { useStaffT } from "./StaffLanguage";
  * LHDN e-invoicing (MyInvois) for a Malaysian venue: its tax details, how
  * MySenam reaches MyInvois for it, and what has been sent. Off until a
  * manager turns it on; sandbox until they say production.
+ *
+ * Each document says where it stands, what was sent and when, LHDN's
+ * identifiers and reasons as LHDN gave them, and what can be done next:
+ * only what the server lists in its `actions` is offered
+ * (docs/integrations/myinvois.md#states-and-what-never-changes).
  */
 
 const TONE: Record<EInvoice["status"], string> = {
@@ -20,6 +25,8 @@ const TONE: Record<EInvoice["status"], string> = {
   valid: "bg-emerald-100 text-emerald-800",
   invalid: "bg-rose-100 text-rose-800",
   failed: "bg-amber-100 text-amber-800",
+  rejected: "bg-rose-100 text-rose-800",
+  cancelled: "bg-slate-200 text-slate-700",
 };
 
 type Form = {
@@ -39,6 +46,7 @@ type Form = {
   stateCode: string;
   phone: string;
   email: string;
+  leaveNamesOut: boolean;
 };
 
 const blank = (s: EInvoiceSettings): Form => ({
@@ -58,17 +66,14 @@ const blank = (s: EInvoiceSettings): Form => ({
   stateCode: s.stateCode ?? "",
   phone: s.phone ?? "",
   email: s.email ?? "",
+  leaveNamesOut: s.leaveNamesOut,
 });
 
-const when = (at: string, locale: Locale) =>
-  new Date(at.includes("Z") || at.includes("+") ? at : `${at.replace(" ", "T")}Z`).toLocaleString(intlTag(locale), {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: region().timeZone,
-  });
+const when = (at: string, locale: Locale) => {
+  const d = new Date(at.includes("Z") || at.includes("+") ? at : `${at.replace(" ", "T")}Z`);
+  const zone = region().timeZone;
+  return `${d.toLocaleDateString(intlTag(locale), { day: "numeric", month: "short", timeZone: zone })} ${clockTime(d, zone, locale)}`;
+};
 
 export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
@@ -78,6 +83,8 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
     valid: t("einv.status.valid"),
     invalid: t("einv.status.invalid"),
     failed: t("einv.status.failed"),
+    rejected: t("ei7.status.rejected"),
+    cancelled: t("ei7.status.cancelled"),
   };
   const KIND: Record<EInvoice["kind"], string> = {
     consolidated: t("einv.kind.consolidated"),
@@ -89,6 +96,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
   const [form, setForm] = useState<Form | null>(null);
   const [list, setList] = useState<EInvoice[]>([]);
   const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -132,6 +140,30 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
     }
   }
 
+  /** What staff can do next with a document in its state: the same rules the server applies (`actions`). */
+  const nextStep = (e: EInvoice): string => {
+    if (e.replacedByCode) return t("ei7.next.replaced");
+    if (e.waitingFor) return t("ei7.waitingFor", { code: e.waitingFor });
+    if (e.replaceBlocked === "consolidated") return t("ei7.next.blockedConsolidated");
+    if (e.replaceBlocked === "newer") return t("ei7.next.blockedNewer");
+    if (e.actions.includes("replace"))
+      return e.kind === "individual" && e.buyerName ? `${t("ei7.next.refused")} ${t("ei7.next.customerDetails")}` : t("ei7.next.refused");
+    switch (e.status) {
+      case "pending":
+        return t("ei7.next.pending");
+      case "failed":
+        return t("ei7.next.failed");
+      case "submitted":
+        return t("ei7.next.submitted");
+      case "valid":
+        return t("ei7.next.valid");
+      case "cancelled":
+        return t("ei7.next.cancelled");
+      default:
+        return t("ei7.next.refused");
+    }
+  };
+
   const input = "w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
   const field = (key: keyof Form, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) =>
     form && (
@@ -173,6 +205,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
           <li>{t("einv.beforeLarge")}</li>
           <li>{t("einv.beforeOnlyHere")}</li>
           <li>{t("einv.beforeResponsible")}</li>
+          <li>{t("ei7.beforeUnverified")}</li>
         </ul>
       </div>
       {error && <p className="mt-2 text-sm text-rose-700">{error}</p>}
@@ -266,9 +299,18 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                   {t("einv.on")}
                 </label>
               </div>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.leaveNamesOut}
+                  onChange={(e) => setForm({ ...form, leaveNamesOut: e.target.checked })}
+                  className="mt-1"
+                />
+                <span>{t("ei7.leaveNamesOut")}</span>
+              </label>
               {form.enabled && !form.sandbox && (
                 <p className="rounded-md bg-rose-50 p-2 text-sm text-rose-800">
-                  {t("einv.productionWarning")}
+                  {t("ei7.productionWarning")}
                 </p>
               )}
               <div className="flex flex-wrap gap-2">
@@ -316,30 +358,95 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
       {list.length > 0 && (
         <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
           {list.map((e) => (
-            <li key={e.id} className="flex flex-wrap items-start justify-between gap-2 p-3">
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {e.codeNumber} <span className="font-normal text-slate-500">· {KIND[e.kind]}{e.buyerName ? `, ${e.buyerName}` : ""}</span>
-                </p>
-                <p className="text-slate-500">
-                  {money(e.total)}
-                  {e.refersCode && ` · ${t("einv.corrects", { code: e.refersCode })}`} · {when(e.submittedAt ?? e.createdAt, t.locale)}
-                </p>
-                {e.error && <p className="mt-1 text-rose-700">{e.error}</p>}
+            <li key={e.id} className="space-y-1 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {e.codeNumber}{" "}
+                    <span className="font-normal text-slate-500">
+                      · {e.largeSale ? t("ei7.kind.largeSale") : KIND[e.kind]}
+                      {e.buyerName ? `, ${e.buyerName}` : ""}
+                    </span>
+                  </p>
+                  <p className="text-slate-500">
+                    {money(e.total)}
+                    {e.refersCode && ` · ${t("einv.corrects", { code: e.refersCode })}`} ·{" "}
+                    {e.submittedAt ? t("ei7.sentAt", { when: when(e.submittedAt, t.locale) }) : when(e.createdAt, t.locale)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TONE[e.status]}`}>{STATUS[e.status]}</span>
+                  {e.link && (
+                    <a href={e.link} target="_blank" rel="noreferrer" className="text-teal-700 hover:underline">
+                      {t("einv.viewAtLhdn")}
+                    </a>
+                  )}
+                  {e.actions.includes("send") && (
+                    <button type="button" disabled={busy} onClick={() => void act({ action: "retry", id: e.id }, t("ei7.sent"))} className="text-teal-700 hover:underline">
+                      {t("ei7.send")}
+                    </button>
+                  )}
+                  {e.actions.includes("replace") && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        if (window.confirm(t("ei7.replaceConfirm", { code: e.codeNumber }))) void act({ action: "retry", id: e.id }, t("ei7.replaced"));
+                      }}
+                      className="text-teal-700 hover:underline"
+                    >
+                      {t("ei7.replace")}
+                    </button>
+                  )}
+                  {e.actions.includes("recheck") && (
+                    <button type="button" disabled={busy} onClick={() => void act({ action: "recheck", id: e.id }, t("ei7.rechecked"))} className="text-teal-700 hover:underline">
+                      {t("ei7.recheck")}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TONE[e.status]}`}>{STATUS[e.status]}</span>
-                {e.link && (
-                  <a href={e.link} target="_blank" rel="noreferrer" className="text-teal-700 hover:underline">
-                    {t("einv.viewAtLhdn")}
-                  </a>
-                )}
-                {(e.status === "failed" || e.status === "invalid") && (
-                  <button type="button" disabled={busy} onClick={() => void act({ action: "retry", id: e.id }, t("einv.sentAgain"))} className="text-teal-700 hover:underline">
-                    {t("einv.sendAgain")}
+              {e.replacesCode && <p className="text-slate-600">{t("ei7.replaces", { code: e.replacesCode })}</p>}
+              {e.replacedByCode && <p className="text-slate-600">{t("ei7.replacedBy", { code: e.replacedByCode })}</p>}
+              {e.error && (
+                <p className="text-rose-700">
+                  {e.status === "rejected"
+                    ? t("ei7.refusedWhy", { why: e.error })
+                    : e.status === "invalid"
+                      ? t("ei7.invalidWhy", { why: e.error })
+                      : t("ei7.notSentWhy", { why: e.error })}
+                </p>
+              )}
+              {(e.submissionUid || e.uuid) && (
+                <p className="break-all font-mono text-xs text-slate-500">
+                  {[
+                    e.submissionUid && `${t("ei7.submissionId")} ${e.submissionUid}`,
+                    e.uuid && `${t("ei7.uuid")} ${e.uuid}`,
+                    e.longId && `${t("ei7.longId")} ${e.longId}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+              {e.checkedAt && <p className="text-xs text-slate-500">{t("ei7.checkedAt", { when: when(e.checkedAt, t.locale) })}</p>}
+              {e.correctedBy.length > 0 && <p className="text-slate-600">{t("ei7.correctedBy", { list: e.correctedBy.join(t("srv.list.comma")) })}</p>}
+              <p className="text-xs text-slate-600">{nextStep(e)}</p>
+              {e.sentLines && (
+                <div>
+                  <button type="button" className="text-xs font-medium text-teal-700 hover:underline" onClick={() => setShown(shown === e.id ? null : e.id)}>
+                    {shown === e.id ? t("ei7.hideSent") : t("ei7.showSent")}
                   </button>
-                )}
-              </div>
+                  {shown === e.id && (
+                    <ul className="mt-1 space-y-0.5 rounded-md bg-slate-50 p-2 text-xs text-slate-700">
+                      {e.sentLines.map((l, i) => (
+                        <li key={i} className="flex justify-between gap-3">
+                          <span className="min-w-0 break-words">{l.description}</span>
+                          <span className="shrink-0">{money(l.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>

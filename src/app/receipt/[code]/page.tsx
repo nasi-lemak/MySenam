@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { receiptFor, receiptLineText } from "@/lib/receipts";
 import { serverT } from "@/lib/locale";
 import { money, region } from "@/lib/region";
-import { einvoiceForReceipt } from "@/lib/myinvois";
+import { einvoiceForReceipt, REFUSED_STATUSES } from "@/lib/myinvois";
 import { localDateOf } from "@/lib/time";
 import { PrintButton } from "@/components/PrintButton";
 import { EInvoiceRequest } from "@/components/EInvoiceRequest";
@@ -119,17 +119,32 @@ export default async function ReceiptPage({
         </p>
       )}
       {einvoice?.einvoice ? (
-        <p className="rounded-lg border border-slate-200 p-3 text-slate-700">
-          {t("einv.yours", { code: einvoice.einvoice.codeNumber })}: {t(`einv.status.${einvoice.einvoice.status}`)}.
-          {einvoice.einvoice.link && (
+        <>
+          <p className="rounded-lg border border-slate-200 p-3 text-slate-700">
+            {t("einv.yours", { code: einvoice.einvoice.codeNumber })}:{" "}
+            {einvoice.einvoice.status === "rejected"
+              ? t("ei7.status.rejected")
+              : einvoice.einvoice.status === "cancelled"
+                ? t("ei7.status.cancelled")
+                : t(`einv.status.${einvoice.einvoice.status}`)}
+            .
+            {einvoice.einvoice.link && (
+              <>
+                {" "}
+                <a href={einvoice.einvoice.link} target="_blank" rel="noreferrer" className="font-medium text-teal-700 underline">
+                  {t("einv.view")}
+                </a>
+              </>
+            )}
+          </p>
+          {/* One LHDN refused or cancelled, nothing sent in its place: the customer may ask again while the month is open. */}
+          {einvoice.available && REFUSED_STATUSES.includes(einvoice.einvoice.status) && typeof token === "string" && (
             <>
-              {" "}
-              <a href={einvoice.einvoice.link} target="_blank" rel="noreferrer" className="font-medium text-teal-700 underline">
-                {t("einv.view")}
-              </a>
+              <p className="text-slate-600">{t("ei7.askAgain")}</p>
+              <EInvoiceRequest refCode={ref} token={token} />
             </>
           )}
-        </p>
+        </>
       ) : (
         einvoice?.available && typeof token === "string" && <EInvoiceRequest refCode={ref} token={token} />
       )}

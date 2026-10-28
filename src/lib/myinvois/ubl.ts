@@ -5,6 +5,12 @@ import crypto from "crypto";
  * version 1.0 (no digital signature), shaped after LHDN's own samples
  * (sdk.myinvois.hasil.gov.my/sample). Every value is `[{ "_": value }]`, with
  * attributes beside `_`. Nothing here talks to LHDN; it only writes.
+ *
+ * UNVERIFIED: the shape, version 1.0 without a digital signature, the
+ * general public's TIN, classifications 004 and 022, tax types 02 and 06 and
+ * the state codes are read from LHDN's published samples and code lists,
+ * not checked in the sandbox; LHDN may require a later version
+ * (docs/integrations/myinvois.md#what-is-assumed-and-not-verified).
  */
 
 export interface Party {

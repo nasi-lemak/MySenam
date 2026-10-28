@@ -258,24 +258,30 @@ describe("the month, consolidated", () => {
 });
 
 describe("when LHDN says no", () => {
-  it("an invalid one says why, and is sent again once put right", async () => {
+  it("an invalid one says why, stays as it was sent, and a replacement goes in its place once put right", async () => {
     const b = await paidIn(laterMonth);
     verdict = "Invalid";
     const asked = await requestEInvoice(b.code, receiptToken(b.code), BUYER);
     if (!asked.ok) throw new Error(asked.error);
     await checkSubmitted(venueId);
     const bad = (await listEInvoices(venueId)).find((e) => e.id === asked.einvoice.id)!;
-    expect(bad).toMatchObject({ status: "invalid", error: "Buyer TIN is not valid" });
+    expect(bad).toMatchObject({ status: "invalid", error: "Buyer TIN is not valid", actions: ["replace"] });
     verdict = "Valid";
-    expect(await retryEInvoice(bad.id, venueId)).toMatchObject({ status: "submitted" });
-    expect(await retryEInvoice(bad.id, venueId)).toBeNull();
+    expect(await retryEInvoice(bad.id, venueId)).toMatchObject({
+      ok: true,
+      einvoice: { status: "submitted", codeNumber: `${bad.codeNumber}-R2`, replacesCode: bad.codeNumber, uuid: `U-${bad.codeNumber}-R2` },
+    });
+    expect(await retryEInvoice(bad.id, venueId)).toMatchObject({ ok: false, error: "It has been replaced already." });
+    const kept = (await listEInvoices(venueId)).find((e) => e.id === bad.id)!;
+    expect(kept).toMatchObject({ status: "invalid", uuid: bad.uuid, submittedAt: bad.submittedAt, replacedByCode: `${bad.codeNumber}-R2`, actions: [] });
   });
 
-  it("one refused at once is marked not sent, with the reason", async () => {
+  it("one refused at once is kept as LHDN refused it, with its submission and the reason", async () => {
     const b = await paidIn(laterMonth);
     rejectNext = "Document hash mismatch";
     const asked = await requestEInvoice(b.code, receiptToken(b.code), BUYER);
-    expect(asked).toMatchObject({ ok: true, einvoice: { status: "failed", error: "Document hash mismatch" } });
+    expect(asked).toMatchObject({ ok: true, einvoice: { status: "rejected", error: "Document hash mismatch", submissionUid: "S1", uuid: null, actions: ["replace"] } });
+    expect(asked.ok && asked.einvoice.sentLines).toHaveLength(1);
   });
 
   it("acts for the venue as an intermediary with the platform's credentials", async () => {

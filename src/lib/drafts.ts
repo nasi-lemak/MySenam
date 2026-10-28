@@ -10,7 +10,7 @@ import { getDb } from "./db";
  * accounts — by the daily retention run (lib/privacy.ts).
  *
  * Except anything that is somebody else's: a pass, a membership or credit
- * sold to a customer, an online payment, an invoice. A draft holding one of
+ * sold to a customer, an online payment, an invoice or an e-invoice. A draft holding one of
  * those is left alone for the platform owner to look at, rather than
  * deleting a record of money.
  */
@@ -38,6 +38,7 @@ export async function staleDrafts(): Promise<{ businessId: number; venueIds: num
           AND NOT EXISTS (
             SELECT 1 FROM venue_invoices i
              WHERE i.business_id = b.id OR i.venue_id IN (SELECT id FROM venues WHERE business_id = b.id))
+          AND NOT EXISTS (SELECT 1 FROM e_invoices e WHERE e.venue_id IN (SELECT id FROM venues WHERE business_id = b.id))
         GROUP BY b.id ORDER BY b.id`
     )
     .all(`-${STALE_DRAFT_DAYS} days`)) as { business_id: number; venue_ids: number[] }[];

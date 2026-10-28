@@ -7,6 +7,7 @@ import {
   einvoiceSettings,
   listEInvoices,
   lastMonthAt,
+  recheckEInvoice,
   retryEInvoice,
   saveEInvoiceSettings,
   submitPending,
@@ -31,8 +32,15 @@ export async function GET(req: NextRequest) {
  * - `save` with the settings' fields;
  * - `test`: sign in to MyInvois with them;
  * - `consolidate`: send last month now, rather than waiting for the scheduler;
- * - `retry` with `id`: send one that failed or was invalid again;
+ * - `retry` with `id`: one never sent, sent as it is; one LHDN refused,
+ *   found invalid or reported cancelled, a new document sent in its place
+ *   (the one refused stays as it was sent);
+ * - `recheck` with `id`: ask LHDN where one it accepted stands now (a
+ *   cancellation made in the MyInvois portal);
  * - `check`: ask LHDN about those sent and not yet decided.
+ *
+ * Each e-invoice in the list says which of `retry` and `recheck` it takes
+ * (`actions`); anything else is refused.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -70,9 +78,16 @@ export async function POST(req: NextRequest) {
     case "retry": {
       if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
       const sent = await retryEInvoice(body.id as number, venueId);
-      if (!sent) return NextResponse.json({ error: "Only one that failed or was found invalid can be sent again." }, { status: 409 });
-      await logAction(admin, { venueId, action: "einvoice.retried", detail: sent.codeNumber });
-      return NextResponse.json({ einvoice: sent });
+      if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: 409 });
+      const code = sent.einvoice.codeNumber;
+      await logAction(admin, { venueId, action: "einvoice.retried", detail: code === sent.from ? code : `${sent.from} → ${code}` });
+      return NextResponse.json({ einvoice: sent.einvoice });
+    }
+    case "recheck": {
+      if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
+      const checked = await recheckEInvoice(body.id as number, venueId);
+      if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 409 });
+      return NextResponse.json({ einvoice: checked.einvoice });
     }
     case "check": {
       await checkSubmitted(venueId);
