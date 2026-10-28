@@ -367,6 +367,13 @@ is offered it); a friend's payment page being opened at the gateway at the very
 moment the booker re-splits keeps the old share, the money taken counted as
 taken ([booking concurrency](../architecture/booking-concurrency.md)) (P3).
 
+Also: a credit note written outside a member of staff's request (a closed
+day, an outage, a rain-out) names nobody in the cash-up and shows only in a
+manager's whole-day view; receipts and payments from before migration 0234 say
+*At the counter* and name nobody; the front desk sells no counter pass until a
+manager adds the venue's pass products
+([cash-up](../features/payments-and-credit.md#cash-up)) (P3).
+
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
 The content security policy still allows inline *styles* (a style cannot run
@@ -866,6 +873,11 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The day list had no filters, cut its actions off on a laptop and had no print view; nothing started a booking from the dashboard, and a click on a free schedule cell blocked the court at once | Filters, an actions menu, a printable day sheet, *New booking*, and *Book this* or *Block* on a free cell | `tests/components/bookings-tab-day.test.tsx` |
 | Staff could change nothing about a class or a tournament once made, short of cancelling it | A class's name, instructor, places (more offered to the waiting list, fewer never below those taken) and price for new enrolments, for one session or the rest of the series; a tournament's name, description, deadline, places and fee for new entries before its draw; a manager's, logged | `tests/class-changes.test.ts`, `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | The venue heard about bookings made online but not about customers' online cancellations and changes | Optional alerts for cancellations and changes, a day ahead unless widened, at the new-booking alerts' address and number, in their language | `tests/booking-change-alerts.test.ts` |
+| Counter top-ups, passes, memberships and entry and league fees could be taken with no record of how they were paid, and nothing added up the till | Every counter sale says how it was paid and who took it; a cash-up by method for the day, from the sales journal, the desk's own shift or a manager's whole day | `tests/cash-up.test.ts` |
+| The front desk typed any price for a pass or a membership | Passes from the venue's products and memberships on its plans at their prices; another price a manager's with a reason, recorded and logged | `tests/counter-prices.test.ts` |
+| A booking's price could not be changed or waived once made | A manager's price adjustment with a reason, before or after a counter payment | `tests/price-adjustments.test.ts` |
+| Memberships, passes, receipts, vouchers and company invoices were long unsearchable lists | Search by code, name or number, status filters, fifty a page | `tests/counter-lists.test.ts` |
+| Reports had no *last month* | A preset beside the existing from and to dates | `tests/components/counter-money.test.tsx` |
 
 ## Production readiness
 

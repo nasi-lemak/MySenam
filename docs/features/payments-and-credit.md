@@ -833,11 +833,11 @@ who counted and who checked it.
   yesterday (a shift past midnight). **A manager** sees everybody's, or one
   person's, on any day.
 - **Who took it** is known for what staff did from this change on: sales,
-  payments marked, fees, voids, adjustments, invoices marked paid. A credit
-  note written by a cancellation is attributed where the route that cancels
-  says who is acting (`asStaff`, lib/acting-staff.ts); one written by the
-  system or a customer's own payment names nobody, and shows only in
-  everybody's.
+  payments marked, fees, voids, adjustments, invoices marked paid, and a
+  booking or series staff cancel (`asStaff`, lib/acting-staff.ts). A credit
+  note written outside a member of staff's request (a closed day, an outage,
+  a rain-out, the scheduler or a customer's own cancellation) names nobody,
+  and shows only in everybody's.
 
 ## Finding a record
 
