@@ -221,7 +221,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B61, M16–M28 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B62, M16–M28 and
 S12–S28, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (114
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -815,6 +815,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B59 | Removing a member of staff who had recorded an induction, sold a membership or a pass, made a promo code or given credit at the counter (or an owner who had decided a venue application) failed with a server error: six links from the first migration had no rule for a removed account; they now keep the record and drop the link (migration 0251), the activity log keeping the name | `tests/staff-accounts.test.ts` |
 | B60 | The front desk could not open the sections of *Venue details* it is shown read-only (Facilities, Photos, Extras, WhatsApp, Who it is for, House rules, Manager overrides, Waiver, Notices), so it could not read the access list, the house rules or the waiver: the buttons that open them were inside the disabled, button-hiding read-only area. Each now keeps its opening button outside and only what opens read-only. Found by the acceptance scenarios (*Invitations AA*) | `tests/components/desk-sees-what-it-may.test.tsx` (also on Postgres), `tests/uat/round7.uat.ts` (Invitations AA) |
 | B61 | Booking rules that narrowed a court's (or a sport's, the venue's or the business's) hours from today saved without looking at bookings already made, leaving them outside the hours; the change is now refused while any would fall outside, every one listed, as narrowing from a date is | `tests/dated-changes.test.ts` |
+| B62 | The hours-from-a-date form named its fields *Opens* and *Closes*, as the usual hours do, so a screen reader heard two of each on the same page; they are named for the date they apply from. Found by the acceptance scenarios (*Venue 1*) | `tests/uat/venue-setup.uat.ts` (Venue 1) |
 
 ### Resolved limitations without a number
 

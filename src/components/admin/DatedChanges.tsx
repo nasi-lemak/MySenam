@@ -179,11 +179,11 @@ export function HoursFromDate({ venueId, current }: { venueId: number; current: 
         </label>
         <label className="flex flex-col font-medium text-slate-500">
           {t("vn.opens")}
-          <ClockField label={t("vn.opens")} value={form.openMin} onChange={(m) => setForm({ ...form, openMin: m })} className={`mt-1 w-28 ${input}`} />
+          <ClockField label={t("r9b.opensFrom")} value={form.openMin} onChange={(m) => setForm({ ...form, openMin: m })} className={`mt-1 w-28 ${input}`} />
         </label>
         <label className="flex flex-col font-medium text-slate-500">
           {t("vn.closes")}
-          <ClockField label={t("vn.closes")} value={form.closeMin} after={form.openMin} onChange={(m) => setForm({ ...form, closeMin: m })} className={`mt-1 w-28 ${input}`} />
+          <ClockField label={t("r9b.closesFrom")} value={form.closeMin} after={form.openMin} onChange={(m) => setForm({ ...form, closeMin: m })} className={`mt-1 w-28 ${input}`} />
         </label>
       </div>
       <div className="mt-2 grid gap-1 sm:grid-cols-2">
