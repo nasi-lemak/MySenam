@@ -1,7 +1,7 @@
 import fs from "fs";
 import { describe, expect, inject } from "vitest";
 import type { Dialog, Page } from "playwright-core";
-import { dayAhead, fitsScreen, freeSlot, gone, scenario, signInOwner, signUp, url, type Actor, type Scenario } from "./harness";
+import { dayAhead, fitsScreen, freeSlot, gone, rowAction, scenario, signInOwner, signUp, url, type Actor, type Scenario } from "./harness";
 import { STAFF_PASSWORD, staffApi, staffSignIn } from "./families";
 
 /**
@@ -467,7 +467,7 @@ async function giveToBen(manager: Actor, customer: Actor, club: Venue, date: str
   const mp = manager.page;
   await mp.getByLabel("Day to show").fill(date);
   const row = mp.locator("tr").filter({ hasText: code });
-  await row.getByRole("button", { name: "Change time" }).click();
+  await rowAction(row, "Change time");
   await coachPick(mp).selectOption({ label: "Ben Tan" });
   const terms = mp.getByTestId("coach-terms");
   await terms.getByText("Ana Lim's fee for this lesson: RM80. Ben Tan's: RM100.").waitFor();

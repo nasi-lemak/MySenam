@@ -1,7 +1,7 @@
 import fs from "fs";
 import { describe, expect, inject } from "vitest";
 import type { Page } from "playwright-core";
-import { bookCourt, freeSlot, scenario, signUp, url, type Actor } from "./harness";
+import { bookCourt, freeSlot, scenario, signUp, url, weekdayDate, type Actor } from "./harness";
 
 /**
  * The links the app emails, followed as the person who receives them would:
@@ -67,11 +67,8 @@ function linkIn(mail: Mail, path: RegExp): string {
   return ours[0];
 }
 
-/** *My booking*, looked up with the code and phone, showing the booking. */
-async function lookUp(page: Page, code: string, phone: string) {
-  await page.getByLabel("Booking code").fill(code);
-  await page.getByLabel("Phone number").fill(phone);
-  await page.getByRole("button", { name: "Find my booking" }).click();
+/** *My booking*, opened by a booking's emailed link: the booking shown without anything typed. */
+async function openedByLink(page: Page, code: string) {
   await page.locator(".font-mono").filter({ hasText: code }).waitFor();
 }
 
@@ -97,17 +94,16 @@ describe.skipIf(!serverLog)("following the links the app emails", () => {
     const mail = await s.step(customer, "receives one confirmation email naming the code and a link to My booking", async () => {
       const m = await emailed(customer.email, new RegExp(`^Booking ${code} confirmed — `));
       expect(m.text).toContain(`Code: ${code}`);
-      expect(m.text).toContain(slot.date);
+      expect(m.text).toContain(weekdayDate(slot.date));
       return m;
     });
 
-    await s.step(customer, "opens the link from the email in a fresh tab, enters the code, and sees that booking", async () => {
+    await s.step(customer, "opens the link from the email in a fresh tab and sees that booking, without typing the code or phone", async () => {
       const link = linkIn(mail, /^\/my-booking$/);
       await page.goto("about:blank");
       await page.goto(link);
-      await page.getByRole("button", { name: "Find my booking" }).waitFor();
-      await lookUp(page, code, customer.phone);
-      expect(await shown(page, "Date").textContent()).toBe(slot.date);
+      await openedByLink(page, code);
+      expect(await shown(page, "Date").textContent()).toBe(weekdayDate(slot.date));
       expect(await shown(page, "Booked by").textContent()).toContain("Customer Tester");
       await page.getByText("Confirmed", { exact: true }).waitFor();
     });
@@ -137,7 +133,7 @@ describe.skipIf(!serverLog)("following the links the app emails", () => {
 
     const offer = await s.step(waiter, "receives one email saying a place has opened up, with a link to claim it", async () => {
       const m = await emailed(waiter.email, /^A place has opened up — /);
-      expect(m.text).toContain(slot.date);
+      expect(m.text).toContain(weekdayDate(slot.date));
       expect(m.text).toContain("held for you for 30 minutes");
       return linkIn(m, /^\/waitlist\/[^/]+$/);
     });
@@ -158,15 +154,18 @@ describe.skipIf(!serverLog)("following the links the app emails", () => {
     await s.step(waiter, "is sent the booking's confirmation, whose link opens My booking showing it as theirs", async () => {
       const m = await emailed(waiter.email, new RegExp(`^Booking ${code} confirmed — `));
       await waiter.page.goto(linkIn(m, /^\/my-booking$/));
-      await lookUp(waiter.page, code, waiter.phone);
-      expect(await shown(waiter.page, "Date").textContent()).toBe(slot.date);
+      await openedByLink(waiter.page, code);
+      expect(await shown(waiter.page, "Date").textContent()).toBe(weekdayDate(slot.date));
       expect(await shown(waiter.page, "Booked by").textContent()).toContain("Waiter Tester");
     });
 
-    await s.step(first, "the same link, opened again by anybody, offers nothing", async () => {
+    await s.step(first, "the same link, opened again by anybody, offers nothing: it says so at once, and claiming it anyway is refused", async () => {
       await first.page.goto(offer);
-      await first.page.getByRole("button", { name: "Claim my place" }).click();
+      // The offer is read before anything is claimed, so a spent one shows no button to claim.
       await first.page.getByText("Offer unavailable").waitFor();
+      expect(await first.page.getByRole("button", { name: "Claim my place" }).count()).toBe(0);
+      const again = await first.api("POST", "/api/waitlist/claim", { token: new URL(offer).pathname.split("/").pop() });
+      expect(again.status, JSON.stringify(again.body)).toBeGreaterThanOrEqual(400);
       expect(await first.page.getByText("The place is yours").count()).toBe(0);
       const mine = (await first.api("GET", "/api/my/bookings")).body.bookings as { code: string; status: string }[];
       expect(mine.filter((b) => b.status === "confirmed").map((b) => b.code)).not.toContain(code);

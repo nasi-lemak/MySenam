@@ -465,7 +465,9 @@ check-in and the door (the owner's decision of 27 October 2026;
   `src/components/MembershipEligibility.tsx`), with **where to renew**: the
   venue's plans on its page (`/venue/:id#membership`) where it sells a
   membership online for that person, else *ask the venue to renew it at the
-  counter*. A renewal starting the day after the old one ends covers the
+  counter*. Following that link closes the booking form, so on a phone its
+  sheet does not cover the plans it leads to
+  (`tests/components/booking-dialogs.test.tsx`). A renewal starting the day after the old one ends covers the
   session, and the booking goes through. The venue page tells a member until
   when their membership runs.
 - **A booking privilege is not taken back.** A booking made inside the

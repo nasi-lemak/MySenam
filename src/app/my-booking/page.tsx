@@ -267,7 +267,8 @@ export default function MyBookingPage() {
           </div>
           {b.status === "cancelled" && kept !== null && kept > 0 && (
             <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-              {t("mine.lateCancelDone", { kept: money(kept) })}
+              {/* All of what was paid kept (a court given back late): nothing goes back, and it says so. */}
+              {t(kept >= b.totalPrice ? "u8.keptAll" : "mine.lateCancelDone", { kept: money(kept) })}
             </p>
           )}
           {b.status === "cancelled" &&

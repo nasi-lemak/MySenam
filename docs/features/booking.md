@@ -959,7 +959,9 @@ refunds and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
   keeping 100%, no credit note, the slot offered again and the waiting list
   told; one never paid for is a strike where the venue counts them. My
   Booking and the account page offer *Give the court back (no refund)* past
-  the cutoff and say so before the customer confirms; the booking terms say
+  the cutoff and say so before the customer confirms, and afterwards that the
+  venue kept what was paid and nothing is refunded (never that a rest goes
+  back; `tests/components/q8a-customer-flows.test.tsx`); the booking terms say
   it before booking. Where the venue (or the sport) keeps a share on a late
   cancellation, that share is what applies. The same terms go for a week of a
   series and for one person taken off a booking. Changing it is logged as any

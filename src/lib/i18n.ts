@@ -2825,6 +2825,8 @@ const EN = {
   "q8b.wl.declinedBody": "Thank you for saying so: the place has gone to the next person waiting, and you are off the list.",
   "q8b.msg.joinedSubject": "On the waiting list — {venue}",
   "q8b.msg.joined": "Hi {name}, you are on the waiting list for {what} at {venue}, {date} {from} (number {position} in line).\n\nIf a place opens up we will tell you, and hold it for you for a short while.\n\nNo longer want it? Leave the list here, so the next person is asked: {leave}",
+  // U8: a late cancellation where the venue kept all that was paid (a court given back): nothing goes back.
+  "u8.keptAll": "Cancelled. The venue kept the {kept} you paid; nothing is refunded.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5598,6 +5600,8 @@ const MS: Record<Phrase, string> = {
   "q8b.wl.declinedBody": "Terima kasih kerana memaklumkan: tempat itu telah diberikan kepada orang seterusnya yang menunggu, dan anda telah keluar dari senarai.",
   "q8b.msg.joinedSubject": "Dalam senarai menunggu — {venue}",
   "q8b.msg.joined": "Hai {name}, anda dalam senarai menunggu untuk {what} di {venue}, {date} {from} (giliran ke-{position}).\n\nJika ada tempat kosong, kami akan memaklumkan anda dan menyimpannya untuk anda seketika.\n\nTidak mahu lagi? Keluar dari senarai di sini supaya orang seterusnya ditanya: {leave}",
+  // U8: pembatalan lewat yang mana pusat menyimpan semua yang dibayar: tiada apa-apa dikembalikan.
+  "u8.keptAll": "Dibatalkan. Pusat menyimpan {kept} yang anda bayar; tiada bayaran balik.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

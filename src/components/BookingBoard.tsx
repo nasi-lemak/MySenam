@@ -1195,7 +1195,7 @@ function BookingForm({
             <div className="text-xs text-slate-500">{t("quote.billed", { len: lengthLabel(t, quote.billedMinutes) })}</div>
           )}
           {quote && !quote.allowed && !override && <div className="text-xs font-medium text-amber-700">{translateError(t, quote)}</div>}
-          {quote?.members && !atCounter && <MembershipEligibility lines={quote.members} date={date} />}
+          {quote?.members && !atCounter && <MembershipEligibility lines={quote.members} date={date} onFollow={onClose} />}
           {remembered && (
             <button
               type="button"

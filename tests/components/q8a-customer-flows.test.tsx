@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 // One router for every render: a page that loads on a change of router would otherwise load for ever.
 const { push, router } = vi.hoisted(() => {
@@ -132,6 +132,23 @@ describe("My Booking from a link (X2-8, X2-4)", () => {
     expect(screen.getByText("0123000111")).toBeTruthy();
   });
 
+  it("a court given back late, all of it kept, says nothing is refunded, never that the rest goes back", async () => {
+    const paid = { ...heldBooking, holdUntil: null, paymentStatus: "paid", date: addDays(todayISO(), 1) };
+    at("/my-booking?code=MS-HELD01&t=abc.def");
+    route = (u, init) =>
+      u.startsWith("/api/bookings?")
+        ? json({ ...found, booking: paid, venue: { ...found.venue, cancelCutoffHours: 1000, lateCancelKeep: null, lateGiveBack: true } })
+        : u === "/api/bookings/cancel" && init?.method === "POST"
+          ? json({ booking: { ...paid, status: "cancelled" }, kept: 22, refunds: [] })
+          : undefined;
+    await show(<MyBookingPage />);
+    const asked = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await act(async () => void screen.getByRole("button", { name: "Give the court back (no refund)" }).click());
+    asked.mockRestore();
+    expect(screen.getByText("Cancelled. The venue kept the RM22 you paid; nothing is refunded.")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("the rest goes back");
+  });
+
   it("a lookup by code and phone puts the booking's link, never the phone, in the address", async () => {
     at("/my-booking");
     route = (u) => (u.startsWith("/api/bookings?") ? json(found) : undefined);
@@ -251,6 +268,25 @@ describe("the account's bookings (X2-4, X2-11)", () => {
     await act(async () => void screen.getByRole("button", { name: "Give the court back (no refund)" }).click());
     expect(asked.mock.calls[0][0]).toContain("giving the court back refunds nothing");
     asked.mockRestore();
+  });
+
+  it("given back, says the venue kept what was paid and nothing is refunded, never that the rest goes back; a share kept still says the rest goes back", async () => {
+    for (const [kept, said] of [
+      [22, "Cancelled. The venue kept the RM22 you paid; nothing is refunded."],
+      [11, "Cancelled. The venue kept RM11; the rest goes back the way you paid."],
+    ] as const) {
+      account([row({ holdUntil: null, paymentStatus: "paid", venueCancelCutoffHours: 1000, venueLateGiveBack: true })]);
+      const answer = route;
+      route = (u, init) => (u === "/api/my/bookings/cancel" && init?.method === "POST" ? json({ kept, refunds: [] }) : answer(u, init));
+      await show(<AccountPage />);
+      const asked = vi.spyOn(window, "confirm").mockReturnValue(true);
+      await act(async () => void screen.getByRole("button", { name: "Give the court back (no refund)" }).click());
+      await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
+      asked.mockRestore();
+      expect(screen.getByText(said)).toBeTruthy();
+      expect(document.body.textContent?.includes("the rest goes back")).toBe(kept < 22);
+      cleanup();
+    }
   });
 
   it("where it does not, the cancel button is as before", async () => {
