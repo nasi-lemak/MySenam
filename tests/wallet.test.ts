@@ -336,7 +336,8 @@ describe("credit below nothing after a chargeback", () => {
     expect(after.customers - before.customers).toBe(1);
     expect(after.balance - before.balance).toBeCloseTo(40);
     expect(after.overdrawn.customers - before.overdrawn.customers).toBe(1);
-    expect(after.overdrawn.owing - before.overdrawn.owing).toBeCloseTo(15);
+    // What the credit paid for, which the charged-back top-up no longer covers (peak or not, by the booking's day).
+    expect(after.overdrawn.owing - before.overdrawn.owing).toBeCloseTo(made.booking.totalPrice);
     // Held minus owed is the whole ledger, entry for entry.
     const ledger = (await getDb().prepare("SELECT COALESCE(SUM(amount), 0)::float AS total FROM wallet_entries").get()) as { total: number };
     expect(after.balance - after.overdrawn.owing).toBeCloseTo(ledger.total);
