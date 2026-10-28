@@ -1,6 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
+import { useStaffMay } from "./StaffMay";
 import { useState } from "react";
 import type { Membership, MembershipSuspensionSummary } from "@/lib/types";
 import type { SuspensionView } from "@/lib/membership-suspensions";
@@ -21,6 +22,8 @@ export function liveSuspension(m: Pick<Membership, "suspensions">, today: string
 export function MembershipSuspension({ membership, onChanged }: { membership: Membership; onChanged: () => void }) {
   const t = useStaffT();
   const clock = useStaffClock();
+  // Suspending and reactivating are a manager's (lib/roles.ts): the desk reads the history.
+  const may = useStaffMay();
   const today = todayLocal();
   const [history, setHistory] = useState<SuspensionView[] | null>(null);
   const [form, setForm] = useState({ from: today, until: "", reason: "" });
@@ -104,7 +107,7 @@ export function MembershipSuspension({ membership, onChanged }: { membership: Me
             ))}
           </ul>
         )}
-        {membership.status === "active" && membership.expiresOn >= today && (
+        {may("membershipSuspend") && membership.status === "active" && membership.expiresOn >= today && (
           <form onSubmit={suspend} className="mt-2 flex flex-wrap items-end gap-2 whitespace-normal">
             <span className="w-full font-medium text-slate-600">{t("ms7.cr.suspendTitle")}</span>
             <label className="flex flex-col text-slate-500">
@@ -124,7 +127,7 @@ export function MembershipSuspension({ membership, onChanged }: { membership: Me
             </button>
           </form>
         )}
-        {live && (
+        {live && may("membershipSuspend") && (
           <form onSubmit={reactivate} className="mt-2 flex flex-wrap items-end gap-2 whitespace-normal">
             <label className="flex flex-col text-slate-500">
               {t("ms7.cr.reactivateReason")}

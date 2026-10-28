@@ -196,4 +196,12 @@ export const ACTION_LABELS: Record<string, string> = {
   "pass_product.retired": "Took a pass off the venue's list",
   "sale.price_set": "Sold a pass or membership at a price other than the list's, saying why",
   "booking.price_adjusted": "Adjusted a booking's price, saying why",
+  // Round 9 (R9A): staff invitations and corrections
+  "staff.invited": "Invited staff",
+  "staff.invitation_resent": "Sent a staff invitation again",
+  "staff.invitation_withdrawn": "Withdrew a staff invitation",
+  "staff.joined": "Accepted a staff invitation",
+  "staff.corrected": "Corrected a member of staff's name",
+  "staff.address_invited": "Invited a member of staff's new email address",
+  "staff.address_changed": "Changed a member of staff's email address",
 };

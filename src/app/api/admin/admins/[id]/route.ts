@@ -1,57 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteAdmin, isManager, isOwner, listAdminsFor, requireAdmin, setStaffRole, type Admin } from "@/lib/admin-auth";
-import { logAction } from "@/lib/activity";
-import { jsonObject } from "@/lib/api";
+import { requireAdmin } from "@/lib/admin-auth";
+import { readJsonObject } from "@/lib/api";
+import { changeRole, correctStaff, managesStaff, removeStaff } from "@/lib/staff-accounts";
 
 export const dynamic = "force-dynamic";
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+const NOT_YOURS = () => NextResponse.json({ error: "Only a manager can do that." }, { status: 403 });
+
+function idOf(raw: string): number | null {
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** Remove an account: signed out everywhere at once (lib/staff-accounts.ts `removeStaff`). */
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
-  if (!isOwner(admin) && !isManager(admin))
-    return NextResponse.json({ error: "Only a business manager or the platform owner can do that." }, { status: 403 });
-
-  const { id } = await params;
-  const adminId = Number(id);
-  if (!Number.isInteger(adminId) || adminId <= 0)
-    return NextResponse.json({ error: "Invalid admin id." }, { status: 400 });
-  if (adminId === admin.id)
-    return NextResponse.json({ error: "You cannot remove your own account." }, { status: 409 });
-
-  // A manager removes only their own business's staff and managers.
-  if (!isOwner(admin) && !(await listAdminsFor(admin)).some((a) => a.id === adminId))
-    return NextResponse.json({ error: "That account is not part of your business." }, { status: 403 });
-
-  const target = (await listAdminsFor(admin)).find((a) => a.id === adminId);
-  const result = await deleteAdmin(adminId);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
-  if (target) await logAction(admin, { venueId: target.venueId, action: "staff.removed", detail: `${target.name} (${target.email})` });
+  if (!managesStaff(admin)) return NOT_YOURS();
+  const adminId = idOf((await params).id);
+  if (adminId === null) return NextResponse.json({ error: "Invalid admin id." }, { status: 400 });
+  const done = await removeStaff(admin, adminId);
+  if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status });
   return NextResponse.json({ ok: true });
 }
 
-/** `{ role: "manager" | "desk" }` for a member of branch staff. */
+/**
+ * `{ role: "manager" | "desk" }` for a member of branch staff, and/or
+ * `{ name, email }` to correct them: a new address is invited, and the
+ * account moves to it when that invitation is accepted (`{ invited: true }`).
+ */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
-  if (!isOwner(admin) && !isManager(admin))
-    return NextResponse.json({ error: "Only a business manager or the platform owner can do that." }, { status: 403 });
-  const adminId = Number((await params).id);
-  let body: Record<string, unknown>;
-  try {
-    body = (await jsonObject(req)) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
-  }
-  if (body.role !== "manager" && body.role !== "desk")
+  if (!managesStaff(admin)) return NOT_YOURS();
+  const adminId = idOf((await params).id);
+  if (adminId === null) return NextResponse.json({ error: "Invalid admin id." }, { status: 400 });
+  const body = await readJsonObject(req);
+  if (body instanceof NextResponse) return body;
+  const correcting = body.name !== undefined || body.email !== undefined;
+  if (body.role === undefined && !correcting) return NextResponse.json({ error: "A manager or front desk." }, { status: 400 });
+  if (body.role !== undefined && body.role !== "manager" && body.role !== "desk")
     return NextResponse.json({ error: "A manager or front desk." }, { status: 400 });
-  const target: Admin | undefined = (await listAdminsFor(admin)).find((a) => a.id === adminId);
-  if (!target) return NextResponse.json({ error: "That account is not part of your business." }, { status: 403 });
-  if (target.venueId === null)
-    return NextResponse.json({ error: "Only branch staff have a role; business managers always manage." }, { status: 409 });
-  await setStaffRole(adminId, body.role);
-  await logAction(admin, { venueId: target.venueId, action: "staff.role", detail: `${target.name}: ${target.role} → ${body.role}` });
-  return NextResponse.json({ ok: true });
+  let invited = false;
+  if (correcting) {
+    const done = await correctStaff(admin, adminId, { name: body.name, email: body.email });
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status });
+    invited = done.invited;
+  }
+  if (body.role === "manager" || body.role === "desk") {
+    const done = await changeRole(admin, adminId, body.role);
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status });
+  }
+  return NextResponse.json({ ok: true, invited });
 }
