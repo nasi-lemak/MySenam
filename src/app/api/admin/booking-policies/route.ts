@@ -2,7 +2,7 @@ import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
-import { describePolicy, policiesFor, policySummary, sportPolicyAt, updatePolicy, venuePolicyLevels, type PolicyScope } from "@/lib/booking-policy";
+import { describePolicy, policiesFor, policySummary, sportPolicyAt, venuePolicyLevels, type PolicyScope } from "@/lib/booking-policy";
 import { getDb } from "@/lib/db";
 import { getCourt } from "@/lib/store";
 import { type Sport } from "@/lib/types";

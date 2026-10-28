@@ -351,7 +351,8 @@ venue's own day, so a 7 AM search only ever returns the venues that are open at
 7 AM, and a 2-hour block is only offered if it still finishes by that venue's
 close.
 
-Narrowing a venue's day is refused while bookings exist outside the proposed
+Narrowing a venue's day, or a court's, a sport's or the business's hours in
+the booking rules, is refused while bookings exist outside the proposed
 hours — otherwise a customer would hold time the venue no longer sells. The
 refusal lists every such booking (date, time, court and code), and staff
 cancel or move them first. Hours saved in the editor apply from today; hours

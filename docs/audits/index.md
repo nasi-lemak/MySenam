@@ -36,7 +36,7 @@ identifiers.
 | X1-10: Staff cannot cancel or move a weekly series as a whole | Partly: the weeks left cancelled together; a whole series is still moved week by week ([known limitations](../roadmap/known-limitations.md#operations-and-security-s)) |
 | X1-11: Staff are not alerted when customers cancel or change online | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-12: Classes and tournaments cannot be edited after they are set up, only cancelled | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
-| X1-13: Opening hours and prices cannot be changed from a future date | Planned: [roadmap](../roadmap/roadmap.md); open in [known limitations](../roadmap/known-limitations.md#operations-and-security-s) |
+| X1-13: Opening hours and prices cannot be changed from a future date | Fixed in round 9: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-14: Staff accounts: a branch manager cannot add or remove desk staff; passwords are set by the manager with no invitation | Fixed in round 9: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-15: A new branch cannot copy an existing branch's set-up | Planned: [roadmap](../roadmap/roadmap.md); open in [known limitations](../roadmap/known-limitations.md#operations-and-security-s) |
 | X1-16: Draft-period test bookings stay in the books after going live | Planned: [roadmap](../roadmap/roadmap.md); open in [known limitations](../roadmap/known-limitations.md#operations-and-security-s) |

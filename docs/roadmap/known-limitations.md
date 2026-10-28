@@ -221,7 +221,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B60, M16–M28 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B61, M16–M28 and
 S12–S28, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (114
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -398,10 +398,17 @@ API get none ([booking](../features/booking.md)) (P3).
 
 Also: the Tournaments and Leagues tabs still show the front desk their set-up
 forms (the server refuses them), and ticking off or hiding the set-up checklist
-is not refused to the desk by the server (the desk is not shown it); opening
-hours and prices change only from today; a new branch starts blank; a test
-booking made before going live stays in the books unless cancelled (the round 8
-audit's X1-13, X1-15 and X1-16, [planned](roadmap.md)) (P2).
+is not refused to the desk by the server (the desk is not shown it); a new
+branch starts blank; a test booking made before going live stays in the books
+unless cancelled (the round 8 audit's X1-15 and X1-16, [planned](roadmap.md))
+(P2). Of hours and prices only opening hours and court rates can be set from a
+later date (peak windows, holidays, set-length prices, fees, concessions and
+membership prices change when saved); once a change applies, earlier periods
+are measured against the hours now (the reports' utilisation, as whenever hours
+change); narrowing hours looks at confirmed bookings, not classes, blocks or
+offers, and is not tested against a booking made at the same moment; the public
+venue page shows today's hours, not announced ones
+([hours from a date](../features/booking.md#hours-from-a-date)) (P3).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -807,6 +814,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B58 | A court given back late with all of it kept told the customer "the rest goes back the way you paid" when nothing does; it now says nothing is refunded | `tests/components/q8a-customer-flows.test.tsx`, `tests/uat/round8.uat.ts` (Late AK) |
 | B59 | Removing a member of staff who had recorded an induction, sold a membership or a pass, made a promo code or given credit at the counter (or an owner who had decided a venue application) failed with a server error: six links from the first migration had no rule for a removed account; they now keep the record and drop the link (migration 0251), the activity log keeping the name | `tests/staff-accounts.test.ts` |
 | B60 | The front desk could not open the sections of *Venue details* it is shown read-only (Facilities, Photos, Extras, WhatsApp, Who it is for, House rules, Manager overrides, Waiver, Notices), so it could not read the access list, the house rules or the waiver: the buttons that open them were inside the disabled, button-hiding read-only area. Each now keeps its opening button outside and only what opens read-only. Found by the acceptance scenarios (*Invitations AA*) | `tests/components/desk-sees-what-it-may.test.tsx` (also on Postgres), `tests/uat/round7.uat.ts` (Invitations AA) |
+| B61 | Booking rules that narrowed a court's (or a sport's, the venue's or the business's) hours from today saved without looking at bookings already made, leaving them outside the hours; the change is now refused while any would fall outside, every one listed, as narrowing from a date is | `tests/dated-changes.test.ts` |
 
 ### Resolved limitations without a number
 
@@ -908,6 +916,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The day list had no filters, cut its actions off on a laptop and had no print view; nothing started a booking from the dashboard, and a click on a free schedule cell blocked the court at once | Filters, an actions menu, a printable day sheet, *New booking*, and *Book this* or *Block* on a free cell | `tests/components/bookings-tab-day.test.tsx` |
 | Staff could change nothing about a class or a tournament once made, short of cancelling it | A class's name, instructor, places (more offered to the waiting list, fewer never below those taken) and price for new enrolments, for one session or the rest of the series; a tournament's name, description, deadline, places and fee for new entries before its draw; a manager's, logged | `tests/class-changes.test.ts`, `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | The venue heard about bookings made online but not about customers' online cancellations and changes | Optional alerts for cancellations and changes, a day ahead unless widened, at the new-booking alerts' address and number, in their language | `tests/booking-change-alerts.test.ts` |
+| Opening hours and prices could be changed only from today, and narrowing hours named the first booking in the way | Hours and court rates from a later date, read by the date booked; every booking in the way listed | `tests/dated-changes.test.ts` |
 | The front desk was shown managers' controls everywhere and refused on use | What the desk may do answered from the server's own list; managers' editors read-only, their buttons hidden | `tests/components/desk-sees-what-it-may.test.tsx` |
 | Staff were given a password by a manager, and a branch manager could not add or remove the branch's front desk | Staff invited by email to choose their own; a branch manager runs their front desk | `tests/staff-accounts.test.ts` |
 | Counter top-ups, passes, memberships and entry and league fees could be taken with no record of how they were paid, and nothing added up the till | Every counter sale says how it was paid and who took it; a cash-up by method for the day, from the sales journal, the desk's own shift or a manager's whole day | `tests/cash-up.test.ts` |
