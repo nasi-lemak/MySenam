@@ -16,26 +16,55 @@ import { venueZoneOf } from "./zones";
  * rest of their day is. Read-only, refreshed by the calendar app itself.
  *
  * The address carries a long random token instead of a sign-in, since a
- * calendar app cannot sign in. It shows customers' names and numbers, so a
- * manager can replace it, which stops the old one working, or turn it off.
+ * calendar app cannot sign in. It shows customers' names and numbers, so it
+ * is kept only as a hash, as coaches' links are (lib/coach-schedule.ts): the
+ * address is shown once, when a manager makes it, and lapses after
+ * `FEED_DAYS`. A manager can replace it, which stops the old one working, or
+ * turn it off.
  */
 
 /** From a week back, for what just happened, to as far ahead as anybody can book. */
 const DAYS_BACK = 7;
 const DAYS_AHEAD = 90;
 
-export async function feedToken(venueId: number): Promise<string | null> {
-  const row = (await getDb().prepare("SELECT calendar_token FROM venues WHERE id = ?").get(venueId)) as
-    | { calendar_token: string | null }
-    | undefined;
-  return row?.calendar_token ?? null;
+/** How long an address works before a manager has to make a new one. */
+export const FEED_DAYS = 365;
+
+const feedHash = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
+const iso = (v: unknown) => (v == null ? null : new Date(v as string).toISOString());
+
+/** Whether the feed is on, since when and until when; the address itself is not kept to show again. */
+export interface FeedStatus {
+  on: boolean;
+  madeAt: string | null;
+  expiresAt: string | null;
+  /** On, but past its expiry: it answers nothing until a manager makes a new address. */
+  lapsed: boolean;
 }
 
-/** Turn the feed on with a fresh address (the old one, if any, stops working), or off. */
-export async function setFeed(venueId: number, on: boolean): Promise<string | null> {
+export async function feedStatus(venueId: number): Promise<FeedStatus> {
+  const row = (await getDb()
+    .prepare("SELECT calendar_feed_hash, calendar_feed_made_at, calendar_feed_expires_at, calendar_feed_expires_at <= now() AS lapsed FROM venues WHERE id = ?")
+    .get(venueId)) as { calendar_feed_hash: string | null; calendar_feed_made_at: unknown; calendar_feed_expires_at: unknown; lapsed: boolean | null } | undefined;
+  if (!row?.calendar_feed_hash) return { on: false, madeAt: null, expiresAt: null, lapsed: false };
+  return { on: true, madeAt: iso(row.calendar_feed_made_at), expiresAt: iso(row.calendar_feed_expires_at), lapsed: row.lapsed === true };
+}
+
+/**
+ * Turn the feed on with a fresh address (the old one, if any, stops working),
+ * shown this once, or off. The token is the address's secret part.
+ */
+export async function setFeed(venueId: number, on: boolean): Promise<{ token: string; status: FeedStatus } | null> {
   const token = on ? crypto.randomBytes(24).toString("base64url") : null;
-  await getDb().prepare("UPDATE venues SET calendar_token = ? WHERE id = ?").run(token, venueId);
-  return token;
+  await getDb()
+    .prepare(
+      `UPDATE venues SET calendar_feed_hash = ?, calendar_token = NULL,
+              calendar_feed_made_at = ${on ? "now()" : "NULL"},
+              calendar_feed_expires_at = ${on ? `now() + interval '${FEED_DAYS} days'` : "NULL"}
+        WHERE id = ?`
+    )
+    .run(token ? feedHash(token) : null, venueId);
+  return token ? { token, status: await feedStatus(venueId) } : null;
 }
 
 /**
@@ -55,7 +84,9 @@ export function feedLocale(raw: string | null | undefined): StaffLocale {
 
 export async function venueForFeed(token: string): Promise<number | null> {
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
-  const row = (await getDb().prepare("SELECT id FROM venues WHERE calendar_token = ?").get(token)) as { id: number } | undefined;
+  const row = (await getDb()
+    .prepare("SELECT id FROM venues WHERE calendar_feed_hash = ? AND calendar_feed_expires_at > now()")
+    .get(feedHash(token))) as { id: number } | undefined;
   return row?.id ?? null;
 }
 

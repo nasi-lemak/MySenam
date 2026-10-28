@@ -9,7 +9,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { NextRequest } from "next/server";
-import { feedToken, feedUrl, setFeed } from "../src/lib/staff-calendar";
+import { feedStatus, feedUrl, setFeed } from "../src/lib/staff-calendar";
 import {
   adminCancelBooking,
   createBooking,
@@ -31,6 +31,7 @@ let venueId: number;
 let otherVenueId: number;
 let courtId: number;
 let otherCourtId: number;
+let lastToken: string;
 const date = addDays(todayISO(), 2);
 
 const fetchFeed = async (token: string) => {
@@ -58,12 +59,13 @@ beforeAll(async () => {
 
 describe("the staff calendar feed", () => {
   it("is off until a manager turns it on", async () => {
-    expect(await feedToken(venueId)).toBeNull();
+    expect(await feedStatus(venueId)).toMatchObject({ on: false });
     expect((await fetchFeed("a".repeat(32))).status).toBe(404);
   });
 
   it("lists the venue's bookings and classes, and nobody else's", async () => {
-    const token = (await setFeed(venueId, true))!;
+    const token = (await setFeed(venueId, true))!.token;
+    lastToken = token;
     expect(await feedUrl(venueId, token)).toBe(`https://book.example.my/api/calendar/${token}.ics`);
     const unpaid = await createBooking({ courtId, date, hours: [9, 10], name: "Lim, Wei", phone: "0121110001" });
     const paid = await createBooking({ courtId, date, hours: [12], name: "Aisyah", phone: "0121110002" });
@@ -97,8 +99,8 @@ describe("the staff calendar feed", () => {
   });
 
   it("stops answering at the old address when a new one is made, and at all when turned off", async () => {
-    const old = (await feedToken(venueId))!;
-    const fresh = (await setFeed(venueId, true))!;
+    const old = lastToken;
+    const fresh = (await setFeed(venueId, true))!.token;
     expect(fresh).not.toBe(old);
     expect((await fetchFeed(old)).status).toBe(404);
     expect((await fetchFeed(fresh)).status).toBe(200);

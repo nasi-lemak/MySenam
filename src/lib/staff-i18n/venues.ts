@@ -339,6 +339,10 @@ const en = {
   "rv7.reasonPrompt": "Withdraw the invitation emailed for {name}? Its link stops working; the guest stays on the list by their number. Say why (kept in the activity log):",
   "rv7.withdrawnOk": "Invitation withdrawn.",
   "rv7.act.withdrawn": "Withdrew the invitation a resident emailed for a guest",
+  // The calendar feed's address, kept only as a hash and lapsing after a year (d8a.)
+  "d8a.cal.shownOnce": "Copy it now: it is shown only this once. It works until {date}.",
+  "d8a.cal.onHidden": "On, until {date}. The address was shown once, when it was made; to subscribe another calendar, make a new address (the old one stops working).",
+  "d8a.cal.lapsed": "The address lapsed on {date} and shows nothing now. Make a new one to carry on.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -675,6 +679,10 @@ const ms: Record<keyof typeof en, string> = {
   "rv7.reasonPrompt": "Tarik balik jemputan yang dihantar melalui e-mel untuk {name}? Pautannya tidak lagi berfungsi; tetamu kekal dalam senarai dengan nombornya. Nyatakan sebabnya (disimpan dalam log aktiviti):",
   "rv7.withdrawnOk": "Jemputan ditarik balik.",
   "rv7.act.withdrawn": "Menarik balik jemputan yang dihantar oleh penghuni melalui e-mel untuk tetamu",
+  // The calendar feed's address, kept only as a hash and lapsing after a year (d8a.)
+  "d8a.cal.shownOnce": "Salin sekarang: ia ditunjukkan sekali ini sahaja. Ia sah hingga {date}.",
+  "d8a.cal.onHidden": "Hidup, hingga {date}. Alamat ini ditunjukkan sekali sahaja, semasa ia dibuat; untuk melanggan kalendar lain, buat alamat baharu (alamat lama akan berhenti berfungsi).",
+  "d8a.cal.lapsed": "Alamat ini luput pada {date} dan tidak menunjukkan apa-apa sekarang. Buat alamat baharu untuk meneruskan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1011,6 +1019,10 @@ const zh: Record<keyof typeof en, string> = {
   "rv7.reasonPrompt": "撤回为 {name} 发送的电子邮件邀请？其链接将失效；访客仍按电话号码留在名单上。请说明原因（记入活动日志）：",
   "rv7.withdrawnOk": "邀请已撤回。",
   "rv7.act.withdrawn": "撤回了住户通过电子邮件为访客发送的邀请",
+  // The calendar feed's address, kept only as a hash and lapsing after a year (d8a.)
+  "d8a.cal.shownOnce": "请立即复制：此地址只显示这一次。有效至 {date}。",
+  "d8a.cal.onHidden": "已开启，有效至 {date}。地址只在生成时显示一次；如需订阅另一个日历，请生成新地址（旧地址将失效）。",
+  "d8a.cal.lapsed": "此地址已于 {date} 失效，现在不显示任何内容。请生成新地址以继续使用。",
 };
 
 const area = { en, ms, zh };

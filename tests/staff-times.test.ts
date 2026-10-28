@@ -157,7 +157,7 @@ describe("the staff calendar feed", () => {
     if (!c.ok) throw new Error(c.error);
     const b = await createBooking({ courtId: c.court.id, date, hours: [18], name: "Priya Devi", phone: "0163211606" });
     if (!b.ok) throw new Error(b.error);
-    token = (await setFeed(venueId, true))!;
+    token = (await setFeed(venueId, true))!.token;
   });
 
   it("says what people read in the language its address names, its times as that language writes them", async () => {
