@@ -3,7 +3,8 @@ import { denyVenue, requireAdmin, type Admin } from "@/lib/admin-auth";
 import { logAction, logCancelledBookings, logClassCancelled } from "@/lib/activity";
 import { refundCancelled } from "@/lib/payments";
 import { refusal } from "@/lib/api";
-import { adminCancelBooking, closeVenueDay, listVenueClosures, reopenVenueDay } from "@/lib/store";
+import { closeVenueDay, listVenueClosures, reopenVenueDay } from "@/lib/store";
+import { venueCancel } from "@/lib/counter-refunds";
 import { getDb } from "@/lib/db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 import { isValidDateString, todayISO } from "@/lib/time";
@@ -94,7 +95,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const offed: Booking[] = [];
   for (const b of bookings) {
-    const done = await adminCancelBooking(b.code);
+    // A counter payment is owed back, for the desk to settle (lib/counter-refunds.ts).
+    const done = await venueCancel(b.code, "closure");
     if (!done.ok) continue;
     cancelled++;
     offed.push(done.booking);

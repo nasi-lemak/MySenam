@@ -1,6 +1,7 @@
 import { getDb, withTransaction } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
-import { adminCancelBooking, courtDaysFor, courtZone, getCourt, releaseBlockTime } from "./store";
+import { courtDaysFor, courtZone, getCourt, releaseBlockTime } from "./store";
+import { venueCancel } from "./counter-refunds";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { claim, isConflict, lockCourts, occupantsOn, unclaim, type Occupant } from "./claims";
 import { DAY_MINUTES, freeWithin, hoursOf, merge, overlaps, type Span } from "./interval";
@@ -222,7 +223,8 @@ export async function createOutage(input: {
         if (off.session) classesOff.push({ session: off.session, enrolments: off.cancelled ?? [] });
         continue;
       }
-      const done = await adminCancelBooking(a.ref);
+      // A counter payment is owed back, for the desk to settle (lib/counter-refunds.ts).
+      const done = await venueCancel(a.ref, "outage");
       if (!done.ok) continue;
       cancelled++;
       bookingsOff.push(done.booking);

@@ -1,7 +1,8 @@
 import { getDb } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
 import { refundCancelled } from "./payments";
-import { adminCancelBooking, blockSlots, getCourt, venueHours } from "./store";
+import { blockSlots, getCourt, venueHours } from "./store";
+import { venueCancel } from "./counter-refunds";
 import { isValidDateString, todayISO } from "./time";
 import { hoursOf, instantOf, minutesOf } from "./interval";
 import type { Booking, ClassSession } from "./types";
@@ -106,7 +107,8 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
     if (off.ok && off.session) classesOff.push({ session: off.session, enrolments: off.cancelled ?? [] });
   }
   for (const b of live) {
-    const done = await adminCancelBooking(b.code);
+    // A counter payment is owed back, for the desk to settle (lib/counter-refunds.ts).
+    const done = await venueCancel(b.code, "rain");
     if (!done.ok) continue;
     await refundCancelled([done.booking.id], { byVenue: true });
     await notifyVenueCancelled(done.booking, undefined, why);

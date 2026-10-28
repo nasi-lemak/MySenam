@@ -186,6 +186,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "pass_product.retired": "p8b.act.productRetired",
   "sale.price_set": "p8b.act.priceSet",
   "booking.price_adjusted": "p8b.act.priceAdjusted",
+  "booking.series_moved": "r9e.act.seriesMoved",
+  "payment.owed_credited": "r9e.act.owedCredited",
 };
 
 /**

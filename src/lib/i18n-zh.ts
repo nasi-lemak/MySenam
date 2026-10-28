@@ -2660,6 +2660,8 @@ export const ZH: Record<Phrase, string> = {
   "q8b.wl.declinedBody": "感谢告知：名额已转给下一位候补者，您也已退出名单。",
   "q8b.msg.joinedSubject": "已加入候补名单 — {venue}",
   "q8b.msg.joined": "{name}您好，您已加入 {venue} {what} 的候补名单，{date} {from}（排第 {position} 位）。\n\n如有名额空出，我们会通知您，并为您短暂保留。\n\n不再需要？请在此退出名单，以便询问下一位：{leave}",
+  // r9e
+  "r9e.msg.priceWeeks": "已调整且尚未付款的各周现共计 {cur}{total}，请在场馆付款。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

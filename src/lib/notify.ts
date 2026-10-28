@@ -1088,3 +1088,63 @@ export async function notifyPaidSeries(seriesCode: string, how: "online" | "coun
   }
   await notifyPaid(bookings, how);
 }
+
+/**
+ * The venue moved weeks of a weekly series in one step (lib/series-moves.ts): the customer is told once, as for a
+ * single booking the venue moves (the notice they acknowledge, `msg.rescheduled`), with every week moved in the
+ * calendar file. Weeks not paid yet and priced again at their new time say what they now come to.
+ */
+export async function notifySeriesMoved(seriesCode: string, moved: { booking: Booking; priceChange: number }[]): Promise<number | null> {
+  if (moved.length === 0) return null;
+  const weeks = [...moved].sort((a, b) => a.booking.date.localeCompare(b.booking.date) || a.booking.startMin - b.booking.startMin);
+  const first = weeks[0].booking;
+  const court = await getCourt(first.courtId);
+  if (!court) return null;
+  const venue = await getVenue(court.venueId);
+  if (!venue || !hasBeenLive(venue)) return null;
+  const locale = await localeOf(first.id);
+  const t = translator(locale);
+  const at = slot(locale, court.name, venue.name, first);
+  const repriced = weeks.filter((w) => w.priceChange !== 0 && w.booking.paymentStatus !== "paid");
+  const unpaid = weeks.filter((w) => w.booking.paymentStatus !== "paid").reduce((sum, w) => sum + w.booking.totalPrice, 0);
+  const courts = new Map<number, string>();
+  for (const w of weeks) if (!courts.has(w.booking.courtId)) courts.set(w.booking.courtId, (await getCourt(w.booking.courtId))?.name ?? court.name);
+  const code = seriesCode.trim().toUpperCase();
+  const notice = await createNotice({
+    venueId: venue.id,
+    bookingId: first.id,
+    kind: "moved",
+    name: first.name,
+    phone: first.phone,
+    email: first.email ?? null,
+    date: first.date,
+    startMin: first.startMin,
+    summary: `${venue.name} changed ${weeks.length} week(s) of series ${code} to ${at.where}, from ${at.when}.`,
+    summaryPhrase: noticePhrase("srv.urgent.changed", venue.name, code, court.name, first),
+  });
+  await deliver(first, {
+    bookingId: first.id,
+    venueId: venue.id,
+    kind: "booking_rescheduled",
+    locale,
+    subject: "msg.rescheduledSubject",
+    body: "msg.rescheduled",
+    dedupeKey: `rescheduled-series:${code}:${notice.id}`,
+    noticeId: notice.id,
+    calendar: calendarFor(
+      weeks.map((w) => w.booking),
+      (b) => courts.get(b.courtId) ?? court.name,
+      venue
+    ),
+    vars: {
+      name: firstName(first.name),
+      venue: venue.name,
+      code,
+      where: at.where,
+      when: t("msg.seriesWhen", { n: weeks.length, from: at.when }),
+      money: repriced.length > 0 ? t("r9e.msg.priceWeeks", { total: unpaid.toFixed(2) }) : t("msg.priceSame"),
+      ack: linkIn(`${await venueBaseUrl(venue.id)}/ack/${notice.token}`, locale),
+    },
+  });
+  return notice.id;
+}

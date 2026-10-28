@@ -1,5 +1,6 @@
 import { logAction } from "./activity";
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
+import { creditBooking } from "./documents";
 import { creditScope } from "./mode";
 import { money, roundMoney } from "./region";
 import { said, withPhrase } from "./staff-text";
@@ -141,7 +142,7 @@ export async function staffCancelTerms(b: Booking, role: StaffRole): Promise<Sta
     options.push({ outcome: "keep", refund: back, kept: roundMoney(all - back) });
   }
   // The desk puts right its own counter takings of the day; anything older is a manager's (as `setPaymentStatus` says).
-  const earlier = how === "counter" && paid > 0 && (!b.paidAt || localDateOf(b.paidAt, zone) !== todayISO(zone));
+  const earlier = how === "counter" && paid > 0 && paidBeforeToday(b.paidAt, zone);
   return {
     code: b.code,
     name: b.name,
@@ -227,6 +228,23 @@ function settlementFor(
   };
 }
 
+/** A booking's own payment, where it was made at the counter (not on an account): `share` of what is left of it. */
+async function counterMoney(bookingId: number, share = 1) {
+  const row = (await getDb()
+    .prepare(
+      `SELECT b.code, b.user_id, b.payment_status, b.paid_via, b.account_id, (b.total_price - b.shares_paid)::float AS own, c.venue_id
+         FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?`
+    )
+    .get(bookingId)) as
+    | { code: string; user_id: number | null; payment_status: string; paid_via: string | null; account_id: number | null; own: number; venue_id: number }
+    | undefined;
+  if (!row || row.payment_status !== "paid" || row.account_id !== null || !isCounter(row.paid_via as PaidVia | null)) return null;
+  const amount = roundMoney(Number(row.own) * (await paidPartLeft(bookingId)) * share);
+  if (amount <= 0) return null;
+  const via = (COUNTER_METHODS as readonly string[]).includes(row.paid_via ?? "") ? (row.paid_via as CounterMethod) : null;
+  return { row, amount, via };
+}
+
 /**
  * The counter money of a booking just cancelled, read again with its row
  * claimed: handed back (a payout for the till) or given as credit. Nothing
@@ -240,17 +258,9 @@ async function settleCounter(
   staff: CancellingStaff
 ): Promise<Partial<Settled> | null> {
   const db = getDb();
-  const row = (await db
-    .prepare(
-      `SELECT b.code, b.user_id, b.payment_status, b.paid_via, b.account_id, (b.total_price - b.shares_paid)::float AS own, c.venue_id
-         FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?`
-    )
-    .get(bookingId)) as
-    | { code: string; user_id: number | null; payment_status: string; paid_via: string | null; account_id: number | null; own: number; venue_id: number }
-    | undefined;
-  if (!row || row.payment_status !== "paid" || row.account_id !== null || !isCounter(row.paid_via as PaidVia | null)) return null;
-  const amount = roundMoney(Number(row.own) * (await paidPartLeft(bookingId)) * share);
-  if (amount <= 0) return null;
+  const counter = await counterMoney(bookingId, share);
+  if (!counter) return null;
+  const { row, amount } = counter;
   if (outcome === "credit") {
     if (row.user_id === null) throw new Error("credit without an account");
     await db
@@ -259,7 +269,7 @@ async function settleCounter(
     return { credited: amount };
   }
   const note = (await db.prepare("SELECT id FROM receipts WHERE source = ? AND kind = 'credit_note'").get(`booking:${bookingId}`)) as { id: number } | undefined;
-  const via = (COUNTER_METHODS as readonly string[]).includes(row.paid_via ?? "") ? (row.paid_via as CounterMethod) : null;
+  const { via } = counter;
   await db
     .prepare(
       `INSERT INTO counter_payouts (venue_id, booking_id, credit_note_id, amount, via, kept_percent, admin_id, admin_name)
@@ -430,6 +440,176 @@ export async function counterPayoutsOn(venueIds: number[] | null, date: string):
     });
   }
   return out;
+}
+
+/* ---------------- Owed back after the venue cancels ---------------- */
+
+/**
+ * The venue's own cancellations of many bookings at once: closing a day, a
+ * court taken out of service, a rain-out, and the venue's API key
+ * (docs/features/payments-and-credit.md#owed-back-after-the-venue-cancels).
+ * Nobody stands at the till for each, and staff are not asked booking by
+ * booking, so a counter payment on one is written down as owed back
+ * (`counter_refunds_owed`) instead of being said to have gone back. It is the
+ * same cancellation as a staff one (`adminCancelBooking`, `refundBooking`):
+ * money paid online, with credit or with a pass goes back as it always did.
+ *
+ * Staff then settle each from the day list as a staff cancellation settles
+ * (`settleCounter`): handed back at the counter (a payout with who and how, in
+ * that day's cash-up) or as stored credit on the account it was booked from.
+ * The booking's credit note is written then, by the member of staff settling
+ * it, so the till, the credit note and the payout agree.
+ */
+export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api"] as const;
+export type VenueCancelCause = (typeof VENUE_CANCEL_CAUSES)[number];
+export type OwedOutcome = Extract<CancelOutcome, "back" | "credit">;
+export const isOwedOutcome = (v: unknown): v is OwedOutcome => v === "back" || v === "credit";
+
+/** The venue cancels a booking as part of a closure, an outage, a rain-out or through its API: all of it back, a counter payment owed. */
+export async function venueCancel(code: string, cause: VenueCancelCause): Promise<CancelResult> {
+  return adminCancelBooking(code, async () => ({ share: 1, owe: (bookingId) => oweCounter(bookingId, cause) }));
+}
+
+/** In the cancellation's transaction: a counter payment on it written down as owed back. False where none was. */
+async function oweCounter(bookingId: number, cause: VenueCancelCause): Promise<boolean> {
+  const counter = await counterMoney(bookingId);
+  if (!counter) return false;
+  await getDb()
+    .prepare("INSERT INTO counter_refunds_owed (venue_id, booking_id, amount, via, cause) VALUES (?, ?, ?, ?, ?)")
+    .run(counter.row.venue_id, bookingId, counter.amount, counter.via, cause);
+  return true;
+}
+
+/** A counter payment owed back on a booking the venue cancelled, for staff to settle. */
+export interface OwedRefund {
+  id: number;
+  venueId: number;
+  bookingId: number;
+  bookingCode: string;
+  name: string;
+  /** When the booking was for. */
+  date: string;
+  startMin: number;
+  amount: number;
+  via: CounterMethod | null;
+  cause: VenueCancelCause;
+  owedSince: string;
+  /** When it was paid at the counter. */
+  paidAt: string | null;
+  /** Made from a customer's account: it may be given as stored credit there. */
+  account: boolean;
+  /** Paid at the counter on an earlier day: only a manager hands it back, as when staff cancel. */
+  managerOnly: boolean;
+  /** Settled already: how, by whom and when. */
+  settled: { outcome: OwedOutcome; by: string; at: string } | null;
+}
+
+export const OWED_REFUSALS = {
+  notFound: "Nothing is owed back on that.",
+  settled: "That was settled already. Look at the list again.",
+} as const;
+
+/** A counter payment taken on an earlier day than the venue's today: a manager's to give back (as `setPaymentStatus` says). */
+function paidBeforeToday(paidAt: string | null, zone: string): boolean {
+  return !paidAt || localDateOf(paidAt, zone) !== todayISO(zone);
+}
+
+interface OwedRow {
+  id: number;
+  venue_id: number;
+  booking_id: number;
+  amount: number;
+  via: CounterMethod | null;
+  cause: VenueCancelCause;
+  owed_since: string | Date;
+  settled_at: string | Date | null;
+  outcome: OwedOutcome | null;
+  admin_name: string | null;
+  code: string;
+}
+
+const OWED_SQL = `SELECT o.id, o.venue_id, o.booking_id, o.amount::float AS amount, o.via, o.cause, o.owed_since, o.settled_at, o.outcome, o.admin_name, b.code
+                    FROM counter_refunds_owed o JOIN bookings b ON b.id = o.booking_id`;
+
+async function toOwed(r: OwedRow, role: StaffRole, zones: Map<number, string>): Promise<OwedRefund | null> {
+  const b = await findBookingByCode(r.code);
+  if (!b) return null;
+  if (!zones.has(r.venue_id)) zones.set(r.venue_id, (await venueHours(r.venue_id)).zone);
+  return {
+    id: r.id,
+    venueId: r.venue_id,
+    bookingId: r.booking_id,
+    bookingCode: r.code,
+    name: b.name,
+    date: b.date,
+    startMin: b.startMin,
+    amount: Number(r.amount),
+    via: r.via,
+    cause: r.cause,
+    owedSince: new Date(r.owed_since).toISOString(),
+    paidAt: b.paidAt,
+    account: await bookedFromAccount(r.booking_id),
+    managerOnly: role === "desk" && paidBeforeToday(b.paidAt, zones.get(r.venue_id)!),
+    settled: r.settled_at && r.outcome ? { outcome: r.outcome, by: r.admin_name ?? "", at: new Date(r.settled_at).toISOString() } : null,
+  };
+}
+
+/** What is still owed back at the counter at these venues (every venue where null: the platform's own), oldest first. */
+export async function counterOwed(venueIds: number[] | null, role: StaffRole): Promise<OwedRefund[]> {
+  if (venueIds && venueIds.length === 0) return [];
+  const rows = (await getDb()
+    .prepare(
+      `${OWED_SQL} WHERE o.settled_at IS NULL${venueIds ? ` AND o.venue_id IN (${venueIds.map(() => "?").join(",")})` : ""} ORDER BY o.owed_since, o.id`
+    )
+    .all(...(venueIds ?? []))) as OwedRow[];
+  const zones = new Map<number, string>();
+  const out: OwedRefund[] = [];
+  for (const r of rows) {
+    const owed = await toOwed(r, role, zones);
+    if (owed) out.push(owed);
+  }
+  return out;
+}
+
+/** One owed refund, settled or not, as `role` would be shown it. */
+export async function owedRefund(id: number, role: StaffRole): Promise<OwedRefund | null> {
+  const row = (await getDb().prepare(`${OWED_SQL} WHERE o.id = ?`).get(id)) as OwedRow | undefined;
+  return row ? toOwed(row, role, new Map()) : null;
+}
+
+/**
+ * Staff settle a counter payment owed back: `back`, handed back at the counter
+ * the way it was paid (a payout for the till, by whom, on the credit note
+ * written now), or `credit`, as stored credit on the account it was booked
+ * from. Once: two members of staff at the same moment settle it once. The
+ * front desk hands back only a payment taken today; anything older is a
+ * manager's, as when staff cancel.
+ */
+export async function settleOwed(
+  id: number,
+  outcome: OwedOutcome,
+  staff: CancellingStaff
+): Promise<{ ok: true; owed: OwedRefund; settled: Settled } | Refusal> {
+  const owed = await owedRefund(id, staff.role);
+  if (!owed) return refused(OWED_REFUSALS.notFound);
+  if (owed.settled) return refused(OWED_REFUSALS.settled);
+  if (owed.managerOnly) return refused(COUNTER_REFUSALS.manager);
+  if (outcome === "credit" && !owed.account) return refused(COUNTER_REFUSALS.noAccount);
+  const done = await withTransaction(async () => {
+    const claimed = await getDb()
+      .prepare("UPDATE counter_refunds_owed SET settled_at = now(), outcome = ?, admin_id = ?, admin_name = ? WHERE id = ? AND settled_at IS NULL")
+      .run(outcome, staff.id, staff.name, id);
+    if (claimed.changes !== 1) return null;
+    // The credit note the cancellation left for now, written by whoever settles it: as stored credit, or the way it was paid.
+    await creditBooking(owed.bookingId, "receipt.why.cancelled", 1, await paidPartLeft(owed.bookingId), outcome === "credit" ? PAID_VIA_LABELS.credit : undefined);
+    return (await settleCounter(owed.bookingId, outcome, 1, null, staff)) ?? {};
+  });
+  if (!done) return refused(OWED_REFUSALS.settled);
+  return {
+    ok: true,
+    owed: (await owedRefund(id, staff.role)) ?? owed,
+    settled: { outcome, refund: owed.amount, kept: 0, ...done },
+  };
 }
 
 /* ---------------- Saying what was done ---------------- */

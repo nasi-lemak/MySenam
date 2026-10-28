@@ -3118,6 +3118,12 @@ export interface StaffCancelSettlement {
   backAs?: string;
   /** Written after the refund, inside the same transaction, with the booking's row claimed. */
   settle?: (bookingId: number) => Promise<void>;
+  /**
+   * The venue's own bulk cancellations (lib/counter-refunds.ts `venueCancel`): before the refund, with the row
+   * claimed, records a counter payment as owed back and says so (true); its credit note then waits until staff
+   * hand it back or give it as credit, so the till and the credit note agree.
+   */
+  owe?: (bookingId: number) => Promise<boolean>;
 }
 
 /** Admin cancellation by code — no phone check, works even after start time. */
@@ -3151,7 +3157,8 @@ async function adminCancelBookingOnce(
     await releaseBooking(booking.id);
     if (plan.keptPercent !== undefined)
       await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(plan.keptPercent, booking.id);
-    await refundBooking(booking.id, plan.share, plan.backAs);
+    const owed = (await plan.owe?.(booking.id)) ?? false;
+    await refundBooking(booking.id, plan.share, plan.backAs, owed);
     await plan.settle?.(booking.id);
     return true;
   })();
@@ -5682,7 +5689,8 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       LEFT JOIN coaches k ON k.id = b.coach_id
       LEFT JOIN venue_accounts ac ON ac.id = b.account_id
       WHERE b.date = ?${venue.sql}
-      ORDER BY v.id, c.id, b.start_min
+      -- In time order, who is due next first (audit R8 X2-15); at the same time by venue and court.
+      ORDER BY b.start_min, v.id, c.id, b.id
     `)
     .all(date, ...venue.params) as (BookingRow & {
     court_name: string;
@@ -6706,7 +6714,9 @@ async function refundBooking(
   bookingId: number,
   share = 1,
   /** How a counter payment went back where not as it was paid: as stored credit (lib/counter-refunds.ts). */
-  backAs?: string
+  backAs?: string,
+  /** A counter payment owed back, not yet handed back (lib/counter-refunds.ts `venueCancel`): its credit note is written when staff settle it. */
+  counterOwed = false
 ): Promise<void> {
   // Places already taken off it while paid were settled then: only what is left goes back now.
   const left = await paidPartLeft(bookingId);
@@ -6715,7 +6725,7 @@ async function refundBooking(
   // what goes back is a credit note on the account against it, paid or not, as for one person taken off.
   const { creditAccountForCancellation } = await import("./accounts");
   // Otherwise a paid booking's receipt is reversed, whoever gives the money back and how.
-  if (!(await creditAccountForCancellation(bookingId, share * left, why))) await creditBooking(bookingId, why, share, left, backAs);
+  if (!counterOwed && !(await creditAccountForCancellation(bookingId, share * left, why))) await creditBooking(bookingId, why, share, left, backAs);
   await refundBookingToWallet(bookingId, share * left);
   // A pass's spends are each given back once: a place taken off already settled its own.
   await refundBookingToPass(bookingId, share);

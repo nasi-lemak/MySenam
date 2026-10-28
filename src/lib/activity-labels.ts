@@ -196,4 +196,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "pass_product.retired": "Took a pass off the venue's list",
   "sale.price_set": "Sold a pass or membership at a price other than the list's, saying why",
   "booking.price_adjusted": "Adjusted a booking's price, saying why",
+  // Round 9 (R9E): a weekly series moved in one step, and counter money owed back after the venue cancelled
+  "booking.series_moved": "Moved the weeks of a weekly series in one step",
+  "payment.owed_credited": "Gave money owed back after the venue cancelled as stored credit",
 };

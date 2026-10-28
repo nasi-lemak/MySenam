@@ -724,6 +724,9 @@ const en = {
   "p8b.adj.done": "Price {from} → {to}.",
   "p8b.adj.doneAfterPaid": "{amount} to give back by {via}, on credit note {number}.",
   "p8b.adj.was": "{from} → {to} by {who}: {reason}",
+  // r9e: a weekly series moved in one step; counter money owed back after the venue cancelled.
+  "r9e.act.seriesMoved": "Moved the weeks of a weekly series in one step",
+  "r9e.act.owedCredited": "Gave money owed back after the venue cancelled as stored credit",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1430,6 +1433,9 @@ const ms: Record<keyof typeof en, string> = {
   "p8b.adj.done": "Harga {from} → {to}.",
   "p8b.adj.doneAfterPaid": "{amount} untuk dipulangkan melalui {via}, pada nota kredit {number}.",
   "p8b.adj.was": "{from} → {to} oleh {who}: {reason}",
+  // r9e
+  "r9e.act.seriesMoved": "Memindahkan minggu-minggu siri mingguan sekali gus",
+  "r9e.act.owedCredited": "Memberi wang yang perlu dipulangkan selepas pusat membatalkan sebagai kredit tersimpan",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2136,6 +2142,9 @@ const zh: Record<keyof typeof en, string> = {
   "p8b.adj.done": "价格 {from} → {to}。",
   "p8b.adj.doneAfterPaid": "需以{via}退还 {amount}，贷记单 {number}。",
   "p8b.adj.was": "{from} → {to}，由 {who} 调整：{reason}",
+  // r9e
+  "r9e.act.seriesMoved": "一次性调整每周系列的各周",
+  "r9e.act.owedCredited": "将场馆取消后应退的款项以储值退还",
 };
 
 const area = { en, ms, zh };
