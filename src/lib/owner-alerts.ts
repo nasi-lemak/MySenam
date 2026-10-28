@@ -2,6 +2,8 @@ import { isOwner, listAdmins } from "./admin-auth";
 import { getDb } from "./db";
 import { emailPlain } from "./outbox";
 import { siteName } from "./site";
+import { translator, type T } from "./i18n";
+import { staffReaderLocale } from "./staff-locales";
 
 /** An alert no longer worth sending a week on (an outbox with no mail server set up for that long). */
 const ALERT_EXPIRES_MINUTES = 7 * 24 * 60;
@@ -23,6 +25,27 @@ export async function tellOwners(subject: string, body: string): Promise<void> {
       kind: "staff_alert",
       expiresMinutes: ALERT_EXPIRES_MINUTES,
     });
+}
+
+/**
+ * As `tellOwners`, each owner in their own language (lib/staff-locales.ts
+ * `staffReaderLocale`): `write` says the subject and body with the lookup it
+ * is handed, once per owner.
+ */
+export async function tellOwnersEach(write: (t: T) => { subject: string; body: string }): Promise<void> {
+  const owners = (await listAdmins()).filter(isOwner);
+  for (const owner of owners) {
+    const t = translator(staffReaderLocale(owner.locale));
+    const { subject, body } = write(t);
+    await emailPlain({
+      to: owner.email,
+      subject,
+      text: `${body}\n\n${t("sl8.mail.ownerFooter", { site: siteName() })}`,
+      kind: "staff_alert",
+      expiresMinutes: ALERT_EXPIRES_MINUTES,
+      locale: t.locale,
+    });
+  }
 }
 
 /** A venue's own managers and staff, by email: its business's managers, and anyone at that branch. */

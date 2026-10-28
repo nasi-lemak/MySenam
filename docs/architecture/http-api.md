@@ -165,6 +165,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/auth/forgot`      | `{email}` → emails a reset link (no session needed)  |
 | POST   | `/api/admin/auth/reset`       | `{token, password}` → new password + admin session   |
 | GET/POST | `/api/admin/auth/password`  | Has a password? / `{current, next}` → change it      |
+| POST   | `/api/admin/auth/language`    | `{locale}`: the signed-in account's own language (`en`, `ms`, `zh`; null for none chosen), saved by the dashboard's language switch; front desk too ([a language of their own](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches)) |
 | GET    | `/api/admin/bookings`         | `?date=` → bookings + expected/collected/outstanding; a dearer coach's difference on a paid lesson counts as expected once owed and collected once paid (each lesson's `coachOwed`, with `pageOpenUntil` while the customer has a payment page open, and `coachPaid` with how) |
 | POST   | `/api/admin/bookings/cancel`  | `{code}` → cancel any booking (no phone check)       |
 | GET    | `/api/admin/bookings/withdraw` | `?code` → who is on the booking and whether each can be taken off at the counter now |
@@ -182,8 +183,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | PATCH  | `/api/admin/admins/:id`       | `{role: manager or desk}` for branch staff            |
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
 | GET    | `/api/admin/data-request`  | `?venueId&phone` → what the venue holds against a number, as a file (managers) |
-| GET/POST/DELETE | `/api/admin/coaches` | `?venueId` / `{venueId, id?, name, bio?, sports, rate, hours}` / `?venueId&id`: a venue's coaches; `contacts` says until when each coach's private link works, never the link. `{venueId, id, action: "link", on}`: a new link, returned once as `link` (`pageUrl`, `calendarUrl`, `until`), or withdrawn. `choice` (GET) and `{venueId, action: "choice", choice}`: who chooses the coach of a new lesson, `customer` (the default) or `venue` ([who chooses the coach](../features/programmes.md#who-chooses-the-coach)) |
-| GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address, naming the staff language of the request (`?lang=`); on makes a new one |
+| GET/POST/DELETE | `/api/admin/coaches` | `?venueId` / `{venueId, id?, name, bio?, sports, rate, hours}` / `?venueId&id`: a venue's coaches; `contacts` says until when each coach's private link works, never the link. `{venueId, id, action: "link", on}`: a new link, returned once as `link` (`pageUrl`, `calendarUrl`, `until`), or withdrawn. `{venueId, id, action: "locale", locale}`: the coach's own language (any the install offers; null for none chosen), shown in `contacts`. `choice` (GET) and `{venueId, action: "choice", choice}`: who chooses the coach of a new lesson, `customer` (the default) or `venue` ([who chooses the coach](../features/programmes.md#who-chooses-the-coach)) |
+| GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address, naming (`?lang=`) the account's own language, else the staff language of the request; on makes a new one |
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |
 | GET/POST | `/api/admin/policy-overrides` | `?venueId` → `{policies, overridable}`: the venue's policies its managers may override for one booking, and every one that can be; `{venueId, policies}` sets them (a manager's: `MANAGER_ONLY` for front desk), in the activity log ([manager overrides](../features/booking.md#manager-overrides)) |
@@ -253,7 +254,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET    | `/api/admin/backup`           | Snapshots, off-site status and backup health — **owner only** |
 | POST   | `/api/admin/backup`           | Take one now — **owner only**                        |
 | GET    | `/api/admin/admins`           | List operator accounts — **owner only**              |
-| POST   | `/api/admin/admins`           | `{name, email, password, venueId}` — **owner only**  |
+| POST   | `/api/admin/admins`           | `{name, email, password, venueId, locale?}` — **owner only**; `locale` the new account's language (`en`, `ms`, `zh`) |
 | DELETE | `/api/admin/admins/:id`       | Remove an operator — **owner only**                  |
 | POST   | `/api/admin/admins/:id/two-factor-reset` | `{reason, code}`: reset a member of staff's two-factor sign-in after they lost both authenticator and recovery codes; by an owner or that business's manager (an owner only by another owner), with the caller's own current `code`; signs them out, recorded, emailed to them and the owners |
 
@@ -313,7 +314,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET | `/api/auth/google/callback` | Back from Google: signed in, and on to where they were going; or back to sign in, saying why |
 | GET | `/api/auth/providers` | Which ways of signing in this address offers, besides a password |
 | GET | `/api/calendar/:token` | A venue's bookings and classes as an iCalendar feed, for its staff's own calendar apps. The token is the only key: a wrong or withdrawn one finds nothing. `?lang=` (en, ms, zh) sets the language of its words and times |
-| GET | `/api/coach-calendar/:token` | A coach's lessons as an iCalendar feed. The token is the only key. `?lang=` sets the language of its words and times |
+| GET | `/api/coach-calendar/:token` | A coach's lessons as an iCalendar feed. The token is the only key. Its words and times are in the coach's own language, else the one `?lang=` names |
 | POST | `/api/unsubscribe` | `{ token }` from a venue's email → no more news from it; with `confirm`, yes to it. No account needed |
 | POST | `/api/unsubscribe/:token` | One-click unsubscribe from a mail app's own button (RFC 8058): the List-Unsubscribe-Post header on a venue's news says to POST here. Only a POST stops anything, so a scanner fetching links does not |
 
@@ -366,6 +367,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/coach/:token/hours` | `{ hours: [{ weekday, from, until }] }`: a coach sets the hours they take lessons, at the private link the venue gave them. Lessons already booked stand |
 | POST | `/api/coach/:token/time-off` | `{ from, until?, reason? }`: days off, at the coach's own link. What is already booked then is counted, for the venue to move |
 | DELETE | `/api/coach/:token/time-off` | `?id`: back at work those days |
+| POST | `/api/coach/:token/language` | `{ locale }`: the coach's own language, at their link (any the install offers; null for none chosen): their page, calendar and emails are written in it. Recorded in the venue's activity log under their name |
 
 ### Payments and providers' webhooks
 
@@ -419,8 +421,8 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/auth/two-factor` | `{ action: "start" }` → a new secret and its QR code to scan; `{ action: "confirm", code }` → turns it on, with recovery codes shown once; `{ action: "renew", code }` → new recovery codes; `{ action: "disable", code }` → off, where the install allows |
 | GET | `/api/admin/billing` | A marketplace venue's invoices. Venue staff see their own venue's; the platform owner sees every venue's, and what each is on |
 | POST | `/api/admin/billing` | `{ action: "pay", invoiceId }` — the venue's own staff, or the owner. `{ action: "markPaid" \| "void", invoiceId }` and `{ action: "setPlan", venueId, monthlyFee, billingStartsOn }` and `{ action: "setTiers", tiers: [{ name, upTo, monthlyFee }], extraEach }` — the owner |
-| GET | `/api/admin/booking-alerts` | `?venueId` → where the venue hears about bookings made online |
-| POST | `/api/admin/booking-alerts` | `{ venueId, email, phone }`: either blank to stop that one |
+| GET | `/api/admin/booking-alerts` | `?venueId` → where the venue hears about bookings made online, and the staff language they are written in (`locale`, null for the install's first) |
+| POST | `/api/admin/booking-alerts` | `{ venueId, email, phone, locale? }`: either blank to stop that one; `locale` (`en`, `ms`, `zh` or null) left out keeps it |
 | GET | `/api/admin/branches` | A business manager's branches: drafts, waiting to go live, and decided |
 | POST | `/api/admin/branches` | `{ name, area, address, phone, lat, lng, message? }` — add a branch, as a draft to set up |
 | GET | `/api/admin/businesses` | Every business and its branches. The platform owner's |

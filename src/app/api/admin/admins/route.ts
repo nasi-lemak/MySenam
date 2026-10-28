@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdmin, isManager, isOwner, listAdminsFor, requireAdmin } from "@/lib/admin-auth";
 import { getVenue } from "@/lib/store";
 import { logAction } from "@/lib/activity";
+import { chosenStaffLocale } from "@/lib/staff-locales";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * `{ name, email, password, venueId }` — staff at that branch.
+ * Any of them may carry `locale` (`en`, `ms`, `zh`): their language, which they can change themselves.
  * `{ name, email, password, businessId }` — a manager of that whole business.
  * Neither, from the platform owner only — another platform owner.
  */
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { name, email, password, venueId, businessId, role } = (body ?? {}) as Record<string, unknown>;
+  const { name, email, password, venueId, businessId, role, locale } = (body ?? {}) as Record<string, unknown>;
 
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Name is required." }, { status: 400 });
@@ -57,6 +59,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid businessId." }, { status: 400 });
   if (hasVenue && hasBusiness)
     return NextResponse.json({ error: "Staff work at one branch, or manage the whole business — not both." }, { status: 400 });
+  // Their language, where the manager knows it: one of the dashboard's; none given is none chosen.
+  if (locale !== undefined && locale !== null && locale !== "" && chosenStaffLocale(locale) === null)
+    return NextResponse.json({ error: "The dashboard is not offered in that language." }, { status: 400 });
 
   if (!isOwner(admin)) {
     // A manager adds staff to their own branches, or managers to their own business.
@@ -75,6 +80,7 @@ export async function POST(req: NextRequest) {
     venueId: hasVenue ? (venueId as number) : null,
     businessId: hasBusiness ? (businessId as number) : null,
     role: role === "desk" ? "desk" : "manager",
+    locale,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   await logAction(admin, {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { listCoaches, retireCoach, saveCoach } from "@/lib/coaching";
-import { coachContacts, setCoachEmail, setCoachLink, type NewCoachLink } from "@/lib/coach-schedule";
+import { coachContacts, setCoachEmail, setCoachLink, setCoachLocale, type NewCoachLink } from "@/lib/coach-schedule";
 import { coachChoice, setCoachChoice } from "@/lib/lesson-coaches";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
 /**
  * `{ venueId, id?, name, bio?, sports, rate, hours: [{ weekday, from, until }] }`: add a coach, or change one.
  * `{ venueId, id, action: "email", email }`: where they hear of lessons.
+ * `{ venueId, id, action: "locale", locale }`: the language they are written to in (any the install offers; null for none chosen), which they can also choose at their link.
  * `{ venueId, id, action: "link", on }`: their private schedule link, made afresh (`link`: shown this once) or withdrawn.
  * `{ venueId, action: "choice", choice }`: who chooses the coach of a new lesson, `customer` (the default) or `venue` (lib/lesson-coaches.ts).
  */
@@ -40,10 +41,13 @@ export async function POST(req: NextRequest) {
     await logAction(v.admin, { venueId: v.venueId, action: "settings.changed", detail: `Coach of a new lesson chosen by: ${set.choice === "venue" ? "the venue" : "the customer"}` });
     return NextResponse.json({ choice: set.choice });
   }
-  if (body.action === "email" || body.action === "link") {
+  if (body.action === "email" || body.action === "link" || body.action === "locale") {
     if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
     let link: NewCoachLink | null = null;
-    if (body.action === "email") {
+    if (body.action === "locale") {
+      const set = await setCoachLocale(body.id as number, v.venueId, body.locale);
+      if (!set.ok) return NextResponse.json(set, { status: set.error === "Coach not found." ? 404 : 400 });
+    } else if (body.action === "email") {
       const set = await setCoachEmail(body.id as number, v.venueId, body.email);
       if (!set.ok) return NextResponse.json(set, { status: 400 });
     } else {
@@ -51,7 +55,7 @@ export async function POST(req: NextRequest) {
       if (!made) return NextResponse.json({ error: "Coach not found." }, { status: 404 });
       link = made.link;
     }
-    await logAction(v.admin, { venueId: v.venueId, action: "settings.changed", detail: `Coach ${body.id}: ${body.action === "email" ? "email" : body.on === true ? "new schedule link" : "schedule link withdrawn"}` });
+    await logAction(v.admin, { venueId: v.venueId, action: "settings.changed", detail: `Coach ${body.id}: ${body.action === "locale" ? "language" : body.action === "email" ? "email" : body.on === true ? "new schedule link" : "schedule link withdrawn"}` });
     return NextResponse.json({ coaches: await listCoaches(v.venueId), contacts: Object.fromEntries(await coachContacts(v.venueId)), link });
   }
   const result = await saveCoach(v.venueId, {

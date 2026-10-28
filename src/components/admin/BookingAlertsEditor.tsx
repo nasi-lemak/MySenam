@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import type { BookingAlerts } from "@/lib/notify";
 import { region } from "@/lib/region";
 import { useStaffT } from "./StaffLanguage";
+import { LanguageChoice } from "./LanguageChoice";
+import { staffLocales } from "@/lib/staff-locales";
 
 /** Where this venue hears about bookings customers make online. */
 export function BookingAlertsEditor({ venueId }: { venueId: number }) {
   const t = useStaffT();
   const [alerts, setAlerts] = useState<BookingAlerts | null>(null);
-  const [form, setForm] = useState({ email: "", phone: "" });
+  const [form, setForm] = useState({ email: "", phone: "", locale: "" });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,7 +23,7 @@ export function BookingAlertsEditor({ venueId }: { venueId: number }) {
       .then((d: { alerts?: BookingAlerts }) => {
         if (!d.alerts) return;
         setAlerts(d.alerts);
-        setForm({ email: d.alerts.email ?? "", phone: d.alerts.phone ?? "" });
+        setForm({ email: d.alerts.email ?? "", phone: d.alerts.phone ?? "", locale: d.alerts.locale ?? "" });
       });
   }, [venueId]);
 
@@ -33,7 +35,7 @@ export function BookingAlertsEditor({ venueId }: { venueId: number }) {
       const res = await fetch("/api/admin/booking-alerts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, ...form }),
+        body: JSON.stringify({ venueId, ...form, locale: form.locale || null }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("vn.couldNotSave")));
@@ -72,6 +74,19 @@ export function BookingAlertsEditor({ venueId }: { venueId: number }) {
             className={`mt-0.5 block w-40 ${input}`}
           />
         </label>
+        {/* The venue's own inbox and phone, not one person's: the alerts' language is chosen with them. */}
+        {staffLocales().length > 1 && (
+          <label className="text-xs text-slate-600">
+            {t("sl8.lang.alerts")}
+            <LanguageChoice
+              label={t("sl8.lang.alerts")}
+              value={form.locale}
+              onChange={(locale) => setForm({ ...form, locale })}
+              locales={staffLocales()}
+              className={`mt-0.5 block ${input}`}
+            />
+          </label>
+        )}
         <button disabled={busy} onClick={save} className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
           {t("c.save")}
         </button>

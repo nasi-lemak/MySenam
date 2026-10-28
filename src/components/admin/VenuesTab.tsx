@@ -44,6 +44,8 @@ import type { StaffText } from "@/lib/staff-text";
 import type { EInvoiceRetention } from "@/lib/einvoice-retention";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 import DocumentPolicy from "./DocumentPolicy";
+import { LanguageChoice } from "./LanguageChoice";
+import { staffLocales } from "@/lib/staff-locales";
 
 /* ---------------- Venues & staff tab ---------------- */
 
@@ -67,7 +69,7 @@ export function VenuesTab({
   const [newVenue, setNewVenue] = useState({ name: "", area: "", address: "", phone: "" });
   // "" is another platform owner, "business" a manager of the whole business, an id that branch.
   const staffDefault = admin.venueId === null && admin.businessId !== null ? "business" : "";
-  const [newStaff, setNewStaff] = useState({ name: "", email: "", password: "", venueId: staffDefault, role: "desk" });
+  const [newStaff, setNewStaff] = useState({ name: "", email: "", password: "", venueId: staffDefault, role: "desk", locale: "" });
 
   const loadAdmins = useCallback(async () => {
     if (!managesStaff) return;
@@ -333,7 +335,7 @@ export function VenuesTab({
                     : { ...newStaff, venueId: newStaff.venueId ? Number(newStaff.venueId) : null },
                   t("vn.added", { name: newStaff.email }),
                   () => {
-                    setNewStaff({ name: "", email: "", password: "", venueId: staffDefault, role: "desk" });
+                    setNewStaff({ name: "", email: "", password: "", venueId: staffDefault, role: "desk", locale: "" });
                     loadAdmins();
                   }
                 );
@@ -381,6 +383,16 @@ export function VenuesTab({
                   <option value="desk">{t("vn.desk")}</option>
                   <option value="manager">{t("vn.manager")}</option>
                 </select>
+              )}
+              {/* Their language, where known: the dashboard opens in it and their emails are written in it; they can change it. */}
+              {staffLocales().length > 1 && (
+                <LanguageChoice
+                  label={t("sl8.lang.staff")}
+                  value={newStaff.locale}
+                  onChange={(locale) => setNewStaff({ ...newStaff, locale })}
+                  locales={staffLocales()}
+                  className={inputClass}
+                />
               )}
               <button
                 type="submit"

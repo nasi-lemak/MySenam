@@ -6,7 +6,7 @@ import type { CancelRefund } from "./payments";
 import { getDb } from "./db";
 import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue } from "./store";
 import { Booking } from "./types";
-import { isLocale, Locale, offeredLocales, translator, type Phrase } from "./i18n";
+import { isLocale, Locale, translator, type Phrase } from "./i18n";
 import { drainOutbox, enqueue, hourRange } from "./outbox";
 import type { Channel, Compose } from "./outbox";
 import { icsCalendar } from "./booking-links";
@@ -24,6 +24,7 @@ import { taxIncluded, venueTax } from "./tax";
 import { receiptPath } from "./receipts";
 import { linkIn } from "./link-locale";
 import { clockValue, said, type ServerPhrase, type StaffText } from "./staff-text";
+import { chosenStaffLocale, staffReaderLocale, type StaffLocale } from "./staff-locales";
 
 /**
  * What MySenam tells a customer, and when.
@@ -148,42 +149,55 @@ export async function notifyBookingConfirmed(
   });
 }
 
-/** Where a venue hears about bookings made online: its own address and WhatsApp number, if it chose them. */
+/**
+ * Where a venue hears about bookings made online: its own address and
+ * WhatsApp number, if it chose them, and the staff language the alerts are
+ * written in (null: none chosen, the install's first staff language).
+ */
 export interface BookingAlerts {
   email: string | null;
   phone: string | null;
+  locale: StaffLocale | null;
 }
 
 export async function bookingAlerts(venueId: number): Promise<BookingAlerts> {
-  const row = (await getDb().prepare("SELECT alert_email, alert_phone FROM venues WHERE id = ?").get(venueId)) as
-    | { alert_email: string | null; alert_phone: string | null }
+  const row = (await getDb().prepare("SELECT alert_email, alert_phone, alert_locale FROM venues WHERE id = ?").get(venueId)) as
+    | { alert_email: string | null; alert_phone: string | null; alert_locale: string | null }
     | undefined;
-  return { email: row?.alert_email ?? null, phone: row?.alert_phone ?? null };
+  return { email: row?.alert_email ?? null, phone: row?.alert_phone ?? null, locale: chosenStaffLocale(row?.alert_locale) };
 }
 
+/** `locale` left out keeps the language already chosen; null or "" is none chosen. */
 export async function setBookingAlerts(
   venueId: number,
-  input: { email?: unknown; phone?: unknown }
+  input: { email?: unknown; phone?: unknown; locale?: unknown }
 ): Promise<{ ok: true; alerts: BookingAlerts } | { ok: false; error: string }> {
   const email = typeof input.email === "string" ? input.email.trim() : "";
   const phone = typeof input.phone === "string" ? input.phone.trim() : "";
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "That email address does not look right." };
   if (phone && !longEnough(phone)) return { ok: false, error: "That phone number is too short." };
-  await getDb().prepare("UPDATE venues SET alert_email = ?, alert_phone = ? WHERE id = ?").run(email || null, phone || null, venueId);
+  const keep = input.locale === undefined;
+  const locale = chosenStaffLocale(input.locale);
+  if (!keep && locale === null && input.locale !== null && input.locale !== "")
+    return { ok: false, error: "The dashboard is not offered in that language." };
+  await getDb()
+    .prepare(`UPDATE venues SET alert_email = ?, alert_phone = ?${keep ? "" : ", alert_locale = ?"} WHERE id = ?`)
+    .run(email || null, phone || null, ...(keep ? [] : [locale]), venueId);
   return { ok: true, alerts: await bookingAlerts(venueId) };
 }
 
 /**
  * Tell the venue a customer booked online: by email, and on WhatsApp where
  * the venue sends WhatsApp at all (each one counts against its messages).
- * Once per booking, in the install's first language; staff bookings, made
- * at the desk, are not announced to the desk.
+ * Once per booking, in the language the venue chose for its alerts (else
+ * the install's first staff language), the hours as it writes them; staff
+ * bookings, made at the desk, are not announced to the desk.
  */
 async function alertVenue(bookings: Booking[], code: string, courtName: string, venue: { id: number; name: string }): Promise<void> {
   const alerts = await bookingAlerts(venue.id);
   if (!alerts.email && !alerts.phone) return;
   const first = bookings[0];
-  const locale = offeredLocales()[0] ?? "en";
+  const locale = staffReaderLocale(alerts.locale);
   const t = translator(locale);
   const total = bookings.reduce((sum, b) => sum + b.totalPrice, 0);
   const { where, when } = slot(locale, courtName, venue.name, first);

@@ -12,6 +12,8 @@ import type { ManagedVenue } from "./shared";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { LanguageChoice } from "./LanguageChoice";
+import { offeredLocales } from "@/lib/i18n";
 
 const DAYS: StaffPhrase[] = ["coach.day.0", "coach.day.1", "coach.day.2", "coach.day.3", "coach.day.4", "coach.day.5", "coach.day.6"];
 
@@ -179,6 +181,16 @@ export function CoachesPanel({ venue }: { venue: ManagedVenue }) {
                   <button type="button" className="font-medium text-teal-700 underline" onClick={() => void contact(c.id, { action: "email", email: emails[c.id] ?? contacts[c.id]?.email ?? "" })}>
                     {t("coach.saveEmail")}
                   </button>
+                  {/* The language their emails, page and calendar are in; they can choose it at their link too. */}
+                  {offeredLocales().length > 1 && (
+                    <LanguageChoice
+                      label={t("sl8.lang.coach", { name: c.name })}
+                      value={contacts[c.id]?.locale}
+                      onChange={(locale) => void contact(c.id, { action: "locale", locale: locale || null })}
+                      locales={offeredLocales()}
+                      className={input}
+                    />
+                  )}
                   {contacts[c.id]?.linkUntil ? (
                     <>
                       <span className="text-slate-500">{t("coach.linkUntil", { date: clock.day(contacts[c.id]!.linkUntil!, venue.id) })}</span>

@@ -2565,6 +2565,23 @@ export const ZH: Record<Phrase, string> = {
   "r9.form.overrideReason": "原因（与预订一起保存，并记入操作日志）",
   "r9.form.overrideBook": "破例放行并预订",
   "r9.form.askManager": "请找经理：本场馆允许经理为一笔预订破例放行此项。",
+  // A language of their own for staff and coaches (sl8.): a coach's choice at their link, staff two-factor notices, application reviewers' emails.
+  "sl8.coach.lang": "您的语言",
+  "sl8.coach.langUnset": "未选择（电邮使用{lang}）",
+  "sl8.coach.langHelp": "此页面、其日历以及您收到的课程电邮都会使用此语言。",
+  "sl8.coach.langFailed": "无法保存您的语言。",
+  "sl8.tfa.subject": "{site}：您账户的双重验证登录已被重置",
+  "sl8.tfa.body": "{name}，您好：\n\n您的 {site} 员工账户的双重验证登录已被 {who} 重置，您已在所有设备上退出登录。\n请用密码登录，并重新设置双重验证登录。\n\n如果不是您本人要求的，请立即告知平台所有者：可能有人试图进入您的账户。\n\n{site}",
+  "sl8.tfa.console": "服务器控制台",
+  "sl8.tfa.ownerSubject": "{site}：{name} 的双重验证登录已重置",
+  "sl8.tfa.ownerBody": "{name}（{email}）的双重验证登录已被 {who} 重置。\n给出的理由：{reason}\n\n该账户已在所有设备上退出登录，需要重新设置双重验证登录。",
+  "sl8.mail.ownerFooter": "如无误，无需任何操作。如有误，请在「场馆与员工」中更改。\n\n{site}",
+  "sl8.apr.newSubject": "新申请：{venue} 的 {activity}",
+  "sl8.apr.newBody": "{applicant} 已在线申请 {venue} 的 {activity} 审批。请在后台审核（预订标签，或 场地与价格 → 线上申请）；教练也可登录自己的 {site} 账户审核（账户的审批页面）。",
+  "sl8.apr.answeredSubject": "申请已回复：{venue} 的 {activity}",
+  "sl8.apr.answeredBody": "{applicant} 已回复您就其 {venue} 的 {activity} 申请提出的问题，现等待再次审核。",
+  "sl8.apr.forPerson": "{adult}（自称{relationship}，未经核实）代 {name}",
+  "sl8.apr.anAdult": "一位成人",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

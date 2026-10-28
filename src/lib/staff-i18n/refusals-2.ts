@@ -705,4 +705,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Say which jurisdiction the review covers: Malaysia (MY) or Singapore (SG).": { ms: "Nyatakan bidang kuasa yang diliputi semakan: Malaysia (MY) atau Singapura (SG).", zh: "请说明审查涵盖的司法管辖区：马来西亚（MY）或新加坡（SG）。" },
   "The review is dated before the period was last changed: it cannot have reviewed this period.": { ms: "Semakan bertarikh sebelum tempoh itu terakhir ditukar: ia tidak mungkin menyemak tempoh ini.", zh: "审查日期早于该期限最近一次更改：它不可能审查了此期限。" },
   "action is run, einvoice-years or einvoice-review.": { ms: "Tindakan ialah run, einvoice-years atau einvoice-review.", zh: "操作须为 run、einvoice-years 或 einvoice-review。" },
+  // sl8.: a language of their own for staff and coaches.
+  "The dashboard is not offered in that language.": { ms: "Papan pemuka tidak ditawarkan dalam bahasa itu.", zh: "后台不提供该语言。" },
+  "That language is not offered here.": { ms: "Bahasa itu tidak ditawarkan di sini.", zh: "此处不提供该语言。" },
+  "locale is required.": { ms: "Bahasa diperlukan.", zh: "需要提供语言。" },
 };

@@ -7,6 +7,7 @@ import { baseUrl, drainOutbox, emailPlain } from "./outbox";
 import { siteName } from "./site";
 import { errorText, isLocale, translator, type ErrorCode, type Locale } from "./i18n";
 import { linkIn } from "./link-locale";
+import { staffReaderLocale } from "./staff-locales";
 
 /**
  * Forgotten passwords, for customers and for venue staff.
@@ -107,8 +108,8 @@ export async function processResetRequests(limit = 25): Promise<number> {
 async function sendResetLink(kind: AccountKind, email: string, locale: Locale): Promise<boolean> {
   const db = getDb();
   const t = TABLES[kind];
-  const account = (await db.prepare(`SELECT id, name, email FROM ${t.accounts} WHERE email = ?`).get(email.trim())) as
-    | { id: number; name: string; email: string }
+  const account = (await db.prepare(`SELECT id, name, email${kind === "admin" ? ", locale" : ""} FROM ${t.accounts} WHERE email = ?`).get(email.trim())) as
+    | { id: number; name: string; email: string; locale?: string | null }
     | undefined;
   if (!account) return false;
   await db.prepare("DELETE FROM password_resets WHERE created_at < datetime('now', '-1 day')").run();
@@ -122,9 +123,11 @@ async function sendResetLink(kind: AccountKind, email: string, locale: Locale): 
       `INSERT INTO password_resets (kind, account_id, token_hash, expires_at) VALUES (?, ?, ?, datetime('now', '+${RESET_MINUTES} minutes'))`
     )
     .run(kind, account.id, hashOf(token));
-  const tr = translator(kind === "admin" ? "en" : locale);
-  // A customer's opens in the language they asked in (lib/link-locale.ts); staff have their own.
-  const link = kind === "admin" ? `${baseUrl()}/reset-password?kind=${kind}&token=${token}` : linkIn(`${baseUrl()}/reset-password?kind=${kind}&token=${token}`, locale);
+  // A customer's is in the language they asked in; staff's in their own (else the install's first staff language),
+  // whatever the browser that asked was reading. The link opens in the same (lib/link-locale.ts).
+  const writeIn = kind === "admin" ? staffReaderLocale(account.locale) : locale;
+  const tr = translator(writeIn);
+  const link = linkIn(`${baseUrl()}/reset-password?kind=${kind}&token=${token}`, writeIn);
   // Queued, so a mail server that is down delays the link rather than losing
   // it; not sent once the link has run out, and never sent again to another
   // address.
@@ -134,6 +137,7 @@ async function sendResetLink(kind: AccountKind, email: string, locale: Locale): 
     text: tr("reset.emailBody", { name: account.name.split(/\s+/)[0], link, minutes: RESET_MINUTES }),
     kind: "account_email",
     expiresMinutes: RESET_MINUTES,
+    locale: writeIn,
   });
   return true;
 }

@@ -339,6 +339,11 @@ const en = {
   "rv7.reasonPrompt": "Withdraw the invitation emailed for {name}? Its link stops working; the guest stays on the list by their number. Say why (kept in the activity log):",
   "rv7.withdrawnOk": "Invitation withdrawn.",
   "rv7.act.withdrawn": "Withdrew the invitation a resident emailed for a guest",
+  // A language of their own (sl8.): for a new member of staff, a venue's booking alerts, a coach.
+  "sl8.lang.unset": "Usual language ({lang})",
+  "sl8.lang.staff": "Their language: the dashboard opens in it and their emails are written in it; they can change it with the language switch",
+  "sl8.lang.alerts": "Alerts written in",
+  "sl8.lang.coach": "{name}'s language, for their emails, page and calendar",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -675,6 +680,11 @@ const ms: Record<keyof typeof en, string> = {
   "rv7.reasonPrompt": "Tarik balik jemputan yang dihantar melalui e-mel untuk {name}? Pautannya tidak lagi berfungsi; tetamu kekal dalam senarai dengan nombornya. Nyatakan sebabnya (disimpan dalam log aktiviti):",
   "rv7.withdrawnOk": "Jemputan ditarik balik.",
   "rv7.act.withdrawn": "Menarik balik jemputan yang dihantar oleh penghuni melalui e-mel untuk tetamu",
+  // A language of their own (sl8.): for a new member of staff, a venue's booking alerts, a coach.
+  "sl8.lang.unset": "Bahasa biasa ({lang})",
+  "sl8.lang.staff": "Bahasa mereka: papan pemuka dibuka dalam bahasa ini dan e-mel mereka ditulis dalam bahasa ini; mereka boleh menukarnya dengan suis bahasa",
+  "sl8.lang.alerts": "Makluman ditulis dalam",
+  "sl8.lang.coach": "Bahasa {name}, untuk e-mel, halaman dan kalendar mereka",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1011,6 +1021,11 @@ const zh: Record<keyof typeof en, string> = {
   "rv7.reasonPrompt": "撤回为 {name} 发送的电子邮件邀请？其链接将失效；访客仍按电话号码留在名单上。请说明原因（记入活动日志）：",
   "rv7.withdrawnOk": "邀请已撤回。",
   "rv7.act.withdrawn": "撤回了住户通过电子邮件为访客发送的邀请",
+  // A language of their own (sl8.): for a new member of staff, a venue's booking alerts, a coach.
+  "sl8.lang.unset": "默认语言（{lang}）",
+  "sl8.lang.staff": "其语言：后台以此语言打开，发给其的电邮也用此语言撰写；本人可用语言切换更改",
+  "sl8.lang.alerts": "提醒使用的语言",
+  "sl8.lang.coach": "{name} 的语言（用于其电邮、页面和日历）",
 };
 
 const area = { en, ms, zh };

@@ -2727,6 +2727,23 @@ const EN = {
   "r9.form.overrideReason": "Why (kept with the booking and in the activity log)",
   "r9.form.overrideBook": "Override and book",
   "r9.form.askManager": "Ask a manager: this venue lets its managers override this for one booking.",
+  // A language of their own for staff and coaches (sl8.): a coach's choice at their link, staff two-factor notices, application reviewers' emails.
+  "sl8.coach.lang": "Your language",
+  "sl8.coach.langUnset": "Not chosen (emails in {lang})",
+  "sl8.coach.langHelp": "This page, its calendar and the emails you get about your lessons are written in it.",
+  "sl8.coach.langFailed": "Could not save your language.",
+  "sl8.tfa.subject": "{site}: two-factor sign-in was reset on your account",
+  "sl8.tfa.body": "Hi {name},\n\nTwo-factor sign-in on your {site} staff account was reset by {who}, and you were signed out everywhere.\nSign in with your password and set two-factor sign-in up again.\n\nIf you did not ask for this, tell a platform owner straight away: somebody may be trying to get into your account.\n\n{site}",
+  "sl8.tfa.console": "the server's console",
+  "sl8.tfa.ownerSubject": "{site}: two-factor sign-in reset for {name}",
+  "sl8.tfa.ownerBody": "Two-factor sign-in on {name} ({email}) was reset by {who}.\nReason given: {reason}\n\nThe account was signed out everywhere and has to set two-factor up again.",
+  "sl8.mail.ownerFooter": "Nothing needs doing if that is right. If it is not, change it under Venues & staff.\n\n{site}",
+  "sl8.apr.newSubject": "New application: {activity} at {venue}",
+  "sl8.apr.newBody": "{applicant} has applied online to be approved for {activity} at {venue}. Review it in the dashboard (the bookings tab, or Courts & rates → Online applications), or, as a coach, signed in to your own {site} account (your account's approvals page).",
+  "sl8.apr.answeredSubject": "Application answered: {activity} at {venue}",
+  "sl8.apr.answeredBody": "{applicant} has answered your question about their application for {activity} at {venue}. It is waiting for review again.",
+  "sl8.apr.forPerson": "{adult} (declared {relationship}, not verified), for {name},",
+  "sl8.apr.anAdult": "An adult",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5405,6 +5422,23 @@ const MS: Record<Phrase, string> = {
   "r9.form.overrideReason": "Sebab (disimpan bersama tempahan dan dalam log aktiviti)",
   "r9.form.overrideBook": "Atasi dan tempah",
   "r9.form.askManager": "Minta pengurus: pusat ini membenarkan pengurusnya mengatasi perkara ini untuk satu tempahan.",
+  // A language of their own for staff and coaches (sl8.): a coach's choice at their link, staff two-factor notices, application reviewers' emails.
+  "sl8.coach.lang": "Bahasa anda",
+  "sl8.coach.langUnset": "Belum dipilih (e-mel dalam {lang})",
+  "sl8.coach.langHelp": "Halaman ini, kalendarnya dan e-mel yang anda terima tentang kelas anda ditulis dalam bahasa ini.",
+  "sl8.coach.langFailed": "Bahasa anda tidak dapat disimpan.",
+  "sl8.tfa.subject": "{site}: log masuk dua faktor pada akaun anda telah ditetapkan semula",
+  "sl8.tfa.body": "Hai {name},\n\nLog masuk dua faktor pada akaun kakitangan {site} anda telah ditetapkan semula oleh {who}, dan anda telah dilog keluar di semua tempat.\nLog masuk dengan kata laluan anda dan sediakan semula log masuk dua faktor.\n\nJika anda tidak memintanya, beritahu pemilik platform dengan segera: mungkin ada orang yang cuba memasuki akaun anda.\n\n{site}",
+  "sl8.tfa.console": "konsol pelayan",
+  "sl8.tfa.ownerSubject": "{site}: log masuk dua faktor ditetapkan semula untuk {name}",
+  "sl8.tfa.ownerBody": "Log masuk dua faktor pada {name} ({email}) telah ditetapkan semula oleh {who}.\nSebab yang diberikan: {reason}\n\nAkaun itu telah dilog keluar di semua tempat dan perlu menyediakan semula log masuk dua faktor.",
+  "sl8.mail.ownerFooter": "Tiada apa-apa yang perlu dibuat jika itu betul. Jika tidak, ubahnya di bawah Pusat & kakitangan.\n\n{site}",
+  "sl8.apr.newSubject": "Permohonan baharu: {activity} di {venue}",
+  "sl8.apr.newBody": "{applicant} telah memohon dalam talian untuk diluluskan bagi {activity} di {venue}. Semaknya di papan pemuka (tab Tempahan, atau Gelanggang & kadar → Permohonan dalam talian), atau, sebagai jurulatih, selepas log masuk ke akaun {site} anda sendiri (halaman kelulusan akaun anda).",
+  "sl8.apr.answeredSubject": "Permohonan dijawab: {activity} di {venue}",
+  "sl8.apr.answeredBody": "{applicant} telah menjawab soalan anda tentang permohonan mereka untuk {activity} di {venue}. Ia menunggu semakan semula.",
+  "sl8.apr.forPerson": "{adult} (diisytiharkan sebagai {relationship}, tidak disahkan), untuk {name},",
+  "sl8.apr.anAdult": "Seorang dewasa",
 };
 
 /** Exported so a test can hold the two languages against each other. */

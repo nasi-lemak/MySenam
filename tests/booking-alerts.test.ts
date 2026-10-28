@@ -37,12 +37,12 @@ beforeAll(async () => {
 
 describe("new-booking alerts", () => {
   it("are off until the venue gives an address or number, and checked when it does", async () => {
-    expect(await bookingAlerts(venueId)).toEqual({ email: null, phone: null });
+    expect(await bookingAlerts(venueId)).toEqual({ email: null, phone: null, locale: null });
     expect(await setBookingAlerts(venueId, { email: "not an email" })).toMatchObject({ ok: false });
     expect(await setBookingAlerts(venueId, { phone: "123" })).toMatchObject({ ok: false });
     expect(await setBookingAlerts(venueId, { email: "desk@arena.my", phone: "012-888 9999" })).toEqual({
       ok: true,
-      alerts: { email: "desk@arena.my", phone: "012-888 9999" },
+      alerts: { email: "desk@arena.my", phone: "012-888 9999", locale: null },
     });
   });
 
@@ -90,6 +90,6 @@ describe("new-booking alerts", () => {
   });
 
   it("stop when the fields are emptied", async () => {
-    expect(await setBookingAlerts(venueId, { email: "", phone: "" })).toEqual({ ok: true, alerts: { email: null, phone: null } });
+    expect(await setBookingAlerts(venueId, { email: "", phone: "" })).toEqual({ ok: true, alerts: { email: null, phone: null, locale: null } });
   });
 });

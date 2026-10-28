@@ -117,14 +117,15 @@ the language the customer booked in.
   guardian emails' people page) carries the message's language as a fixed
   parameter, `?lang=ms`, so it opens in that language in a browser that has
   never been to the site; a language the person has chosen with the switch
-  wins ([regions](../product/regions-and-tax.md)). Staff alerts, coach
-  emails and staff password resets are unchanged.
+  wins ([regions](../product/regions-and-tax.md)). A staff password reset's
+  link carries the staff member's own language; staff alerts and coach
+  emails carry no link parameter.
 - *Times.* A message writes a time as its language does, by the same
   formatter as the pages (`formatHour` and `formatMinute`, from
   `clockTime` in `src/lib/region.ts`): *6:30 PM*, *6:30 PTG*, *下午6:30*,
   *18:30*; a moment (a guardian change, a payment deadline) in the venue's
-  time zone. What staff read about a booking (urgent notices' lines, coach
-  emails, staff calendars) stays in English.
+  time zone. Staff and coaches are written to in their own language, times
+  as it writes them ([a language of their own](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches)).
 
 Tests: `tests/link-locale.test.ts` (the parameter, the middleware, the
 language a page opens in, links in an offer, a confirmation, a receipt and a
@@ -271,7 +272,10 @@ are not announced back to the desk.
   else's phone, and a busy venue takes more bookings than it allows.
 - On WhatsApp each alert counts against the venue's messages like any other,
   and needs the `mysenam_venue_new_booking` template below approved.
-- They are written in the install's first language.
+- They are written in the staff language chosen with the address and number
+  (*Alerts written in*; `venues.alert_locale`), else the install's first
+  staff language, their hours as it writes them
+  ([a language of their own](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches)).
 
 A lesson's confirmation names the coach where it names the court (*Court 1,
 lesson with Ana Lim*). A booking, class enrolment or waiting-list offer made for
@@ -299,7 +303,8 @@ the feed asks for every 30 minutes.
 - What people read (each event's title and description, the calendar's
   name) is in the staff language the address names (`?lang=ms`), with times
   as that language writes them: the address the dashboard shows names the
-  language of whoever turned the feed on or looked it up. A language staff
+  own language of whoever turned the feed on or looked it up, else the
+  language they were reading the dashboard in. A language staff
   screens do not have, or none, gives the install's first. What calendar
   apps read (start, end, zone, ids) is the same in every language
   ([times for staff](../product/regions-and-tax.md); `tests/staff-times.test.ts`).

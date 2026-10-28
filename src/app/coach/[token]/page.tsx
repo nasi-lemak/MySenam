@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
-import { serverT } from "@/lib/locale";
+import { currentLocale, currentSiteName } from "@/lib/locale";
+import { translator } from "@/lib/i18n";
+import { LanguageProvider } from "@/components/Language";
+import CoachLanguage from "@/components/CoachLanguage";
 import { coachForToken, coachLessons } from "@/lib/coach-schedule";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import CoachSelfService from "@/components/CoachSelfService";
@@ -8,16 +11,22 @@ import { linkIn } from "@/lib/link-locale";
 
 export const dynamic = "force-dynamic";
 
-/** A coach's own lessons, at the private link the venue gave them (lib/coach-schedule.ts). */
+/**
+ * A coach's own lessons, at the private link the venue gave them
+ * (lib/coach-schedule.ts), in the coach's own language where they chose one,
+ * else the one the visitor reads the site in.
+ */
 export default async function CoachSchedulePage({ params }: { params: Promise<{ token: string }> }) {
-  const t = await serverT();
   const { token } = await params;
   const found = await coachForToken(token);
   if (!found) notFound();
+  const site = await currentSiteName();
+  const t = translator(found.locale ?? (await currentLocale()), site);
   const today = todayISO(found.zone);
   const lessons = await coachLessons(found.coach.id, today, addDays(today, 30));
   const days = [...new Set(lessons.map((l) => l.date))];
   return (
+    <LanguageProvider locale={t.locale} site={site}>
     <div className="mx-auto max-w-xl space-y-4">
       <h1 className="text-xl font-bold">{t("coachpage.title", { name: found.coach.name, venue: found.venueName })}</h1>
       <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">{t("coachpage.private")}</p>
@@ -32,6 +41,7 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
           {t("apr.coachSignInLink")}
         </Link>
       </p>
+      <CoachLanguage token={token} chosen={found.locale} />
       <CoachSelfService token={token} hours={found.coach.hours} timeOff={found.coach.timeOff} />
       {lessons.length === 0 ? (
         <p className="text-sm text-slate-600">{t("coachpage.none")}</p>
@@ -61,5 +71,6 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
         ))
       )}
     </div>
+    </LanguageProvider>
   );
 }
