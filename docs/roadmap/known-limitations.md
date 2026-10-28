@@ -207,7 +207,7 @@ page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
 **89 now**. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B43, M16–M21 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B46, M16–M21 and
 S12–S25, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (86
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -481,7 +481,9 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   inside a suspension keeps its price and is not flagged (a booking does not
   record the membership that priced it), and a move or a waiting-list offer
   asks membership before its transaction, so a suspension saved at the same
-  instant can miss it (the booking path asks again inside its transaction); a court reserved whole while its booker was
+  instant can miss it (the booking path asks again inside its transaction),
+  and a members-only venue's page still invites a suspended member to sign
+  in and ask to be linked, though booking tells them it is suspended; a court reserved whole while its booker was
   a member is flagged, not barred, when the membership stops (a booking
   privilege, checked when booked) (P3).
 - **Changing a lesson's coach has limits** ([one-to-one coaching](../features/programmes.md#one-to-one-coaching)):
@@ -689,6 +691,9 @@ IDs are not reused. Each fix came with the test recommended above.
 | B41 | The venue's API key was not held to no-show strikes or the guest limit where the venue took payment online: the booking was made neither held nor paid, where online it would have been held until paid; the API now refuses it | `tests/same-policies.test.ts` |
 | B42 | The counter, and waiting-list entries made at the counter, treated a member's number as a non-member's for the members' longer booking window, so they were always refused `LIMIT_AHEAD_MEMBERS`; the number on staff's word now gets the member's window | `tests/same-policies.test.ts` |
 | B43 | A number struck out for no-shows could get a class place through a waiting-list claim (held until paid), though enrolling directly refused it; a class place cannot be held, so the claim is refused as enrolling is | `tests/same-policies.test.ts` |
+| B44 | Chinese times drawn in the browser read on the 24-hour clock ("18:41") where the server wrote 下午6:41: Chromium has no data for `zh-Hans-MY` and falls back to a 24-hour default; the shared formatter now asks for the 12-hour clock for Chinese. Found by the acceptance scenarios (*Times AE*) | `tests/staff-times.test.ts`, `tests/uat/round7.uat.ts` (Times AE) |
+| B45 | A member whose membership was suspended today was refused at a members-only venue as a non-member ("ask the venue how to join") rather than told it is suspended; the refusal now gives the suspension and its date. Found by the acceptance scenarios (*Suspension AD*) | `tests/membership-suspensions.test.ts`, `tests/uat/round7.uat.ts` (Suspension AD) |
+| B46 | The front desk opening *Venue details* was shown "Front-desk accounts cannot change this" without doing anything: the online payments panel asked for the venue's payment account and hold policy, both a manager's; the desk now sees the payments only. Found by the acceptance scenarios | `tests/components/online-payments-desk.test.tsx` |
 
 ### Resolved limitations without a number
 
