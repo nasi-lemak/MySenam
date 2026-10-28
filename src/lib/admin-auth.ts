@@ -212,6 +212,41 @@ async function markSeen(adminId: number): Promise<void> {
     .run(adminId);
 }
 
+/** Where the install requires two-factor sign-in (MYSENAM_STAFF_2FA), whether this account still has to set it up. */
+async function twoFactorPending(admin: Admin): Promise<boolean> {
+  return twoFactorRequired(admin) && !(await hasTwoFactor(admin.id));
+}
+
+const TWO_FACTOR_FIRST = { error: "Set up two-factor sign-in for this account first.", code: "TWO_FACTOR_REQUIRED" } as const;
+
+/**
+ * The staff member a request acts as outside the admin routes: the counter
+ * booking or enrolling somebody, staff-only rooms and prices, a preview of a
+ * venue not yet open. The same gate as `requireAdmin`: an account the install
+ * requires two-factor sign-in of acts as staff only once it has set it up;
+ * until then it is nobody's staff here, as if signed out.
+ */
+export async function getActingStaff(req: NextRequest): Promise<Admin | null> {
+  const admin = await getSessionAdmin(req);
+  return admin && !(await twoFactorPending(admin)) ? admin : null;
+}
+
+/** `getActingStaff` for a page, from its session token. */
+export async function getActingStaffByToken(token: string): Promise<Admin | null> {
+  const admin = await getAdminByToken(token);
+  return admin && !(await twoFactorPending(admin)) ? admin : null;
+}
+
+/**
+ * Where a request asks for something only staff may do and is signed in as
+ * staff held back by two-factor sign-in: the refusal that says so, rather
+ * than the one a customer would get. Null otherwise.
+ */
+export async function twoFactorRefusal(req: NextRequest): Promise<NextResponse | null> {
+  const admin = await getSessionAdmin(req);
+  return admin && (await twoFactorPending(admin)) ? NextResponse.json(TWO_FACTOR_FIRST, { status: 403 }) : null;
+}
+
 /**
  * Resolve the signed-in admin, or a 401 response to return directly:
  *   const admin = requireAdmin(req);
@@ -222,11 +257,8 @@ export async function requireAdmin(req: NextRequest): Promise<Admin | NextRespon
   if (!admin) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   // Where the install requires two-factor sign-in, an account without it may
   // only set it up (the routes under /api/admin/auth) until it has.
-  if (twoFactorRequired(admin) && !req.nextUrl.pathname.startsWith("/api/admin/auth/") && !(await hasTwoFactor(admin.id)))
-    return NextResponse.json(
-      { error: "Set up two-factor sign-in for this account first.", code: "TWO_FACTOR_REQUIRED" },
-      { status: 403 }
-    );
+  if (!req.nextUrl.pathname.startsWith("/api/admin/auth/") && (await twoFactorPending(admin)))
+    return NextResponse.json(TWO_FACTOR_FIRST, { status: 403 });
   // Front desk is turned away from what only a manager does, here, for every route.
   return deskRefusal(admin.role, req.method, req.nextUrl.pathname) ?? admin;
 }

@@ -12,7 +12,7 @@ import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { classTerm, enrolInTerm, enrolPeople, getClass, payBookingFromWallet, setPaymentStatus } from "@/lib/store";
-import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
+import { canAccessVenue, getActingStaff, twoFactorRefusal } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
 import { readSelection, recordBookedFor, selectionAtVenue, selectionForAccount, type Selection } from "@/lib/participant-bookings";
@@ -67,7 +67,12 @@ export async function POST(req: NextRequest) {
   }
   const forClass = await getClass(classId as number);
   // Enrolled by the venue's own staff (the counter), or by the customer online.
-  const desk = await getSessionAdmin(req);
+  // Staff act as staff here only past the install's two-factor rule, as in the admin routes (lib/admin-auth.ts).
+  if (askOverride || (paidAtCounter !== undefined && paidAtCounter !== null)) {
+    const held = await twoFactorRefusal(req);
+    if (held) return held;
+  }
+  const desk = await getActingStaff(req);
   const byStaff = desk !== null && forClass !== null && canAccessVenue(desk, forClass.venueId);
   if (askOverride && !byStaff) return refusal(policyRefusal("R9_OVERRIDE_MANAGERS"), 403);
   if (askOverride && byStaff) {

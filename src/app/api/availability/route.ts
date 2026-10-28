@@ -5,7 +5,7 @@ import { listConcessions } from "@/lib/concessions";
 import { discountStacking } from "@/lib/discounts";
 import { activeMembership, getAvailability, getVenue, getVenueClosure, memberNumberTrusted } from "@/lib/store";
 import { getSessionUser } from "@/lib/auth";
-import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
+import { canAccessVenue, getActingStaff } from "@/lib/admin-auth";
 import { shows, storefrontForRequest } from "@/lib/storefront";
 import { mayShowVenue } from "@/lib/listing";
 import { releaseExpiredHolds } from "@/lib/holds";
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
 
   // A tier with its own price level prices the grid at that.
   // Rooms run as classes are the venue's own staff's to hire out; customers book their classes.
-  const staff = await getSessionAdmin(req);
+  const staff = await getActingStaff(req);
   const availability: CourtAvailability[] = await getAvailability(venueId, date, sport, membership ? (membership.ratePercent ?? true) : false, staff !== null && canAccessVenue(staff, venueId));
   // Who is taking part (`taking=self,12`, as search was asked): each one's
   // status for what a court here asks for first, informational (lib/eligibility.ts).
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
     discountStacking: await discountStacking(venueId),
     // The venue's own staff at the counter: they may book for a child the venue knows (lib/participant-bookings.ts).
     atCounter: await (async () => {
-      const admin = await getSessionAdmin(req);
+      const admin = await getActingStaff(req);
       return !!admin && canAccessVenue(admin, venueId);
     })(),
     // A manager of this venue may book outside its booking rules (recorded).

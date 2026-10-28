@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { ADMIN_SESSION_COOKIE, canAccessVenue, getAdminByToken, getSessionAdmin, type Admin } from "./admin-auth";
+import { ADMIN_SESSION_COOKIE, canAccessVenue, getActingStaff, getActingStaffByToken, type Admin } from "./admin-auth";
 import { getDb } from "./db";
 import { SESSION_COOKIE, getSessionUser, getUserByToken } from "./auth";
 import { eligible } from "./access";
@@ -75,7 +75,7 @@ export async function venueIsOpen(venueId: number): Promise<boolean> {
 export async function pageAdmin(): Promise<Admin | null> {
   const { cookies } = await import("next/headers");
   const token = (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
-  return token ? await getAdminByToken(token) : null;
+  return token ? await getActingStaffByToken(token) : null;
 }
 
 /** Who is looking: staff, a signed-in customer, both or neither. */
@@ -91,13 +91,13 @@ export async function pageViewer(): Promise<Viewer> {
   const adminToken = jar.get(ADMIN_SESSION_COOKIE)?.value;
   const userToken = jar.get(SESSION_COOKIE)?.value;
   return {
-    admin: adminToken ? await getAdminByToken(adminToken) : null,
+    admin: adminToken ? await getActingStaffByToken(adminToken) : null,
     userId: userToken ? ((await getUserByToken(userToken))?.id ?? null) : null,
   };
 }
 
 async function viewerOf(who: Admin | null | NextRequest | Viewer): Promise<Viewer> {
-  if (who && "cookies" in who) return { admin: await getSessionAdmin(who), userId: (await getSessionUser(who))?.id ?? null };
+  if (who && "cookies" in who) return { admin: await getActingStaff(who), userId: (await getSessionUser(who))?.id ?? null };
   if (who && "userId" in who) return who;
   return { admin: who, userId: null };
 }
