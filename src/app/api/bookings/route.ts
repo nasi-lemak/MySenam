@@ -21,10 +21,14 @@ import {
   payBookingWithPasses,
   policyForCourt,
   requestedSpan,
+  setPaymentStatus,
 } from "@/lib/store";
 import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
 import { assignLessonCoach, coachChoice, coachDifferences, lessonRefusal, lessonSports } from "@/lib/lesson-coaches";
-import { customerMayBook, guestSurge } from "@/lib/limits";
+import { guestSurge, policyCheck } from "@/lib/limits";
+import { overrideRefusal, policyRefusal, readOverride, type PolicyOverrideRecord } from "@/lib/policy-overrides";
+import { logOverride, policyRefused } from "@/lib/counter-policy";
+import { money } from "@/lib/region";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { cancelPolicy, cancelPolicyFor, struckOut } from "@/lib/cancel-policy";
 import { cutoffFor } from "@/lib/sport-rules";
@@ -33,7 +37,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { addDays, isValidDateString, todayISO } from "@/lib/time";
 import { formatLength, formatMinute } from "@/lib/interval";
 import { windowFor } from "@/lib/house-rules";
-import { doorFor, MAX_SERIES_WEEKS, Sport } from "@/lib/types";
+import { COUNTER_METHODS, doorFor, MAX_SERIES_WEEKS, PAID_VIA_LABELS, Sport, type CounterMethod } from "@/lib/types";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingConfirmed, rememberLocale, tickOutbox } from "@/lib/notify";
 import { refundStatusFor, takesPaymentOnline } from "@/lib/payments";
@@ -126,6 +130,14 @@ export async function POST(req: NextRequest) {
   if (group && (anyCourt || ((weeks as number) ?? 1) > 1 || (coachId !== undefined && coachId !== null) || assignCoach === true || chosen.length > 0))
     return refusal({ ok: false, error: "A booking of several courts is for one date, without extras or a coach.", code: "GROUP_ONE_COURT_ONLY" });
 
+  // A manager's override of the venue's policies for this booking (lib/policy-overrides.ts), and payment
+  // taken at the counter as it is booked: the counter's alone, checked once who is booking is known.
+  const askOverride = readOverride((body ?? {}) as Record<string, unknown>);
+  if (askOverride && "ok" in askOverride) return refusal(askOverride, 400);
+  const { paidAtCounter } = (body ?? {}) as Record<string, unknown>;
+  if (paidAtCounter !== undefined && paidAtCounter !== null && !COUNTER_METHODS.includes(paidAtCounter as CounterMethod))
+    return NextResponse.json({ error: `paidAtCounter must be one of ${COUNTER_METHODS.join(", ")}.` }, { status: 400 });
+
   const limited = await rateLimit(req, "booking");
   if (limited) return limited;
 
@@ -144,6 +156,15 @@ export async function POST(req: NextRequest) {
   const desk = staff ?? (await getSessionAdmin(req));
   const venueBooked = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
   const byStaff = desk !== null && venueBooked !== undefined && canAccessVenue(desk, venueBooked);
+  // Overriding the venue's policies: a manager of this venue, where the venue permits each policy asked; never the desk.
+  if (askOverride && !byStaff) return refusal(policyRefusal("R9_OVERRIDE_MANAGERS"), 403);
+  if (askOverride && byStaff) {
+    const no = await overrideRefusal(desk, venueBooked, askOverride);
+    if (no) return refusal(no.refusal, no.status);
+  }
+  // Taking payment as it is booked is the counter's.
+  if (paidAtCounter !== undefined && paidAtCounter !== null && !byStaff) return refusal(policyRefusal("R9_PAY_NOW_STAFF"), 403);
+  const payNow = byStaff && paidAtCounter !== undefined && paidAtCounter !== null && (chargeTo === undefined || chargeTo === null) ? (paidAtCounter as CounterMethod) : null;
 
   const user = await getSessionUser(req);
   // An account books with a number the venue can reach, checked where numbers are.
@@ -205,11 +226,15 @@ export async function POST(req: NextRequest) {
     if (!account) return refusal({ ok: false, error: "That account cannot be charged here.", code: "ACCOUNT_NOT_HERE" }, 403);
   }
 
-  // Not too many unpaid bookings ahead on one number, no weekly series
-  // without an account, and not from a number this venue has refused.
+  // The venue's policies, the same online and at the counter (lib/limits.ts `policyCheck`): who may book
+  // here, the house rules, a weekly booking's account, the guest limit, a refused number, no-show strikes
+  // and the unpaid-bookings limit. At the counter, paid then and there stands in for paying online to hold,
+  // and a manager may go past what the venue lets them, recorded with the booking.
   const venueOfBooking = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
+  let policyOverride: PolicyOverrideRecord | undefined;
   if (venueOfBooking !== undefined) {
-    const refused = await customerMayBook({
+    const path = byStaff ? ("staff" as const) : ("customer" as const);
+    const answer = await policyCheck(path, {
       venueId: venueOfBooking,
       phone,
       weeks: (weeks as number) ?? 1,
@@ -224,12 +249,17 @@ export async function POST(req: NextRequest) {
           : undefined,
       preview: (await mayShowVenue(venueOfBooking, req)).preview,
       canPayOnline: await takesPaymentOnline(venueOfBooking),
-      // The venue's staff at its counter book anyone, as the venue's own rules say; each participant's membership is still asked.
-      atCounter: byStaff,
       // Places on a shared session for people the account books for, not itself: each their own member (lib/entitlements.ts).
       placesForOthers: !customerTakesPart && named.length > 0 && !anyCourt && !group && ((await getCourt(courtId as number))?.capacity ?? 1) > 1,
+      // At the counter, who is booked at a members-only or private venue: the number, or each person named.
+      participants: named,
+      customerTakesPart,
+      paidNow: payNow !== null,
+      ...(askOverride ? { overrides: askOverride.policies } : {}),
     });
-    if (refused) return refusal(refused);
+    if (answer.refusal) return policyRefused(path, answer.refusal, byStaff ? { staff: desk!, venueId: venueOfBooking } : null);
+    if (byStaff && askOverride && answer.overridden.length > 0)
+      policyOverride = { venueId: venueOfBooking, adminId: desk!.id, adminName: desk!.name, reason: askOverride.reason, overridden: answer.overridden };
     // The venue's waiver, agreed to once per version (lib/waivers.ts): for everybody taking part, each their own.
     for (const who of [...(customerTakesPart ? [null] : []), ...named.map((p) => p.id)]) {
       const unsigned = await waiverRefusal(venueOfBooking, phone, agreeWaiver, who);
@@ -312,6 +342,8 @@ export async function POST(req: NextRequest) {
     ...(typeof sport === "string" && sport !== "" ? { sport: sport as Sport } : {}),
     // Who put the people named on it: the member of staff at the counter, or the account.
     addedBy: byStaff && desk ? { adminId: desk.id } : { userId: user?.id ?? null },
+    // A manager's override of the venue's policies, written with each booking in its transaction.
+    ...(policyOverride ? { policyOverride } : {}),
   };
   const forPeople = selection && selection.participants.length > 0 ? { participants: selection.participants, customerTakesPart: selection.customerTakesPart } : {};
 
@@ -424,6 +456,10 @@ export async function POST(req: NextRequest) {
     for (const b of result.bookings) b.accountId = account.id;
   }
 
+  // Past the venue's policies, on a manager's say: kept with each booking that stands, and in the activity log.
+  if (policyOverride && desk)
+    for (const booking of result.bookings) await logOverride(desk, booking.code, { name: name.trim(), phone: phone.trim() }, policyOverride);
+
   // Settling is best-effort: an empty wallet or a spent pass leaves the
   // booking standing as unpaid rather than throwing it away.
   const payErrors: string[] = [];
@@ -445,6 +481,25 @@ export async function POST(req: NextRequest) {
       else booking.paymentStatus = "paid";
     }
   }
+  // Paid at the counter as it is booked (how, as staff say), on the record as any counter payment is.
+  if (payNow && desk)
+    for (const booking of result.bookings) {
+      if (booking.paymentStatus === "paid") continue;
+      const paid = await setPaymentStatus(booking.code, true, payNow, desk.role);
+      if (!paid.ok) {
+        payErrors.push(paid.error);
+        continue;
+      }
+      booking.paymentStatus = "paid";
+      booking.paidVia = payNow;
+      booking.paidAt = paid.booking.paidAt;
+      await logAction(desk, {
+        venueId: venueOfBooking ?? null,
+        action: "payment.paid",
+        bookingCode: booking.code,
+        detail: `${money(booking.totalPrice)}, by ${PAID_VIA_LABELS[payNow]}, as it was booked`,
+      });
+    }
 
   const court = (await getCourt(result.bookings[0].courtId))!;
   const venue = (await getVenue(court.venueId))!;
@@ -476,8 +531,9 @@ export async function POST(req: NextRequest) {
   // So is one from a number with too many no-shows here (lib/cancel-policy.ts).
   const policy = await holdPolicy(venue.id);
   // So is a guest's while the venue is being flooded with unpaid guest bookings (lib/limits.ts).
+  // Online only: at the counter it was paid as it was booked, or a manager went past it (lib/limits.ts `policyCheck`).
   const mustPay =
-    ((await struckOut(venue.id, phone)).out || (!user && (await guestSurge(venue.id)))) && (await takesPaymentOnline(venue.id));
+    !byStaff && ((await struckOut(venue.id, phone)).out || (!user && (await guestSurge(venue.id)))) && (await takesPaymentOnline(venue.id));
   const holdUntil = !account && (policy.active || mustPay)
     ? await holdNewBookings(
         result.bookings.filter((b) => b.paymentStatus === "unpaid").map((b) => b.id),

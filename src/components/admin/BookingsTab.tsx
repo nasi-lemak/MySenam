@@ -12,7 +12,7 @@ import type { BookingStatus, CounterMethod, PaidVia } from "@/lib/types";
 import type { Court, HireCondition } from "@/lib/types";
 import type { AdminBookingRow, BookingHit } from "@/lib/store";
 import type { DeductionReason, DeductionTreatment } from "@/lib/deposit-deductions";
-import type { StaffT } from "@/lib/staff-i18n";
+import type { StaffPhrase, StaffT } from "@/lib/staff-i18n";
 import { todayLocal } from "./shared";
 import { clockTime, money, region } from "@/lib/region";
 import { isConcessionPreset } from "@/lib/concessions-shared";
@@ -992,6 +992,7 @@ export function BookingsTab() {
                   <Extras b={b} act={act} />
                   <StaffNote b={b} act={act} />
                   <WaiverChip b={b} act={act} />
+                  <OverrideNote b={b} />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -1040,6 +1041,7 @@ export function BookingsTab() {
                       <Extras b={b} act={act} />
                       <StaffNote b={b} act={act} />
                       <WaiverChip b={b} act={act} />
+                      <OverrideNote b={b} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {b.phone}
@@ -1160,6 +1162,29 @@ function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
     >
       📝 {b.staffNote}
     </button>
+  );
+}
+
+/** A manager's override of the venue's policies that let this booking through: which, by whom, and why (lib/policy-overrides.ts). */
+function OverrideNote({ b }: { b: AdminBookingRow }) {
+  const t = useStaffT();
+  if (!b.policyOverrides?.length) return null;
+  const byWhom = [...new Set(b.policyOverrides.map((o) => o.adminName))];
+  return (
+    <div className="mt-1 text-xs text-amber-800">
+      {byWhom.map((by) => {
+        const theirs = b.policyOverrides!.filter((o) => o.adminName === by);
+        return (
+          <div key={by}>
+            {t("r9.row.overridden", {
+              by,
+              what: theirs.map((o) => t(`r9.policy.${o.policy}` as StaffPhrase)).join(", "),
+              reason: theirs[0].reason,
+            })}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

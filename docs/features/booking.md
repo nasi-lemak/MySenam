@@ -167,7 +167,11 @@ box, and *Change time*, offer any minute and length. The booking is marked
 as an exception, and the activity log records who made it and which rules it
 went past (*Booked or moved outside a court's booking rules*). Front-desk staff cannot, and nobody
 can book over another booking, a block, a class, an outage or a buffer: the
-database refuses those whoever asks.
+database refuses those whoever asks. It is not a way round the venue's
+policies either: those are the same on every path, and a manager goes past
+only those the venue lets them, one booking at a time
+([manager overrides](#manager-overrides)). Nor does it go past eligibility
+for a members' place ([who a venue is for](#who-a-venue-is-for-public-members-only-private)).
 
 ## Rules by sport
 
@@ -479,6 +483,106 @@ duplicating it. The occupancy grid and the reports count every place a block
 takes out, whole or partial, off what could have been sold for its time
 ([reporting](reporting.md#reporting)).
 
+## The same policies on every path
+
+Customer, counter and API bookings are held to the same venue policies (the
+owner's decision of 28 October 2026;
+[ADR 0026](../architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md)):
+using the counter or an API key does not get round them. One check asks them
+all, in one order (`policyCheck()` in `src/lib/limits.ts`): the booking form,
+the counter (a staff session on the same routes: court time, several courts,
+a lesson, a class place or a term), the venue's API key
+(`POST /api/v1/bookings`), and a waiting list (joining it, the offer and its
+claim, [below](#waitlists)).
+
+| Policy | Online | At the counter | Through the API key |
+| ------ | ------ | -------------- | ------------------- |
+| The venue open to customers | Refused (`VENUE_NOT_OPEN`) | Its own staff may try a venue customers cannot reach yet | Refused |
+| Who a venue is for (members only, private) | The account ([below](#who-a-venue-is-for-public-members-only-private)) | The number booked, on staff's word, or each person named where only they take places | As the counter |
+| House rules: how far ahead | Refused (`LIMIT_AHEAD`, `LIMIT_AHEAD_MEMBERS`) | Refused; a member's number on staff's word has the members' window | Refused |
+| House rules: bookings at once, a week, a day | Refused (`LIMIT_UPCOMING`, `LIMIT_WEEK`, `LIMIT_DAY`) | Refused; a manager may override | Refused |
+| A weekly booking needs an account | Refused (`SERIES_NEEDS_ACCOUNT`) | Refused; a manager may book it as assisted | One booking at a time |
+| The guest limit (`GUEST_SURGE_PER_HOUR` unpaid bookings without an account in the hour) | Held until paid where the venue takes payment online; refused where it does not | Paid as it is booked, or refused; a manager may override | Refused |
+| A blocked number | Refused (`PHONE_BLOCKED`) | Refused, never overridden | Refused |
+| No-show strikes | Held until paid online; refused where nothing is taken online | Paid as it is booked, or refused; a manager may override | Refused |
+| Unpaid bookings coming up (3 here, 6 anywhere) | Refused | Refused, never overridden, paid as it is booked or not | Refused |
+| The venue's waiver | Ticked by the customer | Ticked by staff for the customer | Already on record, the customer's and each person's named |
+
+The booking engine then asks the rest the same on every path: the court's
+booking rules, sign-offs, a members' place each person's own, a women-only or
+men-only class, capacity, availability and linked resources (the database).
+
+**Said for each path.** Online a refusal is said as the customer is told. At
+the counter it has a code of its own (`R9_DESK_…`, in the customer languages,
+so the staff screens say it in theirs) saying what staff can do: take payment
+now, take payment for (or cancel) one already booked, review the blocked
+number, sell a membership or add the person to the list, or ask a manager to
+override it where the venue allows. Through the API it keeps the code the form
+gets, with words for a venue's system (`saidOn()`).
+
+**Paid as it is booked.** Where online a booking would be held until paid
+(no-show strikes, the guest limit), the counter takes payment as it books:
+the form offers *Take payment now* and how it was paid (`paidAtCounter`:
+cash, QR, transfer, card), and the booking (or class place) is marked paid
+then, on the record as any counter payment is (`payment.paid`). Never
+silently: without it, the counter is refused. Only staff send it
+(`R9_PAY_NOW_STAFF` otherwise). The API key takes no money, so it is refused
+there.
+
+### Manager overrides
+
+A venue may let its managers, and only its managers, go past some
+operational restrictions for one booking at the counter (*Venues & staff →
+Manager overrides*; `src/lib/policy-overrides.ts`, migrations 0208–0209).
+Every one is off until a manager turns it on; turning one on or off is a
+manager's (`POST /api/admin/policy-overrides`) and is in the activity log
+(*Changed settings*).
+
+| Policy | What it lets through |
+| ------ | -------------------- |
+| House rules | Bookings at once, a week, a day (`LIMIT_UPCOMING`, `LIMIT_WEEK`, `LIMIT_DAY`); not how far ahead |
+| No-show strikes | `STRIKES_COUNTER`: booked unpaid, not held |
+| The guest limit | `GUEST_SURGE` |
+| Assisted booking | A weekly booking for a customer without an account (`SERIES_NEEDS_ACCOUNT`); everybody on it still eligible |
+
+- Refused with one of these at the counter, the form says what can be done: a
+  manager at a venue that permits it gets *Override for this booking* with a
+  reason; front desk sees *Ask a manager*.
+- The request names the policies (`overridePolicies`) and gives a reason
+  (`overrideReason`, 5–300 characters). The server checks again: each is one
+  of these four (`R9_OVERRIDE_NOT_OVERRIDABLE`, 400), the venue permits it
+  (`R9_OVERRIDE_NOT_PERMITTED`, 403), the member of staff is a manager of
+  that venue (`R9_OVERRIDE_MANAGERS`, 403, for front desk and for anybody
+  without a staff session), and the reason is given (`R9_OVERRIDE_REASON`,
+  400). Only the refusals a policy answers for are let through; anything else
+  still refuses.
+- **Recorded with each booking it let through**, in the booking's own
+  transaction, only for what was actually refused
+  (`booking_policy_overrides`: venue, booking, policy and refusal code,
+  reason, the manager by id and by name, when), and in the activity log
+  (*Overrode a venue policy for one booking*, `booking.policy_overridden`).
+  The staff Bookings list shows it on the booking (*Overridden by …: … Why:
+  …*). A booking that cannot be made (the time taken) keeps nothing. The
+  bookings export does not carry overrides; the activity log does.
+- **Front desk never overrides, and neither does an API key**: any override
+  field, or `paidAtCounter`, sent with a key is refused
+  (`R9_API_NO_OVERRIDE`, 400), never ignored, for a booking and a waiting-list
+  entry alike.
+- **Never overridable**, whatever the venue allows:
+  - a blocked number: taking it off *Blocked numbers* is the workflow, a
+    manager's, and asks why (kept in the activity log as `phone.unblocked`;
+    blocking is `phone.blocked`);
+  - the unpaid-bookings limit: take payment for one of them, or cancel one;
+  - eligibility: a members-only or private venue, and a members' place (sell
+    the membership, or add the person to the list); the court's-rules
+    override above does not go past it either;
+  - the venue being open, and the booking window;
+  - the waiver, and sign-offs where a door opens without staff: a manager may
+    book past a missing sign-off as before, but the door code waits for the
+    person's own;
+  - capacity, availability and linked resources (the database's), tenant
+    isolation, and payment.
+
 ## Waitlists
 
 A full class *or taken court time* can still be joined — as a queue. A court
@@ -503,14 +607,20 @@ which offers each freed place to the next person in the queue, so a place
 nobody claims does not sit empty until somebody happens to look.
 
 Joining the queue goes through the same checks as booking
-(`customerMayBook()`): a refused number, a members-only venue, the house rules
-and the unpaid-bookings limit all apply, so a queue is not a way round them.
+([the same policies on every path](#the-same-policies-on-every-path)): a
+refused number, a members-only venue, the house rules and the unpaid-bookings
+limit all apply, so a queue is not a way round them. The place is claimed
+later through the offer's link, so it is paid as a claim is: no-show strikes
+and the guest limit refuse only where claimed court time could not be held
+until paid online. A class's queue asks exactly what enrolling asks: the house
+rules for the session's date, and strikes refused online (an enrolment is
+never held until paid).
 
 When a place is offered and again when it is claimed, the entry is asked
 what the booking the claim makes would be asked on the path the entry was
 made: online, at the counter or through the API (`entryRefused()` in
-`src/lib/store.ts`, through `mayBookOn()` in `src/lib/limits.ts`, which is
-`customerMayBook()` as each booking route asks it). So a place freed
+`src/lib/store.ts`, through `mayBookOn()` in `src/lib/limits.ts`, the one
+policy check every booking path asks), paid as the claim is. So a place freed
 weeks after somebody joined goes only to somebody who could book it now:
 
 - **A number the venue refuses now** (refused after it joined): the entry is
@@ -532,20 +642,21 @@ weeks after somebody joined goes only to somebody who could book it now:
   only their member children at a members-only venue need not be a member):
   the entry is passed over at the offer and keeps its place, as one whose
   sign-off lapsed does; at the claim it is refused (`MEMBERS_ONLY`,
-  `PRIVATE_VENUE`), goes back to waiting and the place passes on. Who may
-  book a members-only or private venue is not asked of an entry the counter
-  or the API made, as it is not of their bookings.
+  `PRIVATE_VENUE`), goes back to waiting and the place passes on. For an
+  entry the counter or the API made, the person queued is asked instead, as
+  their bookings are: the number, or each person named where only they take
+  places (`R9_NOT_MEMBER`, `R9_NOT_LISTED`, `ENT_MEMBERS_PLACE`).
 - **The house rules** (bookings coming up at once, a day, a week; how far
-  ahead), counted as they stand then, the claim's own booking among them;
-  **the unpaid-bookings limit**; and **no-show strikes** where the venue
-  takes nothing online (where it does, the claimed booking is held until
+  ahead, the members' longer window among them), counted as they stand then,
+  the claim's own booking among them, for court time and a class place alike,
+  as booking and enrolling ask them; **the unpaid-bookings limit**; and
+  **no-show strikes** and **the guest limit** where the venue takes nothing
+  online, or for a class place (otherwise the claimed court time is held until
   paid, as any booking from a struck-out number is): passed over at the offer
   keeping its place, and at the claim refused with the booking's own reason
-  (`LIMIT_UPCOMING`, `LIMIT_DAY`, `PHONE_LIMIT_VENUE`, `STRIKES_COUNTER`…),
-  back to waiting and the place passed on. Asked of an entry the counter or
-  the API made as their bookings are asked them. A class place is not held
-  to the house rules at the claim, as an enrolment is not (a class is limited
-  by the class).
+  (`LIMIT_UPCOMING`, `LIMIT_DAY`, `LIMIT_AHEAD_MEMBERS`, `PHONE_LIMIT_VENUE`,
+  `STRIKES_COUNTER`…), back to waiting and the place passed on. Asked of an
+  entry the counter or the API made as their bookings are asked them.
 - **A members' place nobody on the entry is covered for on its date** (each
   person named, and the customer where they take a place; however the entry
   was made): a membership that has since been cancelled or ends before the
@@ -554,9 +665,17 @@ weeks after somebody joined goes only to somebody who could book it now:
   `ENT_MEMBERS_PLACE`, `MV6_OWN_*`), goes back to waiting and the place
   passes on ([membership validity](pricing.md#membership-validity)).
 
-The members' longer booking window is a booking privilege, asked when the
-place is asked for (at the join), not again at the claim. The booking the claim makes is then held until paid where the venue asks
-that, as any booking is.
+The members' longer booking window is asked at the join and again at the
+claim: a membership that ended or was cancelled since leaves the claim
+refused (`LIMIT_AHEAD_MEMBERS`) and the entry waiting. **The venue's waiver is
+asked at the claim**, where the booking is made, for the version in force
+then and for each person taking a place, by the customer claiming through the
+link whoever made the entry; not yet agreed, the claim is refused
+(`WAIVER_NEEDED`) and the offer stands, its hold kept, while the claim page
+shows the box to tick and claim again. It is not asked at the join, so a
+waiver changed while somebody waits is agreed once, as it stands. The booking
+the claim makes is then held until paid where the venue asks that, as any
+booking is.
 
 Claiming is deliberately a tap rather than automatic on page load, because
 unlike check-in it creates a booking that costs money. Claiming enrols the
@@ -605,9 +724,10 @@ button (`src/components/admin/WaitlistJoin.tsx`).
   the guardian's agreement to the waiver already on record, as for a booking
   through the API.
 - **The same rules as online**: a refused number, the venue not open, the
-  house rules and the unpaid-bookings limit (as the counter asks them: who
-  may book a members-only or private venue is not asked of staff, each
-  participant's own membership for a members' place still is), the court's
+  house rules and the unpaid-bookings limit, and who may book a members-only
+  or private venue (as the counter asks them: the number, or each person
+  named where only they take places; each participant's own membership for a
+  members' place), the court's
   booking rules, a women-only or men-only class said for by staff, the time
   genuinely taken, and nobody queued twice whoever queued them (an entry made
   at the counter and the same number online are the same person).
@@ -757,8 +877,10 @@ refunds and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
   its window (7–365 days, default 90), the number has to pay online to book.
   Its bookings are held unpaid as with *Paying online to hold a booking*, even
   where the venue does not ask that of everyone. Where the venue takes nothing
-  online, it is told to book at the counter instead. Staff bookings are never
-  refused.
+  online, it is told to book at the counter instead. At the counter it is
+  paid as it is booked, or a manager overrides it where the venue allows; the
+  venue's API key is refused
+  ([the same policies on every path](#the-same-policies-on-every-path)).
 
 
 ### Taking one person off a booking
@@ -927,15 +1049,23 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
   and email), *number checked by their account*, or *not linked: counter
   only*, and counts those last. Every path asks the same rule: the venue page
   and its availability, booking, a class, a waiting list, an open game, a
-  tournament or league there, and *Your private venues*. Staff at the counter
-  still book anyone on their word. Erasing an account unlinks its entries;
+  tournament or league there, and *Your private venues*. At the counter and
+  through the venue's API key the person booked is asked instead: the number,
+  on staff's word, on the list (or each person named where only they take
+  places); staff are never asked to sign in as anyone. Erasing an account unlinks its entries;
   they stay on the list (`tests/access-accounts.test.ts`).
 - **Members only**: the venue page says *Members only* with the venue's own
   note (how to join, who to ask), and search results carry the badge. Booking,
   enrolling in a class, joining its waitlist, an open game, a tournament or a
-  league all need an account that is eligible. Staff still book anyone at the
-  counter, except a place on a members' session, which needs the person's own
-  membership on its date there too (below). Each rule is the scope it is about
+  league all need an account that is eligible. At the counter and through the
+  venue's API key, the person booked must be eligible instead, never whoever
+  is signed in: the number, on staff's word, holds a membership here or is on
+  the list on every date booked, or, where only people named take places,
+  each of them has their own (`R9_DESK_NOT_MEMBER` at the counter,
+  `R9_NOT_MEMBER` through the API, `ENT_MEMBERS_PLACE` naming who). No
+  override goes past it: sell the membership, or add them to the list. A
+  place on a members' session needs the person's own membership on its date
+  there too (below). Each rule is the scope it is about
   ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md)):
   - *Reserving a court or room whole* is the account's privilege: a member
     books one for their children, who need no membership of their own to
@@ -954,8 +1084,8 @@ Each venue chooses under *Venues & staff → Who it is for* (`src/lib/access.ts`
     on every path: online, the counter (by the number given), the venue's API
     key, a group of courts, a waiting list (joining it, the offer and its
     claim), a class, and moving the booking to another date; the booking form
-    says it before booking. A manager going past the booking rules may book
-    without it, and it is recorded as an override (`lib/entitlements.ts`,
+    says it before booking. No override goes past it, a manager's going past
+    the court's rules included (ADR 0026; `lib/entitlements.ts`,
     `membersOnlyRefusal`). It is asked again at check-in and before a door
     code ([before taking part](pricing.md#before-taking-part)), and a
     membership that stops early flags the bookings it no longer covers for
@@ -1063,7 +1193,9 @@ payment, and does not count towards the cap on unpaid bookings a number may
 hold.
 
 **House rules** (*Venues & staff → House rules*, `src/lib/house-rules.ts`) are a
-venue's fair-use limits for online bookings, each blank for none:
+venue's fair-use limits on booking, each blank for none, asked online, at the
+counter and through the venue's API key alike
+([the same policies on every path](#the-same-policies-on-every-path)):
 
 | Rule | Example |
 | ---- | ------- |
@@ -1080,11 +1212,16 @@ venue's fair-use limits for online bookings, each blank for none:
   number on the booking **and** the account making it, so typing a different
   number does not buy another booking. These are the account's limits:
   bookings it makes for the people it books for count with its own.
-- Only court bookings count; a class place is limited by the class.
+- Only court bookings are counted. A class place asked for (enrolling, a
+  term, its waiting list and the claim) is checked against them as one more
+  booking on its date, as court time is.
 - Checked when a customer books (every week of a weekly series), and when
   they move a booking to another day, each time counting the account that
-  made the booking as booking online does. Staff at the counter are not held
-  to them.
+  made the booking as booking online does. At the counter and through the
+  API the number booked is counted, on the venue's word for the members'
+  window; a manager may go past the limits on bookings at once, a week and a
+  day for one booking where the venue allows it, never how far ahead
+  ([manager overrides](#manager-overrides)).
 - The venue page shows them (*House rules: up to 2 a week for each person or
   household; book up to 7 days ahead. Members book up to 21 days ahead.*), and
   its dates stop at the last day the venue takes bookings from whoever is
@@ -1098,9 +1235,11 @@ venue's fair-use limits for online bookings, each blank for none:
   give the parent the members' window
   ([pricing](pricing.md#memberships-and-member-rates)).
   Inside the members' window everybody else is told how far ahead
-  they may book, and that members may book further. The members' window is
-  also the outer edge for staff at the counter, for moving a booking and for
-  joining a waitlist.
+  they may book, and that members may book further. At the counter and
+  through the API it is the number's: a member's number has the members'
+  window, anybody else's the public one. The members' window is the outer edge
+  for moving a booking and for joining a waitlist, and is asked again when a
+  waitlist's place is claimed.
 - Cross-venue search lists a venue only on days inside its own window (the
   public one), and offers *Or another day* up to 90 days ahead besides the two
   weeks of buttons. Moving a booking can go as far as the window allows that

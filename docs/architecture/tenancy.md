@@ -36,6 +36,7 @@ managers, so nobody lost anything; new ones default to front desk.
 | Payment account, refunds, voiding passes, memberships and promo codes | | ✓ |
 | Promo codes, notices, photos, WhatsApp, the marketplace invoice | | ✓ |
 | Reports and the staff activity log | | ✓ |
+| Overriding a venue policy for one booking at the counter, where the venue allows it, with a reason ([manager overrides](../features/booking.md#manager-overrides)); which policies may be overridden; unblocking a number, with a reason | | ✓ |
 
 The table summarises; the rule itself is one list of addresses and methods,
 `MANAGER_ONLY` in `src/lib/roles.ts`, applied in `requireAdmin` for every

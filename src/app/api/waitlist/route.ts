@@ -94,7 +94,8 @@ export async function POST(req: NextRequest) {
       signedIn: user !== null,
       userId: user?.id ?? null,
       dates: [forClass ? session!.date : (date as string)],
-      canPayOnline: await takesPaymentOnline(venueId),
+      // A class place is never held until paid, so it asks what enrolling asks; court time can be held (lib/limits.ts).
+      canPayOnline: forClass ? false : await takesPaymentOnline(venueId),
       // Waiting for places only for people the account books for, on a class or a shared session:
       // each must be a member themself, checked when the place is offered and taken (lib/entitlements.ts).
       placesForOthers:

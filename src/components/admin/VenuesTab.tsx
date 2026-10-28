@@ -29,6 +29,7 @@ import { AddonsEditor } from "./AddonsEditor";
 import { WhatsAppEditor } from "./WhatsAppEditor";
 import { AccessEditor } from "./AccessEditor";
 import { HouseRulesEditor } from "./HouseRulesEditor";
+import { PolicyOverridesEditor } from "./PolicyOverridesEditor";
 import { WaiverEditor } from "./WaiverEditor";
 import { TaxEditor } from "./TaxEditor";
 import { TimeZoneEditor } from "./TimeZoneEditor";
@@ -803,6 +804,7 @@ function VenueRow({
       <WhatsAppEditor venueId={venue.id} isOwner={isOwner} />
       <AccessEditor venueId={venue.id} />
       <HouseRulesEditor venueId={venue.id} />
+      <PolicyOverridesEditor venueId={venue.id} />
       <WaiverEditor venueId={venue.id} />
       <CancelPolicyEditor venueId={venue.id} />
       <BookingAlertsEditor venueId={venue.id} />

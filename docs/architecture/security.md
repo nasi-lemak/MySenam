@@ -166,11 +166,15 @@ compared as digits, so `+60 12-345 6789` and `0123456789` are the same.
 | Messages to one number or email address | 8 a day; any more are kept, marked not sent |
 
 Paying for a booking, playing it or cancelling it frees its place, and a weekly
-series counts once. Staff booking at the counter are not limited.
+series counts once. The counter and the venue's API key are held to the same
+limits; no override goes past the unpaid-bookings limit
+([the same policies on every path](../features/booking.md#the-same-policies-on-every-path)).
 
-**Blocked numbers.** A venue can stop a number booking or queueing with it
-online: *Block number* on any booking, or under *Venue details → Blocked
-numbers*. That person can still ring the venue.
+**Blocked numbers.** A venue can stop a number booking or queueing with it,
+online, at its counter and through its API key: *Block number* on any
+booking, or under *Venue details → Blocked numbers*. No override books a
+blocked number; unblocking it is a manager's, says why, and is in the
+activity log with who did it.
 
 **Order and names.** Venues are listed in an order shuffled once a day, not
 alphabetically, so an "AAA" name gains nothing. When a venue operator renames

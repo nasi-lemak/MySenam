@@ -3,11 +3,15 @@ import { classRefusal } from "@/lib/who";
 import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
-import { customerMayBook } from "@/lib/limits";
+import { policyCheck } from "@/lib/limits";
+import { overrideRefusal, policyRefusal, readOverride, type PolicyOverrideRecord } from "@/lib/policy-overrides";
+import { logOverride, policyRefused } from "@/lib/counter-policy";
+import { money } from "@/lib/region";
+import { COUNTER_METHODS, PAID_VIA_LABELS, type Booking, type CounterMethod } from "@/lib/types";
 import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { classTerm, enrolInTerm, enrolPeople, getClass, payBookingFromWallet } from "@/lib/store";
+import { classTerm, enrolInTerm, enrolPeople, getClass, payBookingFromWallet, setPaymentStatus } from "@/lib/store";
 import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
@@ -45,6 +49,13 @@ export async function POST(req: NextRequest) {
   const chosen = readChosen(addons);
   if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
 
+  // A manager's override of the venue's policies, and payment taken as it is booked: the counter's (as app/api/bookings).
+  const askOverride = readOverride((body ?? {}) as Record<string, unknown>);
+  if (askOverride && "ok" in askOverride) return refusal(askOverride, 400);
+  const { paidAtCounter } = (body ?? {}) as Record<string, unknown>;
+  if (paidAtCounter !== undefined && paidAtCounter !== null && !COUNTER_METHODS.includes(paidAtCounter as CounterMethod))
+    return NextResponse.json({ error: `paidAtCounter must be one of ${COUNTER_METHODS.join(", ")}.` }, { status: 400 });
+
   const limited = await rateLimit(req, "booking");
   if (limited) return limited;
 
@@ -58,6 +69,14 @@ export async function POST(req: NextRequest) {
   // Enrolled by the venue's own staff (the counter), or by the customer online.
   const desk = await getSessionAdmin(req);
   const byStaff = desk !== null && forClass !== null && canAccessVenue(desk, forClass.venueId);
+  if (askOverride && !byStaff) return refusal(policyRefusal("R9_OVERRIDE_MANAGERS"), 403);
+  if (askOverride && byStaff) {
+    const no = await overrideRefusal(desk, forClass.venueId, askOverride);
+    if (no) return refusal(no.refusal, no.status);
+  }
+  if (paidAtCounter !== undefined && paidAtCounter !== null && !byStaff) return refusal(policyRefusal("R9_PAY_NOW_STAFF"), 403);
+  const payNow = byStaff && paidAtCounter !== undefined && paidAtCounter !== null ? (paidAtCounter as CounterMethod) : null;
+  let policyOverride: PolicyOverrideRecord | undefined;
   // Who takes the places (lib/participant-bookings.ts): the customer, and
   // people this account acts for (online) or the venue knows with a guardian
   // on this number (at the counter). Each their own place and enrolment.
@@ -90,19 +109,30 @@ export async function POST(req: NextRequest) {
     }
     // The whole term counts as a booking a session, as a weekly series does.
     const termInfo = term === true ? await classTerm(forClass.id) : null;
-    const refused = await customerMayBook({
+    // The venue's policies as a booking asks them, online and at the counter alike (lib/limits.ts `policyCheck`):
+    // the house rules for the class's date (or every session of the term), as booking and joining its waiting
+    // list ask them. An enrolment online is not held until paid, so a number past its no-shows, or a guest
+    // in a flood of unpaid guest bookings, is refused online; at the counter it is paid as it is enrolled.
+    const path = byStaff ? ("staff" as const) : ("customer" as const);
+    const answer = await policyCheck(path, {
       venueId: forClass.venueId,
       phone,
       signedIn: user !== null,
       userId: user?.id ?? null,
       preview: (await mayShowVenue(forClass.venueId, req)).preview,
-      ...(termInfo ? { dates: termInfo.sessions.map((c) => c.date) } : {}),
-      // The venue's staff at its counter enrol anyone; each participant's own membership is still asked.
-      atCounter: byStaff,
+      dates: termInfo ? termInfo.sessions.map((c) => c.date) : [forClass.date],
+      canPayOnline: false,
       // Places only for people the account books for: each must be a member themself (lib/entitlements.ts).
       placesForOthers: !customerTakesPart && (selection?.participants.length ?? 0) > 0,
+      // At the counter, who is enrolled at a members-only or private venue: the number, or each person named.
+      participants: selection?.participants ?? [],
+      customerTakesPart,
+      paidNow: payNow !== null,
+      ...(askOverride ? { overrides: askOverride.policies } : {}),
     });
-    if (refused) return refusal(refused);
+    if (answer.refusal) return policyRefused(path, answer.refusal, byStaff ? { staff: desk!, venueId: forClass.venueId } : null);
+    if (byStaff && askOverride && answer.overridden.length > 0)
+      policyOverride = { venueId: forClass.venueId, adminId: desk!.id, adminName: desk!.name, reason: askOverride.reason, overridden: answer.overridden };
     // The venue's waiver, agreed to once per version (lib/waivers.ts): for each person taking a place.
     for (const who of people) {
       const unsigned = await waiverRefusal(forClass.venueId, phone, agreeWaiver, who?.id ?? null);
@@ -137,6 +167,26 @@ export async function POST(req: NextRequest) {
       });
   };
 
+  // At the counter: a manager's override kept in the activity log against each enrolment, and payment taken as
+  // it is enrolled (how, as staff say), on the record as any counter payment is.
+  const atCounter = async (made: Booking[]) => {
+    if (!byStaff || !desk || !forClass) return;
+    if (policyOverride) for (const b of made) await logOverride(desk, b.code, { name: name.trim(), phone: phone.trim() }, policyOverride);
+    if (payNow)
+      for (const b of made) {
+        if (b.paymentStatus === "paid") continue;
+        const paid = await setPaymentStatus(b.code, true, payNow, desk.role);
+        if (!paid.ok) continue;
+        b.paymentStatus = "paid";
+        await logAction(desk, {
+          venueId: forClass.venueId,
+          action: "payment.paid",
+          bookingCode: b.code,
+          detail: `${money(b.totalPrice)}, by ${PAID_VIA_LABELS[payNow]}, as it was enrolled`,
+        });
+      }
+  };
+
   // Every session left, at once: one confirmation, one bill (lib/store.ts `enrolInTerm`). Extras go on one session at a time.
   if (term === true) {
     const joined = await enrolInTerm({
@@ -147,9 +197,11 @@ export async function POST(req: NextRequest) {
       userId: user?.id,
       people,
       addedBy: byStaff ? { adminId: desk!.id } : { userId: user?.id ?? null },
+      ...(policyOverride ? { policyOverride } : {}),
     });
     if (!joined.ok) return refusal(joined);
     await recordEnrolled(joined.bookings.map((b) => b.code));
+    await atCounter(joined.bookings);
     let walletError: string | null = null;
     if (payFromWallet === true && user)
       for (const b of joined.bookings) {
@@ -175,6 +227,7 @@ export async function POST(req: NextRequest) {
     userId: user?.id,
     people,
     addedBy: byStaff ? { adminId: desk!.id } : { userId: user?.id ?? null },
+    ...(policyOverride ? { policyOverride } : {}),
   });
   if (!enrolled.ok) return refusal(enrolled);
   await recordEnrolled(enrolled.bookings.map((b) => b.code));
@@ -192,6 +245,7 @@ export async function POST(req: NextRequest) {
       result.booking.totalPrice = Math.round((result.booking.totalPrice + added.total) * 100) / 100;
     } else addonError = { error: added.error, code: added.code, vars: added.vars };
   }
+  await atCounter([result.booking, ...others]);
 
   let walletError: string | null = null;
   if (payFromWallet === true && user) {

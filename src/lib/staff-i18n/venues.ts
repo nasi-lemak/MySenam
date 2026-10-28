@@ -236,7 +236,7 @@ const en = {
   "hr.saved": "Saved. Customers see these on the venue page.",
   "hr.hide": "Hide house rules",
   "hr.show": "House rules: fair use for online bookings",
-  "hr.intro": "Limits for each person — or each household, where your list gives people the same unit. Blank is no limit. Only court bookings count, and your staff can still book anyone at the counter.",
+  "hr.intro": "Limits for each person — or each household, where your list gives people the same unit. Blank is no limit. Only court bookings are counted. They hold online, at the counter and through your API key alike, for a court and a class place; a manager may go past the limits for one booking where you allow it under Manager overrides.",
   "hr.noLimit": "no limit",
   // Notices
   "ntc.close": "Close notices",
@@ -572,7 +572,7 @@ const ms: Record<keyof typeof en, string> = {
   "hr.saved": "Disimpan. Pelanggan melihatnya di halaman pusat.",
   "hr.hide": "Sembunyikan peraturan pusat",
   "hr.show": "Peraturan pusat: penggunaan adil untuk tempahan dalam talian",
-  "hr.intro": "Had untuk setiap orang — atau setiap isi rumah, jika senarai anda memberi mereka unit yang sama. Kosong bermaksud tiada had. Hanya tempahan gelanggang dikira, dan kakitangan anda masih boleh menempah untuk sesiapa di kaunter.",
+  "hr.intro": "Had untuk setiap orang — atau setiap isi rumah, jika senarai anda memberi mereka unit yang sama. Kosong bermaksud tiada had. Hanya tempahan gelanggang dikira. Had ini terpakai dalam talian, di kaunter dan melalui kunci API anda, untuk gelanggang dan tempat kelas; pengurus boleh mengatasi had untuk satu tempahan jika anda membenarkannya di Pengatasan oleh pengurus.",
   "hr.noLimit": "tiada had",
   // Notices
   "ntc.close": "Tutup notis",
@@ -908,7 +908,7 @@ const zh: Record<keyof typeof en, string> = {
   "hr.saved": "已保存。顾客会在场馆页面上看到这些规则。",
   "hr.hide": "隐藏场馆规则",
   "hr.show": "场馆规则：在线预订的公平使用",
-  "hr.intro": "每人的限制——如果您的名单将多人登记为同一单位，则按每户计算。留空表示不限。只计算场地预订，员工仍可在前台为任何人预订。",
+  "hr.intro": "每人的限制——如果您的名单将多人登记为同一单位，则按每户计算。留空表示不限。只计算场地预订。这些限制同样适用于网上、柜台和您的 API 密钥，以及场地和课程名额；在您于「经理破例放行」中允许时，经理可为一笔预订破例。",
   "hr.noLimit": "不限",
   // Notices
   "ntc.close": "关闭公告",

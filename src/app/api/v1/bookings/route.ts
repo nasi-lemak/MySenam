@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { apiBooking, apiCaller, apiParticipants } from "@/lib/api-keys";
 import { isRefusal } from "@/lib/participants";
 import { readSelection, recordBookedFor, selectionAtVenue } from "@/lib/participant-bookings";
-import { waiverSignedFor } from "@/lib/waivers";
+import { waiverSigned, waiverSignedFor } from "@/lib/waivers";
 import { notifyBookingConfirmed } from "@/lib/notify";
 import { bookingsBetween, MAX_RANGE_DAYS, spanDays } from "@/lib/public-api";
 import { createBooking, getCourt } from "@/lib/store";
 import { applyAskedDiscounts } from "@/lib/booking-discounts";
 import { readPlaceConcessions } from "@/lib/entitlements";
-import { mayBookOn } from "@/lib/limits";
+import { mayBookOn, saidOn } from "@/lib/limits";
+import { asksStaffPowers } from "@/lib/policy-overrides";
+import { errorText, translator } from "@/lib/i18n";
 import { isValidDateString } from "@/lib/time";
 import { readTime } from "@/lib/api";
 
@@ -58,6 +60,9 @@ export async function POST(req: NextRequest) {
   const caller = await apiCaller(req, "write");
   if (caller instanceof NextResponse) return caller;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  // A key never overrides the venue's policies, nor takes payment: refused, never ignored (lib/policy-overrides.ts).
+  if (body && (asksStaffPowers(body) || body.override !== undefined))
+    return NextResponse.json({ error: errorText(translator("en"), "R9_API_NO_OVERRIDE"), code: "R9_API_NO_OVERRIDE" }, { status: 400 });
   if (!body || !Number.isInteger(body.courtId)) return NextResponse.json({ error: "courtId is required." }, { status: 400 });
   const court = await getCourt(body.courtId as number);
   if (!court || court.venueId !== caller.venueId) return NextResponse.json({ error: "That court is not at this key's venue." }, { status: 404 });
@@ -87,10 +92,25 @@ export async function POST(req: NextRequest) {
     for (const p of selection.participants)
       if (!(await waiverSignedFor(caller.venueId, p.id)))
         return NextResponse.json({ error: `${p.name}'s guardian has not agreed to the venue's waiver for them.`, code: "WAIVER_NEEDED" }, { status: 409 });
-  // What the counter asks of the number: a refused number, the venue open, the house rules, the
-  // unpaid-bookings limit, no-show strikes (who may book a members-only venue is not asked of the venue).
-  const refused = await mayBookOn("api", { venueId: caller.venueId, phone: body.phone.trim(), dates: [body.date] });
-  if (refused) return NextResponse.json({ error: refused.error, code: refused.code, ...(refused.vars ? { vars: refused.vars } : {}) }, { status: 409 });
+  // So is the customer's own, where they take a place.
+  if (!selection || selection.customerTakesPart)
+    if (!(await waiverSigned(caller.venueId, body.phone.trim())))
+      return NextResponse.json({ error: "The customer has not agreed to the venue's waiver.", code: "WAIVER_NEEDED" }, { status: 409 });
+  // The venue's policies as every path asks them (lib/limits.ts `policyCheck`): the venue open, who may be booked
+  // at a members-only or private venue (the number, or each person named), the house rules, the guest limit, a
+  // refused number, no-show strikes and the unpaid-bookings limit. A key takes no money, so what online is held
+  // until paid and the counter takes payment for is refused here, and nothing is overridden.
+  const refused = await mayBookOn("api", {
+    venueId: caller.venueId,
+    phone: body.phone.trim(),
+    dates: [body.date],
+    participants: selection?.participants ?? [],
+    customerTakesPart: !selection || selection.customerTakesPart,
+  });
+  if (refused) {
+    const said = saidOn("api", refused);
+    return NextResponse.json({ error: said.error, code: said.code, ...(said.vars ? { vars: said.vars } : {}) }, { status: refused.code === "BUSY" ? 503 : 409 });
+  }
   const made = await createBooking({
     // The venue's own system answers for who it books, as its counter does (lib/sign-offs.ts).
     by: "api",

@@ -269,3 +269,10 @@
     booking is made either refuses it or flags it
     ([suspending a membership](../../features/pricing.md#suspending-a-membership);
     migrations 0216–0218).
+  - 2026-10-28 (the owner's decision on the same policies on every path,
+    [ADR 0026](0026-same-policies-on-every-path-with-manager-overrides.md)):
+    a manager going past the court's rules no longer books a members' place
+    without the person's membership (eligibility is never overridden), and
+    at the counter and through the API the person booked must be eligible
+    for a members-only or private venue (the number, on the venue's word, or
+    each person named), where staff had booked anyone.

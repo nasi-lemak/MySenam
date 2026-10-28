@@ -140,4 +140,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "guest_invitation.withdrawn": "Withdrew the invitation a resident emailed for a guest",
   "payment.gateway_refund": "A refund made in the payment gateway's own dashboard was recorded",
   "account.credit_settled": "Paid back an account's credit by hand",
+  "booking.policy_overridden": "Overrode a venue policy for one booking",
+  "phone.blocked": "Blocked a phone number",
+  "phone.unblocked": "Unblocked a phone number, saying why",
 };

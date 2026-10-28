@@ -98,14 +98,23 @@ before it, and the response says why beside `booking`: `concessionError`
 `STK_NOT_COMBINABLE`, `PROMO_NOT_LAST_MINUTE`, `PROMO_YOUR_LIMIT`…), and
 `discount`, what the code took off. A malformed field is refused whole (400).
 
-The number is asked what the venue's counter asks of it (`mayBookOn` in
-`src/lib/limits.ts`): a number the venue refuses (`PHONE_BLOCKED`), the
-venue open, its house rules (`LIMIT_UPCOMING`, `LIMIT_WEEK`, `LIMIT_DAY`,
-`LIMIT_AHEAD`), the unpaid-bookings limit (`PHONE_LIMIT_VENUE`,
-`PHONE_LIMIT_ALL`) and no-show strikes where the venue takes nothing online
-(`STRIKES_COUNTER`), each 409 with nothing booked. Who may book a
-members-only or private venue is not asked of the venue's own system, as it
-is not of its staff.
+The booking is held to the venue's policies as the booking form and the
+counter are ([the same policies on every path](../features/booking.md#the-same-policies-on-every-path);
+`policyCheck` in `src/lib/limits.ts`), each refusal 409 with nothing booked,
+under the booking form's code: the venue open, who may book a members-only
+or private venue (the number, on the venue's word, holding a membership or
+on the list on every date booked, or each person named where only they take
+places: `R9_NOT_MEMBER`, `R9_NOT_LISTED`, `ENT_MEMBERS_PLACE`), the house
+rules (`LIMIT_UPCOMING`, `LIMIT_WEEK`, `LIMIT_DAY`, `LIMIT_AHEAD`), the guest
+limit (`GUEST_SURGE`), a number the venue refuses (`PHONE_BLOCKED`), no-show
+strikes (`STRIKES_COUNTER`), the unpaid-bookings limit (`PHONE_LIMIT_VENUE`,
+`PHONE_LIMIT_ALL`), and the customer's own agreement to the venue's waiver
+already on record (`WAIVER_NEEDED`), as each participant's is. A key takes no
+money, so what online is held until paid and the counter takes payment for
+(strikes, the guest limit) is refused; book it at the counter. A key never
+overrides the venue's policies: `overridePolicies`, `overrideReason`,
+`paidAtCounter` or `override` sent with a booking or a waiting-list entry is
+refused (`R9_API_NO_OVERRIDE`, 400), never ignored.
 
 Every booking the API returns (`POST`, `GET /bookings`, `GET /bookings/<code>`)
 now also carries `participants`: `[{ participantId, name, customer }]`, each

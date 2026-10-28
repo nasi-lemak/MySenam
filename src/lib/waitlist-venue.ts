@@ -3,10 +3,9 @@ import { readMinute } from "./api";
 import { membersOnlyRefusal } from "./entitlements";
 import { isLocale } from "./i18n";
 import { formatMinute, isMinute } from "./interval";
-import { customerMayBook } from "./limits";
+import { policyCheck, saidOn } from "./limits";
 import { isRefusal } from "./participants";
 import { readSelection, selectionAtVenue, type Selection } from "./participant-bookings";
-import { takesPaymentOnline } from "./payments";
 import { getClass, getCourt, joinClassWaitlist, joinSlotWaitlist, removeVenueWaitlistEntry, type WaitlistMaker } from "./store";
 import { isValidDateString } from "./time";
 import type { WaitlistEntry } from "./types";
@@ -18,9 +17,10 @@ import { classRefusal } from "./who";
  * (docs/features/booking.md#at-the-counter-and-through-the-api): the venue
  * queues somebody who rang or walked up, on its word for their name and
  * number, as its counter books them. The same rules as joining online
- * (app/api/waitlist): a refused number, the house rules and the
- * unpaid-bookings limit (lib/limits.ts `customerMayBook`, as the counter asks
- * them), a members' place each participant's own (lib/entitlements.ts), a
+ * (app/api/waitlist): the venue's policies (lib/limits.ts `policyCheck`, on
+ * the counter's or the API's path: who may be booked here, a refused number,
+ * the house rules, the unpaid-bookings limit), a members' place each
+ * participant's own (lib/entitlements.ts), a
  * women-only or men-only class said for, the court's booking rules and
  * sign-offs, and nobody queued twice (lib/store.ts). Participants are only
  * those the venue knows with a live guardian on the entry's number
@@ -108,21 +108,30 @@ export async function joinAtVenue(
     if (notFor) return bad(notFor.error, 403, notFor.code, notFor.vars);
   }
 
-  // Whoever could not book it at the counter cannot queue for it either: a refused number, a venue not
-  // open, the house rules, too many unpaid bookings (lib/limits.ts), as the counter asks them.
+  // Whoever could not book it cannot queue for it either: the venue's policies on the path the entry is made
+  // (lib/limits.ts `policyCheck`): who may be booked at a members-only or private venue (the number, or each
+  // person named), a refused number, a venue not open, the house rules, too many unpaid bookings. The place is
+  // claimed later through the offer's link, so it is paid as a claim is: no-show strikes and the guest limit
+  // refuse only where the claimed court time could not be held until paid online (a class place never is).
   const takesPart = !people || people.customerTakesPart;
-  const refused = await customerMayBook({
-    venueId,
-    phone: phone.trim(),
-    signedIn: false,
-    userId: null,
-    dates: [day],
-    ...(opts.preview ? { preview: true } : {}),
-    canPayOnline: await takesPaymentOnline(venueId),
-    atCounter: true,
-    placesForOthers: !takesPart && named.length > 0 && (forClass || (court?.capacity ?? 1) > 1),
-  });
-  if (refused) return bad(refused.error, 403, refused.code, refused.vars);
+  const refused = (
+    await policyCheck(maker.channel, {
+      venueId,
+      phone: phone.trim(),
+      dates: [day],
+      ...(opts.preview ? { preview: true } : {}),
+      settle: "online",
+      ...(forClass ? { canPayOnline: false } : {}),
+      participants: named,
+      customerTakesPart: takesPart,
+      placesForOthers: !takesPart && named.length > 0 && (forClass || (court?.capacity ?? 1) > 1),
+    })
+  ).refusal;
+  if (refused) {
+    // Said for staff or the venue's system; paying as it is booked is no answer for a queue, so those two as the customer is told.
+    const said = refused.code === "STRIKES_COUNTER" || refused.code === "GUEST_SURGE" ? refused : saidOn(maker.channel, refused);
+    return bad(said.error, 403, said.code, said.vars);
+  }
   // Nobody waits for a members' place they could not take on its date: each participant's own, and the
   // customer's where they take one, by the number staff or the venue's system give (lib/entitlements.ts).
   const notMember = await membersOnlyRefusal({

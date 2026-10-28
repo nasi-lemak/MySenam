@@ -239,7 +239,7 @@ const en = {
 
   // Blocked numbers
   "blk.title": "Blocked numbers",
-  "blk.intro": "Phone numbers that cannot book or join a waitlist here online. Staff can still book them at the counter. Block one from its booking with {action}, or here.",
+  "blk.intro": "Phone numbers that cannot be booked here, online, at the counter or through the venue's API, nor join a waitlist. Block one from its booking with {action}, or here. Unblocking asks why, and is kept in the activity log.",
   "blk.blockNumber": "Block number",
   "blk.none": "No numbers blocked.",
   "blk.unblock": "Unblock",
@@ -527,7 +527,7 @@ const ms: Record<keyof typeof en, string> = {
 
   // Blocked numbers
   "blk.title": "Nombor disekat",
-  "blk.intro": "Nombor telefon yang tidak boleh menempah atau masuk senarai menunggu di sini secara dalam talian. Kakitangan masih boleh menempah untuk mereka di kaunter. Sekat nombor dari tempahannya dengan {action}, atau di sini.",
+  "blk.intro": "Nombor telefon yang tidak boleh ditempah di sini, sama ada dalam talian, di kaunter atau melalui API pusat, dan tidak boleh masuk senarai menunggu. Sekat nombor dari tempahannya dengan {action}, atau di sini. Menyahsekat memerlukan sebab, dan direkodkan dalam log aktiviti.",
   "blk.blockNumber": "Sekat nombor",
   "blk.none": "Tiada nombor disekat.",
   "blk.unblock": "Nyahsekat",
@@ -815,7 +815,7 @@ const zh: Record<keyof typeof en, string> = {
 
   // Blocked numbers
   "blk.title": "已封锁号码",
-  "blk.intro": "这些电话号码无法在网上预订或加入本场馆的候补名单。员工仍可在柜台为他们预订。可在预订中点击{action}封锁号码，或在这里封锁。",
+  "blk.intro": "这些电话号码无法在本场馆预订（网上、柜台或通过场馆 API 均不可），也无法加入候补名单。可在预订中点击{action}封锁号码，或在这里封锁。解除封锁须说明原因，并记入操作日志。",
   "blk.blockNumber": "封锁号码",
   "blk.none": "没有封锁的号码。",
   "blk.unblock": "解除封锁",

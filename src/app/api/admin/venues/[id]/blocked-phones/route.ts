@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import type { Admin } from "@/lib/admin-auth";
 import { blockPhone, listBlockedPhones, unblockPhone } from "@/lib/limits";
+import { logAction } from "@/lib/activity";
+import { refusal } from "@/lib/api";
+import { policyRefusal } from "@/lib/policy-overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -47,16 +50,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     adminId: s.admin.id,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  // Who refused the number, and why: no path books it now (lib/limits.ts `policyCheck`).
+  const reason = typeof input.reason === "string" ? input.reason.trim().slice(0, 200) : "";
+  await logAction(s.admin, { venueId: s.venueId, action: "phone.blocked", detail: `Blocked ${input.phone.trim()}${reason ? `: ${reason}` : ""}` });
   return NextResponse.json({ blocked: await listBlockedPhones(s.venueId) });
 }
 
-/** `{ phone }` */
+/**
+ * `{ phone, reason }`: taking a number off the venue's refused list is the
+ * workflow for a refusal (no override books a refused number: ADR 0026), so
+ * who did it and why are kept in the activity log.
+ */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const s = await scope(req, params);
   if (s instanceof NextResponse) return s;
   const input = await body(req);
   if (!input || typeof input.phone !== "string")
     return NextResponse.json({ error: "A phone number is required." }, { status: 400 });
-  await unblockPhone(s.venueId, input.phone);
+  const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+  if (reason.length < 3 || reason.length > 200) return refusal(policyRefusal("R9_UNBLOCK_REASON"), 400);
+  if (await unblockPhone(s.venueId, input.phone))
+    await logAction(s.admin, { venueId: s.venueId, action: "phone.unblocked", detail: `Unblocked ${input.phone.trim()}: ${reason}` });
   return NextResponse.json({ blocked: await listBlockedPhones(s.venueId) });
 }

@@ -80,7 +80,17 @@ change, update this page, and update [feature status](feature-status.md).
   ([sign-offs](../features/activities.md#sign-offs)).
 - **A manager going past the rules never goes past what holds a court**:
   starts, lengths, hours, notice and sign-offs may be overridden, on record;
-  claims, capacity and buffers may not.
+  claims, capacity, buffers and a members' place may not.
+- **The same venue policies on every path.** The booking form, the counter
+  and the venue's API key are held to the same policies: who may book a
+  members-only or private venue, the house rules, no-show strikes, the guest
+  limit, blocked numbers and the unpaid-bookings limit. The counter takes
+  payment as it books where online a booking would be held until paid; a
+  manager may override the house rules' limits, strikes, the guest limit or
+  an assisted weekly booking for one booking where the venue allows it, with
+  a reason, on record; never a blocked number, unpaid bookings, eligibility,
+  the waiver, the booking window, capacity or payment
+  ([booking](../features/booking.md#the-same-policies-on-every-path)).
 
 ## Money
 

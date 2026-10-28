@@ -372,8 +372,9 @@ describe("the venue's API key asks of the number what the counter asks", () => {
     const viaApi = await api(strictKey, body);
     expect(viaApi.status).toBe(409);
     expect(viaApi.body.code).toBe("PHONE_BLOCKED");
+    // At the counter the same refusal, said for staff (ADR 0026): what to do about it, never booked.
     const atCounter = await form(strictManager.cookie, body);
-    expect(atCounter.body.code).toBe("PHONE_BLOCKED");
+    expect(atCounter.body.code).toBe("R9_DESK_PHONE_BLOCKED");
 
     const busy = phone();
     for (const h of [8, 9, 10]) expect((await api(strictKey, { ...body, start: at(h), end: at(h + 1), phone: busy, date: day(10) })).status).toBe(201);
@@ -513,7 +514,9 @@ describe("a waiting-list offer and claim ask what the booking would ask on its p
     }
   });
 
-  it("a class place is not held to the house rules, as an enrolment is not", async () => {
+  // The owner's decision of 28 October 2026 (ADR 0026): enrolling asks the house rules as booking does, so a class
+  // place's offer and claim ask them too (until then a class place was not held to them).
+  it("a class place is held to the house rules, as an enrolment is", async () => {
     expect((await setHouseRules(strict, { aheadDays: 45, upcoming: 1 })).ok).toBe(true);
     try {
       const date = day(17);
@@ -528,10 +531,9 @@ describe("a waiting-list offer and claim ask what the booking would ask on its p
       expect(joined.status).toBe(201);
       await bookAlso(ph, day(18), at(9));
       expect((await cancelBooking(filled.bookings[0].code, filler)).ok).toBe(true);
-      const offer = await state(joined.body.entry.id);
-      expect(offer.status).toBe("offered");
-      expect((await claimWaitlistOffer(offer.offer_token!)).ok).toBe(true);
-      expect((await getClass(cls.id))!.enrolled).toBe(1);
+      // At its one booking coming up, the place is not offered: passed over, keeping its place.
+      expect((await state(joined.body.entry.id)).status).toBe("waiting");
+      expect((await getClass(cls.id))!.enrolled).toBe(0);
     } finally {
       await setHouseRules(strict, { aheadDays: 45 });
     }
