@@ -29,7 +29,8 @@ export function useStaffMay(): (action: StaffActionName) => boolean {
 /**
  * Children as they are where `may` is allowed; otherwise read-only: inside a
  * disabled fieldset (every field and button in it disabled), its buttons
- * hidden, under one line saying a manager changes this (`note`, unless a
+ * hidden except those whose pressed state is the setting (`aria-pressed`, such
+ * as the weekend's days), which are shown disabled, under one line saying a manager changes this (`note`, unless a
  * line above already says so).
  *
  * What only shows or hides something stays outside it, so the desk can still
@@ -44,7 +45,7 @@ export function ManagerOnly({ may, note = true, className = "", children }: { ma
   return (
     <div data-manager-only={may} className="w-full">
       {note && <p className="mb-1 text-xs text-slate-500">{t("r9a.managerChanges")}</p>}
-      <fieldset disabled className={`m-0 min-w-0 border-0 p-0 [&_button]:hidden ${className}`}>
+      <fieldset disabled className={`m-0 min-w-0 border-0 p-0 [&_button:not([aria-pressed])]:hidden ${className}`}>
         {children}
       </fieldset>
     </div>
