@@ -1,5 +1,6 @@
 import { logAction } from "./activity";
 import { readMinute } from "./api";
+import { contactRefusal } from "./contact-fields";
 import { membersOnlyRefusal } from "./entitlements";
 import { isLocale } from "./i18n";
 import { formatMinute, isMinute } from "./interval";
@@ -77,6 +78,9 @@ export async function joinAtVenue(
   if (typeof phone !== "string" || !/^\+?[0-9 -]{7,20}$/.test(phone.trim())) return bad("Please provide a valid phone number.");
   if (email !== undefined && email !== null && email !== "" && (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return bad("Please provide a valid email address.");
+  // Each bounded, as every path that books keeps them (lib/contact-fields.ts).
+  const unkept = contactRefusal({ name, email });
+  if (unkept) return bad(unkept.error, 400, unkept.code, unkept.vars);
   if (locale !== undefined && locale !== null && (typeof locale !== "string" || !isLocale(locale))) return bad("locale must be en, ms, zh or ta.");
   if (confirmWho !== undefined && confirmWho !== null && typeof confirmWho !== "boolean") return bad("confirmWho must be true or false.");
 

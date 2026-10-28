@@ -11,6 +11,7 @@ import { coachNames } from "@/lib/coaching";
 import { coachChangeDetail, notifyCoachChanged } from "@/lib/lesson-coaches";
 import { bookingLocale } from "@/lib/place-withdrawals";
 import { refundCancelled } from "@/lib/payments";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

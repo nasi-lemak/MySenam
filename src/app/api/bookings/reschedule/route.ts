@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isMinute, parseClock } from "@/lib/interval";
-import { refusal } from "@/lib/api";
+import { jsonObject, refusal } from "@/lib/api";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
 import { customerChangeRefusal, findBooking, getVenueIdForBookingCode, rescheduleBooking, rescheduleOptions } from "@/lib/store";
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

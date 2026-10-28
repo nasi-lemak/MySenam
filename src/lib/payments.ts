@@ -22,7 +22,8 @@ import { attachPayment, HOLD_MINUTES, holdPurchase, membershipForPayment, purcha
 import { accessSettings, accountPhone } from "./access";
 import { toWhatsAppNumber } from "./transports";
 import { baseUrl } from "./outbox";
-import { addDays, formatHour, todayISO } from "./time";
+import { addDays, formatHour, localDateOf, todayISO } from "./time";
+import { venueZoneOf, zoneSettings } from "./zones";
 import { Booking, MAX_TOP_UP } from "./types";
 import { settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
@@ -356,7 +357,7 @@ export interface OnlinePayment {
 /** How long a refund has been owed, against the days the venue tells customers it takes. */
 export interface RefundClock {
   since: string;
-  /** The last day of the venue's promise (`refund_within_days`), YYYY-MM-DD. */
+  /** The last day of the venue's promise (`refund_within_days`), YYYY-MM-DD, as the venue's calendar has it. */
   dueBy: string;
   days: number;
   overdue: boolean;
@@ -364,13 +365,18 @@ export interface RefundClock {
 
 const DAY_MS = 86_400_000;
 
-/** `since` is a stored UTC `YYYY-MM-DD HH:MM:SS`; null for one not yet noted, which is owed from now. */
-export function refundClock(since: string | null, withinDays: number, now = new Date()): RefundClock {
+/**
+ * `since` is a stored UTC `YYYY-MM-DD HH:MM:SS`; null for one not yet noted,
+ * which is owed from now. `zone` is the venue's (the install's if not given):
+ * the date customers and staff are told is the venue's own, not UTC's, which
+ * is a day early for anything noted before 08:00 in Malaysia.
+ */
+export function refundClock(since: string | null, withinDays: number, now = new Date(), zone?: string): RefundClock {
   const start = since ? new Date(`${since.replace(" ", "T")}Z`) : now;
   const due = new Date(start.getTime() + withinDays * DAY_MS);
   return {
     since: start.toISOString().slice(0, 19).replace("T", " "),
-    dueBy: due.toISOString().slice(0, 10),
+    dueBy: localDateOf(due.toISOString(), zone),
     days: Math.max(0, Math.floor((now.getTime() - start.getTime()) / DAY_MS)),
     overdue: now.getTime() > due.getTime(),
   };
@@ -1022,7 +1028,8 @@ export async function refundsOwed(venueId: number): Promise<OnlinePayment[]> {
         WHERE p.venue_id = ? AND p.purpose NOT IN ('invoice', 'pack') AND p.refund_due > p.refunded ORDER BY p.id`
     )
     .all(venueId)) as (PaymentRow & { refund_seen_at: string | null; refund_within_days: number })[];
-  return Promise.all(rows.map(async (r) => ({ ...(await toPayment(r)), owed: refundClock(r.refund_seen_at, r.refund_within_days) })));
+  const zone = (await zoneSettings(venueId))?.zone;
+  return Promise.all(rows.map(async (r) => ({ ...(await toPayment(r)), owed: refundClock(r.refund_seen_at, r.refund_within_days, new Date(), zone) })));
 }
 
 /** A venue's refunds past the date its customers were told. */
@@ -1084,6 +1091,8 @@ export interface RefundStatus {
   clock: RefundClock | null;
   /** When the last of it went back. */
   refundedAt: string | null;
+  /** That day, YYYY-MM-DD, as the venue's calendar has it: what customers are told. */
+  refundedOn: string | null;
 }
 
 /**
@@ -1096,7 +1105,7 @@ export async function refundStatusFor(bookingIds: number[]): Promise<RefundStatu
   const rows = (await getDb()
     .prepare(
       `SELECT p.id, p.amount::float AS amount, p.refund_due::float AS refund_due, p.refunded::float AS refunded, p.refund_seen_at,
-              v.refund_within_days, v.online_refunds,
+              v.refund_within_days, v.online_refunds, v.time_zone, v.lat, v.lng,
               (SELECT MAX(r.created_at) FROM online_refunds r
                 WHERE r.payment_id = p.id AND r.failed_at IS NULL AND COALESCE(r.provider_ref, '') NOT LIKE 'claim:%') AS refunded_at,
               COALESCE((SELECT STRING_AGG(pb2.booking_id::text, ',') FROM online_payment_bookings pb2 WHERE pb2.payment_id = p.id),
@@ -1118,13 +1127,18 @@ export async function refundStatusFor(bookingIds: number[]): Promise<RefundStatu
     refund_seen_at: string | null;
     refund_within_days: number;
     online_refunds: OnlineRefunds;
+    time_zone: string | null;
+    lat: number | null;
+    lng: number | null;
     refunded_at: string | null;
     booking_ids: string | null;
     last_attempt: "failed" | "requested" | "processing" | "done" | null;
   }[];
   return rows.map((r) => {
     const owed = Math.max(0, roundMoney(r.refund_due - r.refunded));
-    const clock = owed > 0 ? refundClock(r.refund_seen_at, r.refund_within_days) : null;
+    const zone = venueZoneOf(r);
+    const clock = owed > 0 ? refundClock(r.refund_seen_at, r.refund_within_days, new Date(), zone) : null;
+    const refundedAt = owed > 0 ? null : r.refunded_at;
     const state: RefundState =
       r.last_attempt === "processing"
         ? "processing"
@@ -1146,7 +1160,8 @@ export async function refundStatusFor(bookingIds: number[]): Promise<RefundStatu
       refunded: r.refunded,
       how: r.online_refunds,
       clock,
-      refundedAt: owed > 0 ? null : r.refunded_at,
+      refundedAt,
+      refundedOn: refundedAt ? localDateOf(refundedAt, zone) : null,
     };
   });
 }
@@ -1676,7 +1691,7 @@ export async function refundCancelled(
       done.push({ how: "credit", amount });
       continue;
     }
-    done.push({ how: "staff", amount, dueBy: refundClock(null, venuePolicy.refundWithinDays).dueBy });
+    done.push({ how: "staff", amount, dueBy: refundClock(null, venuePolicy.refundWithinDays, new Date(), (await zoneSettings(row.venue_id!))?.zone).dueBy });
   }
   return done;
 }

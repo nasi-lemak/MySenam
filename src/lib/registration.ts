@@ -10,6 +10,7 @@ import { googleConfig } from "./oauth";
 import { MIN_PASSWORD } from "./password-reset";
 import type { Refusal } from "./types";
 import { REGISTRATION_MINUTES } from "./registration-shared";
+import { nameRefusal } from "./contact-fields";
 
 /**
  * Signing up by an emailed link, without saying whether an address already
@@ -220,7 +221,8 @@ export async function completeRegistration(
   token: string,
   input: { name: string; phone: string; password: string }
 ): Promise<CompleteResult> {
-  if (input.name.trim().length < 2) return { ok: false, error: "Please provide your name." };
+  const badName = nameRefusal(input.name);
+  if (badName) return badName;
   if (!PHONE_SHAPE.test(input.phone.trim())) return { ok: false, error: "Please provide a valid phone number." };
   if (input.password.length < MIN_PASSWORD || input.password.length > 200) return refuse("PASSWORD_WEAK", { n: MIN_PASSWORD });
   if (!TOKEN_SHAPE.test(token)) return registrationInvalid();

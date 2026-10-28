@@ -132,7 +132,7 @@ describe("the date a refund by hand is due", () => {
 describe("a customer whose refund the venue makes by hand", () => {
   it("is told the date when cancelling, and can follow it by looking the booking up, until it is refunded", async () => {
     const { booking, refunds, paymentId } = await cancelledAfterPaying();
-    expect(refunds).toEqual([{ how: "staff", amount: 20, dueBy: addDays(todayISO("UTC"), 3) }]);
+    expect(refunds).toEqual([{ how: "staff", amount: 20, dueBy: addDays(todayISO(), 3) }]); // The venue's calendar date (Singapore), not UTC's.
 
     const looked = await (await lookup(new NextRequest(`http://localhost/api/bookings?code=${booking.code}&phone=${booking.phone}`))).json();
     expect(looked.refunds).toEqual([expect.objectContaining({ state: "owed", paymentId, owed: 20, how: "staff", refundedAt: null, clock: expect.objectContaining({ overdue: false }) })]);

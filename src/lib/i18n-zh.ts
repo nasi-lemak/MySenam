@@ -2599,6 +2599,8 @@ export const ZH: Record<Phrase, string> = {
   "p8a.msg.credit": "您所付款项中的 {amount} 已存入您在该场馆的储值余额，可用于其他预订。",
   "p8a.msg.kept": "根据场馆的迟取消条款，场馆保留了您所付款项中的 {kept}；其余 {amount} 将由场馆退还。",
   "p8a.msg.keptAll": "根据场馆的迟取消条款，场馆保留了您所付的款项。",
+  // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
+  "err.NAME_TOO_LONG": "姓名请不要超过 {max} 个字符。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

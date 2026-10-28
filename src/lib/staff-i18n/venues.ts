@@ -344,6 +344,10 @@ const en = {
   "sl8.lang.staff": "Their language: the dashboard opens in it and their emails are written in it; they can change it with the language switch",
   "sl8.lang.alerts": "Alerts written in",
   "sl8.lang.coach": "{name}'s language, for their emails, page and calendar",
+  // The calendar feed's address, kept only as a hash and lapsing after a year (d8a.)
+  "d8a.cal.until": "This address works until {date}; make a new one before then.",
+  "d8a.cal.onHidden": "On, until {date}, at an address that cannot be shown again (made before addresses were kept locked, or on another server). To subscribe another calendar, make a new address: calendars on the old one stop updating.",
+  "d8a.cal.lapsed": "The address lapsed on {date} and shows nothing now. Make a new one to carry on.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -685,6 +689,10 @@ const ms: Record<keyof typeof en, string> = {
   "sl8.lang.staff": "Bahasa mereka: papan pemuka dibuka dalam bahasa ini dan e-mel mereka ditulis dalam bahasa ini; mereka boleh menukarnya dengan suis bahasa",
   "sl8.lang.alerts": "Makluman ditulis dalam",
   "sl8.lang.coach": "Bahasa {name}, untuk e-mel, halaman dan kalendar mereka",
+  // The calendar feed's address, kept only as a hash and lapsing after a year (d8a.)
+  "d8a.cal.until": "Alamat ini sah hingga {date}; buat alamat baharu sebelum itu.",
+  "d8a.cal.onHidden": "Hidup, hingga {date}, pada alamat yang tidak boleh ditunjukkan lagi (dibuat sebelum alamat disimpan berkunci, atau pada pelayan lain). Untuk melanggan kalendar lain, buat alamat baharu: kalendar yang melanggan alamat lama akan berhenti dikemas kini.",
+  "d8a.cal.lapsed": "Alamat ini luput pada {date} dan tidak menunjukkan apa-apa sekarang. Buat alamat baharu untuk meneruskan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1026,6 +1034,10 @@ const zh: Record<keyof typeof en, string> = {
   "sl8.lang.staff": "其语言：后台以此语言打开，发给其的电邮也用此语言撰写；本人可用语言切换更改",
   "sl8.lang.alerts": "提醒使用的语言",
   "sl8.lang.coach": "{name} 的语言（用于其电邮、页面和日历）",
+  // The calendar feed's address, kept only as a hash and lapsing after a year (d8a.)
+  "d8a.cal.until": "此地址有效至 {date}；请在此之前生成新地址。",
+  "d8a.cal.onHidden": "已开启，有效至 {date}，但该地址无法再次显示（生成于地址加密保存之前，或来自另一台服务器）。如需订阅另一个日历，请生成新地址：订阅旧地址的日历将停止更新。",
+  "d8a.cal.lapsed": "此地址已于 {date} 失效，现在不显示任何内容。请生成新地址以继续使用。",
 };
 
 const area = { en, ms, zh };

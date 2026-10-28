@@ -4,6 +4,7 @@ import { createOutage, endOutage, listOutages, outageById, outagesMissingLateHou
 import { formatMinute } from "@/lib/interval";
 import { getCourt } from "@/lib/store";
 import { logFromRequest } from "@/lib/activity";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await jsonObject(req).catch(() => null)) as Record<string, unknown> | null;
   if (!body || !Number.isInteger(body.venueId)) return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const venueId = body.venueId as number;
   const denied = denyVenue(admin, venueId);
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

@@ -5,8 +5,9 @@ import { applyAskedDiscounts } from "@/lib/booking-discounts";
 import { readPlaceConcessions } from "@/lib/entitlements";
 import { phoneRefusal } from "@/lib/phone-check";
 import { readTime, refusal } from "@/lib/api";
+import { contactRefusal } from "@/lib/contact-fields";
 import { getSessionUser } from "@/lib/auth";
-import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
+import { canAccessVenue, getActingStaff, twoFactorRefusal } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { breachMessage } from "@/lib/booking-rules";
 import {
@@ -105,6 +106,9 @@ export async function POST(req: NextRequest) {
   if (email !== undefined && email !== null && email !== "" &&
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+  // Each bounded, as every path that books keeps them (lib/contact-fields.ts).
+  const unkept = contactRefusal({ name, email });
+  if (unkept) return refusal(unkept, 400);
   if (weeks !== undefined &&
       (!Number.isInteger(weeks) || (weeks as number) < 1 || (weeks as number) > MAX_SERIES_WEEKS))
     return NextResponse.json(
@@ -149,16 +153,21 @@ export async function POST(req: NextRequest) {
   // Staff may book outside a court's booking policy (its starts, lengths,
   // hours, notice and window), never over anything that holds the court.
   // Managers only, at their own venue, and each time it is recorded.
-  let staff: Awaited<ReturnType<typeof getSessionAdmin>> = null;
+  // Staff act as staff here only past the install's two-factor rule, as in the admin routes (lib/admin-auth.ts).
+  if (override === true || askOverride || (paidAtCounter !== undefined && paidAtCounter !== null)) {
+    const held = await twoFactorRefusal(req);
+    if (held) return held;
+  }
+  let staff: Awaited<ReturnType<typeof getActingStaff>> = null;
   if (override === true) {
-    staff = await getSessionAdmin(req);
+    staff = await getActingStaff(req);
     const venueToOverride = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
     if (!staff || staff.role === "desk" || venueToOverride === undefined || !canAccessVenue(staff, venueToOverride))
       return refusal({ ok: false, error: "Only a manager of this venue may book outside its booking rules.", code: "OVERRIDE_NOT_ALLOWED" }, 403);
   }
   // Booked by the venue's own staff (the counter), who see who is in front of
   // them, or by the customer online: sign-offs are checked accordingly (lib/sign-offs.ts).
-  const desk = staff ?? (await getSessionAdmin(req));
+  const desk = staff ?? (await getActingStaff(req));
   const venueBooked = anyCourt ? (venueId as number) : (await getCourt(courtId as number))?.venueId;
   const byStaff = desk !== null && venueBooked !== undefined && canAccessVenue(desk, venueBooked);
   // Overriding the venue's policies: a manager of this venue, where the venue permits each policy asked; never the desk.

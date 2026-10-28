@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { classRefusal } from "@/lib/who";
 import { phoneRefusal } from "@/lib/phone-check";
 import { refusal } from "@/lib/api";
+import { contactRefusal } from "@/lib/contact-fields";
 import { getSessionUser } from "@/lib/auth";
 import { policyCheck } from "@/lib/limits";
 import { overrideRefusal, policyRefusal, readOverride, type PolicyOverrideRecord } from "@/lib/policy-overrides";
@@ -12,7 +13,7 @@ import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { classTerm, enrolInTerm, enrolPeople, getClass, payBookingFromWallet, setPaymentStatus } from "@/lib/store";
-import { canAccessVenue, getSessionAdmin } from "@/lib/admin-auth";
+import { canAccessVenue, getActingStaff, twoFactorRefusal } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
 import { readSelection, recordBookedFor, selectionAtVenue, selectionForAccount, type Selection } from "@/lib/participant-bookings";
@@ -45,6 +46,9 @@ export async function POST(req: NextRequest) {
   if (email !== undefined && email !== null && email !== "" &&
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+  // Each bounded, as every path that books keeps them (lib/contact-fields.ts).
+  const unkept = contactRefusal({ name, email });
+  if (unkept) return refusal(unkept, 400);
 
   const chosen = readChosen(addons);
   if (!chosen) return NextResponse.json({ error: "addons must be a list of { addonId, quantity }." }, { status: 400 });
@@ -67,7 +71,12 @@ export async function POST(req: NextRequest) {
   }
   const forClass = await getClass(classId as number);
   // Enrolled by the venue's own staff (the counter), or by the customer online.
-  const desk = await getSessionAdmin(req);
+  // Staff act as staff here only past the install's two-factor rule, as in the admin routes (lib/admin-auth.ts).
+  if (askOverride || (paidAtCounter !== undefined && paidAtCounter !== null)) {
+    const held = await twoFactorRefusal(req);
+    if (held) return held;
+  }
+  const desk = await getActingStaff(req);
   const byStaff = desk !== null && forClass !== null && canAccessVenue(desk, forClass.venueId);
   if (askOverride && !byStaff) return refusal(policyRefusal("R9_OVERRIDE_MANAGERS"), 403);
   if (askOverride && byStaff) {

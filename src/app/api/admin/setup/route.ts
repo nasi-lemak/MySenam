@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { dismissSetup, markDetailsChecked, venueSetup } from "@/lib/setup";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
   let body: { venueId?: unknown; action?: unknown };
   try {
-    body = await req.json();
+    body = await jsonObject(req);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

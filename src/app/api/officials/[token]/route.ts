@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { officialByToken, officialResult } from "@/lib/match-reports";
 import { rateLimit } from "@/lib/rate-limit";
 import { tournamentDetail, type ResultInput } from "@/lib/tournaments";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   if (limited) return limited;
   let body: Record<string, unknown>;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    body = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

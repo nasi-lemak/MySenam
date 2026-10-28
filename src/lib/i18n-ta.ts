@@ -2602,6 +2602,8 @@ export const TA: Record<Phrase, string> = {
   "p8a.msg.credit": "நீங்கள் செலுத்தியதில் {amount} இந்த மையத்தில் உங்கள் கிரெடிட்டில் சேர்க்கப்பட்டுள்ளது, வேறொரு முன்பதிவுக்குப் பயன்படுத்தலாம்.",
   "p8a.msg.kept": "அதன் தாமத ரத்து விதிமுறைகளின்படி, நீங்கள் செலுத்தியதில் {kept} மையம் வைத்துக்கொண்டது; மீதமுள்ள {amount} மையத்தால் திருப்பித் தரப்படும்.",
   "p8a.msg.keptAll": "அதன் தாமத ரத்து விதிமுறைகளின்படி, நீங்கள் செலுத்தியதை மையம் வைத்துக்கொண்டது.",
+  // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
+  "err.NAME_TOO_LONG": "பெயரை {max} எழுத்துகளுக்குள் வையுங்கள்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

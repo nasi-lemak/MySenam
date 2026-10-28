@@ -315,6 +315,16 @@ the feed asks for every 30 minutes.
   it (calendars on the old one stop updating) and *Turn off* withdraws it. Both
   go in the activity log. Turning it on, renewing it and turning it off are for
   managers; front desk can copy it.
+- The database keeps no readable copy of the token: the feed is found by its
+  hash, and the copy the dashboard shows again is sealed with the install's
+  secret, which a database copy or backup does not carry
+  ([security](../architecture/security.md#private-links-and-who-decides-approvals)).
+  An address made before that (migration 0240), or on an install restored
+  without its secret, keeps working but is not shown: the dashboard says so,
+  and a manager makes a new one to copy.
+- Each address lapses a year after it is made; the dashboard shows the date,
+  and once it has passed the feed answers nothing and the dashboard says to
+  make a new one (`tests/calendar-feed-hash.test.ts`).
 - The response is `Cache-Control: private, no-store` and `noindex`.
 
 ### What WhatsApp costs, and who pays

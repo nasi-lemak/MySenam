@@ -31,7 +31,13 @@ These hold for every route below unless its row says otherwise.
   branches, platform owners everything
   ([tenancy](tenancy.md)). Where the install requires two-factor sign-in, an
   account without it is refused everything but setting it up (`403`, code
-  `TWO_FACTOR_REQUIRED`).
+  `TWO_FACTOR_REQUIRED`), and is not staff to the public routes that
+  recognise staff either
+  ([two-factor sign-in](authentication.md#two-factor-sign-in)).
+- **Bodies.** A JSON body must be an object: anything else is `400`. A name
+  a booking, class place, waiting list or account keeps is at most 100
+  characters (`400` `NAME_TOO_LONG`), an email at most 254
+  ([security](security.md#what-a-request-may-send)).
 - **Requests from another site.** A request that changes something and
   carries a session cookie must come from the app's own pages: one whose
   `Origin` (or `Sec-Fetch-Site`) says another site is refused (`403`) before
@@ -186,7 +192,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | GET/POST | `/api/admin/hold-policy`    | `?venueId` / `{venueId, on, minutes}`: pay online to hold a booking |
 | GET    | `/api/admin/data-request`  | `?venueId&phone` → what the venue holds against a number, as a file (managers) |
 | GET/POST/DELETE | `/api/admin/coaches` | `?venueId` / `{venueId, id?, name, bio?, sports, rate, hours}` / `?venueId&id`: a venue's coaches; `contacts` says until when each coach's private link works, never the link. `{venueId, id, action: "link", on}`: a new link, returned once as `link` (`pageUrl`, `calendarUrl`, `until`), or withdrawn. `{venueId, id, action: "locale", locale}`: the coach's own language (any the install offers; null for none chosen), shown in `contacts`. `choice` (GET) and `{venueId, action: "choice", choice}`: who chooses the coach of a new lesson, `customer` (the default) or `venue` ([who chooses the coach](../features/programmes.md#who-chooses-the-coach)) |
-| GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address, naming (`?lang=`) the account's own language, else the staff language of the request; on makes a new one |
+| GET/POST | `/api/admin/calendar-feed`  | `?venueId` / `{venueId, on}`: the staff calendar's address (`url`, naming (`?lang=`) the account's own language, else the staff language of the request), with `on`, `madeAt`, `expiresAt` and `lapsed`; `url` is null when off or lapsed, or for an address that cannot be shown again; on makes a new one, good for a year |
 | GET/POST | `/api/admin/cancel-policy`  | `?venueId` / `{venueId, lateKeep, strikeLimit, strikeDays, onlineRefunds}`: late cancellations, refunds, strikes |
 | GET/POST | `/api/admin/house-rules`    | `?venueId` / `{venueId, upcoming, perWeek, perDay, aheadDays, memberAheadDays}` |
 | GET/POST | `/api/admin/policy-overrides` | `?venueId` → `{policies, overridable}`: the venue's policies its managers may override for one booking, and every one that can be; `{venueId, policies}` sets them (a manager's: `MANAGER_ONLY` for front desk), in the activity log ([manager overrides](../features/booking.md#manager-overrides)) |
@@ -360,7 +366,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/my/marketing` | `{ id }` → stop hearing from that venue |
 | GET | `/api/my/phone` | The account's number, and whether it is checked |
 | POST | `/api/my/phone` | `{ action: "whatsapp", phone }` starts a check by a message the customer sends us from that number on WhatsApp, and returns the link that opens it; `{ action: "send", phone }` sends a code to it by SMS (or WhatsApp); `{ action: "confirm", code }` checks it; `{ action: "save", phone }` keeps it as given, where this install does not check numbers |
-| GET | `/api/my/receipts` | The signed-in customer's receipts and credit notes, newest first, each with its signed link |
+| GET | `/api/my/receipts` | The signed-in customer's receipts and credit notes, newest first, each with its signed link; `issuedAt` as stored (UTC), `issuedOn` the date as its venue's calendar has it |
 
 ### Coaches (by their private link)
 

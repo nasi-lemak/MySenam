@@ -4,6 +4,7 @@ import { logAction } from "@/lib/activity";
 import { closeNoticeTask, guardianReviews, openNoticeTasks } from "@/lib/contact-guardians";
 import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent";
 import { overdueRefunds } from "@/lib/payments";
+import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
   let b: Record<string, unknown>;
   try {
-    b = (await req.json()) as Record<string, unknown>;
+    b = (await jsonObject(req)) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

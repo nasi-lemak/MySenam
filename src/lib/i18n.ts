@@ -2763,6 +2763,8 @@ const EN = {
   "p8a.msg.credit": "{amount} of what you paid has been put on your credit at the venue, to spend on another booking.",
   "p8a.msg.kept": "As its late-cancellation terms say, the venue kept {kept} of what you paid; the other {amount} will be refunded by the venue.",
   "p8a.msg.keptAll": "As its late-cancellation terms say, the venue kept what you paid.",
+  // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
+  "err.NAME_TOO_LONG": "Please keep the name to {max} characters.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5475,6 +5477,8 @@ const MS: Record<Phrase, string> = {
   "p8a.msg.credit": "{amount} daripada bayaran anda telah ditambah ke kredit anda di pusat ini, untuk digunakan pada tempahan lain.",
   "p8a.msg.kept": "Mengikut terma pembatalan lewatnya, pusat ini menyimpan {kept} daripada bayaran anda; baki {amount} akan dipulangkan oleh pihak tempat.",
   "p8a.msg.keptAll": "Mengikut terma pembatalan lewatnya, pusat ini menyimpan bayaran anda.",
+  // A name too long to keep on a booking, enrolment, waiting list or account (d8a, lib/contact-fields.ts)
+  "err.NAME_TOO_LONG": "Sila hadkan nama kepada {max} aksara.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

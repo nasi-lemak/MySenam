@@ -14,7 +14,8 @@ import { guestHostAt, registerGuest, undoGuestRegistration, type GuestHost, type
 import type { Refusal } from "@/lib/types";
 import { errorText, translator } from "@/lib/i18n";
 import { isValidDateString } from "@/lib/time";
-import { readTime } from "@/lib/api";
+import { readTime, refusal } from "@/lib/api";
+import { contactRefusal } from "@/lib/contact-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +80,9 @@ export async function POST(req: NextRequest) {
   if (!time.ok) return NextResponse.json({ error: time.error }, { status: 400 });
   if (typeof body.name !== "string" || body.name.trim().length < 2 || typeof body.phone !== "string" || body.phone.trim().length < 7)
     return NextResponse.json({ error: "name and phone are required." }, { status: 400 });
+  // Name and email checked and bounded as the booking form's are (lib/contact-fields.ts).
+  const unkept = contactRefusal({ name: body.name, email: body.email });
+  if (unkept) return refusal(unkept, 400);
   // How many places (or players, on a court priced per player), up to the most the venue lets one booking take: checked there.
   if (body.players !== undefined && !Number.isInteger(body.players))
     return NextResponse.json({ error: "players must be a whole number." }, { status: 400 });

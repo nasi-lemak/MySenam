@@ -66,6 +66,15 @@ of the admin dashboard by scanning a QR code.
   Only their hashes are kept, and the app's secret is sealed like payment keys.
 - **Compulsory** with `MYSENAM_STAFF_2FA` (`owners`, `managers` or `all`): an
   account without it can sign in only to set it up, and cannot turn it off.
+  It is staff nowhere else until it has: not in the admin routes
+  (`requireAdmin`), and not where a public route or page recognises staff
+  (`getActingStaff`, `getActingStaffByToken` in `src/lib/admin-auth.ts`): the
+  counter booking or enrolling through `/api/bookings` and
+  `/api/classes/enrol`, staff-only rooms and the manager's override in
+  `/api/availability`, a preview of a venue not yet open, a platform invoice's
+  page. Asking one of those for what only staff do (an override, paid at the
+  counter) answers `403` `TWO_FACTOR_REQUIRED`; anything else is answered as
+  for anybody signed out (`tests/staff-two-factor-gate.test.ts`).
 - Turning it on or off goes in the staff activity log.
 - **Lost both phone and recovery codes:** somebody with authority over the
   account resets it from *Venues & staff* (a platform owner; a business

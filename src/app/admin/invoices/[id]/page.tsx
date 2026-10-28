@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
-import { ADMIN_SESSION_COOKIE, canAccessVenue, getAdminByToken, isOwner } from "@/lib/admin-auth";
+import { ADMIN_SESSION_COOKIE, canAccessVenue, getActingStaffByToken, isOwner } from "@/lib/admin-auth";
 import { invoiceById } from "@/lib/billing";
 import { getVenue } from "@/lib/store";
 import { localDateOf } from "@/lib/time";
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
   const token = (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
-  const admin = token ? await getAdminByToken(token) : null;
+  const admin = token ? await getActingStaffByToken(token) : null;
   const invoice = admin ? await invoiceById(Number((await params).id)) : null;
   if (!admin || !invoice) notFound();
   const allowed =
