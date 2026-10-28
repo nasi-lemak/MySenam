@@ -1,8 +1,8 @@
 import { getDb } from "./db";
 import { DAY_MINUTES, LATEST_MINUTE } from "./interval";
 import { isActivity } from "./activities";
-import { MAX_COURT_HOURS, type Sport } from "./types";
-import { parseWeekHours } from "./week-hours";
+import { MAX_COURT_HOURS, type CourtHoursChange, type Sport } from "./types";
+import { changeOn, parseWeekHours } from "./week-hours";
 import { clockValue, lengthText, said, type StaffText, type StaffValue } from "./staff-text";
 import {
   SETTING_KEYS,
@@ -158,19 +158,30 @@ async function rowsFor(venueIds: number[]): Promise<{ rows: Row[]; business: Map
  * Policies for many courts at once (a search, a venue's grid), each for the
  * activity given: the court's main one, or the one being booked on it.
  */
-export async function policiesFor(courts: { id: number; venueId: number; sport: Sport }[]): Promise<Map<number, BookingPolicy>> {
+export async function policiesFor(
+  courts: { id: number; venueId: number; sport: Sport; hoursChanges?: CourtHoursChange[] }[],
+  /**
+   * The business date the hours are wanted for: a court's own hours set from
+   * that date or an earlier one stand in for its own level's (ADR 0027).
+   * Without one, the levels as stored.
+   */
+  date?: string
+): Promise<Map<number, BookingPolicy>> {
   const out = new Map<number, BookingPolicy>();
   if (courts.length === 0) return out;
   const { rows, business } = await rowsFor([...new Set(courts.map((c) => c.venueId))]);
   for (const c of courts) {
+    const own = rows.find((r) => r.court_id === c.id && r.sport === null);
     const levels = [
       rows.find((r) => r.court_id === c.id && r.sport === c.sport),
-      rows.find((r) => r.court_id === c.id && r.sport === null),
+      own,
       rows.find((r) => r.venue_id === c.venueId && r.sport === c.sport),
       rows.find((r) => r.venue_id === c.venueId && r.sport === null),
       rows.find((r) => r.business_id !== null && r.business_id === business.get(c.venueId)),
-    ].filter((r): r is Row => r !== undefined);
-    out.set(c.id, resolvePolicy(levels.map(toSettings), c.sport));
+    ].map((r) => (r ? toSettings(r) : undefined));
+    const dated = date ? changeOn(c.hoursChanges, date) : null;
+    if (dated) levels[1] = { ...(levels[1] ?? {}), weekHours: dated.weekHours };
+    out.set(c.id, resolvePolicy(levels.filter((l): l is PolicySettings => l !== undefined), c.sport));
   }
   return out;
 }

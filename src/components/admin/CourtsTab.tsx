@@ -21,6 +21,7 @@ import { hasPhrase, sportLabel, type T } from "@/lib/i18n";
 import { region } from "@/lib/region";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
+import { CourtChangesFromDate } from "./DatedChanges";
 
 /** A surface's name as customers read it, in the same language. */
 const surfaceLabel = (t: T, x: string) => {
@@ -278,6 +279,8 @@ export function CourtsTab({
           </table>
         </div>
       )}
+
+      {venue && venue.courts.length > 0 && <CourtChangesFromDate key={`dated-${venue.id}`} venueId={venue.id} courts={venue.courts} />}
 
       {venue && venue.courts.filter((c) => c.capacity === 1).length > 1 && (
         <CourtLinksEditor key={`links-${venue.id}`} venueId={venue.id} courts={venue.courts.filter((c) => c.capacity === 1)} />

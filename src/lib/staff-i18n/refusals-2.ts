@@ -731,4 +731,12 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Hear about changes to bookings within a day, two days, a week, or any time ahead.": { ms: "Dimaklumkan tentang perubahan tempahan dalam tempoh sehari, dua hari, seminggu, atau bila-bila masa.", zh: "可选择接收一天内、两天内、一周内或任何时间的预订变更通知。" },
   // Round 8 (D8b): an account invoice a cancellation was credited against stays
   "A booking on this invoice was cancelled with a credit note against it, so the invoice stays.": { ms: "Satu tempahan dalam invois ini telah dibatalkan dengan nota kredit terhadapnya, jadi invois ini kekal.", zh: "此发票上的一笔预订已取消，并已针对此发票开具贷记单，因此此发票保留。" },
+  // Round 9 (R9B): opening hours and rates from a later date
+  "Choose a date after today: a change from today is saved with the settings as usual.": { ms: "Pilih tarikh selepas hari ini: perubahan mulai hari ini disimpan bersama tetapan seperti biasa.", zh: "请选择今天之后的日期：从今天起的更改照常在设置中保存。" },
+  "That change is not waiting to apply.": { ms: "Perubahan itu tidak sedang menunggu untuk berkuat kuasa.", zh: "该更改并未在等待生效。" },
+  "There is already a change from {0}. Change that one instead.": { ms: "Sudah ada perubahan mulai {0}. Tukar perubahan itu sahaja.", zh: "已有自 {0} 起的更改。请改为修改该项。" },
+  "1 booking already made falls outside those hours. Move or cancel it first.": { ms: "1 tempahan yang sudah dibuat berada di luar waktu itu. Pindahkan atau batalkannya dahulu.", zh: "有 1 笔已完成的预订落在这些营业时间之外。请先调整或取消。" },
+  "{0} bookings already made fall outside those hours. Move or cancel them first.": { ms: "{0} tempahan yang sudah dibuat berada di luar waktu itu. Pindahkan atau batalkannya dahulu.", zh: "有 {0} 笔已完成的预订落在这些营业时间之外。请先调整或取消。" },
+  "The evening before {0} runs past that day's opening. Close earlier, or open later from {1}.": { ms: "Waktu malam sebelum {0} berlanjutan melepasi waktu buka hari itu. Tutup lebih awal, atau buka lebih lewat mulai {1}.", zh: "{0} 前一晚的营业时间超过了当天的开门时间。请提早结束营业，或自 {1} 起延后开门。" },
+  "kind is rates or hours.": { ms: "kind ialah rates atau hours.", zh: "kind 须为 rates 或 hours。" },
 };

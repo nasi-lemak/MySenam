@@ -131,9 +131,11 @@ describe("per-venue operating hours", () => {
     const court = venue.courts[0];
     expect(await createBooking({ courtId: court.id, date, hours: [9], name: "A", phone: PHONE }))
       .toMatchObject({ ok: true });
+    // Every booking in the way, with its date, time, court and code (ADR 0027).
     expect(await updateVenue(venue.id, { openHour: 12 })).toMatchObject({
       ok: false,
-      error: `Bookings already exist outside those hours (the first on ${date}). Cancel or move them first.`,
+      error: "1 booking already made falls outside those hours. Move or cancel it first.",
+      stranded: [{ date, startMin: 9 * 60, endMin: 10 * 60, court: court.name }],
     });
 
     expect(await updateVenue(venue.id, { openHour: 6 })).toMatchObject({

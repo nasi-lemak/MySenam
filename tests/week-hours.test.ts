@@ -139,7 +139,9 @@ describe("a venue with its own hours by weekday", () => {
     const friday = next(FRIDAY);
     const refused = await updateVenue(venueId, { weekHours: [null, "closed", null, null, null, { open: 16 * 60, close: 24 * 60 }, { open: 8 * 60, close: 26 * 60 }] });
     expect(refused).toMatchObject({ ok: false });
-    if (!refused.ok) expect(refused.error).toContain(friday);
+    // Every booking in the way is listed with its date (ADR 0027), not only the first date named.
+    const stranded = (refused as { stranded?: { date: string }[] }).stranded ?? [];
+    expect(stranded.map((s) => s.date)).toContain(friday);
   });
 
   it("counts a weekday it never opens as a closed day in the report", async () => {

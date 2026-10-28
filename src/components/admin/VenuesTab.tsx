@@ -40,6 +40,7 @@ import { DataRequestPanel } from "./DataRequestPanel";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
+import { HoursFromDate, strandedText } from "./DatedChanges";
 import { minuteClock, region } from "@/lib/region";
 import type { StaffText } from "@/lib/staff-text";
 import type { EInvoiceRetention } from "@/lib/einvoice-retention";
@@ -100,7 +101,8 @@ export function VenuesTab({
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       const data = await readJson(res);
-      if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")));
+      // Hours that would leave bookings outside them name every one (lib/dated-changes.ts).
+      if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")) + strandedText(data, t));
       setNotice(okMessage);
       await onChange();
       // The set-up checklist and the go-live banner tick off what was just saved (hours, pin, facilities).
@@ -703,6 +705,8 @@ function VenueRow({
           })}
         </div>
       </details>
+      <p className="w-full text-xs text-slate-500">{t("r9b.todayNote")}</p>
+      <HoursFromDate venueId={venue.id} current={{ openMin: venue.openMin, closeMin: venue.closeMin, weekHours: venue.weekHours ?? null }} />
       <label className="flex flex-col text-xs font-medium text-slate-500">
         {t("vn.cutoff")}
         <input

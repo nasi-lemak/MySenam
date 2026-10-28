@@ -87,6 +87,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/pass-products$/, methods: ["POST", "DELETE"] },
   // Changing a booking's price, or giving it free, with a reason (lib/price-adjustments.ts).
   { path: /^\/api\/admin\/bookings\/adjust-price$/, methods: ["POST"] },
+  // Opening hours and rates from a later date, as changing them now is (lib/dated-changes.ts, ADR 0027); the desk may read them.
+  { path: /^\/api\/admin\/venues\/\d+\/hours-changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
+  { path: /^\/api\/admin\/courts\/\d+\/changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
 ];
 
 export type StaffRole = "manager" | "desk";

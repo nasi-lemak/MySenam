@@ -286,6 +286,29 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | DELETE | `/api/admin/admins/:id`       | Remove an operator — **owner only**                  |
 | POST   | `/api/admin/admins/:id/two-factor-reset` | `{reason, code}`: reset a member of staff's two-factor sign-in after they lost both authenticator and recovery codes; by an owner or that business's manager (an owner only by another owner), with the caller's own current `code`; signs them out, recorded, emailed to them and the owners |
 
+### Hours and rates from a date
+
+Set ahead, applied by the date asked about ([ADR 0027](decisions/0027-hours-and-rates-from-a-date.md);
+[hours from a date](../features/booking.md#hours-from-a-date),
+[prices from a date](../features/pricing.md#prices-from-a-date)). Reading is
+for any staff of the venue; setting, changing and withdrawing are a manager's.
+A `from` is a date after today where the venue is. A refusal over bookings is
+`409` with `stranded`: every booking in the way, `[{code, date, startMin,
+endMin, court}]`; `PATCH /api/admin/venues/:id` answers narrowed hours with
+the same list (`400`).
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET    | `/api/admin/venues/:id/hours-changes` | `{changes: [{id, from, openMin, closeMin, weekHours}]}`: the venue's hours set from later dates, soonest first (any whose date has come made today's hours first) |
+| POST   | `/api/admin/venues/:id/hours-changes` | `{from, openMin, closeMin, weekHours?}`: the usual hours and week from that date, as a whole → `201 {change}`; logged `hours.scheduled`, before → after |
+| PATCH  | `/api/admin/venues/:id/hours-changes/:changeId` | The same body: change one not yet in force (another date, other hours); logged `hours.scheduled` |
+| DELETE | `/api/admin/venues/:id/hours-changes/:changeId` | Withdraw one not yet in force (`409` with `stranded` where bookings were made into hours it opened); logged `hours.withdrawn` |
+| GET    | `/api/admin/venues/:id/court-changes` | `{courts: [{courtId, court, rates: [...], hours: [...]}]}`: every court's rates and own hours set from later dates |
+| GET    | `/api/admin/courts/:id/changes` | `{rates, hours}`: one court's |
+| POST   | `/api/admin/courts/:id/changes` | `{kind: "rates", from, offPeakRate, peakRate, memberOffPeakRate?, memberPeakRate?, activities?: [{sport, offPeakRate, peakRate}]}` (its other activities' own rates, null for the court's), logged `rates.scheduled`; or `{kind: "hours", from, weekHours}` (its own hours by weekday, null for the venue's), logged `hours.scheduled` → `201 {change}` |
+| PATCH  | `/api/admin/courts/:id/changes/:changeId` | The same body: change one not yet in force |
+| DELETE | `/api/admin/courts/:id/changes/:changeId` | Withdraw one not yet in force; logged `rates.withdrawn` or `hours.withdrawn` |
+
 ## More routes, by area
 
 ### Public pages and booking

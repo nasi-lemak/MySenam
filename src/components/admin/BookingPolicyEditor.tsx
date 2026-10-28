@@ -406,7 +406,7 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
  * hours, closed, or its own (a floodlit pitch until 22:00, a pool's lanes
  * from 06:30). All "the venue's" stores nothing.
  */
-function CourtWeekHours({ value, onChange }: { value: string; onChange: (json: string) => void }) {
+export function CourtWeekHours({ value, onChange }: { value: string; onChange: (json: string) => void }) {
   const t = useStaffT();
   const dayNames: Record<(typeof WEEKDAYS)[number], string> = {
     Sunday: t("pol.sunday"),
