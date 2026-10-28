@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { addonById, listAddons, readAddonInput, updateAddon } from "@/lib/addons";
+import { logFromRequest } from "@/lib/activity";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const changed = await updateAddon(addon.id, readAddonInput({ ...addon, ...b }));
   if (!changed.ok) return NextResponse.json({ error: changed.error }, { status: 400 });
+  const now = changed.value;
+  await logFromRequest(req, {
+    venueId: addon.venueId,
+    action: now.active || !addon.active ? "addon.changed" : "addon.retired",
+    detail: `${addon.name}${now.name !== addon.name ? ` → ${now.name}` : ""}, ${money(addon.price)}${now.price !== addon.price ? ` → ${money(now.price)}` : ""}${
+      now.active !== addon.active ? (now.active ? ", offered again" : ", retired") : ""
+    }`,
+  });
   return NextResponse.json({ addon: changed.value, addons: await listAddons(addon.venueId) });
 }
 
@@ -32,5 +42,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const addon = await owned(req, (await params).id);
   if (addon instanceof NextResponse) return addon;
   await updateAddon(addon.id, { ...addon, active: false });
+  await logFromRequest(req, { venueId: addon.venueId, action: "addon.retired", detail: `${addon.name}, ${money(addon.price)}` });
   return NextResponse.json({ addons: await listAddons(addon.venueId) });
 }

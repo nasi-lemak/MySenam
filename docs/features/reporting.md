@@ -124,6 +124,8 @@ are as written, even where the customer's own receipt says a built-in
 concession's price in their language
 ([regions and tax](../product/regions-and-tax.md#tax-sst-and-gst)).
 
+### Staff activity log
+
 **The staff activity log** (*Reports → Staff activity*, `src/lib/activity.ts`)
 writes down who did what, when, at which venue and to which booking:
 payments marked at the desk and how, bookings cancelled, moved or changed,
@@ -133,3 +135,30 @@ staff added, removed or given another role. It squares the till at the end
 of a shift and answers "who cancelled my booking?"; search it by booking code
 for one booking's history. Entries keep the person's name, so they read right
 after an account is removed, and are kept two years.
+
+Every staff write is in it. A day closed writes one entry with what it
+called off (`day.closed`: bookings, classes and their enrolments), a
+`class.cancelled` for each class, and a `booking.cancelled` under each
+booking's and enrolment's own code, worded as a single cancellation's with
+why; cancelling a class, a rain-out and a court taken out of service do the
+same for what they cancel. So do: opening a closed day again, scheduling
+and changing classes ([changing a class](programmes.md#changing-a-class)),
+blocking and unblocking a court, kit handed out and taken back with the money
+kept from its deposit and how it was held, extras, notices, inductions
+recorded and withdrawn (a participant by their id only), going live, new
+tournaments, competitions and leagues, a tournament's details changed
+([changing a tournament](tournaments.md#changing-a-tournament)), league fees
+marked paid or not and players taken out, a failed message sent again (and
+to which address, when staff corrected it), WhatsApp settings and packs,
+photos, and an online payment account removed. Each kind of entry has words
+in the staff languages (`src/lib/activity-labels.ts`, `ActivityPanel.tsx`).
+
+`tests/staff-log-coverage.test.ts` reads every `POST`, `PUT`, `PATCH` and
+`DELETE` handler under `src/app/api/admin` and fails for one that neither
+writes to the log nor calls a function of `src/lib` that does, unless it is
+on its list of handlers that need no entry, each with why: signing in and out
+and one's own password, the platform owner's running of the install itself
+(error reports, alerts, backups, retention runs, demo data, businesses,
+storefronts, venue applications, the platform's invoices), a draft branch
+added, and the set-up checklist. `tests/activity-labels.test.ts` fails for a
+kind of entry without words, including one chosen by `? :`.

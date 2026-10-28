@@ -339,6 +339,16 @@ const en = {
   "rv7.reasonPrompt": "Withdraw the invitation emailed for {name}? Its link stops working; the guest stays on the list by their number. Say why (kept in the activity log):",
   "rv7.withdrawnOk": "Invitation withdrawn.",
   "rv7.act.withdrawn": "Withdrew the invitation a resident emailed for a guest",
+  // p8c
+  "p8c.alr.changesTitle": "Also tell me when a customer, online:",
+  "p8c.alr.cancellations": "cancels a booking",
+  "p8c.alr.changes": "changes a booking's time, or takes somebody off it",
+  "p8c.alr.within": "For bookings starting within",
+  "p8c.alr.day": "a day",
+  "p8c.alr.twoDays": "two days",
+  "p8c.alr.week": "a week",
+  "p8c.alr.any": "any time ahead",
+  "p8c.alr.note": "Off unless you tick them. They go to the same email address and WhatsApp number; each WhatsApp alert counts against this venue's WhatsApp messages.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -675,6 +685,16 @@ const ms: Record<keyof typeof en, string> = {
   "rv7.reasonPrompt": "Tarik balik jemputan yang dihantar melalui e-mel untuk {name}? Pautannya tidak lagi berfungsi; tetamu kekal dalam senarai dengan nombornya. Nyatakan sebabnya (disimpan dalam log aktiviti):",
   "rv7.withdrawnOk": "Jemputan ditarik balik.",
   "rv7.act.withdrawn": "Menarik balik jemputan yang dihantar oleh penghuni melalui e-mel untuk tetamu",
+  // p8c
+  "p8c.alr.changesTitle": "Maklumkan juga apabila pelanggan, dalam talian:",
+  "p8c.alr.cancellations": "membatalkan tempahan",
+  "p8c.alr.changes": "mengubah masa tempahan, atau mengeluarkan seseorang daripadanya",
+  "p8c.alr.within": "Untuk tempahan yang bermula dalam tempoh",
+  "p8c.alr.day": "sehari",
+  "p8c.alr.twoDays": "dua hari",
+  "p8c.alr.week": "seminggu",
+  "p8c.alr.any": "bila-bila masa",
+  "p8c.alr.note": "Dimatikan melainkan anda menandakannya. Ia dihantar ke alamat e-mel dan nombor WhatsApp yang sama; setiap makluman WhatsApp dikira dalam mesej WhatsApp pusat ini.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1011,6 +1031,16 @@ const zh: Record<keyof typeof en, string> = {
   "rv7.reasonPrompt": "撤回为 {name} 发送的电子邮件邀请？其链接将失效；访客仍按电话号码留在名单上。请说明原因（记入活动日志）：",
   "rv7.withdrawnOk": "邀请已撤回。",
   "rv7.act.withdrawn": "撤回了住户通过电子邮件为访客发送的邀请",
+  // p8c
+  "p8c.alr.changesTitle": "顾客在线进行以下操作时也通知我：",
+  "p8c.alr.cancellations": "取消预订",
+  "p8c.alr.changes": "更改预订时间，或将某人移出预订",
+  "p8c.alr.within": "适用于开始时间在以下范围内的预订",
+  "p8c.alr.day": "一天内",
+  "p8c.alr.twoDays": "两天内",
+  "p8c.alr.week": "一周内",
+  "p8c.alr.any": "任何时间",
+  "p8c.alr.note": "默认关闭，勾选后才会发送。通知发送到同一电子邮件地址和 WhatsApp 号码；每条 WhatsApp 通知计入本场馆的 WhatsApp 消息额度。",
 };
 
 const area = { en, ms, zh };

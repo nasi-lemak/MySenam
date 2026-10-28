@@ -43,6 +43,8 @@ export type MessageKind =
   | "payment_received"
   /** To the venue itself, at the address and number it chose: a booking made online. */
   | "venue_new_booking"
+  /** To the venue itself, where it asked: a customer cancelled or changed a booking online, soon enough to matter (lib/notify.ts). */
+  | "venue_booking_change"
   /** By email only: a gift voucher bought online, to its buyer. */
   | "gift_voucher"
   /** By email only, once per customer per venue: how was it? (lib/reviews.ts) */
@@ -78,7 +80,7 @@ export type MessageKind =
  * daily limit per recipient, which is there to keep the site from being used
  * to flood somebody else's phone. A busy venue takes more bookings than that.
  */
-const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "hire_enquiry", "staff_alert"];
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert"];
 
 export interface OutboxMessage {
   id: number;

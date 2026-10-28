@@ -2568,6 +2568,13 @@ export const TA: Record<Phrase, string> = {
   "r9.form.overrideReason": "காரணம் (முன்பதிவுடனும் செயல்பாட்டுப் பதிவிலும் வைக்கப்படும்)",
   "r9.form.overrideBook": "விலக்கு அளித்து முன்பதிவு செய்",
   "r9.form.askManager": "மேலாளரிடம் கேளுங்கள்: இந்த மையம் அதன் மேலாளர்கள் ஒரு முன்பதிவுக்கு இதற்கு விலக்கு அளிக்க அனுமதிக்கிறது.",
+  // p8c
+  "p8c.msg.venueChangeSubject": "முன்பதிவு {what}: {when}",
+  "p8c.msg.venueChange": "ஒரு முன்பதிவு ஆன்லைனில் {what}.\n\n{name}, {phone}\n{where}\n{when}\n\nகுறியீடு {code}. உங்கள் முன்பதிவுகள் பட்டியல் அதை இப்போதுள்ளபடி காட்டுகிறது.",
+  "p8c.msg.whatCancelled": "ரத்து செய்யப்பட்டது",
+  "p8c.msg.whatChanged": "மாற்றப்பட்டது",
+  "p8c.msg.whatChangedFrom": "மாற்றப்பட்டது (முன்பு {was})",
+  "p8c.msg.whatWithdrawn": "மாற்றப்பட்டது (ஒருவர் நீக்கப்பட்டார்)",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

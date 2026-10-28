@@ -73,6 +73,38 @@ term. A class in the diary can be joined however far ahead it is: the
 booking window is for courts, while the venue's house rules on how far ahead
 people may book still apply.
 
+### Changing a class
+
+A manager changes a class that has not started from *Classes → Change*
+(`PATCH /api/admin/classes/:id`; `changeClass` in `src/lib/class-changes.ts`):
+its name, instructor, places and price, for that session or, ticked, for it
+and every later session of its weekly series that has not started. Its time
+and court are not changed here (moving a class is a proposal in the
+[roadmap](../roadmap/roadmap.md)).
+
+- **More places**, up to what the room holds: the first person on the class's
+  waiting list is offered a place at once, through the waiting list's own
+  offer (`offerClassPlace`), as when somebody cancels. The waiting list offers
+  one place at a time, so a rise of several places offers the next one when
+  that offer is taken up, lapses or another place frees; until then the
+  other new places are open to enrol.
+- **Fewer places**: never below the people enrolled and the places held by
+  live waiting-list offers, counted under the class's row lock, the lock
+  every enrolment takes, so a cut and an enrolment at the same moment never
+  overfill it. For a series, one session that cannot go that low refuses the
+  change for all of them, naming its date.
+- **Price**: for enrolments made from then on. Each enrolment keeps the price
+  it was made at (its own `total_price`), paid or not, so nobody already
+  enrolled is repriced and no receipt changes.
+- Each change is in the [activity log](reporting.md#staff-activity-log)
+  (`class.changed`) with what it was and what it is; front desk is refused
+  (`MANAGER_ONLY`), as for scheduling and cancelling classes. Enrolled people
+  are not messaged about a new name or instructor.
+
+Scheduling a class (`class.scheduled`) and cancelling one (`class.cancelled`,
+with a `booking.cancelled` under each enrolment's code) are in the activity
+log too.
+
 ## One-to-one coaching
 
 A venue lists its coaches under *Classes → Coaches* (`lib/coaching.ts`): a name,

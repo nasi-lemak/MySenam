@@ -66,5 +66,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const venueId = await venueFor(req, params);
   if (venueId instanceof NextResponse) return venueId;
   await removePaymentSettings(venueId);
+  await logFromRequest(req, { venueId, action: "settings.changed", detail: "Online payment account removed" });
   return NextResponse.json({ settings: await paymentSettings(venueId) });
 }

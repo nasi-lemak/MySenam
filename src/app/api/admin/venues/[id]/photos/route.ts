@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { addPhoto, MAX_UPLOAD_BYTES, venuePhotos } from "@/lib/photos";
 import { rateLimit } from "@/lib/rate-limit";
 import { getVenue } from "@/lib/store";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -46,5 +47,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     adminId: found.admin.id,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  await logAction(found.admin, { venueId: found.venue.id, action: "settings.changed", detail: "Photo added to the venue's page" });
   return NextResponse.json({ photos: result.value }, { status: 201 });
 }

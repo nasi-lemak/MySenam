@@ -4,6 +4,8 @@ import { TEMPLATES, venueTemplates, type EntryKind } from "@/lib/competition-tem
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createTournament, listTournaments, type Format, type StageKey } from "@/lib/tournaments";
 import { listCompetitions } from "@/lib/competitions";
+import { logAction } from "@/lib/activity";
+import { money } from "@/lib/region";
 import type { Level } from "@/lib/games";
 import type { Category } from "@/lib/who";
 import type { Sport } from "@/lib/types";
@@ -85,6 +87,14 @@ export async function POST(req: NextRequest) {
     admin.id
   );
   if (!result.ok) return NextResponse.json({ error: result.error, clashes: result.clashes }, { status: 400 });
+  const made = result.value;
+  await logAction(admin, {
+    venueId,
+    action: "tournament.created",
+    detail: `${made.name}: ${made.startsOn}${made.endsOn !== made.startsOn ? ` to ${made.endsOn}` : ""}, up to ${made.maxEntries} entries, fee ${money(made.entryFee)}${
+      made.competition ? `, a division of ${made.competition.name}` : ""
+    }`,
+  });
   return NextResponse.json({ tournament: result.value }, { status: 201 });
 }
 

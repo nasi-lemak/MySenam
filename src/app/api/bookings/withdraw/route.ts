@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { refusal } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { currentLocale } from "@/lib/locale";
-import { tickOutbox } from "@/lib/notify";
+import { alertVenueWithdrawn, tickOutbox } from "@/lib/notify";
 import { refundCancelled } from "@/lib/payments";
 import { notifyWithdrawn, readWithdrawWhat, withdrawOptions, withdrawPlace, type WithdrawBy } from "@/lib/place-withdrawals";
 import { rateLimit } from "@/lib/rate-limit";
@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
   // Money paid online goes back as the venue chose, before the customer is told.
   const refunds = await refundCancelled([booking.id]);
   await notifyWithdrawn(done.booking, done.withdrawal, await currentLocale());
+  await alertVenueWithdrawn(done.booking, done.withdrawal.id);
   await tickOutbox();
   return NextResponse.json({ booking: done.booking, withdrawal: done.withdrawal, refunds });
 }

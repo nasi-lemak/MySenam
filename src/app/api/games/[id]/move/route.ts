@@ -65,7 +65,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (limited) return limited;
   const moved = await hostMove(host.user.id, host.game.id, { date: body.date, start, ...court });
   if (!moved.ok) return refusal(moved, moved.status ?? 409);
-  if (moved.outcome === "move") await notifyRescheduled(moved.result.booking, "customer", moved.result.priceChange);
+  if (moved.outcome === "move")
+    await notifyRescheduled(moved.result.booking, "customer", moved.result.priceChange, { date: host.game.date, startMin: Math.round(host.game.startHour * 60) });
   await tickOutbox();
   return NextResponse.json(moved.outcome === "proposal" ? { outcome: "proposal", move: moved.move } : { outcome: moved.outcome, booking: moved.result.booking });
 }

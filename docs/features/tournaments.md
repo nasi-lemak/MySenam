@@ -114,6 +114,33 @@ rules, which start from the sport's template
     changing the number of sets asks for it again. Without one, a walkover
     counts the win and nothing in the differences.
 
+### Changing a tournament
+
+Until the draw, a manager changes a tournament's details from *Change
+details* on its page (`PATCH /api/admin/tournaments/:id`; `changeTournament`
+in `src/lib/tournaments.ts`), under the tournament's row lock:
+
+- its **name** and **description**;
+- the **last day for entries**: before the first day, and not in the past;
+  empty for none. A new last day, today or later, opens entries again when
+  they had closed (by hand or on the old last day);
+- **how many entries** it takes: more take entries off the waiting list in
+  the order they came, each told as when somebody withdraws; fewer never
+  below those already entered;
+- the **entry fee for new entries**. Each entry keeps the fee it was made at
+  (`tournament_entries.fee`, migration 0238; entries made before took their
+  tournament's fee then): what it owes and pays online
+  (`startEntryPayment`), what the counter's receipt says when it is marked
+  paid, and what players see to pay. Nothing already entered, paid or not,
+  is repriced.
+
+Its days, hours, courts, format and who may enter are not changed here
+(the rules, until the draw, under *Scoring and ranking*). After the draw it
+is refused. Each change is in the activity log (`tournament.changed`, with
+what it was and what it is); front desk is refused (`MANAGER_ONLY`), as for
+setting one up. Setting one up is logged too (`tournament.created`,
+`competition.created`, `league.created`).
+
 ### Competitions with divisions
 
 A **competition** is one event — a club championship, a junior open —
@@ -581,6 +608,7 @@ The box arithmetic — sizes, who moves, the order for next season — is in
 | Box leagues | `src/lib/leagues.ts`, `src/lib/boxes.ts` | `tests/leagues.test.ts`, `tests/boxes.test.ts`, `tests/league-results-race.test.ts` (also against Postgres) |
 | Who enters: a guardian for a participant, staff at the counter, members only by the entrant's own membership | `src/lib/competition-entrants.ts`, `src/components/admin/CounterEntry.tsx` | `tests/competition-entrants.test.ts`, `tests/components/competition-entrants.test.tsx` |
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
+| Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 
 Which parts are verified, and how, is in

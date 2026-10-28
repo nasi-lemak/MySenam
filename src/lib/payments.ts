@@ -1887,7 +1887,7 @@ export async function startEntryPayment(
   const db = getDb();
   const row = (await db
     .prepare(
-      `SELECT e.id, e.status, e.paid_at, t.name, t.entry_fee::float AS fee, t.status AS t_status, t.venue_id, t.starts_on
+      `SELECT e.id, e.status, e.paid_at, t.name, COALESCE(e.fee, t.entry_fee)::float AS fee, t.status AS t_status, t.venue_id, t.starts_on
          FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id
         WHERE e.tournament_id = ? AND e.user_id = ? AND e.status <> 'withdrawn'
           AND ${entryId === undefined ? "e.participant_id IS NULL" : "e.id = ?"} ORDER BY e.id DESC LIMIT 1`

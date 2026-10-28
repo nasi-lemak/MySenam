@@ -1,6 +1,6 @@
 # Running a venue day to day
 
-Authoritative for the desk's tools: check-in and crowd levels, unstaffed hours and door codes, equipment hire, notes on customers, waivers and private hire enquiries.
+Authoritative for the desk's tools: check-in and crowd levels, unstaffed hours and door codes, equipment hire, notes on customers, waivers, private hire enquiries and booking alerts.
 Status: [feature status](../product/feature-status.md#venue-operations).
 
 ## Check-in and live crowd levels
@@ -654,3 +654,30 @@ A number can send three a day to one venue, the form has a field only scripts
 fill in, and the route is rate-limited. An enquiry goes out with what the venue
 holds against the number and with the customer's own data, is erased with
 their account, and is deleted after a year.
+
+## Booking alerts
+
+Under *Venue details → New-booking alerts* a manager gives the desk's email
+address, a WhatsApp number, both or neither (`/api/admin/booking-alerts`;
+`src/lib/notify.ts`). Each booking a customer makes online then goes there
+too; bookings staff make are not announced back to the desk. How the
+messages are sent, retried and counted is in
+[messaging](../integrations/messaging.md#new-booking-alerts-to-the-venue).
+
+The venue may also hear when a customer, online, **cancels** a booking, or
+**changes** one: its date, time or court (themself, or by moving an open game
+they host), or takes somebody off it. Each is ticked separately and both are
+off until ticked (migration 0237). Only bookings starting soon enough to
+matter are announced: within a day of the change unless the venue widens it
+to two days, a week, or any time ahead; for a change, the old start or the
+new one within that time is enough. The message says what happened
+(*cancelled*, *changed (it was Fri 7 Nov, 8:00–9:00 PM)*, *changed (somebody
+taken off it)*), who, their number, where, when and the code; a weekly series
+cancelled at once is one message for its first week in the window, with how
+many. It goes to the same address and number as new-booking alerts, through
+the outbox, in the install's first language; on WhatsApp it counts against
+the venue's messages and needs the `mysenam_venue_booking_change` template
+approved ([templates](../integrations/whatsapp-templates.md)), which is
+prepared and not yet submitted to Meta. What staff do at the desk is never
+announced back to the desk. The setting is a manager's and is in the activity
+log.

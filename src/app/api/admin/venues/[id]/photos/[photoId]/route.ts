@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { changePhoto, removePhoto } from "@/lib/photos";
+import { logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     caption: typeof body.caption === "string" || body.caption === null ? (body.caption as string | null) : undefined,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 });
+  await logFromRequest(req, {
+    venueId: found.venueId,
+    action: "settings.changed",
+    detail: `Photo ${found.photoId}: ${body.cover === true ? "made the cover" : body.move === -1 || body.move === 1 ? "moved" : "caption changed"}`,
+  });
   return NextResponse.json({ photos: result.value });
 }
 
@@ -39,5 +45,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (found instanceof NextResponse) return found;
   const result = await removePhoto(found.venueId, found.photoId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 });
+  await logFromRequest(req, { venueId: found.venueId, action: "settings.changed", detail: `Photo ${found.photoId} taken down` });
   return NextResponse.json({ photos: result.value });
 }

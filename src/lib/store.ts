@@ -262,7 +262,7 @@ function withHours(row: HoursRow | undefined, date?: string): VenueHours {
 }
 
 /** Class places held by live waiting-list offers (each offer every place its entry waits for), other than `except`. */
-async function classOfferHolds(classId: number, except?: number): Promise<number> {
+export async function classOfferHolds(classId: number, except?: number): Promise<number> {
   const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
   const r = (await getDb()
     .prepare("SELECT COALESCE(SUM(places), 0) AS n FROM waitlist WHERE class_id = ? AND status = 'offered' AND offered_at > ? AND id <> ?")
@@ -2682,6 +2682,14 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
   ).map(toCourt);
   if (courts.length === 0) return [];
   const { openMin, closeMin, zone } = await venueHours(venueId, date);
+  // The day's own time, for its list to the minute: from where the evening before ran on past midnight (if it
+  // did) to midnight, or this day's closing after it. Days share no minute, so a booking is listed on its own
+  // day only; occupantsOn also reads the days either side, for what runs over into this one.
+  const before = await venueHours(venueId, addDays(date, -1));
+  const own: Span = {
+    start: before.closed ? 0 : Math.max(0, before.closeMin - DAY_MINUTES),
+    end: Math.max(DAY_MINUTES, closeMin),
+  };
   const closure = await getVenueClosure(venueId, date);
   const grid = await scheduleGrid(venueId);
   const held = await occupantsOn(courts, date, zone);
@@ -2735,7 +2743,8 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
     // A shared facility turned over whole is closed to everybody while it is.
     const clear = occupants.flatMap(clearZones);
     const entries: ScheduleEntry[] = [];
-    for (const o of occupants) {
+    // Only what is in this day's own time: never a zero-minute line for yesterday's or tomorrow's bookings.
+    for (const o of occupants.filter((x) => overlaps(x.span, own))) {
       const clip = (n: number) => Math.min(Math.max(n, 0), LATEST_MINUTE);
       const via = o.viaCourt !== court.id ? { viaCourt: o.viaCourt } : {};
       const places = court.capacity > 1 ? { places: o.places } : {};
@@ -6138,6 +6147,8 @@ export async function enrolInTerm(input: {
 export async function cancelClassSession(classId: number): Promise<{
   ok: boolean;
   released: number;
+  /** The enrolments this cancelled (not one its customer had cancelled a moment before). */
+  cancelledIds?: number[];
   error?: string;
 }> {
   const session = await getClass(classId);
@@ -6150,9 +6161,9 @@ export async function cancelClassSession(classId: number): Promise<{
     .prepare("SELECT id FROM bookings WHERE class_id = ? AND status = 'confirmed'")
     .all(classId) as { id: number }[];
 
-  let released = 0;
+  let cancelledIds: number[] = [];
   await db.transaction(async () => {
-    released = 0;
+    cancelledIds = [];
     await db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
     // The court is free again for that time.
     await release({ kind: "class", classId });
@@ -6162,10 +6173,10 @@ export async function cancelClassSession(classId: number): Promise<{
       if (done.changes !== 1) continue;
       await releaseBooking(row.id);
       await refundBooking(row.id);
-      released++;
+      cancelledIds.push(row.id);
     }
   })();
-  return { ok: true, released };
+  return { ok: true, released: cancelledIds.length, cancelledIds };
 }
 
 /** Who is coming to a class. */

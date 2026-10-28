@@ -2565,6 +2565,13 @@ export const ZH: Record<Phrase, string> = {
   "r9.form.overrideReason": "原因（与预订一起保存，并记入操作日志）",
   "r9.form.overrideBook": "破例放行并预订",
   "r9.form.askManager": "请找经理：本场馆允许经理为一笔预订破例放行此项。",
+  // p8c
+  "p8c.msg.venueChangeSubject": "预订已{what}：{when}",
+  "p8c.msg.venueChange": "有一项预订已在线{what}。\n\n{name}，{phone}\n{where}\n{when}\n\n代码 {code}。您的预订列表显示其最新情况。",
+  "p8c.msg.whatCancelled": "取消",
+  "p8c.msg.whatChanged": "更改",
+  "p8c.msg.whatChangedFrom": "更改（原为{was}）",
+  "p8c.msg.whatWithdrawn": "更改（有人被移出）",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

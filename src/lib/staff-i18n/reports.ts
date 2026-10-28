@@ -291,6 +291,19 @@ const en = {
   "dreq.title": "A customer's data",
   "dreq.intro": "When somebody asks what you hold about them, check who they are first: a phone number is not proof. Then download everything here filed against their number, to give them. Managers only; each download goes in the activity log.",
   "dreq.phone": "Their phone number",
+  // p8c
+  "p8c.cls.edit": "Change",
+  "p8c.cls.editTitle": "Change {name} on {date}",
+  "p8c.cls.places": "Places",
+  "p8c.cls.placesHint": "{n} enrolled now. More places are offered to the waiting list; fewer, never below those taken or offered.",
+  "p8c.cls.price": "Price for new enrolments ({cur})",
+  "p8c.cls.priceHint": "Everybody already enrolled keeps the price they enrolled at, paid or not.",
+  "p8c.cls.series": "Also every later session of this weekly class that has not started",
+  "p8c.cls.save": "Save changes",
+  "p8c.cls.saved_one": "Changed {n} session.",
+  "p8c.cls.saved_other": "Changed {n} sessions.",
+  "p8c.cls.offered": "The first person waiting has been offered a place.",
+  "p8c.cls.saveFailed": "Could not change the class",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -579,6 +592,19 @@ const ms: Record<keyof typeof en, string> = {
   "dreq.title": "Data pelanggan",
   "dreq.intro": "Apabila seseorang bertanya apa yang anda simpan tentang mereka, pastikan identiti mereka dahulu: nombor telefon bukan bukti. Kemudian muat turun semua yang direkodkan di sini di bawah nombor mereka, untuk diberikan kepada mereka. Pengurus sahaja; setiap muat turun direkodkan dalam log aktiviti.",
   "dreq.phone": "Nombor telefon mereka",
+  // p8c
+  "p8c.cls.edit": "Ubah",
+  "p8c.cls.editTitle": "Ubah {name} pada {date}",
+  "p8c.cls.places": "Tempat",
+  "p8c.cls.placesHint": "{n} berdaftar sekarang. Tempat tambahan ditawarkan kepada senarai menunggu; jika dikurangkan, tidak kurang daripada yang sudah diambil atau ditawarkan.",
+  "p8c.cls.price": "Harga untuk pendaftaran baharu ({cur})",
+  "p8c.cls.priceHint": "Semua yang sudah mendaftar kekal dengan harga semasa mereka mendaftar, sudah dibayar atau belum.",
+  "p8c.cls.series": "Juga setiap sesi seterusnya bagi kelas mingguan ini yang belum bermula",
+  "p8c.cls.save": "Simpan perubahan",
+  "p8c.cls.saved_one": "{n} sesi diubah.",
+  "p8c.cls.saved_other": "{n} sesi diubah.",
+  "p8c.cls.offered": "Orang pertama dalam senarai menunggu telah ditawarkan tempat.",
+  "p8c.cls.saveFailed": "Tidak dapat mengubah kelas",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -867,6 +893,19 @@ const zh: Record<keyof typeof en, string> = {
   "dreq.title": "顾客资料",
   "dreq.intro": "当有人询问您保存了哪些关于他们的资料时，请先核实身份：电话号码不能作为证明。然后下载这里登记在其号码下的所有资料，交给他们。仅限经理；每次下载都会记录在活动日志中。",
   "dreq.phone": "对方的电话号码",
+  // p8c
+  "p8c.cls.edit": "修改",
+  "p8c.cls.editTitle": "修改 {date} 的 {name}",
+  "p8c.cls.places": "名额",
+  "p8c.cls.placesHint": "目前已报名 {n} 人。增加的名额会提供给候补名单；减少时不能低于已占用或已提供的名额。",
+  "p8c.cls.price": "新报名的价格（{cur}）",
+  "p8c.cls.priceHint": "已报名的人无论是否已付款，都按报名时的价格计算。",
+  "p8c.cls.series": "同时修改此每周课程之后所有尚未开始的课次",
+  "p8c.cls.save": "保存修改",
+  "p8c.cls.saved_one": "已修改 {n} 个课次。",
+  "p8c.cls.saved_other": "已修改 {n} 个课次。",
+  "p8c.cls.offered": "已向候补名单中的第一位提供名额。",
+  "p8c.cls.saveFailed": "无法修改课程",
 };
 
 const area = { en, ms, zh };

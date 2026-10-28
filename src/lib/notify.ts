@@ -4,8 +4,8 @@ import { coachNames } from "./coaching";
 import { refundLines } from "./refund-text";
 import type { CancelRefund } from "./payments";
 import { getDb } from "./db";
-import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue } from "./store";
-import { Booking } from "./types";
+import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue, venueHours } from "./store";
+import { Booking, type ClassSession } from "./types";
 import { isLocale, Locale, offeredLocales, translator, type Phrase } from "./i18n";
 import { drainOutbox, enqueue, hourRange } from "./outbox";
 import type { Channel, Compose } from "./outbox";
@@ -210,6 +210,124 @@ async function alertVenue(bookings: Booking[], code: string, courtName: string, 
     await enqueue({ ...message, channel: "whatsapp", recipient: alerts.phone, dedupeKey: `venuenew:${code}:whatsapp` });
 }
 
+/**
+ * Whether the venue also hears when a customer cancels online, or changes a
+ * booking's time or who is on it, at the same address and number as new
+ * bookings (migration 0237). Both off unless the venue turns them on; only
+ * for bookings starting within `withinHours` of the change (a day unless the
+ * venue widens it; null: any booking).
+ */
+export interface ChangeAlerts {
+  cancellations: boolean;
+  changes: boolean;
+  withinHours: number | null;
+}
+
+/** The hours a venue may choose to hear about changes within (null: any time ahead). */
+export const CHANGE_ALERT_WINDOWS = [24, 48, 168, null] as const;
+
+export async function changeAlerts(venueId: number): Promise<ChangeAlerts> {
+  const row = (await getDb()
+    .prepare("SELECT alert_cancellations, alert_changes, alert_change_hours FROM venues WHERE id = ?")
+    .get(venueId)) as { alert_cancellations: boolean; alert_changes: boolean; alert_change_hours: number | null } | undefined;
+  return {
+    cancellations: row?.alert_cancellations === true,
+    changes: row?.alert_changes === true,
+    withinHours: row ? row.alert_change_hours : 24,
+  };
+}
+
+export async function setChangeAlerts(
+  venueId: number,
+  input: { cancellations?: unknown; changes?: unknown; withinHours?: unknown }
+): Promise<{ ok: true; changes: ChangeAlerts } | { ok: false; error: string }> {
+  const now = await changeAlerts(venueId);
+  const within = input.withinHours === undefined ? now.withinHours : input.withinHours === null ? null : Number(input.withinHours);
+  if (!(CHANGE_ALERT_WINDOWS as readonly (number | null)[]).includes(within))
+    return { ok: false, error: "Hear about changes to bookings within a day, two days, a week, or any time ahead." };
+  const flag = (v: unknown, was: boolean) => (v === undefined ? was : v === true);
+  await getDb()
+    .prepare("UPDATE venues SET alert_cancellations = ?, alert_changes = ?, alert_change_hours = ? WHERE id = ?")
+    .run(flag(input.cancellations, now.cancellations), flag(input.changes, now.changes), within, venueId);
+  return { ok: true, changes: await changeAlerts(venueId) };
+}
+
+/**
+ * Tell the venue a customer cancelled or changed a booking online, where it
+ * asked to hear (`changeAlerts`): through the outbox, by email and on
+ * WhatsApp as new-booking alerts go, in the install's first language. Only
+ * bookings starting soon enough to matter (the venue's window, measured from
+ * now to the booking's start, or to its old start for a change); for several
+ * at once (a series), one message for the first of those, with how many.
+ */
+async function alertVenueChange(
+  /** Cancelled whole; its date, time or court changed; or somebody taken off it (lib/place-withdrawals.ts). */
+  what: "cancelled" | "changed" | "withdrawn",
+  bookings: Booking[],
+  venue: { id: number; name: string },
+  courtName: string,
+  was?: Pick<Booking, "date" | "startMin"> | null,
+  /** Tells apart two changes of the same booking at the same time (two withdrawals). */
+  tag?: string
+): Promise<void> {
+  const settings = await changeAlerts(venue.id);
+  if (what === "cancelled" ? !settings.cancellations : !settings.changes) return;
+  const alerts = await bookingAlerts(venue.id);
+  if (!alerts.email && !alerts.phone) return;
+  const zone = (await venueHours(venue.id)).zone;
+  const startsAt = (b: Pick<Booking, "date" | "startMin">) => slotStartsAt(b.date, b.startMin / 60, zone).getTime();
+  const soon = (b: Pick<Booking, "date" | "startMin">) =>
+    settings.withinHours === null || startsAt(b) - Date.now() <= settings.withinHours * 3_600_000;
+  const within = bookings.filter((b) => soon(b) || (was ? soon(was) : false));
+  const first = within[0];
+  if (!first) return;
+  const locale = offeredLocales()[0] ?? "en";
+  const t = translator(locale);
+  const { where, when } = slot(locale, courtName, venue.name, first);
+  const wasWhen = was
+    ? slot(locale, courtName, venue.name, {
+        date: was.date,
+        startHour: was.startMin / 60,
+        endHour: (was.startMin + first.endMin - first.startMin) / 60,
+      }).when
+    : null;
+  const message = {
+    bookingId: first.id,
+    venueId: venue.id,
+    kind: "venue_booking_change" as const,
+    locale,
+    subject: "p8c.msg.venueChangeSubject" as const,
+    body: "p8c.msg.venueChange" as const,
+    vars: {
+      what:
+        what === "cancelled"
+          ? t("p8c.msg.whatCancelled")
+          : what === "withdrawn"
+            ? t("p8c.msg.whatWithdrawn")
+            : wasWhen
+              ? t("p8c.msg.whatChangedFrom", { was: wasWhen })
+              : t("p8c.msg.whatChanged"),
+      name: first.name,
+      phone: first.phone,
+      where,
+      when: within.length > 1 ? `${when} (${within.length}×)` : when,
+      code: first.seriesCode && within.length > 1 ? first.seriesCode : first.code,
+    },
+  };
+  const key = `venue${what}:${first.code}:${first.date}:${first.startMin}${tag ? `:${tag}` : ""}`;
+  if (alerts.email) await enqueue({ ...message, channel: "email", recipient: alerts.email, dedupeKey: `${key}:email` });
+  if (alerts.phone && (await whatsappFor(venue.id, "venue_booking_change")))
+    await enqueue({ ...message, channel: "whatsapp", recipient: alerts.phone, dedupeKey: `${key}:whatsapp` });
+}
+
+/** A customer took somebody off their booking online (lib/place-withdrawals.ts): the venue hears, where it asked to. */
+export async function alertVenueWithdrawn(booking: Booking, withdrawalId: number): Promise<void> {
+  const court = await getCourt(booking.courtId);
+  const venue = court ? await getVenue(court.venueId) : null;
+  if (!court || !venue || !hasBeenLive(venue)) return;
+  await alertVenueChange("withdrawn", [booking], venue, court.name, null, `w${withdrawalId}`);
+}
+
 /** Tell a customer a booking is off, and that they owe nothing for it. */
 export async function notifyBookingCancelled(
   booking: Booking,
@@ -223,6 +341,8 @@ export async function notifyBookingCancelled(
   // Nobody hears from a venue that has never been live: its bookings are
   // its own staff trying it out, under whatever number they typed.
   if (!venue || !hasBeenLive(venue)) return null;
+  // Only customers cancel through here (api/bookings/cancel, api/my/bookings/cancel): the venue hears, if it asked.
+  await alertVenueChange("cancelled", [booking], venue, court.name);
 
   return await deliver(booking, {
     bookingId: booking.id,
@@ -256,6 +376,8 @@ export async function notifySeriesCancelled(
   if (!venue || !hasBeenLive(venue)) return null;
   const t = translator(locale);
   const where = slot(locale, court.name, venue.name, first);
+  // Only customers cancel a series through here (api/bookings/cancel-series): the venue hears of the weeks soon enough to matter.
+  await alertVenueChange("cancelled", [...bookings].sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin), venue, court.name);
   return await deliver(first, {
     bookingId: first.id,
     venueId: venue.id,
@@ -673,7 +795,9 @@ export async function notifyMoved(booking: Booking): Promise<number | null> {
 export async function notifyRescheduled(
   booking: Booking,
   by: "staff" | "customer",
-  priceChange: number
+  priceChange: number,
+  /** Where it was before, for the venue's change alert (`alertVenueChange`). */
+  was?: Pick<Booking, "date" | "startMin"> | null
 ): Promise<number | null> {
   const court = await getCourt(booking.courtId);
   if (!court) return null;
@@ -688,6 +812,7 @@ export async function notifyRescheduled(
       : t("msg.priceSame");
   const calendar = calendarFor([booking], court.name, venue);
   if (by === "customer") {
+    await alertVenueChange("changed", [booking], venue, court.name, was);
     await deliver(
       booking,
       {
@@ -861,13 +986,22 @@ export async function notifyReminders(now = new Date()): Promise<number> {
 }
 
 /** Call off a class and tell everybody enrolled in it, as a venue cancellation each. */
-export async function cancelClassAndTell(classId: number, why?: CancelReason): Promise<{ ok: boolean; released: number; error?: string }> {
+export async function cancelClassAndTell(
+  classId: number,
+  why?: CancelReason
+): Promise<{ ok: boolean; released: number; error?: string; session?: ClassSession; cancelled?: Booking[] }> {
   const session = await getClass(classId);
-  const enrolled = (await getClassRoster(classId)).filter((b) => b.status === "confirmed");
+  // How each stood before (paid or not), for the activity log; the refund changes it.
+  const before = new Map((await getClassRoster(classId)).map((b) => [b.id, b]));
   const result = await cancelClassSession(classId);
   if (!result.ok || !session) return result;
-  for (const b of enrolled) await notifyVenueCancelled({ ...b, status: "cancelled" }, session.name, why);
-  return result;
+  // Exactly the enrolments it cancelled: not one its customer had just cancelled, nor miss one made a moment before.
+  const ids = new Set(result.cancelledIds ?? []);
+  const cancelled = (await getClassRoster(classId))
+    .filter((b) => ids.has(b.id))
+    .map((b) => ({ ...b, status: "cancelled" as const, paymentStatus: before.get(b.id)?.paymentStatus ?? b.paymentStatus }));
+  for (const b of cancelled) await notifyVenueCancelled(b, session.name, why);
+  return { ...result, session, cancelled };
 }
 
 /** Receipts for every week of a series just marked paid at the counter. */

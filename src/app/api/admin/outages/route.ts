@@ -3,7 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createOutage, endOutage, listOutages, outageById, outagesMissingLateHours, repairLateHours } from "@/lib/outages";
 import { formatMinute } from "@/lib/interval";
 import { getCourt } from "@/lib/store";
-import { logFromRequest } from "@/lib/activity";
+import { logAction, logCancelledBookings, logClassCancelled, logFromRequest } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +88,10 @@ export async function POST(req: NextRequest) {
     action: "settings.changed",
     detail: `${court.name} out of service ${body.startsOn as string}${body.endsOn ? ` to ${body.endsOn as string}` : ", until further notice"}`,
   });
+  // Each booking and class it called off, under its own code (as a closed day's are).
+  const why = `${court.name} out of service`;
+  for (const c of result.classesOff ?? []) await logClassCancelled(admin, c.session, c.enrolments, why);
+  await logCancelledBookings(admin, court.venueId, result.bookingsOff ?? [], why);
   return NextResponse.json({ outage: result.outage, cancelled: result.cancelled }, { status: 201 });
 }
 
@@ -101,5 +105,6 @@ export async function DELETE(req: NextRequest) {
   if (denied) return denied;
   const result = await endOutage(outage.id);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, { venueId: outage.venueId, action: "settings.changed", detail: `${outage.courtName} back in service (out from ${outage.startsOn})` });
   return NextResponse.json({ ok: true });
 }

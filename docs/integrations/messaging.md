@@ -272,6 +272,11 @@ are not announced back to the desk.
 - On WhatsApp each alert counts against the venue's messages like any other,
   and needs the `mysenam_venue_new_booking` template below approved.
 - They are written in the install's first language.
+- Where the venue asked, customers' online cancellations and changes are
+  announced the same way (kind `venue_booking_change`, template
+  `mysenam_venue_booking_change`, prepared and not yet submitted to Meta);
+  which ones, and how far ahead, is in
+  [booking alerts](../features/venue-operations.md#booking-alerts).
 
 A lesson's confirmation names the coach where it names the court (*Court 1,
 lesson with Ana Lim*). A booking, class enrolment or waiting-list offer made for

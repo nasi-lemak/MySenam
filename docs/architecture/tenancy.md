@@ -31,7 +31,7 @@ managers, so nobody lost anything; new ones default to front desk.
 | - | :-: | :-: |
 | Bookings: make, mark paid (and how), check in, move, change, cancel, no-show | ✓ | ✓ |
 | Kit hire, passes, memberships and credit sold at the counter, blocking an hour | ✓ | ✓ |
-| Courts and prices, classes, leagues and tournaments set up | | ✓ |
+| Courts and prices, classes, leagues and tournaments set up or changed | | ✓ |
 | Venue details, closures, outages, who it is for, house rules, pay to hold | | ✓ |
 | Payment account, refunds, voiding passes, memberships and promo codes | | ✓ |
 | Promo codes, notices, photos, WhatsApp, the marketplace invoice | | ✓ |

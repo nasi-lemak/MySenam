@@ -726,7 +726,7 @@ interface FeeSale {
 export async function entrySale(entryId: number): Promise<FeeSale | null> {
   const row = (await getDb()
     .prepare(
-      `SELECT t.venue_id, t.name AS tournament, t.entry_fee::float AS fee, e.user_id, e.name, u.phone
+      `SELECT t.venue_id, t.name AS tournament, COALESCE(e.fee, t.entry_fee)::float AS fee, e.user_id, e.name, u.phone
          FROM tournament_entries e JOIN tournaments t ON t.id = e.tournament_id LEFT JOIN users u ON u.id = e.user_id
         WHERE e.id = ?`
     )

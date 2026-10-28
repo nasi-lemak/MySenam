@@ -14,6 +14,7 @@ import type { ClassStatus } from "@/lib/types";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 import { WaitlistJoin, WaitlistQueue } from "./WaitlistJoin";
+import { ClassEditor } from "./ClassEditor";
 
 const STATUS: Record<ClassStatus, StaffPhrase> = { scheduled: "cls.status.scheduled", cancelled: "cls.status.cancelled" };
 const ONLY: Record<string, StaffPhrase> = { women: "cls.onlyWomen", men: "cls.onlyMen" };
@@ -30,6 +31,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     waitlist?: WaitlistEntry[];
   } | null>(null);
   const [waiting, setWaiting] = useState<Record<number, number>>({});
+  const [editing, setEditing] = useState<ClassSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -237,7 +239,18 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                       {STATUS[session.status] ? t(STATUS[session.status]) : session.status}
                     </span>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="whitespace-nowrap px-3 py-2">
+                    {session.status === "scheduled" && (
+                      <button
+                        onClick={() => {
+                          setNotice(null);
+                          setEditing(session);
+                        }}
+                        className="mr-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-teal-500"
+                      >
+                        {t("p8c.cls.edit")}
+                      </button>
+                    )}
                     {session.status === "scheduled" && (
                       <button
                         onClick={() => cancelClass(session)}
@@ -415,6 +428,18 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             </button>
           </div>
         </div>
+      )}
+      {editing && (
+        <ClassEditor
+          key={editing.id}
+          session={editing}
+          onClose={() => setEditing(null)}
+          onDone={(said) => {
+            setEditing(null);
+            setNotice(said);
+            void load();
+          }}
+        />
       )}
       {venue && <CoachesPanel key={venue.id} venue={venue} />}
     </div>

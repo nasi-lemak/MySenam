@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { deleteNotice, listNotices, noticeById } from "@/lib/notices";
+import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -17,5 +18,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     if (denied) return denied;
   }
   await deleteNotice(notice.id);
+  await logAction(admin, { venueId: notice.venueId, action: "notice.removed", detail: `${notice.startsOn} to ${notice.endsOn}: ${notice.text.slice(0, 200)}` });
   return NextResponse.json({ notices: await listNotices(notice.venueId) });
 }

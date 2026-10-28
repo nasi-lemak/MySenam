@@ -4,7 +4,7 @@ import { refundCancelled } from "./payments";
 import { adminCancelBooking, blockSlots, getCourt, venueHours } from "./store";
 import { isValidDateString, todayISO } from "./time";
 import { hoursOf, instantOf, minutesOf } from "./interval";
-import type { Booking } from "./types";
+import type { Booking, ClassSession } from "./types";
 import type { Phrase } from "./i18n";
 import type { CancelReason } from "./notify";
 
@@ -45,7 +45,14 @@ export type RainPreset = keyof typeof RAIN_PRESETS;
 export const isRainPreset = (v: unknown): v is RainPreset => typeof v === "string" && Object.hasOwn(RAIN_PRESETS, v);
 
 export type RainOutResult =
-  | { ok: true; bookings: Booking[] | { code: string; name: string; startMin: number; startHour: number }[]; classes: number; blocked: number }
+  | {
+      ok: true;
+      bookings: Booking[] | { code: string; name: string; startMin: number; startHour: number }[];
+      classes: number;
+      blocked: number;
+      /** Not on a preview: each class called off with the enrolments it cancelled, for the activity log. */
+      classesOff?: { session: ClassSession; enrolments: Booking[] }[];
+    }
   | { ok: false; error: string };
 
 export async function rainOut(input: RainOut): Promise<RainOutResult> {
@@ -93,8 +100,11 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
   const preset: RainPreset | null = isRainPreset(input.reasonPreset) ? input.reasonPreset : typed === "" ? "rained_off" : null;
   const why: CancelReason = preset ? { phrase: RAIN_PRESETS[preset] } : { text: typed };
   const cancelled: Booking[] = [];
-  let classesOff = 0;
-  for (const cl of classes) if ((await cancelClassAndTell(cl.id, why)).ok) classesOff++;
+  const classesOff: { session: ClassSession; enrolments: Booking[] }[] = [];
+  for (const cl of classes) {
+    const off = await cancelClassAndTell(cl.id, why);
+    if (off.ok && off.session) classesOff.push({ session: off.session, enrolments: off.cancelled ?? [] });
+  }
   for (const b of live) {
     const done = await adminCancelBooking(b.code);
     if (!done.ok) continue;
@@ -111,5 +121,5 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
   if (start < until)
     for (const id of courtIds) if ((await blockSlots(id, input.date, { start, end: until }, reason)).ok) blocked++;
   await tickOutbox();
-  return { ok: true, bookings: cancelled, classes: classesOff, blocked };
+  return { ok: true, bookings: cancelled, classes: classesOff.length, blocked, classesOff };
 }

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readMinute } from "@/lib/api";
-import { isMinute } from "@/lib/interval";
+import { formatMinute, isMinute } from "@/lib/interval";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
+import { logAction } from "@/lib/activity";
 import { ALERT_EVERY, crossed, upcomingClassSessions, VENUE_CAPS } from "@/lib/limits";
 import { tellOwners } from "@/lib/owner-alerts";
 import { createClassSessions, getCourt, getVenue, listClasses, listClassWaitlist } from "@/lib/store";
@@ -103,6 +104,13 @@ export async function POST(req: NextRequest) {
     termOffPercent: termOffPercent === undefined || termOffPercent === null || termOffPercent === "" ? null : Number(termOffPercent),
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, {
+    venueId: court.venueId,
+    action: "class.scheduled",
+    detail: `${(name as string).trim()} with ${(instructor as string).trim()}, ${court.name}, ${date} ${formatMinute(start)}–${formatMinute(end)}, ${capacity as number} places at ${money(price as number)}${
+      result.seriesCode ? `, weekly for ${result.classes.length} weeks (${result.seriesCode})` : ""
+    }`,
+  });
   const after = before + result.classes.length;
   if (!isOwner(admin) && crossed(before, after, ALERT_EVERY.upcomingClassSessions)) {
     const venue = await getVenue(court.venueId);

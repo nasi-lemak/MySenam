@@ -697,4 +697,10 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "It has been replaced already.": { ms: "Ia telah pun diganti.", zh: "它已被替代。" },
   "Only an e-invoice LHDN has accepted can be checked.": { ms: "Hanya e-invois yang telah diterima LHDN boleh disemak.", zh: "只有 LHDN 已接收的电子发票才能查询。" },
   "MyInvois could not be reached.": { ms: "MyInvois tidak dapat dihubungi.", zh: "无法连接 MyInvois。" },
+  // p8c: changing a class or a tournament, and alerts for online changes.
+  "{0}: {1} place(s) are taken or offered; the class cannot have fewer than that.": { ms: "{0}: {1} tempat sudah diambil atau ditawarkan; kelas itu tidak boleh kurang daripada itu.", zh: "{0}：已有 {1} 个名额被占用或已提供；课程名额不能少于此数。" },
+  "A tournament's details are changed before its draw.": { ms: "Butiran kejohanan diubah sebelum undiannya.", zh: "比赛详情须在抽签前更改。" },
+  "The last day for entries cannot be in the past.": { ms: "Hari terakhir penyertaan tidak boleh pada masa lalu.", zh: "报名截止日不能早于今天。" },
+  "{0} have entered: it cannot take fewer than that.": { ms: "{0} telah menyertai: ia tidak boleh menerima kurang daripada itu.", zh: "已有 {0} 个报名：名额不能少于此数。" },
+  "Hear about changes to bookings within a day, two days, a week, or any time ahead.": { ms: "Dimaklumkan tentang perubahan tempahan dalam tempoh sehari, dua hari, seminggu, atau bila-bila masa.", zh: "可选择接收一天内、两天内、一周内或任何时间的预订变更通知。" },
 };

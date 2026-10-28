@@ -58,5 +58,10 @@ export async function DELETE(
 
   const result = await revokeInduction(inductionId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, {
+    venueId: induction.venueId,
+    action: "induction.revoked",
+    detail: `Induction ${inductionId}${induction.participantId ? ` (participant ${induction.participantId})` : `, ${induction.name}`}: out-of-hours access withdrawn`,
+  });
   return NextResponse.json({ induction: result.induction });
 }
