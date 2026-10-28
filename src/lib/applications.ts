@@ -6,7 +6,7 @@ import { emailConfig } from "./transports";
 import { baseUrl, drainOutbox, emailPlain, transportOverridden } from "./outbox";
 import { siteName } from "./site";
 import { startBilling } from "./billing";
-import { tellOwners } from "./owner-alerts";
+import { staffSentences, tellOwnersEach } from "./owner-alerts";
 import { RETENTION } from "./privacy";
 import { REVIEW_CHECKS } from "./review-checks";
 import type { Admin } from "./admin-auth";
@@ -599,21 +599,25 @@ export async function requestGoLive(
   ) {
     const approved = await approveApplication(row.id, admin.id, "auto");
     if (!approved.ok) return approved;
-    await tellOwners(
-      `${admin.businessName ?? "A business"} opened a branch: ${venue.name}`,
-      `${admin.email} opened ${venue.name} (${venue.area}) for ${admin.businessName ?? "their business"}. ` +
-        "Branches of businesses already live go live on their own on this install when their location checks pass."
-    );
+    await tellOwnersEach((t) => ({
+      subject: t("r9d.app.branch.s", { business: admin.businessName ?? t("r9d.app.aBusiness"), venue: venue.name }),
+      body: t("r9d.app.branch.b", { email: admin.email, venue: venue.name, area: venue.area, business: admin.businessName ?? t("r9d.app.theirBusiness") }),
+    }));
     return { ok: true, live: true };
   }
-  await tellOwners(
-    `${venue.name} asks to go live`,
-    `${application.contactName} (${application.email}) asks for ${venue.name} in ${venue.area} to go live` +
-      (application.forBusiness ? `, as a branch of ${application.forBusiness}. ` : ". ") +
-      (application.emailCheck === "unsent" ? "Their email could not be confirmed: this install cannot send email. " : "") +
-      (report.warnings.length ? `Worth a look:\n- ${report.warnings.join("\n- ")}\n\n` : "") +
-      "Approve or turn it down under Venues & staff."
-  );
+  await tellOwnersEach((t) => {
+    const who = { contact: application.contactName, email: application.email, venue: venue.name, area: venue.area };
+    const asked = staffSentences(
+      t,
+      application.forBusiness ? t("r9d.app.ask.branch", { ...who, business: application.forBusiness }) : t("r9d.app.ask.b", who),
+      application.emailCheck === "unsent" && t("r9d.app.unsent")
+    );
+    const worth = report.phrases.length ? `${t("r9d.app.worth")}\n- ${report.phrases.map((p) => t.say(p)).join("\n- ")}\n\n` : "";
+    return {
+      subject: t("r9d.app.ask.s", { venue: venue.name }),
+      body: `${asked}${t.locale === "zh" ? "" : " "}${worth}${t("r9d.app.decide", { place: t("sh.tab.venuesStaff") })}`,
+    };
+  });
   return { ok: true, live: false };
 }
 

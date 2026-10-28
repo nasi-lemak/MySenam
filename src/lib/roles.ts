@@ -87,17 +87,122 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/pass-products$/, methods: ["POST", "DELETE"] },
   // Changing a booking's price, or giving it free, with a reason (lib/price-adjustments.ts).
   { path: /^\/api\/admin\/bookings\/adjust-price$/, methods: ["POST"] },
+  // Staff accounts and their invitations (lib/staff-accounts.ts): the owner, a business manager, or a branch manager for their own front desk.
+  { path: /^\/api\/admin\/admins(\/\d+|\/invitations\/\d+)?$/, methods: "all" },
+  // Opening hours and rates from a later date, as changing them now is (lib/dated-changes.ts, ADR 0027); the desk may read them.
+  { path: /^\/api\/admin\/venues\/\d+\/hours-changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
+  { path: /^\/api\/admin\/courts\/\d+\/changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   // Clearing test bookings from before going live gives back what was paid; keeping one as real puts it in the books (lib/test-bookings.ts).
   { path: /^\/api\/admin\/test-bookings$/, methods: ["POST"] },
+  // Adding a branch, and starting it from another's set-up (lib/branch-copy.ts): a business manager's.
+  { path: /^\/api\/admin\/branches$/, methods: ["POST"] },
 ];
 
 export type StaffRole = "manager" | "desk";
 
+/** Whether `MANAGER_ONLY` turns front desk away from this request. */
+export function managerOnly(method: string, path: string): boolean {
+  return MANAGER_ONLY.some((r) => r.path.test(path) && (r.methods === "all" || r.methods.includes(method.toUpperCase())));
+}
+
 /** The answer a front-desk account gets for something a manager does. */
 export function deskRefusal(role: StaffRole, method: string, path: string): NextResponse | null {
   if (role !== "desk") return null;
-  const hit = MANAGER_ONLY.some((r) => r.path.test(path) && (r.methods === "all" || r.methods.includes(method.toUpperCase())));
-  return hit
+  return managerOnly(method, path)
     ? NextResponse.json({ error: "Front-desk accounts cannot change this. Ask a manager.", code: "MANAGER_ONLY" }, { status: 403 })
     : null;
+}
+
+/**
+ * What the dashboard asks before it shows a control (audit R8 X1-5): each
+ * action is a request one of its screens makes, and whether this member of
+ * staff may make it is answered by `MANAGER_ONLY` above, never by a list of
+ * the screens' own. `/api/admin/auth/me` sends the answers (`staffMay`); a
+ * screen shows front desk what it may not change read-only, with a line
+ * saying a manager changes it, and does not ask for what the desk may not
+ * read (components/admin/StaffMay.tsx). `tests/roles.test.ts` holds each
+ * one to a real route and method.
+ */
+export const STAFF_ACTIONS = {
+  // Venue details
+  venueDetails: "PATCH /api/admin/venues/1",
+  datedHours: "POST /api/admin/venues/1/hours-changes",
+  closures: "POST /api/admin/venues/1/closures",
+  blockNumber: "POST /api/admin/venues/1/blocked-phones",
+  photos: "POST /api/admin/venues/1/photos",
+  notices: "POST /api/admin/notices",
+  addons: "POST /api/admin/addons",
+  whatsapp: "POST /api/admin/whatsapp",
+  venueAccess: "POST /api/admin/venue-access",
+  houseRules: "POST /api/admin/house-rules",
+  policyOverrides: "POST /api/admin/policy-overrides",
+  waiver: "POST /api/admin/waiver",
+  cancelPolicy: "POST /api/admin/cancel-policy",
+  bookingAlerts: "POST /api/admin/booking-alerts",
+  calendarFeed: "POST /api/admin/calendar-feed",
+  venueTax: "POST /api/admin/venue-tax",
+  timeZone: "POST /api/admin/venue-time-zone",
+  holdPolicy: "POST /api/admin/hold-policy",
+  goLive: "POST /api/admin/go-live",
+  testBookings: "POST /api/admin/test-bookings",
+  addBranch: "POST /api/admin/branches",
+  reviews: "POST /api/admin/reviews",
+  dataRequest: "GET /api/admin/data-request",
+  billing: "POST /api/admin/billing",
+  staff: "GET /api/admin/admins",
+  // Courts & rates
+  courts: "POST /api/admin/courts",
+  courtChange: "PATCH /api/admin/courts/1",
+  datedCourtChanges: "POST /api/admin/courts/1/changes",
+  activities: "POST /api/admin/activities",
+  courtLinks: "POST /api/admin/court-links",
+  bookingPolicies: "POST /api/admin/booking-policies",
+  peakRules: "POST /api/admin/peak-rules",
+  holidays: "POST /api/admin/holidays",
+  loyalty: "POST /api/admin/loyalty",
+  sportRules: "POST /api/admin/sport-rules",
+  concessions: "POST /api/admin/concessions",
+  outages: "POST /api/admin/outages",
+  inductionDecide: "PATCH /api/admin/inductions/1",
+  approvalSettings: "POST /api/admin/approvals/settings",
+  approvalReviewers: "POST /api/admin/approvals/reviewers",
+  supervised: "POST /api/admin/approvals/supervised",
+  approvalHolds: "GET /api/admin/approvals/holds",
+  // Classes
+  classes: "POST /api/admin/classes",
+  classChange: "PATCH /api/admin/classes/1",
+  classCancel: "DELETE /api/admin/classes/1",
+  coaches: "POST /api/admin/coaches",
+  // Credit & passes
+  passVoid: "POST /api/admin/passes/1/void",
+  passProducts: "POST /api/admin/pass-products",
+  membershipVoid: "POST /api/admin/memberships/1/void",
+  membershipExtend: "POST /api/admin/memberships/1/extend",
+  membershipPlans: "POST /api/admin/membership-plans",
+  membershipSuspend: "POST /api/admin/memberships/1/suspension",
+  membershipCovers: "POST /api/admin/memberships/1/covers",
+  promos: "POST /api/admin/promos",
+  promoVoid: "POST /api/admin/promos/1/void",
+  promoStacking: "POST /api/admin/promos/stacking",
+  voucherVoid: "POST /api/admin/vouchers/1/void",
+  counterSaleVoid: "POST /api/admin/counter-sales/1/void",
+  accounts: "POST /api/admin/accounts",
+  accountBookers: "POST /api/admin/accounts/bookers",
+  accountInvoices: "POST /api/admin/accounts/invoices",
+  accountCredits: "POST /api/admin/accounts/credits",
+  invoiceWithdraw: "DELETE /api/admin/accounts/invoices/1",
+  // The day list
+  strikes: "POST /api/admin/strikes",
+} as const satisfies Record<string, string>;
+
+export type StaffActionName = keyof typeof STAFF_ACTIONS;
+
+/** For each action the dashboard asks about, whether this role may do it: `MANAGER_ONLY`'s answer. */
+export function staffMay(role: StaffRole): Record<StaffActionName, boolean> {
+  const out = {} as Record<StaffActionName, boolean>;
+  for (const [name, request] of Object.entries(STAFF_ACTIONS) as [StaffActionName, string][]) {
+    const [method, path] = request.split(" ");
+    out[name] = role !== "desk" || !managerOnly(method, path);
+  }
+  return out;
 }

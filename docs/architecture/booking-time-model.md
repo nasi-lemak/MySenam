@@ -35,7 +35,10 @@ time, not of storing it.
   carry `starts_at` and `ends_at`. Checks on the table keep both ends on a
   whole minute.
 - Opening hours, peak windows and court hours are minutes too
-  (`venues.open_min`/`close_min`, `week_hours`, `peak_*_min`).
+  (`venues.open_min`/`close_min`, `week_hours`, `peak_*_min`). Hours, and a
+  court's own hours and rates, may also be set from a later date: the date
+  asked about decides which apply (`hoursOn`, `policiesFor(courts, date)`,
+  `priceBooking`; [ADR 0027](decisions/0027-hours-and-rates-from-a-date.md)).
 - **Where the clocks change.** A zone's offset is read from the runtime's
   zone database (Intl), moment by moment, never from rules written here. On
   the day a zone changes its clocks, a wall-clock minute the clocks go
@@ -330,6 +333,9 @@ weekly series, moves, reschedules and refunds price through:
 - **Pro rata by default**: the minutes booked, each part at the rate in
   force then. Boundaries are the peak window's start and end (to the minute,
   per sport and per day, holidays as weekends) and the last-minute window's.
+- **The rates of the date**: a court's rates set from that date or an
+  earlier one, else its current rates (`ratesOn`;
+  [prices from a date](../features/pricing.md#prices-from-a-date)).
 - **Arithmetic** in the currency's minor units, as whole numbers (rate ×
   minutes × percent), rounded once, half up, per booking.
 - **Policy options**: the whole booking at the rate when it starts; a set
@@ -496,6 +502,7 @@ or a single place in the code if the owner wants it otherwise:
 | Migration 0131 on shared facilities already booked: nothing stored changes, no turnover set, every claim written into `facility_gaps` without conflict, new facility-wide claims kept clear of the old | `tests/shared-turnover-migration.test.ts` |
 | Policies: starts, lengths, grid, breaches, validation, inheritance, the route | `tests/booking-policies.test.ts` |
 | Pricing to the minute, peak boundaries, rounding, fixed prices, steps, minimums, fees, last-minute | `tests/pricing.test.ts` |
+| Hours and rates from a date: the board, booking, search, quotes, the counter and the API either side of the date, a booking made before keeping its price, a weekly series spanning it, narrowing refused with every booking listed, changing and withdrawing, a court's own hours, the date coming without a scheduler | `tests/dated-changes.test.ts` |
 | The migration: a diary seeded on the old schema migrates to the same occupancy and is dropped; a mismatch stops it | `tests/interval-migration.test.ts` |
 | The board: starts and lengths, partly held cells, quotes, override | `tests/components/booking-board.test.tsx` |
 

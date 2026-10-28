@@ -4,6 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
+import { useStaffMay } from "./StaffMay";
 
 interface GoLiveStatus {
   state: "draft" | "live" | "unlisted";
@@ -34,6 +35,8 @@ export function GoLiveBanner({
   onChange: () => void;
 }) {
   const t = useStaffT();
+  // Asking to go live is a manager's (lib/roles.ts): front desk sees where the branch stands, without the button.
+  const may = useStaffMay();
   const [status, setStatus] = useState<GoLiveStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +133,7 @@ export function GoLiveBanner({
           <a href={`/venue/${venueId}`} target="_blank" rel="noopener" className="underline">
             {t("live.seePage")}
           </a>
-          {!waiting && (
+          {!waiting && may("goLive") && (
             <button
               onClick={ask}
               disabled={busy || status.missing.length > 0}

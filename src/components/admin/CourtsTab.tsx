@@ -21,6 +21,8 @@ import { hasPhrase, sportLabel, type T } from "@/lib/i18n";
 import { region } from "@/lib/region";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
+import { ManagerChangesNote, ManagerOnly, useStaffMay } from "./StaffMay";
+import { CourtChangesFromDate } from "./DatedChanges";
 
 /** A surface's name as customers read it, in the same language. */
 const surfaceLabel = (t: T, x: string) => {
@@ -62,6 +64,9 @@ export function CourtsTab({
 }) {
   const t = useStaffT();
   const clock = useStaffClock();
+  // Courts, prices and rules are a manager's (lib/roles.ts): front desk sees them read-only.
+  const may = useStaffMay();
+  const editCourts = may("courtChange");
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 1);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -250,6 +255,8 @@ export function CourtsTab({
         </div>
       )}
 
+      <ManagerChangesNote may="courtChange" />
+
       {venue && (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full min-w-[620px] text-sm">
@@ -270,6 +277,7 @@ export function CourtsTab({
                 <CourtRow
                   key={court.id}
                   court={court}
+                  editable={editCourts}
                   onSave={saveCourt}
                   onDoor={() => openDoor(court)}
                 />
@@ -279,27 +287,54 @@ export function CourtsTab({
         </div>
       )}
 
-      {venue && venue.courts.filter((c) => c.capacity === 1).length > 1 && (
-        <CourtLinksEditor key={`links-${venue.id}`} venueId={venue.id} courts={venue.courts.filter((c) => c.capacity === 1)} />
+      {venue && venue.courts.length > 0 && (
+        <ManagerOnly may="datedCourtChanges">
+          <CourtChangesFromDate key={`dated-${venue.id}`} venueId={venue.id} courts={venue.courts} />
+        </ManagerOnly>
       )}
 
-      {venue && <BookingPolicyEditor key={`policies-${venue.id}`} venueId={venue.id} courts={venue.courts} />}
-
-      {venue && <PeakHoursEditor key={venue.id} venueId={venue.id} />}
+      {venue && venue.courts.filter((c) => c.capacity === 1).length > 1 && (
+        <ManagerOnly may="courtLinks" note={false}>
+          <CourtLinksEditor key={`links-${venue.id}`} venueId={venue.id} courts={venue.courts.filter((c) => c.capacity === 1)} />
+        </ManagerOnly>
+      )}
 
       {venue && (
-        <SportRulesEditor
-          key={`sport-rules-${venue.id}`}
-          venueId={venue.id}
-          sports={sportsOf(venue.courts)}
-        />
+        <ManagerOnly may="bookingPolicies" note={false}>
+          <BookingPolicyEditor key={`policies-${venue.id}`} venueId={venue.id} courts={venue.courts} />
+        </ManagerOnly>
       )}
 
-      {venue && <ResourceHeadings key={`headings-${venue.id}`} courts={venue.courts} onSaved={refreshVenues} />}
+      {venue && (
+        <ManagerOnly may="peakRules" note={false}>
+          <PeakHoursEditor key={venue.id} venueId={venue.id} />
+        </ManagerOnly>
+      )}
 
-      {venue && <ConcessionsEditor key={`concessions-${venue.id}`} venueId={venue.id} />}
+      {venue && (
+        <ManagerOnly may="sportRules" note={false}>
+          <SportRulesEditor
+            key={`sport-rules-${venue.id}`}
+            venueId={venue.id}
+            sports={sportsOf(venue.courts)}
+          />
+        </ManagerOnly>
+      )}
+
+      {venue && (
+        <ManagerOnly may="courtChange" note={false}>
+          <ResourceHeadings key={`headings-${venue.id}`} courts={venue.courts} onSaved={refreshVenues} />
+        </ManagerOnly>
+      )}
+
+      {venue && (
+        <ManagerOnly may="concessions" note={false}>
+          <ConcessionsEditor key={`concessions-${venue.id}`} venueId={venue.id} />
+        </ManagerOnly>
+      )}
 
       {venue && venue.courts.length > 0 && (
+        <ManagerOnly may="courtChange" note={false}>
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="font-semibold">{t("ct.featuresTitle")}</h3>
           <p className="mt-1 text-sm text-slate-500">{t("ct.featuresIntro")}</p>
@@ -311,9 +346,11 @@ export function CourtsTab({
             </tbody>
           </table>
         </section>
+        </ManagerOnly>
       )}
 
       {venue && venue.courts.length > 0 && (
+        <ManagerOnly may="courtChange" note={false}>
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="font-semibold">{t("ct.pricingTitle")}</h3>
           <p className="mt-1 text-sm text-slate-500">{t("ct.pricingIntro")}</p>
@@ -383,9 +420,14 @@ export function CourtsTab({
             </tbody>
           </table>
         </section>
+        </ManagerOnly>
       )}
 
-      {venue && <OutagesPanel key={venue.id} venueId={venue.id} courts={venue.courts} />}
+      {venue && (
+        <ManagerOnly may="outages" note={false}>
+          <OutagesPanel key={venue.id} venueId={venue.id} courts={venue.courts} />
+        </ManagerOnly>
+      )}
 
       {door && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
@@ -404,6 +446,7 @@ export function CourtsTab({
             <div>
               <label className="block text-xs font-medium text-slate-600">{t("ct.lockCode")}</label>
               <input aria-label={t("ct.lockCode")}
+                readOnly={!editCourts}
                 value={door.code}
                 onChange={(e) => setDoor({ ...door, code: e.target.value })}
                 maxLength={MAX_ACCESS_CODE}
@@ -411,6 +454,8 @@ export function CourtsTab({
                 className="mt-1 w-32 rounded-md border border-slate-300 px-2 py-1 font-mono text-sm tracking-widest focus:border-teal-500 focus:outline-none"
               />
             </div>
+            {editCourts && (
+            <>
             <button
               onClick={() => saveDoor({ accessCode: door.code })}
               className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
@@ -435,6 +480,8 @@ export function CourtsTab({
               >
                 {t("ct.clear")}
               </button>
+            )}
+            </>
             )}
           </div>
 
@@ -496,6 +543,7 @@ export function CourtsTab({
 
       <InductionsPanel venueId={venueId} />
 
+      <ManagerOnly may="courts" note={false}>
       <AddResourcesForm
         key={`add-${venueId}`}
         venueId={venueId}
@@ -505,8 +553,10 @@ export function CourtsTab({
           refreshVenues();
         }}
       />
+      </ManagerOnly>
 
       {venue && venue.courts.length > 0 && (
+        <ManagerOnly may="activities" note={false}>
         <CourtActivitiesEditor
           key={`activities-${venue.id}`}
           venueId={venue.id}
@@ -517,23 +567,36 @@ export function CourtsTab({
             refreshVenues();
           }}
         />
+        </ManagerOnly>
       )}
 
       {venue && <SignOffsPanel key={`signoffs-${venue.id}`} venueId={venue.id} courts={venue.courts} />}
       {venue && <ApprovalsReview key={`approvals-${venue.id}`} venueId={venue.id} />}
-      {venue && <ApprovalSettings key={`approval-settings-${venue.id}`} venueId={venue.id} courts={venue.courts} />}
-      {venue && <SupervisedAttendance key={`supervised-${venue.id}`} venueId={venue.id} />}
-      {venue && <ApprovalHolds key={`approval-holds-${venue.id}`} venueId={venue.id} />}
+      {venue && (
+        <ManagerOnly may="approvalSettings" note={false}>
+          <ApprovalSettings key={`approval-settings-${venue.id}`} venueId={venue.id} courts={venue.courts} />
+        </ManagerOnly>
+      )}
+      {venue && (
+        <ManagerOnly may="supervised" note={false}>
+          <SupervisedAttendance key={`supervised-${venue.id}`} venueId={venue.id} />
+        </ManagerOnly>
+      )}
+      {/* Holds are a manager's to read as well as to place: not asked for at all for front desk. */}
+      {venue && may("approvalHolds") && <ApprovalHolds key={`approval-holds-${venue.id}`} venueId={venue.id} />}
     </div>
   );
 }
 
 function CourtRow({
   court,
+  editable = true,
   onSave,
   onDoor,
 }: {
   court: Court;
+  /** False for front desk: the prices shown, not changed (lib/roles.ts). */
+  editable?: boolean;
   onSave: (court: Court, edits: CourtEdits) => void;
   onDoor: () => void;
 }) {
@@ -562,7 +625,7 @@ function CourtRow({
   return (
     <tr className="border-b border-slate-100 last:border-0">
       <td className="px-3 py-2">
-        <input aria-label={t("ct.col.court")}
+        <input disabled={!editable} aria-label={t("ct.col.court")}
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="w-44 rounded-md border border-slate-200 px-2 py-1 focus:border-teal-500 focus:outline-none"
@@ -572,7 +635,7 @@ function CourtRow({
         {activityIcon(court.sport)} {sportLabel(t.customer, court.sport)}
       </td>
       <td className="px-3 py-2">
-        <input aria-label={t("q8b.l.of", { field: t("ct.col.offPeak"), thing: court.name })}
+        <input disabled={!editable} aria-label={t("q8b.l.of", { field: t("ct.col.offPeak"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -582,7 +645,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input aria-label={t("q8b.l.of", { field: t("ct.col.peak"), thing: court.name })}
+        <input disabled={!editable} aria-label={t("q8b.l.of", { field: t("ct.col.peak"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -592,7 +655,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input aria-label={t("q8b.l.of", { field: t("ct.col.memberOffPeak"), thing: court.name })}
+        <input disabled={!editable} aria-label={t("q8b.l.of", { field: t("ct.col.memberOffPeak"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -604,7 +667,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input aria-label={t("q8b.l.of", { field: t("ct.col.memberPeak"), thing: court.name })}
+        <input disabled={!editable} aria-label={t("q8b.l.of", { field: t("ct.col.memberPeak"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -616,7 +679,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input aria-label={t("q8b.l.of", { field: t("ct.col.capacity"), thing: court.name })}
+        <input disabled={!editable} aria-label={t("q8b.l.of", { field: t("ct.col.capacity"), thing: court.name })}
           type="number"
           min={1}
           max={MAX_CAPACITY}
@@ -627,7 +690,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        <input aria-label={t("q8b.l.of", { field: t("ct.col.deposit"), thing: court.name })}
+        <input disabled={!editable} aria-label={t("q8b.l.of", { field: t("ct.col.deposit"), thing: court.name })}
           type="number"
             step={0.01}
           min={0}
@@ -652,6 +715,7 @@ function CourtRow({
         </button>
       </td>
       <td className="px-3 py-2">
+        {editable && (
         <button
           disabled={!dirty}
           onClick={() =>
@@ -661,6 +725,7 @@ function CourtRow({
         >
           {t("c.save")}
         </button>
+        )}
       </td>
     </tr>
   );
@@ -734,6 +799,8 @@ function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; on
 function InductionsPanel({ venueId }: { venueId: number }) {
   const t = useStaffT();
   const clock = useStaffClock();
+  // Deciding whose an older induction is: a manager's (lib/roles.ts); the desk records and withdraws them.
+  const mayDecide = useStaffMay()("inductionDecide");
   const [inductions, setInductions] = useState<Induction[] | null>(null);
   const [form, setForm] = useState({ phone: "", name: "", note: "" });
   // Who was shown round: the number's holder, or a participant on it (a child; lib/participants.ts).
@@ -888,7 +955,7 @@ function InductionsPanel({ venueId }: { venueId: number }) {
                     <td className="px-3 py-2">{i.adminName ?? "—"}</td>
                     <td className="px-3 py-2 text-slate-500">{i.note ?? "—"}</td>
                     <td className="px-3 py-2 text-right">
-                      {!i.revokedAt && !i.forParticipant && checking !== i.id && (
+                      {!i.revokedAt && !i.forParticipant && checking !== i.id && mayDecide && (
                         <button
                           onClick={() => setChecking(i.id)}
                           className="mr-2 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"

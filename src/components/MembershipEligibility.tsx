@@ -21,9 +21,11 @@ export interface MemberLine {
  * membership that is live today but ends before the session does not count:
  * it says so, with the date it ends, and where to renew (the venue's plans,
  * or the counter). The booking asks the same, and refuses with the same
- * reason.
+ * reason. `onFollow` is told when the renewal link is followed: the booking
+ * form closes then, so on a phone its sheet does not cover the plans the link
+ * leads to on the same page.
  */
-export default function MembershipEligibility({ lines, date }: { lines: MemberLine[]; date: string }) {
+export default function MembershipEligibility({ lines, date, onFollow }: { lines: MemberLine[]; date: string; onFollow?: () => void }) {
   const t = useT();
   if (lines.length === 0) return null;
   const short = lines.filter((l) => !l.covered);
@@ -52,7 +54,7 @@ export default function MembershipEligibility({ lines, date }: { lines: MemberLi
       </ul>
       {short.length > 0 &&
         (renew ? (
-          <Link href={renew} className="mt-1 inline-block font-semibold underline">
+          <Link href={renew} onClick={onFollow} className="mt-1 inline-block font-semibold underline">
             {t("mv6.renew")}
           </Link>
         ) : (

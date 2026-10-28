@@ -1,7 +1,7 @@
 import fs from "fs";
 import { describe, expect, inject } from "vitest";
 import type { Dialog, Page } from "playwright-core";
-import { dayAhead, fitsScreen, freeSlot, gone, scenario, signInOwner, signUp, url, type Actor } from "./harness";
+import { dayAhead, fitsScreen, freeSlot, gone, rowAction, scenario, signInOwner, signUp, url, type Actor } from "./harness";
 import { family, STAFF_PASSWORD, staffApi, staffSignIn, type Child } from "./families";
 
 /**
@@ -363,7 +363,7 @@ describe("lessons given to another coach, and coaches the venue assigns", () => 
       await staffSignIn(manager, club.manager.email);
       await dayList(manager, first);
       const row = rowOf(manager, lesson1);
-      await row.getByRole("button", { name: "Change time" }).click();
+      await rowAction(row, "Change time");
       await coachPick(manager.page).selectOption({ label: "Ben Tan" });
       const terms = manager.page.getByTestId("coach-terms");
       await terms.getByText("Ana Lim's fee for this lesson: RM80. Ben Tan's: RM100.").waitFor();
@@ -418,7 +418,7 @@ describe("lessons given to another coach, and coaches the venue assigns", () => 
     await s.step(desk, "tries to give the second lesson to Cara Ong: refused, only a manager can", async () => {
       await dayList(desk, second);
       const row = rowOf(desk, lesson2);
-      await row.getByRole("button", { name: "Change time" }).click();
+      await rowAction(row, "Change time");
       await coachPick(desk.page).selectOption({ label: "Cara Ong" });
       const terms = desk.page.getByTestId("coach-terms");
       await terms.getByRole("radio", { name: /^Adjust it:/ }).check();
@@ -431,7 +431,7 @@ describe("lessons given to another coach, and coaches the venue assigns", () => 
       await manager.page.reload();
       await dayList(manager, second);
       const row = rowOf(manager, lesson2);
-      await row.getByRole("button", { name: "Change time" }).click();
+      await rowAction(row, "Change time");
       await coachPick(manager.page).selectOption({ label: "Cara Ong" });
       const terms = manager.page.getByTestId("coach-terms");
       await terms.getByText("Ana Lim's fee for this lesson: RM80. Cara Ong's: RM60.").waitFor();

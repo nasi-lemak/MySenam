@@ -215,8 +215,19 @@ describe("whole-platform routes are the owner's alone", () => {
     ["backup", () => import("../src/app/api/admin/backup/route")],
     ["retention", () => import("../src/app/api/admin/retention/route")],
     ["demo", () => import("../src/app/api/admin/demo/route")],
-    ["admins", () => import("../src/app/api/admin/admins/route")],
   ];
+
+  // A branch manager looks after their own branch's front desk (audit R8 X1-14; tests/staff-accounts.test.ts): they
+  // see that branch's staff and nobody else's, the platform owner included.
+  it("admins shows a branch manager their own branch's staff only", async () => {
+    const { GET } = await import("../src/app/api/admin/admins/route");
+    const mine = await GET(req("/api/admin/admins", { cookie: asDesk() }));
+    expect(mine.status).toBe(200);
+    const { admins } = (await mine.json()) as { admins: { venueId: number | null }[] };
+    expect(admins.length).toBeGreaterThan(0);
+    expect(admins.every((a) => a.venueId === ownVenue)).toBe(true);
+    expect((await GET(req("/api/admin/admins", { cookie: asOwner() }))).status).toBe(200);
+  });
 
   for (const [name, load] of ownerOnly) {
     it(`${name} is refused to a venue operator`, async () => {

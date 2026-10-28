@@ -1,6 +1,5 @@
 import { isActivity } from "./activities";
 import { getDb, isBusy, withTransaction } from "./db";
-import { hoursOn, parseWeekHours } from "./week-hours";
 import { receiptFee } from "./documents";
 import {
   bracketSize,
@@ -723,10 +722,9 @@ export async function checkHold(input: HoldRequest): Promise<{ ok: true; hold: C
   if (!Number.isInteger(matchMinutes) || matchMinutes < 5 || matchMinutes > 600) return { ok: false, error: "Give each match 5 minutes to 10 hours." };
   if (!(endMin > startMin)) return { ok: false, error: "The hours must be within the venue's opening hours." };
   if (endMin - startMin < matchMinutes) return { ok: false, error: "The time each day must fit at least one match." };
-  // Every day of it, by that day's own hours.
-  const usual = { openMin: venue.open_min, closeMin: venue.close_min, weekHours: parseWeekHours(venue.week_hours) };
+  // Every day of it, by that day's own hours, as set for that date (ADR 0027).
   for (let d = input.startsOn; d <= input.endsOn; d = addDays(d, 1)) {
-    const on = hoursOn(usual, d);
+    const on = await venueHours(input.venueId, d);
     if (on.closed) return { ok: false, error: `The venue is closed on ${d}.` };
     if (startMin < on.openMin || endMin > on.closeMin)
       return { ok: false, error: `The hours must be within the venue's opening hours, which on ${d} are ${formatMinute(on.openMin)}–${formatMinute(on.closeMin)}.` };
@@ -2588,12 +2586,8 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
   if (!court) return "Choose one of this venue's courts for the sport.";
   const zone = await tournamentZone(t.id);
   if (instantOf(slot.date, slot.startMin, zone).getTime() <= Date.now()) return `${slot.date} ${formatMinute(slot.startMin)} has gone by.`;
-  const venue = (await db.prepare("SELECT open_min, close_min, week_hours FROM venues WHERE id = ?").get(t.venueId)) as {
-    open_min: number;
-    close_min: number;
-    week_hours: string | null;
-  };
-  const on = hoursOn({ openMin: venue.open_min, closeMin: venue.close_min, weekHours: parseWeekHours(venue.week_hours) }, slot.date);
+  // The venue's hours as set for that date (ADR 0027).
+  const on = await venueHours(t.venueId, slot.date);
   if (on.closed || slot.startMin < on.openMin || end > on.closeMin) return `The venue is not open for all of ${formatMinute(slot.startMin)}–${formatMinute(end)} on ${slot.date}.`;
   const others = (await db
     .prepare(
@@ -3261,6 +3255,21 @@ export async function changeTournament(id: number, change: TournamentChange): Pr
   const after = (await tournamentById(id))!;
   for (const entryId of done.value)
     await tellEntry(entryId, after, (tr) => tr("mail.tour.promoted.s", { t: after.name }), (tr) => tr("mail.tour.promoted.b", { t: after.name, venue: after.venueName }));
+  // A new name is told to everybody in it or waiting, once, so the next email under it is no surprise; the ones
+  // just promoted heard it already. A new deadline, places, fee or text is told to nobody (docs/features/tournaments.md).
+  if (before.name !== after.name) {
+    const told = (await db
+      .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND status IN ('entered', 'waitlisted') ORDER BY id")
+      .all(id)) as { id: number }[];
+    for (const { id: entryId } of told)
+      if (!done.value.includes(entryId))
+        await tellEntry(
+          entryId,
+          after,
+          (tr) => tr("r9d.mail.tourRenamed.s", { t: after.name }),
+          (tr) => tr("r9d.mail.tourRenamed.b", { t: after.name, old: before.name, venue: after.venueName })
+        );
+  }
   return { ok: true, value: { before, after, promoted: done.value } };
 }
 

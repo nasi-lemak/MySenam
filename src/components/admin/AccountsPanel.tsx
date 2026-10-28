@@ -1,6 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
+import { ManagerOnly, useStaffMay } from "./StaffMay";
 import { useCallback, useEffect, useState } from "react";
 import type { Account, AccountInvoice } from "@/lib/accounts";
 import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
@@ -20,6 +21,8 @@ const BLANK = { name: "", contact: "", email: "", address: "", taxNo: "", termsD
  */
 export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  // Opening, changing and invoicing accounts are a manager's; the desk charges bookings to them and takes payments (lib/roles.ts).
+  const may = useStaffMay();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [invoices, setInvoices] = useState<AccountInvoice[]>([]);
@@ -128,6 +131,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                     {" "}
                     · {t("pw6.acc.credit")} <strong>{money(a.credit)}</strong>{" "}
                     {/* Paid back some other way (a bank transfer): recorded, so it never comes off an invoice (managers). */}
+                    {may("accountCredits") && (
                     <button
                       type="button"
                       className="text-xs font-medium text-teal-700 underline"
@@ -140,6 +144,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                     >
                       {t("rg7.acc.settle")}
                     </button>
+                    )}
                   </>
                 )}
               </div>
@@ -151,6 +156,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
               {a.bookers.map((b) => (
                 <span key={b.phone} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs">
                   {b.name} · {b.phone}
+                  {may("accountBookers") && (
                   <button
                     type="button"
                     aria-label={t("acc.takeOff", { name: b.name })}
@@ -161,8 +167,10 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                   >
                     ×
                   </button>
+                  )}
                 </span>
               ))}
+              {may("accountBookers") && (
               <form
                 className="flex flex-wrap items-center gap-1"
                 onSubmit={async (e) => {
@@ -186,7 +194,9 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 />
                 <button className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:border-teal-500">{t("c.add")}</button>
               </form>
+              )}
             </div>
+            {may("accountInvoices") && (
             <div className="mt-2 flex flex-wrap gap-3 text-xs">
               <button
                 type="button"
@@ -238,12 +248,14 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 {t("c.close")}
               </button>
             </div>
+            )}
             </>
             )}
           </li>
         ))}
       </ul>
 
+      <ManagerOnly may="accounts">
       <form onSubmit={save} className="mt-4 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-3">
         <p className="text-sm font-semibold sm:col-span-3">{form.id ? t("acc.changeName", { name: form.name }) : t("acc.open")}</p>
         <input required placeholder={t("acc.org")} aria-label={t("acc.org")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
@@ -282,6 +294,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
           )}
         </div>
       </form>
+      </ManagerOnly>
 
       {(invoices.length > 0 || query !== FIRST_PAGE) && (
         <ListFilter
@@ -347,6 +360,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                       <button type="button" onClick={() => setPaying(i.id)} className="font-medium text-teal-700 underline">
                         {t("acc.markPaid")}
                       </button>
+                      {may("invoiceWithdraw") && (
                       <button
                         type="button"
                         onClick={() => {
@@ -357,6 +371,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                       >
                         {t("acc.withdraw")}
                       </button>
+                      )}
                     </span>
                   )}
                 </td>

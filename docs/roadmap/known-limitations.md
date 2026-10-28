@@ -207,21 +207,20 @@ changes; 6 to 8 name what they wait for. As of 28 October 2026: no defect
 | [Staff moves not asked the house rules; the class page without override or pay-now buttons; overrides not in the bookings export](#booking-and-availability-b) | 3 / 5 | Venues | Kept for now: the activity log carries overrides; the class page's buttons when a venue needs them |
 | [Timing tests on one machine; an invitation withdrawn while its email is being sent](#operations-and-security-s) | 5 | Everyone | Kept: equal timing in production is shown only by measuring there; the link is refused either way |
 | [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; the statutory period confirmed by the venue's adviser |
-| [Owner and venue-staff alerts in English](#languages) | 3 | Staff reading Malay or Chinese | The remaining alerts written per recipient, as the others now are |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
-**89 at commit `f4812fa`** after round 7, and **98 now**: round 8 closed the
+**89 at commit `f4812fa`** after round 7, and **101 now**: round 8 closed the
 two e-invoice decisions, the staff languages and the guest count the owner
 decided, and 45 of the round 8 audit's 50 findings (the other five are
 [planned](roadmap.md)), and recorded what its new workflows leave
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
-owner. Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B56, M16–M28 and
+owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B62, M16–M28 and
 S12–S28, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (114
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -320,8 +319,10 @@ the erasure ledger, so after a restore the restored copy's period applies
 
 Also: MyInvois cancelling is done in the portal and reaches MySenam only when
 LHDN is asked; MySenam issues no debit or refund notes; staff cannot correct
-a buyer's details (the customer asks again); a draft sent by the scheduler
-and a retry at the same moment can reach LHDN twice; the LHDN rules followed
+a buyer's details (the customer asks again); a send interrupted after LHDN
+was asked (the server stopping) is marked not sent after 15 minutes and is
+never sent again by itself: staff check the portal first, since LHDN may
+have it; the LHDN rules followed
 (seven days, RM10,000, codes, version 1.0, the 72-hour window) are read from
 published guidance and unverified
 ([MyInvois](../integrations/myinvois.md#what-is-assumed-and-not-verified)) (P3).
@@ -360,9 +361,10 @@ is free text kept with the booking
 
 Also: when a class's places go up by several, the waiting list is offered
 one place at a time, as it always is, and the other new places are open to
-anyone meanwhile; people enrolled are not told of a change to a class's name
-or instructor; lowering a tournament's places is not locked against an entry
-made at the same moment, so one more could be entered than allowed; the venue's
+anyone meanwhile; a change to a class's name or instructor is told by email
+only, not WhatsApp, and a change to its price or places tells nobody (the
+price holds for those enrolled); a tournament's new name is told to its
+entries, a new deadline, fee or text is not; the venue's
 alerts for online changes need the `mysenam_venue_booking_change` WhatsApp
 template, prepared and not yet submitted to Meta (email works without it)
 ([programmes](../features/programmes.md), [tournaments](../features/tournaments.md),
@@ -396,12 +398,19 @@ joined a waiting list by phone alone gets no message with its leave link (its
 WhatsApp template would be a new one), and joins at the counter or through the
 API get none ([booking](../features/booking.md)) (P3).
 
-Also: the front desk is shown some managers' controls and refused on use;
-opening hours and prices change only from today; staff are given a password by
-a manager rather than invited, and a branch manager cannot add or remove the
-branch's desk staff; a new branch starts blank; a test booking made before going
-live stays in the books unless cancelled (the round 8 audit's X1-5, X1-13 to
-X1-16, [planned](roadmap.md)) (P2).
+Also: the Tournaments and Leagues tabs still show the front desk their set-up
+forms (the server refuses them), and ticking off or hiding the set-up checklist
+is not refused to the desk by the server (the desk is not shown it); a new
+branch starts blank; a test booking made before going live stays in the books
+unless cancelled (the round 8 audit's X1-15 and X1-16, [planned](roadmap.md))
+(P2). Of hours and prices only opening hours and court rates can be set from a
+later date (peak windows, holidays, set-length prices, fees, concessions and
+membership prices change when saved); once a change applies, earlier periods
+are measured against the hours now (the reports' utilisation, as whenever hours
+change); narrowing hours looks at confirmed bookings, not classes, blocks or
+offers, and is not tested against a booking made at the same moment; the public
+venue page shows today's hours, not announced ones
+([hours from a date](../features/booking.md#hours-from-a-date)) (P3).
 
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
@@ -621,16 +630,13 @@ Chinese and Tamil ([feature status](../product/feature-status.md)). Not yet:
   built-in activity names in Malay and Chinese (machine-assisted), and the
   times each language is written in (Malay's PG/PTG and Tamil's 24-hour clock,
   from the common locale data) (P2).
-- **Staff alerts still in English:** a member of staff, a coach and a
-  venue's booking alerts each have a language of their own, in which their
-  password reset, two-factor reset notice, lesson emails, booking alerts,
-  application-review emails and staff calendar address are written
+- **What staff alerts keep in English:** every email to staff, coaches and
+  platform owners is written in the reader's own language
   ([regions](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches));
-  alerts to platform owners and to a venue's staff (suspensions, payment
-  holds, venue changes, reviews, match reports, webhook problems) and the low
-  WhatsApp credit email stay in English. Text stored in English (the activity
-  log's details, receipt descriptions, refusals with no translation) keeps the
-  times it was written with (P3).
+  the chat webhook's message stays English, and what an alert quotes as
+  stored (what people typed, an error's own text, the activity log's details,
+  receipt descriptions, refusals with no translation) stays as stored, with
+  the times it was written with (P3).
 
 The launch promises English, Malay, simplified Chinese and Tamil to
 customers (the owner, 24 October 2026), so these reviews are a
@@ -803,6 +809,12 @@ IDs are not reused. Each fix came with the test recommended above.
 | B54 | Two first splits of one booking at once failed with a database error, and a re-split while a friend was paying left a paid share at the old amount; splitting runs under the booking's lock and a re-split is refused while a share is paid or being paid | `tests/split-races.test.ts` |
 | B55 | The schedule kept no track of which answer it was waiting for: an answer for a day or venue left a moment before could arrive late and show under the one now chosen; a late answer is dropped | `tests/components/staff-place.test.tsx` |
 | B56 | Claiming a waiting-list offer read the entry without locking it, so a claim and the entry being left or turned down at the same moment could both go through; the entry is locked by each | `tests/waitlist-leave.test.ts` |
+| B57 | On a phone, *Renew or buy a membership* in the booking form opened the venue's plans under the booking sheet, which stayed open over them, so *Join* could not be tapped; following the link closes the form. Found by the acceptance scenarios (*Membership W*) | `tests/components/booking-dialogs.test.tsx`, `tests/uat/round6.uat.ts` (Membership W) |
+| B58 | A court given back late with all of it kept told the customer "the rest goes back the way you paid" when nothing does; it now says nothing is refunded | `tests/components/q8a-customer-flows.test.tsx`, `tests/uat/round8.uat.ts` (Late AK) |
+| B59 | Removing a member of staff who had recorded an induction, sold a membership or a pass, made a promo code or given credit at the counter (or an owner who had decided a venue application) failed with a server error: six links from the first migration had no rule for a removed account; they now keep the record and drop the link (migration 0251), the activity log keeping the name | `tests/staff-accounts.test.ts` |
+| B60 | The front desk could not open the sections of *Venue details* it is shown read-only (Facilities, Photos, Extras, WhatsApp, Who it is for, House rules, Manager overrides, Waiver, Notices), so it could not read the access list, the house rules or the waiver: the buttons that open them were inside the disabled, button-hiding read-only area. Each now keeps its opening button outside and only what opens read-only. Found by the acceptance scenarios (*Invitations AA*) | `tests/components/desk-sees-what-it-may.test.tsx` (also on Postgres), `tests/uat/round7.uat.ts` (Invitations AA) |
+| B61 | Booking rules that narrowed a court's (or a sport's, the venue's or the business's) hours from today saved without looking at bookings already made, leaving them outside the hours; the change is now refused while any would fall outside, every one listed, as narrowing from a date is | `tests/dated-changes.test.ts` |
+| B62 | The hours-from-a-date form named its fields *Opens* and *Closes*, as the usual hours do, so a screen reader heard two of each on the same page; they are named for the date they apply from. Found by the acceptance scenarios (*Venue 1*) | `tests/uat/venue-setup.uat.ts` (Venue 1) |
 
 ### Resolved limitations without a number
 
@@ -904,6 +916,9 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The day list had no filters, cut its actions off on a laptop and had no print view; nothing started a booking from the dashboard, and a click on a free schedule cell blocked the court at once | Filters, an actions menu, a printable day sheet, *New booking*, and *Book this* or *Block* on a free cell | `tests/components/bookings-tab-day.test.tsx` |
 | Staff could change nothing about a class or a tournament once made, short of cancelling it | A class's name, instructor, places (more offered to the waiting list, fewer never below those taken) and price for new enrolments, for one session or the rest of the series; a tournament's name, description, deadline, places and fee for new entries before its draw; a manager's, logged | `tests/class-changes.test.ts`, `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | The venue heard about bookings made online but not about customers' online cancellations and changes | Optional alerts for cancellations and changes, a day ahead unless widened, at the new-booking alerts' address and number, in their language | `tests/booking-change-alerts.test.ts` |
+| Opening hours and prices could be changed only from today, and narrowing hours named the first booking in the way | Hours and court rates from a later date, read by the date booked; every booking in the way listed | `tests/dated-changes.test.ts` |
+| The front desk was shown managers' controls everywhere and refused on use | What the desk may do answered from the server's own list; managers' editors read-only, their buttons hidden | `tests/components/desk-sees-what-it-may.test.tsx` |
+| Staff were given a password by a manager, and a branch manager could not add or remove the branch's front desk | Staff invited by email to choose their own; a branch manager runs their front desk | `tests/staff-accounts.test.ts` |
 | Counter top-ups, passes, memberships and entry and league fees could be taken with no record of how they were paid, and nothing added up the till | Every counter sale says how it was paid and who took it; a cash-up by method for the day, from the sales journal, the desk's own shift or a manager's whole day | `tests/cash-up.test.ts` |
 | The front desk typed any price for a pass or a membership | Passes from the venue's products and memberships on its plans at their prices; another price a manager's with a reason, recorded and logged | `tests/counter-prices.test.ts` |
 | A booking's price could not be changed or waived once made | A manager's price adjustment with a reason, before or after a counter payment | `tests/price-adjustments.test.ts` |
@@ -925,6 +940,10 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | The dashboard forgot its tab and day on a reload, and the day list went stale | Tab, day and venue in the address; the day list and schedule kept up | `tests/components/staff-place.test.tsx` |
 | Dates were shown without their weekday | The weekday on every customer date and in messages | `tests/outbox.test.ts`, `tests/waitlist-leave.test.ts` |
 | Dialogs did not hold focus or close on Escape, and 103 staff fields had no name for screen readers | One dialog for all; every staff field named, checked by a test | `tests/components/booking-dialogs.test.tsx`, `tests/form-labels.test.ts` |
+| Alerts to platform owners and to a venue's staff, and the low WhatsApp credit email, were in English | Each written per reader in their own staff language; the English-only senders removed | `tests/staff-alert-languages.test.ts` |
+| People enrolled in a class were not told of a new name or instructor | Emailed, with those holding an offer of a place, once each, in their language | `tests/class-changes.test.ts` |
+| Lowering a tournament's places was thought not to be locked against an entry at the same moment | It is taken under the entry lock; tested both at once and with the entry held mid-write | `tests/entry-races.test.ts` |
+| A draft e-invoice sent by the scheduler and by staff at the same moment could reach LHDN twice | Claimed before LHDN is asked (migration 0256), so it is sent once; an interrupted claim is marked not sent for a check in the portal | `tests/einvoice-sending.test.ts` |
 
 ## Production readiness
 
@@ -1003,6 +1022,8 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 
 | Gap | Consequence | Priority |
 | --- | ----------- | -------- |
-| Browser tests drive the main journeys: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and twenty-six acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), among them a venue's set-up from sign-up to its first booking, changing a booking's time, and a tournament's whole run from set-up to corrections; emailed confirmation, waiting-list offer and password-reset links are followed from the acceptance server's log (skipped against a deployment) | Those are checked by route and unit tests, not a browser | P2 |
+| Browser tests drive the main journeys: twelve end-to-end checks ([testing](../development/testing.md#end-to-end-tests)) and seventy-one acceptance scenarios ([testing](../development/testing.md#visual-acceptance-scenarios)), among them a venue's set-up from sign-up to its first booking, changing a booking's time, and a tournament's whole run from set-up to corrections; emailed confirmation, waiting-list offer and password-reset links are followed from the acceptance server's log (skipped against a deployment) | Those are checked by route and unit tests, not a browser | P2 |
+| The suites run on the day they are run: tests build their dates from today, and a test that depends on the weekday (a weekend is peak all day) or the hour is found only when the date reaches it; four were found and fixed this way in round 8 | A run can fail on the calendar rather than the product; the failure names its test, and the fix is to the test | P3 |
+| The acceptance scenario *Accounts AG* cannot set itself up between 23:00 and 24:00 Malaysia time: it books the next whole hour and invoices up to today, and in that hour the booking falls tomorrow | A full acceptance run in that hour fails that scenario on the clock, not the product; run outside it or re-run the file | P3 |
 | `/terms` and `/privacy` are drafts that describe the software; not reviewed by a lawyer, nor are their translations; the terms are English only. The privacy notice names a contact only once `OPERATOR_NAME` and `OPERATOR_EMAIL` are set | Legal exposure | P1: [blocks any launch](#blockers-for-any-launch) |
 | The [incident-response procedure](../operations/incident-response.md)'s breach-notification rules for Malaysia and Singapore are summarised from the regulators' guidance, partly through law-firm summaries (Malaysia's regulator's site was unreachable when it was written), and who must notify for which data is not settled | An operator could notify late or the wrong party | P1: [blocks any launch](#blockers-for-any-launch) until a lawyer confirms it |

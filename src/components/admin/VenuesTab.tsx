@@ -40,13 +40,14 @@ import { DataRequestPanel } from "./DataRequestPanel";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { BookingAlertsEditor } from "./BookingAlertsEditor";
 import { RecentPhotosPanel } from "./RecentPhotosPanel";
+import { HoursFromDate, strandedText } from "./DatedChanges";
 import { minuteClock, region } from "@/lib/region";
 import type { StaffText } from "@/lib/staff-text";
 import type { EInvoiceRetention } from "@/lib/einvoice-retention";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 import DocumentPolicy from "./DocumentPolicy";
-import { LanguageChoice } from "./LanguageChoice";
-import { staffLocales } from "@/lib/staff-locales";
+import { StaffAccounts } from "./StaffAccounts";
+import { ManagerChangesNote, ManagerOnly, useStaffMay } from "./StaffMay";
 
 /* ---------------- Venues & staff tab ---------------- */
 
@@ -63,26 +64,12 @@ export function VenuesTab({
   const isOwner = admin.venueId === null && admin.businessId === null;
   // A business manager runs every branch of their business, and its staff.
   const isManager = admin.businessId !== null;
-  const managesStaff = isOwner || isManager;
+  // Staff accounts: the owner's, a business manager's, and a branch manager's for their own front desk (lib/staff-accounts.ts).
+  const may = useStaffMay();
+  const managesStaff = may("staff");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [admins, setAdmins] = useState<Admin[] | null>(null);
   const [newVenue, setNewVenue] = useState({ name: "", area: "", address: "", phone: "" });
-  // "" is another platform owner, "business" a manager of the whole business, an id that branch.
-  const staffDefault = admin.venueId === null && admin.businessId !== null ? "business" : "";
-  const [newStaff, setNewStaff] = useState({ name: "", email: "", password: "", venueId: staffDefault, role: "desk", locale: "" });
-
-  const loadAdmins = useCallback(async () => {
-    if (!managesStaff) return;
-    const res = await fetch("/api/admin/admins", { cache: "no-store" });
-    if (!res.ok) return;
-    const data = await readJson(res);
-    setAdmins(data.admins);
-  }, [managesStaff]);
-
-  useEffect(() => {
-    loadAdmins();
-  }, [loadAdmins]);
 
   async function send(
     url: string,
@@ -100,7 +87,8 @@ export function VenuesTab({
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       const data = await readJson(res);
-      if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")));
+      // Hours that would leave bookings outside them name every one (lib/dated-changes.ts).
+      if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")) + strandedText(data, t));
       setNotice(okMessage);
       await onChange();
       // The set-up checklist and the go-live banner tick off what was just saved (hours, pin, facilities).
@@ -162,20 +150,27 @@ export function VenuesTab({
         <p className="mt-1 text-sm text-slate-500">{t("vn.closedIntro")}</p>
         <div className="mt-3 space-y-3">
           {venues.map((venue) => (
-            <ClosuresRow key={venue.id} venue={venue} onError={setError} onNotice={setNotice} />
+            <ManagerOnly key={venue.id} may="closures">
+              <ClosuresRow venue={venue} onError={setError} onNotice={setNotice} />
+            </ManagerOnly>
           ))}
         </div>
       </section>
 
-      <BlockedPhonesPanel venues={venues} />
+      <ManagerOnly may="blockNumber">
+        <BlockedPhonesPanel venues={venues} />
+      </ManagerOnly>
 
-      <DataRequestPanel venues={venues} />
+      {/* Answering a customer's request for their data is a manager's, reading included (lib/roles.ts). */}
+      {may("dataRequest") && <DataRequestPanel venues={venues} />}
 
       <ParticipantsPanel venues={venues} role={admin.role} owner={isOwner} />
 
       <MessagesPanel venues={venues} isOwner={isOwner} />
 
-      <ReviewsPanel venues={venues} isOwner={isOwner} />
+      <ManagerOnly may="reviews">
+        <ReviewsPanel venues={venues} isOwner={isOwner} />
+      </ManagerOnly>
 
       {admin.role !== "desk" && <MarketingPanel venues={venues} />}
 
@@ -185,7 +180,9 @@ export function VenuesTab({
 
       {region().country === "MY" && admin.role !== "desk" && <EInvoicePanel venues={venues} />}
 
-      <BillingPanel isOwner={isOwner} />
+      <ManagerOnly may="billing">
+        <BillingPanel isOwner={isOwner} />
+      </ManagerOnly>
 
       {isOwner && <StorefrontsPanel venues={venues} />}
 
@@ -239,171 +236,7 @@ export function VenuesTab({
           </section>
       )}
 
-      {managesStaff && (
-          <section>
-            <h2 className="text-lg font-bold">{t("vn.staffAccounts")}</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              {isOwner ? t("vn.staffIntroOwner") : t("vn.staffIntroManager")}
-            </p>
-            {admins && (
-              <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-                <table className="w-full min-w-[520px] text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                      {[t("c.name"), t("c.email"), t("vn.scope"), ""].map((h, i) => (
-                        <th key={i} className="px-3 py-2 font-semibold">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {admins.map((a) => (
-                      <tr key={a.id} className="border-b border-slate-100 last:border-0">
-                        <td className="px-3 py-2 font-medium">{a.name}</td>
-                        <td className="px-3 py-2">{a.email}</td>
-                        <td className="px-3 py-2">
-                          {a.businessId !== null ? (
-                            <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
-                              {t("vn.managerOf", { business: a.businessName ?? "" })}
-                            </span>
-                          ) : a.venueId === null ? (
-                            <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
-                              {t("vn.platformOwner")}
-                            </span>
-                          ) : (
-                            <span className="inline-flex flex-wrap items-center gap-1.5">
-                              <span className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-700">
-                                {venues.find((v) => v.id === a.venueId)?.name ?? t("vn.venueN", { id: a.venueId })}
-                              </span>
-                              {/* What they may do there: run the day, or set the venue up too. */}
-                              <select
-                                aria-label={t("vn.roleOf", { name: a.name })}
-                                value={a.role}
-                                disabled={a.id === admin.id}
-                                onChange={(e) =>
-                                  send(`/api/admin/admins/${a.id}`, "PATCH", { role: e.target.value }, t("vn.roleChanged"), loadAdmins)
-                                }
-                                className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs"
-                              >
-                                <option value="manager">{t("vn.manager")}</option>
-                                <option value="desk">{t("vn.desk")}</option>
-                              </select>
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          {a.id !== admin.id && (
-                            <button
-                              onClick={() => {
-                                if (!window.confirm(t("vn.removeConfirm", { email: a.email }))) return;
-                                send(`/api/admin/admins/${a.id}`, "DELETE", undefined, t("vn.removed"), loadAdmins);
-                              }}
-                              className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                            >
-                              {t("c.remove")}
-                            </button>
-                          )}
-                          {a.id !== admin.id && (
-                            <button
-                              onClick={() => {
-                                // Only when they have lost both their authenticator and recovery codes (lib/two-factor-reset.ts).
-                                const reason = window.prompt(t("vn.resetPrompt", { email: a.email }));
-                                if (!reason) return;
-                                const code = window.prompt(t("vn.ownCode"));
-                                if (!code) return;
-                                send(`/api/admin/admins/${a.id}/two-factor-reset`, "POST", { reason, code }, t("vn.resetDone"), loadAdmins);
-                              }}
-                              className="ml-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                            >
-                              {t("vn.resetButton")}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                send(
-                  "/api/admin/admins",
-                  "POST",
-                  newStaff.venueId === "business"
-                    ? { ...newStaff, venueId: null, businessId: admin.businessId }
-                    : { ...newStaff, venueId: newStaff.venueId ? Number(newStaff.venueId) : null },
-                  t("vn.added", { name: newStaff.email }),
-                  () => {
-                    setNewStaff({ name: "", email: "", password: "", venueId: staffDefault, role: "desk", locale: "" });
-                    loadAdmins();
-                  }
-                );
-              }}
-              className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-4"
-            >
-              <input
-                required minLength={2} placeholder={t("c.name")} aria-label={t("c.name")} value={newStaff.name}
-                onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
-                className={`w-40 ${inputClass}`}
-              />
-              <input
-                required type="email" placeholder={t("c.email")} aria-label={t("c.email")} value={newStaff.email}
-                onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
-                className={`w-52 ${inputClass}`}
-              />
-              <input
-                required type="password" minLength={8} placeholder={t("vn.password")} aria-label={t("vn.password")}
-                value={newStaff.password}
-                onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
-                className={`w-40 ${inputClass}`}
-              />
-              <select aria-label={t("q8b.l.venue")}
-                value={newStaff.venueId}
-                onChange={(e) => setNewStaff({ ...newStaff, venueId: e.target.value })}
-                className={inputClass}
-              >
-                {isOwner ? (
-                  <option value="">{t("vn.ownerAll")}</option>
-                ) : (
-                  <option value="business">{t("vn.managerAll")}</option>
-                )}
-                {venues.map((v) => (
-                  <option key={v.id} value={v.id}>{v.name}</option>
-                ))}
-              </select>
-              {newStaff.venueId !== "" && newStaff.venueId !== "business" && (
-                <select
-                  aria-label={t("vn.role")}
-                  value={newStaff.role}
-                  onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
-                  title={t("vn.roleHelp")}
-                  className={inputClass}
-                >
-                  <option value="desk">{t("vn.desk")}</option>
-                  <option value="manager">{t("vn.manager")}</option>
-                </select>
-              )}
-              {/* Their language, where known: the dashboard opens in it and their emails are written in it; they can change it. */}
-              {staffLocales().length > 1 && (
-                <LanguageChoice
-                  label={t("sl8.lang.staff")}
-                  value={newStaff.locale}
-                  onChange={(locale) => setNewStaff({ ...newStaff, locale })}
-                  locales={staffLocales()}
-                  className={inputClass}
-                />
-              )}
-              <button
-                type="submit"
-                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
-              >
-                {t("vn.addStaff")}
-              </button>
-            </form>
-          </section>
-      )}
+      {managesStaff && <StaffAccounts admin={admin} venues={venues} onError={setError} onNotice={setNotice} />}
     </div>
   );
 }
@@ -594,6 +427,9 @@ function VenueRow({
 
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      {/* Front desk sees the venue's details and settings, and a manager changes them (lib/roles.ts). */}
+      <ManagerChangesNote may="venueDetails" />
+      <ManagerOnly may="venueDetails" note={false} className="flex flex-wrap items-end gap-2">
       <label className="flex flex-col text-xs font-medium text-slate-500">
         {t("c.name")}
         <input
@@ -703,6 +539,8 @@ function VenueRow({
           })}
         </div>
       </details>
+      <p className="w-full text-xs text-slate-500">{t("r9b.todayNote")}</p>
+      <HoursFromDate venueId={venue.id} current={{ openMin: venue.openMin, closeMin: venue.closeMin, weekHours: venue.weekHours ?? null }} />
       <label className="flex flex-col text-xs font-medium text-slate-500">
         {t("vn.cutoff")}
         <input
@@ -823,6 +661,8 @@ function VenueRow({
         {t("c.save")}
       </button>
       <VenueStanding venue={venue} isOwner={isOwner} onSave={onSave} />
+      </ManagerOnly>
+      {/* These open to be read, by front desk too: each is read-only inside for the desk (its own ManagerOnly). */}
       <FacilitiesEditor key={venue.amenities.join(",")} venue={venue} onSave={onSave} />
       <PhotosEditor venue={venue} />
       <AddonsEditor venue={venue} />
@@ -831,11 +671,11 @@ function VenueRow({
       <HouseRulesEditor venueId={venue.id} />
       <PolicyOverridesEditor venueId={venue.id} />
       <WaiverEditor venueId={venue.id} />
-      <CancelPolicyEditor venueId={venue.id} />
-      <BookingAlertsEditor venueId={venue.id} />
-      <CalendarFeedEditor venueId={venue.id} />
-      <TaxEditor venueId={venue.id} />
-      <TimeZoneEditor venueId={venue.id} />
+      <ManagerOnly may="cancelPolicy" note={false} className="w-full"><CancelPolicyEditor venueId={venue.id} /></ManagerOnly>
+      <ManagerOnly may="bookingAlerts" note={false} className="w-full"><BookingAlertsEditor venueId={venue.id} /></ManagerOnly>
+      <ManagerOnly may="calendarFeed" note={false} className="w-full"><CalendarFeedEditor venueId={venue.id} /></ManagerOnly>
+      <ManagerOnly may="venueTax" note={false} className="w-full"><TaxEditor venueId={venue.id} /></ManagerOnly>
+      <ManagerOnly may="timeZone" note={false} className="w-full"><TimeZoneEditor venueId={venue.id} /></ManagerOnly>
       <NoticesEditor
         venueId={venue.id}
         intro={t("vn.noticeIntro")}

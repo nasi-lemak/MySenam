@@ -1,7 +1,7 @@
 import { activityPolicy } from "./activity-registry";
 import { formatLength, formatMinute, type Span } from "./interval";
 import type { Sport } from "./types";
-import { hoursOn, type WeekHours } from "./week-hours";
+import { hoursFor, hoursOn, type DatedHours, type WeekHours } from "./week-hours";
 import { crossesClockChange } from "./time";
 
 /**
@@ -367,14 +367,17 @@ export function gridMinutes(policy: BookingPolicy): number {
   return 15;
 }
 
-/** The hours on a date: the court's own where its policy has them, else the venue's. */
-export function policyHoursOn(
-  policy: BookingPolicy,
-  venue: { openMin: number; closeMin: number; weekHours?: WeekHours | null },
-  date: string
-): { openMin: number; closeMin: number; closed: boolean } {
+/**
+ * The hours on a date: the court's own where its policy has them (a day left
+ * on the usual hours taking the venue's usual hours for that date), else the
+ * venue's, each as set for that date (ADR 0027).
+ */
+export function policyHoursOn(policy: BookingPolicy, venue: DatedHours, date: string): { openMin: number; closeMin: number; closed: boolean } {
   const own = policy.weekHours;
-  if (own) return hoursOn({ openMin: venue.openMin, closeMin: venue.closeMin, weekHours: own }, date);
+  if (own) {
+    const usual = hoursFor(venue, date);
+    return hoursOn({ openMin: usual.openMin, closeMin: usual.closeMin, weekHours: own }, date);
+  }
   return hoursOn(venue, date);
 }
 

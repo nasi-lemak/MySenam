@@ -45,11 +45,13 @@ beforeAll(async () => {
   expect((await setBookingAlerts(venueId, { email: "desk@arena.my" })).ok).toBe(true);
 });
 
-/** A booking on `date` at an off-peak hour, made as the counter makes them. */
+/** A booking on `date` from `hour`, off-peak where the day has an off-peak hour before the evening, made as the counter makes them. */
 async function booked(date: string, hour = 10) {
   n++;
+  // A weekend is peak all day: then the hour asked for, rather than walking past closing.
   let at = hour;
-  while (isPeakMinute(date, at * 60)) at++;
+  while (at < 20 && isPeakMinute(date, at * 60)) at++;
+  if (at >= 20) at = hour;
   const made = await createBooking({ courtId, date, hours: [at], name: `Rahim ${n}`, phone: `01955500${String(n).padStart(2, "0")}` });
   if (!made.ok) throw new Error(made.error);
   return made.booking;

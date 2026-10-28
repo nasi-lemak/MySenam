@@ -23,9 +23,10 @@ gateway account), or to a business where they are shared across its branches
 ## Managers and front desk
 
 Branch staff are a **manager** or **front desk** (`src/lib/roles.ts`), chosen
-when they are added under *Venues & staff* and changeable there by a business
-manager or the platform owner. Staff who were there before this existed are
-managers, so nobody lost anything; new ones default to front desk.
+when they are added under *Venues & staff* and changeable there by whoever
+manages them ([who manages staff accounts](#who-manages-staff-accounts)).
+Staff who were there before this existed are managers, so nobody lost
+anything; new ones default to front desk.
 
 | | Front desk | Manager |
 | - | :-: | :-: |
@@ -48,6 +49,77 @@ marking their invoices paid, customer notes, paper waivers, answering hire
 enquiries). `tests/roles.test.ts` checks each line names a real route, that
 front desk is refused there and a manager is not.
 
+### What the front desk is shown
+
+The dashboard shows the desk only what it may do (audit R8 X1-5), from the
+same list. `/api/admin/auth/me` answers, with who is signed in, `may`: for
+each control the dashboard asks about (`STAFF_ACTIONS` in `src/lib/roles.ts`,
+each a request one of its screens makes), whether `MANAGER_ONLY` lets this
+account make it; the dashboard keeps no list of its own
+(`components/admin/StaffMay.tsx`). For front desk:
+
+- What a manager changes is shown **read-only**, under one line saying *A
+  manager changes this* (in the staff languages), with its buttons hidden:
+  *Venue details* (the venue's details, hours, pin, facilities, photos,
+  extras, WhatsApp, who it is for, house rules, overrides, waiver,
+  cancellations, booking alerts, calendar feed, tax, time zone, notices,
+  closed days, blocked numbers, reviews, the marketplace invoice), *Courts &
+  rates* (prices and courts, linked courts, booking rules, peak hours and
+  holidays, sport rules, headings, concessions, features, outages, adding
+  courts and activities, online applications' settings, supervised
+  attendance; the door code can be read, not changed), *Classes* (scheduling,
+  changing, cancelling, coaches), *Credit & passes* (cancelling a pass,
+  membership or voucher, giving days back, suspending, correcting who a
+  membership covers, membership plans, the venue's passes, promo codes and
+  how they combine, voiding a counter sale, opening, changing, invoicing and
+  closing company accounts).
+- What only opens or closes a section stays usable, so the desk reads what is
+  behind it: *Facilities*, *Photos*, *Extras*, *WhatsApp*, *Who it is for*
+  (its access list), *House rules*, *Manager overrides*, *Waiver* and
+  *Notices* open for the desk as for a manager, read-only inside, as does
+  every folded section (*Different hours on some days*, *More* in booking
+  rules, *Changes and reviews* under tax).
+- Controls that are only buttons are not shown at all: *Block number* and
+  letting strikes off in the day list (the strike count still shows), whose an
+  older induction is, *Ask to go live*.
+- What the desk may not even read is not asked for: retention holds on
+  applications, a customer's data request, staff accounts.
+- The set-up checklist is a manager's, and is not shown to the desk.
+
+The server's refusals are unchanged and stand regardless.
+`tests/components/desk-sees-what-it-may.test.tsx` renders the main tabs and
+the dashboard as front desk and as a manager, against the app's own routes
+and the demonstration data, and uses every control on screen: nothing the
+desk can press asks for anything `MANAGER_ONLY` refuses it, and the manager's
+run reaches each manager's control.
+
+### Who manages staff accounts
+
+| | Platform owner | Business manager | Branch manager | Front desk |
+| - | :-: | :-: | :-: | :-: |
+| Platform owners | ✓ | | | |
+| Business managers of their business | ✓ | ✓ | | |
+| Managers at a branch | ✓ | ✓ (their business's branches) | | |
+| Front desk at a branch | ✓ | ✓ (their business's branches) | ✓ (their own branch) | |
+
+Managing means inviting (or, where the install cannot send email, adding with
+a password), correcting the name and address, changing the role, and
+removing ([staff invitations](authentication.md#staff-invitations)). A branch
+manager (a manager at one venue, `isBranchManager` in
+`src/lib/staff-accounts.ts`) sees every account at their branch and manages
+its front desk, and only as front desk: they never add a manager or make one
+(a business manager or the owner does), so a branch manager cannot make a
+fellow manager in two steps.
+Nobody removes their own account or changes their own role; the last platform
+owner and a business's last manager stay. **Removing** an account signs it
+out everywhere at once (its sessions and sign-in tickets go with it), and
+what it recorded (bookings, sales, credit, inductions) stays, without it
+(migration 0251); the
+activity log keeps the name. Two-factor resets stay the owner's and a
+business manager's ([two-factor sign-in](authentication.md#two-factor-sign-in)).
+Every change is logged, and every refusal is in the staff languages.
+`tests/staff-accounts.test.ts` covers who may do what across branches.
+
 ## Businesses with several branches
 
 On a marketplace, every venue belongs to a business, and a business can have
@@ -58,7 +130,8 @@ that venue as its first branch and the applicant as its manager.
   reports, classes, credit, messages and invoices cover all their branches,
   with a branch picker wherever a screen is about one. They add and remove
   their business's staff, and add branches under *Branches & staff → Add a
-  branch*.
+  branch*. A branch's own manager runs that branch's front desk
+  ([who manages staff accounts](#who-manages-staff-accounts)).
 - **Branch staff** see their own branch and nothing else.
 - **New branches** start as drafts the manager sets up, and go live like the
   first one did — on the platform owner's approval, or on their own where the

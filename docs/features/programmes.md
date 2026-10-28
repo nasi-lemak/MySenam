@@ -96,10 +96,21 @@ and court are not changed here (moving a class is a proposal in the
 - **Price**: for enrolments made from then on. Each enrolment keeps the price
   it was made at (its own `total_price`), paid or not, so nobody already
   enrolled is repriced and no receipt changes.
+- **A new name or instructor** is told to the people it changes something
+  for: everybody enrolled in a session changed, and everybody holding a live
+  waiting-list offer of a place in one (`notifyClassChanged` in
+  `src/lib/notify.ts`). One email per person per change, however many
+  sessions of the series they are in (*3 weekly sessions, the first …*), in
+  the language they enrolled or joined the list in, saying what it was and
+  what it is; an offer's email carries the offer's own link. By email only,
+  where they gave an address (kind `class_changed` in the venue's list of
+  messages): it needs no WhatsApp template, and the class still runs when and
+  where it did. A change of price or places tells nobody: the price is for
+  enrolments made from then on, and the places change nothing anybody signed
+  up for. Nobody hears from a venue that has never been live.
 - Each change is in the [activity log](reporting.md#staff-activity-log)
   (`class.changed`) with what it was and what it is; front desk is refused
-  (`MANAGER_ONLY`), as for scheduling and cancelling classes. Enrolled people
-  are not messaged about a new name or instructor.
+  (`MANAGER_ONLY`), as for scheduling and cancelling classes.
 
 Scheduling a class (`class.scheduled`) and cancelling one (`class.cancelled`,
 with a `booking.cancelled` under each enrolment's code) are in the activity

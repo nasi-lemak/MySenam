@@ -135,6 +135,33 @@ describe("changing a tournament before its draw", () => {
     expect(named.ok && named.value.after).toMatchObject({ name: "Renamed Cup", description: "Shuttles provided." });
   });
 
+  it("tells those entered and waiting of a new name, once; and nobody of a new deadline, fee or text", async () => {
+    const t = await tournament({ maxEntries: 2 });
+    const people = await entrants(t.id, 4);
+    const mails = async (email: string) =>
+      ((await getDb().prepare("SELECT subject, body FROM messages WHERE kind = 'programme' AND recipient = ? ORDER BY id").all(email)) as { subject: string; body: string }[]);
+    const before = await Promise.all(people.map((p) => mails(p.user.email)));
+
+    // Renamed, with a place more: the one taken off the list hears it in the email saying they are in.
+    const res = await patch(t.id, { name: "Autumn Smash", maxEntries: 3 });
+    expect((await res.json()).promoted).toBe(1);
+    const after = await Promise.all(people.map((p) => mails(p.user.email)));
+    for (const i of [0, 1, 3]) {
+      const fresh = after[i].slice(before[i].length);
+      expect(fresh).toHaveLength(1);
+      expect(fresh[0].subject).toBe("A new name: Autumn Smash");
+      expect(fresh[0].body).toContain(`${t.name} at`);
+      expect(fresh[0].body).toContain("is now called Autumn Smash");
+    }
+    const promoted = after[2].slice(before[2].length);
+    expect(promoted.map((m) => m.subject)).toEqual(["You're in: Autumn Smash"]);
+
+    // A new deadline, fee and text are nobody's news.
+    expect(await changeTournament(t.id, { entriesCloseOn: addDays(todayISO(), 3), entryFee: 25, description: "Bring water." })).toMatchObject({ ok: true });
+    const later = await Promise.all(people.map((p) => mails(p.user.email)));
+    expect(later.map((m) => m.length)).toEqual(after.map((m) => m.length));
+  });
+
   it("is refused once the draw is made, and to the front desk", async () => {
     const t = await tournament();
     await entrants(t.id, 2);

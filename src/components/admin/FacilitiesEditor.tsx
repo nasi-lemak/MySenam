@@ -5,6 +5,7 @@ import { AMENITIES, AMENITY_ICONS, type Amenity } from "@/lib/facilities";
 import { DICTIONARIES } from "@/lib/i18n";
 import type { ManagedVenue } from "./shared";
 import { useStaffT } from "./StaffLanguage";
+import { ManagerOnly } from "./StaffMay";
 
 /** The English name players see, from the same dictionary. */
 export const facilityLabel = (key: string) => (DICTIONARIES.en as Record<string, string>)[`fac.${key}`] ?? key;
@@ -34,6 +35,7 @@ export function FacilitiesEditor({
         <span className="ml-2 text-xs text-slate-500">{t("fac.empty")}</span>
       )}
       {open && (
+        <ManagerOnly may="venueDetails" note={false}>
         <div className="mt-2 space-y-2">
           <p className="text-xs text-slate-500">{t("fac.intro")}</p>
           <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
@@ -56,6 +58,7 @@ export function FacilitiesEditor({
             {t("fac.save")}
           </button>
         </div>
+        </ManagerOnly>
       )}
     </div>
   );

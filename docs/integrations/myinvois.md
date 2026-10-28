@@ -80,7 +80,7 @@ else):
 | State | What it means | What it holds from LHDN | What staff can do next |
 | --- | --- | --- | --- |
 | Waiting to send (`pending`) | Written down, not sent: a draft | Nothing | Nothing: the scheduler sends it. A credit note says which document it waits for |
-| Not sent (`failed`) | The venue's details were incomplete, nothing was left to send, or MyInvois could not be reached | Nothing | *Send*: the same draft, once put right |
+| Not sent (`failed`) | The venue's details were incomplete, nothing was left to send, MyInvois could not be reached, or sending was interrupted before LHDN's answer was written ([sending once](#sending-once)) | Nothing | *Send*: the same draft, once put right (after an interruption, once the portal shows LHDN does not have it) |
 | Refused by LHDN (`rejected`) | LHDN refused it when it was sent | Submission ID, LHDN's reasons as given | *Send a replacement* |
 | Sent, being validated (`submitted`) | LHDN accepted it for validation | Submission ID, UUID | *Check with LHDN*, *Ask LHDN again* |
 | Valid (`valid`) | LHDN validated it | Submission ID, UUID, long ID (the public link) | *Ask LHDN again* (records a cancellation made in the portal); a sale reversed after this goes in a credit note against it |
@@ -137,6 +137,27 @@ venue holding an e-invoice is not deleted by the stale-draft clean-up
 **A draft follows its receipt.** A document is built when it is sent, from
 the receipts as they are then: *Send* on one that failed sends the receipt
 as it now is.
+
+### Sending once
+
+A draft reaches LHDN once, however many senders take it at the same moment:
+the scheduler sending what waits, staff pressing *Send*, a customer's own
+request sending it at once, or the same run on two servers. Just before
+LHDN is asked, the sender claims the draft (`sending_at`, migration 0256)
+in one statement that only succeeds on a waiting draft nobody has claimed;
+the one that claims it sends it, and any other leaves it and shows it as it
+stands. The claim is cleared when LHDN's answer, or the failure, is written,
+as a refund is claimed before the gateway is asked (`submitOne` in
+`src/lib/myinvois.ts`; `tests/einvoice-sending.test.ts`, against a pretend
+MyInvois that holds the first submission while the second sender tries, on
+PGlite and Postgres).
+
+A claim still set 15 minutes later (`SENDING_CLAIM_MINUTES`; LHDN is given
+30 seconds to answer) means the sender stopped between asking LHDN and
+writing its answer down, so LHDN may have the document. It is never sent
+again by itself: the scheduler marks it *Not sent*, saying that sending was
+interrupted and to check the MyInvois portal before sending it again, and
+staff decide.
 
 ### Names in what is sent
 

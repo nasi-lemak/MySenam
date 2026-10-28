@@ -4,7 +4,7 @@ import { creditScope } from "./mode";
 import { Sport } from "./types";
 import { addDays, todayISO } from "./time";
 import { venueTax } from "./tax";
-import { hoursOn, parseWeekHours } from "./week-hours";
+import { hoursOn, storedHours } from "./week-hours";
 import { venueZoneOf } from "./zones";
 import { bookingCredited, bookingGross } from "./accounting";
 
@@ -296,6 +296,7 @@ type ReportVenueRow = {
   open_min: number;
   close_min: number;
   week_hours: string | null;
+  hours_changes?: string | null;
   time_zone: string | null;
   lat: number | null;
   lng: number | null;
@@ -327,7 +328,8 @@ async function readUse(
       .all(venueId, from, to)) as { date: string }[]).map((r) => r.date)
   );
   // Each day by its own hours: a weekday the venue never opens is a closed day too.
-  const usual = { openMin: venue.open_min, closeMin: venue.close_min, weekHours: parseWeekHours(venue.week_hours) };
+  // As set for each date, where hours change from one (ADR 0027).
+  const usual = storedHours(venue, todayISO(venueZoneOf(venue)));
   let closedDays = 0;
   const openOn = new Map<string, { start: number; end: number }>();
   for (const d of daysOf(from, to)) {

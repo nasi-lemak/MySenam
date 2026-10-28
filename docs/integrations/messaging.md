@@ -48,9 +48,10 @@ happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
 | The venue moves a booking to another court | **Moved**, with the new court and a *seen it* link (urgent) | email; WhatsApp unless *off* |
 | A waitlist place frees up | Offer, with a link to claim it (urgent: it expires); the page it opens can also turn the offer down | email; WhatsApp unless *off* |
 | Somebody joins a waiting list online, giving an email address | **On the waiting list** (kind `waitlist_joined`), with the private link to leave it ([leaving](../features/booking.md#leaving-and-turning-an-offer-down)) | email only |
+| A class's name or instructor is changed, to those enrolled and those holding an offer of a place, giving an email address | **A change to the class** (kind `class_changed`), once per person per change, saying what it was and what it is; an offer's carries its link ([changing a class](../features/programmes.md#changing-a-class)) | email only |
 | The day before, for a booking made more than a day ahead | Reminder | email; WhatsApp only on *everything* with *Day-before reminders on WhatsApp too* ticked |
 | A booking is paid later — online, or marked paid at the counter | Receipt | email only |
-| Tournaments, leagues and open games: entering, coming off a waiting list, the draw, a season starting, a call-off, a game's changes, the day before a game a player joined | The programme's own message (kind `programme`) | email only |
+| Tournaments, leagues and open games: entering, coming off a waiting list, a tournament's new name before its draw, the draw, a season starting, a call-off, a game's changes, the day before a game a player joined | The programme's own message (kind `programme`) | email only |
 
 Programme emails are queued in the outbox, inside the change's own
 transaction where it has one (a withdrawal, a result, a season starting), so

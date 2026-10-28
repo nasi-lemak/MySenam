@@ -8,10 +8,12 @@ import { translateError } from "@/lib/i18n";
 /**
  * Where the emailed link lands: choose a new password, and be signed in.
  * The token is read from the address, not sent anywhere until the form is.
+ * A staff invitation (`kind=invite`, lib/staff-accounts.ts) lands here too:
+ * the invitee chooses their first password, and the account is made.
  */
 export default function ResetPasswordPage() {
   const t = useT();
-  const [kind, setKind] = useState<"user" | "admin">("user");
+  const [kind, setKind] = useState<"user" | "admin" | "invite">("user");
   const [token, setToken] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -21,6 +23,7 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("kind") === "admin") setKind("admin");
+    if (params.get("kind") === "invite") setKind("invite");
     setToken(params.get("token") ?? "");
   }, []);
 
@@ -29,7 +32,7 @@ export default function ResetPasswordPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(kind === "admin" ? "/api/admin/auth/reset" : "/api/auth/reset", {
+      const res = await fetch(kind === "invite" ? "/api/admin/auth/invitation" : kind === "admin" ? "/api/admin/auth/reset" : "/api/auth/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password }),
@@ -45,14 +48,16 @@ export default function ResetPasswordPage() {
     }
   }
 
-  const home = kind === "admin" ? "/admin" : "/account";
+  const home = kind === "user" ? "/account" : "/admin";
+  const invite = kind === "invite";
   return (
     <div className="mx-auto max-w-sm space-y-6">
-      <h1 className="text-2xl font-bold">{t("reset.newTitle")}</h1>
+      <h1 className="text-2xl font-bold">{invite ? t("r9a.page.title") : t("reset.newTitle")}</h1>
+      {invite && !done && <p className="text-sm text-slate-600">{t("r9a.page.intro")}</p>}
       {done ? (
         <div className="space-y-4">
           <p role="status" className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-800">
-            {t("reset.done")}
+            {invite ? t("r9a.page.done") : t("reset.done")}
           </p>
           <a href={home} className="block w-full rounded-lg bg-teal-600 py-2.5 text-center font-semibold text-white hover:bg-teal-700">
             {t("reset.continue")}
@@ -80,14 +85,18 @@ export default function ResetPasswordPage() {
             disabled={busy}
             className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
           >
-            {busy ? t("auth.working") : t("reset.save")}
+            {busy ? t("auth.working") : invite ? t("r9a.page.save") : t("reset.save")}
           </button>
           {error && (
             <p className="text-sm text-red-600">
               {error}{" "}
-              <a href={`/forgot-password${kind === "admin" ? "?kind=admin" : ""}`} className="underline">
-                {t("reset.forgot")}
-              </a>
+              {invite ? (
+                t("r9a.page.expired")
+              ) : (
+                <a href={`/forgot-password${kind === "admin" ? "?kind=admin" : ""}`} className="underline">
+                  {t("reset.forgot")}
+                </a>
+              )}
             </p>
           )}
         </form>

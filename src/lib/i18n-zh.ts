@@ -2660,6 +2660,31 @@ export const ZH: Record<Phrase, string> = {
   "q8b.wl.declinedBody": "感谢告知：名额已转给下一位候补者，您也已退出名单。",
   "q8b.msg.joinedSubject": "已加入候补名单 — {venue}",
   "q8b.msg.joined": "{name}您好，您已加入 {venue} {what} 的候补名单，{date} {from}（排第 {position} 位）。\n\n如有名额空出，我们会通知您，并为您短暂保留。\n\n不再需要？请在此退出名单，以便询问下一位：{leave}",
+  // U8：场馆保留全部已付款项的逾期取消（交还场地）：不退款。
+  "u8.keptAll": "已取消。场馆保留您支付的 {kept}，不予退款。",
+  // R9A: staff invitations (to staff, in their own language)
+  "err.R9A_ADDRESS_TAKEN": "此地址已有员工账户。请用该账户登录，或请邀请您的人改为邀请其他地址。",
+  "r9a.mail.inviteSubject": "{site}：邀请您使用员工后台",
+  "r9a.mail.inviteBody": "{name}，您好：\n\n{who} 邀请您以{role}身份加入 {site} 上的 {where}。\n\n请在此设置您自己的密码；此链接只能使用一次，{days} 天内有效：\n\n{link}\n\n您设置的密码不会有其他人知道。如果您没有预期收到此邮件，请忽略：不会创建任何账户。",
+  "r9a.mail.addressSubject": "{site}：确认您在员工后台的新地址",
+  "r9a.mail.addressBody": "{name}，您好：\n\n{who} 已将您在 {site} 上 {where} 的员工账户地址改为此地址。请在此设置密码，今后用此地址登录；此链接只能使用一次，{days} 天内有效：\n\n{link}\n\n在您完成之前，账户仍使用原地址。如果您没有预期收到此邮件，请忽略。",
+  "r9a.mail.movingSubject": "{site}：您的员工账户地址正在更改",
+  "r9a.mail.movingBody": "{name}，您好：\n\n{who} 已要求将您的 {site} 员工账户改用 {email}。该地址接受发给它的邀请后，账户才会更改；在此之前，您照常在此登录。\n\n如果您没有预期此更改，请告知 {who} 或平台拥有者。",
+  "r9a.mail.roleDesk": "前台",
+  "r9a.mail.roleManager": "经理",
+  "r9a.mail.roleManagerAll": "所有分店的经理",
+  "r9a.page.title": "设置您的密码",
+  "r9a.page.intro": "您已受邀使用员工后台。请设置您用于登录的密码；其他人都不会知道。",
+  "r9a.page.save": "设置密码并登录",
+  "r9a.page.done": "您的密码已设置，且已登录。",
+  "r9a.page.expired": "请邀请您的人重新发送。",
+  "r9d.msg.classChangedSubject": "{what} 有变更 — {venue}",
+  "r9d.msg.classChanged": "{name}您好，{venue} 更改了您的课程（{when}）。{changes}\n\n您的名额和价格保持不变。\n\n代码：{code}",
+  "r9d.msg.classChangedOffered": "{name}您好，{venue} 更改了为您保留名额的课程（{when}）。{changes}\n\n在名额邀请到期之前，名额仍为您保留：{link}",
+  "r9d.msg.newName": "课程现名为 {name}（原名 {old}）。",
+  "r9d.msg.newInstructor": "教练现为 {instructor}（原为 {old}）。",
+  "r9d.mail.tourRenamed.s": "新名称：{t}",
+  "r9d.mail.tourRenamed.b": "{venue}的{old}现已更名为{t}。其他一切不变：您的报名保持原样。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

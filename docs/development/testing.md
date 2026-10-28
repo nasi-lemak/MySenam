@@ -256,8 +256,8 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Recovery J | The retention review is refused until reviewer, role, firm and written-advice reference are given; it is shown as the owner's record, not verified by MySenam, with the rest still provisional; the privacy notice says the same; changing a period lapses it. The ledger and restore gate are script-tested (`tests/erasure-ledger-restore.test.ts`) |
 | Places K | One child taken off a pool session sold by the place: the other stays booked, RM10 less owed, the place offered to the waiting list and claimed, an email names who is off; the last one left and a session sold whole are refused with reasons |
 | Places L | One child's concession on her place alone (the form offers no code on top), the receipt adds up; the counter checks her proof only and remembers it for 12 months, so the next booking does not ask; asked twice, refused |
-| Email 1 | A booking's confirmation email is read from the server's log and its link opens My booking, showing that booking |
-| Email 2 | A waiting-list offer's emailed link claims the place, the claimed booking's confirmation follows, and the link then offers nothing; meanwhile the held place is refused to the person who gave it up |
+| Email 1 | A booking's confirmation email is read from the server's log and its link opens My booking with nothing typed, showing that booking and its weekday date |
+| Email 2 | A waiting-list offer's emailed link claims the place, the claimed booking's confirmation follows, and the spent link then says *Offer unavailable* at once and a claim is refused; meanwhile the held place is refused to the person who gave it up |
 | Email 3 | A password-reset email's link sets a new password once; the old password is refused and the link then shows it has run out |
 | Email 4 | Signing up through the pages: the form answers *check your email*, the emailed link makes the account once; a stranger typing the same address sees identical text, and the address is sent a notice with no link |
 | Discounts M | A manager allows a code with a concession and makes one that combines; one child's junior price and the code on a booking for three: each place's share, the counter and the receipt add up; a code that does not combine is refused (`STK_NOT_COMBINABLE`); with the setting turned back the form takes the code away and the API refuses it (`ONE_DISCOUNT`), the booking standing at the concession price |
@@ -282,6 +282,13 @@ is checked to fit the screen without scrolling sideways (`fitsScreen`).
 | Credit AF | On a phone, a customer with RM200 of credit books a lesson on the coach's page, ticks *Pay from my credit balance*, and is told *Paid from your credit balance*; the lesson is paid and RM100 is off her credit |
 | Accounts AG | A school's account with RM10 of credit (a place taken off after invoicing) is closed after a confirm and stays listed, marked closed, with *Paid back by hand* the only action; the desk is refused recording it (`MANAGER_ONLY`); the manager records it with how it was paid back, and the account leaves the list, in the activity log |
 | Counter AH | A manager turns on *Manager overrides* for the house rules' limits; with one booking at a time allowed, the front desk booking a number that has one at the counter is refused in the counter's words (`R9_DESK_LIMIT_UPCOMING`) and told to ask a manager, with no override; the manager is offered *Override for this booking*, gives a reason and books; the Bookings tab shows *Overridden by … Why: …*, and the activity log has it; a blocked number is refused even for the manager (`R9_DESK_PHONE_BLOCKED`), with no override offered |
+| Counter AI | The desk takes one booking in cash and one by QR and cancels the cash one: the panel shows what was paid, how and the venue's terms; RM20 handed back from the till is listed with its credit note and the desk's name, and the desk's cash-up reads Cash RM20 / −RM20 / RM0, QR RM20, RM40 / −RM20 / RM20 in all |
+| Prices AJ | The desk is offered no *Adjust price*; a manager lowers RM20 to RM15 with a reason, a RM5 credit note in cash among the customer's receipts and in the cash-up; a later cancellation hands back only the RM15 left; the change is in the activity log |
+| Late AK | A manager lets courts be given back after the cutoff; a customer on a phone gives back tomorrow's paid court after its exact confirm text, told nothing is refunded; somebody else books the hour |
+| Links AL | A booking made on a phone; the email's link opens My booking on another device with nothing typed, keeps it on a refresh (the address never holds the phone) and cancels from there; the link with another booking's code shows nothing |
+| Waitlist AM | Two people queue on the grid, each emailed a leave link; the freed place offered to the first, who leaves from the email; it passes at once to the second, who claims it; the leave link then does nothing |
+| Alerts AN | A manager sets alerts to an inbox in Bahasa Malaysia for cancellations within a week; the desk's cancellation is not announced, the customer's online cancellation brings exactly one Malay alert with who, the number, where, the weekday date and the code |
+| Classes AO | The desk is refused changing a class's instructor; the manager changes it for four sessions; the classes page shows only the new instructor and the change is in the activity log |
 
 The acceptance server runs as a marketplace (`MYSENAM_MARKETPLACE=on`, in
 `tests/uat/setup.ts`), since only a marketplace has `/list-your-venue`; a
@@ -752,6 +759,58 @@ its check; machine-assisted Malay, Chinese and Tamil await native review;
 the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
+
+#### 29 October 2026, commit `266a7f9`
+
+The owner's round 8 decisions: e-invoice lines naming nobody and e-invoice
+records kept for the statutory period, apart from optional customer details;
+a language of their own for staff, coaches and a venue's booking alerts;
+guests counted wherever they are registered, walk-ins apart. And the
+operations audit of 28 October 2026 (45 of its 50 findings): counter payouts
+and staff cancellations of paid bookings and of a series' weeks (M22),
+corrections of a booking's details, the day list's filters, actions menu and
+day sheet; payment methods on every counter sale, the cash-up, counter prices
+from the venue's lists and a manager's price adjustment; every staff write in
+the activity log (S28, B52), the schedule's own day (B51), alerts for online
+cancellations and changes, classes and tournaments changed after set-up
+(M23); money on erasure, voids, account cancellations and late fees (M24–M28)
+and entry and split races (B53, B54); the two-factor gate on every staff path,
+sealed calendar feeds, length limits, malformed bodies and local refund dates
+(S26, S27, B48–B50); safe redirects, booking links, offers shown before they
+are claimed, failed payments, the account page, promo codes checked before
+booking, giving a court back late, guest bookings on the account, classes paid
+online; the booking form on a phone, answers that are not the app's, leaving a
+waiting list, the venue's number, the dashboard's address and refresh, weekday
+dates, dialogs and field names (B55, B56); and what the acceptance scenarios
+found (B57, B58). Not a launch. Run on one cloud container (four cores),
+Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed on `3604266` |
+| Documentation checks (`npm run docs:check`) | 106 passed on `3604266` |
+| Suite on PGlite | 360 files (3 Postgres-only skipped); 3686 passed, 12 skipped, on `266a7f9` |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server, `max_locks_per_transaction` 256) | 360 files; 3698 passed, on `266a7f9` at the second attempt (the first timed out in the set-up hooks of three files under the suite's own load, then passed alone in 7 seconds) |
+| Concurrency, money and security inside both suites | Among them: `tests/entry-races.test.ts`, `tests/split-races.test.ts`, `tests/price-adjustments.test.ts` (adjustments at once), `tests/class-changes.test.ts` (a cut racing an enrolment), `tests/waitlist-leave.test.ts` (a decline racing a claim), `tests/guest-counting.test.ts` (two guests for one host at once), `tests/counter-refunds.test.ts`, `tests/erasure-money.test.ts`, `tests/staff-two-factor-gate.test.ts`, `tests/bad-bodies.test.ts`, `tests/staff-log-coverage.test.ts` (every admin write handler) on both engines |
+| Build (`npm run build`) | Succeeded on `3604266` |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), Counter AI, Prices AJ, Late AK, Links AL, Waitlist AM, Alerts AN and Classes AO among them | 17 files; 71 of 71 |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments against the fake gateways and the Billplz stand-in, messages through the outbox only (the acceptance server logs them), MyInvois against a stand-in, Google sign-in against a stand-in |
+
+The first full run, on `1f78e54`, passed 54 of 64 acceptance scenarios: eight
+were written for screens round 8 changed on purpose (the day list's actions
+menu, weekday dates, the booking form's order, the dashboard's address) and
+were brought up to date without weakening them; two were defects (B57, B58),
+fixed with tests. Its unit suites failed three tests and the next run's two,
+all on the clock rather than the product: the two-factor tests' fake clock was
+fixed on a date a week before the database's own (sessions lapsed), the
+participants migration test compared columns added after it, and two tests'
+bookings fell on a weekend once the date moved (all peak, or past closing);
+each now holds on any date, and the suites above ran after. Gaps: no live
+integration has passed its check; machine-assisted Malay, Chinese and Tamil
+await native review; the suites run on today's date only, so a test that
+depends on the weekday or the hour is found only when the date reaches it.
 
 #### 26 October 2026, commit `8f62ccf`
 

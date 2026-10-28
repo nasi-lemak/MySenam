@@ -6,6 +6,7 @@ import type { AccessEntry, AccessKind, AccessSettings, VenueAccess } from "@/lib
 import { money, region } from "@/lib/region";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { ManagerOnly } from "./StaffMay";
 import { PhoneCheckAdvice } from "./PhoneCheckAdvice";
 
 const modes = (t: StaffT): { value: VenueAccess; label: string; note: string }[] => [
@@ -92,6 +93,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
         {open ? t("acs.hide") : s ? t("acs.showCurrent", { mode: MODES.find((m) => m.value === current)?.label ?? "" }) : t("acs.show")}
       </button>
       {open && s && (
+        <ManagerOnly may="venueAccess" note={false}>
         <div className="mt-2 space-y-4 rounded-xl border border-slate-200 bg-white p-4">
           <fieldset className="space-y-2">
             <legend className="text-sm font-semibold">{t("acs.legend")}</legend>
@@ -327,6 +329,7 @@ export function AccessEditor({ venueId }: { venueId: number }) {
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}
           {notice && <p className="text-sm font-medium text-emerald-700">{notice}</p>}
         </div>
+        </ManagerOnly>
       )}
     </div>
   );

@@ -41,6 +41,88 @@ export function parseWeekHours(raw: unknown): WeekHours | null {
   return week.every((d) => d === null) ? null : week;
 }
 
+/**
+ * Hours set to apply from a date (migration 0252, ADR 0027): the venue's usual
+ * hours and its week, as a whole, from `from` on. The venue's own columns are
+ * the hours in force today; a change not yet in force waits here, and the
+ * date asked about decides which applies (`hoursFor`).
+ */
+export interface HoursChange {
+  id: number;
+  /** The first business date it applies to. */
+  from: string;
+  openMin: number;
+  closeMin: number;
+  weekHours: WeekHours | null;
+}
+
+/** A venue's hours as stored: its current ones, and any set from a later date. */
+export interface DatedHours {
+  openMin: number;
+  closeMin: number;
+  weekHours?: WeekHours | null;
+  /** Hours set from a date, soonest first (`venues.hours_changes`, kept by the database). */
+  hoursChanges?: HoursChange[] | null;
+}
+
+/** The changes as the venue row lists them; anything unreadable counts as none. */
+export function parseHoursChanges(raw: unknown): HoursChange[] {
+  let value = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) return [];
+  const out: HoursChange[] = [];
+  for (const c of value as Record<string, unknown>[]) {
+    if (!c || typeof c.from !== "string" || !Number.isFinite(c.openMin) || !Number.isFinite(c.closeMin)) continue;
+    out.push({
+      id: Number(c.id),
+      from: c.from,
+      openMin: Number(c.openMin),
+      closeMin: Number(c.closeMin),
+      weekHours: parseWeekHours(c.weekHours ?? null),
+    });
+  }
+  return out.sort((a, b) => a.from.localeCompare(b.from));
+}
+
+/** The change in force on a date: the latest from on or before it; none, and the current settings apply. */
+export function changeOn<T extends { from: string }>(changes: T[] | null | undefined, date: string): T | null {
+  let found: T | null = null;
+  for (const c of changes ?? []) if (c.from <= date && (!found || c.from > found.from)) found = c;
+  return found;
+}
+
+/** The usual hours and week that apply on a date: a change from on or before it, else the current ones. */
+export function hoursFor(venue: DatedHours, date: string): { openMin: number; closeMin: number; weekHours: WeekHours | null } {
+  const c = changeOn(venue.hoursChanges, date);
+  if (c) return { openMin: c.openMin, closeMin: c.closeMin, weekHours: c.weekHours };
+  return { openMin: venue.openMin, closeMin: venue.closeMin, weekHours: venue.weekHours ?? null };
+}
+
+/**
+ * The hours as they stand today: the current ones, or a change already in
+ * force that staff have not yet touched since (lib/dated-changes.ts makes it
+ * the current settings then). Changes from later dates are kept.
+ */
+export function hoursToday<T extends DatedHours>(venue: T, today: string): T {
+  const now = hoursFor(venue, today);
+  return { ...venue, openMin: now.openMin, closeMin: now.closeMin, weekHours: now.weekHours };
+}
+
+/** A venue row's hours (its columns and `hours_changes`), as they stand on `today` where the venue is. */
+export function storedHours(
+  row: { open_min: number; close_min: number; week_hours?: string | null; hours_changes?: string | null },
+  today: string
+): DatedHours & { weekHours: WeekHours | null } {
+  const stored = { openMin: row.open_min, closeMin: row.close_min, weekHours: parseWeekHours(row.week_hours), hoursChanges: parseHoursChanges(row.hours_changes) };
+  return hoursToday(stored, today);
+}
+
 export interface HoursOn {
   openMin: number;
   closeMin: number;
@@ -48,12 +130,13 @@ export interface HoursOn {
   closed: boolean;
 }
 
-/** The hours on one date, from the usual hours and the weekday's own. */
-export function hoursOn(venue: { openMin: number; closeMin: number; weekHours?: WeekHours | null }, date: string): HoursOn {
-  const day = venue.weekHours?.[dayOfWeek(date)] ?? null;
-  if (day === "closed") return { openMin: venue.openMin, closeMin: venue.openMin, closed: true };
+/** The hours on one date, from the usual hours and the weekday's own, as set for that date (`hoursFor`). */
+export function hoursOn(venue: DatedHours, date: string): HoursOn {
+  const v = hoursFor(venue, date);
+  const day = v.weekHours?.[dayOfWeek(date)] ?? null;
+  if (day === "closed") return { openMin: v.openMin, closeMin: v.openMin, closed: true };
   if (day) return { openMin: day.open, closeMin: day.close, closed: false };
-  return { openMin: venue.openMin, closeMin: venue.closeMin, closed: false };
+  return { openMin: v.openMin, closeMin: v.closeMin, closed: false };
 }
 
 /** Usual hours as given, checked: open before close, within midnight and 4 AM the next morning. */
@@ -126,7 +209,8 @@ export function weekLines(venue: { openMin: number; closeMin: number; weekHours?
   const sunday = "2026-01-04";
   const lines: { from: number; to: number; hours: { open: number; close: number } | "closed" }[] = [];
   for (const day of order) {
-    const on = hoursOn(venue, addDays(sunday, day));
+    // The week as given (a venue's current hours, or a change's), whatever is set from other dates.
+    const on = hoursOn({ openMin: venue.openMin, closeMin: venue.closeMin, weekHours: venue.weekHours }, addDays(sunday, day));
     const hours = on.closed ? ("closed" as const) : { open: on.openMin, close: on.closeMin };
     const last = lines[lines.length - 1];
     const same =
