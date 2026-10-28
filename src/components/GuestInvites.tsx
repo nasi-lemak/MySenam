@@ -12,6 +12,8 @@ export function GuestInvites() {
   const [venues, setVenues] = useState<InviteVenue[]>([]);
   const [form, setForm] = useState<{ venueId: number; phone: string; name: string; days: string; email: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The venue whose withdrawal was refused, to say why under it.
+  const [errorAt, setErrorAt] = useState<number | null>(null);
   const [sent, setSent] = useState<{ venueId: number; name: string; invited: boolean } | null>(null);
   // Whether a guest can prove their number here; without, only an emailed invitation they accept lets them book online.
   const [phoneChecks, setPhoneChecks] = useState(false);
@@ -65,6 +67,25 @@ export function GuestInvites() {
     if (res.ok) setVenues((await res.json()).venues ?? []);
   }
 
+  /** The emailed invitation for one guest, not yet accepted, withdrawn after a confirm; the guest stays on the list. */
+  async function withdraw(venueId: number, id: number) {
+    if (!window.confirm(t("rv7.withdrawConfirm"))) return;
+    setError(null);
+    setErrorAt(null);
+    setSent(null);
+    const res = await fetch("/api/my/guests", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "withdrawInvitation", id }),
+    });
+    const data = await res.json();
+    if (data.venues) setVenues(data.venues);
+    if (!res.ok) {
+      setError(translateError(t, data) || t("guests.failed"));
+      setErrorAt(venueId);
+    }
+  }
+
   if (venues.length === 0) return null;
   const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
   return (
@@ -93,14 +114,25 @@ export function GuestInvites() {
                           {" · "}
                           {g.linked ? t("acc5.linked") : g.invited ? t("gi6.invitationSent") : t("acc5.notLinked")}
                           {g.linked && g.invited ? ` · ${t("gi6.invitationSent")}` : ""}
+                          {g.withdrawn ? ` · ${t("rv7.withdrawn")}` : ""}
                         </span>
                       </span>
-                      <button
-                        onClick={() => remove(g.id)}
-                        className="rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
-                      >
-                        {t("guests.remove")}
-                      </button>
+                      <span className="flex shrink-0 gap-1">
+                        {g.invited && (
+                          <button
+                            onClick={() => void withdraw(v.id, g.id)}
+                            className="rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                          >
+                            {t("rv7.withdraw")}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => remove(g.id)}
+                          className="rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                        >
+                          {t("guests.remove")}
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -170,6 +202,7 @@ export function GuestInvites() {
                     onClick={() => {
                       setForm({ venueId: v.id, phone: "", name: "", days: "1", email: "" });
                       setError(null);
+                      setErrorAt(null);
                     }}
                     className="mt-3 rounded-lg border border-teal-300 px-3 py-1.5 font-semibold text-teal-700 hover:bg-teal-50"
                   >
@@ -177,7 +210,7 @@ export function GuestInvites() {
                   </button>
                 )
               )}
-              {error && form?.venueId === v.id && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
+              {error && (form?.venueId === v.id || errorAt === v.id) && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
             </div>
           );
         })}

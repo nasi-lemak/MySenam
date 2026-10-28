@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { cancelGuest, inviteGuest, myInviteVenues } from "@/lib/guest-invites";
+import { cancelGuest, inviteGuest, myInviteVenues, withdrawGuestInvitation } from "@/lib/guest-invites";
 import { phoneChecksOn } from "@/lib/phone-check";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -39,6 +39,24 @@ export async function POST(req: NextRequest) {
   });
   if (!result.ok) return NextResponse.json(result, { status: 409 });
   return NextResponse.json({ guest: result.guest, venues: await myInviteVenues(user.id), phoneChecks: phoneChecksOn() }, { status: 201 });
+}
+
+/**
+ * `{ action: "withdrawInvitation", id }`: withdraw the invitation emailed for
+ * one's own guest `id`, not yet accepted; the guest stays on the list. The
+ * same `{ withdrawn: true, venues }` again if it already was; `409`
+ * `INVITATION_ACCEPTED_GUEST` (take the guest off instead) or
+ * `INVITATION_NOT_PENDING`, changing nothing; `404 INVITATION_NOT_FOUND` for
+ * anybody else's guest or none.
+ */
+export async function PATCH(req: NextRequest) {
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (body?.action !== "withdrawInvitation") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+  const result = await withdrawGuestInvitation(user.id, body.id);
+  if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
+  return NextResponse.json({ withdrawn: true, venues: await myInviteVenues(user.id) });
 }
 
 /** `?id=`: take one's own guest off the list. */

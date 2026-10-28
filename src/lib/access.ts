@@ -59,6 +59,8 @@ export interface AccessEntry {
   proved: boolean;
   /** A guest a resident invited: who, by name or unit. */
   invitedBy?: string;
+  /** A resident's guest whose last emailed invitation is out, not yet accepted (`pending`), or was withdrawn (lib/guest-invites.ts). */
+  invitation?: "pending" | "withdrawn";
 }
 
 const ENGLISH = translator("en");
@@ -223,11 +225,25 @@ const toEntry = (r: EntryRow): AccessEntry => ({
 });
 
 export async function accessList(venueId: number): Promise<AccessEntry[]> {
-  return (
+  const entries = (
     (await getDb()
       .prepare(`${SELECT_ENTRY} WHERE a.venue_id = ? ORDER BY a.kind, a.label NULLS LAST, a.name NULLS LAST, a.id`)
       .all(venueId)) as EntryRow[]
   ).map(toEntry);
+  // Each guest's last emailed invitation from their present host: out, or withdrawn (staff may withdraw one that is out).
+  const invitations = (await getDb()
+    .prepare(
+      `SELECT DISTINCT ON (gi.entry_id) gi.entry_id,
+              gi.used_at IS NULL AND gi.cancelled_at IS NULL AND gi.expires_on >= ? AS pending, gi.revoked_at IS NOT NULL AS withdrawn
+         FROM guest_invitations gi JOIN venue_access_list a ON a.id = gi.entry_id AND a.invited_by = gi.host_entry_id
+        WHERE gi.venue_id = ? ORDER BY gi.entry_id, gi.id DESC`
+    )
+    .all(todayISO(), venueId)) as { entry_id: number; pending: boolean; withdrawn: boolean }[];
+  const state = new Map(invitations.map((r) => [r.entry_id, r.pending ? ("pending" as const) : r.withdrawn ? ("withdrawn" as const) : null]));
+  return entries.map((e) => {
+    const invitation = state.get(e.id);
+    return invitation ? { ...e, invitation } : e;
+  });
 }
 
 export const MAX_ACCESS_ENTRIES = 5000;

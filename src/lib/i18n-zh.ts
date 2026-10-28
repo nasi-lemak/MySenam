@@ -2432,6 +2432,24 @@ export const ZH: Record<Phrase, string> = {
   "gi7.openGame": "前往球局",
   "gi7.openGroup": "前往群组",
   "gi7.noToken": "此链接不完整。请重新打开邀请邮件中的链接。",
+  // Withdrawing an emailed invitation not yet accepted: a guest's, a game's or a group's (rv7.)
+  "err.INVITATION_NOT_FOUND": "未找到该邀请。",
+  "err.INVITATION_NOT_PENDING": "该邀请已不再等待回复：它已过期或已被替换。未作任何更改。",
+  "err.INVITATION_ACCEPTED_GUEST": "该邀请已被接受，因此无法撤回。如要阻止该访客预订，请将其从访客名单中移除。",
+  "err.INVITATION_ACCEPTED_GAME": "该邀请已被接受，因此无法撤回。如要让该球员退出，请将其从球局中移除。",
+  "err.INVITATION_ACCEPTED_GROUP": "该邀请已被接受，因此无法撤回。如要让对方退出，请将其从群组中移除。",
+  "err.INVITATION_REASON_NEEDED": "请说明撤回邀请的原因（最多 300 个字符）。",
+  "rv7.withdraw": "撤回邀请",
+  "rv7.withdrawConfirm": "撤回此邀请？其链接将失效。如果邮件已经发出，收件地址会收到邀请已撤回的通知。",
+  "rv7.withdrawn": "邀请已撤回",
+  "rv7.withdrawnEmail": "电子邮件邀请：已撤回",
+  "rv7.withdrawnOk": "邀请已撤回。",
+  "rv7.mail.guest.s": "邀请已撤回：{venue}",
+  "rv7.mail.guest.b": "通过电子邮件发给您、邀请您以访客身份前往{venue}的邀请已被撤回，邮件中的链接已失效。\n\n如果您并未预期收到此邀请，请忽略此邮件。",
+  "rv7.mail.game.s": "邀请已撤回：{venue}，{when}",
+  "rv7.mail.game.b": "通过电子邮件发给您、邀请您在{court}，{venue}，{when}打球的邀请已被撤回，邮件中的链接已失效。没有预订，也没有付款。\n\n如果您并未预期收到此邀请，请忽略此邮件。",
+  "rv7.mail.group.s": "邀请已撤回：{g}",
+  "rv7.mail.group.b": "通过电子邮件发给您、邀请您加入{g}的邀请已被撤回，邮件中的链接已失效。\n\n如果您并未预期收到此邀请，请忽略此邮件。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

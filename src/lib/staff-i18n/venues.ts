@@ -332,6 +332,13 @@ const en = {
   "acc5.linkedOk": "Linked.",
   "acc5.unlinkedOk": "Unlinked.",
   "acc5.accountField": "Their account: email or number (optional)",
+  // A resident's emailed guest invitation, withdrawn by the venue's manager (rv7.)
+  "rv7.pending": "Invitation emailed, not yet accepted",
+  "rv7.withdrawn": "Invitation withdrawn",
+  "rv7.withdraw": "Withdraw invitation",
+  "rv7.reasonPrompt": "Withdraw the invitation emailed for {name}? Its link stops working; the guest stays on the list by their number. Say why (kept in the activity log):",
+  "rv7.withdrawnOk": "Invitation withdrawn.",
+  "rv7.act.withdrawn": "Withdrew the invitation a resident emailed for a guest",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -661,6 +668,13 @@ const ms: Record<keyof typeof en, string> = {
   "acc5.linkedOk": "Dipautkan.",
   "acc5.unlinkedOk": "Dinyahpaut.",
   "acc5.accountField": "Akaunnya: e-mel atau nombor (pilihan)",
+  // A resident's emailed guest invitation, withdrawn by the venue's manager (rv7.)
+  "rv7.pending": "Jemputan dihantar melalui e-mel, belum diterima",
+  "rv7.withdrawn": "Jemputan ditarik balik",
+  "rv7.withdraw": "Tarik balik jemputan",
+  "rv7.reasonPrompt": "Tarik balik jemputan yang dihantar melalui e-mel untuk {name}? Pautannya tidak lagi berfungsi; tetamu kekal dalam senarai dengan nombornya. Nyatakan sebabnya (disimpan dalam log aktiviti):",
+  "rv7.withdrawnOk": "Jemputan ditarik balik.",
+  "rv7.act.withdrawn": "Menarik balik jemputan yang dihantar oleh penghuni melalui e-mel untuk tetamu",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -990,6 +1004,13 @@ const zh: Record<keyof typeof en, string> = {
   "acc5.linkedOk": "已关联。",
   "acc5.unlinkedOk": "已取消关联。",
   "acc5.accountField": "其账户：电子邮件或号码（选填）",
+  // A resident's emailed guest invitation, withdrawn by the venue's manager (rv7.)
+  "rv7.pending": "邀请已通过电子邮件发送，尚未接受",
+  "rv7.withdrawn": "邀请已撤回",
+  "rv7.withdraw": "撤回邀请",
+  "rv7.reasonPrompt": "撤回为 {name} 发送的电子邮件邀请？其链接将失效；访客仍按电话号码留在名单上。请说明原因（记入活动日志）：",
+  "rv7.withdrawnOk": "邀请已撤回。",
+  "rv7.act.withdrawn": "撤回了住户通过电子邮件为访客发送的邀请",
 };
 
 const area = { en, ms, zh };

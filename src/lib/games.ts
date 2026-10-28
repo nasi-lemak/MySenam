@@ -25,13 +25,16 @@ import {
   forgetOldInvitations,
   invitationAddress,
   invitationInvalid,
+  invitationNotFound,
   issueInvitation,
   newInvitationToken,
   openEmailInvitationCount,
   openEmailInvitations,
+  withdrawPlayerInvitation,
   type EmailInvitation,
   type InvitationRow,
   type PlayerAcceptResult,
+  type WithdrawResult,
 } from "./player-invitations";
 
 /**
@@ -931,6 +934,29 @@ export async function inviteByEmail(inviterId: number, gameId: number, email: st
   // As a password reset's link: sent now if it can be, not waited on, and the same either way.
   void drainOutbox().catch(() => null);
   return { ok: true, game: (await gameById(gameId))! };
+}
+
+/**
+ * Withdraw an invitation by email not yet accepted (withdrawPlayerInvitation):
+ * by the game's host, or the player who sent it. Anybody else, or an
+ * invitation to another game, hears it is not found, as if there were none.
+ * Under the game's row lock, as accepting it is: it held no place, and the
+ * game's count of invitations waiting for an answer no longer counts it.
+ */
+export async function withdrawEmailInvitation(userId: number, gameId: number, invitationId: unknown): Promise<WithdrawResult> {
+  if (!Number.isInteger(invitationId)) return invitationNotFound();
+  const game = await gameById(gameId);
+  const row = (await getDb().prepare("SELECT invited_by FROM player_invitations WHERE id = ? AND game_id = ?").get(invitationId, gameId)) as
+    | { invited_by: number }
+    | undefined;
+  if (!game || !row || (game.hostId !== userId && row.invited_by !== userId)) return invitationNotFound();
+  return withdrawPlayerInvitation({
+    id: invitationId as number,
+    target: { gameId },
+    by: userId,
+    lock: () => lockPlaces(gameId),
+    notice: { subject: "rv7.mail.game.s", body: "rv7.mail.game.b", vars: { court: game.courtName, venue: game.venueName, when: when(game) } },
+  });
 }
 
 /**

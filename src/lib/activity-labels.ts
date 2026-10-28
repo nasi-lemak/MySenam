@@ -135,4 +135,5 @@ export const ACTION_LABELS: Record<string, string> = {
   "participant.guardian_claim_code": "Gave a guardian a code to take their relationship over with an account",
   "participant.guardian_reported": "Reported a guardian's relationship for review, for a guardian without an account",
   "participant.guardian_told": "Told a guardian without an account about a change",
+  "guest_invitation.withdrawn": "Withdrew the invitation a resident emailed for a guest",
 };

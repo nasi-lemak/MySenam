@@ -183,6 +183,26 @@ list leaves the link to use if a place frees. Who may be invited is checked on
 acceptance, by the rules above, and a link they do not allow gets the same
 answer as one that is used, replaced, run out or another address's.
 
+**Withdrawing an invitation by email.** Until it is accepted, the host, or
+the player who sent it, can withdraw it (*Withdraw invitation* beside
+*invited by email*, after a confirm; `src/lib/player-invitations.ts`
+`withdrawPlayerInvitation`). It is withdrawn under the game's row lock, as
+accepting takes it, and only while open, so a withdrawal racing an
+acceptance is one or the other; it held no place, and it stops counting
+among the game's outstanding invitations. Its link then gets the same answer
+as one run out (`PLAYER_INVITATION_INVALID`), and the host sees *invited by
+email: withdrawn* until it would have run out. Withdrawing again gives the
+same answer; one already accepted is refused (`409 INVITATION_ACCEPTED_GAME`:
+remove the player from the game instead), as is one run out or replaced
+(`409 INVITATION_NOT_PENDING`), changing nothing; anybody else, or another
+game's invitation, gets `404 INVITATION_NOT_FOUND`. If its email had not gone
+it never goes; if it had, the address it went to is sent a short notice, in
+the language the invitation was written in, that it was withdrawn, never by
+whom or why: the same work whether or not an account holds it. The
+invitation keeps who withdrew it and when. An invitation by name is withdrawn
+by removing the player, as before (`tests/invitation-withdrawals.test.ts`,
+`tests/components/invitation-withdrawals.test.tsx`).
+
 Inviting somebody the inviter already knows here (a suggested player, last
 week's players, a group's members) picks the account from those lists and
 invites it by name, as before.
@@ -286,7 +306,10 @@ themselves, because a group is the only way a player under 18 can be invited
 to a game, so it must not be a door anybody can walk through. The organiser
 invites by email, as a host does: the same answer and work whatever the
 address, a single-use link that lasts seven days, and *invited by email* on
-the organiser's roster until it is accepted. Accepting makes a member, if
+the organiser's roster until it is accepted; the organiser can withdraw one
+not yet accepted as a host does (above), under the group's row lock, an
+accepted one being refused with `INVITATION_ACCEPTED_GROUP` (remove the
+member instead). Accepting makes a member, if
 there is room, of a declared adult the organiser has come across or who opted
 in to being invited; anybody else's link is refused like one that cannot be
 used, and a player under 18 asks to join themselves. A public group is
@@ -335,6 +358,7 @@ These are proposals in the [roadmap](../roadmap/roadmap.md), not commitments.
 | Blocking and reporting | `src/lib/player-safety.ts` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
 | Weekly games, groups, suggestion emails | `src/lib/game-series.ts`, `src/lib/groups.ts` | `tests/community.test.ts` |
 | Invitations by email to a game or a group | `src/lib/player-invitations.ts`, `src/app/player-invitation/page.tsx` | `tests/player-invitations.test.ts`, `tests/components/games-screens.test.tsx` |
+| Withdrawing an invitation by email | `src/lib/player-invitations.ts` (`withdrawPlayerInvitation`), `src/lib/games.ts`, `src/lib/groups.ts`, `db/migrations/0213_player_invitations_withdrawn.sql` | `tests/invitation-withdrawals.test.ts` (races on Postgres), `tests/components/invitation-withdrawals.test.tsx` |
 | Women-only and men-only games | `src/lib/who.ts` | `tests/who.test.ts` |
 | Visual acceptance, several players at once | | `tests/uat/matchmaking.uat.ts`, `tests/uat/community.uat.ts` |
 

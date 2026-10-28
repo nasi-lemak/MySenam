@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { closeGroup, groupView, inviteGroupToGame, inviteToGroup, joinGroup, leaveGroup } from "@/lib/groups";
+import { closeGroup, groupView, inviteGroupToGame, inviteToGroup, joinGroup, leaveGroup, withdrawGroupInvitation } from "@/lib/groups";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 /**
  * `{ action }`: "join" (ask, or take up an invitation), "leave"; for its
- * organiser, "invite" (`email`) and "close"; for a member hosting a game,
+ * organiser, "invite" (`email`), "withdrawInvitation" (`invitationId`: an
+ * invitation by email not yet accepted) and "close"; for a member hosting a game,
  * "inviteToGame" (`gameId`): everybody in the group invited to it.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -30,6 +31,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (body.action === "invite" || body.action === "inviteToGame" || body.action === "join") {
     const limited = await rateLimit(req, "social");
     if (limited) return limited;
+  }
+  if (body.action === "withdrawInvitation") {
+    const withdrawn = await withdrawGroupInvitation(user.id, id, body.invitationId);
+    if (!withdrawn.ok) return NextResponse.json({ error: withdrawn.error, code: withdrawn.code }, { status: withdrawn.status });
+    return NextResponse.json({ withdrawn: true, group: await groupView(id, user.id) });
   }
   if (body.action === "inviteToGame") {
     if (!Number.isInteger(body.gameId)) return NextResponse.json({ error: "Which game?" }, { status: 400 });

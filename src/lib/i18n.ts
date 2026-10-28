@@ -2592,6 +2592,24 @@ const EN = {
   "gi7.openGame": "Go to the game",
   "gi7.openGroup": "Go to the group",
   "gi7.noToken": "This link is not complete. Open the link in the invitation email again.",
+  // Withdrawing an emailed invitation not yet accepted: a guest's, a game's or a group's (rv7.)
+  "err.INVITATION_NOT_FOUND": "That invitation was not found.",
+  "err.INVITATION_NOT_PENDING": "That invitation is no longer waiting for an answer: it ran out or was replaced. Nothing was changed.",
+  "err.INVITATION_ACCEPTED_GUEST": "That invitation has already been accepted, so it cannot be withdrawn. To stop the guest booking, take them off the guest list instead.",
+  "err.INVITATION_ACCEPTED_GAME": "That invitation has already been accepted, so it cannot be withdrawn. To take the player out, remove them from the game instead.",
+  "err.INVITATION_ACCEPTED_GROUP": "That invitation has already been accepted, so it cannot be withdrawn. To take them out, remove them from the group instead.",
+  "err.INVITATION_REASON_NEEDED": "Say why the invitation is being withdrawn (up to 300 characters).",
+  "rv7.withdraw": "Withdraw invitation",
+  "rv7.withdrawConfirm": "Withdraw this invitation? Its link will stop working. If the email has already gone, the address it went to is told the invitation was withdrawn.",
+  "rv7.withdrawn": "Invitation withdrawn",
+  "rv7.withdrawnEmail": "Invited by email: withdrawn",
+  "rv7.withdrawnOk": "Invitation withdrawn.",
+  "rv7.mail.guest.s": "Invitation withdrawn: {venue}",
+  "rv7.mail.guest.b": "The invitation emailed to you to be a guest at {venue} has been withdrawn, so the link in it no longer works.\n\nIf you were not expecting it, ignore this email.",
+  "rv7.mail.game.s": "Invitation withdrawn: {venue}, {when}",
+  "rv7.mail.game.b": "The invitation emailed to you to play at {court}, {venue}, {when} has been withdrawn, so the link in it no longer works. Nothing was booked or paid.\n\nIf you were not expecting it, ignore this email.",
+  "rv7.mail.group.s": "Invitation withdrawn: {g}",
+  "rv7.mail.group.b": "The invitation emailed to you to join {g} has been withdrawn, so the link in it no longer works.\n\nIf you were not expecting it, ignore this email.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5137,6 +5155,24 @@ const MS: Record<Phrase, string> = {
   "gi7.openGame": "Pergi ke permainan",
   "gi7.openGroup": "Pergi ke kumpulan",
   "gi7.noToken": "Pautan ini tidak lengkap. Buka semula pautan dalam e-mel jemputan.",
+  // Withdrawing an emailed invitation not yet accepted: a guest's, a game's or a group's (rv7.)
+  "err.INVITATION_NOT_FOUND": "Jemputan itu tidak ditemui.",
+  "err.INVITATION_NOT_PENDING": "Jemputan itu tidak lagi menunggu jawapan: ia telah tamat tempoh atau diganti. Tiada apa-apa diubah.",
+  "err.INVITATION_ACCEPTED_GUEST": "Jemputan itu telah pun diterima, jadi ia tidak boleh ditarik balik. Untuk menghalang tetamu menempah, keluarkan mereka daripada senarai tetamu.",
+  "err.INVITATION_ACCEPTED_GAME": "Jemputan itu telah pun diterima, jadi ia tidak boleh ditarik balik. Untuk mengeluarkan pemain, keluarkan mereka daripada permainan.",
+  "err.INVITATION_ACCEPTED_GROUP": "Jemputan itu telah pun diterima, jadi ia tidak boleh ditarik balik. Untuk mengeluarkan mereka, keluarkan mereka daripada kumpulan.",
+  "err.INVITATION_REASON_NEEDED": "Nyatakan sebab jemputan ditarik balik (sehingga 300 aksara).",
+  "rv7.withdraw": "Tarik balik jemputan",
+  "rv7.withdrawConfirm": "Tarik balik jemputan ini? Pautannya tidak akan berfungsi lagi. Jika e-mel sudah dihantar, alamat yang menerimanya akan dimaklumkan bahawa jemputan telah ditarik balik.",
+  "rv7.withdrawn": "Jemputan ditarik balik",
+  "rv7.withdrawnEmail": "Dijemput melalui e-mel: ditarik balik",
+  "rv7.withdrawnOk": "Jemputan ditarik balik.",
+  "rv7.mail.guest.s": "Jemputan ditarik balik: {venue}",
+  "rv7.mail.guest.b": "Jemputan yang dihantar kepada anda melalui e-mel untuk menjadi tetamu di {venue} telah ditarik balik, jadi pautan di dalamnya tidak lagi berfungsi.\n\nJika anda tidak menjangkakannya, abaikan e-mel ini.",
+  "rv7.mail.game.s": "Jemputan ditarik balik: {venue}, {when}",
+  "rv7.mail.game.b": "Jemputan yang dihantar kepada anda melalui e-mel untuk bermain di {court}, {venue}, {when} telah ditarik balik, jadi pautan di dalamnya tidak lagi berfungsi. Tiada apa-apa ditempah atau dibayar.\n\nJika anda tidak menjangkakannya, abaikan e-mel ini.",
+  "rv7.mail.group.s": "Jemputan ditarik balik: {g}",
+  "rv7.mail.group.b": "Jemputan yang dihantar kepada anda melalui e-mel untuk menyertai {g} telah ditarik balik, jadi pautan di dalamnya tidak lagi berfungsi.\n\nJika anda tidak menjangkakannya, abaikan e-mel ini.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

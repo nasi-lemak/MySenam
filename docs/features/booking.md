@@ -1017,6 +1017,27 @@ off) and **for up to how many days** (1 to 14). Changing them is a manager's job
     then *linked* (accepting is the guest's own act, so it tells the resident
     nothing they were not meant to know); a guest already linked keeps that
     account until a new invitation is accepted.
+  - **Withdrawing.** An invitation not yet accepted can be withdrawn
+    (*Withdraw invitation*, after a confirm) by the resident who sent it, or
+    by the venue's **manager** from the list (*Who it is for*), who gives a
+    reason; front desk cannot, as with every other change to the list
+    (`src/lib/roles.ts`). The guest stays on the list by their number, and the
+    link is refused in the same words as one run out
+    (`GUEST_INVITATION_INVALID`). It is withdrawn only while open, under its
+    row lock as accepting takes it, so a withdrawal racing an acceptance is
+    one or the other; withdrawing again gives the same answer. One already
+    accepted is refused (`409 INVITATION_ACCEPTED_GUEST`: take the guest off
+    the list, or unlink their account, instead), as is one run out or
+    replaced (`409 INVITATION_NOT_PENDING`), changing nothing; anybody else's
+    guest, or another venue's entry, is `404 INVITATION_NOT_FOUND`. If its
+    email had not gone it never goes; if it had, the address it went to is
+    sent a short notice, in the language the invitation was written in, that
+    it was withdrawn (never by whom or why), the same whether or not an
+    account holds it. The resident and staff then see *invitation withdrawn*;
+    the invitation keeps who withdrew it and when, with a manager's reason,
+    and a manager's withdrawal is in the activity log
+    (`guest_invitation.withdrawn`) (`tests/invitation-withdrawals.test.ts`,
+    `tests/components/invitation-withdrawals.test.tsx`).
 - Without an email, the entry counts only for an account that has proved the
   guest's number — so on a site without phone checks the guest cannot book
   online until the resident invites them again with an email or staff link
