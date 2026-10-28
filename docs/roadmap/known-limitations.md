@@ -204,7 +204,7 @@ changes; 6 to 8 name what they wait for. As of 28 October 2026: no defect
 | [No CSRF token; inline styles](#operations-and-security-s); [refunding to credit](#money-m) by its transaction; [disputes lost in part](#money-m) settled by hand; [negative credit after a chargeback](#accepted) | 5 | — | Kept |
 | [Staff moves not asked the house rules; the class page without override or pay-now buttons; overrides not in the bookings export](#booking-and-availability-b) | 3 / 5 | Venues | Kept for now: the activity log carries overrides; the class page's buttons when a venue needs them |
 | [Timing tests on one machine; an invitation withdrawn while its email is being sent](#operations-and-security-s) | 5 | Everyone | Kept: equal timing in production is shown only by measuring there; the link is refused either way |
-| [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; names out of lines and statutory retention decided by the owner (being built) |
+| [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; the statutory period confirmed by the venue's adviser |
 | [Staff messages in the install's first language](#languages) | 3 / 5 | Coaches and staff reading Malay or Chinese | A language of their own for coaches and staff, if the owner wants staff emails in other languages |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
 
@@ -292,17 +292,23 @@ address is not systematically faster, not equal timing in production (P3).
 Also: an e-invoice already sent to LHDN keeps the names its lines said, as
 sent, at LHDN and in its copy here, which is never changed
 ([MyInvois](../integrations/myinvois.md#states-and-what-never-changes)); one
-not yet sent follows its receipt, and a venue can leave names out of
-e-invoice lines (off by default). The details a customer gave for their own
-e-invoice (name, TIN, ID number, email, phone, address) are kept with it,
-with no retention rule or erasure clearing them. Coaches' names on lesson
+not yet sent follows its receipt, and no e-invoice line names a participant, child
+or coach (the owner, 28 October 2026). The details a customer gave for their
+own e-invoice (name, TIN, ID number, email, phone, address) are kept with it
+for the statutory period, erasure included, then cleared with the
+document's contents ([privacy](../architecture/privacy.md#e-invoice-records)). Coaches' names on lesson
 receipts, and receipts naming a participant whom retention deleted rather
 than erased, keep those names until the receipt's own retention period;
 where a name is cleared by matching it as a word, a matching word elsewhere
 on that receipt is cleared too (amounts never change)
-([privacy](../architecture/privacy.md)) (P3). For the owner: whether
-"leave names out" should be on by default (recommended), and how long
-e-invoice buyer details are kept.
+([privacy](../architecture/privacy.md)) (P3).
+
+Also: the statutory period for e-invoice records (7 years from issue by
+default) is the owner's provisional reading, not legally verified; whether
+it should run from the end of the year of assessment is for the venue's
+adviser (8 years covers either reading), and the period is not carried in
+the erasure ledger, so after a restore the restored copy's period applies
+([privacy](../architecture/privacy.md#e-invoice-records)) (P2, legal review).
 
 Also: MyInvois cancelling is done in the portal and reaches MySenam only when
 LHDN is asked; MySenam issues no debit or refund notes; staff cannot correct
