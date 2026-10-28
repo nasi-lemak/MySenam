@@ -2568,6 +2568,9 @@ export const TA: Record<Phrase, string> = {
   "r9.form.overrideReason": "காரணம் (முன்பதிவுடனும் செயல்பாட்டுப் பதிவிலும் வைக்கப்படும்)",
   "r9.form.overrideBook": "விலக்கு அளித்து முன்பதிவு செய்",
   "r9.form.askManager": "மேலாளரிடம் கேளுங்கள்: இந்த மையம் அதன் மேலாளர்கள் ஒரு முன்பதிவுக்கு இதற்கு விலக்கு அளிக்க அனுமதிக்கிறது.",
+  // Round 8 (D8b): what closing an account does to the money on upcoming bookings
+  "d8b.data.money":
+    "ஒவ்வொன்றும் மையத்தின் ரத்து விதிமுறைகளின்படி, நீங்களே ரத்து செய்தது போல் ரத்து செய்யப்படும்: நீங்கள் இணையத்தில் செலுத்தியது திருப்பித் தரப்படும், தாமத ரத்துக் கட்டணம் ஏதேனும் இருந்தால் அது கழிக்கப்படும்; மையத்தின் காலக்கெடுவுக்குள், தாமதமாக ரத்து செய்ய மையம் அனுமதிக்காவிட்டால், செலுத்தியதை மையம் வைத்துக்கொள்ளும். ஏற்கெனவே தொடங்கிய முன்பதிவு அப்படியே இருக்கும்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */
@@ -2624,4 +2627,9 @@ export const CUSTOMER_ERRORS_TA: Record<string, string> = {
   "email and password are required.": "மின்னஞ்சலும் கடவுச்சொல்லும் தேவை.",
   "code and phone are required.": "குறியீடும் தொலைபேசி எண்ணும் தேவை.",
   "One of your applications to a venue is being kept under a legal, safety or dispute hold, so the account cannot be closed yet. Ask the venue about it; the account can be closed once the hold ends.": "ஒரு மையத்துக்கு நீங்கள் அனுப்பிய விண்ணப்பங்களில் ஒன்று சட்ட, பாதுகாப்பு அல்லது சர்ச்சை நிறுத்திவைப்பின் கீழ் வைக்கப்பட்டுள்ளது, எனவே கணக்கை இன்னும் மூட முடியாது. அதைப் பற்றி மையத்திடம் கேளுங்கள்; நிறுத்திவைப்பு முடிந்ததும் கணக்கை மூடலாம்.",
+  // Round 8 (D8b): closing an account that would get credit back; changing a split while a friend pays
+  "Cancelling your upcoming bookings would put credit back into your account, and it would be lost with it. Cancel those bookings yourself first, spend the credit or ask the venue to refund it, and then close the account.":
+    "உங்கள் வரவிருக்கும் முன்பதிவுகளை ரத்து செய்வது உங்கள் கணக்கில் கிரெடிட்டைத் திருப்பி வைக்கும், அது கணக்குடன் சேர்ந்து இழக்கப்படும். முதலில் அந்த முன்பதிவுகளை நீங்களே ரத்து செய்து, கிரெடிட்டைச் செலவழியுங்கள் அல்லது மையத்திடம் திருப்பித் தரக் கேளுங்கள், பிறகு கணக்கை மூடுங்கள்.",
+  "A friend is paying their share now, so the split stays as it is until that payment is settled.":
+    "ஒரு நண்பர் இப்போது தமது பங்கைச் செலுத்திக்கொண்டிருக்கிறார், எனவே அந்தக் கட்டணம் முடியும் வரை பகிர்வு அப்படியே இருக்கும்.",
 };

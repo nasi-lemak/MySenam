@@ -357,6 +357,8 @@ const en = {
   "srv.mbo.line": "Membership {code} for {who}, {from} to {to}",
   // The Stripe set-up, with the refund events (lib/gateways/stripe.ts; round 7, H7)
   "srv.rg7.stripeSetup": "In Stripe, add a webhook endpoint at the address below, sending {payment}; {subscription} (for memberships that renew themselves); {dispute} (so a chargeback is recorded and its booking or credit taken back); and {refund} (so a refund made in Stripe's own dashboard is recorded and shown to you). Turn on PayNow and cards under Settings → Payment methods.",
+  // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
+  "srv.d8b.cancelled": "{code}, cancelled",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -712,6 +714,8 @@ const ms: Record<keyof typeof en, string> = {
   "srv.mbo.line": "Keahlian {code} untuk {who}, {from} hingga {to}",
   // The Stripe set-up, with the refund events (lib/gateways/stripe.ts; round 7, H7)
   "srv.rg7.stripeSetup": "Dalam Stripe, tambah titik akhir webhook pada alamat di bawah, yang menghantar {payment}; {subscription} (untuk keahlian yang diperbaharui sendiri); {dispute} (supaya caj balik direkodkan dan tempahan atau kreditnya ditarik balik); dan {refund} (supaya bayaran balik yang dibuat dalam papan pemuka Stripe sendiri direkodkan dan ditunjukkan kepada anda). Hidupkan PayNow dan kad di bawah Settings → Payment methods.",
+  // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
+  "srv.d8b.cancelled": "{code}, dibatalkan",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1067,6 +1071,8 @@ const zh: Record<keyof typeof en, string> = {
   "srv.mbo.line": "{who} 的会员资格 {code}，{from} 至 {to}",
   // The Stripe set-up, with the refund events (lib/gateways/stripe.ts; round 7, H7)
   "srv.rg7.stripeSetup": "在 Stripe 中，于下方地址添加一个 Webhook 端点，发送 {payment}；{subscription}（用于自动续期的会员资格）；{dispute}（以便记录拒付并收回相应的预订或储值）；以及 {refund}（以便记录在 Stripe 后台直接办理的退款并通知您）。在 Settings → Payment methods 中开启 PayNow 和银行卡。",
+  // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
+  "srv.d8b.cancelled": "{code}，已取消",
 };
 
 const area = { en, ms, zh };

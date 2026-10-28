@@ -2727,6 +2727,9 @@ const EN = {
   "r9.form.overrideReason": "Why (kept with the booking and in the activity log)",
   "r9.form.overrideBook": "Override and book",
   "r9.form.askManager": "Ask a manager: this venue lets its managers override this for one booking.",
+  // Round 8 (D8b): what closing an account does to the money on upcoming bookings
+  "d8b.data.money":
+    "Each is cancelled on the venue's cancellation terms, as if you cancelled it yourself: what you paid online is refunded, less any late-cancellation fee; inside the venue's cutoff, where it allows no late cancelling, the venue keeps what was paid. A booking already under way stands.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5405,6 +5408,9 @@ const MS: Record<Phrase, string> = {
   "r9.form.overrideReason": "Sebab (disimpan bersama tempahan dan dalam log aktiviti)",
   "r9.form.overrideBook": "Atasi dan tempah",
   "r9.form.askManager": "Minta pengurus: pusat ini membenarkan pengurusnya mengatasi perkara ini untuk satu tempahan.",
+  // Round 8 (D8b): what closing an account does to the money on upcoming bookings
+  "d8b.data.money":
+    "Setiap satu dibatalkan mengikut syarat pembatalan pusat, seolah-olah anda membatalkannya sendiri: bayaran dalam talian anda dikembalikan, tolak sebarang fi pembatalan lewat; dalam tempoh had pusat, jika pusat tidak membenarkan pembatalan lewat, pusat menyimpan apa yang telah dibayar. Tempahan yang sudah bermula kekal.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
@@ -5587,6 +5593,11 @@ export const CUSTOMER_ERRORS_MS: Record<string, string> = {
   "email and password are required.": "E-mel dan kata laluan diperlukan.",
   "code and phone are required.": "Kod dan nombor telefon diperlukan.",
   "One of your applications to a venue is being kept under a legal, safety or dispute hold, so the account cannot be closed yet. Ask the venue about it; the account can be closed once the hold ends.": "Salah satu permohonan anda kepada pusat sedang disimpan di bawah tahanan undang-undang, keselamatan atau pertikaian, jadi akaun belum boleh ditutup. Tanya pusat mengenainya; akaun boleh ditutup apabila tahanan tamat.",
+  // Round 8 (D8b): closing an account that would get credit back; changing a split while a friend pays
+  "Cancelling your upcoming bookings would put credit back into your account, and it would be lost with it. Cancel those bookings yourself first, spend the credit or ask the venue to refund it, and then close the account.":
+    "Membatalkan tempahan akan datang anda akan memulangkan kredit ke dalam akaun anda, dan ia akan hilang bersamanya. Batalkan tempahan itu sendiri dahulu, belanjakan kredit itu atau minta pusat membayar baliknya, kemudian tutup akaun.",
+  "A friend is paying their share now, so the split stays as it is until that payment is settled.":
+    "Seorang rakan sedang membayar bahagiannya sekarang, jadi pembahagian kekal seperti sedia ada sehingga bayaran itu selesai.",
 };
 
 /** What a refused request sends back: the sentence, and the name of the refusal. */

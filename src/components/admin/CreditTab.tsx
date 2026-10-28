@@ -314,13 +314,24 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
 
   async function cancel(pass: Pass) {
     if (!confirm(t("cr.passCancelConfirm", { code: pass.code }))) return;
+    // Not a refund unless staff say so: then the unused part goes back, with a credit note for that much (lib/store.ts voidPass).
+    const unused = pass.entries > 0 ? Math.round((pass.price * Math.max(0, Math.min(pass.remaining, pass.entries)) * 100) / pass.entries) / 100 : 0;
+    const refund = unused > 0 && confirm(t("d8b.cr.passRefundConfirm", { code: pass.code, amount: money(unused) }));
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch(`/api/admin/passes/${pass.id}/void`, { method: "POST" });
+      const res = await fetch(`/api/admin/passes/${pass.id}/void`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refund }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(t.err(data, t("cr.passCancelFailed")));
-      setNotice(t("cr.passCancelled", { code: pass.code }));
+      setNotice(
+        typeof data.refunded === "number" && data.refunded > 0
+          ? `${t("cr.passCancelled", { code: pass.code })} ${t("d8b.cr.passRefunded", { amount: money(data.refunded) })}`
+          : t("cr.passCancelled", { code: pass.code })
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cr.passCancelFailed"));

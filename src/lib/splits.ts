@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { hoursOf } from "./interval";
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
 import { creditReceipt } from "./documents";
 import { findBooking, getCourt, getVenue } from "./store";
 import { roundMoney } from "./region";
@@ -89,18 +89,36 @@ export async function splitBooking(code: string, phone: string, parts: unknown):
   const game = await db.prepare("SELECT 1 FROM open_games WHERE booking_id = ? AND status <> 'cancelled'").get(booking.id);
   if (game) return { ok: false, error: "This booking is an open game: players pay their share there.", status: 409 };
 
-  // Each friend's share, rounded down to the cent; the booker's part takes the rest.
-  const share = Math.floor(((booking.totalPrice - booking.sharesPaid) / (parts as number)) * 100) / 100;
-  if (share <= 0) return { ok: false, error: "There is nothing to split.", status: 409 };
-  const existing = (await db.prepare("SELECT id FROM booking_splits WHERE booking_id = ?").get(booking.id)) as { id: number } | undefined;
-  if (existing) {
-    if ((await paidShares(existing.id)) > 0) return { ok: false, error: "A friend has paid already, so the split stays as it is.", status: 409 };
-    await db.prepare("UPDATE booking_splits SET parts = ?, share = ? WHERE id = ?").run(parts, share, existing.id);
-  } else {
-    await db
-      .prepare("INSERT INTO booking_splits (booking_id, parts, share, token) VALUES (?, ?, ?, ?)")
-      .run(booking.id, parts, share, crypto.randomBytes(18).toString("base64url"));
-  }
+  // Decided under the booking's lock, as a friend's share is counted under it (`countSplitShare` writes the
+  // booking): two splits at once make one split, and the shares never change once a friend has paid, or while
+  // one is paying (the amount on their payment page was worked out from the share as it was).
+  const refused = await withTransaction(async (): Promise<Result | null> => {
+    const b = (await db
+      .prepare("SELECT status, payment_status, (total_price - shares_paid)::float AS left FROM bookings WHERE id = ? FOR UPDATE")
+      .get(booking.id)) as { status: string; payment_status: string; left: number };
+    if (b.status !== "confirmed") return { ok: false, error: "That booking was cancelled.", status: 409 };
+    if (b.payment_status === "paid") return { ok: false, error: "That booking is paid already.", status: 409 };
+    // Each friend's share, rounded down to the cent; the booker's part takes the rest.
+    const share = Math.floor((Number(b.left) / (parts as number)) * 100) / 100;
+    if (share <= 0) return { ok: false, error: "There is nothing to split.", status: 409 };
+    const existing = (await db.prepare("SELECT id FROM booking_splits WHERE booking_id = ? FOR UPDATE").get(booking.id)) as { id: number } | undefined;
+    if (existing) {
+      if ((await paidShares(existing.id)) > 0) return { ok: false, error: "A friend has paid already, so the split stays as it is.", status: 409 };
+      const paying = await db
+        .prepare(
+          `SELECT 1 FROM online_payments WHERE split_id = ? AND purpose = 'split' AND status = 'pending' AND created_at > datetime('now', '-24 hours')`
+        )
+        .get(existing.id);
+      if (paying) return { ok: false, error: "A friend is paying their share now, so the split stays as it is until that payment is settled.", status: 409 };
+      await db.prepare("UPDATE booking_splits SET parts = ?, share = ? WHERE id = ?").run(parts, share, existing.id);
+    } else {
+      await db
+        .prepare("INSERT INTO booking_splits (booking_id, parts, share, token) VALUES (?, ?, ?, ?) ON CONFLICT (booking_id) DO NOTHING")
+        .run(booking.id, parts, share, crypto.randomBytes(18).toString("base64url"));
+    }
+    return null;
+  });
+  if (refused) return refused;
   return { ok: true, split: (await splitFor(booking.id))! };
 }
 

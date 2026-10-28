@@ -576,6 +576,10 @@ export async function creditBooking(
           ],
         };
   const tax = sale.taxRate ? await venueTax(sale.venueId) : null;
+  // A late cancellation's fee kept carries its own tax, worked out on it (as the period report counts it): the
+  // credit note takes the rest of the receipt's, so the two never drift a cent apart.
+  const base = roundMoney(full.total * remaining);
+  const taxBack = !sale.taxRate ? 0 : share < 1 ? roundMoney(taxIncluded(base, sale.taxRate) - taxIncluded(roundMoney(base - sale.total), sale.taxRate)) : taxIncluded(sale.total, sale.taxRate);
   return write({
     venue_id: sale.venueId,
     kind: "credit_note",
@@ -589,7 +593,7 @@ export async function creditBooking(
     total: sale.total,
     tax_name: sale.taxRate ? tax!.name : null,
     tax_rate: sale.taxRate,
-    tax_amount: sale.taxRate ? taxIncluded(sale.total, sale.taxRate) : 0,
+    tax_amount: taxBack,
     tax_reg_no: sale.taxRate ? tax!.regNo : null,
     paid_via: paidVia(sale.paidVia),
     note: why,
@@ -657,6 +661,8 @@ export async function creditAccountPlace(credit: {
   amount: number;
   taxRate: number | null;
   why: string;
+  /** Its line where it is not for one place: a whole booking cancelled (lib/accounts.ts `creditAccountForCancellation`). */
+  line?: Line;
 }): Promise<Document | null> {
   const total = roundMoney(credit.amount);
   if (total <= 0) return null;
@@ -672,7 +678,7 @@ export async function creditAccountPlace(credit: {
     user_id: null,
     customer_name: credit.accountName,
     customer_phone: null,
-    lines: JSON.stringify([takenOffLine(credit.who, credit.code, total)]),
+    lines: JSON.stringify([credit.line ?? takenOffLine(credit.who, credit.code, total)]),
     total,
     tax_name: rate ? tax!.name : null,
     tax_rate: rate,

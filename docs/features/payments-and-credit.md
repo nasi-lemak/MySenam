@@ -650,7 +650,10 @@ WhatsApp*.
 - **The booker** pays the rest: *Pay online* asks only for what is left, or
   nothing once friends have covered it. A share is the total divided by the
   number of ways, rounded down to the cent; the booker's part takes the
-  remainder. The number of ways can be changed until a friend has paid.
+  remainder. The number of ways can be changed until a friend has paid, and
+  not while one is paying (their page asks the share it was opened with).
+  Splitting is decided under the booking's lock: two splits at the same
+  moment make one ([concurrency](../architecture/booking-concurrency.md#status-of-each-guarantee)).
 - **Said up front:** the booking stays the booker's, so until it is all paid
   they owe what is left and the venue's cancellation rules apply to them; a
   friend is told they pay the venue directly, get a receipt, and are owed
@@ -755,18 +758,27 @@ is registered. The email and the invoice are in the account's language, one
 of the site's that the venue picks when opening it (the site's first unless
 it picks another), whoever opens the link; court names, payment methods and
 what staff typed stay as written. A manager can also invoice an account at once, for last month
-or this month so far. *Mark paid* records how it came in and marks every
-booking on it paid the same way. An unpaid invoice can be withdrawn; its
-bookings go on the next one. Closing an account stops new bookings on it;
+or this month so far: everything charged to it for dates up to today,
+a session later today included (the account buys on credit as it books;
+anything changed after the invoice is a credit note, below). *Mark paid*
+records how it came in and marks every booking on it paid the same way, one
+cancelled since included, as the invoice charged it. An unpaid invoice can
+be withdrawn; its bookings go on the next one; not once a booking on it was
+cancelled with a credit note against it, as that credit note stands.
+What the account **owes** is what its unpaid invoices say: each one's total
+as issued, less the credit notes taken off it. Closing an account stops new bookings on it;
 what is on it is still invoiced.
 
 **Credit notes on the account.** One person taken off a booking on the
-account ([taking one person off a booking](booking.md#taking-one-person-off-a-booking))
-before its invoice is issued comes off the booking's charge. After, an
-issued invoice never changes: the place's price, on the venue's
-cancellation terms, is a credit note to the account against that invoice
-(`account_credits`, migration 0201; in the venue's documents at the tax the
-booking was invoiced at), whether the invoice is paid or not, and comes off
+account ([taking one person off a booking](booking.md#taking-one-person-off-a-booking)),
+or the whole booking cancelled, before its invoice is issued comes off the
+account's charge. After, an issued invoice never changes: the place's price,
+or what the invoice charged for the booking, on the venue's cancellation
+terms, is a credit note to the account against that invoice
+(`account_credits`, migrations 0201 and 0242, once per booking cancelled; in
+the venue's documents at the tax the booking was invoiced at, and never as
+well a credit note on the booking's own receipt), whether the invoice is paid
+or not, and comes off
 the account's next invoice, whole and oldest first, as far as its total
 goes: the invoice lists each (*Credit note CN-…, MS-…*) and what is *To
 pay*, and its email gives that. Staff see the credit waiting on the
@@ -780,8 +792,8 @@ never comes off an invoice afterwards; an invoice issued at the same moment
 either takes it or leaves it to the hand payment, never both. A closed
 account stays listed, marked closed, while credit waits on it.
 Tested in `tests/place-withdrawals-money.test.ts`,
-`tests/account-credit-settled.test.ts` (on Postgres too) and
-`tests/components/account-credit-settle.test.tsx`.
+`tests/account-credit-settled.test.ts`, `tests/account-cancellations.test.ts`
+(on Postgres too) and `tests/components/account-credit-settle.test.tsx`.
 
 Managers open, change and close accounts and invoice them; the desk charges
 bookings to them and marks invoices paid. Every step is in the activity log.

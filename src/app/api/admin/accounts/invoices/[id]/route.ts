@@ -29,11 +29,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   return NextResponse.json({ invoice: done.invoice });
 }
 
-/** Withdrawn, its bookings to be invoiced again; not once paid (managers). */
+/** Withdrawn, its bookings to be invoiced again; not once paid, nor once a booking on it was cancelled with a credit note (managers). */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const invoice = await invoiceFor(req, (await params).id);
   if (invoice instanceof NextResponse) return invoice;
-  if (!(await withdrawInvoice(invoice.venueId, invoice.id))) return NextResponse.json({ error: "A paid invoice stays." }, { status: 409 });
+  if (!(await withdrawInvoice(invoice.venueId, invoice.id)))
+    return NextResponse.json(
+      { error: (await invoiceById(invoice.id))?.paidOn ? "A paid invoice stays." : "A booking on this invoice was cancelled with a credit note against it, so the invoice stays." },
+      { status: 409 }
+    );
   await logFromRequest(req, { venueId: invoice.venueId, action: "account.invoiced", detail: `Invoice ${invoice.number} to ${invoice.accountName} withdrawn` });
   return NextResponse.json({ ok: true });
 }

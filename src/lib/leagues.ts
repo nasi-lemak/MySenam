@@ -1,5 +1,5 @@
 import { isActivity } from "./activities";
-import { getDb, withTransaction } from "./db";
+import { getDb, isBusy, withTransaction } from "./db";
 import { receiptFee } from "./documents";
 import { boxSizes, intoBoxes, ladder, seasonMoves, type Move } from "./boxes";
 import { flipScore, scoreRefusal, standings, type Standing } from "./brackets";
@@ -524,6 +524,21 @@ export async function join(user: { id: number; name: string }, leagueId: number,
  * pairs, the partner, as declared (lib/who.ts), as a tournament asks it.
  */
 export async function joinAs(entrant: Entrant, leagueId: number, input: JoinInput = {}): Promise<Result<LeaguePlayer>> {
+  // Checked and written in one transaction under the league's row lock, as tournament entries are: the same player
+  // joining twice at once is in once, the second told so, rather than failing on the database's own check.
+  try {
+    return await withTransaction(async () => {
+      await getDb().prepare("SELECT id FROM leagues WHERE id = ? FOR UPDATE").get(leagueId);
+      return await joinLocked(entrant, leagueId, input);
+    });
+  } catch (err) {
+    if (isBusy(err)) return { ok: false, error: "So many people are joining at once that this could not be finished. Nothing was changed: please try again.", code: "BUSY" };
+    throw err;
+  }
+}
+
+/** `joinAs`, inside its transaction, under the league's lock. */
+async function joinLocked(entrant: Entrant, leagueId: number, input: JoinInput): Promise<Result<LeaguePlayer>> {
   const db = getDb();
   const league = await leagueById(leagueId);
   if (!league || league.status !== "running") return { ok: false, error: "That league is not taking players." };

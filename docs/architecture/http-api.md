@@ -146,7 +146,7 @@ Account endpoints (session cookie):
 | GET    | `/api/my/waitlist`        | Places you are queuing for, and any live offer: those this account joined, or on its proved number |
 | GET/POST | `/api/venues/:id/terms` | The venue's booking rules, and for an account whether it put them away and its strikes / `{version}`: don't show again |
 | GET    | `/api/my/data`            | Everything held against this account, as a file |
-| POST   | `/api/my/erase`           | `{confirm:"DELETE"}` → close the account        |
+| POST   | `/api/my/erase`           | `{confirm:"DELETE"}` → close the account; its upcoming bookings cancelled on the venue's terms ([privacy](privacy.md#erasure-keeps-the-books)); 409 when that would put credit back into it |
 | POST   | `/api/my/bookings/cancel` | `{bookingId}` → cancel own booking              |
 | GET    | `/api/my/bookings/withdraw` | `?bookingId` → who is on one of the account's bookings and whether each can be taken off now, as `GET /api/bookings/withdraw` |
 | POST   | `/api/my/bookings/withdraw` | `{bookingId, participantId \| customer: true \| unnamed: n}` → take them off one of the account's bookings, as `POST /api/bookings/withdraw` |
@@ -203,7 +203,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/wallet`           | `{userId, amount, reason?}` → sell credit            |
 | GET    | `/api/admin/memberships`      | `?venueId=` → that venue's members                   |
 | POST   | `/api/admin/memberships`      | `{venueId, holderName, holderPhone, startsOn, expiresOn, price, tierId?, holderParticipantId?, covers?}`: `holderParticipantId` makes it a participant's own (a child's, sold on their guardian's number), `covers` the participants a family membership names besides its holder; each a participant the venue knows with a guardian on `holderPhone` (`PBK_NOT_GUARDIAN` otherwise; [memberships](../features/pricing.md#memberships-and-member-rates)) |
-| POST   | `/api/admin/memberships/:id/void` | Cancel a membership (managers). `{ refund: true }`: what an online payment took for it is owed back too, answered as `owedBack` and listed under *Refunds owed*. `flagged`: how many bookings it no longer covers were flagged for staff ([when a membership stops](../features/pricing.md#when-a-membership-stops)) |
+| POST   | `/api/admin/memberships/:id/void` | Cancel a membership (managers). Not a refund: no credit note. `{ refund: true }`: the money goes back in full, its receipt credited, and what an online payment took for it is owed back too, answered as `owedBack` and listed under *Refunds owed*. `flagged`: how many bookings it no longer covers were flagged for staff ([when a membership stops](../features/pricing.md#when-a-membership-stops)) |
 | GET    | `/api/admin/memberships/flags` | `?venueId=` → `flags`: bookings to decide after a membership stopped covering somebody on them (cancelled, voided on a chargeback, taken off a family membership, or suspended on its date: `reason` `suspended`): who, why, the booking, `kind` (`place` or `reservation`) |
 | POST   | `/api/admin/memberships/flags` | `{venueId, flagId, note}` → dealt with (cancelled on the venue's terms, admitted, or kept), on record and logged; a note is needed (`APR_REASON_NEEDED`). Nothing is cancelled here |
 | GET    | `/api/admin/memberships/:id/covers` | Who the membership covered when: `changes` (`named`, `added`, `removed`, `corrected_out`, `corrected_in`, with when, by whom and why) and a family term's `places` |
@@ -218,7 +218,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST   | `/api/admin/promos/:id/void`  | Withdraw a code; discounts already given stand       |
 | GET    | `/api/admin/passes`           | `?venueId=` → passes sold by that venue              |
 | POST   | `/api/admin/passes`           | `{venueId, name, sport?, kind?, entries, entryMinutes?, maxMinutes?, price, holderName, holderPhone, expiresOn, scope?, holderParticipantId?}`: `kind` `session` (entries, each `entryMinutes` or part, 60 unless given, null for one a booking) or `time` (`entries` is minutes); `scope` what one use covers, `booking` (the default), `resource`, `participant` or `places` ([what a benefit applies to](../features/pricing.md#what-a-benefit-applies-to)); `holderParticipantId` with `participant`: whose place it pays, a participant the venue knows with a guardian on `holderPhone` |
-| POST   | `/api/admin/passes/:id/void`  | Cancel a pass; entries already spent stay spent      |
+| POST   | `/api/admin/passes/:id/void`  | Cancel a pass; entries already spent stay spent. Not a refund: no credit note. `{ refund: true }`: its unused part handed back, credited for that much, answered as `refunded` |
 | GET    | `/api/admin/vouchers`         | `?venueId=` → gift vouchers sold, with printable links |
 | POST   | `/api/admin/vouchers`         | `{venueId, amount, buyerName, buyerEmail?, recipientName?, message?, via?}`: sold at the counter |
 | POST   | `/api/admin/vouchers/:id/void` | Cancel a voucher nobody has used                   |
@@ -265,7 +265,7 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | ------ | ---- | ----------- |
 | POST | `/api/ack` | `{ token }` — the customer has seen the venue's news |
 | GET | `/api/addons` | What can be added to a booking: `?courtId=&date=&start=&end=` (or `hours=18,19`), or `?venueId=&sport=` in place of a court, or `?classId=` for a class. Rentals say how many are left for that time |
-| POST | `/api/bookings/split` | `{ code, phone, parts }` → the booking split `parts` ways, and the link to send friends |
+| POST | `/api/bookings/split` | `{ code, phone, parts }` → the booking split `parts` ways, and the link to send friends; 409 once a friend has paid, or while one is paying |
 | GET | `/api/classes/term` | `?classId` → the sessions left in this weekly class that can still be joined, and what the term costs |
 | GET | `/api/coaching/slots` | `?coachId&date&sport?` → when a lesson with that coach can start that day (`starts`: minute and longest length), and the lengths the sport's courts allow (`policy`). `?venueId&sport&date`, at a venue that assigns the coach (404 elsewhere): when a lesson of the sport can start with whichever coach is free, and their fees an hour (`rates`: `min`, `max`) |
 | GET | `/api/games` | Public open games with room (or a waiting list), soonest first: `?sport=&date=&area=&level=&who=women`, or `?near=lat,lng&km=` for nearest. Signed in, each says where you stand in it. Private games are never listed |
@@ -395,9 +395,9 @@ Admin endpoints (all require an admin session cookie; venue-scoped unless noted)
 | POST | `/api/admin/accounts/bookers` | `{ venueId, accountId, name, phone }`: somebody who may charge their own bookings to the account (managers) |
 | DELETE | `/api/admin/accounts/bookers` | `?venueId&accountId&phone`: no longer (managers) |
 | POST | `/api/admin/accounts/charge` | `{ bookingId, accountId }`: the desk charges a booking to a company or school account; `accountId: null` takes it off again, until it is invoiced |
-| POST | `/api/admin/accounts/invoices` | `{ accountId, period: "YYYY-MM" }`: invoice what was played on it up to that month's end, now, credit notes waiting on the account taken off it (managers) |
+| POST | `/api/admin/accounts/invoices` | `{ accountId, period: "YYYY-MM" }`: invoice what is charged to it for dates up to that month's end (and not after today), now, credit notes waiting on the account taken off it (managers) |
 | POST | `/api/admin/accounts/invoices/:id` | `{ via }`: paid, and so is every booking on it |
-| DELETE | `/api/admin/accounts/invoices/:id` | Withdrawn, its bookings to be invoiced again; not once paid (managers) |
+| DELETE | `/api/admin/accounts/invoices/:id` | Withdrawn, its bookings to be invoiced again; not once paid, nor once a booking on it was cancelled with a credit note against it (409) (managers) |
 | GET | `/api/admin/addons` | `?venueId=` — every extra a venue has, retired ones last |
 | POST | `/api/admin/addons` | `{ venueId, name, kind: "rental" \| "sale", price, stock?, sport? }` |
 | PATCH | `/api/admin/addons/:id` | Change it, or retire it with `active: false` and bring it back with `true` |

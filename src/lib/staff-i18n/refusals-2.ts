@@ -697,4 +697,6 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "It has been replaced already.": { ms: "Ia telah pun diganti.", zh: "它已被替代。" },
   "Only an e-invoice LHDN has accepted can be checked.": { ms: "Hanya e-invois yang telah diterima LHDN boleh disemak.", zh: "只有 LHDN 已接收的电子发票才能查询。" },
   "MyInvois could not be reached.": { ms: "MyInvois tidak dapat dihubungi.", zh: "无法连接 MyInvois。" },
+  // Round 8 (D8b): an account invoice a cancellation was credited against stays
+  "A booking on this invoice was cancelled with a credit note against it, so the invoice stays.": { ms: "Satu tempahan dalam invois ini telah dibatalkan dengan nota kredit terhadapnya, jadi invois ini kekal.", zh: "此发票上的一笔预订已取消，并已针对此发票开具贷记单，因此此发票保留。" },
 };

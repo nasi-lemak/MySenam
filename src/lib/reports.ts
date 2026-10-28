@@ -6,6 +6,7 @@ import { addDays, todayISO } from "./time";
 import { venueTax } from "./tax";
 import { hoursOn, parseWeekHours } from "./week-hours";
 import { venueZoneOf } from "./zones";
+import { bookingCredited, bookingGross } from "./accounting";
 
 /**
  * Reporting for the person who pays for the software.
@@ -22,9 +23,17 @@ import { venueZoneOf } from "./zones";
 export interface RevenueLine {
   /** What confirmed bookings in the period came to. */
   expected: number;
-  /** What has actually been marked paid. */
+  /** What has actually been marked paid, with what the venue kept of bookings cancelled late (`lateKept`). */
   collected: number;
+  /** What confirmed bookings still owe: `expected` less what of it was paid. */
   outstanding: number;
+  /**
+   * Kept from paid bookings in the period cancelled late: each one's receipt
+   * less the credit notes that gave the rest back, as the sales journal has
+   * them (lib/accounting.ts `bookingGross`, `bookingCredited`). Inside
+   * `collected`, `collectedBy`, `bySport` and `byMonth`, and its tax inside `tax`.
+   */
+  lateKept: number;
   /**
    * The sales tax inside what was collected, at each booking's own rate,
    * plus that on the period's other receipts (passes, memberships, fees,
@@ -455,7 +464,28 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   };
 
   const expected = counts.expected ?? 0;
-  const collected = counts.collected ?? 0;
+
+  // Kept from paid bookings cancelled late (the venue's late-cancellation fee): the receipt less the credit notes,
+  // the sales journal's own figures, so the two agree. Not one paid with a pass: that was sold when the pass was.
+  const kept = (
+    (await db
+      .prepare(`
+        SELECT COALESCE(b.paid_via, 'unrecorded') AS via, substr(b.date, 1, 7) AS month, b.sport,
+               GREATEST(0, ${bookingGross("b")} - ${bookingCredited("b", "total")})::float AS amount,
+               (CASE WHEN b.tax_rate IS NULL THEN 0
+                     ELSE ROUND(${bookingGross("b")} * b.tax_rate / (100 + b.tax_rate), 2) - ${bookingCredited("b", "tax_amount")} END)::float AS tax
+          FROM bookings b
+         WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
+           AND b.status = 'cancelled' AND b.late_cancelled = 1 AND b.payment_status = 'paid' AND COALESCE(b.paid_via, '') <> 'pass'
+      `)
+      .all(venueId, from, to)) as { via: string; month: string; sport: Sport; amount: number; tax: number }[]
+  ).filter((k) => Number(k.amount) > 0);
+  const lateKept = Math.round(kept.reduce((n, k) => n + Number(k.amount), 0) * 100) / 100;
+  const lateKeptTax = kept.reduce((n, k) => n + Number(k.tax), 0);
+  const keptBy = <K extends "via" | "month" | "sport">(key: K, value: string) =>
+    kept.filter((k) => k[key] === value).reduce((n, k) => n + Number(k.amount), 0);
+  const paidConfirmed = counts.collected ?? 0;
+  const collected = Math.round((Number(paidConfirmed) + lateKept) * 100) / 100;
 
   // The tax on everything else sold, receipted as it was sold (passes,
   // memberships, fees, shares), less what credit notes took back of it.
@@ -473,9 +503,9 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     `)
     .get(venueId, zone, from, to)) as { n: number | string; tax: number | string };
   const taxCollected =
-    counts.taxCollected === null && Number(documents.n) === 0
+    counts.taxCollected === null && Number(documents.n) === 0 && lateKeptTax === 0
       ? null
-      : Math.round((Number(counts.taxCollected ?? 0) + Number(documents.tax)) * 100) / 100;
+      : Math.round((Number(counts.taxCollected ?? 0) + Number(documents.tax) + lateKeptTax) * 100) / 100;
 
   const saleZone = zone;
   const counter = (await db
@@ -508,8 +538,18 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       `)
       .all(venueId, from, to)) as { via: string; amount: number | string; bookings: number | string }[]
   )
-    .map((r) => ({ via: r.via, amount: Number(r.amount), bookings: Number(r.bookings) }))
-    .sort((a, b) => b.amount - a.amount);
+    .map((r) => ({ via: r.via, amount: Number(r.amount), bookings: Number(r.bookings) }));
+  // What was kept of bookings cancelled late, under how they were paid.
+  for (const via of new Set(kept.map((k) => k.via))) {
+    const line = collectedBy.find((r) => r.via === via);
+    const amount = keptBy("via", via);
+    const n = kept.filter((k) => k.via === via).length;
+    if (line) {
+      line.amount = Math.round((line.amount + amount) * 100) / 100;
+      line.bookings += n;
+    } else collectedBy.push({ via, amount: Math.round(amount * 100) / 100, bookings: n });
+  }
+  collectedBy.sort((a, b) => b.amount - a.amount);
 
   // --- place-hours sold ----------------------------------------------------
   const sold = records.sold;
@@ -569,6 +609,8 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     }[]
   ).map(({ booked_hours, ...row }) => ({
     ...row,
+    // With what was kept of its bookings cancelled late.
+    collected: Math.round((Number(row.collected) + keptBy("sport", row.sport)) * 100) / 100,
     // What was booked for it, whichever court it was played on.
     hours: Math.round(Number(booked_hours) * 100) / 100,
   }));
@@ -596,7 +638,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   const byMonth: MonthLine[] = monthsIn(from, to).map((month) => ({
     month,
     expected: monthRows.find((r) => r.month === month)?.expected ?? 0,
-    collected: monthRows.find((r) => r.month === month)?.collected ?? 0,
+    collected: Math.round((Number(monthRows.find((r) => r.month === month)?.collected ?? 0) + keptBy("month", month)) * 100) / 100,
     hours: monthHours.find((r) => r.month === month)?.hours ?? 0,
   }));
 
@@ -660,7 +702,8 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     revenue: {
       expected,
       collected,
-      outstanding: expected - collected,
+      outstanding: expected - paidConfirmed,
+      lateKept,
       tax: taxCollected === null ? null : { name: (await venueTax(venueId)).name, amount: taxCollected },
     },
     collectedBy,
