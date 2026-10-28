@@ -4,8 +4,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { refusal } from "@/lib/api";
 import { tickOutbox } from "@/lib/notify";
 import { refundCancelled } from "@/lib/payments";
-import { bookingLocale, notifyWithdrawn, readWithdrawWhat, withdrawOptions, withdrawPlace } from "@/lib/place-withdrawals";
-import { money, roundMoney } from "@/lib/region";
+import { bookingLocale, notifyWithdrawn, readWithdrawWhat, withdrawalLogDetail, withdrawOptions, withdrawPlace } from "@/lib/place-withdrawals";
 import { findBookingByCode, getVenueIdForBookingCode } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -48,24 +47,7 @@ export async function POST(req: NextRequest) {
   // Paid online: it goes back now, as when staff cancel a booking.
   const refunds = await refundCancelled([booking.id], { byVenue: true });
   const w = done.withdrawal;
-  // The booker's own part (back the way it was paid, or a credit note on an account invoiced), and the deposit's.
-  const own = roundMoney(w.refund - w.deposit);
-  await logAction(admin, {
-    venueId,
-    action: "booking.place_withdrawn",
-    bookingCode: booking.code,
-    detail: `${w.name ?? `${w.places} unnamed place${w.places === 1 ? "" : "s"}`} taken off ${booking.code}${
-      w.participantId !== null ? ` (participant ${w.participantId})` : ""
-    }: ${[
-      w.owedLess > 0 ? `${money(w.owedLess)} off what is owed` : "",
-      own > 0 ? (w.how === "account" ? `${money(own)} as a credit note on the account` : `${money(own)} back`) : "",
-      w.deposit > 0 ? `${money(w.deposit)} of the deposit back` : "",
-    ]
-      .filter(Boolean)
-      .join(", ") || "nothing priced per person"}${
-      w.units > 0 ? `, ${w.units} pass entr${w.units === 1 ? "y" : "ies"} back` : ""
-    }${w.released > 0 ? `, ${w.released} place${w.released === 1 ? "" : "s"} freed` : ""}${reason ? `. ${reason.trim().slice(0, 200)}` : ""}`,
-  });
+  await logAction(admin, { venueId, action: "booking.place_withdrawn", bookingCode: booking.code, detail: withdrawalLogDetail(booking.code, w, reason) });
   // The customer (the guardian) is told who is off, in the language they booked in.
   await notifyWithdrawn(done.booking, w, await bookingLocale(booking.id));
   await tickOutbox();

@@ -351,6 +351,48 @@ Where staff refund by hand (Billplz, or a venue that chose *Staff refund it*):
 Tested in `tests/manual-refunds.test.ts` on PGlite and Postgres, against a
 stand-in gateway.
 
+### Refunds made in the gateway's dashboard
+
+A venue's staff (or the platform's owners) can refund a Stripe payment in
+Stripe's own dashboard, without MySenam asking. Stripe tells the venue's
+webhook (`charge.refunded`, and `charge.refund.updated` as a refund moves
+on; add them to the endpoint's events), and MySenam reads back every refund
+on that payment from Stripe with the venue's key
+(`recordGatewayRefunds` in `lib/payments.ts`, `gateway_refunds`, migration
+0222):
+
+- **A refund MySenam made is never counted twice.** Each one it asks for
+  carries its own key (`mysenam_key`); one made before refunds carried a key
+  is known by its id. Those are left to the refund path that made them.
+- **Anything else that has gone through is written down once**, by Stripe's
+  id, however often or at once it is reported, under the payment's row lock,
+  and matched in this order: a refund staff marked as made by hand on that
+  payment for the same amount and with no reference from Stripe yet (the same
+  money: the mark now carries Stripe's id); else what is owed back on the
+  payment (a booking or membership the venue cancelled with a refund),
+  recorded as that refund, made in Stripe, so it is not owed or asked for
+  again; the rest is money nothing in MySenam owed.
+- **Nothing else changes by itself.** No booking or membership is
+  cancelled, unpaid or shortened, and no receipt changes for the part nothing
+  owed: only the venue knows what it was for. Staff (the platform's owners,
+  for what a venue paid the platform) are emailed, it is in the activity log
+  (*A refund made in the payment gateway's own dashboard was recorded*,
+  under *Stripe*), and the integrity check lists it for 30 days as
+  `refund_unasked` ([monitoring](../operations/monitoring.md)).
+- **It counts towards what is owed later.** If the venue then cancels what
+  it was for, what Stripe already gave back is taken as that refund (cancel
+  by the venue, the one-click refund, a hand mark and the daily
+  reconciliation each take it first), so Stripe is never asked to give the
+  same money back twice; only the rest goes to Stripe.
+- A refund still pending is written down once it succeeds (Stripe reports it
+  again then); one that failed or was cancelled is not money back.
+
+Billplz has no refund API and reports no refunds, so there is nothing to
+read: its refunds are made in its dashboard and marked by hand, as above.
+Tested in `tests/stripe-gateway-refunds.test.ts` against a stand-in for
+Stripe only; the Stripe check is still to be passed against Stripe itself
+([integrations](../roadmap/known-limitations.md#integrations-awaiting-live-verification-or-a-partner)).
+
 ### Refunds for one person's place
 
 Taking one person off a paid booking, the others staying booked
@@ -722,9 +764,17 @@ the account's next invoice, whole and oldest first, as far as its total
 goes: the invoice lists each (*Credit note CN-…, MS-…*) and what is *To
 pay*, and its email gives that. Staff see the credit waiting on the
 account, and on each invoice what was credited. Withdrawing an invoice gives
-its credits back to the account for the next one. A closed account with no
-more to invoice keeps its credit until the venue settles it by hand.
-Tested in `tests/place-withdrawals-money.test.ts`.
+its credits back to the account for the next one. Credit can also be paid
+back to the account some other way (a bank transfer, or an account closed
+with no more to invoice): a manager records it with *Paid back by hand* and
+what they wrote down to find it again (`settleAccountCredit`, migration
+0223; *Paid back an account's credit by hand* in the activity log), and it
+never comes off an invoice afterwards; an invoice issued at the same moment
+either takes it or leaves it to the hand payment, never both. A closed
+account stays listed, marked closed, while credit waits on it.
+Tested in `tests/place-withdrawals-money.test.ts`,
+`tests/account-credit-settled.test.ts` (on Postgres too) and
+`tests/components/account-credit-settle.test.tsx`.
 
 Managers open, change and close accounts and invoice them; the desk charges
 bookings to them and marks invoices paid. Every step is in the activity log.

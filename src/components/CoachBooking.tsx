@@ -58,6 +58,11 @@ export default function CoachBooking({
   const people = useManagedPeople(signedIn);
   const [forIds, setForIds] = useState<number[]>([]);
   const [meToo, setMeToo] = useState(true);
+  // Paying from the account's stored credit, as the court booking form does (lib/store.ts payBookingFromWallet):
+  // what it holds here, whether to use it, and why it could not be, once booked.
+  const [balance, setBalance] = useState<number | null>(null);
+  const [payFromWallet, setPayFromWallet] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
 
   useEffect(() => {
     void fetch("/api/auth/me", { cache: "no-store" })
@@ -66,10 +71,15 @@ export default function CoachBooking({
         if (d.user) {
           setWho({ name: d.user.name, phone: d.user.phone, email: d.user.email });
           setSignedIn(true);
+          return fetch(`/api/my/wallet?venueId=${venueId}`, { cache: "no-store" });
         }
       })
+      .then((res) => (res && res.ok ? res.json() : null))
+      .then((wallet: { balance?: number } | null) => {
+        if (wallet && typeof wallet.balance === "number") setBalance(wallet.balance);
+      })
       .catch(() => undefined);
-  }, []);
+  }, [venueId]);
 
   useEffect(() => {
     setStarts(null);
@@ -95,10 +105,23 @@ export default function CoachBooking({
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, sport, date, start, minutes: length, ...(assigns ? { assignCoach: true } : { coachId: coach.id }), ...who, ...whoBody(forIds, meToo), weeks, skipConflicts: weeks > 1 }),
+        body: JSON.stringify({
+          venueId,
+          sport,
+          date,
+          start,
+          minutes: length,
+          ...(assigns ? { assignCoach: true } : { coachId: coach.id }),
+          ...who,
+          ...whoBody(forIds, meToo),
+          weeks,
+          skipConflicts: weeks > 1,
+          ...(payFromWallet ? { payFromWallet: true } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(translateError(t, data) || t("pay.failed"));
+      setWalletError(payFromWallet && data.walletError ? t("rg7.lesson.creditNotUsed") : null);
       setGiven(data.lessonCoach?.name ?? null);
       setBooked(data.booking);
       setAll(data.bookings ?? [data.booking]);
@@ -137,6 +160,8 @@ export default function CoachBooking({
           {money(booked.totalPrice)}
           {all.length > 1 && <> · {t("done.total")} {money(total)}</>}
         </p>
+        {payFromWallet && !walletError && unpaid.length === 0 && <p>{t("rg7.lesson.paidFromCredit")}</p>}
+        {walletError && <p className="font-medium text-amber-800">{walletError}</p>}
         {holdUntil && unpaid.length > 0 && (
           <p className="font-medium text-amber-800">{t("hold.body", { time: localTimeOf(holdUntil, timeZone, t.locale) })}</p>
         )}
@@ -241,6 +266,12 @@ export default function CoachBooking({
               setMeToo(me);
             }}
           />
+          {balance !== null && balance > 0 && (
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <input type="checkbox" checked={payFromWallet} onChange={(e) => setPayFromWallet(e.target.checked)} className="accent-teal-600" />
+              {t("form.payFromCredit", { amount: balance })}
+            </label>
+          )}
           <BookingTermsNotice venueId={venueId} sport={sport} />
           <p className="text-xs text-slate-500">{t("coach.terms")}</p>
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}

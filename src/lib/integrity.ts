@@ -33,7 +33,9 @@ export type IntegrityKind =
   /** Money owed back on a payment for over a week: nobody has refunded it. */
   | "refund_overdue"
   /** A refund the gateway accepted and then failed in the last 30 days: the money is owed again. */
-  | "refund_failed";
+  | "refund_failed"
+  /** Money refunded in the gateway's own dashboard in the last 30 days that nothing here owed: the venue decides what it was for. */
+  | "refund_unasked";
 
 export interface IntegrityProblem {
   kind: IntegrityKind;
@@ -196,6 +198,23 @@ export async function checkIntegrity(venueIds: number[] | null = null): Promise<
     problems.push({ kind: "refund_failed", venueId: r.venue_id, detail: `A refund of ${r.amount.toFixed(2)} on payment ${r.bill_id} failed at the gateway on ${r.failed_at}; the money is owed again` });
   for (const r of overdue)
     problems.push({ kind: "refund_overdue", venueId: r.venue_id, detail: `${r.owed.toFixed(2)} has been owed back on payment ${r.bill_id} for over a week` });
+  // Refunded in the gateway's own dashboard with nothing here owed (lib/payments.ts `recordGatewayRefunds`), for 30
+  // days after it was seen while some of it still counts towards nothing. What a venue paid the platform is the owner's.
+  const unasked = (await db
+    .prepare(
+      `SELECT CASE WHEN p.purpose IN ('invoice', 'pack') THEN 0 ELSE COALESCE(p.venue_id, 0) END AS venue_id, p.bill_id,
+              g.provider_refund_id, g.unasked_left::float AS amount, g.seen_at FROM gateway_refunds g
+         JOIN online_payments p ON p.id = g.payment_id
+        WHERE g.unasked_left > 0 AND g.seen_at > datetime('now', '-30 days')${payAt}${venueIds === null ? "" : " AND p.purpose NOT IN ('invoice', 'pack')"}
+        ORDER BY g.id LIMIT ${EACH}`
+    )
+    .all(...payArgs)) as { venue_id: number; bill_id: string; provider_refund_id: string; amount: number; seen_at: string }[];
+  for (const r of unasked)
+    problems.push({
+      kind: "refund_unasked",
+      venueId: r.venue_id,
+      detail: `${r.amount.toFixed(2)} was refunded on payment ${r.bill_id} in the gateway's own dashboard (${r.provider_refund_id}, seen ${r.seen_at}) with nothing here owed back; bookings and memberships are unchanged`,
+    });
 
   return problems;
 }

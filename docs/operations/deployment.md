@@ -278,10 +278,12 @@ these once with a real account, in its sandbox where it has one:
 - [ ] **Stripe** (Singapore, renewals): a test-mode checkout paid; the
       webhook secret checked; a refund from *Refunds owed* goes through; a
       test dispute (card `4000 0000 0000 0259`) shows under Disputes and, lost,
-      takes back what it paid for; a renewing membership charges again. On a
+      takes back what it paid for; a renewing membership charges again; a
+      refund made in Stripe's own dashboard (`charge.refunded`) is recorded
+      once and emails the venue's staff, with the booking unchanged. On a
       marketplace paying through Stripe, the platform's own webhook takes the
-      `charge.dispute.*` events too, and a test dispute on an invoice emails
-      the owners.
+      `charge.dispute.*` and refund events too, and a test dispute on an
+      invoice emails the owners.
 - [ ] **MyInvois** (Malaysia): the sandbox (preprod) accepts a consolidated
       e-invoice and a single one, with the venue's own TIN and certificate.
 - [ ] **Google sign-in**: the redirect URI registered matches

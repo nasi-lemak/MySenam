@@ -2435,6 +2435,9 @@ export const TA: Record<Phrase, string> = {
   "gi7.openGame": "ஆட்டத்திற்குச் செல்",
   "gi7.openGroup": "குழுவுக்குச் செல்",
   "gi7.noToken": "இந்த இணைப்பு முழுமையாக இல்லை. அழைப்பு மின்னஞ்சலில் உள்ள இணைப்பை மீண்டும் திறக்கவும்.",
+  // Round 7 (H7): a lesson paid from stored credit, as a court is
+  "rg7.lesson.paidFromCredit": "உங்கள் கிரெடிட் இருப்பிலிருந்து செலுத்தப்பட்டது.",
+  "rg7.lesson.creditNotUsed": "உங்கள் கிரெடிட் இருப்பிலிருந்து செலுத்த முடியவில்லை, எனவே இன்னும் செலுத்தப்படவில்லை.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

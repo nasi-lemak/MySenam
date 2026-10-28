@@ -839,9 +839,13 @@ bookings (✕ beside a name, *−1 place*), with a reason if they give one.
     was sold whole, not by the person.
 - **Staff at the counter** may take somebody off until the booking has
   been played, in full, as a staff cancellation is; it is in the activity log
-  (*Took one person off a booking*) with the reason. The venue's API
-  (`/api/v1`) offers no withdrawal: its system cancels the booking or the
-  venue's staff take somebody off at the counter.
+  (*Took one person off a booking*) with the reason.
+- **The venue's API key** does what its counter does, through the same
+  code (`GET`/`POST /api/v1/bookings/<code>/withdraw`;
+  [external API](../integrations/external-api.md)): the counter's terms, the
+  same refusals and the same money, the customer told, recorded and logged
+  as the key (`API key <id>`), for its own venue's bookings only. A request
+  may carry an `Idempotency-Key`, so one sent again takes nobody else off.
 - **On record and told.** `place_withdrawals` keeps who it was, what their
   place cost, what went back and how, what was kept, the pass entries
   returned, who did it and why; the participant's history says so; the
@@ -858,8 +862,10 @@ is paid, refusals, and races on Postgres),
 `tests/place-withdrawals-money.test.ts` (a deposit under- and over-paid,
 late, and paid in full after it; an account before and after its invoice; a
 split; races with a second withdrawal, the cancellation and the invoice, on
-Postgres) and `tests/components/withdraw-people.test.tsx` (the customer's
-screen).
+Postgres), `tests/components/withdraw-people.test.tsx` (the customer's
+screen) and `tests/api-withdrawals.test.ts` (the venue's API key: the
+counter's options and money, refusals, another venue's key, the same
+request sent again, at once on Postgres).
 
 ### Telling customers before they book
 

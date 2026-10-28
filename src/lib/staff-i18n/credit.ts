@@ -274,6 +274,13 @@ const en = {
   "mb6.act.flagResolved": "Decided a booking a membership no longer covers",
   "mb6.act.coachChanged": "Gave a lesson to another coach",
   "mb6.act.coachDifferencePaid": "Took the difference for a dearer coach",
+  // Round 7 (H7): refunds made in the gateway's own dashboard; an account's credit paid back by hand
+  "rg7.act.gatewayRefund": "A refund made in the payment gateway's own dashboard was recorded",
+  "rg7.act.creditSettled": "Paid back an account's credit by hand",
+  "rg7.acc.closed": "closed",
+  "rg7.acc.settle": "Paid back by hand",
+  "rg7.acc.settlePrompt": "Has the {amount} of credit on {name} been paid back by hand (a bank transfer, say)? It will then never come off an invoice. Write down how, to find it again:",
+  "rg7.acc.settled": "Recorded {amount} paid back to {name} by hand. It will not come off an invoice.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -549,6 +556,13 @@ const ms: Record<keyof typeof en, string> = {
   "mb6.act.flagResolved": "Memutuskan tempahan yang tidak lagi diliputi keahlian",
   "mb6.act.coachChanged": "Memberikan pelajaran kepada jurulatih lain",
   "mb6.act.coachDifferencePaid": "Menerima beza bayaran untuk jurulatih yang lebih mahal",
+  // Round 7 (H7): refunds made in the gateway's own dashboard; an account's credit paid back by hand
+  "rg7.act.gatewayRefund": "Bayaran balik yang dibuat dalam papan pemuka gerbang pembayaran sendiri telah direkodkan",
+  "rg7.act.creditSettled": "Membayar balik kredit akaun secara manual",
+  "rg7.acc.closed": "ditutup",
+  "rg7.acc.settle": "Dibayar balik secara manual",
+  "rg7.acc.settlePrompt": "Adakah kredit {amount} pada {name} telah dibayar balik secara manual (contohnya pindahan bank)? Ia tidak akan ditolak daripada mana-mana invois selepas ini. Catat caranya, supaya mudah dicari semula:",
+  "rg7.acc.settled": "{amount} yang dibayar balik kepada {name} secara manual telah direkodkan. Ia tidak akan ditolak daripada invois.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -824,6 +838,13 @@ const zh: Record<keyof typeof en, string> = {
   "mb6.act.flagResolved": "处理了会员资格不再涵盖的预订",
   "mb6.act.coachChanged": "将课程改由另一位教练授课",
   "mb6.act.coachDifferencePaid": "收取了更贵教练的差额",
+  // Round 7 (H7): refunds made in the gateway's own dashboard; an account's credit paid back by hand
+  "rg7.act.gatewayRefund": "已记录在支付网关后台直接办理的退款",
+  "rg7.act.creditSettled": "以人工方式退还了账户的抵扣额",
+  "rg7.acc.closed": "已关闭",
+  "rg7.acc.settle": "已人工退还",
+  "rg7.acc.settlePrompt": "{name} 账户上的 {amount} 抵扣额是否已以人工方式退还（例如银行转账）？此后将不会再从任何发票中扣除。请记下退还方式，以便日后查找：",
+  "rg7.acc.settled": "已记录以人工方式向 {name} 退还 {amount}。该款项不会再从发票中扣除。",
 };
 
 const area = { en, ms, zh };

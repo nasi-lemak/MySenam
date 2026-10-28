@@ -52,8 +52,10 @@ Stripe account**.
   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
   `checkout.session.async_payment_failed` and `checkout.session.expired`
   events — plus `invoice.paid` and `customer.subscription.deleted` for
-  memberships that renew themselves, and `charge.dispute.created`,
-  `charge.dispute.updated` and `charge.dispute.closed` for chargebacks — and
+  memberships that renew themselves, `charge.dispute.created`,
+  `charge.dispute.updated` and `charge.dispute.closed` for chargebacks, and
+  `charge.refunded` and `charge.refund.updated` for refunds made in Stripe's
+  own dashboard ([refunds made in the gateway's dashboard](../features/payments-and-credit.md#refunds-made-in-the-gateways-dashboard)) — and
   pastes the key (`rk_live_…`) and the endpoint's signing secret
   (`whsec_…`). Unlike Billplz, Stripe has to be told where to report: a
   payment does not carry that.
@@ -69,9 +71,9 @@ Stripe account**.
 - **The platform's own account** (venues' fees on a marketplace) is
   `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, with
   `MYSENAM_PAYMENT_PROVIDER=stripe`. Its webhook endpoint is the same address,
-  for the four `checkout.session.*` events and the three `charge.dispute.*`
-  ones: a dispute that checks out under no venue's secret is tried under the
-  platform's, and goes to the platform owners
+  for the four `checkout.session.*` events, the three `charge.dispute.*`
+  ones and the two refund ones: a dispute or refund that checks out under no
+  venue's secret is tried under the platform's, and goes to the platform owners
   ([chargebacks on what a venue paid the platform](../features/payments-and-credit.md#paying-online)).
 
 Stripe Connect, where a venue presses *Connect with Stripe* instead of

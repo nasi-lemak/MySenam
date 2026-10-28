@@ -847,3 +847,49 @@ export async function purchasesExport(userId: number): Promise<unknown[]> {
     )
     .all(userId)) as unknown[];
 }
+
+/**
+ * Who the account's memberships covered when, for its data export: every
+ * change (`membership_cover_changes`) on a membership it holds, oldest first,
+ * with when, what, and whether the account or the venue's staff made it
+ * (never a member of staff's name). A person is named, and a staff
+ * correction's reason given, only where the holder is already shown them:
+ * the membership covers them now, or the account acts for them; anybody else
+ * (somebody corrected off who is not the account's, an erased participant)
+ * is left unnamed. Changes made before migration 0192 were not recorded.
+ */
+export async function coverChangesExport(userId: number): Promise<unknown[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT m.code AS membership, v.name AS venue, c.change, c.at, c.reason, c.by_user_id, c.by_admin_id,
+              CASE WHEN c.participant_id IS NOT NULL AND (
+                     EXISTS (SELECT 1 FROM membership_participants mp WHERE mp.membership_id = m.id AND mp.participant_id = c.participant_id)
+                     OR EXISTS (SELECT 1 FROM participant_guardians g WHERE g.participant_id = c.participant_id AND g.user_id = ? AND g.revoked_at IS NULL))
+                   THEN p.display_name END AS person
+         FROM membership_cover_changes c
+         JOIN memberships m ON m.id = c.membership_id
+         JOIN venues v ON v.id = m.venue_id
+         LEFT JOIN participants p ON p.id = c.participant_id
+        WHERE m.user_id = ? ORDER BY m.id, c.id`
+    )
+    .all(userId, userId)) as {
+    membership: string;
+    venue: string;
+    change: CoverChange;
+    at: unknown;
+    reason: string | null;
+    by_user_id: number | null;
+    by_admin_id: number | null;
+    person: string | null;
+  }[];
+  return rows.map((r) => ({
+    membership: r.membership,
+    venue: r.venue,
+    change: r.change,
+    at: r.at instanceof Date ? r.at.toISOString() : String(r.at),
+    person: r.person,
+    madeBy: r.by_admin_id !== null ? "staff" : r.by_user_id === userId ? "you" : r.by_user_id !== null ? "another account" : "not recorded",
+    // A staff correction's reason is about the person it names: given only with them.
+    reason: r.person !== null ? r.reason : null,
+  }));
+}

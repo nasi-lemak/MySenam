@@ -37,6 +37,10 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   (`refund_failed`, owed again). Those need somebody to look in the
   gateway's dashboard or pay it back, then mark it
   ([payments](../features/payments-and-credit.md#refunds-that-are-interrupted)).
+  It also lists, for 30 days, money refunded in the gateway's own dashboard
+  that nothing in MySenam owed (`refund_unasked`): nothing was changed by it,
+  and the venue decides what it was for
+  ([refunds made in the gateway's dashboard](../features/payments-and-credit.md#refunds-made-in-the-gateways-dashboard)).
   A failed or paused off-site copy of a backup raises `offsite`, and a failed
   nightly backup `backup`. Backups older than the recovery-point target, or
   none copied off-site yet, raise `backup-stale`. A backup part nearing the

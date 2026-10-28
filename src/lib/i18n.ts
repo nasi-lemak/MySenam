@@ -2592,6 +2592,9 @@ const EN = {
   "gi7.openGame": "Go to the game",
   "gi7.openGroup": "Go to the group",
   "gi7.noToken": "This link is not complete. Open the link in the invitation email again.",
+  // Round 7 (H7): a lesson paid from stored credit, as a court is
+  "rg7.lesson.paidFromCredit": "Paid from your credit balance.",
+  "rg7.lesson.creditNotUsed": "It could not be paid from your credit balance, so it is not paid yet.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -5137,6 +5140,9 @@ const MS: Record<Phrase, string> = {
   "gi7.openGame": "Pergi ke permainan",
   "gi7.openGroup": "Pergi ke kumpulan",
   "gi7.noToken": "Pautan ini tidak lengkap. Buka semula pautan dalam e-mel jemputan.",
+  // Round 7 (H7): a lesson paid from stored credit, as a court is
+  "rg7.lesson.paidFromCredit": "Dibayar guna baki kredit anda.",
+  "rg7.lesson.creditNotUsed": "Ia tidak dapat dibayar guna baki kredit anda, jadi ia belum dibayar.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

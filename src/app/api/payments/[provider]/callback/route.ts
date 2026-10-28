@@ -5,6 +5,7 @@ import {
   accountForSubscription,
   gatewayAccounts,
   recordDispute,
+  recordGatewayRefunds,
   recordPlatformDispute,
   settleBill,
   settleSubscription,
@@ -59,6 +60,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         if (billId) await recordPlatformDispute(gateway.id, billId, event);
         return new NextResponse("OK", { status: 200 });
       }
+    }
+    return NextResponse.json({ error: "Bad signature." }, { status: 400 });
+  }
+
+  // Refunds on a payment, some perhaps made in the gateway's own dashboard: found as a chargeback is.
+  if (inbound.refunds && inbound.verifyRefunds) {
+    const platform = platformAccount();
+    for (const account of [...(await gatewayAccounts(gateway.id)), ...(platform?.provider === gateway.id ? [platform] : [])]) {
+      let event: Awaited<ReturnType<NonNullable<typeof inbound.verifyRefunds>>>;
+      try {
+        event = await inbound.verifyRefunds(account);
+      } catch {
+        // Ours, but the gateway could not be asked what was refunded: sent again by the gateway later.
+        return NextResponse.json({ error: "Could not read the refunds from the gateway. Send it again." }, { status: 503 });
+      }
+      if (!event) continue;
+      const billId = await gateway.billForPayment?.(account, event.paymentRef);
+      // On a payment that is not ours (the venue's other business): nothing to do.
+      if (billId) await recordGatewayRefunds(gateway.id, billId, event);
+      return new NextResponse("OK", { status: 200 });
     }
     return NextResponse.json({ error: "Bad signature." }, { status: 400 });
   }

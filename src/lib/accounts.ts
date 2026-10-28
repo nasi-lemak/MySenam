@@ -53,8 +53,10 @@ export interface Account {
   uninvoiced: number;
   /** On invoices not yet paid, less the credit notes taken off them. */
   owing: number;
-  /** Credit notes on the account waiting to come off its next invoice (places taken off bookings already invoiced). */
+  /** Credit notes on the account waiting to come off its next invoice (places taken off bookings already invoiced), not paid back by hand. */
   credit: number;
+  /** Closed to new bookings: listed only while credit waits on it, to be paid back by hand. */
+  closed: boolean;
 }
 
 export interface InvoiceLine {
@@ -116,6 +118,7 @@ interface AccountRow {
   terms_days: number;
   credit_limit: number | string | null;
   locale: string | null;
+  closed_at?: unknown;
 }
 
 /** An account's language, if the install still offers it; else the install's first. */
@@ -147,7 +150,7 @@ async function withTotals(rows: AccountRow[]): Promise<Account[]> {
     .prepare(
       `SELECT c.account_id,
               COALESCE(SUM(CASE WHEN c.applied_invoice_id IS NOT NULL AND i.paid_on IS NULL THEN c.amount END), 0)::float AS applied,
-              COALESCE(SUM(CASE WHEN c.applied_invoice_id IS NULL THEN c.amount END), 0)::float AS waiting
+              COALESCE(SUM(CASE WHEN c.applied_invoice_id IS NULL AND c.settled_at IS NULL THEN c.amount END), 0)::float AS waiting
          FROM account_credits c LEFT JOIN account_invoices i ON i.id = c.applied_invoice_id
         WHERE c.account_id IN (${marks}) GROUP BY c.account_id`
     )
@@ -170,16 +173,50 @@ async function withTotals(rows: AccountRow[]): Promise<Account[]> {
       uninvoiced: roundMoney(Number(s?.uninvoiced ?? 0)),
       owing: roundMoney(Math.max(0, Number(s?.owing ?? 0) - Number(c?.applied ?? 0))),
       credit: roundMoney(Number(c?.waiting ?? 0)),
+      closed: r.closed_at !== null && r.closed_at !== undefined,
     };
   });
 }
 
-/** A venue's open accounts, with what each owes. */
+/** A venue's open accounts, with what each owes; and closed ones still holding credit to be paid back by hand. */
 export async function listAccounts(venueId: number): Promise<Account[]> {
   const rows = (await getDb()
-    .prepare("SELECT * FROM venue_accounts WHERE venue_id = ? AND closed_at IS NULL ORDER BY name")
+    .prepare(
+      `SELECT * FROM venue_accounts a WHERE a.venue_id = ?
+          AND (a.closed_at IS NULL OR EXISTS (SELECT 1 FROM account_credits c WHERE c.account_id = a.id AND c.applied_invoice_id IS NULL AND c.settled_at IS NULL))
+        ORDER BY a.closed_at IS NOT NULL, a.name`
+    )
     .all(venueId)) as AccountRow[];
   return withTotals(rows);
+}
+
+/**
+ * The credit waiting on an account paid back to it by hand (a bank
+ * transfer): every credit note not yet taken off an invoice is marked paid
+ * back, with who did it and what they wrote down, so it never comes off an
+ * invoice afterwards. Open or closed. In one statement, so an invoice being
+ * issued at the same moment either takes a credit or leaves it to this,
+ * never both. Returns what was paid back; 0 when nothing waited.
+ */
+export async function settleAccountCredit(
+  venueId: number,
+  accountId: number,
+  by: { adminId: number; name: string },
+  note: string | null
+): Promise<{ ok: true; amount: number; account: Account } | { ok: false; error: string }> {
+  const db = getDb();
+  const account = (await db.prepare("SELECT * FROM venue_accounts WHERE id = ? AND venue_id = ?").get(accountId, venueId)) as AccountRow | undefined;
+  if (!account) return { ok: false, error: "That account is not here." };
+  const written = note?.trim().slice(0, 200) || null;
+  const settled = (await db
+    .prepare(
+      `UPDATE account_credits SET settled_at = now(), settled_by_admin_id = ?, settled_by_name = ?, settled_note = ?
+        WHERE account_id = ? AND venue_id = ? AND applied_invoice_id IS NULL AND settled_at IS NULL RETURNING amount::float AS amount`
+    )
+    .all(by.adminId, by.name, written, accountId, venueId)) as { amount: number }[];
+  if (settled.length === 0) return { ok: false, error: "No credit waits on that account." };
+  const [view] = await withTotals([account]);
+  return { ok: true, amount: roundMoney(settled.reduce((s, c) => s + Number(c.amount), 0)), account: view };
 }
 
 /** An open account; or, with `closed`, one closed since (what is on it is still invoiced). */
@@ -409,7 +446,7 @@ export async function issueInvoice(accountId: number, period: string, opts: { em
     await db.prepare(`UPDATE bookings SET account_invoice_id = ? WHERE id IN (${rows.map(() => "?").join(",")})`).run(made.id, ...rows.map((r) => r.id));
     // Credit notes waiting on the account come off it, whole and oldest first, as far as its total goes.
     const waiting = (await db
-      .prepare("SELECT id, amount::float AS amount FROM account_credits WHERE account_id = ? AND applied_invoice_id IS NULL ORDER BY id FOR UPDATE")
+      .prepare("SELECT id, amount::float AS amount FROM account_credits WHERE account_id = ? AND applied_invoice_id IS NULL AND settled_at IS NULL ORDER BY id FOR UPDATE")
       .all(accountId)) as { id: number; amount: number }[];
     let room = total;
     const applied: number[] = [];
@@ -420,7 +457,7 @@ export async function issueInvoice(accountId: number, period: string, opts: { em
     }
     if (applied.length > 0)
       await db
-        .prepare(`UPDATE account_credits SET applied_invoice_id = ? WHERE applied_invoice_id IS NULL AND id IN (${applied.map(() => "?").join(",")})`)
+        .prepare(`UPDATE account_credits SET applied_invoice_id = ? WHERE applied_invoice_id IS NULL AND settled_at IS NULL AND id IN (${applied.map(() => "?").join(",")})`)
         .run(made.id, ...applied);
     return (await invoiceById(made.id))!;
   });

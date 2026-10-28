@@ -2432,6 +2432,9 @@ export const ZH: Record<Phrase, string> = {
   "gi7.openGame": "前往球局",
   "gi7.openGroup": "前往群组",
   "gi7.noToken": "此链接不完整。请重新打开邀请邮件中的链接。",
+  // Round 7 (H7): a lesson paid from stored credit, as a court is
+  "rg7.lesson.paidFromCredit": "已用您的储值余额支付。",
+  "rg7.lesson.creditNotUsed": "无法用您的储值余额支付，因此尚未付款。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

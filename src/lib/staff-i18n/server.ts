@@ -355,6 +355,8 @@ const en = {
   "ptc.ret.placeNames": "Names of who took each place on a booking",
   // A membership's receipt line naming whom it is for: a participant's own, or a family's (lib/store.ts sellMembership)
   "srv.mbo.line": "Membership {code} for {who}, {from} to {to}",
+  // The Stripe set-up, with the refund events (lib/gateways/stripe.ts; round 7, H7)
+  "srv.rg7.stripeSetup": "In Stripe, add a webhook endpoint at the address below, sending {payment}; {subscription} (for memberships that renew themselves); {dispute} (so a chargeback is recorded and its booking or credit taken back); and {refund} (so a refund made in Stripe's own dashboard is recorded and shown to you). Turn on PayNow and cards under Settings → Payment methods.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -708,6 +710,8 @@ const ms: Record<keyof typeof en, string> = {
   "ptc.ret.placeNames": "Nama orang yang mengambil setiap tempat dalam tempahan",
   // A membership's receipt line naming whom it is for: a participant's own, or a family's (lib/store.ts sellMembership)
   "srv.mbo.line": "Keahlian {code} untuk {who}, {from} hingga {to}",
+  // The Stripe set-up, with the refund events (lib/gateways/stripe.ts; round 7, H7)
+  "srv.rg7.stripeSetup": "Dalam Stripe, tambah titik akhir webhook pada alamat di bawah, yang menghantar {payment}; {subscription} (untuk keahlian yang diperbaharui sendiri); {dispute} (supaya caj balik direkodkan dan tempahan atau kreditnya ditarik balik); dan {refund} (supaya bayaran balik yang dibuat dalam papan pemuka Stripe sendiri direkodkan dan ditunjukkan kepada anda). Hidupkan PayNow dan kad di bawah Settings → Payment methods.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1061,6 +1065,8 @@ const zh: Record<keyof typeof en, string> = {
   "ptc.ret.placeNames": "预订中每个名额参与者的姓名",
   // A membership's receipt line naming whom it is for: a participant's own, or a family's (lib/store.ts sellMembership)
   "srv.mbo.line": "{who} 的会员资格 {code}，{from} 至 {to}",
+  // The Stripe set-up, with the refund events (lib/gateways/stripe.ts; round 7, H7)
+  "srv.rg7.stripeSetup": "在 Stripe 中，于下方地址添加一个 Webhook 端点，发送 {payment}；{subscription}（用于自动续期的会员资格）；{dispute}（以便记录拒付并收回相应的预订或储值）；以及 {refund}（以便记录在 Stripe 后台直接办理的退款并通知您）。在 Settings → Payment methods 中开启 PayNow 和银行卡。",
 };
 
 const area = { en, ms, zh };

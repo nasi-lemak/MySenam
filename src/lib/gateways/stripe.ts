@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import type { DisputeEvent, GatewayAccount, Inbound, PaymentGateway, PaymentResult, RefundResult, SubscriptionEvent } from "./types";
+import type { DisputeEvent, GatewayAccount, Inbound, PaymentGateway, PaymentResult, RefundResult, RefundsEvent, SubscriptionEvent } from "./types";
 import { englishOf, said } from "../staff-text";
 
 /**
@@ -34,14 +34,18 @@ const SUBSCRIPTION_EVENTS = new Set(["invoice.paid", "customer.subscription.dele
 /** A chargeback opened, moving on, or decided. */
 const DISPUTE_EVENTS = new Set(["charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"]);
 
+/** A refund made on a payment, by MySenam or in the venue's own Stripe dashboard. */
+const REFUND_EVENTS = new Set(["charge.refunded", "charge.refund.updated"]);
+
 /** Every event the webhook acts on: what a venue is told to send, so the two cannot drift apart. */
-export const HANDLED_EVENTS = [...PAYMENT_EVENTS, ...SUBSCRIPTION_EVENTS, ...DISPUTE_EVENTS];
+export const HANDLED_EVENTS = [...PAYMENT_EVENTS, ...SUBSCRIPTION_EVENTS, ...DISPUTE_EVENTS, ...REFUND_EVENTS];
 
 /** What to set up in Stripe, for the settings form. */
-const SETUP = said("srv.gw.stripe.setup", {
+const SETUP = said("srv.rg7.stripeSetup", {
   payment: [...PAYMENT_EVENTS].join(", "),
   subscription: said("srv.list.and", { a: [...SUBSCRIPTION_EVENTS].slice(0, -1).join(", "), b: [...SUBSCRIPTION_EVENTS].at(-1)! }),
   dispute: [...DISPUTE_EVENTS].join(", "),
+  refund: said("srv.list.and", { a: [...REFUND_EVENTS].slice(0, -1).join(", "), b: [...REFUND_EVENTS].at(-1)! }),
 });
 
 interface Dispute {
@@ -81,6 +85,8 @@ interface Subscription {
 
 interface Refund {
   id: string;
+  /** In the currency's smallest unit. */
+  amount?: number;
   status?: "pending" | "requires_action" | "succeeded" | "failed" | "canceled";
   metadata?: Record<string, string>;
 }
@@ -357,6 +363,32 @@ export const stripe: PaymentGateway = {
             status: dispute.status,
             dueBy: due ? new Date(due * 1000).toISOString() : null,
             outcome: dispute.status === "won" ? "won" : dispute.status === "lost" ? "lost" : null,
+          };
+        },
+      };
+    }
+    if (REFUND_EVENTS.has(event.type)) {
+      // A charge refunded (`charge.refunded`) or one of its refunds moving on (`charge.refund.updated`): either way,
+      // every refund on the payment is read back from Stripe with the account's key, the list being what counts.
+      const object = session as unknown as { object?: string; payment_intent?: string | null };
+      const paymentRef = object.payment_intent ?? null;
+      if ((object.object !== "charge" && object.object !== "refund") || !paymentRef) return { billId: null, ignored: true, verify: async () => null };
+      return {
+        billId: null,
+        refunds: true,
+        verify: async () => null,
+        verifyRefunds: async (account): Promise<RefundsEvent | null> => {
+          if (!stripeSignatureValid(body, signature, account.credentials.webhookSecret)) return null;
+          const refunds = await refundsOf(account, paymentRef);
+          return {
+            paymentRef,
+            refunds: refunds.map((r) => ({
+              id: r.id,
+              amountMinor: r.amount ?? 0,
+              status: r.status === "succeeded" ? "succeeded" : r.status === "failed" || r.status === "canceled" ? "failed" : "pending",
+              // Every refund MySenam asks for carries its key (`refund` above).
+              ours: Boolean(r.metadata?.mysenam_key),
+            })),
           };
         },
       };

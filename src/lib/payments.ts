@@ -1,7 +1,7 @@
 import { isOpen, venueIsOpen } from "./listing";
 import { hoursOf } from "./interval";
 import { creditScope, isMarketplace } from "./mode";
-import { getDb, withTransaction } from "./db";
+import { getDb, isUniqueViolation, withTransaction } from "./db";
 import {
   gatewayFor,
   offeredGateways,
@@ -13,7 +13,7 @@ import {
   type PaymentResult,
   type ProviderId,
 } from "./gateways";
-import type { DisputeEvent, SubscriptionEvent } from "./gateways/types";
+import type { DisputeEvent, RefundsEvent, SubscriptionEvent } from "./gateways/types";
 import { tellOwners, tellVenueStaff } from "./owner-alerts";
 import { siteName } from "./site";
 import { seal, unseal } from "./secrets";
@@ -1424,6 +1424,14 @@ export async function settlePendingRefunds(): Promise<number> {
  */
 export async function reconcileRefunds(): Promise<{ refunded: number; told: number }> {
   const db = getDb();
+  // Money a gateway already gave back that nothing owed counts towards what is owed now, before anything is asked of it.
+  const covered = (await db
+    .prepare(
+      `SELECT DISTINCT g.payment_id FROM gateway_refunds g JOIN online_payments p ON p.id = g.payment_id
+        WHERE g.unasked_left > 0 AND p.refund_due > p.refunded LIMIT 50`
+    )
+    .all()) as { payment_id: number }[];
+  for (const g of covered) await applyUnaskedRefunds(g.payment_id);
   const owed = `p.refund_due > p.refunded AND p.status = 'paid' AND p.venue_id IS NOT NULL
       AND p.purpose NOT IN ('invoice', 'pack')
       AND NOT EXISTS (SELECT 1 FROM online_refunds r WHERE r.payment_id = p.id AND r.provider_ref LIKE 'claim:%')
@@ -1500,8 +1508,11 @@ export async function settleOwedRefunds(): Promise<number> {
  * people at once, records it once.
  */
 export async function markRefunded(paymentId: number, venueId: number | null, adminId: number | null = null, note: string | null = null): Promise<RefundDone> {
-  const row = await owedRow(paymentId, venueId);
-  if (!row) return { ok: false, error: "Nothing is owed back on that payment." };
+  const owed = await owedRow(paymentId, venueId);
+  if (!owed) return { ok: false, error: "Nothing is owed back on that payment." };
+  // Money the gateway already gave back that nothing owed counts first (`applyUnaskedRefunds`).
+  const row = (await applyUnaskedRefunds(owed.id)) > 0 ? await owedRow(paymentId, venueId) : owed;
+  if (!row) return { ok: true, payment: await reread(paymentId), pending: false };
   const written = note?.trim().slice(0, 200) || null;
   try {
     await recordRefund(row, roundMoney(row.refund_due - row.refunded), null, false, adminId, undefined, written);
@@ -1517,8 +1528,11 @@ export async function markRefunded(paymentId: number, venueId: number | null, ad
  * gateway's dashboard. Only where the gateway has a refund API (Stripe).
  */
 export async function refundOnline(paymentId: number, venueId: number | null, adminId: number | null = null): Promise<RefundDone> {
-  const row = await owedRow(paymentId, venueId);
-  if (!row) return { ok: false, error: "Nothing is owed back on that payment." };
+  const owed = await owedRow(paymentId, venueId);
+  if (!owed) return { ok: false, error: "Nothing is owed back on that payment." };
+  // Money the gateway already gave back that nothing owed counts first: the gateway is not asked for it twice.
+  const row = (await applyUnaskedRefunds(owed.id)) > 0 ? await owedRow(paymentId, venueId) : owed;
+  if (!row) return { ok: true, payment: await reread(paymentId), pending: false };
   const gateway = gatewayFor(row.provider);
   if (!gateway?.refund)
     return { ok: false, error: `${gateway?.name ?? row.provider} refunds are made in its own dashboard. Refund it there, then mark it refunded.` };
@@ -1601,7 +1615,11 @@ export async function refundCancelled(
     .all(...bookingIds)) as PaymentRow[];
   const done: CancelRefund[] = [];
   for (const row of rows) {
-    const amount = roundMoney(row.refund_due - row.refunded);
+    // Money the gateway already gave back that nothing owed (refunded in its dashboard) counts first.
+    const covered = await applyUnaskedRefunds(row.id);
+    if (covered > 0) done.push({ how: "gateway", amount: covered });
+    const amount = roundMoney(row.refund_due - row.refunded - covered);
+    if (amount <= 0.005) continue;
     const venuePolicy = await cancelPolicy(row.venue_id!);
     const policy = venuePolicy.onlineRefunds;
     const onlineRefunds = opts.byVenue && policy === "credit" ? "gateway" : policy;
@@ -2678,4 +2696,157 @@ export async function disputesFor(venueId: number): Promise<PaymentDispute[]> {
     payerName: r.payer_name,
     bookingCodes: r.codes ? r.codes.split(", ") : [],
   }));
+}
+
+// ------------------------------------------------------------ refunds made in the gateway's own dashboard
+
+/** What became of one refund the gateway reported that MySenam had not asked for (`gateway_refunds`). */
+export interface GatewayRefundSeen {
+  refundId: string;
+  amount: number;
+  /** Linked to a refund staff had marked as made by hand, for the same amount. */
+  matchedHand: number;
+  /** Recorded as (part of) the refund owed back on the payment. */
+  matchedOwed: number;
+  /** Nothing owed it: staff are told, and it counts towards what is owed back on the payment later. */
+  unasked: number;
+}
+
+/**
+ * Refunds the gateway reports on one of the payments made through it
+ * (Stripe's `charge.refunded` and `charge.refund.updated`) that MySenam did
+ * not ask for: a venue's staff (or the platform owners) refunding in the
+ * gateway's own dashboard.
+ *
+ * A refund MySenam made is left to the path that made it: it carries
+ * MySenam's key (`ours`), or its id is already recorded, so it is never
+ * counted twice. Anything else that has gone through is written down once by
+ * the gateway's id, however often or at once it is reported, under the
+ * payment's row lock, and matched: to a refund staff marked as made by hand
+ * for that amount (the same money, now tied to the gateway's id); else to
+ * what is owed back on the payment (recorded as that refund, made in the
+ * gateway, so it is not asked for again); the rest is money nothing owed.
+ *
+ * Nothing else changes by itself: no booking or membership is cancelled,
+ * unpaid or shortened, since only the venue knows what the refund was for.
+ * Staff (or, for what a venue paid the platform, its owners) are told by
+ * email, it is in the activity log, the integrity check raises it, and the
+ * unasked part counts towards whatever is owed back on that payment later
+ * (`applyUnaskedRefunds`), so the gateway is never asked to give the same
+ * money back twice. A refund still pending is written down once it succeeds
+ * (Stripe reports it again then); one that failed is not money back.
+ */
+export async function recordGatewayRefunds(provider: string, billId: string, event: RefundsEvent): Promise<GatewayRefundSeen[]> {
+  const db = getDb();
+  const payment = (await db.prepare("SELECT * FROM online_payments WHERE provider = ? AND bill_id = ?").get(provider, billId)) as PaymentRow | undefined;
+  if (!payment || payment.status !== "paid") return [];
+  const minor = region().currency.minorUnits;
+  const seen: GatewayRefundSeen[] = [];
+  for (const r of event.refunds) {
+    if (r.ours || r.status !== "succeeded" || !(r.amountMinor > 0)) continue;
+    const amount = roundMoney(r.amountMinor / 10 ** minor);
+    const done = await withTransaction(async (): Promise<GatewayRefundSeen | null> => {
+      const row = (await db
+        .prepare("SELECT refund_due::float AS due, refunded::float AS refunded FROM online_payments WHERE id = ? FOR UPDATE")
+        .get(payment.id)) as { due: number; refunded: number };
+      // Made by MySenam under an id already recorded, or seen before.
+      if (await db.prepare("SELECT 1 FROM online_refunds WHERE provider_ref = ?").get(r.id)) return null;
+      if (await db.prepare("SELECT 1 FROM gateway_refunds WHERE provider_refund_id = ?").get(r.id)) return null;
+      // Marked by hand for this amount and not yet tied to the gateway's id: the refund staff made there.
+      const hand = (await db
+        .prepare("SELECT id FROM online_refunds WHERE payment_id = ? AND provider_ref IS NULL AND failed_at IS NULL AND amount = ? ORDER BY id LIMIT 1")
+        .get(payment.id, amount)) as { id: number } | undefined;
+      const matchedHand = hand ? amount : 0;
+      const owed = Math.max(0, roundMoney(Number(row.due) - Number(row.refunded)));
+      const matchedOwed = hand ? 0 : Math.min(amount, owed);
+      const unasked = roundMoney(amount - matchedHand - matchedOwed);
+      await db
+        .prepare(
+          `INSERT INTO gateway_refunds (payment_id, provider, provider_refund_id, amount, matched_hand, matched_owed, unasked, unasked_left)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(payment.id, provider, r.id, amount, matchedHand, matchedOwed, unasked, unasked);
+      if (hand) await db.prepare("UPDATE online_refunds SET provider_ref = ? WHERE id = ?").run(r.id, hand.id);
+      // What was owed back, made in the gateway: recorded as that refund, its receipt credited as for any refund.
+      if (matchedOwed > 0 && !(await recordRefund(payment, matchedOwed, r.id, false, null))) throw new Error("GATEWAY_REFUND_RACE");
+      return { refundId: r.id, amount, matchedHand, matchedOwed, unasked };
+    }).catch((err: unknown) => {
+      // The same refund reported twice at once: the other report wrote it down.
+      if (isUniqueViolation(err)) return null;
+      throw err;
+    });
+    if (done) seen.push(done);
+  }
+  if (seen.length > 0) await tellOfGatewayRefunds(provider, payment, seen);
+  return seen;
+}
+
+/** Staff (or the owners, for a payment to the platform) told of refunds made in the gateway, and the activity log. */
+async function tellOfGatewayRefunds(provider: string, payment: PaymentRow, seen: GatewayRefundSeen[]): Promise<void> {
+  const gateway = gatewayFor(provider)?.name ?? provider;
+  const platform = PLATFORM_PURPOSES.includes(payment.purpose);
+  const codes = (
+    (await getDb()
+      .prepare("SELECT b.code FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id WHERE pb.payment_id = ? ORDER BY b.id")
+      .all(payment.id)) as { code: string }[]
+  ).map((c) => c.code);
+  const what = codes.length > 0 ? ` (${codes.join(", ")})` : "";
+  const { logAction } = await import("./activity");
+  for (const s of seen)
+    await logAction(
+      { id: null, name: gateway },
+      {
+        venueId: platform ? null : payment.venue_id,
+        action: "payment.gateway_refund",
+        bookingCode: codes[0] ?? null,
+        detail: `${gateway} refunded ${money(s.amount)} on payment ${payment.bill_id}${what} in its own dashboard (${s.refundId}): ${[
+          s.matchedHand > 0 ? "the refund marked as made by hand" : "",
+          s.matchedOwed > 0 ? `${money(s.matchedOwed)} owed back, now refunded` : "",
+          s.unasked > 0 ? `${money(s.unasked)} nothing here owed; bookings and memberships unchanged` : "",
+        ]
+          .filter(Boolean)
+          .join("; ")}`,
+      }
+    );
+  const unasked = roundMoney(seen.reduce((sum, s) => sum + s.unasked, 0));
+  if (unasked <= 0) return;
+  const subject = `${gateway} refunded ${money(unasked)} that ${siteName()} did not ask for`;
+  const body = [
+    `${money(unasked)} of a payment of ${money(Number(payment.amount))} by ${payment.payer_name ?? "a customer"}${what} was refunded in the ${gateway} dashboard, and nothing here was owed back on it.`,
+    `Nothing has been changed here: the bookings, memberships and receipts stay as they were. If the refund was for something called off, cancel it here: the money ${gateway} already gave back counts towards what that owes, so it is not refunded twice. If it was a goodwill refund, there is nothing more to do.`,
+  ].join("\n\n");
+  if (platform) await tellOwners(subject, body);
+  else if (payment.venue_id !== null) await tellVenueStaff(payment.venue_id, subject, body);
+}
+
+/**
+ * Money a gateway gave back that nothing owed (`gateway_refunds.unasked_left`)
+ * counts towards what is owed back on that payment now: recorded as that
+ * much refunded, made in the gateway, so it is never asked of the gateway
+ * again. Under the payment's row lock; returns what it covered.
+ */
+export async function applyUnaskedRefunds(paymentId: number): Promise<number> {
+  const db = getDb();
+  if (!(await db.prepare("SELECT 1 FROM gateway_refunds WHERE payment_id = ? AND unasked_left > 0").get(paymentId))) return 0;
+  return withTransaction(async () => {
+    const row = (await db.prepare("SELECT * FROM online_payments WHERE id = ? FOR UPDATE").get(paymentId)) as PaymentRow;
+    let owed = Math.max(0, roundMoney(Number(row.refund_due) - Number(row.refunded)));
+    const unasked = (await db
+      .prepare("SELECT id, provider_refund_id, unasked_left::float AS left FROM gateway_refunds WHERE payment_id = ? AND unasked_left > 0 ORDER BY id")
+      .all(paymentId)) as { id: number; provider_refund_id: string; left: number }[];
+    let applied = 0;
+    for (const g of unasked) {
+      if (owed <= 0.005) break;
+      const take = Math.min(owed, Number(g.left));
+      const after = roundMoney(Number(g.left) - take);
+      // Its own record, keyed by the gateway's refund and what is left of it: the same part is never recorded twice.
+      const recorded = await recordRefund(row, take, `${g.provider_refund_id}:${Math.round(after * 100)}`, false, null, async () => {
+        await db.prepare("UPDATE gateway_refunds SET unasked_left = ? WHERE id = ?").run(after, g.id);
+      });
+      if (!recorded) continue;
+      owed = roundMoney(owed - take);
+      applied = roundMoney(applied + take);
+    }
+    return applied;
+  });
 }

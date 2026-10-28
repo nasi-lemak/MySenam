@@ -25,6 +25,8 @@ are limited to 120 a minute per key.
 | `GET /bookings/<code>` | read | One booking |
 | `POST /bookings` | write | `{ courtId, date, start, end, name, phone, email?, players?, participantIds?, customerTakesPart?, concessionId?, placeConcessions?, promoCode? }` (or `minutes` for `end`; or `hours`, the board's column starts, as before): books it unpaid; the customer gets the usual confirmation. `players` is how many places it takes on a resource with places (or how many play on a court priced per player), up to the most the venue lets one booking take (`PLAYERS_RANGE` past it). `participantIds`: for people other than the customer (see below). Discounts and the number's checks: see below |
 | `POST /bookings/<code>/cancel` | write | Cancels as staff would; the customer is told |
+| `GET /bookings/<code>/withdraw` | read | Who is on the booking and whether each can be taken off now, with what it would do (see below) |
+| `POST /bookings/<code>/withdraw` | write | `{ placeId \| participantId \| customer: true \| unnamed: n, reason? }`: takes one person (or places nobody is named on) off, the others staying booked, as the counter does (see below) |
 | `GET /waitlist?date=` | read | The venue's waiting lists that day: court time on its resources and its classes, each entry with who made it (`madeBy`); never an offer's token |
 | `POST /waitlist` | write | `{ courtId, date, start, end }` or `{ classId }`, with `name, phone, email?, participantIds?, customerTakesPart?, confirmWho?, locale?`: queues somebody for taken time or a full class, as the counter does (see below) |
 | `DELETE /waitlist` | write | `{ entryId }`: takes off an entry the venue made (at its counter or through its API); one its customer made online is theirs to leave (409) |
@@ -132,6 +134,34 @@ the queue; the house rules, the unpaid-bookings limit or strikes make it
 wait; see [waitlists](../features/booking.md#waitlists)); the booking
 claimed from it is made as the API makes one. Each join and removal is in the staff activity log as the key
 (`API key <id>`). Another venue's court, class or entry is *not found*.
+
+**Taking one person off a booking** (added 2026-10-28; additive). A write
+key does what the venue's counter does
+([taking one person off a booking](../features/booking.md#taking-one-person-off-a-booking)),
+through the same code: on the counter's terms (up to the end of the
+booking, in full, never the customer's late-cancellation share), with the
+same refusals (`ENT_WITHDRAW_LESSON`, `_CLASS`, `_GAME`, `_SHARED`,
+`_DEPOSIT`, `_PAGE_OPEN`, `_SOLD_WHOLE`, `_ATTENDED`, `_LAST`, `_NOT_ON`,
+`_NO_PLACES`, `KIT_STILL_OUT`, `CANCEL_PLAYED`; 409) and the same money: off
+what is owed, or back the way it was paid (to credit, owed back on the
+online payment and sent now, a credit note on a company or school account,
+pass entries back). `GET` answers `options`, each person with `placeId`,
+`participantId`, `name`, `who`, `allowed` or `refusal`, and `price`,
+`refund`, `kept`, `owedLess`, `units`, `how`, `deposit`; `POST` answers
+`booking` (as `GET /bookings/<code>`), `withdrawal` and `refunds`. The
+customer (the guardian) is emailed who is off; the participant's history and
+the staff activity log (`booking.place_withdrawn`) name the key
+(`API key <id>`), and so does the withdrawal's record. Another venue's
+booking is *not found*.
+
+A `POST` may carry an `Idempotency-Key` header (1 to 255 printable
+characters, a UUID for instance), the only call that takes one: sent again
+with the same key (a timeout, a retry), it answers with the withdrawal it
+made (`replayed: true`) and takes nobody else off, nor tells anybody again;
+the same key on a different request (another booking, somebody else, another
+number of places) is refused (422). Without a key, taking a named person off
+twice is refused the second time (`ENT_WITHDRAW_NOT_ON`), but `unnamed`
+places are taken off again by each request: send a key with those.
 
 **Webhooks.** Up to 5 HTTPS addresses per venue. Each gets a signing secret,
 shown once. `booking.created`, `booking.paid`, `booking.changed` (date, time

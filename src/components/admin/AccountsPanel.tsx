@@ -102,6 +102,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div>
                 <span className="font-semibold">{a.name}</span>{" "}
+                {a.closed && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{t("rg7.acc.closed")}</span>}{" "}
                 <span className="text-slate-500">
                   · {a.email} · {t.plural("acc.termsDays", a.termsDays)}
                   {a.creditLimit !== null ? ` · ${t("acc.limit", { amount: money(a.creditLimit) })}` : ""}
@@ -113,11 +114,27 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 {a.credit > 0 && (
                   <>
                     {" "}
-                    · {t("pw6.acc.credit")} <strong>{money(a.credit)}</strong>
+                    · {t("pw6.acc.credit")} <strong>{money(a.credit)}</strong>{" "}
+                    {/* Paid back some other way (a bank transfer): recorded, so it never comes off an invoice (managers). */}
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-teal-700 underline"
+                      onClick={async () => {
+                        const note = window.prompt(t("rg7.acc.settlePrompt", { amount: money(a.credit), name: a.name }), "");
+                        if (note === null) return;
+                        const done = await send("/api/admin/accounts/credits", "POST", { venueId, accountId: a.id, note });
+                        if (done) setNotice(t("rg7.acc.settled", { amount: money(Number(done.amount)), name: a.name }));
+                      }}
+                    >
+                      {t("rg7.acc.settle")}
+                    </button>
                   </>
                 )}
               </div>
             </div>
+            {/* A closed account is listed only for its credit: nothing else to do on it. */}
+            {!a.closed && (
+            <>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {a.bookers.map((b) => (
                 <span key={b.phone} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs">
@@ -209,6 +226,8 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 {t("c.close")}
               </button>
             </div>
+            </>
+            )}
           </li>
         ))}
       </ul>

@@ -91,6 +91,13 @@ booking is paid. A venue can instead assign the coach itself
   is its own line on the receipt, *Coaching with Ana Lim*. A promo code comes
   off the court, not the coach's fee. The sales journal files it under
   *Coaching*.
+- **Paid from credit** as a court is: a signed-in customer holding credit at
+  the venue sees *Pay from my credit balance* on the lesson form, which sends
+  `payFromWallet` through the same path (`payBookingFromWallet`): the court
+  and the coach's fee are taken from credit and the lesson is paid; with too
+  little credit it is booked and stays unpaid, and the confirmation says so.
+  Cancelled in time, it goes back to credit as any booking paid that way
+  (`tests/lesson-credit.test.ts`, `tests/components/coach-booking-credit.test.tsx`).
 - **A coach is in one place at a time.** Each lesson claims the coach for
   its exact minutes (`coach_claims`, under a database constraint that
   refuses two overlapping claims for one coach). A second lesson overlapping
