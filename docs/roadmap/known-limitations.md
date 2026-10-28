@@ -361,6 +361,12 @@ template, prepared and not yet submitted to Meta (email works without it)
 ([programmes](../features/programmes.md), [tournaments](../features/tournaments.md),
 [booking alerts](../features/venue-operations.md#booking-alerts)) (P3).
 
+Also: closing an account, like a customer's own cancellation, does not tell
+the venue directly (the freed court shows on the schedule and the waiting list
+is offered it); a friend's payment page being opened at the gateway at the very
+moment the booker re-splits keeps the old share, the money taken counted as
+taken ([booking concurrency](../architecture/booking-concurrency.md)) (P3).
+
 Also: there is no CSRF token, by design: cross-site writes are refused by
 `SameSite=Lax` and an `Origin` check ([security](../architecture/security.md#requests-from-another-site)).
 The content security policy still allows inline *styles* (a style cannot run
@@ -752,6 +758,13 @@ IDs are not reused. Each fix came with the test recommended above.
 | B51 | The schedule listed a day's neighbours' bookings that only touched it (zero-minute rows at midnight) and showed an after-midnight booking under the following day; it now lists only what overlaps the day's own window, the evening's late hours with the evening | `tests/schedule-own-day.test.ts` |
 | B52 | Twelve kinds of activity-log entry (tournament rules, results and corrections, league results and joining) had no label and showed their raw names; they are labelled in every staff language, and the label test reads every way an action is chosen | `tests/activity-labels.test.ts` |
 | M23 | A tournament's entry fee was read from the tournament at payment and on the counter receipt, so changing the fee would have repriced entries already made; each entry keeps its own fee (migration 0238, backfilled) | `tests/tournament-changes.test.ts` |
+| M24 | Closing an account cancelled its paid upcoming bookings with no refund, credit note or waiting-list offer, and also cancelled bookings played earlier that day; each is now cancelled on the customer's own terms through the one cancellation path, online money sent back or listed as owed (never to credit, the account being gone), and the erasure refused where it would give back stored credit. Found by the round 8 audit | `tests/erasure-money.test.ts` |
+| M25 | Voiding a pass, or a membership without money back, wrote a credit note for the whole sale; voiding is no longer a refund, and money back (for a pass, its unused part only) is a choice of its own | `tests/void-credit-notes.test.ts`, `tests/receipts.test.ts` |
+| M26 | A company or school account's booking cancelled after its invoice stayed charged with no credit note, and the account's amount owing disagreed with its invoices; the cancellation is credited to the account against the invoice once (migration 0242), and owing is what the unpaid invoices say | `tests/account-cancellations.test.ts` |
+| M27 | Late-cancellation fees kept were missing from the period report's collected figure and its tax, which drifted a cent from the journal; the report and the journal now count them with the same SQL, and a late fee's tax is worked out on the fee itself | `tests/late-cancel-report.test.ts` |
+| M28 | The sales journal subtracted the credit note of a cancelled booking paid with a pass without ever having counted it as a sale (the pass was), understating takings; such credit notes are left out | `tests/void-credit-notes.test.ts` |
+| B53 | Entries made at once could overfill a tournament, and a division's cap or a league join could race (two joins of one player hit a database error); entries are counted and taken under the tournament's (and competition's) lock, league joins under the league's | `tests/entry-races.test.ts` |
+| B54 | Two first splits of one booking at once failed with a database error, and a re-split while a friend was paying left a paid share at the old amount; splitting runs under the booking's lock and a re-split is refused while a share is paid or being paid | `tests/split-races.test.ts` |
 
 ### Resolved limitations without a number
 
