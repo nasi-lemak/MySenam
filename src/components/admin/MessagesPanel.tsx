@@ -21,6 +21,7 @@ const KIND_LABELS: Record<string, StaffPhrase> = {
   waitlist_offer: "msg.kind.waitlistOffer",
   class_enrolled: "msg.kind.classEnrolled",
   waitlist_joined: "q8b.msg.kindJoined",
+  class_changed: "r9d.msg.kindClassChanged",
 };
 
 const STATE_LABELS: Record<string, StaffPhrase> = {

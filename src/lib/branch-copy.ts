@@ -1,0 +1,271 @@
+import { getDb } from "./db";
+import { todayISO } from "./time";
+import { venueZoneOf } from "./zones";
+
+/**
+ * A new branch started from another branch's set-up (audit R8 X1-15;
+ * docs/architecture/tenancy.md#starting-a-branch-from-another).
+ *
+ * A business manager adding a branch may start it from one of their
+ * business's branches: its settings are copied, inside the transaction that
+ * makes the branch, so the new one prices and offers what the other does and
+ * the manager changes only what differs. Settings only: never people, money
+ * or what anybody did. The branch is a draft as any new one is.
+ *
+ * Copied (from the source as it stands, rows and all):
+ *
+ *  - the venue's own settings, by name (`VENUE_SETTINGS`): opening and
+ *    staffed hours, booking limits and how far ahead, holding unpaid and
+ *    deposits, weekly series, guests, peak hours, cancellation, late shares,
+ *    strikes and refunds, last-minute prices, the free hour for regulars,
+ *    discount stacking, choosing a coach, and asking for reviews;
+ *  - its opening hours from a later date (`venue_hours_changes`, ADR 0027),
+ *    those in force and those still waiting;
+ *  - each court (`courts`, every column but its door code, unstaffed opening
+ *    and what the database keeps itself), with the activities it offers at
+ *    their rates (`court_activities`), the courts it takes when booked
+ *    (`court_links`, and so `court_spaces`), its rates and own hours from a
+ *    later date (`court_changes`), and its booking rules;
+ *  - the venue's booking rules (`booking_policies` at the venue and its
+ *    courts; the business's apply to every branch already), sport rules,
+ *    holidays still to come, the waiver in use, what is asked before
+ *    approving somebody online (`approval_requirements`), competition
+ *    templates, and what is on sale and not retired: concessions, extras,
+ *    membership plans and passes (not a coach's lesson pack: coaches are
+ *    people, and not copied).
+ *
+ * Left out, and why: anything of a person or of money (bookings, customers,
+ * staff and coaches, memberships, passes, credit, receipts, accounts, notes,
+ * access and blocked lists, photos, reviews, messages); secrets and accounts
+ * of its own (payment gateway, e-invoicing, API keys, webhooks, calendar
+ * links, door codes, WhatsApp); what is the branch's own place (its name and
+ * address, pin, time zone, facilities, emergency details, closed days and
+ * notices); declarations its own manager makes (tax registration, a deduction
+ * tax reviewed by an adviser, which policies managers may override); who
+ * may book (members only or private) and promo codes, chosen per branch; and
+ * booking alerts, which start off. An activity of the source venue's own
+ * (not its business's) cannot be offered by another branch: a court whose
+ * main activity is one is left out and named, and any other row for it.
+ */
+
+/** The venue's own columns that are settings, copied as they are. Anything not named is left as a new venue has it. */
+export const VENUE_SETTINGS = [
+  "open_min",
+  "close_min",
+  "week_hours",
+  "staffed_from",
+  "staffed_to",
+  "partly_unstaffed",
+  "cancel_cutoff_hours",
+  "limit_upcoming",
+  "limit_per_week",
+  "limit_per_day",
+  "book_ahead_days",
+  "member_ahead_days",
+  "pay_to_hold",
+  "hold_minutes",
+  "deposit_percent",
+  "series_weeks",
+  "guest_invites",
+  "guest_invite_days",
+  "peak_weekday_from_min",
+  "peak_weekday_until_min",
+  "peak_weekend_days",
+  "peak_weekend_from_min",
+  "peak_weekend_until_min",
+  "late_cancel_keep",
+  "late_give_back",
+  "strike_limit",
+  "strike_days",
+  "online_refunds",
+  "refund_within_days",
+  "last_minute_hours",
+  "last_minute_percent",
+  "last_minute_off_peak",
+  "loyalty_every",
+  "discount_stacking",
+  "lesson_coach_choice",
+  "review_requests",
+] as const;
+
+/** A court's columns never copied: its identity, its door, and what the database keeps from other rows. */
+const COURT_NOT_COPIED = ["id", "venue_id", "access_code", "access_code_changed_at", "unmanned", "activities", "dated_changes"];
+
+/** Every table a copy writes rows to, besides the venue's own: `tests/branch-copy.test.ts` holds the rest empty. */
+export const COPIED_TABLES = [
+  "courts",
+  "spaces",
+  "court_spaces",
+  "court_activities",
+  "court_links",
+  "court_changes",
+  "venue_hours_changes",
+  "booking_policies",
+  "sport_rules",
+  "venue_holidays",
+  "venue_waivers",
+  "approval_requirements",
+  "competition_templates",
+  "concessions",
+  "venue_addons",
+  "membership_plans",
+  "pass_products",
+] as const;
+
+export interface BranchCopy {
+  fromVenueId: number;
+  courts: number;
+  /** Courts left out: their main activity is the source venue's own. */
+  skippedCourts: string[];
+  /** Rows written, by table. */
+  rows: Record<string, number>;
+}
+
+/** A table's columns that a row can be written with: not generated by the database. */
+async function columnsOf(table: string): Promise<string[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = ? AND is_generated = 'NEVER'
+        ORDER BY ordinal_position`
+    )
+    .all(table)) as { column_name: string }[];
+  return rows.map((r) => r.column_name);
+}
+
+/**
+ * Copy rows of `table` chosen by `where` (on the alias `t`), every column but
+ * `skip` as it is and those in `set` as given (SQL on `t`, or the court map
+ * `m.new_id`). `join` adds the court map. Returns the rows written.
+ */
+async function copyRows(
+  table: string,
+  opts: { where: string; params: unknown[]; set?: Record<string, string>; skip?: string[]; join?: string; joinParams?: unknown[] }
+): Promise<number> {
+  const set = opts.set ?? {};
+  const skip = new Set(["id", "created_at", "updated_at", ...(opts.skip ?? []), ...Object.keys(set)]);
+  const kept = (await columnsOf(table)).filter((c) => !skip.has(c));
+  const targets = [...kept, ...Object.keys(set)];
+  const values = [...kept.map((c) => `t.${c}`), ...Object.values(set)];
+  const result = await getDb()
+    .prepare(
+      `INSERT INTO ${table} (${targets.join(", ")})
+       SELECT ${values.join(", ")} FROM ${table} t ${opts.join ?? ""} WHERE ${opts.where}`
+    )
+    .run(...(opts.joinParams ?? []), ...opts.params);
+  return result.changes;
+}
+
+/**
+ * Copy `fromVenueId`'s set-up onto the new, empty `toVenueId`, inside the
+ * caller's transaction (lib/applications.ts `addBranch`). `adminId` is
+ * recorded as having made what records its maker.
+ */
+export async function copyBranchSetup(fromVenueId: number, toVenueId: number, adminId: number): Promise<BranchCopy> {
+  const db = getDb();
+  const rows: Record<string, number> = {};
+  const count = (table: string, n: number) => (rows[table] = (rows[table] ?? 0) + n);
+  // The venue's own rows, the new venue's id put for the source's (both ids are the database's own integers).
+  const forVenue = (table: string, where = "true", extra: Record<string, string> = {}, params: unknown[] = []) =>
+    copyRows(table, { where: `t.venue_id = ? AND ${where}`, params: [fromVenueId, ...params], set: { venue_id: `${Number(toVenueId)}`, ...extra } });
+
+  // The venue's settings, and its hours from a later date.
+  const cols = VENUE_SETTINGS.join(", ");
+  await db
+    .prepare(`UPDATE venues SET (${cols}) = (SELECT ${cols} FROM venues WHERE id = ?) WHERE id = ?`)
+    .run(fromVenueId, toVenueId);
+  count("venue_hours_changes", await forVenue("venue_hours_changes"));
+
+  // Activities the new branch may not offer: a venue's own (keys are `^[a-z][a-z0-9_]+$`, checked by the database).
+  const own = new Set(
+    ((await db.prepare("SELECT key FROM activities WHERE venue_id IS NOT NULL").all()) as { key: string }[])
+      .map((a) => a.key)
+      .filter((k) => /^[a-z][a-z0-9_]{1,39}$/.test(k))
+  );
+  const notOwn = (column: string) => (own.size === 0 ? "true" : `(t.${column} IS NULL OR t.${column} NOT IN (${[...own].map((k) => `'${k}'`).join(", ")}))`);
+
+  // Courts, one by one, to know each new id.
+  const courtCols = (await columnsOf("courts")).filter((c) => !COURT_NOT_COPIED.includes(c));
+  const sources = (await db.prepare("SELECT id, name, sport FROM courts WHERE venue_id = ? ORDER BY id").all(fromVenueId)) as {
+    id: number;
+    name: string;
+    sport: string;
+  }[];
+  const map = new Map<number, number>();
+  const skippedCourts: string[] = [];
+  for (const c of sources) {
+    if (own.has(c.sport)) {
+      skippedCourts.push(c.name);
+      continue;
+    }
+    const made = (await db
+      .prepare(`INSERT INTO courts (venue_id, ${courtCols.join(", ")}) SELECT ?, ${courtCols.join(", ")} FROM courts WHERE id = ? RETURNING id`)
+      .get(toVenueId, c.id)) as { id: number };
+    map.set(c.id, made.id);
+  }
+  count("courts", map.size);
+
+  if (map.size > 0) {
+    // The court map, as a table to join on: m.old_id → m.new_id.
+    const pairs = [...map.entries()];
+    const mapJoin = (column: string) => ({
+      join: `JOIN (VALUES ${pairs.map(() => "(?::int, ?::int)").join(", ")}) AS m(old_id, new_id) ON m.old_id = t.${column}`,
+      joinParams: pairs.flat(),
+    });
+    // Its activities and their rates: the main one is already there (written by the database with the court).
+    for (const [from, to] of pairs) {
+      const acts = (await db
+        .prepare(`SELECT sport, off_peak_rate, peak_rate, position FROM court_activities t WHERE court_id = ? AND ${notOwn("sport")}`)
+        .all(from)) as { sport: string; off_peak_rate: number | null; peak_rate: number | null; position: number }[];
+      for (const a of acts)
+        await db
+          .prepare(
+            `INSERT INTO court_activities (court_id, sport, off_peak_rate, peak_rate, position) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (court_id, sport) DO UPDATE SET off_peak_rate = EXCLUDED.off_peak_rate, peak_rate = EXCLUDED.peak_rate, position = EXCLUDED.position`
+          )
+          .run(to, a.sport, a.off_peak_rate, a.peak_rate, a.position);
+      count("court_activities", acts.length);
+    }
+    // Linked courts: a whole takes its parts' spaces, as lib/court-links.ts `setCourtParts` writes them (nothing is booked yet).
+    const links = (await db
+      .prepare(`SELECT whole_id, part_id FROM court_links WHERE whole_id IN (${pairs.map(() => "?").join(",")})`)
+      .all(...map.keys())) as { whole_id: number; part_id: number }[];
+    for (const l of links) {
+      const whole = map.get(l.whole_id);
+      const part = map.get(l.part_id);
+      if (whole === undefined || part === undefined) continue;
+      await db.prepare("INSERT INTO court_links (whole_id, part_id) VALUES (?, ?)").run(whole, part);
+      await db
+        .prepare("INSERT INTO court_spaces (court_id, space_id) SELECT ?, id FROM spaces WHERE court_id = ? ON CONFLICT DO NOTHING")
+        .run(whole, part);
+      count("court_links", 1);
+    }
+    // Rates and own hours from a later date (ADR 0027): in force and waiting alike, so each date reads as the source's.
+    count("court_changes", await copyRows("court_changes", { where: "true", params: [], set: { court_id: "m.new_id" }, ...mapJoin("court_id") }));
+    // Each court's own booking rules.
+    count(
+      "booking_policies",
+      await copyRows("booking_policies", { where: `t.court_id IS NOT NULL AND ${notOwn("sport")}`, params: [], set: { court_id: "m.new_id" }, ...mapJoin("court_id") })
+    );
+  }
+
+  // The venue's own rows.
+  const maker = { created_by: `${Number(adminId)}` };
+  count("booking_policies", await forVenue("booking_policies", notOwn("sport")));
+  count("sport_rules", await forVenue("sport_rules", notOwn("sport")));
+  const venue = (await db.prepare("SELECT time_zone, lat, lng FROM venues WHERE id = ?").get(fromVenueId)) as {
+    time_zone: string | null;
+    lat: number | null;
+    lng: number | null;
+  };
+  count("venue_holidays", await forVenue("venue_holidays", "t.date >= ?", {}, [todayISO(venueZoneOf(venue))]));
+  count("venue_waivers", await forVenue("venue_waivers", "t.retired_at IS NULL"));
+  count("approval_requirements", await forVenue("approval_requirements", notOwn("sport")));
+  count("competition_templates", await forVenue("competition_templates", notOwn("sport"), maker));
+  count("concessions", await forVenue("concessions", `t.retired_at IS NULL AND ${notOwn("sport")}`));
+  count("venue_addons", await forVenue("venue_addons", `t.active = 1 AND ${notOwn("sport")}`));
+  count("membership_plans", await forVenue("membership_plans", "t.retired_at IS NULL"));
+  count("pass_products", await forVenue("pass_products", `t.retired_at IS NULL AND t.coach_id IS NULL AND ${notOwn("sport")}`, maker));
+
+  return { fromVenueId, courts: map.size, skippedCourts, rows };
+}

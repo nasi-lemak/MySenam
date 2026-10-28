@@ -4,7 +4,7 @@ import { formatMinute, isMinute } from "@/lib/interval";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { ALERT_EVERY, crossed, upcomingClassSessions, VENUE_CAPS } from "@/lib/limits";
-import { tellOwners } from "@/lib/owner-alerts";
+import { tellOwnersEach } from "@/lib/owner-alerts";
 import { createClassSessions, getCourt, getVenue, listClasses, listClassWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { MAX_CLASS_WEEKS } from "@/lib/types";
@@ -114,10 +114,10 @@ export async function POST(req: NextRequest) {
   const after = before + result.classes.length;
   if (!isOwner(admin) && crossed(before, after, ALERT_EVERY.upcomingClassSessions)) {
     const venue = await getVenue(court.venueId);
-    await tellOwners(
-      `${venue?.name ?? "A venue"} now has ${after} classes coming up`,
-      `${admin.email} has scheduled classes at ${venue?.name ?? `venue ${court.venueId}`}; it now has ${after} sessions coming up.`
-    );
+    await tellOwnersEach((t) => ({
+      subject: t("r9d.classes.s", { venue: venue?.name ?? t("r9d.aVenue"), n: after }),
+      body: t("r9d.classes.b", { email: admin.email, venue: venue?.name ?? t("r9d.venueNo", { id: court.venueId }), n: after }),
+    }));
   }
   return NextResponse.json(
     { classes: result.classes, seriesCode: result.seriesCode },

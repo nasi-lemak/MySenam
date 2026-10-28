@@ -27,7 +27,10 @@ export function toCsv(header: string[], rows: unknown[][]): string {
 /** 24-hour clock for a spreadsheet, half hours included: 10.5 → "10:30". */
 const hour = (h: number) => `${String(Math.floor(h)).padStart(2, "0")}:${h % 1 ? "30" : "00"}`;
 
-/** Every booking played in the period, cancelled ones too, with what was paid and how. */
+/**
+ * Every booking played in the period, cancelled ones too, with what was paid and how; not test bookings, made
+ * before the venue went live (lib/test-bookings.ts).
+ */
 export async function bookingsCsv(venueId: number, from: string, to: string): Promise<string> {
   const rows = (await getDb()
     .prepare(
@@ -39,7 +42,7 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
               ci.checked_in_at, b.no_show, b.class_id, b.created_at
          FROM bookings b JOIN courts c ON c.id = b.court_id
          LEFT JOIN check_ins ci ON ci.booking_id = b.id
-        WHERE c.venue_id = ? AND b.date >= ? AND b.date <= ?
+        WHERE c.venue_id = ? AND NOT b.test AND b.date >= ? AND b.date <= ?
         ORDER BY b.date, b.start_min, b.id`
     )
     .all(venueId, from, to)) as Record<string, unknown>[];

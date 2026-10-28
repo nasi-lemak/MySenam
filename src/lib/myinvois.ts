@@ -379,6 +379,8 @@ interface EInvoiceRow {
   series_code: string | null;
   covers: string | null;
   cleared_at: string | null;
+  /** Claimed by a sender, until LHDN's answer is written (migration 0256). */
+  sending_at: string | null;
 }
 
 /** It has reached LHDN: what it holds is LHDN's record too, and never changes (a tombstone included). */
@@ -569,6 +571,14 @@ export function previousPeriod(today: string): string {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
 }
 
+/**
+ * The month's documents that go to LHDN consolidated: the sales journal's, less a test booking's receipt and its
+ * credit notes, from before the venue went live (lib/test-bookings.ts): no sale was made, so neither is sent.
+ */
+async function consolidable(venueId: number, from: string, to: string) {
+  return (await salesJournal(venueId, from, to)).filter((j) => !j.test);
+}
+
 /** Lines of a consolidated document: one per kind of sale and tax rate, saying which receipts. */
 function consolidatedLines(rows: { number: string; category: Category; gross: number; tax: number; taxRate: number | null }[], period: string): DocLine[] {
   const groups = new Map<string, typeof rows>();
@@ -605,7 +615,7 @@ export async function consolidate(venueId: number, period: string): Promise<EInv
   const exists = await db.prepare("SELECT id FROM e_invoices WHERE venue_id = ? AND code_number = ?").get(venueId, code);
   if (exists) return [];
   const { from, to } = monthBounds(period);
-  const journal = await salesJournal(venueId, from, to);
+  const journal = await consolidable(venueId, from, to);
   // A single sale over the limit may not go in a consolidated e-invoice: it
   // gets its own, made out to the general public unless the customer asked
   // for one in their name already.
@@ -803,17 +813,30 @@ export async function einvoiceForReceipt(ref: string, paidAt: string | null): Pr
 
 // ------------------------------------------------------------ sending and checking
 
+/** How long a draft stays claimed by a sender that never wrote LHDN's answer before it counts as interrupted. */
+export const SENDING_CLAIM_MINUTES = 15;
+
+/** Said of a draft whose sending was interrupted: it may have reached LHDN, so it is not sent again by itself. */
+export const SENDING_INTERRUPTED =
+  "Sending was interrupted before LHDN's answer was recorded. Check in the MyInvois portal whether it arrived before sending it again.";
+
 /**
  * Build one draft now, with the venue's details and the receipts as they
  * are, and send it. Only a draft is ever sent: one that has reached LHDN is
  * left as it is (a replacement is sent in its place, `retryEInvoice`).
+ *
+ * Sent once: the draft is claimed (`sending_at`, migration 0256) in one
+ * statement just before LHDN is asked, so of the scheduler and staff sending
+ * it at the same moment, or two servers, one sends it and the other leaves
+ * it, as a refund is claimed before the gateway is asked. The claim is
+ * cleared when LHDN's answer (or the failure) is written.
  */
 export async function submitOne(id: number, now = new Date()): Promise<EInvoice> {
   const db = getDb();
   const r = (await rowById(id))!;
-  if (r.status !== "pending" || reached(r)) return toEInvoice(r);
+  if (r.status !== "pending" || reached(r) || r.sending_at) return toEInvoice(r);
   const fail = async (error: string) => {
-    await db.prepare(`UPDATE e_invoices SET status = 'failed', error = ? WHERE id = ? AND ${UNSENT}`).run(error.slice(0, 1000), id);
+    await db.prepare(`UPDATE e_invoices SET status = 'failed', error = ?, sending_at = NULL WHERE id = ? AND ${UNSENT}`).run(error.slice(0, 1000), id);
     return toEInvoice((await rowById(id))!);
   };
   const connection = await connectionFor(r.venue_id);
@@ -842,6 +865,11 @@ export async function submitOne(id: number, now = new Date()): Promise<EInvoice>
     lines,
     refers,
   });
+  // Claimed, or left to whoever claimed it first.
+  const claimed = await db
+    .prepare(`UPDATE e_invoices SET sending_at = datetime('now') WHERE id = ? AND status = 'pending' AND sending_at IS NULL AND ${UNSENT}`)
+    .run(id);
+  if (claimed.changes !== 1) return toEInvoice((await rowById(id))!);
   let outcome: Awaited<ReturnType<typeof submitDocument>>;
   try {
     outcome = await submitDocument(connection, r.code_number, doc.json);
@@ -855,14 +883,14 @@ export async function submitOne(id: number, now = new Date()): Promise<EInvoice>
     await db
       .prepare(
         `UPDATE e_invoices SET status = 'submitted', error = NULL, document = ?, total = ?, covers = ?, submission_uid = ?, refers_uuid = ?,
-           uuid = ?, submitted_at = datetime('now') WHERE id = ? AND ${UNSENT}`
+           uuid = ?, submitted_at = datetime('now'), sending_at = NULL WHERE id = ? AND ${UNSENT}`
       )
       .run(...sent, outcome.accepted.uuid, id);
   else
     await db
       .prepare(
         `UPDATE e_invoices SET status = 'rejected', error = ?, document = ?, total = ?, covers = ?, submission_uid = ?, refers_uuid = ?,
-           submitted_at = datetime('now') WHERE id = ? AND ${UNSENT}`
+           submitted_at = datetime('now'), sending_at = NULL WHERE id = ? AND ${UNSENT}`
       )
       .run((outcome.rejected ?? "MyInvois did not accept it.").slice(0, 1000), ...sent, id);
   return toEInvoice((await rowById(id))!);
@@ -893,7 +921,7 @@ async function linesFor(r: EInvoiceRow): Promise<{ lines: DocLine[]; covers: str
     };
   }
   const { from, to } = monthBounds(r.period!);
-  const journal = await salesJournal(r.venue_id, from, to);
+  const journal = await consolidable(r.venue_id, from, to);
   if (r.kind === "consolidated") {
     const own = await individuallyInvoiced(r.venue_id);
     const receipts = journal.filter((j) => j.type === "Receipt" && !own.has(j.number) && j.gross > 0);
@@ -971,10 +999,23 @@ export async function recheckEInvoice(id: number, venueId: number): Promise<{ ok
   return { ok: true, einvoice: await toEInvoice((await rowById(id))!) };
 }
 
-/** Send whatever is waiting, for one venue or all. */
+/**
+ * Send whatever is waiting, for one venue or all. A draft claimed for sending
+ * longer ago than `SENDING_CLAIM_MINUTES` (LHDN is given 30 seconds) was
+ * interrupted between asking LHDN and writing its answer down, so LHDN may
+ * have it: it is marked not sent, saying so, for staff to check the portal
+ * before sending it again, never sent again by itself.
+ */
 export async function submitPending(venueId?: number, now = new Date()): Promise<number> {
-  const rows = (await getDb()
-    .prepare(`SELECT id FROM e_invoices WHERE status = 'pending' AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
+  const db = getDb();
+  await db
+    .prepare(
+      `UPDATE e_invoices SET status = 'failed', error = ?, sending_at = NULL
+        WHERE status = 'pending' AND sending_at < datetime('now', '-${SENDING_CLAIM_MINUTES} minutes') AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""}`
+    )
+    .run(SENDING_INTERRUPTED, ...(venueId ? [venueId] : []));
+  const rows = (await db
+    .prepare(`SELECT id FROM e_invoices WHERE status = 'pending' AND sending_at IS NULL AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
     .all(...(venueId ? [venueId] : []))) as { id: number }[];
   for (const r of rows) await submitOne(r.id, now);
   return rows.length;

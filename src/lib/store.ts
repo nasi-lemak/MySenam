@@ -1,5 +1,5 @@
 import { activity, activityName, activityKeys } from "./activity-registry";
-import { courtFor, courtOffers, groupByHeading, mostPerBookingAllowed, mostSpots, needsOf, placesPerBooking, type KindNeeds } from "./court-activities";
+import { courtFor, courtOffers, courtOn, groupByHeading, mostPerBookingAllowed, mostSpots, needsOf, placesPerBooking, type KindNeeds } from "./court-activities";
 import { eligibilityAt, type EligibilityLine, type Taking } from "./eligibility";
 import { signOffHolds, type SignOffChannel } from "./sign-offs";
 import { bookingPlaces, CUSTOMER_TAKES_PART, guardianshipOf, PARTICIPANT_TAKES_PART, placeParticipants, placesInducted } from "./participants";
@@ -37,7 +37,7 @@ import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, sta
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import { emailRefusal, nameRefusal } from "./contact-fields";
-import { Booking, busyness, Refusal, Court, type CourtActivity, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, type MembershipSuspensionSummary, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, type CourtHoursChange, type CourtRateChange, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, type MembershipSuspensionSummary, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -53,7 +53,6 @@ import {
   slotStartsAt,
   todayISO,
   localDateOf,
-  dayOfWeek,
   crossesClockChange,
 } from "./time";
 import {
@@ -110,7 +109,7 @@ import { priceBooking, readQuantityPrices, type MemberPricing, type Quote } from
 import { money, region, isAmount, roundMoney } from "./region";
 import { phoneKey } from "./phone";
 import { venueContact, type VenueContact } from "./venue-contact";
-import { hoursOn, parseWeekHours, validateUsualHours, validateWeekHours } from "./week-hours";
+import { hoursOn, parseWeekHours, storedHours, validateUsualHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
 import { utilisationByDay, type UseSplit } from "./reports";
@@ -147,6 +146,42 @@ interface CourtRow {
   activities?: string | null;
   noun?: string | null;
   heading?: string | null;
+  /** JSON, kept by the database from court_changes (migration 0253). */
+  dated_changes?: string | null;
+}
+
+/** A court's rates and own hours set from later dates, as its row lists them (migration 0253). */
+function courtChangesOf(raw: string | null | undefined): Pick<Court, "rateChanges" | "hoursChanges"> {
+  let list: Record<string, unknown>[] = [];
+  try {
+    list = raw ? JSON.parse(raw) : [];
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list) || list.length === 0) return {};
+  const rate = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  const rateChanges: CourtRateChange[] = list
+    .filter((c) => c.kind === "rates" && typeof c.from === "string")
+    .map((c) => ({
+      id: Number(c.id),
+      from: c.from as string,
+      offPeakRate: Number(c.offPeakRate),
+      peakRate: Number(c.peakRate),
+      memberOffPeakRate: rate(c.memberOffPeakRate),
+      memberPeakRate: rate(c.memberPeakRate),
+      activities: (Array.isArray(c.activities) ? (c.activities as Record<string, unknown>[]) : []).map((a) => ({
+        sport: String(a.sport),
+        offPeakRate: rate(a.offPeakRate),
+        peakRate: rate(a.peakRate),
+      })),
+    }));
+  const hoursChanges: CourtHoursChange[] = list
+    .filter((c) => c.kind === "hours" && typeof c.from === "string")
+    .map((c) => ({ id: Number(c.id), from: c.from as string, weekHours: parseWeekHours(c.weekHours ?? null) }));
+  return {
+    ...(rateChanges.length ? { rateChanges } : {}),
+    ...(hoursChanges.length ? { hoursChanges } : {}),
+  };
 }
 
 /** A court's activities as its row lists them, the main one first. */
@@ -175,6 +210,8 @@ interface VenueRow {
   open_min: number;
   close_min: number;
   week_hours?: string | null;
+  /** JSON, kept by the database from venue_hours_changes (migration 0252). */
+  hours_changes?: string | null;
   time_zone?: string | null;
   staffed_from: number | null;
   staffed_to: number | null;
@@ -193,6 +230,8 @@ interface VenueRow {
 }
 
 function toVenue(r: VenueRow): Venue {
+  // The hours in force today, and any set from a later date (ADR 0027).
+  const hours = storedHours(r, todayISO(venueZoneOf(r)));
   return {
     id: r.id,
     name: r.name,
@@ -200,11 +239,12 @@ function toVenue(r: VenueRow): Venue {
     address: r.address,
     phone: r.phone,
     cancelCutoffHours: r.cancel_cutoff_hours,
-    openMin: r.open_min,
-    closeMin: r.close_min,
-    openHour: hoursOf(r.open_min),
-    closeHour: hoursOf(r.close_min),
-    weekHours: parseWeekHours(r.week_hours),
+    openMin: hours.openMin,
+    closeMin: hours.closeMin,
+    openHour: hoursOf(hours.openMin),
+    closeHour: hoursOf(hours.closeMin),
+    weekHours: hours.weekHours,
+    ...(hours.hoursChanges?.length ? { hoursChanges: hours.hoursChanges } : {}),
     timeZone: venueZoneOf(r),
     staffedFrom: r.staffed_from,
     staffedTo: r.staffed_to,
@@ -241,7 +281,7 @@ export async function venueHours(
   date?: string
 ): Promise<VenueHours> {
   const row = await getDb()
-    .prepare("SELECT open_min, close_min, week_hours, time_zone, lat, lng FROM venues WHERE id = ?")
+    .prepare("SELECT open_min, close_min, week_hours, hours_changes, time_zone, lat, lng FROM venues WHERE id = ?")
     .get(venueId) as HoursRow | undefined;
   return withHours(row, date);
 }
@@ -250,14 +290,24 @@ type HoursRow = {
   open_min: number;
   close_min: number;
   week_hours: string | null;
+  hours_changes?: string | null;
   time_zone: string | null;
   lat: number | null;
   lng: number | null;
 };
 
+/** A venue row's hours as they stand today, with those set from later dates; the defaults if it has vanished. */
+function datedHoursOf(row: (Omit<HoursRow, "week_hours" | "time_zone"> & { week_hours?: string | null; time_zone?: string | null }) | undefined) {
+  return storedHours(
+    { open_min: row?.open_min ?? DEFAULT_OPEN_HOUR * 60, close_min: row?.close_min ?? DEFAULT_CLOSE_HOUR * 60, week_hours: row?.week_hours, hours_changes: row?.hours_changes },
+    todayISO(venueZoneOf(row ?? {}))
+  );
+}
+
 function withHours(row: HoursRow | undefined, date?: string): VenueHours {
-  const usual = { openMin: row?.open_min ?? DEFAULT_OPEN_HOUR * 60, closeMin: row?.close_min ?? DEFAULT_CLOSE_HOUR * 60 };
-  const on = date ? hoursOn({ ...usual, weekHours: parseWeekHours(row?.week_hours) }, date) : { ...usual, closed: false };
+  const dated = datedHoursOf(row);
+  // Without a date, the usual hours in force today.
+  const on = date ? hoursOn(dated, date) : { openMin: dated.openMin, closeMin: dated.closeMin, closed: false };
   return {
     openMin: on.openMin,
     closeMin: on.closeMin,
@@ -286,7 +336,7 @@ export async function courtVenueHours(
   const row = await getDb()
     .prepare(`
       SELECT v.id AS id, v.open_min AS open_min, v.close_min AS close_min, v.week_hours AS week_hours,
-             v.time_zone AS time_zone, v.lat AS lat, v.lng AS lng
+             v.hours_changes AS hours_changes, v.time_zone AS time_zone, v.lat AS lat, v.lng AS lng
       FROM courts c JOIN venues v ON v.id = c.venue_id WHERE c.id = ?
     `)
     .get(courtId) as (HoursRow & { id: number }) | undefined;
@@ -304,9 +354,8 @@ export async function getVenueClosure(venueId: number, date: string): Promise<Ve
     .prepare("SELECT date, reason FROM venue_closures WHERE venue_id = ? AND date = ?")
     .get(venueId, date) as { date: string; reason: string | null } | undefined;
   if (row) return { date: row.date, reason: row.reason };
-  // A weekday the venue never opens on is closed like any closed day.
-  const week = (await getDb().prepare("SELECT week_hours FROM venues WHERE id = ?").get(venueId)) as { week_hours: string | null } | undefined;
-  return parseWeekHours(week?.week_hours)?.[dayOfWeek(date)] === "closed" ? { date, reason: null } : null;
+  // A weekday the venue never opens on, in the hours set for that date, is closed like any closed day.
+  return (await venueHours(venueId, date)).closed ? { date, reason: null } : null;
 }
 
 /** Every closure a venue has from `from` onwards, soonest first. */
@@ -408,6 +457,7 @@ interface BookingRow {
   ends_at?: Date | string | null;
   fee_amount?: number | string;
   policy_override?: boolean;
+  test?: boolean;
   name: string;
   phone: string;
   email: string | null;
@@ -455,7 +505,13 @@ function readStoredBands(raw: string | null | undefined): Court["quantityPrices"
 }
 
 function toCourt(r: CourtRow): Court {
+  // At the rates in force today; those set from later dates come with it (ADR 0027).
+  return courtOn(toCourtAsStored(r), todayISO());
+}
+
+function toCourtAsStored(r: CourtRow): Court {
   return {
+    ...courtChangesOf(r.dated_changes),
     id: r.id,
     venueId: r.venue_id,
     name: r.name,
@@ -508,6 +564,7 @@ function toBooking(r: BookingRow): Booking {
     ...(r.ends_at ? { endsAt: new Date(r.ends_at).toISOString() } : {}),
     feeAmount: Number(r.fee_amount ?? 0),
     policyOverride: r.policy_override === true,
+    ...(r.test === true ? { test: true as const } : {}),
     name: r.name,
     phone: r.phone,
     email: r.email,
@@ -660,20 +717,23 @@ async function courtDays(courts: Court[], date: string): Promise<Map<number, Cou
   const venueIds = [...new Set(courts.map((c) => c.venueId))];
   const db = getDb();
   const rows = (await db
-    .prepare(`SELECT id, open_min, close_min, week_hours, time_zone, lat, lng FROM venues WHERE id IN (${venueIds.map(() => "?").join(",")})`)
+    .prepare(`SELECT id, open_min, close_min, week_hours, hours_changes, time_zone, lat, lng FROM venues WHERE id IN (${venueIds.map(() => "?").join(",")})`)
     .all(...venueIds)) as (HoursRow & { id: number })[];
   const shut = (await db
     .prepare(`SELECT venue_id FROM venue_closures WHERE date = ? AND venue_id IN (${venueIds.map(() => "?").join(",")})`)
     .all(date, ...venueIds)) as { venue_id: number }[];
-  const policies = await policiesFor(courts);
+  // The courts' own hours as set for this date (ADR 0027).
+  const policies = await policiesFor(courts, date);
   for (const court of courts) {
     const v = rows.find((r) => r.id === court.venueId);
-    const venue = { openMin: v?.open_min ?? DEFAULT_OPEN_HOUR * 60, closeMin: v?.close_min ?? DEFAULT_CLOSE_HOUR * 60, weekHours: parseWeekHours(v?.week_hours) };
+    // The venue's hours as set for this date, whatever is in force today (ADR 0027).
+    const venue = datedHoursOf(v);
     const policy = policies.get(court.id)!;
     const h = policyHoursOn(policy, venue, date);
     const venueClosedWeekday = hoursOn(venue, date).closed;
     out.set(court.id, {
-      court,
+      // At the rates set for this date (ADR 0027).
+      court: courtOn(court, date),
       policy,
       openMin: h.openMin,
       closeMin: h.closeMin,
@@ -1096,7 +1156,8 @@ export async function getAvailability(
       });
     }
     return {
-      court,
+      // Its rates as set for the date shown (ADR 0027).
+      court: courtOn(court, date),
       unit: grid / 60,
       grid,
       policy: publicPolicy(day.policy),
@@ -3130,7 +3191,12 @@ export interface StaffCancelSettlement {
 async function adminCancelBookingOnce(
   code: string,
   /** Staff at the counter: the outcome they chose, as terms for this booking, or why it may not be had. Others: all of it back. */
-  settlement?: (booking: Booking) => Promise<StaffCancelSettlement | Refusal>
+  settlement?: (booking: Booking) => Promise<StaffCancelSettlement | Refusal>,
+  /**
+   * Clearing a test booking (lib/test-bookings.ts): only one still a test, and one already played too, since
+   * nothing was played for real; all of it back.
+   */
+  opts: { test?: boolean } = {}
 ): Promise<CancelResult> {
   const db = getDb();
   const row = await db
@@ -3139,6 +3205,7 @@ async function adminCancelBookingOnce(
   if (!row) return refuse("BOOKING_NOT_FOUND");
   const booking = toBooking(row);
   if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
+  if (opts.test && row.test !== true) return { ok: false, error: "This is not a test booking." };
   // Cancelling would drop the only record of what is out and what is held
   // against it, so settle the hire first even from the admin side.
   if (await hasOpenHire(booking.id))
@@ -3147,12 +3214,15 @@ async function adminCancelBookingOnce(
   // an hour that was used. One under way can still be called off (a leak, a
   // power cut) and refunded.
   const { zone } = await venueHours((await getCourt(booking.courtId))!.venueId);
-  if (isPastSlot(booking.date, booking.endHour, zone)) return refuse("CANCEL_PLAYED");
+  const played = isPastSlot(booking.date, booking.endHour, zone);
+  if (played && !opts.test) return refuse("CANCEL_PLAYED");
   const plan = settlement ? await settlement(booking) : { share: 1 };
   if ("ok" in plan) return plan;
 
   const claimed = await db.transaction(async () => {
-    const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
+    const done = await db
+      .prepare(`UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'${opts.test ? " AND test" : ""}`)
+      .run(booking.id);
     if (done.changes !== 1) return false;
     await releaseBooking(booking.id);
     if (plan.keptPercent !== undefined)
@@ -3163,7 +3233,8 @@ async function adminCancelBookingOnce(
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
-  // A freed place goes to whoever has waited longest.
+  // A freed place goes to whoever has waited longest (not one already played).
+  if (played) return { ok: true, booking: { ...booking, status: "cancelled" } };
   if (booking.classId) await offerClassPlace(booking.classId);
   else await offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
@@ -4060,6 +4131,9 @@ export async function updateVenue(
   }
 ): Promise<VenueEditResult> {
   const db = getDb();
+  // Hours set from a date that has come are the current ones before these change (ADR 0027).
+  const dated = await import("./dated-changes");
+  await dated.applyDueHours(venueId);
   const row = await db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow | undefined;
   if (!row) return refuse("VENUE_NOT_FOUND");
   const current = toVenue(row);
@@ -4071,23 +4145,15 @@ export async function updateVenue(
   if (!hours.ok) return hours;
   const week = validateWeekHours(changes.weekHours !== undefined ? changes.weekHours : current.weekHours ?? null, hours);
   if (!week.ok) return week;
-  // Narrowing a day, or closing one, would strand anything already sold outside the new hours.
-  const sold = (await db
-    .prepare(`
-      SELECT DISTINCT b.date, b.start_min, b.end_min FROM bookings b
-      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.status = 'confirmed' AND b.class_id IS NULL
-    `)
-    .all(venueId, todayISO())) as { date: string; start_min: number; end_min: number }[];
-  const next = { openMin: hours.openMin, closeMin: hours.closeMin, weekHours: week.week };
-  const stranded = sold.filter((r) => {
-    const on = hoursOn(next, r.date);
-    return on.closed || r.start_min < on.openMin || r.end_min > on.closeMin;
-  });
-  if (stranded.length > 0)
-    return {
-      ok: false,
-      error: `Bookings already exist outside those hours (the first on ${stranded.map((r) => r.date).sort()[0]}). Cancel or move them first.`,
-    };
+  // Narrowing a day, or closing one, would strand anything already sold
+  // outside the new hours: every such booking is listed. From today, up to
+  // the first change set from a later date, which keeps its own hours.
+  const before = datedHoursOf(row);
+  const after = { ...before, openMin: hours.openMin, closeMin: hours.closeMin, weekHours: week.week };
+  const clash = dated.boundaryClash(after);
+  if (clash) return { ok: false, error: clash };
+  const stranded = await dated.strandedByHours(venueId, before, after, todayISO(current.timeZone));
+  if (stranded.length > 0) return dated.strandedRefusal(stranded);
 
   const staffedFrom =
     changes.staffedFrom !== undefined ? changes.staffedFrom : current.staffedFrom;
@@ -5511,6 +5577,8 @@ export async function updateCourt(
   }
 ): Promise<CourtEditResult> {
   const db = getDb();
+  // Rates set from a date that has come are the current ones before these change (ADR 0027).
+  await (await import("./dated-changes")).applyDueCourtChanges({ courtId });
   const court = await getCourt(courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
 
@@ -5797,7 +5865,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
                   AND b.date > COALESCE((SELECT forgiven_on FROM strike_forgiveness f WHERE f.venue_id = c.venue_id AND f.phone_key = b.phone_key), '')
                   AND b.date >= ? AS strike
            FROM bookings b JOIN courts c ON c.id = b.court_id
-          WHERE c.venue_id IN (${venueIds.map(() => "?").join(",")}) AND b.phone_key IN (${keys.map(() => "?").join(",")})
+          WHERE c.venue_id IN (${venueIds.map(() => "?").join(",")}) AND b.phone_key IN (${keys.map(() => "?").join(",")}) AND NOT b.test
             AND (b.no_show = 1 OR (b.late_cancelled = 1 AND b.payment_status <> 'paid' AND b.deposit_paid = 0))`
       )
       .all(addDays(todayISO(), -longest), ...venueIds, ...keys)) as {

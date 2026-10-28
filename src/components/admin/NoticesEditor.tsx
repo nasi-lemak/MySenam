@@ -6,6 +6,7 @@ import type { Notice } from "@/lib/notices";
 import { todayLocal } from "./shared";
 import { addDays } from "@/lib/time";
 import { useStaffT } from "./StaffLanguage";
+import { ManagerOnly } from "./StaffMay";
 
 /**
  * Put up a notice, for some days: a venue's on its own page and storefront,
@@ -34,6 +35,7 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
         </button>
       )}
       {open && (
+        <ManagerOnly may="notices" note={false}>
         <div className="mt-2 space-y-2">
           <p className="text-xs text-slate-500">{intro}</p>
           {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
@@ -96,6 +98,7 @@ export function NoticesEditor({ venueId, intro }: { venueId: number | "site"; in
             <button className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700">{t("ntc.putUp")}</button>
           </form>
         </div>
+        </ManagerOnly>
       )}
     </div>
   );

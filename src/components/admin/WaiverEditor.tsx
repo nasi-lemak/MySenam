@@ -3,6 +3,7 @@
 import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { ManagerOnly } from "./StaffMay";
 
 /**
  * The venue's waiver (lib/waivers.ts): the words customers agree to before
@@ -53,6 +54,7 @@ export function WaiverEditor({ venueId }: { venueId: number }) {
         {open ? t("wv.hide") : t("wv.show")}
       </button>
       {open && (
+        <ManagerOnly may="waiver" note={false}>
         <div className="mt-2 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-xs text-slate-500">{t("wv.intro")}</p>
           {saved.since && (
@@ -73,6 +75,7 @@ export function WaiverEditor({ venueId }: { venueId: number }) {
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}
           {notice && <p className="text-sm font-medium text-emerald-700">{notice}</p>}
         </div>
+        </ManagerOnly>
       )}
     </div>
   );

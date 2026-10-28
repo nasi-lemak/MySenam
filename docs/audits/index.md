@@ -28,7 +28,7 @@ identifiers.
 | X1-2: Passes, memberships, credit top-ups and competition fees sold at the counter record no payment method; there is no cash-up for a shift | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-3: Staff cannot correct a booking's name, phone number or email | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-4: Closing a day, cancelling a class, blocking a court and keeping a hire deposit are missing from the staff activity log | Fixed: S28 in [fixed since the audit](../roadmap/known-limitations.md#fixed-since-the-audit) |
-| X1-5: Front desk is shown manager-only controls everywhere, then refused | Planned: [roadmap](../roadmap/roadmap.md); open in [known limitations](../roadmap/known-limitations.md#operations-and-security-s) |
+| X1-5: Front desk is shown manager-only controls everywhere, then refused | Fixed in round 9: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-6: The schedule's "day to the minute" lists yesterday's and tomorrow's bookings as zero-minute entries | Fixed: B51 in [fixed since the audit](../roadmap/known-limitations.md#fixed-since-the-audit) |
 | X1-7: Membership, pass, receipt and voucher lists show the newest N with no search, so older records cannot be acted on | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-8: Reports and the accountant's exports offer only "last 30 days", "this month" and "last 3 months" | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) (a custom range already existed; *last month* added) |
@@ -36,10 +36,10 @@ identifiers.
 | X1-10: Staff cannot cancel or move a weekly series as a whole | Partly: the weeks left cancelled together; a whole series is still moved week by week ([known limitations](../roadmap/known-limitations.md#operations-and-security-s)) |
 | X1-11: Staff are not alerted when customers cancel or change online | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-12: Classes and tournaments cannot be edited after they are set up, only cancelled | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
-| X1-13: Opening hours and prices cannot be changed from a future date | Planned: [roadmap](../roadmap/roadmap.md); open in [known limitations](../roadmap/known-limitations.md#operations-and-security-s) |
-| X1-14: Staff accounts: a branch manager cannot add or remove desk staff; passwords are set by the manager with no invitation | Planned: [roadmap](../roadmap/roadmap.md); open in [known limitations](../roadmap/known-limitations.md#operations-and-security-s) |
-| X1-15: A new branch cannot copy an existing branch's set-up | Planned: [roadmap](../roadmap/roadmap.md); open in [known limitations](../roadmap/known-limitations.md#operations-and-security-s) |
-| X1-16: Draft-period test bookings stay in the books after going live | Planned: [roadmap](../roadmap/roadmap.md); open in [known limitations](../roadmap/known-limitations.md#operations-and-security-s) |
+| X1-13: Opening hours and prices cannot be changed from a future date | Fixed in round 9: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
+| X1-14: Staff accounts: a branch manager cannot add or remove desk staff; passwords are set by the manager with no invitation | Fixed in round 9: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
+| X1-15: A new branch cannot copy an existing branch's set-up | Fixed in round 9: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
+| X1-16: Draft-period test bookings stay in the books after going live | Fixed in round 9: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-17: No manager price adjustment or complimentary booking | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-18: The day list has no filters and hides its actions at laptop width | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |
 | X1-19: Counter memberships and passes are priced freely by the desk, not from the venue's plans | Fixed: [resolved without a number](../roadmap/known-limitations.md#resolved-limitations-without-a-number) |

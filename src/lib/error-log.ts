@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { raiseAlert } from "./alerts";
-import { getDb } from "./db";
+import { aside, getDb, mustRethrow } from "./db";
 import { siteName } from "./site";
 import { said } from "./staff-text";
 
@@ -86,40 +86,43 @@ export function fingerprint(input: Pick<ErrorInput, "source" | "name" | "message
 /** File an error under its group. Never throws: a failure to log must not become the error. */
 export async function recordError(input: ErrorInput): Promise<{ id: number; isNew: boolean; reopened: boolean } | null> {
   try {
-    const name = (input.name || "Error").slice(0, 100);
-    const message = scrub(input.message || "(no message)").slice(0, 1000);
-    const stack = input.stack ? scrub(input.stack).slice(0, 8000) : null;
-    const fp = fingerprint({ ...input, name, message });
-    const row = (await getDb()
-      .prepare(
-        // The CTE reads the row as it was before this statement, so a fixed one coming back is seen.
-        `WITH before AS (SELECT resolved_at FROM error_events WHERE fingerprint = ?)
-         INSERT INTO error_events (fingerprint, source, name, message, stack, path, method, digest)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (fingerprint) DO UPDATE SET
-           count = error_events.count + 1, last_at = datetime('now'), message = excluded.message,
-           stack = COALESCE(excluded.stack, error_events.stack), path = excluded.path, method = excluded.method,
-           digest = excluded.digest, resolved_at = NULL
-         RETURNING id, (xmax = 0) AS inserted, (SELECT resolved_at FROM before) IS NOT NULL AS reopened`
-      )
-      .get(fp, fp, input.source, name, message, stack, bare(input.path), input.method?.slice(0, 10) ?? null, input.digest?.slice(0, 100) ?? null)) as {
-      id: number;
-      inserted: boolean;
-      reopened: boolean;
-    };
-    const isNew = row.inserted === true;
-    const reopened = !isNew && row.reopened === true;
-    if (input.source === "server" && (isNew || reopened))
-      await raiseAlert(
-        `error:${fp}`,
-        said(reopened ? "srv.alert.backAgain" : "srv.alert.newError", { name, message: message.slice(0, 120) }),
-        [`${input.method ?? ""} ${bare(input.path) ?? ""}`.trim(), stack?.split("\n").slice(0, 6).join("\n") ?? message].join("\n")
-      );
-    else if (input.source === "browser")
-      await raiseAlert("errors:browser", said("srv.alert.browser"), `${name}: ${message}\n${bare(input.path) ?? ""}`);
-    void toSentry({ ...input, name, message, stack, path: bare(input.path) });
-    return { id: row.id, isNew, reopened };
+    return await aside(async () => {
+      const name = (input.name || "Error").slice(0, 100);
+      const message = scrub(input.message || "(no message)").slice(0, 1000);
+      const stack = input.stack ? scrub(input.stack).slice(0, 8000) : null;
+      const fp = fingerprint({ ...input, name, message });
+      const row = (await getDb()
+        .prepare(
+          // The CTE reads the row as it was before this statement, so a fixed one coming back is seen.
+          `WITH before AS (SELECT resolved_at FROM error_events WHERE fingerprint = ?)
+           INSERT INTO error_events (fingerprint, source, name, message, stack, path, method, digest)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (fingerprint) DO UPDATE SET
+             count = error_events.count + 1, last_at = datetime('now'), message = excluded.message,
+             stack = COALESCE(excluded.stack, error_events.stack), path = excluded.path, method = excluded.method,
+             digest = excluded.digest, resolved_at = NULL
+           RETURNING id, (xmax = 0) AS inserted, (SELECT resolved_at FROM before) IS NOT NULL AS reopened`
+        )
+        .get(fp, fp, input.source, name, message, stack, bare(input.path), input.method?.slice(0, 10) ?? null, input.digest?.slice(0, 100) ?? null)) as {
+        id: number;
+        inserted: boolean;
+        reopened: boolean;
+      };
+      const isNew = row.inserted === true;
+      const reopened = !isNew && row.reopened === true;
+      if (input.source === "server" && (isNew || reopened))
+        await raiseAlert(
+          `error:${fp}`,
+          said(reopened ? "srv.alert.backAgain" : "srv.alert.newError", { name, message: message.slice(0, 120) }),
+          [`${input.method ?? ""} ${bare(input.path) ?? ""}`.trim(), stack?.split("\n").slice(0, 6).join("\n") ?? message].join("\n")
+        );
+      else if (input.source === "browser")
+        await raiseAlert("errors:browser", said("srv.alert.browser"), `${name}: ${message}\n${bare(input.path) ?? ""}`);
+      void toSentry({ ...input, name, message, stack, path: bare(input.path) });
+      return { id: row.id, isNew, reopened };
+    });
   } catch (err) {
+    if (mustRethrow(err)) throw err;
     console.error("[mysenam] could not record an error:", err);
     return null;
   }

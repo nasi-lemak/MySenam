@@ -236,9 +236,12 @@ describe("one sign-in for every branch", () => {
     expect((await add({ email: "co-manager@smashchain.my", businessId: manager.businessId })).status).toBe(201);
     expect((await add({ email: "sneaky@smashchain.my", venueId: elsewhere })).status).toBe(403);
     expect((await add({ email: "owner2@smashchain.my" })).status).toBe(403);
-    // Branch staff manage nobody.
-    const desk = (await listAdmins()).find((a) => a.email === "desk-a@smashchain.my")!;
-    expect((await add({ email: "x@smashchain.my", venueId: branchA }, desk.id)).status).toBe(403);
+    // A branch manager adds front desk at their own branch only, never a manager (audit R8 X1-14; tests/staff-accounts.test.ts).
+    const branchManager = (await listAdmins()).find((a) => a.email === "desk-a@smashchain.my")!;
+    expect(branchManager.role).toBe("manager");
+    expect((await add({ email: "x@smashchain.my", venueId: branchA, role: "desk" }, branchManager.id)).status).toBe(201);
+    expect((await add({ email: "y@smashchain.my", venueId: branchA, role: "manager" }, branchManager.id)).status).toBe(403);
+    expect((await add({ email: "z@smashchain.my", venueId: branchB, role: "desk" }, branchManager.id)).status).toBe(403);
   });
 
   it("never leaves a business without a manager", async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
+import { ManagerOnly, useStaffMay } from "./StaffMay";
 import { activityIcon } from "@/lib/activity-registry";
 import { ReceiptsPanel } from "./ReceiptsPanel";
 import { VouchersPanel } from "./VouchersPanel";
@@ -272,6 +273,8 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
   // Sold from the venue's list at its price (X1-19): a product, or a manager's own pass ("custom") with a reason.
   const role = useStaffRole();
   const manager = role?.role === "manager";
+  // Cancelling, giving days back and the venue's lists are a manager's (lib/roles.ts).
+  const may = useStaffMay();
   const [products, setProducts] = useState<PassProduct[]>([]);
   const [productId, setProductId] = useState("");
   const [otherTerms, setOtherTerms] = useState(false);
@@ -652,8 +655,10 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
         </button>
       </form>
 
-      {venueId > 0 && manager && (
-        <PassProducts venueId={venueId} products={products} sports={sports} coaches={coaches} onChanged={() => void load()} />
+      {venueId > 0 && (
+        <ManagerOnly may="passProducts">
+          <PassProducts venueId={venueId} products={products} sports={sports} coaches={coaches} onChanged={() => void load()} />
+        </ManagerOnly>
       )}
 
       <ListFilter
@@ -717,12 +722,14 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                   {pass.unusableReason ? (
                     <span className="text-xs text-slate-400">{t.say(pass.unusablePhrase, pass.unusableReason)}</span>
                   ) : (
+                    may("passVoid") && (
                     <button
                       onClick={() => cancel(pass)}
                       className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                     >
                       {t("c.cancel")}
                     </button>
+                    )
                   )}
                 </td>
               </tr>
@@ -764,6 +771,8 @@ function PriceSetNote({ set, price }: { set: PriceSet | null; price: number }) {
 /** Create and withdraw the venue's promo codes. */
 function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  // Making, withdrawing and combining promo codes are a manager's (lib/roles.ts).
+  const may = useStaffMay();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [promos, setPromos] = useState<PromoCode[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -889,6 +898,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
         </div>
       )}
 
+      <ManagerOnly may="promos">
       <form onSubmit={create} className="mt-4 flex flex-wrap items-end gap-2">
         {venues.length > 1 && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
@@ -1036,7 +1046,9 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
           {t("cr.createCode")}
         </button>
       </form>
+      </ManagerOnly>
 
+      <ManagerOnly may="promoStacking" note={false}>
       <div className="mt-3 text-xs text-slate-600">
         <label className="flex flex-wrap items-center gap-2 font-medium">
           {t("stk.stacking")}
@@ -1051,6 +1063,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
         </label>
         <p className="mt-1 text-slate-500">{t("stk.stackingNote")}</p>
       </div>
+      </ManagerOnly>
 
       <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -1093,12 +1106,14 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                   {p.unusableReason ? (
                     <span className="text-xs text-slate-400">{t.say(p.unusablePhrase, p.unusableReason)}</span>
                   ) : (
+                    may("promoVoid") && (
                     <button
                       onClick={() => withdraw(p)}
                       className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                     >
                       {t("cr.withdraw")}
                     </button>
+                    )
                   )}
                 </td>
               </tr>
@@ -1141,6 +1156,8 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [tiers, setTiers] = useState<Plan[]>([]);
   const role = useStaffRole();
   const manager = role?.role === "manager";
+  // Cancelling, giving days back and the venue's lists are a manager's (lib/roles.ts).
+  const may = useStaffMay();
   // A manager's other fee or term, or no plan: with the reason.
   const [otherTerms, setOtherTerms] = useState(false);
   const [priceReason, setPriceReason] = useState("");
@@ -1447,7 +1464,11 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
         </button>
       </form>
 
-      {venueId > 0 && <MembershipPlans venueId={venueId} />}
+      {venueId > 0 && (
+        <ManagerOnly may="membershipPlans">
+          <MembershipPlans venueId={venueId} />
+        </ManagerOnly>
+      )}
 
       <ListFilter
         query={query}
@@ -1507,18 +1528,22 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                     <span className="text-xs text-slate-400">{t.say(m.unusablePhrase, m.unusableReason)}</span>
                   ) : (
                     <>
+                      {may("membershipExtend") && (
                       <button
                         onClick={() => extend(m)}
                         className="mr-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                       >
                         {t("cr.giveDaysBack")}
                       </button>
+                      )}
+                      {may("membershipVoid") && (
                       <button
                         onClick={() => cancel(m)}
                         className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                       >
                         {t("c.cancel")}
                       </button>
+                      )}
                     </>
                   )}
                 </td>

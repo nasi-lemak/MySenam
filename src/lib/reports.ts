@@ -4,7 +4,7 @@ import { creditScope } from "./mode";
 import { Sport } from "./types";
 import { addDays, todayISO } from "./time";
 import { venueTax } from "./tax";
-import { hoursOn, parseWeekHours } from "./week-hours";
+import { hoursOn, storedHours } from "./week-hours";
 import { venueZoneOf } from "./zones";
 import { bookingCredited, bookingGross } from "./accounting";
 
@@ -18,6 +18,8 @@ import { bookingCredited, bookingGross } from "./accounting";
  *
  * Everything here is keyed on the date the slot was *played*, not the date the
  * booking was made, because that is how an operator thinks about a month.
+ * Test bookings, made before the venue went live (lib/test-bookings.ts), are
+ * none of its trade and are left out of every figure.
  */
 
 export interface RevenueLine {
@@ -294,6 +296,7 @@ type ReportVenueRow = {
   open_min: number;
   close_min: number;
   week_hours: string | null;
+  hours_changes?: string | null;
   time_zone: string | null;
   lat: number | null;
   lng: number | null;
@@ -325,7 +328,8 @@ async function readUse(
       .all(venueId, from, to)) as { date: string }[]).map((r) => r.date)
   );
   // Each day by its own hours: a weekday the venue never opens is a closed day too.
-  const usual = { openMin: venue.open_min, closeMin: venue.close_min, weekHours: parseWeekHours(venue.week_hours) };
+  // As set for each date, where hours change from one (ADR 0027).
+  const usual = storedHours(venue, todayISO(venueZoneOf(venue)));
   let closedDays = 0;
   const openOn = new Map<string, { start: number; end: number }>();
   for (const d of daysOf(from, to)) {
@@ -345,7 +349,7 @@ async function readUse(
   const sold = ((await db
     .prepare(`
       SELECT b.court_id, b.date, b.start_min, b.end_min, b.players FROM bookings b
-      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
     `)
     .all(venueId, from, to)) as { court_id: number; date: string; start_min: number; end_min: number; players: number | null }[]).map(
     ({ players, ...b }) => ({ ...b, places: (capacityOf.get(b.court_id) ?? 1) > 1 ? Math.max(1, Number(players ?? 1)) : 1 })
@@ -452,7 +456,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
                  THEN ROUND((b.total_price - b.shares_paid) * b.tax_rate / (100 + b.tax_rate), 2) END) AS "taxCollected"
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
-      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ?
     `)
     .get(venueId, from, to) as {
     confirmed: number | null;
@@ -475,7 +479,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
                (CASE WHEN b.tax_rate IS NULL THEN 0
                      ELSE ROUND(${bookingGross("b")} * b.tax_rate / (100 + b.tax_rate), 2) - ${bookingCredited("b", "tax_amount")} END)::float AS tax
           FROM bookings b
-         WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
+         WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ?
            AND b.status = 'cancelled' AND b.late_cancelled = 1 AND b.payment_status = 'paid' AND COALESCE(b.paid_via, '') <> 'pass'
       `)
       .all(venueId, from, to)) as { via: string; month: string; sport: Sport; amount: number; tax: number }[]
@@ -532,7 +536,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       .prepare(`
         SELECT COALESCE(b.paid_via, 'unrecorded') AS via, SUM(b.total_price) AS amount, COUNT(*) AS bookings
         FROM bookings b
-        WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ?
+        WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ?
           AND b.status = 'confirmed' AND b.payment_status = 'paid'
         GROUP BY COALESCE(b.paid_via, 'unrecorded')
       `)
@@ -566,7 +570,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       SELECT b.court_id AS "courtId", SUM(b.total_price) AS expected
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
-      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
       GROUP BY b.court_id
     `)
     .all(venueId, from, to) as { courtId: number; expected: number }[])
@@ -596,7 +600,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
                SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
         FROM bookings b
         JOIN courts c ON c.id = b.court_id
-        WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
+        WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
         GROUP BY b.sport
         ORDER BY expected DESC
       `)
@@ -623,7 +627,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
              SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
-      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
       GROUP BY month
     `)
     .all(venueId, from, to) as { month: string; expected: number; collected: number }[];

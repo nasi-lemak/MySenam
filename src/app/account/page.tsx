@@ -128,7 +128,9 @@ export default function AccountPage() {
       });
       const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("mine.cancelFailed"));
-      const lines = [...(data.kept > 0 ? [t("mine.lateCancelDone", { kept: money(data.kept) })] : []), ...refundLines(t, data.refunds)];
+      // All of what was paid kept (a court given back late): nothing goes back, and it says so.
+      const keptAll = data.kept >= b.totalPrice;
+      const lines = [...(data.kept > 0 ? [t(keptAll ? "u8.keptAll" : "mine.lateCancelDone", { kept: money(data.kept) })] : []), ...refundLines(t, data.refunds)];
       setNotice(lines.length > 0 ? lines.join(" ") : null);
       load();
     } catch (err) {

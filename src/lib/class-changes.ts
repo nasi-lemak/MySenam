@@ -1,6 +1,7 @@
 import { getDb, withTransaction } from "./db";
 import { refuse } from "./entitlements";
 import { instantOf } from "./interval";
+import { notifyClassChanged } from "./notify";
 import { isAmount, money, roundMoney } from "./region";
 import { classOfferHolds, getClass, getCourt, offerClassPlace, venueHours } from "./store";
 import type { ClassSession, Refusal } from "./types";
@@ -19,6 +20,10 @@ import type { ClassSession, Refusal } from "./types";
  * - **Price**: for enrolments made from now on. Each enrolment carries the
  *   price it was made at (`bookings.total_price`), so nothing already
  *   enrolled, paid or not, is repriced.
+ * - **Name or instructor**: those enrolled in a session changed, and those
+ *   holding a live offer of a place in one, are told by email, once per
+ *   change (lib/notify.ts `notifyClassChanged`). A price or places change
+ *   tells nobody: it changes nothing anybody signed up for.
  *
  * A session that has started, or is cancelled, is not changed; with
  * `series`, the later sessions of the series that have not started are
@@ -40,6 +45,8 @@ export type ClassChangeResult =
       changed: { before: ClassSession; after: ClassSession }[];
       /** Sessions whose new places were offered to their waiting list. */
       offered: number;
+      /** Emails written to those enrolled or offered a place, of a new name or instructor. */
+      told: number;
     }
   | Refusal;
 
@@ -117,7 +124,9 @@ export async function changeClass(classId: number, change: ClassChange): Promise
   // New places go to whoever waits, through the waiting list's own offer (told by the outbox's sweep).
   let offered = 0;
   for (const c of changed) if (c.after.capacity > c.before.capacity && (await offerClassPlace(c.after.id))) offered++;
-  return { ok: true, changed, offered };
+  // A new name or instructor is told to those enrolled and those offered a place, once (lib/notify.ts).
+  const told = await notifyClassChanged(changed);
+  return { ok: true, changed, offered, told };
 }
 
 /** The change in words, for the activity log: what was, and what is. */

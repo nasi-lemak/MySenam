@@ -238,6 +238,21 @@ export function dayAhead(days: number): string {
   return new Date(Date.now() + 8 * 3_600_000 + days * 86_400_000).toISOString().slice(0, 10);
 }
 
+/**
+ * A date as customers' pages and messages write it, with its weekday:
+ * "Sat, 31 Oct", in Malay "Sab, 31 Okt" (lib/region.ts `shortDate`, written
+ * out here as a person reads it rather than taken from the app).
+ */
+export function weekdayDate(date: string, locale: "en" | "ms" = "en"): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(`${locale}-MY`, { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+/** One of a day-list row's actions on a laptop, chosen from the row's *Actions* menu. */
+export async function rowAction(row: import("playwright-core").Locator, name: string): Promise<void> {
+  await row.locator("summary").filter({ hasText: "Actions" }).click();
+  await row.getByRole("button", { name, exact: true }).click();
+}
+
 /** A court booked by this actor through the booking API (setup, not the scenario's subject). */
 export async function bookCourt(a: Actor, courtId: number, date: string, hour: number, weeks?: number): Promise<{ code: string; totalPrice: number }> {
   const res = await a.api("POST", "/api/bookings", { courtId, date, hours: [hour], name: `${a.name} Tester`, phone: a.phone, ...(weeks ? { weeks } : {}) });

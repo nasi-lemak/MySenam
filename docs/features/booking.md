@@ -351,9 +351,12 @@ venue's own day, so a 7 AM search only ever returns the venues that are open at
 7 AM, and a 2-hour block is only offered if it still finishes by that venue's
 close.
 
-Narrowing a venue's day is refused while bookings exist outside the proposed
-hours — otherwise a customer would hold time the venue no longer sells. Staff
-have to cancel or move those first.
+Narrowing a venue's day, or a court's, a sport's or the business's hours in
+the booking rules, is refused while bookings exist outside the proposed
+hours — otherwise a customer would hold time the venue no longer sells. The
+refusal lists every such booking (date, time, court and code), and staff
+cancel or move them first. Hours saved in the editor apply from today; hours
+can also be set [from a later date](#hours-from-a-date).
 
 A **closure** shuts one venue for one whole date (`venue_closures`, unique on
 venue + date). Closed days read as blocked everywhere: no slot is selectable,
@@ -389,7 +392,36 @@ Every check that used the venue's one pair of hours now asks for that
 date's: the grid, booking, moving a booking, blocks, classes, waiting lists,
 coaching times, tournaments and the report's "could have been sold". Changing
 the hours, or closing a weekday, is refused while bookings already sold fall
-outside them, naming the first such date.
+outside them, listing every one.
+
+### Hours from a date
+
+Winter hours, or longer evenings from the new year, are set ahead: under the
+hours, *Change the hours from a date* takes a date after today and the usual
+hours and week from then, as a whole (`venue_hours_changes`, migration 0252;
+`src/lib/dated-changes.ts`; [ADR 0027](../architecture/decisions/0027-hours-and-rates-from-a-date.md)).
+A court's own hours from a date are set the same way, under *Courts & rates →
+Rates and a court's own hours from a date* (its own hours from then, or the
+venue's).
+
+- **The date asked about decides.** Every check above, search, the venue's
+  closed weekdays and the API answer for a date by the hours set for it: the
+  latest set from that date or an earlier one, else today's. The hours saved
+  in the editor are today's, and apply up to the first date set ahead.
+- **Bookings already made stay as they are.** Setting, changing or
+  withdrawing hours from a date is refused while confirmed bookings on the
+  dates it changes would fall outside the hours, and the refusal lists every
+  one of them (date, time, court, code) for staff to move or cancel; so is a
+  set whose evening before would run into its first morning.
+- **Waiting to apply**: each set from a later date is listed under the
+  editor, and can be changed (another date, other hours) or withdrawn, after
+  which what applied before carries on.
+- **When its date comes** it applies by that rule alone: no scheduled job is
+  involved. The next time staff open or change the hours it becomes today's
+  hours in the editor and leaves the list.
+- Managers only; each set, change and withdrawal is in the activity log, with
+  the hours before and after and the date (`hours.scheduled`,
+  `hours.withdrawn`).
 
 ## Courts out of service
 
@@ -959,7 +991,9 @@ refunds and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
   keeping 100%, no credit note, the slot offered again and the waiting list
   told; one never paid for is a strike where the venue counts them. My
   Booking and the account page offer *Give the court back (no refund)* past
-  the cutoff and say so before the customer confirms; the booking terms say
+  the cutoff and say so before the customer confirms, and afterwards that the
+  venue kept what was paid and nothing is refunded (never that a rest goes
+  back; `tests/components/q8a-customer-flows.test.tsx`); the booking terms say
   it before booking. Where the venue (or the sport) keeps a share on a late
   cancellation, that share is what applies. The same terms go for a week of a
   series and for one person taken off a booking. Changing it is logged as any

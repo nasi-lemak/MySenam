@@ -2,7 +2,7 @@ import { getDb } from "./db";
 import { hoursOf } from "./interval";
 import { errorText, isLocale, translator, type ErrorCode, type Locale } from "./i18n";
 import { enqueue } from "./outbox";
-import { tellOwners, tellVenueStaff } from "./owner-alerts";
+import { tellOwnersEach, tellVenueStaffEach } from "./owner-alerts";
 import { reviewPath, reviewToken } from "./review-links";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
@@ -263,10 +263,17 @@ export async function reportReview(id: number, venueId: number, reason: unknown)
     .run(why, id, venueId);
   const review = (await staffRow(id, venueId))!;
   const venue = await getVenue(venueId);
-  await tellOwners(
-    `Review reported at ${venue?.name ?? `venue ${venueId}`}`,
-    `${venue?.name ?? "A venue"} asks for a review to be looked at.\n\n${review.author}, ${review.rating}/5: ${review.body ?? "(no words)"}\n\nWhy: ${why}\n\nDecide under Venues & staff → Reviews.`
-  );
+  await tellOwnersEach((t) => ({
+    subject: t("r9d.review.reported.s", { venue: venue?.name ?? t("r9d.venueNo", { id: venueId }) }),
+    body: t("r9d.review.reported.b", {
+      venue: venue?.name ?? t("r9d.aVenue"),
+      author: review.author,
+      rating: review.rating,
+      text: review.body ?? t("r9d.review.noWords"),
+      why,
+      place: `${t("sh.tab.venuesStaff")} → ${t("rev.title")}`,
+    }),
+  }));
   return { ok: true, review };
 }
 
@@ -279,7 +286,7 @@ export async function moderateReview(id: number, hide: boolean, reason?: unknown
     const why = typeof reason === "string" ? reason.trim().slice(0, 500) : "";
     if (why.length < 3) return { ok: false, error: "Say why it is hidden." };
     await db.prepare("UPDATE venue_reviews SET hidden_at = datetime('now'), hidden_reason = ? WHERE id = ?").run(why, id);
-    await tellVenueStaff(row.venue_id, "A review was hidden", `A review of your venue has been hidden: ${why}`);
+    await tellVenueStaffEach(row.venue_id, (t) => ({ subject: t("r9d.review.hidden.s"), body: t("r9d.review.hidden.b", { why }) }));
   } else {
     await db.prepare("UPDATE venue_reviews SET hidden_at = NULL, hidden_reason = NULL, reported_at = NULL, report_reason = NULL WHERE id = ?").run(id);
   }
@@ -307,7 +314,7 @@ export async function askForReviews(now = new Date()): Promise<number> {
     .prepare(
       `SELECT b.id, b.code, b.name, b.email, b.date, b.end_min, b.locale, b.phone_key, c.name AS court, v.id AS venue_id, v.name AS venue
          FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
-        WHERE b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0 AND b.email IS NOT NULL AND b.email <> ''
+        WHERE b.status = 'confirmed' AND b.no_show = 0 AND b.demo = 0 AND NOT b.test AND b.email IS NOT NULL AND b.email <> ''
           AND b.date BETWEEN ? AND ? AND v.review_requests = 1 AND v.published_at IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM venue_reviews r WHERE r.venue_id = v.id AND r.phone_key = b.phone_key)
           AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'review:' || v.id || ':' || b.phone_key)

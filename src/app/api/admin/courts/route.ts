@@ -2,7 +2,7 @@ import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { ALERT_EVERY, courtCount, crossed, VENUE_CAPS } from "@/lib/limits";
-import { tellOwners } from "@/lib/owner-alerts";
+import { tellOwnersEach } from "@/lib/owner-alerts";
 import { getVenue } from "@/lib/store";
 import { createResources, MAX_BATCH } from "@/lib/resources";
 import { MAX_CAPACITY, MAX_DEPOSIT, Sport } from "@/lib/types";
@@ -85,10 +85,10 @@ export async function POST(req: NextRequest) {
   const after = before + result.courts.length;
   if (!isOwner(admin) && crossed(before, after, ALERT_EVERY.courts)) {
     const venue = await getVenue(venueId as number);
-    await tellOwners(
-      `${venue?.name ?? "A venue"} now has ${after} courts`,
-      `${admin.email} has added courts to ${venue?.name ?? `venue ${venueId}`}; it now has ${after}.`
-    );
+    await tellOwnersEach((t) => ({
+      subject: t("r9d.courts.s", { venue: venue?.name ?? t("r9d.aVenue"), n: after }),
+      body: t("r9d.courts.b", { email: admin.email, venue: venue?.name ?? t("r9d.venueNo", { id: venueId as number }), n: after }),
+    }));
   }
   for (const court of result.courts)
     await logAction(admin, {

@@ -1,5 +1,5 @@
 import { describe, expect } from "vitest";
-import { bookCourt, dayAhead, scenario, signInOwner, signUp, url, type Actor, type Scenario } from "./harness";
+import { bookCourt, dayAhead, rowAction, scenario, signInOwner, signUp, url, weekdayDate, type Actor, type Scenario } from "./harness";
 
 /**
  * Changing a booking's time, as customers and a venue's staff meet it: a
@@ -104,7 +104,7 @@ describe("changing a booking's time", () => {
     await s.step(customer, "sees the same code at the new time on their account page", async () => {
       await customer.page.goto(`${url}/account`);
       const card = customer.page.locator("div").filter({ hasText: code }).filter({ hasText: "Cancel booking" }).last();
-      await card.getByText(`${date} · 2:00 PM – 3:00 PM`).waitFor();
+      await card.getByText(`${weekdayDate(date)} · 2:00 PM – 3:00 PM`).waitFor();
     });
 
     const manager = await s.actor("Manager");
@@ -174,7 +174,7 @@ describe("changing a booking's time", () => {
       await signInManager(manager, venue.managerEmail);
       await manager.page.getByLabel("Day to show").fill(date);
       const row = manager.page.locator("tr").filter({ hasText: booking.code });
-      await row.getByRole("button", { name: "Change time" }).click();
+      await rowAction(row, "Change time");
       await manager.page.getByRole("button", { name: /^4:00 PM–5:00 PM/ }).click();
       const preview = manager.page.getByTestId("move-preview");
       await preview.getByText(`${date}, 4:00 PM–5:00 PM, Court 1`, { exact: false }).waitFor();
@@ -186,7 +186,7 @@ describe("changing a booking's time", () => {
     await s.step(customer, "sees the same code at 4 PM on their account page", async () => {
       await customer.page.goto(`${url}/account`);
       const card = customer.page.locator("div").filter({ hasText: booking.code }).filter({ hasText: "Cancel booking" }).last();
-      await card.getByText(`${date} · 4:00 PM – 5:00 PM`).waitFor();
+      await card.getByText(`${weekdayDate(date)} · 4:00 PM – 5:00 PM`).waitFor();
     });
   });
 });

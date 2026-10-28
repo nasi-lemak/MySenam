@@ -1,7 +1,7 @@
 import fs from "fs";
 import { describe, expect, inject } from "vitest";
 import type { Dialog, Page } from "playwright-core";
-import { dayAhead, fitsScreen, freeSlot, gone, scenario, signInOwner, signUp, url, type Actor, type Scenario } from "./harness";
+import { dayAhead, fitsScreen, freeSlot, gone, rowAction, scenario, signInOwner, signUp, url, type Actor, type Scenario } from "./harness";
 import { STAFF_PASSWORD, staffApi, staffSignIn } from "./families";
 
 /**
@@ -11,7 +11,7 @@ import { STAFF_PASSWORD, staffApi, staffSignIn } from "./families";
  * - **Invitations AA** (docs/features/booking.md#residents-inviting-their-own-guests):
  *   a resident withdraws a guest's emailed invitation after a confirm; the
  *   guest's link then answers as one run out does, and the address is told
- *   it was withdrawn, never by whom or why; the front desk cannot withdraw
+ *   it was withdrawn, never by whom or why; the front desk is not offered withdrawing (and is refused it)
  *   one, a manager can, with a reason kept in the activity log.
  * - **Invitations AB** (docs/features/matchmaking.md#invitations): a game's
  *   host and a group's organiser each withdraw an invitation sent by email;
@@ -274,14 +274,12 @@ describe.skipIf(!serverLog)("withdrawing a resident's guest invitations", () => 
     };
 
     const desk = await s.actor("Desk");
-    await s.step(desk, "on the venue's list, tries to withdraw Ben's invitation, giving a reason: refused, a manager's to do; still pending", async () => {
+    await s.step(desk, "on the venue's list, sees Ben's invitation pending and is offered no Withdraw (a manager's to do); asked anyway, the server refuses it; still pending", async () => {
       await openList(desk, condo.desk.email);
-      const seen = answerDialogs(desk.page, "Guest asked us to cancel.");
-      await listed(desk.page).getByRole("button", { name: "Withdraw invitation" }).click();
-      // In the list's own editor (the online-payment panel further down says the same to the desk on its own).
-      const editor = desk.page.locator("div").filter({ has: desk.page.getByText("Who can find and book this venue", { exact: true }) }).last();
-      await editor.getByText("Front-desk accounts cannot change this. Ask a manager.").waitFor();
-      expect(seen[0]).toContain("Withdraw the invitation emailed for Ben Lee?");
+      expect(await listed(desk.page).getByRole("button", { name: "Withdraw invitation" }).count()).toBe(0);
+      const refused = await desk.api("POST", "/api/admin/venue-access", { venueId: condo.venueId, action: "withdrawInvitation", id: 0, reason: "Guest asked us to cancel." });
+      expect(refused.status).toBe(403);
+      expect(String(refused.body.error)).toContain("Front-desk accounts cannot change this.");
       await listed(desk.page).getByText("Invitation emailed, not yet accepted").waitFor();
     });
 
@@ -467,7 +465,7 @@ async function giveToBen(manager: Actor, customer: Actor, club: Venue, date: str
   const mp = manager.page;
   await mp.getByLabel("Day to show").fill(date);
   const row = mp.locator("tr").filter({ hasText: code });
-  await row.getByRole("button", { name: "Change time" }).click();
+  await rowAction(row, "Change time");
   await coachPick(mp).selectOption({ label: "Ben Tan" });
   const terms = mp.getByTestId("coach-terms");
   await terms.getByText("Ana Lim's fee for this lesson: RM80. Ben Tan's: RM100.").waitFor();
@@ -633,6 +631,7 @@ describe("suspending a membership", () => {
     });
     expect(sold.status, JSON.stringify(sold.body)).toBe(201);
     const code = (sold.body.membership as { code: string }).code;
+    const membershipId = (sold.body.membership as { id: number }).id;
     // Her place on a session within the hour, booked as a member before anything is suspended (setup).
     const made = await member.api("POST", "/api/bookings", { courtId: pool, sport: "swimming", date: already.date, start: already.hour * 60, end: already.hour * 60 + 60, name: "Member Tester", phone: member.phone });
     expect(made.status, JSON.stringify(made.body)).toBe(201);
@@ -649,10 +648,15 @@ describe("suspending a membership", () => {
     };
 
     const desk = await s.actor("Desk");
-    await s.step(desk, "under Credit & passes, opens the membership's suspensions and tries to suspend it for the coming week: refused, a manager's to do", async () => {
+    await s.step(desk, "under Credit & passes, opens the membership's suspensions (never suspended) and is offered no Suspend (a manager's to do); asked anyway, the server refuses it", async () => {
       await staffSignIn(desk, club.desk.email);
-      await suspendIn(desk.page, "Locker key not returned.");
-      await line(desk.page).getByText("Front-desk accounts cannot change this. Ask a manager.").waitFor();
+      await desk.page.getByRole("button", { name: "Credit & passes", exact: true }).click();
+      await line(desk.page).getByText("Suspend or reactivate").click();
+      await line(desk.page).getByText("Never suspended.").waitFor();
+      expect(await line(desk.page).getByRole("button", { name: "Suspend", exact: true }).count()).toBe(0);
+      const refused = await desk.api("POST", `/api/admin/memberships/${membershipId}/suspension`, { from, until, reason: "Locker key not returned." });
+      expect(refused.status).toBe(403);
+      expect(String(refused.body.error)).toContain("Front-desk accounts cannot change this.");
       expect(await line(desk.page).getByText(/^Suspended from/).count()).toBe(0);
     });
 

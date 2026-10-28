@@ -29,6 +29,8 @@ import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
 import type { TwoFactorStatus } from "@/lib/two-factor";
 import { StaffZones, useAccountLanguage, useStaffT } from "@/components/admin/StaffLanguage";
 import { useTabInAddress } from "@/components/admin/place";
+import { StaffMayProvider } from "@/components/admin/StaffMay";
+import type { StaffActionName } from "@/lib/roles";
 
 const TABS = ["bookings", "schedule", "occupancy", "reports", "courts", "classes", "tournaments", "leagues", "credit", "venues"] as const;
 type Tab = (typeof TABS)[number];
@@ -51,6 +53,8 @@ export default function AdminPage() {
   const [twoFactor, setTwoFactor] = useState<TwoFactorStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // What this account may do from here, as lib/roles.ts answers it (components/admin/StaffMay.tsx).
+  const [may, setMay] = useState<Partial<Record<StaffActionName, boolean>> | null>(null);
   // The tab is in the address (?tab=schedule), so a reload, Back or a link keeps the place (components/admin/place.tsx).
   const [addressedTab, setTab] = useTabInAddress<Tab>(TABS, "bookings");
   // Signed in: the dashboard in the account's own language, where it has one.
@@ -63,6 +67,7 @@ export default function AdminPage() {
     setAdmin(data.admin);
     setVenues(data.venues);
     setTwoFactor(data.twoFactor ?? null);
+    setMay(data.may ?? null);
     return data.admin as Admin | null;
   }, []);
 
@@ -224,6 +229,7 @@ export default function AdminPage() {
 
   // Times on every screen below are read in the zone of the venue they belong to (useStaffClock).
   return (
+    <StaffMayProvider may={may}>
     <StaffZones venues={venues}>
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -274,20 +280,22 @@ export default function AdminPage() {
       {isOwner && <PlayerReportsPanel />}
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
       {/* One for each branch still being set up; each disappears once its branch is ready. */}
-      {/* Each draft branch, until it is live; and any venue taken off for an unpaid invoice. */}
+      {/* Each draft branch, until it is live; and any venue taken off for an unpaid invoice. A live one shows only
+          test bookings left over from setting up, while there are any (lib/test-bookings.ts). */}
       {!isOwner &&
-        venues
-          .filter((venue) => venue.publishedAt === null || venue.suspendedAt !== null)
-          .map((venue) => (
-            <GoLiveBanner
-              key={`live-${venue.id}`}
-              venueId={venue.id}
-              venueName={venues.length > 1 ? venue.name : null}
-              refreshKey={`${tab}:${venue.courts.length}`}
-              onChange={refreshVenues}
-            />
-          ))}
+        venues.map((venue) => (
+          <GoLiveBanner
+            key={`live-${venue.id}`}
+            venueId={venue.id}
+            venueName={venues.length > 1 ? venue.name : null}
+            refreshKey={`${tab}:${venue.courts.length}`}
+            onChange={refreshVenues}
+            live={venue.publishedAt !== null && venue.suspendedAt === null}
+          />
+        ))}
+      {/* Setting the venue up is a manager's (lib/roles.ts): front desk is not given the checklist's steps. */}
       {!isOwner &&
+        may?.venueDetails !== false &&
         venues.map((venue, i) => (
           <SetupChecklist
             key={venue.id}
@@ -365,5 +373,6 @@ export default function AdminPage() {
       )}
     </div>
     </StaffZones>
+    </StaffMayProvider>
   );
 }

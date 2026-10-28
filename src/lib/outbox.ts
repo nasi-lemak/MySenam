@@ -75,7 +75,9 @@ export type MessageKind =
    */
   | "guardian_notice"
   /** By email only: on a waiting list now, with the link to leave it (lib/notify.ts `notifyWaitlistJoined`). */
-  | "waitlist_joined";
+  | "waitlist_joined"
+  /** By email only: a class somebody is enrolled in, or offered a place in, has a new name or instructor (lib/notify.ts `notifyClassChanged`). */
+  | "class_changed";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the

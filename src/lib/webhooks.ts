@@ -4,7 +4,7 @@ import dns from "dns";
 import https from "https";
 import net from "net";
 import { getDb } from "./db";
-import { tellVenueStaff } from "./owner-alerts";
+import { tellVenueStaffEach } from "./owner-alerts";
 import { seal, unseal } from "./secrets";
 import { siteName } from "./site";
 import { addDays } from "./time";
@@ -375,11 +375,10 @@ export async function deliverWebhooks(now = new Date()): Promise<{ sent: number;
     } else if (Date.parse(`${d.failing_since.replace(" ", "T")}Z`) < now.getTime() - 86_400_000) {
       const off = await db.prepare("UPDATE webhook_endpoints SET active = 0 WHERE id = ? AND active = 1").run(d.endpoint_id);
       if (off.changes === 1)
-        await tellVenueStaff(
-          d.venue_id,
-          "A webhook address was turned off",
-          `${d.url} has failed for a day (${error}), so ${siteName()} has stopped sending to it. Fix the receiver, then turn it back on under Venues & staff → API and webhooks.`
-        );
+        await tellVenueStaffEach(d.venue_id, (t) => ({
+          subject: t("r9d.hook.s"),
+          body: t("r9d.hook.b", { url: d.url, error, place: `${t("sh.tab.venuesStaff")} → ${t("int.title")}` }),
+        }));
     }
   }
   return { sent, failed };

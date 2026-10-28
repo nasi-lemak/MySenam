@@ -44,15 +44,18 @@ const confirmation = {
 };
 
 let bookingAnswer: { ok: boolean; status: number; body: unknown };
+/** What the quote adds: a members-only session's lines (components/MembershipEligibility.tsx). */
+let quoteExtra: Record<string, unknown>;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   bookingAnswer = { ok: true, status: 201, body: confirmation };
+  quoteExtra = {};
   fetchMock = vi.fn(async (url: string, init?: { method?: string }) => {
     const u = String(url);
     const answer = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body });
     if (u.includes("/api/availability")) return answer(200, { availability, closure: null, memberRates: false });
-    if (u.includes("/api/quote")) return answer(200, { total: 15, court: 15, fees: 0, billedMinutes: 60, allowed: true, others: [] });
+    if (u.includes("/api/quote")) return answer(200, { total: 15, court: 15, fees: 0, billedMinutes: 60, allowed: true, others: [], ...quoteExtra });
     if (u.includes("/api/auth/me")) return answer(200, { user: null });
     if (u.includes("/api/bookings") && init?.method === "POST")
       return bookingAnswer.body === "html"
@@ -126,6 +129,17 @@ describe("the booking form on a phone", () => {
     expect(within(alert).getByRole("link", { name: "Chat on WhatsApp" }).getAttribute("href")).toContain("https://wa.me/60342517788");
     // Not also above the grid, behind the sheet.
     expect(screen.getAllByRole("alert")).toHaveLength(1);
+  });
+
+  it("closes when the renewal link of a members' session is followed, so the sheet does not cover the venue's plans", async () => {
+    quoteExtra = {
+      members: [{ participantId: null, name: "Siti", covered: false, lapse: { kind: "ended", until: DAY }, renew: "/venue/1#membership" }],
+    };
+    const form = await openForm();
+    const link = within(within(form).getByRole("alert")).getByRole("link", { name: "Renew or buy a membership" });
+    expect(link.getAttribute("href")).toBe("/venue/1#membership");
+    await act(async () => link.click());
+    expect(screen.queryByRole("form", { name: "Your booking" })).toBeNull();
   });
 
   it("an answer that is not the app's is said as such, never as a JSON parser error", async () => {

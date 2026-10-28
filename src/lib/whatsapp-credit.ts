@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { openCheckout, platformAccount } from "./gateways";
 import { isMarketplace } from "./mode";
-import { baseUrl, chatRepliesOn, emailPlain, transportOverridden } from "./outbox";
+import { baseUrl, chatRepliesOn, transportOverridden } from "./outbox";
 import { siteName } from "./site";
 import { whatsappConfig } from "./transports";
 
@@ -145,24 +145,20 @@ export async function refundCredit(venueId: number, messageId: number | null): P
 
 /** The venue's staff, told by email that WhatsApp credit is low or gone. */
 async function warnVenue(venueId: number, left: number): Promise<void> {
-  const db = getDb();
-  const venue = (await db.prepare("SELECT name FROM venues WHERE id = ?").get(venueId)) as { name: string } | undefined;
-  const staff = (await db
-    .prepare(
-      `SELECT email FROM admins WHERE venue_id = ?
-        OR business_id = (SELECT business_id FROM venues WHERE id = ? AND business_id IS NOT NULL)`
-    )
-    .all(venueId, venueId)) as { email: string }[];
-  const subject =
-    left === 0
-      ? `${venue?.name ?? "Your venue"}: WhatsApp credit used up`
-      : `${venue?.name ?? "Your venue"}: ${left} WhatsApp messages left`;
-  const text =
-    (left === 0
-      ? "Your customers' confirmations and reminders now go by email only, and the booking code is still shown on screen. Urgent news — your cancellations and moves, waitlist offers — still goes on WhatsApp. "
-      : `Only ${left} WhatsApp messages are left. When they run out, confirmations go by email only. `) +
-    `Buy more under Venue details → WhatsApp at ${baseUrl()}/admin.`;
-  for (const s of staff) await emailPlain({ to: s.email, subject, text, kind: "staff_alert", venueId, expiresMinutes: 7 * 24 * 60 });
+  // Loaded when needed: the outbox loads this file, and the alerts load the outbox.
+  const { staffSentences, tellVenueStaffEach } = await import("./owner-alerts");
+  const venue = (await getDb().prepare("SELECT name FROM venues WHERE id = ?").get(venueId)) as { name: string } | undefined;
+  await tellVenueStaffEach(venueId, (t) => {
+    const name = venue?.name ?? t("r9d.wa.yourVenue");
+    return {
+      subject: left === 0 ? t("r9d.wa.out.s", { venue: name }) : t("r9d.wa.low.s", { venue: name, n: left }),
+      body: staffSentences(
+        t,
+        left === 0 ? t("r9d.wa.out.b") : t("r9d.wa.low.b", { n: left }),
+        t("r9d.wa.buy", { place: t("sh.tab.venueDetails"), url: `${baseUrl()}/admin` })
+      ),
+    };
+  });
 }
 
 // ------------------------------------------------------------------- packs

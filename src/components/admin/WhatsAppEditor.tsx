@@ -6,6 +6,7 @@ import type { Pack } from "@/lib/whatsapp-credit";
 import type { Usage } from "@/lib/whatsapp-usage";
 import { money } from "@/lib/region";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { ManagerOnly } from "./StaffMay";
 
 type Mode = "off" | "urgent" | "all";
 
@@ -86,6 +87,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
             : t("wa.messages")}
       </button>
       {open && s && (
+        <ManagerOnly may="whatsapp" note={false}>
         <div className="mt-2 space-y-3">
           <p className="text-xs text-slate-500">
             {t("wa.intro")}
@@ -229,6 +231,7 @@ export function WhatsAppEditor({ venueId, isOwner }: { venueId: number; isOwner:
             </>
           )}
         </div>
+        </ManagerOnly>
       )}
     </div>
   );

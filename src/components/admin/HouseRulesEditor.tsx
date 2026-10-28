@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { HouseRules } from "@/lib/house-rules";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { ManagerOnly } from "./StaffMay";
 
 const fields = (t: StaffT): { key: keyof HouseRules; label: string; hint: string; max: number; min: number; blank?: string }[] => [
   { key: "upcoming", label: t("hr.upcoming"), hint: t("hr.upcomingHint"), min: 1, max: 50 },
@@ -73,6 +74,7 @@ export function HouseRulesEditor({ venueId }: { venueId: number }) {
         {open ? t("hr.hide") : t("hr.show")}
       </button>
       {open && values && (
+        <ManagerOnly may="houseRules" note={false}>
         <div className="mt-2 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-xs text-slate-500">{t("hr.intro")}</p>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -98,6 +100,7 @@ export function HouseRulesEditor({ venueId }: { venueId: number }) {
           {error && <p className="text-sm font-medium text-red-700">{error}</p>}
           {notice && <p className="text-sm font-medium text-emerald-700">{notice}</p>}
         </div>
+        </ManagerOnly>
       )}
     </div>
   );

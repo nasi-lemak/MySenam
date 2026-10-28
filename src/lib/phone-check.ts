@@ -6,7 +6,7 @@ import { keyedHash } from "./secrets";
 import { siteName } from "./site";
 import { sendSms, smsConfig, smsText, toWhatsAppNumber, whatsappConfig } from "./transports";
 import { chatNumber } from "./outbox";
-import { tellOwners } from "./owner-alerts";
+import { tellOwnersEach } from "./owner-alerts";
 import type { Refusal } from "./types";
 
 /**
@@ -160,10 +160,10 @@ export async function sendPhoneCode(userId: number, phone: string, locale: Local
     // Told once, the first time today a code is refused.
     const told = await db.prepare("SELECT 1 FROM phone_codes WHERE method = 'refused' AND created_at > datetime('now', '-1 day')").get();
     if (!told)
-      await tellOwners(
-        "Phone codes paused for today",
-        `${codesPerDay()} verification codes have been sent in the last day, the most MYSENAM_PHONE_CODES_PER_DAY allows. No more go out until the count falls; customers can still verify via WhatsApp. If this is real growth, raise the limit; if not, somebody may be asking for codes on purpose.`
-      );
+      await tellOwnersEach((t) => ({
+        subject: t("r9d.codes.s"),
+        body: t("r9d.codes.b", { n: codesPerDay(), setting: "MYSENAM_PHONE_CODES_PER_DAY" }),
+      }));
     await db
       .prepare(`INSERT INTO phone_codes (user_id, phone, number, code_hash, expires_at, method) VALUES (?, ?, ?, '', datetime('now'), 'refused')`)
       .run(userId, phone.trim(), number);

@@ -1,7 +1,7 @@
 import fs from "fs";
 import { describe, expect, inject } from "vitest";
 import type { Page } from "playwright-core";
-import { dayAhead, freeSlot, gone, scenario, signInOwner, signUp, url, type Actor } from "./harness";
+import { dayAhead, freeSlot, gone, scenario, signInOwner, signUp, url, weekdayDate, type Actor } from "./harness";
 import { confirmedCode, family, STAFF_PASSWORD, staffApi, staffSignIn, type Child } from "./families";
 
 /**
@@ -220,8 +220,11 @@ describe("discounts together", () => {
       await page.getByLabel("Price").selectOption({ label: "Junior swimmer, 50% off" });
       await page.getByLabel("Whose price is it?").selectOption({ label: "Amani" });
       await page.getByText("A code goes with a concession price only if the code allows it.").waitFor();
-      await page.getByLabel("Promo code?").fill("SPLASH10");
       await page.getByRole("button", { name: "Book · RM25" }).waitFor();
+      // The code is checked with the price as it is typed: what it takes off, and the total with it, before booking.
+      await page.getByLabel("Promo code?").fill("SPLASH10");
+      await page.getByText("SPLASH10 takes RM2.50 off; the total includes it.").waitFor();
+      await page.getByRole("button", { name: "Book · RM22.50" }).waitFor();
       await page.getByRole("button", { name: /^Book · RM/ }).click();
       const booked = await confirmedCode(page);
       await page.locator("dl").locator("div").filter({ hasText: /^Total/ }).getByText(/RM22\.50/).waitFor();
@@ -712,7 +715,7 @@ describe.skipIf(!serverLog)("a class's waiting list at the counter", () => {
 
     const offer = await s.step(siti, "is sent the offer by email in Malay, with a link to claim the place; Zul, refused meanwhile, is sent nothing", async () => {
       const mail = await emailed(siti.email, /^Ada tempat kosong — /);
-      expect(mail.text).toMatch(new RegExp(`^Hai Siti, ada tempat kosong untuk ${className} di ${centre.name}, ${slot.date} `));
+      expect(mail.text).toMatch(new RegExp(`^Hai Siti, ada tempat kosong untuk ${className} di ${centre.name}, ${weekdayDate(slot.date, "ms")} `));
       expect(mail.text).toContain("Ia ditahan untuk anda selama 30 minit");
       expect(emailsTo(zul.email).filter((m) => /place has opened up|tempat kosong/.test(m.subject))).toEqual([]);
       return linkIn(mail, /^\/waitlist\/[^/]+$/);

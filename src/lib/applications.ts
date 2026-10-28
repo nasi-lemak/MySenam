@@ -2,11 +2,12 @@ import crypto from "crypto";
 import { getDb } from "./db";
 import { hashPassword } from "./auth";
 import { createVenue } from "./store";
+import { copyBranchSetup, type BranchCopy } from "./branch-copy";
 import { emailConfig } from "./transports";
 import { baseUrl, drainOutbox, emailPlain, transportOverridden } from "./outbox";
 import { siteName } from "./site";
 import { startBilling } from "./billing";
-import { tellOwners } from "./owner-alerts";
+import { staffSentences, tellOwnersEach } from "./owner-alerts";
 import { RETENTION } from "./privacy";
 import { REVIEW_CHECKS } from "./review-checks";
 import type { Admin } from "./admin-auth";
@@ -400,12 +401,14 @@ export async function confirmApplicationEmail(token: string): Promise<ConfirmRes
 
 /**
  * Another branch for a business already here, made by its manager there and
- * then as a draft, to set up like the first and send to go live when ready.
+ * then as a draft, to set up like the first and send to go live when ready;
+ * with `copyFrom`, started from another of the business's branches' set-up,
+ * in the same transaction (lib/branch-copy.ts).
  */
 export async function addBranch(
   admin: Admin,
-  input: { name: string; area: string; address: string; phone: string; message?: string; lat: unknown; lng: unknown }
-): Promise<SubmitResult & { venueId?: number }> {
+  input: { name: string; area: string; address: string; phone: string; message?: string; lat: unknown; lng: unknown; copyFrom?: number }
+): Promise<SubmitResult & { venueId?: number; copied?: BranchCopy }> {
   if (admin.businessId === null) return { ok: false, error: "Only a business manager can add a branch." };
   const suspended = await businessSuspension(admin.businessId);
   if (suspended) return { ok: false, error: suspended };
@@ -420,6 +423,12 @@ export async function addBranch(
   if (!pinned.ok) return pinned;
 
   const db = getDb();
+  if (input.copyFrom !== undefined) {
+    // One of their own business's branches, that they may see.
+    const from = (await db.prepare("SELECT business_id FROM venues WHERE id = ?").get(input.copyFrom)) as { business_id: number | null } | undefined;
+    if (!from || from.business_id !== admin.businessId || (admin.venueIds !== null && !admin.venueIds.includes(input.copyFrom)))
+      return { ok: false, error: "Start it from one of your own branches." };
+  }
   const { drafts } = (await db
     .prepare("SELECT COUNT(*)::int AS drafts FROM venues WHERE business_id = ? AND published_at IS NULL")
     .get(admin.businessId)) as { drafts: number };
@@ -431,6 +440,7 @@ export async function addBranch(
 
   let id = 0;
   let venueId = 0;
+  let copied: BranchCopy | undefined;
   try {
     await db.transaction(async () => {
       const venue = await createVenue({
@@ -445,6 +455,13 @@ export async function addBranch(
       await db
         .prepare("UPDATE venues SET business_id = ?, lat = ?, lng = ? WHERE id = ?")
         .run(admin.businessId, pinned.pin.lat, pinned.pin.lng, venueId);
+      if (input.copyFrom !== undefined)
+        try {
+          copied = await copyBranchSetup(input.copyFrom, venueId, admin.id);
+        } catch (err) {
+          console.error("[mysenam] could not copy a branch's set-up:", err);
+          throw new Error(COPY_FAILED);
+        }
       const info = await db
         .prepare(`
           INSERT INTO venue_applications
@@ -470,8 +487,11 @@ export async function addBranch(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Could not add the branch." };
   }
-  return { ok: true, application: (await applicationById(id))!, venueId };
+  return { ok: true, application: (await applicationById(id))!, venueId, ...(copied ? { copied } : {}) };
 }
+
+/** Copying went wrong: nothing was added. */
+export const COPY_FAILED = "Could not copy that branch's set-up, so the branch was not added. Try again, or add it without copying.";
 
 /** What a draft still needs before it can ask to go live. */
 export async function goLiveMissing(venueId: number): Promise<string[]> {
@@ -599,21 +619,25 @@ export async function requestGoLive(
   ) {
     const approved = await approveApplication(row.id, admin.id, "auto");
     if (!approved.ok) return approved;
-    await tellOwners(
-      `${admin.businessName ?? "A business"} opened a branch: ${venue.name}`,
-      `${admin.email} opened ${venue.name} (${venue.area}) for ${admin.businessName ?? "their business"}. ` +
-        "Branches of businesses already live go live on their own on this install when their location checks pass."
-    );
+    await tellOwnersEach((t) => ({
+      subject: t("r9d.app.branch.s", { business: admin.businessName ?? t("r9d.app.aBusiness"), venue: venue.name }),
+      body: t("r9d.app.branch.b", { email: admin.email, venue: venue.name, area: venue.area, business: admin.businessName ?? t("r9d.app.theirBusiness") }),
+    }));
     return { ok: true, live: true };
   }
-  await tellOwners(
-    `${venue.name} asks to go live`,
-    `${application.contactName} (${application.email}) asks for ${venue.name} in ${venue.area} to go live` +
-      (application.forBusiness ? `, as a branch of ${application.forBusiness}. ` : ". ") +
-      (application.emailCheck === "unsent" ? "Their email could not be confirmed: this install cannot send email. " : "") +
-      (report.warnings.length ? `Worth a look:\n- ${report.warnings.join("\n- ")}\n\n` : "") +
-      "Approve or turn it down under Venues & staff."
-  );
+  await tellOwnersEach((t) => {
+    const who = { contact: application.contactName, email: application.email, venue: venue.name, area: venue.area };
+    const asked = staffSentences(
+      t,
+      application.forBusiness ? t("r9d.app.ask.branch", { ...who, business: application.forBusiness }) : t("r9d.app.ask.b", who),
+      application.emailCheck === "unsent" && t("r9d.app.unsent")
+    );
+    const worth = report.phrases.length ? `${t("r9d.app.worth")}\n- ${report.phrases.map((p) => t.say(p)).join("\n- ")}\n\n` : "";
+    return {
+      subject: t("r9d.app.ask.s", { venue: venue.name }),
+      body: `${asked}${t.locale === "zh" ? "" : " "}${worth}${t("r9d.app.decide", { place: t("sh.tab.venuesStaff") })}`,
+    };
+  });
   return { ok: true, live: false };
 }
 

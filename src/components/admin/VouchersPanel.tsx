@@ -1,6 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
+import { useStaffMay } from "./StaffMay";
 import { useCallback, useEffect, useState } from "react";
 import type { Voucher } from "@/lib/vouchers";
 import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
@@ -18,6 +19,8 @@ type Listed = Voucher & { printUrl: string };
  */
 export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  // Cancelling a voucher is a manager's (lib/roles.ts).
+  const may = useStaffMay();
   const STATUS: Record<Voucher["status"], string> = {
     pending: t("vch.status.pending"),
     active: t("vch.status.active"),
@@ -159,7 +162,7 @@ export function VouchersPanel({ venues }: { venues: ManagedVenue[] }) {
                 <a href={v.printUrl} target="_blank" rel="noopener noreferrer" className="text-teal-700 underline">
                   {t("c.print")}
                 </a>
-                {v.status === "active" && (
+                {v.status === "active" && may("voucherVoid") && (
                   <button onClick={() => cancel(v)} className="text-red-700">
                     {t("c.cancel")}
                   </button>

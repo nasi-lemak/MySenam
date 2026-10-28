@@ -1,5 +1,6 @@
 import { activityKeys } from "./activity-registry";
 import { DEFAULT_MAX_PLAYERS, MAX_PLAYERS, type Court, type Sport } from "./types";
+import { changeOn } from "./week-hours";
 
 /**
  * What a court can be booked for (ADR 0011): one or more activities, each at
@@ -19,6 +20,38 @@ export function courtFor(court: Court, sport: Sport = court.sport): Court {
     sport,
     offPeakRate: own?.offPeakRate ?? court.offPeakRate,
     peakRate: own?.peakRate ?? court.peakRate,
+    // Rates set from a later date, for this activity: its own then (or now, if
+    // it was added since and has its own), else the court's then.
+    ...(court.rateChanges
+      ? {
+          rateChanges: court.rateChanges.map((c) => {
+            const then = c.activities.find((a) => a.sport === sport) ?? own;
+            return then && then.offPeakRate !== null && then.peakRate !== null ? { ...c, offPeakRate: then.offPeakRate, peakRate: then.peakRate } : c;
+          }),
+        }
+      : {}),
+  };
+}
+
+/**
+ * A court at the rates in force on `date` (ADR 0027): rates set from that
+ * date or an earlier one replace its current rates, its other activities'
+ * own rates with them. The date booked decides; a booking already made keeps
+ * the price it was sold at, whatever is set later.
+ */
+export function courtOn(court: Court, date: string): Court {
+  const then = changeOn(court.rateChanges, date);
+  if (!then) return court;
+  return {
+    ...court,
+    offPeakRate: then.offPeakRate,
+    peakRate: then.peakRate,
+    memberOffPeakRate: then.memberOffPeakRate,
+    memberPeakRate: then.memberPeakRate,
+    activities: court.activities.map((a) => {
+      const set = then.activities.find((x) => x.sport === a.sport);
+      return set && a.sport !== court.sport ? { ...a, offPeakRate: set.offPeakRate, peakRate: set.peakRate } : a;
+    }),
   };
 }
 

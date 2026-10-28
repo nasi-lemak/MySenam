@@ -16,8 +16,8 @@ those, or through a private link, or not at all.
 | **Platform owner** | A staff account with no venue and no business | Everything on the install: approve venues going live, invoices, suspensions, reports of players, errors and alerts ([marketplace](marketplace.md)) |
 | **Venue owner** | Not a role of its own. Whoever signs a venue up becomes its **business manager** | As business manager, below |
 | **Business manager** | A staff account with a business (`admins.business_id`) | Every branch of their business: settings, staff, branches, reports ([tenancy](../architecture/tenancy.md)) |
-| **Venue manager** | Branch staff with the manager role | Their venue only: courts, prices, policies, payment account, refunds, classes, tournaments, leagues, reports ([tenancy](../architecture/tenancy.md#managers-and-front-desk)) |
-| **Front desk** | Branch staff with the desk role | The day's work: bookings, payments at the counter, check-in, hire; not prices, refunds or set-up |
+| **Venue manager** | Branch staff with the manager role | Their venue only: courts, prices, policies, payment account, refunds, classes, tournaments, leagues, reports, and its front-desk staff ([tenancy](../architecture/tenancy.md#managers-and-front-desk)) |
+| **Front desk** | Branch staff with the desk role | The day's work: bookings, payments at the counter, check-in, hire; not prices, refunds or set-up, which it sees read-only ([what the front desk is shown](../architecture/tenancy.md#what-the-front-desk-is-shown)) |
 | **Coach** | Not an account: a name the venue lists, with a private link | Their own hours, time off and lessons on the link's page; a calendar feed ([programmes](../features/programmes.md#one-to-one-coaching)) |
 | **Class instructor** | A name on a class | Nothing in the app |
 | **Tournament organiser** | Not a role of its own: a venue manager | Set up, draw, correct and resolve ([tournaments](../features/tournaments.md)) |

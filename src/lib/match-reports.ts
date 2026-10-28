@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { getDb } from "./db";
 import { flipScore, scoreRefusal } from "./brackets";
 import { sentences } from "./outbox";
-import { tellVenueStaff } from "./owner-alerts";
+import { tellVenueStaffEach } from "./owner-alerts";
 import { recordResult, tellEntry, tournamentById, tournamentDetail, type Result, type ResultInput, type TournamentDetail } from "./tournaments";
 import { venueHours } from "./store";
 import { isValidDateString, todayISO } from "./time";
@@ -190,7 +190,11 @@ export async function standUnansweredReports(): Promise<number> {
         .prepare("UPDATE tournament_reports SET status = 'disputed', dispute_note = ? WHERE id = ?")
         .run(`Unanswered, and could not be recorded: ${done.error}`.slice(0, 500), open.id);
       const t = await tournamentById(open.tournament_id);
-      if (t) await tellVenueStaff(t.venueId, `A result needs entering: ${t.name}`, `A player's report in ${t.name} went unanswered, and could not be recorded (${done.error}). Enter the result from Tournaments → ${t.name}.`);
+      if (t)
+        await tellVenueStaffEach(t.venueId, (s) => ({
+          subject: s("r9d.report.unrecorded.s", { t: t.name }),
+          body: s("r9d.report.unrecorded.b", { t: t.name, error: s.err(done), place: s("sh.tab.tournaments") }),
+        }));
       continue;
     }
     await db.prepare("UPDATE tournament_matches SET result_by = 'players' WHERE id = ?").run(open.match_id);
@@ -225,11 +229,10 @@ export async function answerReport(
       .get(note, open.id)) as ReportRow | undefined;
     if (!row) return { ok: false, error: "That has been answered already." };
     const t = (await tournamentById(m.tournament_id))!;
-    await tellVenueStaff(
-      t.venueId,
-      `A result is disputed: ${t.name}`,
-      `The two sides of a match in ${t.name} disagree about its result ("${note}"). Enter the result yourselves from Tournaments → ${t.name}.`
-    );
+    await tellVenueStaffEach(t.venueId, (s) => ({
+      subject: s("r9d.report.disputed.s", { t: t.name }),
+      body: s("r9d.report.disputed.b", { t: t.name, note, place: s("sh.tab.tournaments") }),
+    }));
     return { ok: true, value: toReport(row) };
   }
   const input: ResultInput = { winner: open.winner, score: open.score ?? undefined, walkover: open.walkover === 1 };

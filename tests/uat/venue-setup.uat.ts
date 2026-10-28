@@ -146,6 +146,8 @@ describe.skipIf(!marketplace)("a venue's set-up, from sign-up to its first booki
     const link = await s.step(operator, "sees the venue live, and its booking link to share", async () => {
       await page.reload();
       await page.getByRole("button", { name: /sign out/i }).waitFor({ timeout: 15_000 });
+      // The dashboard reopens on the tab it was left on; the link to share is with the bookings.
+      await page.getByRole("button", { name: "Bookings", exact: true }).click();
       const shown = await page.getByText(/\/venue\/\d+/).first().textContent();
       expect(await page.getByText("Your venue is waiting to go live").count()).toBe(0);
       return shown!.trim();

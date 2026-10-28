@@ -1,4 +1,4 @@
-import type { WeekHours } from "./week-hours";
+import type { HoursChange, WeekHours } from "./week-hours";
 import type { ErrorCode } from "./i18n";
 import type { Amenity, CourtFeatures } from "./facilities";
 import type { StaffText } from "./staff-text";
@@ -27,6 +27,8 @@ export interface Venue {
   closeHour: number;
   /** Weekdays with hours of their own, or closed; null when every day keeps the usual ones (lib/week-hours.ts). */
   weekHours?: WeekHours | null;
+  /** Hours set from a later date, soonest first (migration 0252, ADR 0027); the date asked about decides (`hoursOn`). */
+  hoursChanges?: HoursChange[];
   /** The venue's time zone (IANA), which its courts' times are in. */
   timeZone: string;
   /**
@@ -176,6 +178,29 @@ export interface Court extends CourtFeatures {
    * code itself is never part of this object, which is served publicly.
    */
   unmanned: boolean;
+  /** Rates set from a later date, soonest first (migration 0253, ADR 0027); the date booked decides (`courtOn`). */
+  rateChanges?: CourtRateChange[];
+  /** Its own hours set from a later date, soonest first (migration 0253, ADR 0027). */
+  hoursChanges?: CourtHoursChange[];
+}
+
+/** A court's rates from a date (lib/dated-changes.ts): the four rates and its other activities' own, as a whole. */
+export interface CourtRateChange {
+  id: number;
+  from: string;
+  offPeakRate: number;
+  peakRate: number;
+  memberOffPeakRate: number | null;
+  memberPeakRate: number | null;
+  /** Its other activities' own rates from then (null: the court's). */
+  activities: CourtActivity[];
+}
+
+/** A court's own hours from a date; null puts it back on the venue's. */
+export interface CourtHoursChange {
+  id: number;
+  from: string;
+  weekHours: WeekHours | null;
 }
 
 export const MAX_CAPACITY = 500;
@@ -312,6 +337,8 @@ export interface Booking {
   feeAmount?: number;
   /** Made by staff outside the court's booking policy (what, and who, is in the activity log). */
   policyOverride?: boolean;
+  /** A test booking, made while its venue was not yet live: out of the venue's figures (lib/test-bookings.ts). Absent otherwise. */
+  test?: true;
   name: string;
   phone: string;
   email: string | null;

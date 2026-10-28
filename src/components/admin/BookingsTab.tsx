@@ -1,6 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
+import { useStaffMay } from "./StaffMay";
 import { activityIcon } from "@/lib/activity-registry";
 import { AttentionPanel } from "./AttentionPanel";
 import { EnquiriesPanel } from "./EnquiriesPanel";
@@ -1305,6 +1306,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                   <StaffNote b={b} act={act} />
                   <WaiverChip b={b} act={act} />
                   <OverrideNote b={b} />
+                  <TestChip b={b} />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -1355,6 +1357,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                       <StaffNote b={b} act={act} />
                       <WaiverChip b={b} act={act} />
                       <OverrideNote b={b} />
+                      <TestChip b={b} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {b.phone}
@@ -1476,6 +1479,17 @@ function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
     >
       📝 {b.staffNote}
     </button>
+  );
+}
+
+/** A test booking, made before the venue went live: out of its figures (lib/test-bookings.ts). */
+function TestChip({ b }: { b: AdminBookingRow }) {
+  const t = useStaffT();
+  if (!b.test) return null;
+  return (
+    <span title={t("r9c.test.chipTitle")} className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-xs font-semibold text-slate-700">
+      {t("r9c.test.chip")}
+    </span>
   );
 }
 
@@ -1662,9 +1676,20 @@ function viaName(t: StaffT, via: string): string {
 /** Strikes against this number here, where the venue counts them, with a way to let them off. */
 function StrikesBadge({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
+  // Letting strikes off is a manager's (lib/roles.ts): front desk sees the count.
+  const may = useStaffMay();
   if (!b.strikes || b.strikes.count === 0) return null;
   const out = b.strikes.count >= b.strikes.limit;
   const counts = { count: b.strikes.count, limit: b.strikes.limit };
+  if (!may("strikes"))
+    return (
+      <span
+        title={out ? t("bk.strikesTitleOut", counts) : t("bk.strikesTitle", counts)}
+        className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${out ? "bg-red-600 text-white" : "bg-amber-100 text-amber-800"}`}
+      >
+        {t("bk.strikes", counts)}
+      </span>
+    );
   return (
     <button
       onClick={() => act.forgiveStrikes(b)}
@@ -2152,6 +2177,8 @@ function KitChip({ b, act }: { b: AdminBookingRow; act: Act }) {
 
 function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
+  // Blocking a number is a manager's (lib/roles.ts).
+  const may = useStaffMay();
   if (b.status !== "confirmed") return null;
   return (
     <>
@@ -2191,13 +2218,15 @@ function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
           {t("p8a.sx.action")}
         </button>
       )}
-      <button
-        onClick={() => act.blockNumber(b)}
-        title={t("bk.blockTitle")}
-        className="inline-flex min-h-7 items-center rounded-md px-2 text-xs text-slate-400 hover:text-red-600"
-      >
-        {t("bk.blockNumber")}
-      </button>
+      {may("blockNumber") && (
+        <button
+          onClick={() => act.blockNumber(b)}
+          title={t("bk.blockTitle")}
+          className="inline-flex min-h-7 items-center rounded-md px-2 text-xs text-slate-400 hover:text-red-600"
+        >
+          {t("bk.blockNumber")}
+        </button>
+      )}
     </>
   );
 }
