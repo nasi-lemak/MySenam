@@ -72,7 +72,11 @@ account make it; the dashboard keeps no list of its own
   membership or voucher, giving days back, suspending, correcting who a
   membership covers, membership plans, the venue's passes, promo codes and
   how they combine, voiding a counter sale, opening, changing, invoicing and
-  closing company accounts).
+  closing company accounts), *Tournaments* (setting up a tournament or a
+  competition, a tournament's rules, letting a correction's knock-on stand or
+  replaying it, choosing a final's last places), *Leagues* (setting one up;
+  a forming season's start and the buttons to start, end or stop are not
+  shown).
 - What only opens or closes a section stays usable, so the desk reads what is
   behind it: *Facilities*, *Photos*, *Extras*, *WhatsApp*, *Who it is for*
   (its access list), *House rules*, *Manager overrides*, *Waiver* and
@@ -83,17 +87,28 @@ account make it; the dashboard keeps no list of its own
   letting strikes off in the day list (the strike count still shows), whose an
   older induction is, *Ask to go live*, clearing or keeping
   [test bookings](../product/marketplace.md#test-bookings-before-going-live)
-  (the list still shows).
+  (the list still shows), and in a tournament closing entries, making the
+  draw, changing its details, saving it as a template, calling it or a
+  competition off. Three a route refuses the desk by what is asked rather
+  than by address (moving a fixture, a correction once the knockout has moved
+  on, disqualifying) follow the same answer as the draw (`tournamentRun`):
+  the desk is not offered them, and a result the knockout has moved past
+  leaves it with the refusal rather than the correction's review. Entries,
+  check-in, payments, seeds, officials' links and results stay the desk's,
+  as do a league's players, payments and results.
 - What the desk may not even read is not asked for: retention holds on
   applications, a customer's data request, staff accounts.
-- The set-up checklist is a manager's, and is not shown to the desk.
+- The set-up checklist is a manager's: ticking it off or hiding it is in
+  `MANAGER_ONLY`, and it is not shown to the desk.
 
 The server's refusals are unchanged and stand regardless.
-`tests/components/desk-sees-what-it-may.test.tsx` renders the main tabs and
-the dashboard as front desk and as a manager, against the app's own routes
-and the demonstration data, and uses every control on screen: nothing the
-desk can press asks for anything `MANAGER_ONLY` refuses it, and the manager's
-run reaches each manager's control.
+`tests/components/desk-sees-what-it-may.test.tsx` renders the main tabs
+(tournaments and leagues too, with a tournament taking entries, one under
+way and a league's season running) and the dashboard as front desk and as a
+manager, against the app's own routes and the demonstration data, and uses
+every control on screen: nothing the desk can press asks for anything
+`MANAGER_ONLY` refuses it or is refused at all, and the manager's run
+reaches each manager's control.
 
 ### Who manages staff accounts
 

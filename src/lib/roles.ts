@@ -96,6 +96,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/test-bookings$/, methods: ["POST"] },
   // Adding a branch, and starting it from another's set-up (lib/branch-copy.ts): a business manager's.
   { path: /^\/api\/admin\/branches$/, methods: ["POST"] },
+  // Ticking "details checked" on the set-up checklist, or hiding it: setting the venue up is a manager's (lib/setup.ts); the desk may read it.
+  { path: /^\/api\/admin\/setup$/, methods: ["POST"] },
 ];
 
 export type StaffRole = "manager" | "desk";
@@ -193,6 +195,18 @@ export const STAFF_ACTIONS = {
   invoiceWithdraw: "DELETE /api/admin/accounts/invoices/1",
   // The day list
   strikes: "POST /api/admin/strikes",
+  // The set-up checklist (app/admin/page.tsx)
+  setupChecklist: "POST /api/admin/setup",
+  // Tournaments and competitions: setting up, the draw, rules, calling off, a correction's knock-on. The desk runs entries and results.
+  tournaments: "POST /api/admin/tournaments",
+  tournamentRun: "POST /api/admin/tournaments/1",
+  tournamentChange: "PATCH /api/admin/tournaments/1",
+  tournamentIssues: "POST /api/admin/tournaments/1/issues/1",
+  competitions: "POST /api/admin/competitions",
+  competitionCancel: "DELETE /api/admin/competitions/1",
+  // Leagues: setting up, seasons and stopping. The desk runs players, payments and results.
+  leagues: "POST /api/admin/leagues",
+  leagueRun: "POST /api/admin/leagues/1",
 } as const satisfies Record<string, string>;
 
 export type StaffActionName = keyof typeof STAFF_ACTIONS;

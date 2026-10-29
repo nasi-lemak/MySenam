@@ -550,8 +550,8 @@ the same list (`400`).
 | GET | `/api/admin/reports/customers` | `?venueId&from&to` → who the customers were. Managers only, as the other reports |
 | GET | `/api/admin/reviews` | `?venueId=` → the venue's reviews, hidden ones too, and whether it asks for them; the platform's owners also get those reported |
 | POST | `/api/admin/reviews` | `{ venueId, action }`: - `reply` with `id`, `text` (empty takes the reply away); - `report` with `id`, `reason`: ask the platform to look at it; - `requests` with `on`: email customers once after a first visit, or not; - `hide` with `id`, `reason`, or `show` with `id`: the platform's owners only |
-| GET | `/api/admin/setup` | How far this venue has got with setting itself up |
-| POST | `/api/admin/setup` | `{ venueId?, action: "detailsChecked" \| "dismiss" }` |
+| GET | `/api/admin/setup` | How far this venue has got with setting itself up (front desk too) |
+| POST | `/api/admin/setup` | `{ venueId?, action: "detailsChecked" \| "dismiss" }`: tick the details off, or hide the checklist. A manager's (`MANAGER_ONLY` for front desk, [tenancy](tenancy.md#what-the-front-desk-is-shown)) |
 | GET | `/api/admin/sport-rules` | `?venueId` → each sport's own rules here, over the venue's |
 | POST | `/api/admin/sport-rules` | `{ venueId, sport, cutoffHours, lateKeep, peak }`, each null for the venue's (managers); starts and lengths are booking rules |
 | GET | `/api/admin/booking-policies` | `?venueId` → each level's own booking rules (business, venue, sport at the venue, court, an activity on a court) and what each court, sport and activity on a court (`products`) ends up with, with a summary |

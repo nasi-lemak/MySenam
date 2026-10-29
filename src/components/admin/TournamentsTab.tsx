@@ -25,6 +25,7 @@ import { TournamentDetailsEditor } from "./TournamentDetailsEditor";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
 import { PayMark } from "./CounterMethod";
+import { ManagerOnly, useStaffMay } from "./StaffMay";
 
 /** A sentence the server wrote: its English, and its phrase for the staff language where it sent one. */
 type Said = { text: string; phrase?: StaffText };
@@ -67,9 +68,14 @@ const outLabel = (t: StaffT, reason: OutReason): string =>
 /**
  * A venue's tournaments: set one up, holding its courts; take entries; seed
  * and make the draw; and enter results as they come in.
+ *
+ * Setting up, the draw and rules, calling off and a correction's knock-on are
+ * a manager's (lib/roles.ts): front desk reads them and runs entries, check-in,
+ * payments, officials and results.
  */
 export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
+  const may = useStaffMay();
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [list, setList] = useState<Tournament[]>([]);
   const [competitions, setCompetitions] = useState<Competition[]>([]);
@@ -201,7 +207,7 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
                       {t("tn.divisionCount", { n: list.filter((x) => x.competition?.id === c.id).length })}
                       {c.maxDivisionsPerPlayer !== null && ` · ${t("tn.upToPerPlayer", { n: c.maxDivisionsPerPlayer })}`} · <span className="text-slate-500">{statusLabel(t, c.status)}</span>
                     </span>
-                    {c.status === "open" && (
+                    {c.status === "open" && may("competitionCancel") && (
                       <button onClick={() => void callOff(c)} className="text-sm text-red-700 underline">
                         {t("tn.callOff")}
                       </button>
@@ -211,8 +217,15 @@ export function TournamentsTab({ venues }: { venues: ManagedVenue[] }) {
               </ul>
             </section>
           )}
-          {catalog.templates.length > 0 && <Create venue={venue} post={post} catalog={catalog} competitions={competitions.filter((c) => c.status === "open")} />}
-          <CreateCompetition venue={venue} post={post} />
+          {catalog.templates.length > 0 && (
+            <ManagerOnly may="tournaments">
+              <Create venue={venue} post={post} catalog={catalog} competitions={competitions.filter((c) => c.status === "open")} />
+            </ManagerOnly>
+          )}
+          {/* Said once, above the first form the desk reads. */}
+          <ManagerOnly may="competitions" note={catalog.templates.length === 0}>
+            <CreateCompetition venue={venue} post={post} />
+          </ManagerOnly>
         </>
       )}
     </div>
@@ -1036,6 +1049,10 @@ function Manage({
 }) {
   const t = useStaffT();
   const clock = useStaffClock();
+  const may = useStaffMay();
+  // Closing entries, the draw, its rules, saving it as a template and calling it off; changing its details.
+  const runs = may("tournamentRun");
+  const editsDetails = may("tournamentChange");
   const names = new Map(tn.entries.map((e) => [e.id, e.name]));
   const base = `/api/admin/tournaments/${tn.id}`;
   const [said, setSaid] = useState<Said[]>([]);
@@ -1055,10 +1072,13 @@ function Manage({
     if (done.ok) setSaid(changesSaid(done.data));
   }
 
-  /** A result; one the knockout has moved past opens the correction review instead. */
+  /**
+   * A result; one the knockout has moved past opens the correction review instead, for a manager (the matches
+   * route refuses front desk a correction by what is asked; the desk is left with the refusal saying so).
+   */
   async function result(matchId: number, input: ResultInput): Promise<boolean> {
     const done = await call(`${base}/matches/${matchId}`, input);
-    if (done.ok || done.data.code !== "KNOCKOUT_STARTED") return done.ok;
+    if (done.ok || done.data.code !== "KNOCKOUT_STARTED" || !runs) return done.ok;
     const preview = await call(`${base}/matches/${matchId}`, { ...input, preview: true });
     if (preview.ok) setFixing({ matchId, input, preview: preview.data.preview as CorrectionPreview });
     return false;
@@ -1084,17 +1104,17 @@ function Manage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {(tn.status === "open" || tn.status === "closed") && (
+          {editsDetails && (tn.status === "open" || tn.status === "closed") && (
             <button onClick={() => setEditingDetails(!editingDetails)} className={small}>
               {t("p8c.tn.edit")}
             </button>
           )}
-          {tn.status === "open" && (
+          {runs && tn.status === "open" && (
             <button onClick={() => void post(base, { action: "close" })} className={small}>
               {t("tn.closeEntries")}
             </button>
           )}
-          {(tn.status === "open" || tn.status === "closed") && (
+          {runs && (tn.status === "open" || tn.status === "closed") && (
             <button
               onClick={() => window.confirm(t("tn.drawConfirm")) && void post(base, { action: "draw" })}
               className="rounded-md bg-teal-600 px-3 py-1 text-sm font-semibold text-white hover:bg-teal-700"
@@ -1102,16 +1122,18 @@ function Manage({
               {t("tn.makeDraw")}
             </button>
           )}
-          <button
-            onClick={() => {
-              const name = window.prompt(t("tn.saveTemplatePrompt"), tn.name);
-              if (name) void call(base, { action: "save_template", name }).then((r) => r.ok && setSaid([{ text: t("tn.savedTemplate", { name }) }]));
-            }}
-            className={small}
-          >
-            {t("tn.saveTemplate")}
-          </button>
-          {tn.status !== "finished" && tn.status !== "cancelled" && (
+          {runs && (
+            <button
+              onClick={() => {
+                const name = window.prompt(t("tn.saveTemplatePrompt"), tn.name);
+                if (name) void call(base, { action: "save_template", name }).then((r) => r.ok && setSaid([{ text: t("tn.savedTemplate", { name }) }]));
+              }}
+              className={small}
+            >
+              {t("tn.saveTemplate")}
+            </button>
+          )}
+          {runs && tn.status !== "finished" && tn.status !== "cancelled" && (
             <button
               onClick={() => window.confirm(t("tn.callOffConfirm", { name: tn.name })) && void post(base, { action: "cancel" })}
               className="rounded-md border border-red-300 px-3 py-1 text-sm font-medium text-red-700"
@@ -1122,7 +1144,7 @@ function Manage({
         </div>
       </div>
 
-      {editingDetails && (tn.status === "open" || tn.status === "closed") && (
+      {editingDetails && editsDetails && (tn.status === "open" || tn.status === "closed") && (
         <TournamentDetailsEditor
           key={tn.id}
           tn={tn}
@@ -1143,17 +1165,19 @@ function Manage({
           {t("tn.leaveRulesNote")}{" "}
           {tn.status === "open" || tn.status === "closed" ? t("tn.changeableUntilDraw") : t("tn.fixedSinceDraw")}
         </p>
-        <div className="mt-2">
-          <RulesFields
-            rules={tn.rules}
-            disabled={tn.status !== "open" && tn.status !== "closed"}
-            onChange={(rules) => void post(base, { action: "rules", rules })}
-          />
-        </div>
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs font-medium text-slate-600">{tn.template ? t("tn.scoringFromTemplate", { template: tn.template }) : t("tn.scoring")}</summary>
-          <ScoringFields rules={tn.rules} disabled={tn.status !== "open" && tn.status !== "closed"} onChange={(rules) => void post(base, { action: "rules", rules })} />
-        </details>
+        <ManagerOnly may="tournamentRun">
+          <div className="mt-2">
+            <RulesFields
+              rules={tn.rules}
+              disabled={tn.status !== "open" && tn.status !== "closed"}
+              onChange={(rules) => void post(base, { action: "rules", rules })}
+            />
+          </div>
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-medium text-slate-600">{tn.template ? t("tn.scoringFromTemplate", { template: tn.template }) : t("tn.scoring")}</summary>
+            <ScoringFields rules={tn.rules} disabled={tn.status !== "open" && tn.status !== "closed"} onChange={(rules) => void post(base, { action: "rules", rules })} />
+          </details>
+        </ManagerOnly>
       </section>
 
       {tn.issues.filter((i) => i.status === "open").map((i) => (
@@ -1263,7 +1287,8 @@ function Manage({
                       <option value="">{t("tn.outMenu")}</option>
                       <option value="withdrawn">{t("tn.out.withdrawn")}</option>
                       {tn.status === "drawn" && <option value="retired">{t("tn.out.retired")}</option>}
-                      <option value="disqualified">{t("tn.out.disqualified")}</option>
+                      {/* Disqualifying is the organiser's: the entries route refuses front desk it by what is asked. */}
+                      {runs && <option value="disqualified">{t("tn.out.disqualified")}</option>}
                     </select>
                   )}
                 </td>
@@ -1501,6 +1526,8 @@ function MatchRow({
   save: (body: object) => Promise<boolean>;
 }) {
   const t = useStaffT();
+  // Moving a fixture is the organiser's, as the draw is: the matches route refuses front desk it by what is asked.
+  const organises = useStaffMay()("tournamentRun");
   const tally = rules.scoring.kind === "tally";
   const [score, setScore] = useState(m.score ?? "");
   const known = m.a !== null && m.b !== null;
@@ -1512,7 +1539,7 @@ function MatchRow({
         {m.date} {m.minute !== null && `${formatMinute(m.minute, t.locale)}–${formatMinute(m.minute + m.minutes, t.locale)}`} · {m.courtName ?? "—"}
         <br />
         {label}
-        {m.status === "scheduled" && m.date !== null && <MoveFixture m={m} venue={venue} save={save} />}
+        {organises && m.status === "scheduled" && m.date !== null && <MoveFixture m={m} venue={venue} save={save} />}
       </span>
       <span className={`min-w-[10rem] flex-1 ${m.winner === m.a && m.a !== null ? "font-semibold" : ""}`}>{side(m.a)}</span>
       <span className="text-slate-400">{t("tn.versus")}</span>
@@ -1639,7 +1666,9 @@ function IssuePanel({
           <li key={a.matchId}>{t.say(a.phrase, a.text)}</li>
         ))}
       </ul>
+      {/* Letting it stand or replaying is the organiser's: a manager's (lib/roles.ts). */}
       {review && (
+        <ManagerOnly may="tournamentIssues">
         <div className="mt-3 space-y-2">
           {review.replay.possible ? (
             <div className="space-y-1">
@@ -1700,6 +1729,7 @@ function IssuePanel({
             </button>
           </div>
         </div>
+        </ManagerOnly>
       )}
     </section>
   );
@@ -1726,17 +1756,20 @@ function PerformancePanel({
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
           <h3 className="font-semibold">{t("tn.perf.tie")}</h3>
           <p className="mt-1 text-xs text-slate-600">{t("tn.perf.tieNote")}</p>
-          <div className="mt-2 flex flex-wrap gap-3">
-            {p.tieForFinal.map((id) => (
-              <label key={id} className="inline-flex items-center gap-1">
-                <input type="checkbox" checked={chosen.includes(id)} onChange={() => setChosen(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id])} />
-                {names.get(id)}
-              </label>
-            ))}
-          </div>
-          <button onClick={() => void call(`/api/admin/tournaments/${tn.id}`, { action: "final", chosen })} className="mt-2 rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white">
-            {t("tn.perf.putInFinal")}
-          </button>
+          {/* Who takes the last places is the organiser's: a manager's (lib/roles.ts). */}
+          <ManagerOnly may="tournamentRun">
+            <div className="mt-2 flex flex-wrap gap-3">
+              {p.tieForFinal.map((id) => (
+                <label key={id} className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={chosen.includes(id)} onChange={() => setChosen(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id])} />
+                  {names.get(id)}
+                </label>
+              ))}
+            </div>
+            <button onClick={() => void call(`/api/admin/tournaments/${tn.id}`, { action: "final", chosen })} className="mt-2 rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white">
+              {t("tn.perf.putInFinal")}
+            </button>
+          </ManagerOnly>
         </div>
       )}
       {units.map((m) => (

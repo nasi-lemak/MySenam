@@ -19,7 +19,9 @@ Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-correcti
   teams and matchmaking ([open games and matchmaking](matchmaking.md)).
 - **Who does what:** a venue's managers set up, correct, disqualify and
   resolve; front-desk staff enter results, check entrants in, and enter
-  players at the counter; an official enters results through a link;
+  players at the counter, and the dashboard shows them the rest read-only or
+  not at all ([what the front desk is shown](../architecture/tenancy.md#what-the-front-desk-is-shown));
+  an official enters results through a link;
   players enter (themselves, or somebody they act for), withdraw before the
   draw, report and confirm their own results where the tournament allows it,
   and run their league matches themselves.

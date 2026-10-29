@@ -29,6 +29,8 @@ import { ClassesTab } from "../../src/components/admin/ClassesTab";
 import { CourtsTab } from "../../src/components/admin/CourtsTab";
 import { CreditTab } from "../../src/components/admin/CreditTab";
 import { VenuesTab } from "../../src/components/admin/VenuesTab";
+import { TournamentsTab } from "../../src/components/admin/TournamentsTab";
+import { LeaguesTab } from "../../src/components/admin/LeaguesTab";
 import AdminPage from "../../src/app/admin/page";
 
 /**
@@ -63,6 +65,8 @@ const table = Object.keys(routes).map((file) => {
   // Fixed segments win over dynamic ones, as Next routes them.
   return { file, re, names, dynamic: names.length };
 }).sort((a, b) => a.dynamic - b.dynamic);
+
+const en = staffTranslator("en");
 
 let deskCookie = "";
 let managerCookie = "";
@@ -145,6 +149,38 @@ beforeAll(async () => {
   venues = (await listVenuesByIds([venueId])) as ManagedVenue[];
 }, 120_000);
 
+/** What the tournaments and leagues tabs show, set up as a manager through the app's own routes. */
+const TOURNAMENT_OPEN = "Spring Singles Cup";
+const TOURNAMENT_DRAWN = "Autumn Singles Cup";
+const LEAGUE_RUNNING = "Thursday Box League";
+const LEAGUE_FORMING = "Friday Box League";
+
+beforeAll(async () => {
+  const venueId = venues[0].id;
+  const court = venues[0].courts[0];
+  const day = (n: number) => addDays(todayISO(), n);
+  const held = { startMin: 9 * 60, endMin: 17 * 60, matchMinutes: 45, courtIds: [court.id] };
+  const phone = (n: number) => `012${String(n).padStart(7, "0")}`;
+  await asManager("POST", "/api/admin/competitions", { venueId, name: "Club Championships", sport: court.sport, startsOn: day(70), endsOn: day(70), ...held, maxDivisionsPerPlayer: null });
+  const tournament = async (name: string, n: number) => {
+    const made = await asManager("POST", "/api/admin/tournaments", { venueId, name, sport: court.sport, format: "knockout", entryFee: 20, maxEntries: 8, startsOn: day(n), endsOn: day(n), ...held });
+    const id = (made.tournament as { id: number }).id;
+    for (const [i, person] of ["Aina Rahman", "Bala Kumar", "Chong Wei", "Devi Nair"].entries())
+      await asManager("POST", `/api/admin/tournaments/${id}/entries`, { phone: phone(7000 + n * 10 + i), name: person });
+    return id;
+  };
+  await tournament(TOURNAMENT_OPEN, 60);
+  await asManager("POST", `/api/admin/tournaments/${await tournament(TOURNAMENT_DRAWN, 61)}`, { action: "draw" });
+  const league = async (name: string, n: number, players: number) => {
+    const made = await asManager("POST", "/api/admin/leagues", { venueId, name, sport: court.sport, teamSize: 1, who: "anyone", boxSize: 4, moves: 1, seasonDays: 28, fee: 30, startsOn: day(14) });
+    const id = (made.league as { id: number }).id;
+    for (let i = 0; i < players; i++) await asManager("POST", `/api/admin/leagues/${id}/players`, { phone: phone(8000 + n * 10 + i), name: `Player ${n}${i}` });
+    return id;
+  };
+  await asManager("POST", `/api/admin/leagues/${await league(LEAGUE_RUNNING, 1, 4)}`, { action: "start" });
+  await league(LEAGUE_FORMING, 2, 2);
+}, 120_000);
+
 beforeEach(() => {
   calls = [];
   forgetStaffRole();
@@ -162,8 +198,8 @@ afterEach(() => {
 });
 afterAll(() => undefined);
 
-/** Use every control on screen, round after round as new ones appear. */
-async function useEverything(container: HTMLElement, rounds = 4): Promise<number> {
+/** Use every control on screen, round after round as new ones appear (except those `skip` names). */
+async function useEverything(container: HTMLElement, rounds = 4, skip?: (el: Element) => boolean): Promise<number> {
   const done = new WeakSet<Element>();
   let used = 0;
   for (let round = 0; round < rounds; round++) {
@@ -172,7 +208,7 @@ async function useEverything(container: HTMLElement, rounds = 4): Promise<number
     for (const el of controls) {
       if (done.has(el) || !el.isConnected) continue;
       done.add(el);
-      if (el.matches(":disabled") || el.closest("fieldset[disabled]")) continue;
+      if (el.matches(":disabled") || el.closest("fieldset[disabled]") || skip?.(el)) continue;
       acted = true;
       used++;
       await act(async () => {
@@ -219,6 +255,24 @@ type Tab = {
   before?: (container: HTMLElement, role: StaffRole) => Promise<void>;
   /** Requests only a manager makes that a manager's run must reach here: the controls the desk is not shown. */
   managers: RegExp[];
+  /** Controls not to press: those that leave the screen (an Open, a Back) before the rest is reached. */
+  skip?: (el: Element) => boolean;
+  /** The fewest controls the desk must find to use here (6 unless said). */
+  deskUses?: number;
+};
+
+/** A button by what it says. */
+const saying = (...texts: string[]) => (el: Element) => el.tagName === "BUTTON" && texts.includes(el.textContent?.trim() ?? "");
+
+/** Open the tournament or league of that name from its tab's list. */
+const opening = (name: string) => async (container: HTMLElement) => {
+  const row = Array.from(container.querySelectorAll("li")).find((li) => li.textContent?.includes(name));
+  const open = row?.querySelector("button");
+  if (!open) throw new Error(`no ${name} to open`);
+  await act(async () => {
+    fireEvent.click(open);
+  });
+  await settle();
 };
 
 const TABS: Tab[] = [
@@ -258,20 +312,60 @@ const TABS: Tab[] = [
     name: "venue details",
     ui: (admin) => <VenuesTab admin={admin} venues={venues} onChange={async () => admin} />,
     managers: [/^POST \/api\/admin\/house-rules$/, /^POST \/api\/admin\/notices$/, /^POST \/api\/admin\/cancel-policy$/, /^GET \/api\/admin\/admins$/],
+    // Venue details holds little the desk may change, and with nothing waiting (messages, data) nothing to press.
+    deskUses: 0,
+  },
+  {
+    // A tournament or league opened from its list is a tab of its own below: Open is not pressed here.
+    name: "tournaments and competitions",
+    ui: () => <TournamentsTab venues={venues} />,
+    skip: saying(en("tn.open")),
+    managers: [/^POST \/api\/admin\/tournaments$/, /^POST \/api\/admin\/competitions$/, /^DELETE \/api\/admin\/competitions\/\d+$/],
+    // The list and what is set up: the desk reads them, and changes none of it.
+    deskUses: 0,
+  },
+  {
+    name: "a tournament taking entries",
+    ui: () => <TournamentsTab venues={venues} />,
+    before: opening(TOURNAMENT_OPEN),
+    skip: saying(en("tn.back")),
+    managers: [/^POST \/api\/admin\/tournaments\/\d+$/],
+  },
+  {
+    name: "a tournament under way",
+    ui: () => <TournamentsTab venues={venues} />,
+    before: opening(TOURNAMENT_DRAWN),
+    skip: saying(en("tn.back")),
+    managers: [/^POST \/api\/admin\/tournaments\/\d+$/],
+  },
+  {
+    name: "leagues",
+    ui: () => <LeaguesTab venues={venues} />,
+    skip: saying(en("tn.open")),
+    managers: [/^POST \/api\/admin\/leagues$/],
+    deskUses: 0,
+  },
+  {
+    name: "a league under way",
+    ui: () => <LeaguesTab venues={venues} />,
+    before: opening(LEAGUE_RUNNING),
+    skip: saying(en("lg.back")),
+    managers: [/^POST \/api\/admin\/leagues\/\d+$/],
   },
 ];
 
 describe("front desk", () => {
-  for (const { name, ui, before } of TABS)
+  for (const { name, ui, before, skip, deskUses = 6 } of TABS)
     it(`is offered nothing on ${name} that a manager alone may do`, async () => {
       const container = await show("desk", ui);
       await before?.(container, "desk");
-      const used = await useEverything(container);
-      // Venue details holds little the desk may change, and with nothing waiting (messages, data) nothing to press.
-      if (name !== "venue details") expect(used).toBeGreaterThan(5);
+      const used = await useEverything(container, 4, skip);
+      expect(used).toBeGreaterThanOrEqual(deskUses);
       expect(calls.length).toBeGreaterThan(0);
       expect(refusedToDesk()).toEqual([]);
       expect(calls.filter((c) => c.code === "MANAGER_ONLY")).toEqual([]);
+      // Nor anything a route turns the desk away from by what is asked (moving a fixture, a correction, disqualifying).
+      expect(calls.filter((c) => c.status === 403).map((c) => `${c.method} ${c.path}`)).toEqual([]);
       // What it may not change is said once, in its language, where it is shown.
       if (name !== "the day list") expect(container.textContent).toContain("A manager changes this.");
     }, 120_000);
@@ -295,7 +389,6 @@ async function openEverything(container: HTMLElement): Promise<void> {
   }
 }
 
-const en = staffTranslator("en");
 
 /** A field by its accessible name, or the start of its label (a label may carry a hint after it). */
 function field(container: HTMLElement, label: string): HTMLInputElement | HTMLTextAreaElement {
@@ -306,13 +399,14 @@ function field(container: HTMLElement, label: string): HTMLInputElement | HTMLTe
   return input as HTMLInputElement | HTMLTextAreaElement;
 }
 
-/** What a manager has set up, asked for through the app's own routes as the manager. */
-async function asManager(method: string, path: string, body: unknown): Promise<void> {
+/** What a manager has set up, asked for through the app's own routes as the manager; its answer. */
+async function asManager(method: string, path: string, body: unknown): Promise<Record<string, unknown>> {
   const was = cookie;
   cookie = managerCookie;
   try {
     const res = await serve(path, { method, body: JSON.stringify(body) });
     if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
+    return (await res.json()) as Record<string, unknown>;
   } finally {
     cookie = was;
   }
@@ -374,16 +468,35 @@ describe("front desk reads what a manager changes", () => {
     }
   }, 120_000);
 
-  for (const { name, ui, before } of TABS.filter((tab) => tab.name !== "venue details"))
+  for (const { name, ui, before, skip } of TABS.filter((tab) => tab.name !== "venue details"))
     it(`opens every section on ${name}`, async () => {
       const container = await show("desk", ui);
       await before?.(container, "desk");
-      await useEverything(container);
+      await useEverything(container, 4, skip);
       await openEverything(container);
       expect(container.querySelectorAll("details:not([open])").length).toBe(0);
       expect(refusedToDesk()).toEqual([]);
       expect(calls.filter((c) => c.code === "MANAGER_ONLY")).toEqual([]);
     }, 120_000);
+
+  it("reads a league forming its season, adds and removes its players, and is not offered moving or starting the season", async () => {
+    const buttons = (container: HTMLElement) => Array.from(container.querySelectorAll("button")).map((b) => b.textContent?.trim());
+    const desk = await show("desk", () => <LeaguesTab venues={venues} />);
+    await opening(LEAGUE_FORMING)(desk);
+    expect(desk.textContent).toContain(LEAGUE_FORMING);
+    expect(buttons(desk)).not.toContain(en("lg.startNow"));
+    expect(buttons(desk)).not.toContain(en("lg.moveStart"));
+    expect(desk.querySelector('input[type="date"]')).toBeNull();
+    expect(desk.textContent).toContain("A manager changes this.");
+    expect(buttons(desk).filter((b) => b === en("c.remove"))).toHaveLength(2);
+    cleanup();
+
+    const manager = await show("manager", () => <LeaguesTab venues={venues} />);
+    await opening(LEAGUE_FORMING)(manager);
+    expect(buttons(manager)).toContain(en("lg.startNow"));
+    expect(buttons(manager)).toContain(en("lg.moveStart"));
+    expect(manager.textContent).not.toContain("A manager changes this.");
+  }, 120_000);
 });
 
 describe("the dashboard", () => {
@@ -419,11 +532,11 @@ describe("the dashboard", () => {
 });
 
 describe("a manager", () => {
-  for (const { name, ui, before, managers } of TABS)
+  for (const { name, ui, before, managers, skip } of TABS)
     it(`finds the manager's controls on ${name}`, async () => {
       const container = await show("manager", ui);
       await before?.(container, "manager");
-      expect(await useEverything(container)).toBeGreaterThan(5);
+      expect(await useEverything(container, 4, skip)).toBeGreaterThan(5);
       const made = refusedToDesk();
       for (const expected of managers) expect(made.some((r) => expected.test(r)), `${name}: ${expected}`).toBe(true);
       expect(container.textContent).not.toContain("A manager changes this.");
