@@ -346,10 +346,15 @@ the erasure ledger, so after a restore the restored copy's period applies
 
 Also: MyInvois cancelling is done in the portal and reaches MySenam only when
 LHDN is asked; MySenam issues no debit or refund notes; staff cannot correct
-a buyer's details (the customer asks again); a send interrupted after LHDN
-was asked (the server stopping) is marked not sent after 15 minutes and is
-never sent again by itself: staff check the portal first, since LHDN may
-have it; the LHDN rules followed
+a buyer's details (the customer asks again); a submission whose
+outcome at LHDN is unknown (the server stopping after LHDN was asked, a
+timeout, a cut connection, an unreadable or 5xx answer) is shown as needing
+verification, never sent again by itself or without the manager's confirmation
+that LHDN does not have it, and is reconciled by recording LHDN's identifiers;
+which failures leave a document possibly held at LHDN, and the two lookups
+used to reconcile it, are assumed from the published API and unchecked
+against the sandbox, and a draft marked before migration 0260 has no recorded
+claim time or payload (recording it stores LHDN's identifiers only); the LHDN rules followed
 (seven days, RM10,000, codes, version 1.0, the 72-hour window) are read from
 published guidance and unverified
 ([MyInvois](../integrations/myinvois.md#what-is-assumed-and-not-verified)) (P3).
@@ -980,6 +985,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | People enrolled in a class were not told of a new name or instructor | Emailed, with those holding an offer of a place, once each, in their language | `tests/class-changes.test.ts` |
 | Lowering a tournament's places was thought not to be locked against an entry at the same moment | It is taken under the entry lock; tested both at once and with the entry held mid-write | `tests/entry-races.test.ts` |
 | A draft e-invoice sent by the scheduler and by staff at the same moment could reach LHDN twice | Claimed before LHDN is asked (migration 0256), so it is sent once; an interrupted claim is marked not sent for a check in the portal | `tests/einvoice-sending.test.ts` |
+| A timed-out or interrupted MyInvois submission was shown as *Not sent* and could be sent again without checking LHDN, so LHDN could hold it twice | Shown as *Needs verification: submission outcome unknown*, sent again only after the manager confirms LHDN does not have it (kept with who and when), or recorded from LHDN's own identifiers once the document number is confirmed; every attempt kept | `tests/einvoice-sending.test.ts` |
 | A new branch started blank, its courts, rates, rules and products entered again by hand | Started from another branch's set-up in one step, never its people, money, accounts or secrets | `tests/branch-copy.test.ts` |
 | Bookings made to try a venue out before it went live stayed in its reports, exports and cash-up | Marked as tests by the database, left out of the figures, marked in the journal and day list; a manager clears them (all given back, nobody told) or keeps one as real | `tests/test-bookings.test.ts`, `tests/components/test-bookings-panel.test.tsx` |
 | Staff moved a weekly series one week at a time | The weeks left moved in one step, each by the single move's checks, a week that cannot move named with why; the customer and a lesson's coach told once | `tests/series-moves.test.ts` |
