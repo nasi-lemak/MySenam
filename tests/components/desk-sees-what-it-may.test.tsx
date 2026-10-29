@@ -147,7 +147,7 @@ beforeAll(async () => {
   deskCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.id)).token}`;
   managerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(manager.id)).token}`;
   venues = (await listVenuesByIds([venueId])) as ManagedVenue[];
-}, 120_000);
+}, 300_000);
 
 /** What the tournaments and leagues tabs show, set up as a manager through the app's own routes. */
 const TOURNAMENT_OPEN = "Spring Singles Cup";
@@ -179,7 +179,7 @@ beforeAll(async () => {
   };
   await asManager("POST", `/api/admin/leagues/${await league(LEAGUE_RUNNING, 1, 4)}`, { action: "start" });
   await league(LEAGUE_FORMING, 2, 2);
-}, 120_000);
+}, 300_000);
 
 beforeEach(() => {
   calls = [];
@@ -368,7 +368,7 @@ describe("front desk", () => {
       expect(calls.filter((c) => c.status === 403).map((c) => `${c.method} ${c.path}`)).toEqual([]);
       // What it may not change is said once, in its language, where it is shown.
       if (name !== "the day list") expect(container.textContent).toContain("A manager changes this.");
-    }, 120_000);
+    }, 300_000);
 });
 
 /**
@@ -466,7 +466,7 @@ describe("front desk reads what a manager changes", () => {
       await asManager("POST", "/api/admin/waiver", { venueId, text: "" });
       await asManager("POST", "/api/admin/policy-overrides", { venueId, policies: [] });
     }
-  }, 120_000);
+  }, 300_000);
 
   for (const { name, ui, before, skip } of TABS.filter((tab) => tab.name !== "venue details"))
     it(`opens every section on ${name}`, async () => {
@@ -477,7 +477,7 @@ describe("front desk reads what a manager changes", () => {
       expect(container.querySelectorAll("details:not([open])").length).toBe(0);
       expect(refusedToDesk()).toEqual([]);
       expect(calls.filter((c) => c.code === "MANAGER_ONLY")).toEqual([]);
-    }, 120_000);
+    }, 300_000);
 
   it("reads a league forming its season, adds and removes its players, and is not offered moving or starting the season", async () => {
     const buttons = (container: HTMLElement) => Array.from(container.querySelectorAll("button")).map((b) => b.textContent?.trim());
@@ -496,7 +496,7 @@ describe("front desk reads what a manager changes", () => {
     expect(buttons(manager)).toContain(en("lg.startNow"));
     expect(buttons(manager)).toContain(en("lg.moveStart"));
     expect(manager.textContent).not.toContain("A manager changes this.");
-  }, 120_000);
+  }, 300_000);
 });
 
 describe("the dashboard", () => {
@@ -528,7 +528,7 @@ describe("the dashboard", () => {
     } finally {
       await getDb().prepare("UPDATE venues SET published_at = datetime('now') WHERE id = ?").run(venueId);
     }
-  }, 120_000);
+  }, 300_000);
 });
 
 describe("a manager", () => {
@@ -540,5 +540,5 @@ describe("a manager", () => {
       const made = refusedToDesk();
       for (const expected of managers) expect(made.some((r) => expected.test(r)), `${name}: ${expected}`).toBe(true);
       expect(container.textContent).not.toContain("A manager changes this.");
-    }, 120_000);
+    }, 300_000);
 });

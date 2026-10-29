@@ -209,6 +209,7 @@ describe("the reports", () => {
     closedDays: 0,
     bookings: { confirmed: 6, cancelled: 0, noShows: 0, hours: 6 },
     revenue: { expected: 150, collected: 150, outstanding: 0, tax: 0 },
+    testTakings: { bookings: 0, collected: 0 },
     collectedBy: [],
     counterSales: { sales: 0, total: 0 },
     utilisation: { courts: { soldHours: 6, sellableHours: 400, percent: 1.5 }, shared: { soldHours: 0, sellableHours: 0, percent: 0 }, revenuePerHour: 25 },

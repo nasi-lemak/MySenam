@@ -28,6 +28,7 @@ const report = (venueId: number, venueName: string) => ({
     closedDays: 0,
     bookings: { confirmed: 0, cancelled: 0, noShows: 0, hours: 0 },
     revenue: { expected: 0, collected: 0, outstanding: 0, tax: 0 },
+    testTakings: { bookings: 0, collected: 0 },
     collectedBy: [],
     counterSales: { sales: 0, total: 0 },
     utilisation: { courts: { soldHours: 0, sellableHours: 0, percent: 0 }, shared: { soldHours: 0, sellableHours: 0, percent: 0 }, revenuePerHour: 0 },
