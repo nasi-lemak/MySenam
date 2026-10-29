@@ -760,6 +760,51 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 29 October 2026, commit `d9925bf`
+
+Round 9, the rest of the operations audit's operator self-service: staff
+invited by email to choose their own password, a branch manager adding and
+removing their own front desk, the desk shown only what it may do, in
+competitions and the set-up checklist too (B59, B60, B63, S30); opening hours
+and court rates from a later date (ADR 0027), narrowing refused while
+bookings fall outside (B61, B62); a new branch started from another's set-up;
+bookings made before going live marked as tests, out of the figures, cleared
+or kept by a manager; staff alerts in each reader's language; a class's or
+tournament's new name told to those in it; e-invoices sent to LHDN once; a
+weekly series moved as a whole; counter money owed back after the venue
+cancels, handed back by a named person (M29); the day list in time order; and
+what the suites found (S29). Not a launch. Run on one cloud container (four
+cores), Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed on `d9925bf` |
+| Documentation checks (`npm run docs:check`) | 107 passed on `d9925bf` |
+| Suite on PGlite | 373 files (3 Postgres-only skipped); 3833 passed, 12 skipped, on `d9925bf` |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server, `max_locks_per_transaction` 256) | 373 files; 3845 passed, on `d9925bf` |
+| Concurrency, money and security inside both suites | Among them: `tests/aside-writes.test.ts` (a serialization failure inside a log write runs the transaction again), `tests/membership-suspensions.test.ts` (a suspension racing a booking), `tests/einvoice-sending.test.ts` (the scheduler and staff sending at once), `tests/entry-races.test.ts` (places lowered racing an entry), `tests/counter-owed.test.ts` (two staff settling at once), `tests/series-moves.test.ts` (a week taken between preview and move), `tests/dated-changes.test.ts`, `tests/test-bookings.test.ts`, `tests/branch-copy.test.ts`, `tests/staff-accounts.test.ts`, `tests/roles.test.ts`, `tests/staff-log-coverage.test.ts` on both engines |
+| Build (`npm run build`) | Succeeded on `d9925bf` |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), the desk's scenarios in Invitations AA, Suspension AD and Classes AO rewritten for a desk offered no manager control | 17 files; 71 of 71 |
+| CI | Not run (deferred, above) |
+| Real services | None checked: payments against the fake gateways and the Billplz stand-in, messages through the outbox only (the acceptance server logs them), MyInvois against a stand-in, Google sign-in against a stand-in |
+
+The branches were merged one at a time, each followed by a full run
+(`2141550`, `205db46`, `cd00c0e`, `0d6c966`, `085184f`, `d2f3477`). The run on
+`2141550` passed 67 of 71 acceptance scenarios: three were the desk's
+scenarios clicking controls round 9 now keeps from the desk, rewritten to
+check that none is offered and the server refuses, and one a dropped
+connection; re-running them found B60 (the desk could not open what it is
+shown read-only), fixed before `205db46`, all green. The run on `cd00c0e`
+passed 70 of 71, the other B62, fixed and passing alone at the next commit.
+The run on `0d6c966` failed two Postgres tests: one the defect S29 (a staff
+log write swallowing a serialization failure, leaving its transaction
+aborted), the other a test counting a background drain's statement as the
+request's own; both fixed with tests. `085184f` and `d2f3477` were green
+throughout. Gaps: no live integration has passed its check;
+machine-assisted Malay, Chinese and Tamil await native review; the suites run
+on today's date only.
+
 #### 29 October 2026, commit `266a7f9`
 
 The owner's round 8 decisions: e-invoice lines naming nobody and e-invoice

@@ -174,7 +174,7 @@ that could be removed, **4** a missing test, **5** a decision, kept on
 purpose, **6** waiting on an outside service, **7** a legal or commercial
 decision needing approval, **8** not needed until a market or customer
 that needs it. Kinds 1 to 4 are worked off; 5 stays unless the reason
-changes; 6 to 8 name what they wait for. As of 28 October 2026: no defect
+changes; 6 to 8 name what they wait for. As of 29 October 2026: no defect
 (kind 1) is open.
 
 | Limitation | Kind | Who it affects | Next action, or what it waits for |
