@@ -2,6 +2,7 @@ import { getDb, withTransaction } from "./db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
 import { courtDaysFor, courtZone, getCourt, releaseBlockTime } from "./store";
 import { venueCancel } from "./counter-refunds";
+import { refundCancelled } from "./payments";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { claim, isConflict, lockCourts, occupantsOn, unclaim, type Occupant } from "./claims";
 import { DAY_MINUTES, freeWithin, hoursOf, merge, overlaps, type Span } from "./interval";
@@ -228,6 +229,8 @@ export async function createOutage(input: {
       if (!done.ok) continue;
       cancelled++;
       bookingsOff.push(done.booking);
+      // Online money goes back as the venue's policy for what it cancels has it, as for a closed day.
+      await refundCancelled([done.booking.id], { byVenue: true });
       await notifyVenueCancelled(done.booking);
     }
     if (affected.length > 0) await tickOutbox();

@@ -1653,48 +1653,89 @@ export interface CancelRefund {
  */
 export async function refundCancelled(
   bookingIds: number[],
-  /** The venue called it off: the money goes back to the card where it can, not into credit the customer did not choose. */
+  /**
+   * The venue called it off: the money goes back to the card where it can, not into credit the customer did not choose.
+   * Shares paid by other players and by friends in a split go the same way (the venue's one policy for what it cancels).
+   */
   opts: { byVenue?: boolean } = {}
 ): Promise<CancelRefund[]> {
   if (bookingIds.length === 0) return [];
   const marks = bookingIds.map(() => "?").join(",");
+  const alsoShares = opts.byVenue
+    ? `OR game_player_id IN (SELECT p.id FROM open_game_players p JOIN open_games g ON g.id = p.game_id WHERE g.booking_id IN (${marks}))
+       OR split_id IN (SELECT id FROM booking_splits WHERE booking_id IN (${marks}))`
+    : "";
   const rows = (await getDb()
     .prepare(
       `SELECT * FROM online_payments
         WHERE (id IN (SELECT payment_id FROM online_payment_bookings WHERE booking_id IN (${marks}))
                -- A dearer coach's difference paid online for one of them (lib/lesson-coaches.ts coachChangesCancelled).
-               OR coach_change_id IN (SELECT id FROM lesson_coach_changes WHERE booking_id IN (${marks})))
+               OR coach_change_id IN (SELECT id FROM lesson_coach_changes WHERE booking_id IN (${marks}))
+               ${alsoShares})
           AND venue_id IS NOT NULL AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded
         ORDER BY id`
     )
-    .all(...bookingIds, ...bookingIds)) as PaymentRow[];
+    .all(...bookingIds, ...bookingIds, ...(opts.byVenue ? [...bookingIds, ...bookingIds] : []))) as PaymentRow[];
   const done: CancelRefund[] = [];
   for (const row of rows) {
-    // Money the gateway already gave back that nothing owed (refunded in its dashboard) counts first.
-    const covered = await applyUnaskedRefunds(row.id);
-    if (covered > 0) done.push({ how: "gateway", amount: covered });
-    const amount = roundMoney(row.refund_due - row.refunded - covered);
-    if (amount <= 0.005) continue;
-    const venuePolicy = await cancelPolicy(row.venue_id!);
-    const policy = venuePolicy.onlineRefunds;
-    const onlineRefunds = opts.byVenue && policy === "credit" ? "gateway" : policy;
-    if (onlineRefunds === "gateway") {
-      const sent = await refundOnline(row.id, row.venue_id!).catch(() => null);
-      if (sent?.ok) {
-        done.push({ how: "gateway", amount, ...(sent.pending ? { pending: true } : {}) });
-        continue;
-      }
-      // Sent with no clear answer: it goes through when asked again, not by staff.
-      if (sent && !sent.ok && sent.unknown) {
-        done.push({ how: "gateway", amount, pending: true });
-        continue;
-      }
-    } else if (onlineRefunds === "credit" && (await refundToCredit(row, bookingIds, amount))) {
-      done.push({ how: "credit", amount });
-      continue;
-    }
-    done.push({ how: "staff", amount, dueBy: refundClock(null, venuePolicy.refundWithinDays, new Date(), (await zoneSettings(row.venue_id!))?.zone).dueBy });
+    const settled = await settleOwed(row, opts.byVenue === true, bookingIds);
+    if (settled) done.push(...settled);
   }
+  return done;
+}
+
+/**
+ * The venue's one policy for what it cancels (a closed day, a rain-out, a court out of service, a class or a tournament
+ * called off, a staff cancellation): what is owed back on these payments goes back through the gateway they were paid
+ * through where that gateway has a refund API (one request, idempotent, claimed before it is asked), and otherwise stays
+ * owed for staff, listed under refunds owed with the date it is due and settled by hand (`markRefunded`). Never credit the
+ * customer did not choose. For payments that no booking carries (a tournament's entry fees).
+ */
+export async function refundOwedByVenue(paymentIds: number[]): Promise<CancelRefund[]> {
+  if (paymentIds.length === 0) return [];
+  const rows = (await getDb()
+    .prepare(
+      `SELECT * FROM online_payments
+        WHERE id IN (${paymentIds.map(() => "?").join(",")}) AND venue_id IS NOT NULL AND purpose NOT IN ('invoice', 'pack') AND refund_due > refunded
+        ORDER BY id`
+    )
+    .all(...paymentIds)) as PaymentRow[];
+  const done: CancelRefund[] = [];
+  for (const row of rows) {
+    const settled = await settleOwed(row, true, []);
+    if (settled) done.push(...settled);
+  }
+  return done;
+}
+
+/** One payment's owed money, as the venue's policy has it (see `refundCancelled`, `refundOwedByVenue`). */
+async function settleOwed(row: PaymentRow, byVenue: boolean, bookingIds: number[]): Promise<CancelRefund[] | null> {
+  const done: CancelRefund[] = [];
+  // Money the gateway already gave back that nothing owed (refunded in its dashboard) counts first.
+  const covered = await applyUnaskedRefunds(row.id);
+  if (covered > 0) done.push({ how: "gateway", amount: covered });
+  const amount = roundMoney(row.refund_due - row.refunded - covered);
+  if (amount <= 0.005) return done;
+  const venuePolicy = await cancelPolicy(row.venue_id!);
+  // The venue's setting is for a customer's own cancellation. What the venue cancels is not the customer's doing: it goes
+  // back to the card wherever the gateway can refund it (owner's decision of 29 October 2026), else it stays owed for staff.
+  const onlineRefunds = byVenue ? "gateway" : venuePolicy.onlineRefunds;
+  if (onlineRefunds === "gateway") {
+    const sent = await refundOnline(row.id, row.venue_id!).catch(() => null);
+    if (sent?.ok) {
+      done.push({ how: "gateway", amount, ...(sent.pending ? { pending: true } : {}) });
+      return done;
+    }
+    // Sent with no clear answer: it goes through when asked again, not by staff.
+    if (sent && !sent.ok && sent.unknown) {
+      done.push({ how: "gateway", amount, pending: true });
+      return done;
+    }
+  } else if (onlineRefunds === "credit" && bookingIds.length > 0 && (await refundToCredit(row, bookingIds, amount))) {
+    done.push({ how: "credit", amount });
+    return done;
+  }
+  done.push({ how: "staff", amount, dueBy: refundClock(null, venuePolicy.refundWithinDays, new Date(), (await zoneSettings(row.venue_id!))?.zone).dueBy });
   return done;
 }
 

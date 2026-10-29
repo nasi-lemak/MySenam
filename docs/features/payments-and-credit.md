@@ -219,6 +219,26 @@ running booking software and running a payments business.
   so a retry credits once. Whatever cannot go that way stays under *Refunds
   owed*: a Billplz payment, a refusal from Stripe, or credit for a booking made
   without an account. The customer is told which happened, and how much.
+- **Refunds when the venue cancels** — one policy for everything the venue
+  itself cancels (a closed day, a rain-out, a court out of service, a class or
+  a tournament called off, a staff cancellation, the venue's API key; the
+  owner's decision of 29 October 2026): the customer did nothing, so the venue's
+  setting above, which is for a customer's own cancellation, does not apply.
+  What was paid online goes back through the gateway it was paid through
+  wherever that gateway has a refund API (Stripe), asked once under a key made
+  from the payment and what is owed on it, the amount claimed before the
+  gateway is asked; shares other players and friends paid towards the booking
+  go the same way. Where the gateway cannot (Billplz), refuses, or the venue no
+  longer has it connected, the money stays owed for staff under *Refunds owed*
+  with the date it is due, and is settled by hand (*Mark refunded* after
+  refunding in the gateway's dashboard), never reported refunded before.
+  Credit notes, the activity log and the refund reconciliation are the same as
+  for any refund (`refundCancelled`, `refundOwedByVenue`; for a tournament's
+  entry fees, `cancelTournament`). A counter payment is not online money: it is
+  [owed back at the counter](#owed-back-after-the-venue-cancels) until a named
+  person hands it back. Staff voiding a gift voucher or a membership choose
+  their own outcome (they are not a bulk cancellation) and stay on *Refunds
+  owed* for the one-click or by-hand refund.
 
 The keys are encrypted in the database, which is the file that gets backed up
 and copied off the machine. The key that unlocks them is `MYSENAM_SECRET`, or,
@@ -480,9 +500,9 @@ cancelling a booking, and calling off a class (its enrolments) cancel
 bookings in bulk, through the same cancellation and refund as a staff one
 (`venueCancel` and `cancelClassSession`; `src/lib/counter-refunds.ts`), with
 all of what was paid going back, and nobody is asked booking by booking.
-Money paid online, with credit or with a pass goes back as it always did
-(online: owed on the payment, refunded through the gateway where the venue
-does). Money paid **at the counter** (cash, QR, transfer, card terminal, or a
+Money paid online, with credit or with a pass goes back as the venue's
+[policy for what it cancels](#paying-online) has it (online: through the
+gateway where it can refund, else owed on the payment). Money paid **at the counter** (cash, QR, transfer, card terminal, or a
 tick whose method was never recorded) has not left the till, so it is not
 written down as given back: it is **owed back** (`counter_refunds_owed`,
 migration 0258: the amount, how it was paid, and what cancelled it), and no

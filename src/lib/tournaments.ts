@@ -985,18 +985,24 @@ export async function cancelTournament(id: number): Promise<Result> {
   const freed = (await db
     .prepare("SELECT DISTINCT court_id, date FROM blocks WHERE tournament_id = ? AND date >= ?")
     .all(id, todayISO())) as { court_id: number; date: string }[];
+  let owed: number[] = [];
   await db.transaction(async () => {
     await db.prepare("UPDATE tournaments SET status = 'cancelled' WHERE id = ?").run(id);
     // Its holds go, and their claims with them.
     await db.prepare("DELETE FROM blocks WHERE tournament_id = ?").run(id);
-    await db
-      .prepare(
-        `UPDATE online_payments SET refund_due = amount
-          WHERE purpose = 'entry' AND status = 'paid'
-            AND tournament_entry_id IN (SELECT id FROM tournament_entries WHERE tournament_id = ? AND status <> 'withdrawn')`
-      )
-      .run(id);
+    owed = (
+      (await db
+        .prepare(
+          `UPDATE online_payments SET refund_due = amount
+            WHERE purpose = 'entry' AND status = 'paid'
+              AND tournament_entry_id IN (SELECT id FROM tournament_entries WHERE tournament_id = ? AND status <> 'withdrawn')
+            RETURNING id`
+        )
+        .all(id)) as { id: number }[]
+    ).map((r) => r.id);
   })();
+  // Fees paid online go back as the venue's policy for what it cancels has it: through the gateway where it can, else owed for staff.
+  if (owed.length > 0) await (await import("./payments")).refundOwedByVenue(owed);
   // Whoever is waiting for one of those courts is offered it.
   for (const day of freed) await offerSlotPlace(day.court_id, day.date);
   for (const entryId of await entrants(id)) await tellEntry(entryId, t, (tr) => tr("mail.tour.calledOff.s", { t: t.name }), (tr) => tr("mail.tour.calledOff.b", { t: t.name, venue: t.venueName }));

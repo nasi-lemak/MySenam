@@ -13,7 +13,7 @@ import { icsCalendar } from "./booking-links";
 import { siteName } from "./site";
 import { whatsappFor } from "./whatsapp-credit";
 import { createNotice } from "./urgent";
-import { takesPaymentOnline } from "./payments";
+import { refundCancelled, takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
 import { money, shortDate } from "./region";
@@ -1072,6 +1072,8 @@ export async function cancelClassAndTell(
   if (!result.ok || !session) return result;
   // Exactly the enrolments it cancelled: not one its customer had just cancelled, nor miss one made a moment before.
   const ids = new Set(result.cancelledIds ?? []);
+  // Online money goes back as the venue's policy for what it cancels has it (lib/payments.ts `refundCancelled`).
+  if (ids.size > 0) await refundCancelled([...ids], { byVenue: true });
   const cancelled = (await getClassRoster(classId))
     .filter((b) => ids.has(b.id))
     .map((b) => ({ ...b, status: "cancelled" as const, paymentStatus: before.get(b.id)?.paymentStatus ?? b.paymentStatus }));

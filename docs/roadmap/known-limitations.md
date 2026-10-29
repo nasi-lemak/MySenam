@@ -78,9 +78,6 @@ recommendation, not a decision. A decision is recorded by changing the row to
 | Limitation | What happens today | Recommendation |
 | ---------- | ------------------ | -------------- |
 | Email bounces are not read back ([operations and security](#operations-and-security-s)) | *Sent* means the mail server took it; a venue's own cancellations and moves stay under *Needs attention* until staff know the customer heard | Accept; the owner looks at bounces in the provider's dashboard each week |
-| Giving the court back late, without a refund ([booking](../features/booking.md)) | Off for every venue until a manager turns it on | Keep it off by default and suggest it at onboarding to venues with evening drop-outs |
-| Cancellations by the venue refund online payments on some paths only ([money](#money-m)) | Closing a day and a rain-out refund online payments by themselves; a court taken out of service and a cancelled class (also when a day is closed) leave them in *Refunds owed* for staff | Refund by themselves on every path where the venue cancels, as a closed day does: the customer did nothing, and the refunds owed list stays for manual venues |
-| When counter money owed after the venue cancels is credited ([money](#money-m)) | The credit note is written when staff hand the money back or give it as credit, by whoever does, so the till, the credit note and the payout agree; until then the receipt stands uncredited in the sales journal, listed as owed; a payment taken on an earlier day needs a manager | Keep both; if older payments make for too many manager calls, a venue setting could let the desk pay out owed money up to a limit |
 
 ### Accepted
 
@@ -151,6 +148,28 @@ optional customer-profile data kept apart; a language of their own for staff
 and coaches; and actual guests counted, those registered at the counter
 included, ordinary walk-in customers told apart from guests accompanying
 members.
+The owner's decisions of 29 October 2026, closing round 9: what the venue
+cancels (a closed day, a rain-out, a court out of service, a class or
+tournament called off, a staff cancellation) is refunded through the gateway
+wherever it has a refund API and otherwise owed for staff to settle by hand,
+once, with its credit note and reconciliation
+([payments](../features/payments-and-credit.md#paying-online)); a counter
+payment on what the venue cancels is owed back until a named person confirms
+handing it back, a payment taken on an earlier day needing a manager, and a cash
+refund never reported complete before the money is returned
+([owed back](../features/payments-and-credit.md#owed-back-after-the-venue-cancels));
+test bookings cleared or kept by a manager at go-live, with no real payment,
+receipt, liability or tax-relevant transaction ever hidden from the financial
+records by the mark
+([marketplace](../product/marketplace.md#test-bookings-before-going-live));
+fixture moves, late result corrections and disqualifications a manager's, the
+desk keeping registration, attendance, payments, officials and results
+([tenancy](../architecture/tenancy.md)); class change notices by email only,
+WhatsApp optional once a provider and template exist; an e-invoice submission
+interrupted with its outcome unknown shown as needing verification, never
+resent blindly, reconciled against LHDN first with its history kept
+([MyInvois](../integrations/myinvois.md)); and giving a court back late
+without a refund off by default.
 
 ### Not affecting the first launch
 
@@ -965,6 +984,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Bookings made to try a venue out before it went live stayed in its reports, exports and cash-up | Marked as tests by the database, left out of the figures, marked in the journal and day list; a manager clears them (all given back, nobody told) or keeps one as real | `tests/test-bookings.test.ts`, `tests/components/test-bookings-panel.test.tsx` |
 | Staff moved a weekly series one week at a time | The weeks left moved in one step, each by the single move's checks, a week that cannot move named with why; the customer and a lesson's coach told once | `tests/series-moves.test.ts` |
 | The day list ran by court, not by time | In time order, then venue and court; the printed day sheet too | `tests/series-moves.test.ts` |
+| Cancellations by the venue refunded online payments on some paths only (a court taken out of service and a class called off left them to staff, a tournament called off and shares paid by other players the same) | One policy: back through the gateway wherever it has a refund API, whatever the venue chose for customers' own cancellations, else owed for staff with its due date | `tests/venue-cancel-refunds.test.ts` (also on Postgres) |
 
 ## Production readiness
 
