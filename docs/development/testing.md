@@ -760,6 +760,45 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 30 October 2026, commit `9db93d4`
+
+The owner's decisions closing round 9 (29 October 2026), reconciled before
+real-service verification: what the venue cancels (a court out of service, a
+class or tournament called off, shares paid by other players) refunded through
+the gateway where it can and otherwise owed for staff, under one policy; a test
+booking never hiding real money (the cash-up's test block, the period report and
+export, clearing with the manager's word on whether real money was taken, a
+payment once live making a test real, going live refused with a paid test
+standing, a paid test at a live venue in the consolidated e-invoice; S31); and a
+MyInvois submission whose outcome is unknown shown as needing verification,
+never resent blindly, reconciled from LHDN's identifiers with its history kept.
+Not a launch. Run on one cloud container (four cores), Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed on `1e9c07d` |
+| Documentation checks (`npm run docs:check`) | 108 passed on `1e9c07d` |
+| Suite on PGlite | 375 files (3 Postgres-only skipped); 3884 passed, 12 skipped, on `9db93d4` |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server, `max_locks_per_transaction` 256) | 375 files; 3896 passed, on `9db93d4` |
+| Concurrency, money and security inside both suites | Among them: `tests/venue-cancel-refunds.test.ts` (the venue's cancellations refunded once, asked again sends nothing), `tests/test-bookings-money.test.ts` and `tests/test-bookings.test.ts` (the trigger, the cash-up's test block, clearing, going live), `tests/einvoice-sending.test.ts` (an unknown outcome never sent again by the scheduler, confirmed sends once, portal identifiers checked), `tests/counter-owed.test.ts`, `tests/aside-writes.test.ts`, `tests/roles.test.ts`, `tests/staff-log-coverage.test.ts` on both engines |
+| Build (`npm run build`) | Succeeded on `1e9c07d` |
+| End-to-end tests against that build | 3 files; 12 passed, on `1e9c07d` |
+| Acceptance scenarios against that build (`npm run uat`) | 17 files; 71 of 71, on `1e9c07d` |
+| CI | Not run (deferred) |
+| Real services | None checked: payments against the fake gateways and the Billplz stand-in (Stripe refunds against a stand-in), messages through the outbox only, MyInvois against a stand-in, Google sign-in against a stand-in |
+
+The full run on `1e9c07d` passed type-check, lint, docs, build, end-to-end and
+all 71 acceptance scenarios; its unit suites failed 11 tests on each engine:
+two report fixtures in component tests lacked the new test-takings line, and
+nine tests of the desk's tab scans timed out at two minutes under the full
+run's load (the file passes alone in 87 seconds). The fixtures were corrected and
+the file's timeouts raised to five minutes; the two unit suites were then run
+again alone on `9db93d4` (the later commit changes only those tests, which
+the type-check and lint cover), and are the results above. Gaps: no live
+integration has passed its check; the LHDN lookups and which failures leave a
+document possibly held there are assumed from the published API; machine-assisted
+Malay, Chinese and Tamil await native review.
+
 #### 29 October 2026, commit `d9925bf`
 
 Round 9, the rest of the operations audit's operator self-service: staff
