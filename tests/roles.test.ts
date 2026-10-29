@@ -109,6 +109,33 @@ describe("what front desk may not do", () => {
     expect(checked).toBeGreaterThan(25);
   });
 
+  it("may read the set-up checklist but not tick it off or hide it; a manager may", async () => {
+    const { GET, POST } = await import("../src/app/api/admin/setup/route");
+    const read = async (cookie: string) => {
+      const res = await GET(new NextRequest(`http://localhost/api/admin/setup?venueId=${venueId}`, { headers: { cookie } }));
+      expect(res.status).toBe(200);
+      return (await res.json()) as { detailsChecked: boolean; dismissed: boolean };
+    };
+    const ask = (cookie: string, action: string) =>
+      POST(new NextRequest("http://localhost/api/admin/setup", { method: "POST", headers: { cookie }, body: JSON.stringify({ venueId, action }) }));
+    const before = await read(deskCookie);
+    for (const action of ["detailsChecked", "dismiss"]) {
+      const res = await ask(deskCookie, action);
+      expect(res.status, action).toBe(403);
+      expect((await res.json()).code).toBe("MANAGER_ONLY");
+    }
+    // Nothing changed for the desk's asking.
+    expect(await read(deskCookie)).toEqual(before);
+    expect(staffMay("desk").setupChecklist).toBe(false);
+
+    const ticked = await ask(managerCookie, "detailsChecked");
+    expect(ticked.status).toBe(200);
+    expect((await ticked.json()).detailsChecked).toBe(true);
+    const hidden = await ask(managerCookie, "dismiss");
+    expect(hidden.status).toBe(200);
+    expect((await hidden.json()).dismissed).toBe(true);
+  });
+
   it("runs the day: payments, cancellations and the like still work", async () => {
     const made = await createBooking({ courtId: (await listVenues())[0].courts[0].id, date: addDays(todayISO(), 2), hours: [10], name: "Ali", phone: "0161230000" });
     if (!made.ok) throw new Error(made.error);

@@ -2,7 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
+import type { ReactElement } from "react";
 import { TournamentsTab } from "../../src/components/admin/TournamentsTab";
+import { StaffMayProvider } from "../../src/components/admin/StaffMay";
+import { staffMay, type StaffRole } from "../../src/lib/roles";
 import { TEMPLATES } from "../../src/lib/competition-templates";
 import { DEFAULT_RULES } from "../../src/lib/tournament-rules";
 import { formatMinute } from "../../src/lib/interval";
@@ -253,5 +256,126 @@ describe("on the day", () => {
     fireEvent.click(screen.getByRole("button", { name: "Move it and tell the players" }));
     await act(async () => {});
     expect(posts.at(-1)).toEqual({ url: "/api/admin/tournaments/9/matches/70", body: { move: { date: "2026-11-21", startMin: 600, courtId: 7, minutes: 60 } } });
+  });
+});
+
+/**
+ * Setting up, the draw, rules, calling off, a correction's knock-on, moving a
+ * fixture and disqualifying are a manager's (lib/roles.ts, and the matches and
+ * entries routes by what is asked): front desk reads them and is not offered
+ * them; it keeps entries, check-in, payments and results. A manager keeps all.
+ */
+describe("front desk and a manager", () => {
+  const court = { ...(venue as object), courts: [{ id: 7, name: "Court 1", sport: "badminton", activities: [] }] } as never;
+  const as = (role: StaffRole, ui: ReactElement) => render(<StaffMayProvider may={staffMay(role)}>{ui}</StaffMayProvider>);
+  const openAs = async (role: StaffRole) => {
+    as(role, <TournamentsTab venues={[court]} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await act(async () => {});
+  };
+  const readOnly = (el: HTMLElement) => el.closest("fieldset[disabled]") !== null;
+  const underWay = {
+    ...cup,
+    issues: [],
+    entries: [
+      { id: 1, name: "Aina", status: "entered", seed: null, paid: false, out: null, entryMark: null, checkedIn: false, guardian: null, eligibilityChecked: null },
+      { id: 2, name: "Bala", status: "entered", seed: null, paid: false, out: null, entryMark: null, checkedIn: false, guardian: null, eligibilityChecked: null },
+    ],
+    matches: [
+      { id: 70, stage: "knockout", groupNo: null, round: 1, position: 1, placement: null, a: 1, b: 2, courtId: 7, courtName: "Court 1", date: "2026-11-20", minute: 600, hour: 10, score: null, winner: null, next: null, nextSlot: null, loserNext: null, loserNextSlot: null, minutes: 45, status: "scheduled" },
+    ],
+  };
+  const knockoutMovedOn = (preview: boolean) =>
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(init.body ?? "{}");
+        posts.push({ url, body });
+        if (preview && body.preview)
+          return { ok: true, json: async () => ({ preview: { token: "t", replace: { possible: true, changes: [], blockers: [] }, standingsOnly: { changes: [] } } }) };
+        return { ok: false, status: 409, json: async () => ({ error: "The knockout has moved on from this match.", code: "KNOCKOUT_STARTED" }) };
+      }
+      return { ok: true, json: async () => ({ tournament: detail }) };
+    });
+
+  it("the list: the desk reads the competitions and set-up forms, with no call-off and nothing to submit", async () => {
+    detail = { ...cup, issues: [] };
+    as("desk", <TournamentsTab venues={[court]} />);
+    await act(async () => {});
+    expect(screen.getByText(/Club Championships/, { selector: "span" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Call off" })).toBeNull();
+    const setUp = screen.getAllByRole("button", { name: "Set it up and hold the courts" });
+    expect(setUp).toHaveLength(2);
+    for (const b of setUp) expect(readOnly(b)).toBe(true);
+    // Said once, above the first form.
+    expect(screen.getAllByText("A manager changes this.")).toHaveLength(1);
+  });
+
+  it("the list: a manager calls off and sets up", async () => {
+    detail = { ...cup, issues: [] };
+    as("manager", <TournamentsTab venues={[court]} />);
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "Call off" })).toBeTruthy();
+    for (const b of screen.getAllByRole("button", { name: "Set it up and hold the courts" })) expect(readOnly(b)).toBe(false);
+    expect(screen.queryByText("A manager changes this.")).toBeNull();
+  });
+
+  it("taking entries: the desk checks in and takes payment, and is given no draw, closing, details, template, rules or call-off", async () => {
+    detail = { ...underWay, status: "open", matches: [] };
+    await openAs("desk");
+    expect(screen.getAllByRole("button", { name: "check in" })).toHaveLength(2);
+    for (const name of ["Change details", "Close entries", "Make the draw", "Save as template", "Call it off"]) expect(screen.queryByRole("button", { name }), name).toBeNull();
+    // The rules are read, not changed.
+    for (const rule of screen.getAllByDisplayValue("Stand as played")) expect(readOnly(rule)).toBe(true);
+    // Taking somebody out stays; disqualifying is the organiser's.
+    const out = screen.getByLabelText("Take Aina out") as HTMLSelectElement;
+    expect(Array.from(out.options).map((o) => o.value)).toEqual(["", "withdrawn"]);
+  });
+
+  it("taking entries: a manager has every control", async () => {
+    detail = { ...underWay, status: "open", matches: [] };
+    await openAs("manager");
+    for (const name of ["Change details", "Close entries", "Make the draw", "Save as template", "Call it off"]) expect(screen.getByRole("button", { name }), name).toBeTruthy();
+    for (const rule of screen.getAllByDisplayValue("Stand as played")) expect(readOnly(rule)).toBe(false);
+    expect(Array.from((screen.getByLabelText("Take Aina out") as HTMLSelectElement).options).map((o) => o.value)).toContain("disqualified");
+  });
+
+  it("under way: the desk enters a result but is not offered a fixture move, nor a correction once the knockout has moved on", async () => {
+    detail = underWay;
+    await openAs("desk");
+    expect(screen.queryByText("Move…")).toBeNull();
+    knockoutMovedOn(true);
+    fireEvent.change(screen.getByLabelText("Score"), { target: { value: "21-15, 21-18" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aina won" }));
+    await act(async () => {});
+    // The result asked for, and no review of a correction after it: the refusal says why.
+    expect(posts).toEqual([{ url: "/api/admin/tournaments/9/matches/70", body: { winner: 1, score: "21-15, 21-18" } }]);
+    expect(screen.queryByRole("region", { name: "Correction" })).toBeNull();
+    expect(screen.getByText("The knockout has moved on from this match.")).toBeTruthy();
+  });
+
+  it("under way: a manager moves a fixture and reviews a correction", async () => {
+    detail = underWay;
+    await openAs("manager");
+    expect(screen.getByText("Move…")).toBeTruthy();
+    knockoutMovedOn(true);
+    fireEvent.click(screen.getByRole("button", { name: "Aina won" }));
+    await act(async () => {});
+    expect(posts.map((p) => p.body.preview === true)).toEqual([false, true]);
+    expect(screen.getByRole("region", { name: "Correction" })).toBeTruthy();
+  });
+
+  it("a correction's knock-on: the desk reads what it affects, and letting it stand or replaying is not offered", async () => {
+    detail = cup;
+    await openAs("desk");
+    expect(screen.getByText(/Final: Aina played instead of Bala/)).toBeTruthy();
+    expect(readOnly(screen.getByRole("button", { name: "Let the results stand" }))).toBe(true);
+  });
+
+  it("a final's last places when level: the organiser's; each heat's marks stay the desk's", async () => {
+    detail = { ...gala, performance: { ...gala.performance, tieForFinal: [1, 2] } };
+    await openAs("desk");
+    expect(readOnly(screen.getByRole("button", { name: "Put them in the final" }))).toBe(true);
+    expect(readOnly(screen.getByRole("button", { name: "Save results" }))).toBe(false);
   });
 });

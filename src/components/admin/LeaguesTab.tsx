@@ -17,6 +17,7 @@ import { LoadFailed } from "./place";
 import { sportLabel } from "@/lib/i18n";
 import { levelLabel } from "./TournamentsTab";
 import { PayMark } from "./CounterMethod";
+import { ManagerChangesNote, ManagerOnly, useStaffMay } from "./StaffMay";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 const LEVELS = ["", "beginner", "intermediate", "advanced", "competitive"];
@@ -50,6 +51,9 @@ const matchStatus = (t: StaffT, status: MatchStatus): string =>
  * A venue's box leagues: set one up; see who has joined and place
  * newcomers; start and end seasons (they also do so by themselves on their
  * dates); settle disputed results, and put any result right.
+ *
+ * Setting a league up, its seasons and stopping it are a manager's
+ * (lib/roles.ts): front desk reads them and runs players, payments and results.
  */
 export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
   const t = useStaffT();
@@ -159,7 +163,9 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
               </ul>
             )}
           </section>
-          <Create venue={venue} post={post} templates={templates} />
+          <ManagerOnly may="leagues">
+            <Create venue={venue} post={post} templates={templates} />
+          </ManagerOnly>
         </>
       )}
     </div>
@@ -305,6 +311,8 @@ function Manage({
   close: () => void;
 }) {
   const t = useStaffT();
+  // Moving a season's start, starting or ending it now, and stopping the league.
+  const runs = useStaffMay()("leagueRun");
   const names = new Map(l.people.map((p) => [p.id, p.name]));
   const base = `/api/admin/leagues/${l.id}`;
   const current = l.current;
@@ -339,23 +347,28 @@ function Manage({
         {current?.status === "forming" && (
           <div className="flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 text-sm">
             <span className="flex-1">{withStrong(t, "lg.formingNote", { n: current.number, players: l.players }, "date", current.startsOn)}</span>
-            <input aria-label={t("q8b.l.startsOn")} type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className={input} />
-            <button onClick={() => void post(base, { action: "plan", startsOn })} className="rounded-md border border-slate-300 px-3 py-1.5">
-              {t("lg.moveStart")}
-            </button>
-            <button
-              onClick={() => {
-                if (window.confirm(t("lg.startConfirm"))) void post(base, { action: "start" });
-              }}
-              className="rounded-md bg-teal-600 px-3 py-1.5 font-semibold text-white hover:bg-teal-700"
-            >
-              {t("lg.startNow")}
-            </button>
+            {runs && (
+              <>
+                <input aria-label={t("q8b.l.startsOn")} type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className={input} />
+                <button onClick={() => void post(base, { action: "plan", startsOn })} className="rounded-md border border-slate-300 px-3 py-1.5">
+                  {t("lg.moveStart")}
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm(t("lg.startConfirm"))) void post(base, { action: "start" });
+                  }}
+                  className="rounded-md bg-teal-600 px-3 py-1.5 font-semibold text-white hover:bg-teal-700"
+                >
+                  {t("lg.startNow")}
+                </button>
+              </>
+            )}
           </div>
         )}
         {current?.status === "running" && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-3 text-sm">
             <span className="flex-1">{withStrong(t, "lg.runningNote", { n: current.number, from: current.startsOn }, "to", current.endsOn)}</span>
+            {runs && (
             <button
               onClick={() => {
                 const note = [
@@ -370,9 +383,10 @@ function Manage({
             >
               {t("lg.endNow")}
             </button>
+            )}
           </div>
         )}
-        {l.status === "running" && current?.status !== "running" && (
+        {runs && l.status === "running" && current?.status !== "running" && (
           <button
             onClick={() => {
               if (window.confirm(t("lg.stopConfirm"))) void post(base, { action: "close" });
@@ -382,6 +396,7 @@ function Manage({
             {t("lg.stop")}
           </button>
         )}
+        <ManagerChangesNote may="leagueRun" />
       </section>
 
       {disputed.length > 0 && (

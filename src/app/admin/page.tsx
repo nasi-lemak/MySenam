@@ -293,9 +293,9 @@ export default function AdminPage() {
             live={venue.publishedAt !== null && venue.suspendedAt === null}
           />
         ))}
-      {/* Setting the venue up is a manager's (lib/roles.ts): front desk is not given the checklist's steps. */}
+      {/* Setting the venue up is a manager's (lib/roles.ts): front desk is not given the checklist, whose ticks it may not make. */}
       {!isOwner &&
-        may?.venueDetails !== false &&
+        may?.setupChecklist !== false &&
         venues.map((venue, i) => (
           <SetupChecklist
             key={venue.id}
