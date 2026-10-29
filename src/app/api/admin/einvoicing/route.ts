@@ -8,6 +8,7 @@ import {
   listEInvoices,
   lastMonthAt,
   recheckEInvoice,
+  recordFromPortal,
   retryEInvoice,
   saveEInvoiceSettings,
   submitPending,
@@ -34,13 +35,20 @@ export async function GET(req: NextRequest) {
  * - `consolidate`: send last month now, rather than waiting for the scheduler;
  * - `retry` with `id`: one never sent, sent as it is; one LHDN refused,
  *   found invalid or reported cancelled, a new document sent in its place
- *   (the one refused stays as it was sent);
+ *   (the one refused stays as it was sent); one whose outcome at LHDN is
+ *   unknown (it may have arrived) only with `notAtLhdn: true`, the manager's
+ *   word that they checked the MyInvois portal and LHDN does not have it,
+ *   which is logged and kept in the document's history, never otherwise;
+ * - `record` with `id` and `submissionUid` and/or `documentUuid`: for one
+ *   whose outcome is unknown, record what the MyInvois portal shows LHDN
+ *   holds, once LHDN confirms the document under it is this one;
  * - `recheck` with `id`: ask LHDN where one it accepted stands now (a
  *   cancellation made in the MyInvois portal);
  * - `check`: ask LHDN about those sent and not yet decided.
  *
- * Each e-invoice in the list says which of `retry` and `recheck` it takes
- * (`actions`); anything else is refused.
+ * Each e-invoice in the list says which of `retry`, `record` and `recheck`
+ * it takes (`actions`); anything else is refused. Manager-only, like all of
+ * this route (lib/roles.ts).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -77,11 +85,22 @@ export async function POST(req: NextRequest) {
     }
     case "retry": {
       if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
-      const sent = await retryEInvoice(body.id as number, venueId);
+      const sent = await retryEInvoice(body.id as number, venueId, { notAtLhdn: body.notAtLhdn === true, by: { id: admin.id, name: admin.name } });
       if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: 409 });
       const code = sent.einvoice.codeNumber;
-      await logAction(admin, { venueId, action: "einvoice.retried", detail: code === sent.from ? code : `${sent.from} → ${code}` });
+      await logAction(admin, {
+        venueId,
+        action: sent.confirmedNotAtLhdn ? "einvoice.not_at_lhdn" : "einvoice.retried",
+        detail: code === sent.from ? code : `${sent.from} → ${code}`,
+      });
       return NextResponse.json({ einvoice: sent.einvoice });
+    }
+    case "record": {
+      if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
+      const recorded = await recordFromPortal(body.id as number, venueId, { submissionUid: body.submissionUid, documentUuid: body.documentUuid }, { id: admin.id, name: admin.name });
+      if (!recorded.ok) return NextResponse.json({ error: recorded.error }, { status: 409 });
+      await logAction(admin, { venueId, action: "einvoice.recorded", detail: recorded.einvoice.codeNumber });
+      return NextResponse.json({ einvoice: recorded.einvoice });
     }
     case "recheck": {
       if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });

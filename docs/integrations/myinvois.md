@@ -88,7 +88,8 @@ else):
 | State | What it means | What it holds from LHDN | What staff can do next |
 | --- | --- | --- | --- |
 | Waiting to send (`pending`) | Written down, not sent: a draft | Nothing | Nothing: the scheduler sends it. A credit note says which document it waits for |
-| Not sent (`failed`) | The venue's details were incomplete, nothing was left to send, MyInvois could not be reached, or sending was interrupted before LHDN's answer was written ([sending once](#sending-once)) | Nothing | *Send*: the same draft, once put right (after an interruption, once the portal shows LHDN does not have it) |
+| Not sent (`failed`) | It certainly did not reach LHDN: the venue's details were incomplete, nothing was left to send, MyInvois refused the sign-in, could not be connected to, or answered that it took nothing (a 4xx, or 503) | Nothing | *Send*: the same draft, once put right |
+| Needs verification: submission outcome unknown (`failed`, `outcomeUnknown`, state `unknown`) | MySenam asked LHDN and never recorded its answer, so LHDN may hold the document: the claim went stale (a sender stopped), or the request timed out, was cut after it went out, or was answered with something unreadable or a gateway or server error ([sending once](#sending-once)) | Nothing recorded; the attempt's payload is kept with the claim | *LHDN has it* (record its identifiers: LHDN is asked and must confirm the document is this one), or, once the manager has checked the portal, *LHDN does not have it, send again*. Never sent again by itself |
 | Refused by LHDN (`rejected`) | LHDN refused it when it was sent | Submission ID, LHDN's reasons as given | *Send a replacement* |
 | Sent, being validated (`submitted`) | LHDN accepted it for validation | Submission ID, UUID | *Check with LHDN*, *Ask LHDN again* |
 | Valid (`valid`) | LHDN validated it | Submission ID, UUID, long ID (the public link) | *Ask LHDN again* (records a cancellation made in the portal); a sale reversed after this goes in a credit note against it |
@@ -96,7 +97,8 @@ else):
 | Cancelled at LHDN (`cancelled`) | LHDN reported it cancelled (done in the portal) | As it had | *Send a replacement* |
 
 How a state changes: a draft is sent (to `submitted` or `rejected`) or fails
-(`failed`, sent again as it is); LHDN's verdict moves `submitted` to
+(`failed`, sent again as it is; or `failed` with its outcome unknown, which
+staff settle first); LHDN's verdict moves `submitted` to
 `valid`, `invalid` or `cancelled`, and `valid` to `cancelled`. Nothing else
 moves a document that reached LHDN.
 
@@ -160,12 +162,83 @@ as a refund is claimed before the gateway is asked (`submitOne` in
 MyInvois that holds the first submission while the second sender tries, on
 PGlite and Postgres).
 
+### An unknown outcome is not "not sent"
+
+The owner's decision of 29 October 2026: "Interrupted MyInvois submissions:
+Keep the no-blind-resubmission policy. However, where the outcome is unknown,
+display 'Needs verification' or 'Submission outcome unknown', not a
+definitive 'Not sent'. Staff should reconcile against LHDN before retrying,
+using available provider identifiers and status information. Preserve the
+history of the attempt."
+
 A claim still set 15 minutes later (`SENDING_CLAIM_MINUTES`; LHDN is given
 30 seconds to answer) means the sender stopped between asking LHDN and
-writing its answer down, so LHDN may have the document. It is never sent
-again by itself: the scheduler marks it *Not sent*, saying that sending was
-interrupted and to check the MyInvois portal before sending it again, and
-staff decide.
+writing its answer down, so LHDN may have the document. So does a submission
+that was sent and then timed out, was cut off, or was answered with
+something MySenam cannot read or with a gateway or server error that does
+not say what was done (`mayHaveReachedLhdn` in `src/lib/myinvois/client.ts`).
+None is *Not sent*: each is **Needs verification: submission outcome
+unknown**. A failure that certainly did not reach LHDN stays *Not sent*:
+incomplete details, nothing to send, a sign-in LHDN refused (MySenam signs in
+before it claims the draft), no connection (refused, no such host, no
+route), or LHDN answering that it took nothing (a 4xx, or 503). A document
+LHDN answered with identifiers is never relabelled.
+
+The row keeps `status = 'failed'`, so every reader that treats a failed
+draft as a draft still does, and adds (migration 0260) `outcome_unknown_at`
+(when it was found), `last_attempt_at` (the claim's own start, kept when the
+claim is cleared) and `attempt_payload` (the document, total, covered receipts
+and what it corrects, as built when the attempt was claimed). A row marked
+under migration 0256's wording (error `SENDING_INTERRUPTED`) is migrated and
+also derived as unknown; its claim time was not kept, and nor was its payload.
+The list says `state` and `outcome` are `unknown`, with `outcomeUnknown`,
+`outcomeUnknownAt`, `lastAttemptAt` and the `history`; the staff screen shows
+the badge *Needs verification*, the document number to look for in the
+portal, when the attempt began, and the two choices below; the customer's
+receipt says the venue is checking with LHDN whether it arrived. The venue's
+managers and staff are told once, each in their own language
+(`tellVenueStaffEach`), when a document becomes unknown. The retention run
+never deletes one as a draft LHDN never had
+([privacy](../architecture/privacy.md#e-invoice-records)).
+
+Never sent blindly, enforced by the server:
+
+- **The scheduler never sends it**, as before.
+- **`POST /api/admin/einvoicing` `retry` on one is refused (`409`) unless the
+  body carries `notAtLhdn: true`**: the manager's word that they checked the
+  MyInvois portal and LHDN does not hold it. The word is kept with who gave it
+  in the document's history (`confirmed_not_at_lhdn`) and the staff activity
+  log (*Confirmed in the MyInvois portal that LHDN does not hold an
+  e-invoice, and sent it again*), the unknown mark is cleared, and the draft
+  is sent once, as for any other. The screen asks for a confirmation first.
+- **`record`: LHDN has it.** Staff give the submission ID and/or the document
+  UUID the portal shows. MySenam asks LHDN for the submission (the documents it
+  holds under it) or the document (its details) with the venue's own
+  credentials, read-only, and records the identifiers only when LHDN says the
+  document under them carries this document's number (its internal ID) and,
+  where both were given, that they belong together, and no other e-invoice
+  here holds the UUID. It then stands as sent (`submitted`, with the payload,
+  total, covers and what it corrects as kept at the claim, and the claim's
+  start as its sent time), moves on as *Ask LHDN again* does (valid, invalid or
+  cancelled), and the sent-frozen trigger holds it. A mismatch, a number LHDN
+  does not hold, a lookup that fails or something that is no identifier
+  changes nothing and says why. A row marked before migration 0260 kept no
+  payload: it then holds LHDN's identifiers only. MySenam does not look a
+  document up by its own number alone: LHDN's published API has no such lookup
+  that was relied on here.
+
+Both are manager-only, as the whole route is (`MANAGER_ONLY`).
+
+**History.** Every attempt is a row of `e_invoice_attempts` (migration 0260,
+append-only: a trigger refuses any edit or delete, but for the cascade when a
+draft that never reached LHDN, and was never in doubt, is deleted by the
+retention run): `claimed`, `sent`, `rejected`, `not_sent`, `outcome_unknown`,
+`confirmed_not_at_lhdn` and `recorded_from_portal`, each with when and, for a
+staff step, who. The document's detail shows it.
+
+Shown by `tests/einvoice-sending.test.ts` and
+`tests/einvoice-records.test.ts` (a stand-in MyInvois, PGlite and Postgres);
+none of this has been checked against the real service.
 
 ### Names in what is sent
 
@@ -210,6 +283,16 @@ sandbox or LHDN's current guidance. None is presented to staff as settled:
   (`src/lib/myinvois/ubl.ts`);
 - the API's paths, fields and statuses, including how a refusal at
   submission and a cancellation are reported (`src/lib/myinvois/client.ts`);
+- the two read-only lookups behind *LHDN has it*: get document details
+  (`GET /api/v1.0/documents/{uuid}/details`, whose `internalId` and
+  `submissionUid` are matched to our number) and get submission
+  (`GET /api/v1.0/documentsubmissions/{submissionUid}`, whose
+  `documentSummary` lists each document's `uuid` and `internalId`); that a
+  found document can be matched by `internalId` alone; and which failures
+  leave LHDN possibly holding a document (a timeout, a cut connection, an
+  unreadable answer, a 5xx other than 503) as against certainly not (no
+  connection, a 4xx, 503): all written from the published API and tested
+  against a stand-in only;
 - whether LHDN accepts a document's number again after it refused it or
   found it invalid: MySenam does not rely on it either way, as a
   replacement always has its own number;

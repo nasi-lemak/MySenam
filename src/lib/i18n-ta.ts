@@ -2692,6 +2692,8 @@ export const TA: Record<Phrase, string> = {
   "r9e.msg.priceWeeks": "மாற்றப்பட்டு இன்னும் செலுத்தப்படாத வாரங்கள் இப்போது மொத்தம் {cur}{total}, மையத்தில் செலுத்த வேண்டும்.",
   "r9e.msg.coachSeriesMovedSubject": "மாற்றப்பட்டது: {student} உடன் {n} வாராந்திர வகுப்புகள்",
   "r9e.msg.coachSeriesMoved": "வணக்கம் {name}, {student} உடன் {n} வாராந்திர வகுப்புகள் மாற்றப்பட்டுள்ளன: முதலாவது {was} இலிருந்து {date}, {time} ({court}, {venue}) க்கு, அதன் பிறகு ஒவ்வொரு வாரமும் அதே போல. தொடர் {code}.\n\nஉங்கள் முழு அட்டவணை மையம் உங்களுக்குக் கொடுத்த தனிப்பட்ட இணைப்பில் உள்ளது.",
+  // ei10: an e-invoice whose outcome at LHDN is unknown
+  "ei10.status.unknown": "அது சென்றடைந்ததா என்பதை மையம் LHDN உடன் சரிபார்க்கிறது",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

@@ -2689,6 +2689,8 @@ export const ZH: Record<Phrase, string> = {
   "r9e.msg.priceWeeks": "已调整且尚未付款的各周现共计 {cur}{total}，请在场馆付款。",
   "r9e.msg.coachSeriesMovedSubject": "已调整：与 {student} 的 {n} 节每周课程",
   "r9e.msg.coachSeriesMoved": "{name}您好，与 {student} 的 {n} 节每周课程已调整：第一节由 {was} 改至 {date}，{time}（{court}，{venue}），之后每周同样调整。系列 {code}。\n\n您的完整课表在场馆提供给您的私人链接中。",
+  // ei10: an e-invoice whose outcome at LHDN is unknown
+  "ei10.status.unknown": "场馆正在向 LHDN 核实是否已送达",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

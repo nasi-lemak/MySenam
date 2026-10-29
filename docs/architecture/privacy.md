@@ -297,6 +297,14 @@ data separate."
   LHDN's submission ID, UUID and long ID, what it corrects or replaces and
   its last state stay, so the books still show what went to LHDN and LHDN's
   own copy can be found by its UUID. A draft that never reached LHDN is
+  deleted; one whose outcome at LHDN is unknown (it may hold it:
+  [sending once](../integrations/myinvois.md#sending-once)) is not, whatever
+  its age, until staff settle it, and while it waits it keeps what the
+  attempt sent (`attempt_payload`, with the buyer's details as sent), cleared
+  when it is settled or, if LHDN holds it, kept as its payload like any
+  other. The history of a document's attempts (`e_invoice_attempts`,
+  append-only, no personal data beyond the staff member's name as it was)
+  is kept as long as its document, and goes only with a draft that is
   deleted. This is the one change the database lets anything make to a sent
   document (trigger `e_invoices_sent_frozen`, migration 0226): only inside
   the retention run's transaction, which says so, only once the period the
