@@ -28,8 +28,9 @@ export function toCsv(header: string[], rows: unknown[][]): string {
 const hour = (h: number) => `${String(Math.floor(h)).padStart(2, "0")}:${h % 1 ? "30" : "00"}`;
 
 /**
- * Every booking played in the period, cancelled ones too, with what was paid and how; not test bookings, made
- * before the venue went live (lib/test-bookings.ts).
+ * Every booking played in the period, cancelled ones too, with what was paid and how. A test booking, made before
+ * the venue went live (lib/test-bookings.ts), is in it too, marked in the last column: what was paid on one is a
+ * record for the accountant whatever the booking was called.
  */
 export async function bookingsCsv(venueId: number, from: string, to: string): Promise<string> {
   const rows = (await getDb()
@@ -39,10 +40,10 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
               (SELECT discount FROM promo_uses u WHERE u.booking_id = b.id) AS discount,
               (SELECT SUM(a.delta) FROM booking_price_adjustments a WHERE a.booking_id = b.id) AS adjusted,
               (SELECT STRING_AGG(a.quantity || ' x ' || a.name, '; ') FROM booking_addons a WHERE a.booking_id = b.id) AS extras,
-              ci.checked_in_at, b.no_show, b.class_id, b.created_at
+              ci.checked_in_at, b.no_show, b.class_id, b.created_at, b.test
          FROM bookings b JOIN courts c ON c.id = b.court_id
          LEFT JOIN check_ins ci ON ci.booking_id = b.id
-        WHERE c.venue_id = ? AND NOT b.test AND b.date >= ? AND b.date <= ?
+        WHERE c.venue_id = ? AND b.date >= ? AND b.date <= ?
         ORDER BY b.date, b.start_min, b.id`
     )
     .all(venueId, from, to)) as Record<string, unknown>[];
@@ -52,6 +53,8 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
       `Price (${currencySymbol()})`, `${taxName()} rate (%)`, `${taxName()} included (${currencySymbol()})`, "Payment", "Paid by", "Paid at", `Promo discount (${currencySymbol()})`, "Extras", "Checked in", "No-show", "Class", "Booked at",
       // A manager's adjustment (lib/price-adjustments.ts): the difference it made, before or after payment.
       `Price adjusted (${currencySymbol()})`,
+      // Made before the venue went live (lib/test-bookings.ts): in this list, marked, so what was paid on it is on record.
+      "Test booking",
     ],
     rows.map((r) => [
       r.code,
@@ -78,6 +81,7 @@ export async function bookingsCsv(venueId: number, from: string, to: string): Pr
       r.class_id === null ? "" : "yes",
       r.created_at,
       r.adjusted === null || r.adjusted === undefined ? "" : Number(r.adjusted).toFixed(2),
+      r.test === true ? "Yes, before going live" : "",
     ])
   );
 }

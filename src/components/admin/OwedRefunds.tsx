@@ -14,6 +14,7 @@ const CAUSES: Record<VenueCancelCause, StaffPhrase> = {
   rain: "r9e.owed.cause.rain",
   api: "r9e.owed.cause.api",
   class: "r9e.owed.cause.class",
+  test: "r10a.owed.cause.test",
 };
 
 /**

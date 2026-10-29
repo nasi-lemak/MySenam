@@ -17,6 +17,7 @@ import { businessSuspension } from "./suspensions";
 import { areaMatches, distanceM, findAddress, formatDistance, geocoderOn, inCountry, placeAt, readPoint, type Point } from "./geo";
 import { region } from "./region";
 import { englishOf, said, type StaffText } from "./staff-text";
+import { paidStandingTests, paidTestsBlockApproval, paidTestsBlockRequest } from "./test-bookings";
 
 /**
  * Businesses joining the marketplace, and their venues going live.
@@ -553,7 +554,9 @@ export async function goLiveStatus(venueId: number): Promise<GoLiveStatus | null
  */
 export async function requestGoLive(
   admin: Admin,
-  venueId: number
+  venueId: number,
+  /** The manager's own clearing of the test bookings, asked for with the request: done once the request can be sent, before the check below. */
+  opts: { clearTests?: () => Promise<void> } = {}
 ): Promise<{ ok: true; live: boolean } | { ok: false; error: string }> {
   if (admin.businessId === null && admin.venueId !== null)
     return { ok: false, error: "Ask your business's manager to send the venue to go live." };
@@ -584,6 +587,11 @@ export async function requestGoLive(
   if (row.status === "pending") return { ok: false, error: "It is waiting for approval already." };
   const missing = await goLiveMissing(venueId);
   if (missing.length > 0) return { ok: false, error: missing.join(" ") };
+  await opts.clearTests?.();
+  // Real money is never a test: a test booking with a payment on it is cleared or kept as real before going live
+  // (lib/test-bookings.ts), so what was taken is neither left out of the venue's books nor made to look like a sale.
+  const paidTests = await paidStandingTests(venueId);
+  if (paidTests.length > 0) return { ok: false, error: paidTestsBlockRequest(paidTests) };
 
   const { found, place } = await lookUp(venue.address, venue.area, { lat: venue.lat!, lng: venue.lng! });
   await db
@@ -743,6 +751,9 @@ export async function approveApplication(
   };
   const suspended = await businessSuspension(businessId);
   if (suspended) return { ok: false, error: `Not while its business is suspended. ${suspended}` };
+  // A test paid since the venue asked cannot slip through: the owner is told, and the venue clears or keeps it first.
+  const paidTests = await paidStandingTests(venueId);
+  if (paidTests.length > 0) return { ok: false, error: paidTestsBlockApproval(paidTests.length) };
   await db.transaction(async () => {
     await db
       .prepare("UPDATE venues SET published_at = COALESCE(published_at, datetime('now')), lat = ?, lng = ? WHERE id = ?")

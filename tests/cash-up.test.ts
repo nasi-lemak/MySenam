@@ -12,6 +12,7 @@ import { documentFor } from "../src/lib/documents";
 import { listActivity } from "../src/lib/activity";
 import { createPlan } from "../src/lib/membership-plans";
 import { createBooking, createCourt, createVenue } from "../src/lib/store";
+import { keepTestBookings } from "../src/lib/test-bookings";
 import { createTournament, enter } from "../src/lib/tournaments";
 import { addDays, todayISO } from "../src/lib/time";
 import { POST as walletPost } from "../src/app/api/admin/wallet/route";
@@ -151,6 +152,55 @@ describe("every counter sale says how it was paid", () => {
     expect((await call(entryPost, "", asDesk, { paid: true, via: "transfer" }, params)).status).toBe(200);
     const receipt = (await getDb().prepare("SELECT paid_via, staff_name FROM receipts WHERE source LIKE ?").get(`entry:${e.value.id}@%`)) as { paid_via: string; staff_name: string };
     expect(receipt).toEqual({ paid_via: "Bank transfer", staff_name: "Dee Desk" });
+  });
+});
+
+describe("test bookings in the cash-up", () => {
+  it("are shown in a block of their own, per method, and never added into the real totals", async () => {
+    const v = await createVenue({ name: "Trial Arena", area: "PJ", address: "x", phone: "0377770011" });
+    if (!v.ok) throw new Error("venue");
+    const vid = v.venue.id;
+    // A draft: what is booked there is a test (lib/test-bookings.ts).
+    await getDb().prepare("UPDATE venues SET published_at = NULL WHERE id = ?").run(vid);
+    const c = await createCourt({ venueId: vid, name: "Court T", sport: "badminton", offPeakRate: 25, peakRate: 25 });
+    if (!c.ok) throw new Error("court");
+    const desk = await createAdmin({ name: "Tia Desk", email: "tia@trial.my", password: "desk-password-3", venueId: vid, role: "desk" });
+    const mgr = await createAdmin({ name: "Tom Manager", email: "tom@trial.my", password: "manager-password-3", venueId: vid });
+    if (!desk.ok || !mgr.ok) throw new Error("admins");
+    const deskCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
+    const mgrCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(mgr.admin.id)).token}`;
+    const b = await createBooking({ courtId: c.court.id, date: addDays(today, 2), hours: [11], name: "Tess", phone: "0128880011" });
+    if (!b.ok) throw new Error(b.error);
+    expect((await call(paymentsPost, "/api/admin/payments", deskCookie, { code: b.booking.code, paid: true, via: "cash" })).status).toBe(200);
+    const q = await createBooking({ courtId: c.court.id, date: addDays(today, 3), hours: [11], name: "Quin", phone: "0128880012" });
+    if (!q.ok) throw new Error(q.error);
+    expect((await call(paymentsPost, "/api/admin/payments", mgrCookie, { code: q.booking.code, paid: true, via: "qr" })).status).toBe(200);
+
+    const day = await cashUp(vid, today, null);
+    // Nothing of it in the real totals, lines or list.
+    expect(day.totals).toEqual({ taken: 0, givenBack: 0, net: 0 });
+    expect(day.byMethod).toEqual([]);
+    expect(day.entries).toEqual([]);
+    // Its own lines by method and totals.
+    expect(day.test.byMethod.map((m) => [m.method, m.taken, m.givenBack, m.net])).toEqual([["cash", 25, 0, 25], ["qr", 25, 0, 25]]);
+    expect(day.test.totals).toEqual({ taken: 50, givenBack: 0, net: 50 });
+    expect(day.test.entries.map((e) => e.number).sort()).toEqual([b.booking.code, q.booking.code].sort());
+    expect(day.staff.map((s) => s.name)).toEqual(["Tia Desk", "Tom Manager"]);
+    // For one member of staff, as the real block is.
+    expect((await cashUp(vid, today, desk.admin.id)).test.totals.taken).toBe(25);
+    // The desk's own shift, and a manager's everybody's, over the route (the printout reads the same).
+    const own = await (await call(cashUpGet, `/api/admin/cash-up?venueId=${vid}`, deskCookie)).json();
+    expect(own).toMatchObject({ scope: "own", totals: { net: 0 }, test: { totals: { taken: 25 } } });
+    const all = await (await call(cashUpGet, `/api/admin/cash-up?venueId=${vid}`, mgrCookie)).json();
+    expect(all.test.totals).toEqual({ taken: 50, givenBack: 0, net: 50 });
+    // A venue with no tests has an empty block, and its real totals are as they were.
+    expect((await cashUp(venueId, today, null)).test).toEqual({ entries: [], byMethod: [], totals: { taken: 0, givenBack: 0, net: 0 } });
+    // Kept as real, it moves into the real totals.
+    const kept = await keepTestBookings({ id: mgr.admin.id, name: mgr.admin.name }, vid, [b.booking.code]);
+    expect(kept.done).toEqual([b.booking.code]);
+    const after = await cashUp(vid, today, null);
+    expect(after.totals.taken).toBe(25);
+    expect(after.test.totals.taken).toBe(25);
   });
 });
 

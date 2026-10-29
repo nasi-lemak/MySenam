@@ -777,4 +777,9 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "LHDN says that document arrived in another submission than that one. Nothing was recorded.": { ms: "LHDN menyatakan dokumen itu sampai dalam penyerahan lain daripada yang itu. Tiada apa-apa direkodkan.", zh: "LHDN 表示该文件属于另一次提交，而非所填的这次。未记录任何内容。" },
   "Another e-invoice here already holds that document UUID. Nothing was recorded.": { ms: "E-invois lain di sini sudah memegang UUID dokumen itu. Tiada apa-apa direkodkan.", zh: "此处另一张电子发票已使用该文件 UUID。未记录任何内容。" },
   "It changed while LHDN was being asked. Look at the list again.": { ms: "Ia berubah semasa LHDN ditanya. Lihat senarai semula.", zh: "向 LHDN 查询期间它已有变动。请重新查看列表。" },
+  // r10a: real money is never a test (lib/test-bookings.ts).
+  "Say whether real money was taken on these test bookings: moneyTaken is none or real.": { ms: "Nyatakan sama ada wang sebenar diterima pada tempahan percubaan ini: moneyTaken ialah none atau real.", zh: "请说明这些测试预订是否收取过真实款项：moneyTaken 为 none 或 real。" },
+  "moneyTaken must be none or real.": { ms: "moneyTaken mestilah none atau real.", zh: "moneyTaken 须为 none 或 real。" },
+  "Test bookings with a payment recorded stand at this venue: {0}. Clear them, or keep them as real, before going live.": { ms: "Tempahan percubaan yang mempunyai bayaran masih ada di pusat ini: {0}. Kosongkannya, atau simpan sebagai sebenar, sebelum aktif.", zh: "本场馆仍有已记录付款的测试预订：{0}。请在上线前清除它们，或保留为真实预订。" },
+  "Test bookings with a payment recorded stand at this venue ({0}). The venue must clear them or keep them as real before it goes live.": { ms: "Tempahan percubaan yang mempunyai bayaran masih ada di pusat ini ({0}). Pusat mesti mengosongkannya atau menyimpannya sebagai sebenar sebelum aktif.", zh: "本场馆仍有已记录付款的测试预订（{0}）。场馆必须在上线前清除它们，或保留为真实预订。" },
 };

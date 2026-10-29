@@ -74,38 +74,76 @@ marks each as it is written (`bookings.test`), whichever path writes it.
 Bookings already made at venues still in draft when the migration ran were
 marked too; nothing at a venue already live changed.
 
+**A test is synthetic, or it is accounted for. Marking a booking a test never
+takes money out of the financial records.**
+
 - **It stays a booking.** It holds its court, and its receipt and credit
   notes are kept and numbered as any are. A receipt is never deleted or
   numbered again: one given in a test is reversed by a credit note.
-- **It is not the venue's trade**, so it is left out of the period report
-  and the occupancy measures, the customer report, the bookings export
-  ([reporting](../features/reporting.md#reporting)), the
-  [cash-up](../features/payments-and-credit.md#cash-up) and the month's
-  [consolidated e-invoice](../integrations/myinvois.md), as demonstration
-  bookings are left out of what they would distort. It counts as nobody's
-  strike, earns no free hour, and asks for no review. The sales journal still
-  lists its receipt and credit notes, marked *Test booking* in its last
-  column, so every numbered document is accounted for.
+- **Left out only of performance and the e-invoice**: the occupancy measures,
+  the customer report, strikes, loyalty and review requests, and the month's
+  [consolidated e-invoice](../integrations/myinvois.md) (no sale was made
+  while the venue is a draft; at a venue that is live a test standing with a
+  payment on it is money taken, so it goes in).
+- **Never out of the money.** Its payments, refunds owed, counter payouts and
+  credit stay where staff and the owner look for them (the owed lists, the
+  reconciliation, the integrity check, the wallet and pass ledgers); the sales
+  journal and the bookings export list it marked *Test booking*; the
+  [cash-up](../features/payments-and-credit.md#cash-up) shows its receipts
+  and credit notes in a block of its own, with its own lines by method and
+  totals, and one line telling staff that if any of it was real money they keep
+  that booking as real; the period report says what was paid on tests, apart
+  from its figures ([reporting](../features/reporting.md#reporting)). Nothing
+  of it is added into the real totals.
 - **Staff see it marked** *Test* in the day list.
 - **A manager clears them**, from the go-live banner (*Clear all test
   bookings*), or by ticking *Also clear my test bookings* when sending the
   venue to go live (unticked until asked). Each test booking still standing
   is cancelled with everything paid given back the way it was paid (credit
   to credit, a pass's entry to the pass, money paid online owed back on the
-  payment, the receipt by a credit note), played or not; nobody is messaged,
-  no strike is counted, and no money is recorded as handed back at the
-  counter. One with kit still out on hire is left, and said. The list stays
-  on the dashboard after going live until none is left.
+  payment), played or not; nobody is messaged and no strike is counted. One
+  with kit still out on hire is left, and said.
+- **Clearing says whether real money moved.** Where any chosen booking has a
+  counter payment on it (cash, QR, transfer, card terminal, or a tick whose
+  method was never recorded) the manager must answer, with nothing chosen for
+  them (`moneyTaken`): *No, a try-out*: its receipt is reversed by a credit
+  note and nothing is handed back, and the log says it was **declared
+  synthetic** and by whom. *Yes, real money was taken*: each counter payment is
+  **owed back** exactly as the venue's own bulk cancellations owe it
+  ([owed back](../features/payments-and-credit.md#owed-back-after-the-venue-cancels),
+  cause *test booking cleared, real money taken*): no credit note and no payout
+  until a named person hands it back or gives it as credit from the day list,
+  never reported as handed back before then, one taken on an earlier day by a
+  manager. The answer is not asked for what was paid online, with credit or
+  with a pass, which go back as they were paid.
 - **Or keeps one as real** (an advance booking entered while setting up):
   *Keep as real* puts it in the figures like any other booking, on the days
   it was played and paid; not once its receipt's month has gone to LHDN
-  consolidated without it.
+  consolidated without it. The log says who said it is real.
+- **Real money after going live is never a test.** When a booking's payment
+  becomes *paid* (counter, online confirmation, credit or a pass) at a venue
+  that has gone live, the database makes it a real booking at once
+  (`bookings_paid_real`, migration 0259), so what is taken after going live is
+  in the figures and the e-invoice like any sale.
+- **A venue cannot go live with a paid test standing.** Asking to go live is
+  refused (409, naming the codes) while any standing test booking has a payment
+  recorded (paid, or money paid online or as a share towards it), unless the
+  same request clears them with the answer above; clear them or keep them as
+  real first. The platform owner's approval is refused likewise, with the
+  count, for a test paid after the request, until the venue has dealt with it.
+  Unpaid tests may remain.
 - Clearing and keeping are a manager's (`MANAGER_ONLY`), each in the
-  activity log (`booking.test_cleared`, `booking.test_kept`).
+  activity log (`booking.test_cleared`, `booking.test_kept`). The list stays
+  on the dashboard after going live until none is left.
 
 Clearing is offered, never automatic: going live is decided by the platform
-owner, and a venue may have entered real advance bookings while setting up
-(`tests/test-bookings.test.ts`, `tests/components/test-bookings-panel.test.tsx`).
+owner, and a venue may have entered real advance bookings while setting up.
+Only a test paid at the counter, online, in credit or by a pass at a draft
+venue is held; the answers are the manager's own word, recorded, not checked
+against the till (`tests/test-bookings.test.ts`,
+`tests/test-bookings-money.test.ts`, `tests/cash-up.test.ts`,
+`tests/components/test-bookings-panel.test.tsx`). Online money in those tests
+is a stand-in gateway's, not a live check.
 
 ## Checking a venue is real
 

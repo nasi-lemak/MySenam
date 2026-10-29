@@ -248,7 +248,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B63, M16–M29 and
-S12–S30, found and fixed in the same work) and
+S12–S31, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
@@ -438,7 +438,9 @@ Also: a branch started from another's set-up leaves out a court whose main activ
 is the other branch's own (named when it is made), and its extras keep the
 other branch's stock counts until changed; test bookings are cleared only
 when a manager asks, and whether a receipt printed in a test needs anything
-at LHDN is for the venue's adviser
+at LHDN is for the venue's adviser, and the
+manager's answer when clearing a test with a counter payment (real money taken
+or not) is their own word, not checked against the till
 ([marketplace](../product/marketplace.md#test-bookings-before-going-live),
 [tenancy](../architecture/tenancy.md#starting-a-branch-from-another)) (P3). Of hours and prices only opening hours and court rates can be set from a
 later date (peak windows, holidays, set-length prices, fees, concessions and
@@ -836,6 +838,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | S28 | Closing a day, cancelling a class, a rain-out and a court taken out of service cancelled bookings and enrolments with no entry for each in the activity log, and about thirty staff write routes (class scheduling, blocks, hire deposits kept, extras, notices, inductions, go-live, tournaments, competitions, leagues and their fees, messages sent again, WhatsApp settings, photos, a venue suspended by the platform) wrote none; each now does, and a source check fails for any admin write handler that logs nothing and is not allowed with a reason. Found by the round 8 audit | `tests/staff-log-coverage.test.ts`, `tests/activity-log-coverage.test.ts` |
 | S29 | The staff activity log, alerts and error reports caught every failure of their own write, a serialization failure included: on Postgres the transaction they sat in was left aborted rather than run again, so its next statement failed (a membership suspended while somebody booked a day inside it answered with an error) | `tests/aside-writes.test.ts` (also on Postgres), `tests/membership-suspensions.test.ts` |
 | S30 | Ticking off or hiding a venue's set-up checklist was not refused to the front desk by the server (the desk was not shown it); `POST /api/admin/setup` is a manager's | `tests/roles.test.ts` |
+| S31 | Clearing a test booking that had real counter cash wrote its credit note with nobody named handing the money back, no payout and no owed record, and the cash-up omitted the receipt, so real money could vanish from the financial records; a test left standing at a live venue was left out of the consolidated e-invoice; now: the manager says whether real money was taken (declared synthetic, or owed back and settled by a named person); the cash-up shows tests in a block of its own; a payment once the venue is live makes a test real; a paid test standing at a live venue goes in the e-invoice | `tests/test-bookings-money.test.ts`, `tests/test-bookings.test.ts` |
 | B51 | The schedule listed a day's neighbours' bookings that only touched it (zero-minute rows at midnight) and showed an after-midnight booking under the following day; it now lists only what overlaps the day's own window, the evening's late hours with the evening | `tests/schedule-own-day.test.ts` |
 | B52 | Twelve kinds of activity-log entry (tournament rules, results and corrections, league results and joining) had no label and showed their raw names; they are labelled in every staff language, and the label test reads every way an action is chosen | `tests/activity-labels.test.ts` |
 | M23 | A tournament's entry fee was read from the tournament at payment and on the counter receipt, so changing the fee would have repriced entries already made; each entry keeps its own fee (migration 0238, backfilled) | `tests/tournament-changes.test.ts` |
@@ -987,7 +990,7 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | A draft e-invoice sent by the scheduler and by staff at the same moment could reach LHDN twice | Claimed before LHDN is asked (migration 0256), so it is sent once; an interrupted claim is marked not sent for a check in the portal | `tests/einvoice-sending.test.ts` |
 | A timed-out or interrupted MyInvois submission was shown as *Not sent* and could be sent again without checking LHDN, so LHDN could hold it twice | Shown as *Needs verification: submission outcome unknown*, sent again only after the manager confirms LHDN does not have it (kept with who and when), or recorded from LHDN's own identifiers once the document number is confirmed; every attempt kept | `tests/einvoice-sending.test.ts` |
 | A new branch started blank, its courts, rates, rules and products entered again by hand | Started from another branch's set-up in one step, never its people, money, accounts or secrets | `tests/branch-copy.test.ts` |
-| Bookings made to try a venue out before it went live stayed in its reports, exports and cash-up | Marked as tests by the database, left out of the figures, marked in the journal and day list; a manager clears them (all given back, nobody told) or keeps one as real | `tests/test-bookings.test.ts`, `tests/components/test-bookings-panel.test.tsx` |
+| Bookings made to try a venue out before it went live stayed in its reports, exports and cash-up | Marked as tests by the database and left out of performance figures only: their money stays in the journal, the export, the cash-up's own test block and the period report; a manager clears them saying whether real money was taken (declared synthetic, or owed back until a named person settles it) or keeps one as real; real money arriving once live makes it real, and going live is refused with a paid test standing | `tests/test-bookings.test.ts`, `tests/test-bookings-money.test.ts`, `tests/components/test-bookings-panel.test.tsx` |
 | Staff moved a weekly series one week at a time | The weeks left moved in one step, each by the single move's checks, a week that cannot move named with why; the customer and a lesson's coach told once | `tests/series-moves.test.ts` |
 | The day list ran by court, not by time | In time order, then venue and court; the printed day sheet too | `tests/series-moves.test.ts` |
 | Cancellations by the venue refunded online payments on some paths only (a court taken out of service and a class called off left them to staff, a tournament called off and shares paid by other players the same) | One policy: back through the gateway wherever it has a refund API, whatever the venue chose for customers' own cancellations, else owed for staff with its due date | `tests/venue-cancel-refunds.test.ts` (also on Postgres) |

@@ -459,8 +459,12 @@ export async function counterPayoutsOn(venueIds: number[] | null, date: string):
  * that day's cash-up) or as stored credit on the account it was booked from.
  * The booking's credit note is written then, by the member of staff settling
  * it, so the till, the credit note and the payout agree.
+ *
+ * A manager clearing a test booking from before going live, who says real
+ * money was taken at the counter on it, owes it back the same way, with the
+ * cause `test` (lib/test-bookings.ts).
  */
-export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api", "class"] as const;
+export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api", "class", "test"] as const;
 export type VenueCancelCause = (typeof VENUE_CANCEL_CAUSES)[number];
 export type OwedOutcome = Extract<CancelOutcome, "back" | "credit">;
 export const isOwedOutcome = (v: unknown): v is OwedOutcome => v === "back" || v === "credit";
@@ -468,6 +472,11 @@ export const isOwedOutcome = (v: unknown): v is OwedOutcome => v === "back" || v
 /** The venue cancels a booking as part of a closure, an outage, a rain-out or through its API: all of it back, a counter payment owed. */
 export async function venueCancel(code: string, cause: VenueCancelCause): Promise<CancelResult> {
   return adminCancelBooking(code, async () => ({ share: 1, owe: (bookingId) => oweCounter(bookingId, cause) }));
+}
+
+/** The counter payment on a booking that cancelling it would give back (the rule `oweCounter` and settling use), or null where there is none. */
+export async function counterPaymentOn(bookingId: number): Promise<number | null> {
+  return (await counterMoney(bookingId))?.amount ?? null;
 }
 
 /**

@@ -67,7 +67,13 @@ How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
   ([marketplace](../product/marketplace.md#test-bookings-before-going-live)):
   their receipts and the credit notes reversing them are left out of the
   consolidated e-invoice and the consolidated credit notes alike (no sale was
-  made), though the sales journal lists them, marked. One kept as a real
+  made), though the sales journal lists them, marked. A test with a payment on
+  it cannot stand when the venue goes live (cleared with the manager's
+  answer, or kept as real first), and a payment arriving once the venue is
+  live makes it a real sale at once (migration 0259), so what is taken is
+  never left out of what goes to LHDN: at a venue that is live a test still
+  standing with a payment on it (one made before that trigger existed) goes in
+  too, as any sale does. One kept as a real
   booking before its month is consolidated goes in it as any sale; once the
   month has gone, it stays a test. Whether a receipt printed in a test needs
   anything at LHDN is the venue's adviser's question, not settled here.

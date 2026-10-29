@@ -658,7 +658,10 @@ export function previousPeriod(today: string): string {
  * credit notes, from before the venue went live (lib/test-bookings.ts): no sale was made, so neither is sent.
  */
 async function consolidable(venueId: number, from: string, to: string) {
-  return (await salesJournal(venueId, from, to)).filter((j) => !j.test);
+  // A draft venue's try-outs are no sale. Once the venue is live, a test still standing with a payment on it is money
+  // that was taken (the owner's rule, 29 October 2026): it goes in, as any sale does, rather than staying hidden.
+  const live = (await getDb().prepare("SELECT 1 FROM venues WHERE id = ? AND published_at IS NOT NULL").get(venueId)) !== undefined;
+  return (await salesJournal(venueId, from, to)).filter((j) => live || !j.test);
 }
 
 /** Lines of a consolidated document: one per kind of sale and tax rate, saying which receipts. */
