@@ -214,7 +214,14 @@ Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
 two of them): **90 entries at commit `b9666dc`**, when this round of work
 began on 24 October 2026, **86 at commit `d7098e7`** after round 6, and
-**89 at commit `f4812fa`** after round 7, and **101 now**: round 8 closed the
+**89 at commit `f4812fa`** after round 7, **101 at commit `9123d3f`** after
+round 8, and **102 now**: round 9 closed the operations audit's operator
+self-service (X1-5, X1-10, X1-13 to X1-16, X2-15) and the staff alerts left in
+English, each closure narrower than the gap it replaced and recorded beside
+what it leaves (hours and court rates only from a later date, branches copied
+without a court of the other branch's own, test bookings cleared when asked,
+counter money owed until handed back), with one new decision for the owner.
+Round 8 closed the
 two e-invoice decisions, the staff languages and the guest count the owner
 decided, and 45 of the round 8 audit's 50 findings (the other five are
 [planned](roadmap.md)), and recorded what its new workflows leave
@@ -223,7 +230,7 @@ list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B62, M16–M29 and
 S12–S29, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (114
+[resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
