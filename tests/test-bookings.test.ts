@@ -36,9 +36,11 @@ import { POST as goLivePost } from "../src/app/api/admin/go-live/route";
 
 /**
  * X1-16: bookings made while a venue is a draft are tests. They keep their
- * receipts and credit notes, are left out of the venue's figures, are marked
- * for staff, and are cleared (everything given back, nobody messaged) or kept
- * as real ones by a manager.
+ * receipts and credit notes, are left out of the venue's performance figures,
+ * are marked for staff, and are cleared (everything given back, nobody
+ * messaged) or kept as real ones by a manager. R10A: marking a booking a test
+ * never takes money out of the financial records, and a manager clearing one
+ * with a counter payment says whether real money was taken.
  */
 
 const ZONE = "Asia/Kuala_Lumpur";
@@ -116,7 +118,7 @@ describe("a booking made while the venue is a draft", () => {
     expect((await findBookingByCode(real.code))!.test).toBeUndefined();
   });
 
-  it("is out of the reports, the bookings export, the customer report, the cash-up and the e-invoice, but in the journal, marked", async () => {
+  it("is out of the performance figures and the e-invoice, but its money is in the journal, the cash-up's own block, the period report and the export, marked", async () => {
     const paid = await book(draftCourt, 3);
     expect((await setPaymentStatus(paid.code, true, "cash")).ok).toBe(true);
 
@@ -125,7 +127,13 @@ describe("a booking made while the venue is a draft", () => {
     expect(report.revenue.expected).toBe(0);
     expect(report.revenue.collected).toBe(0);
     expect(report.bookings.hours).toBe(0);
-    expect(await bookingsCsv(draft, today, addDays(today, 30))).not.toContain(paid.code);
+    // What was paid on it is said apart, never added into the figures above.
+    expect(report.testTakings).toEqual({ bookings: 1, collected: 20 });
+    // The accountant's export lists it, marked, with what was paid and how.
+    const csv = await bookingsCsv(draft, today, addDays(today, 30));
+    const line = csv.split("\r\n").find((l) => l.includes(paid.code))!;
+    expect(line).toContain('"paid","Cash"');
+    expect(line.endsWith('"Yes, before going live"')).toBe(true);
     expect((await customerReport(draft, today, addDays(today, 30))).customers).toBe(0);
 
     const journal = await salesJournal(draft, today, today);
@@ -134,6 +142,11 @@ describe("a booking made while the venue is a draft", () => {
     const day = await cashUp(draft, today, null);
     expect(day.entries.map((e) => e.number)).not.toContain(paid.code);
     expect(day.totals.taken).toBe(0);
+    // Shown in a block of its own, with its own lines and totals; nothing of it in the real ones.
+    expect(day.test.entries.map((e) => e.number)).toContain(paid.code);
+    expect(day.test.byMethod).toEqual([expect.objectContaining({ method: "cash", taken: 20, givenBack: 0, net: 20, count: 1 })]);
+    expect(day.test.totals).toEqual({ taken: 20, givenBack: 0, net: 20 });
+    expect(day.byMethod).toEqual([]);
   });
 
   it("is nobody's strike", async () => {
@@ -211,7 +224,13 @@ describe("clearing test bookings", () => {
     const sent = await messages();
     const refusedToDesk = await call(testsPost, "/api/admin/test-bookings", asDesk, { venueId: draft, action: "clear" });
     expect(refusedToDesk.status).toBe(403);
-    const res = await call(testsPost, "/api/admin/test-bookings", asManager, { venueId: draft, action: "clear" });
+    // A counter payment stands among them (the cash ones above): the manager is asked whether real money was taken.
+    const unanswered = await call(testsPost, "/api/admin/test-bookings", asManager, { venueId: draft, action: "clear" });
+    expect(unanswered.status).toBe(400);
+    expect((await unanswered.json()).error).toMatch(/moneyTaken is none or real/);
+    expect((await call(testsPost, "/api/admin/test-bookings", asManager, { venueId: draft, action: "clear", moneyTaken: "maybe" })).status).toBe(400);
+    expect((await standingTestBookings(draft)).bookings.length).toBeGreaterThan(3);
+    const res = await call(testsPost, "/api/admin/test-bookings", asManager, { venueId: draft, action: "clear", moneyTaken: "none" });
     expect(res.status).toBe(200);
     const out = await res.json();
     expect(out.refused).toEqual([]);
@@ -233,17 +252,24 @@ describe("clearing test bookings", () => {
     const journal = await salesJournal(draft, today, today);
     expect(journal.find((r) => r.number === note.number)).toMatchObject({ type: "Credit note", test: true });
     expect(journal.find((r) => r.number === paid.code)).toMatchObject({ type: "Receipt", test: true });
-    expect((await cashUp(draft, today, null)).entries.map((e) => e.number)).not.toContain(note.number);
+    // Not in the real till; in the test block, beside the receipt it reverses.
+    const day = await cashUp(draft, today, null);
+    expect(day.entries.map((e) => e.number)).not.toContain(note.number);
+    expect(day.test.entries.map((e) => e.number)).toEqual(expect.arrayContaining([note.number, paid.code]));
     // No money was handed back at the counter for a test.
     expect(((await getDb().prepare("SELECT COUNT(*)::int AS n FROM counter_payouts WHERE venue_id = ?").get(draft)) as { n: number }).n).toBe(0);
     expect((await listActivity([draft], { bookingCode: played.code })).map((a) => a.action)).toContain("booking.test_cleared");
+    // Declared synthetic, by whom: in the log of the one that had a counter payment.
+    const declared = (await listActivity([draft], { bookingCode: paid.code })).find((a) => a.action === "booking.test_cleared")!;
+    expect(declared.detail).toContain("declared it synthetic");
+    expect(declared.detail).toContain(manager.name);
   });
 
   it("refuses a booking that is not a test, and is offered when the venue is sent to go live", async () => {
     const real = await book(liveCourt, 3);
     expect((await clearTestBookings(manager, live, [real.code])).done).toEqual([]);
     const t = await book(draftCourt, 10);
-    const res = await call(goLivePost, "/api/admin/go-live", asManager, { venueId: draft, clearTests: true });
+    const res = await call(goLivePost, "/api/admin/go-live", asManager, { venueId: draft, clearTests: true, moneyTaken: "none" });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.cleared.done).toEqual([t.code]);

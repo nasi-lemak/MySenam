@@ -18,6 +18,14 @@ import { forgetStaffRole } from "../../src/components/admin/useStaffRole";
 
 const VENUES = [{ id: 1, name: "Arena MySenam" }] as unknown as Parameters<typeof CashUpPanel>[0]["venues"];
 
+const TEST_BLOCK = {
+  byMethod: [{ method: "cash", taken: 20, givenBack: 0, net: 20, count: 1, money: true }],
+  totals: { taken: 20, givenBack: 0, net: 20 },
+  entries: [{ at: "2026-10-28T04:00:00.000Z", number: "TST-0001", type: "Receipt", customer: "Tess Tester", description: "", category: "Court hire", method: "cash", gross: 20, staffName: "Dee Desk" }],
+};
+const NO_TESTS = { byMethod: [], totals: { taken: 0, givenBack: 0, net: 0 }, entries: [] };
+let withTests = false;
+
 const cashUp = (scope: "own" | "all") => ({
   venueId: 1,
   date: "2026-10-28",
@@ -31,6 +39,7 @@ const cashUp = (scope: "own" | "all") => ({
     { method: "credit", taken: 30, givenBack: 0, net: 30, count: 1, money: false },
   ],
   totals: { taken: 200, givenBack: 120, net: 80 },
+  test: withTests ? TEST_BLOCK : NO_TESTS,
   entries: [
     { at: "2026-10-28T02:00:00.000Z", number: "R-000001", type: "Receipt", customer: "Cara", description: "", category: "Stored credit", method: "cash", gross: 50, staffName: "Dee Desk" },
     { at: "2026-10-28T03:00:00.000Z", number: "CN-000001", type: "Credit note", customer: "Pat", description: "", category: "Passes", method: "qr", gross: -120, staffName: "Mo Manager" },
@@ -41,6 +50,7 @@ let role: "manager" | "desk" = "desk";
 const calls: { url: string; body?: unknown }[] = [];
 beforeEach(() => {
   calls.length = 0;
+  withTests = false;
   forgetStaffRole();
   vi.stubGlobal(
     "fetch",
@@ -69,6 +79,27 @@ describe("the cash-up", () => {
     expect(screen.getByText(/no money changed hands/)).toBeTruthy();
     expect(screen.getByText("(credit note)")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Print the cash-up" }).getAttribute("href")).toBe("/admin/cash-up?venueId=1&date=2026-10-28");
+  });
+
+  it("shows test bookings' takings in a block of their own, apart from the totals, saying to keep real money as real", async () => {
+    role = "manager";
+    withTests = true;
+    render(<CashUpPanel venues={VENUES} />);
+    await act(async () => {});
+    const block = screen.getByRole("region", { name: "Test bookings, from before the venue went live" });
+    expect(block.textContent).toContain("Not added into the totals above");
+    expect(block.textContent).toContain("keep that booking as real");
+    expect(block.textContent).toContain("TST-0001");
+    expect(block.textContent).toContain("RM20");
+    // The real totals are the real ones: 200 taken, 120 given back, 80 net, with no test money in them.
+    expect(screen.getAllByText("RM200").length).toBeGreaterThan(0);
+  });
+
+  it("shows no test block where there are no test takings", async () => {
+    role = "manager";
+    render(<CashUpPanel venues={VENUES} />);
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Test bookings, from before the venue went live" })).toBeNull();
   });
 
   it("lets a manager choose one member of staff, the printout following", async () => {

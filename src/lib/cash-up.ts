@@ -19,9 +19,11 @@ import { venueZoneOf } from "./zones";
  * journal's, row for row (`tests/cash-up.test.ts`), with one addition: where
  * credit is the install's own (MYSENAM_CREDIT_SCOPE=platform), credit sold
  * over this venue's counter is in its till though not in its books, and is
- * counted too; and one subtraction: a test booking's receipt and credit notes,
- * from before the venue went live (lib/test-bookings.ts), are no money in the
- * till and are left out.
+ * counted too. A test booking's receipt and credit notes, from before the
+ * venue went live (lib/test-bookings.ts), are not added into those totals; they
+ * are listed beside them in a block of their own (`test`), with their own
+ * lines by method, so takings that were real money are never out of sight:
+ * staff keep such a booking as real, and it is then in the totals.
  *
  * Front desk sees its own: what it took and gave back itself, today or the
  * day before (a shift past midnight). A manager sees everybody's, any day, or
@@ -61,26 +63,31 @@ export interface CashUpMethod {
   money: boolean;
 }
 
-export interface CashUp {
-  venueId: number;
-  date: string;
-  /** One member of staff's, or null for everybody's. */
-  staffId: number | null;
+/** Receipts and credit notes summed by method: the real day's, and the test bookings' beside it. */
+export interface CashUpPart {
   entries: CashUpEntry[];
   byMethod: CashUpMethod[];
   /** Money only (not what credit already sold paid for). */
   totals: { taken: number; givenBack: number; net: number };
+}
+
+export interface CashUp extends CashUpPart {
+  venueId: number;
+  date: string;
+  /** One member of staff's, or null for everybody's. */
+  staffId: number | null;
+  /**
+   * Test bookings' receipts and credit notes that day, from before the venue went live: shown, never added into the
+   * totals above. Empty when there are none.
+   */
+  test: CashUpPart;
   /** Who took or gave back money that day, for the filter. */
   staff: { id: number; name: string }[];
 }
 
-export async function cashUp(venueId: number, date: string, staffId: number | null): Promise<CashUp> {
-  // The day's journal, with credit the install sold as its own over this counter (in the till, not the books).
-  const day = (await salesJournal(venueId, date, date, { counter: true })).filter((r) => !r.test);
-  const staff = new Map<number, string>();
-  for (const r of day) if (r.staffId !== null) staff.set(r.staffId, r.staffName ?? "");
-  const rows = (staffId === null ? day : day.filter((r) => r.staffId === staffId)).sort((a, b) => a.at.localeCompare(b.at) || a.number.localeCompare(b.number));
+type Row = Awaited<ReturnType<typeof salesJournal>>[number];
 
+function summarise(rows: Row[]): CashUpPart {
   const methods = new Map<string | null, CashUpMethod>();
   for (const r of rows) {
     const m = methods.get(r.method) ?? { method: r.method, taken: 0, givenBack: 0, net: 0, count: 0, money: !NOT_MONEY.has(r.method ?? "") };
@@ -96,9 +103,6 @@ export async function cashUp(venueId: number, date: string, staffId: number | nu
     .sort((a, b) => rank(a.method) - rank(b.method) || String(a.method).localeCompare(String(b.method)));
   const money = byMethod.filter((m) => m.money);
   return {
-    venueId,
-    date,
-    staffId,
     entries: rows.map((r) => ({
       at: r.at,
       number: r.number,
@@ -116,6 +120,22 @@ export async function cashUp(venueId: number, date: string, staffId: number | nu
       givenBack: roundMoney(money.reduce((s, m) => s + m.givenBack, 0)),
       net: roundMoney(money.reduce((s, m) => s + m.net, 0)),
     },
+  };
+}
+
+export async function cashUp(venueId: number, date: string, staffId: number | null): Promise<CashUp> {
+  // The day's journal, with credit the install sold as its own over this counter (in the till, not the books).
+  const all = await salesJournal(venueId, date, date, { counter: true });
+  const staff = new Map<number, string>();
+  for (const r of all) if (r.staffId !== null) staff.set(r.staffId, r.staffName ?? "");
+  const mine = (rows: Row[]) =>
+    (staffId === null ? rows : rows.filter((r) => r.staffId === staffId)).sort((a, b) => a.at.localeCompare(b.at) || a.number.localeCompare(b.number));
+  return {
+    venueId,
+    date,
+    staffId,
+    ...summarise(mine(all.filter((r) => !r.test))),
+    test: summarise(mine(all.filter((r) => r.test))),
     staff: [...staff.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
   };
 }

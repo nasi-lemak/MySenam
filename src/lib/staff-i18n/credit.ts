@@ -414,6 +414,8 @@ const en = {
   "p8b.act.productRetired": "Took a pass off the venue's list",
   "p8b.act.priceSet": "Sold a pass or membership at a price other than the list's, saying why",
   "p8b.act.priceAdjusted": "Adjusted a booking's price, saying why",
+  "r10a.cash.testTitle": "Test bookings, from before the venue went live",
+  "r10a.cash.testNote": "Not added into the totals above, and shown so nothing taken is out of sight. If any of it was real money, keep that booking as real (on the go-live banner) and it counts in the totals.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -829,6 +831,8 @@ const ms: Record<keyof typeof en, string> = {
   "p8b.act.productRetired": "Mengeluarkan pas daripada senarai pusat",
   "p8b.act.priceSet": "Menjual pas atau keahlian pada harga selain harga senarai, dengan sebab",
   "p8b.act.priceAdjusted": "Melaraskan harga tempahan, dengan sebab",
+  "r10a.cash.testTitle": "Tempahan percubaan, sebelum pusat aktif",
+  "r10a.cash.testNote": "Tidak ditambah ke dalam jumlah di atas, dan ditunjukkan supaya tiada wang yang diterima tersembunyi. Jika mana-mana daripadanya wang sebenar, simpan tempahan itu sebagai sebenar (pada sepanduk aktif) dan ia dikira dalam jumlah.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1244,6 +1248,8 @@ const zh: Record<keyof typeof en, string> = {
   "p8b.act.productRetired": "将次卡从场馆清单中移除",
   "p8b.act.priceSet": "以非清单价出售次卡或会员资格，并说明原因",
   "p8b.act.priceAdjusted": "调整预订价格，并说明原因",
+  "r10a.cash.testTitle": "测试预订（场馆上线前）",
+  "r10a.cash.testNote": "未并入上方合计，仅作显示，以免已收款项被遗漏。若其中有真实款项，请将该预订保留为真实预订（在上线横幅上），它就会计入合计。",
 };
 
 const area = { en, ms, zh };

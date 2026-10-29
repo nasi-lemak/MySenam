@@ -50,6 +50,10 @@ export function GoLiveBanner({
   const [tests, setTests] = useState<TestBooking[]>([]);
   const [clearOnSend, setClearOnSend] = useState(false);
   const [testsChanged, setTestsChanged] = useState(0);
+  // Whether real money was taken on them, asked where a counter payment is on one (lib/test-bookings.ts); no default.
+  const [moneyTaken, setMoneyTaken] = useState<MoneyAnswer>("");
+  const asks = tests.some((b) => b.counterPaid === true);
+  const clearing = clearOnSend && tests.length > 0;
 
   useEffect(() => {
     const bump = () => setSaved((n) => n + 1);
@@ -81,9 +85,11 @@ export function GoLiveBanner({
       const res = await fetch("/api/admin/go-live", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, ...(clearOnSend && tests.length > 0 ? { clearTests: true } : {}) }),
+        body: JSON.stringify({ venueId, ...(clearing ? { clearTests: true, ...(asks && moneyTaken ? { moneyTaken } : {}) } : {}) }),
       });
       const data = await readJson(res);
+      // Cleared before it was refused (kit still out): the list has changed.
+      if (data.cleared) setTestsChanged((n) => n + 1);
       if (!res.ok) throw new Error(t.err(data, t("live.couldNotSend")));
       setStatus(data.status);
       if (data.cleared) setTestsChanged((n) => n + 1);
@@ -163,10 +169,11 @@ export function GoLiveBanner({
               {t.plural("r9c.test.clearOnSend", tests.length)}
             </label>
           )}
+          {!waiting && may("goLive") && clearing && asks && <MoneyQuestion id="send" value={moneyTaken} onChange={setMoneyTaken} />}
           {!waiting && may("goLive") && (
             <button
               onClick={ask}
-              disabled={busy || status.missing.length > 0}
+              disabled={busy || status.missing.length > 0 || (clearing && asks && !moneyTaken)}
               className="rounded-lg bg-teal-600 px-3 py-1.5 font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
             >
               {turnedDown ? t("live.askAgain") : t("live.ask")}
@@ -187,6 +194,30 @@ interface TestBooking {
   endHour: number;
   courtName: string;
   name: string;
+  /** A counter payment is on it: clearing it asks whether real money was taken. */
+  counterPaid?: boolean;
+}
+
+type MoneyAnswer = "none" | "real" | "";
+
+/**
+ * Whether real money was taken on the test bookings being cleared (lib/test-bookings.ts): asked only where a counter
+ * payment is on one, with no answer chosen for the manager; recorded with their name.
+ */
+function MoneyQuestion({ id, value, onChange }: { id: string; value: MoneyAnswer; onChange: (v: "none" | "real") => void }) {
+  const t = useStaffT();
+  return (
+    <fieldset className="w-full space-y-1 text-sm">
+      <legend className="font-medium">{t("r10a.test.ask")}</legend>
+      {(["none", "real"] as const).map((v) => (
+        <label key={v} className="flex items-start gap-1.5">
+          <input type="radio" name={`money-taken-${id}`} value={v} checked={value === v} onChange={() => onChange(v)} />
+          <span>{t(v === "none" ? "r10a.test.none" : "r10a.test.real")}</span>
+        </label>
+      ))}
+      <p className="text-xs">{t("r10a.test.recorded")}</p>
+    </fieldset>
+  );
 }
 
 /**
@@ -200,6 +231,9 @@ function TestBookingsPanel({ venueId, bookings, onDone }: { venueId: number; boo
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const may = useStaffMay();
+  const [moneyTaken, setMoneyTaken] = useState<MoneyAnswer>("");
+  const asks = bookings.some((b) => b.counterPaid === true);
 
   async function post(action: "clear" | "keep", codes?: string[]) {
     if (action === "clear" && !window.confirm(t.plural("r9c.test.confirm", bookings.length))) return;
@@ -209,7 +243,7 @@ function TestBookingsPanel({ venueId, bookings, onDone }: { venueId: number; boo
       const res = await fetch("/api/admin/test-bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ venueId, action, ...(codes ? { codes } : {}) }),
+        body: JSON.stringify({ venueId, action, ...(codes ? { codes } : {}), ...(action === "clear" && asks && moneyTaken ? { moneyTaken } : {}) }),
       });
       const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("r9c.test.failed")));
@@ -218,6 +252,7 @@ function TestBookingsPanel({ venueId, bookings, onDone }: { venueId: number; boo
       setMessage(
         [
           action === "clear" ? t.plural("r9c.test.cleared", done.length) : done.length > 0 ? t("r9c.test.kept") : "",
+          action === "clear" && asks && moneyTaken === "real" && done.length > 0 ? t("r10a.test.owedNote") : "",
           refused.length ? t("r9c.test.notDone", { list: refused.map((r) => `${r.code}: ${t.err(r.error)}`).join("; ") }) : "",
         ]
           .filter(Boolean)
@@ -243,13 +278,14 @@ function TestBookingsPanel({ venueId, bookings, onDone }: { venueId: number; boo
           <button
             type="button"
             onClick={() => void post("clear")}
-            disabled={busy}
+            disabled={busy || (asks && !moneyTaken)}
             className="rounded-lg border border-red-300 px-3 py-1.5 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
           >
             {t("r9c.test.clearAll")}
           </button>
         </ManagerOnly>
       </div>
+      {may("testBookings") && asks && <div className="mt-2"><MoneyQuestion id="panel" value={moneyTaken} onChange={setMoneyTaken} /></div>}
       {message && <p className="mt-2 font-medium">{message}</p>}
       {open && (
         <ul className="mt-2 space-y-1">

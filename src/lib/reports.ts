@@ -100,6 +100,11 @@ export interface VenueReport {
   /** Sold over the counter with no booking (lib/counter-sales.ts), not voided: outside the figures above. */
   counterSales: { sales: number; total: number };
   /**
+   * Test bookings from before the venue went live (lib/test-bookings.ts) that are still standing and were paid: left
+   * out of every figure here, and shown on their own so money taken on one is never out of sight.
+   */
+  testTakings: { bookings: number; collected: number };
+  /**
    * Split, because one number across both would be meaningless. A forty-place
    * gym floor offers more place-hours in a fortnight than every court in the
    * building put together, so blending them lets the gym decide the headline
@@ -531,6 +536,16 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     total: number | string;
   };
 
+  // Left out of everything above (a try-out is not the venue's trade), but what was paid on one is still said.
+  const testPaid = (await db
+    .prepare(`
+      SELECT COUNT(*)::int AS n, COALESCE(SUM(b.total_price), 0)::float AS total
+        FROM bookings b
+       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND b.test AND b.date >= ? AND b.date <= ?
+         AND b.status = 'confirmed' AND b.payment_status = 'paid'
+    `)
+    .get(venueId, from, to)) as { n: number; total: number };
+
   const collectedBy = (
     (await db
       .prepare(`
@@ -712,6 +727,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     },
     collectedBy,
     counterSales: { sales: Number(counter.n), total: Math.round(Number(counter.total) * 100) / 100 },
+    testTakings: { bookings: Number(testPaid.n), collected: Math.round(Number(testPaid.total) * 100) / 100 },
     utilisation: {
       courts: use.courts,
       shared: use.shared,

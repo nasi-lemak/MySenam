@@ -227,10 +227,10 @@ const en = {
   "r9c.copy.done_other": "{name} is added as a draft, with {n} courts copied from {from}. Check what differs, then send it to go live.",
   "r9c.copy.skipped": "Not copied, as their activity is {from}'s own: {courts}.",
   "r9c.test.chip": "Test",
-  "r9c.test.chipTitle": "Made before the venue went live: left out of reports, the bookings export, the cash-up and e-invoices.",
+  "r9c.test.chipTitle": "Made before the venue went live: left out of the performance reports and e-invoices; what was paid on it is still in the sales journal, the cash-up (in its own block) and the bookings export, marked.",
   "r9c.test.title_one": "{n} test booking from setting up",
   "r9c.test.title_other": "{n} test bookings from setting up",
-  "r9c.test.body": "Bookings made before the venue went live are tests: they are left out of reports, the bookings export, the customer report, the cash-up and e-invoices. Clearing cancels them and gives back anything paid (a receipt by a credit note), without messaging anybody. Keep any that are real bookings.",
+  "r9c.test.body": "Bookings made before the venue went live are tests: they are left out of the performance reports, the customer report and e-invoices, and their takings are shown apart in the cash-up, the period report and the sales journal, never added in. Clearing cancels them and gives back anything paid (a receipt by a credit note), without messaging anybody. Keep any that are real bookings. The venue cannot go live while a test booking with a payment on it stands.",
   "r9c.test.show": "Show them",
   "r9c.test.hide": "Hide them",
   "r9c.test.clearAll": "Clear all test bookings",
@@ -247,6 +247,11 @@ const en = {
   "r9c.act.branchAdded": "Added a branch, or started one from another branch's set-up",
   "r9c.act.testCleared": "Cleared a test booking made before going live",
   "r9c.act.testKept": "Kept a booking made before going live as a real one",
+  "r10a.test.ask": "Was any real money taken on these test bookings?",
+  "r10a.test.none": "No: they were only a try-out, no real money changed hands",
+  "r10a.test.real": "Yes: real money was taken at the counter. It is owed back, and staff hand it back from the day list",
+  "r10a.test.recorded": "Your answer is recorded with your name.",
+  "r10a.test.owedNote": "Money taken at the counter is owed back: it is on the day list until a named person hands it back or gives it as credit.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -471,10 +476,10 @@ const ms: Record<keyof typeof en, string> = {
   "r9c.copy.done_other": "{name} telah ditambah sebagai draf, dengan {n} gelanggang disalin daripada {from}. Semak apa yang berbeza, kemudian hantar untuk diaktifkan.",
   "r9c.copy.skipped": "Tidak disalin kerana aktivitinya milik {from} sendiri: {courts}.",
   "r9c.test.chip": "Percubaan",
-  "r9c.test.chipTitle": "Dibuat sebelum pusat aktif: tidak dikira dalam laporan, eksport tempahan, tutup kira dan e-invois.",
+  "r9c.test.chipTitle": "Dibuat sebelum pusat aktif: tidak dikira dalam laporan prestasi dan e-invois; apa yang dibayar masih ada dalam jurnal jualan, tutup kira (dalam bahagian tersendiri) dan eksport tempahan, ditandakan.",
   "r9c.test.title_one": "{n} tempahan percubaan semasa persediaan",
   "r9c.test.title_other": "{n} tempahan percubaan semasa persediaan",
-  "r9c.test.body": "Tempahan yang dibuat sebelum pusat aktif ialah percubaan: ia tidak dikira dalam laporan, eksport tempahan, laporan pelanggan, tutup kira dan e-invois. Mengosongkannya akan membatalkannya dan memulangkan apa-apa yang dibayar (resit melalui nota kredit), tanpa menghantar mesej kepada sesiapa. Simpan mana-mana yang merupakan tempahan sebenar.",
+  "r9c.test.body": "Tempahan yang dibuat sebelum pusat aktif ialah percubaan: ia tidak dikira dalam laporan prestasi, laporan pelanggan dan e-invois, dan kutipannya ditunjukkan secara berasingan dalam tutup kira, laporan tempoh dan jurnal jualan, tidak pernah ditambah ke dalamnya. Mengosongkannya akan membatalkannya dan memulangkan apa-apa yang dibayar (resit melalui nota kredit), tanpa menghantar mesej kepada sesiapa. Simpan mana-mana yang merupakan tempahan sebenar. Pusat tidak boleh aktif selagi ada tempahan percubaan yang mempunyai bayaran.",
   "r9c.test.show": "Tunjukkan",
   "r9c.test.hide": "Sembunyikan",
   "r9c.test.clearAll": "Kosongkan semua tempahan percubaan",
@@ -491,6 +496,11 @@ const ms: Record<keyof typeof en, string> = {
   "r9c.act.branchAdded": "Menambah cawangan, atau memulakannya daripada tetapan cawangan lain",
   "r9c.act.testCleared": "Mengosongkan tempahan percubaan yang dibuat sebelum aktif",
   "r9c.act.testKept": "Menyimpan tempahan yang dibuat sebelum aktif sebagai tempahan sebenar",
+  "r10a.test.ask": "Adakah wang sebenar diterima pada tempahan percubaan ini?",
+  "r10a.test.none": "Tidak: ia hanya percubaan, tiada wang sebenar bertukar tangan",
+  "r10a.test.real": "Ya: wang sebenar diterima di kaunter. Ia perlu dipulangkan, dan kakitangan memulangkannya daripada senarai hari",
+  "r10a.test.recorded": "Jawapan anda direkodkan dengan nama anda.",
+  "r10a.test.owedNote": "Wang yang diterima di kaunter perlu dipulangkan: ia ada dalam senarai hari sehingga seseorang yang bernama memulangkannya atau memberinya sebagai kredit.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -715,10 +725,10 @@ const zh: Record<keyof typeof en, string> = {
   "r9c.copy.done_other": "{name} 已添加为草稿，并从 {from} 复制了 {n} 个场地。请检查不同之处，然后提交上线。",
   "r9c.copy.skipped": "以下场地的活动为 {from} 专有，未复制：{courts}。",
   "r9c.test.chip": "测试",
-  "r9c.test.chipTitle": "在场馆上线前建立：不计入报表、预订导出、交班结算和电子发票。",
+  "r9c.test.chipTitle": "在场馆上线前建立：不计入业绩报表和电子发票；已付款项仍会标注显示在销售日记账、收银结算（单独一栏）和预订导出中。",
   "r9c.test.title_one": "设置期间的 {n} 笔测试预订",
   "r9c.test.title_other": "设置期间的 {n} 笔测试预订",
-  "r9c.test.body": "场馆上线前建立的预订属于测试：不计入报表、预订导出、顾客报表、交班结算和电子发票。清除会取消这些预订并退还已付款项（收据以贷记单冲销），且不会向任何人发送消息。若其中有真实预订，请保留。",
+  "r9c.test.body": "场馆上线前建立的预订属于测试：不计入业绩报表、顾客报表和电子发票，其收款会在收银结算、期间报表和销售日记账中单独显示，绝不并入。清除会取消这些预订并退还已付款项（收据以贷记单冲销），且不会向任何人发送消息。若其中有真实预订，请保留。只要还有已付款的测试预订，场馆就不能上线。",
   "r9c.test.show": "显示",
   "r9c.test.hide": "隐藏",
   "r9c.test.clearAll": "清除所有测试预订",
@@ -735,6 +745,11 @@ const zh: Record<keyof typeof en, string> = {
   "r9c.act.branchAdded": "添加分店，或以另一分店的设置开设分店",
   "r9c.act.testCleared": "清除了上线前建立的测试预订",
   "r9c.act.testKept": "将上线前建立的预订保留为真实预订",
+  "r10a.test.ask": "这些测试预订是否收过真实款项？",
+  "r10a.test.none": "否：只是试用，没有真实款项易手",
+  "r10a.test.real": "是：已在柜台收取真实款项。需要退还，由员工在当日清单中退还",
+  "r10a.test.recorded": "您的回答会连同您的姓名一并记录。",
+  "r10a.test.owedNote": "在柜台收取的款项需要退还：在指定人员退还或以储值退还之前，它会一直列在当日清单中。",
 };
 
 const area = { en, ms, zh };

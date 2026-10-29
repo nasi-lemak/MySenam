@@ -306,6 +306,8 @@ const en = {
   "p8c.cls.saveFailed": "Could not change the class",
   // Round 8 (P8b): the month the accountant asks for
   "p8b.rpt.lastMonth": "Last month",
+  "r10a.rpt.tests_one": "Not counted above: {n} paid test booking from before going live, {amount}",
+  "r10a.rpt.tests_other": "Not counted above: {n} paid test bookings from before going live, {amount}",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -609,6 +611,8 @@ const ms: Record<keyof typeof en, string> = {
   "p8c.cls.saveFailed": "Tidak dapat mengubah kelas",
   // Round 8 (P8b): the month the accountant asks for
   "p8b.rpt.lastMonth": "Bulan lepas",
+  "r10a.rpt.tests_one": "Tidak dikira di atas: {n} tempahan percubaan berbayar sebelum aktif, {amount}",
+  "r10a.rpt.tests_other": "Tidak dikira di atas: {n} tempahan percubaan berbayar sebelum aktif, {amount}",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -912,6 +916,8 @@ const zh: Record<keyof typeof en, string> = {
   "p8c.cls.saveFailed": "无法修改课程",
   // Round 8 (P8b): the month the accountant asks for
   "p8b.rpt.lastMonth": "上个月",
+  "r10a.rpt.tests_one": "未计入上方：{n} 笔上线前的已付款测试预订，{amount}",
+  "r10a.rpt.tests_other": "未计入上方：{n} 笔上线前的已付款测试预订，{amount}",
 };
 
 const area = { en, ms, zh };

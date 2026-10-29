@@ -508,6 +508,13 @@ credit note is written yet.
 - **The books.** The booking's receipt stands until it is settled; the
   credit note is dated the day the money goes back. Until then the money is
   in the till and the list shows it as owed.
+- **A test booking cleared as real money** is owed back the same way (cause
+  `test`, added to the cause check by migration 0259): a manager clearing the
+  [test bookings](../product/marketplace.md#test-bookings-before-going-live)
+  of a venue before it goes live who says real money was taken at the counter
+  writes each counter payment here instead of reversing it, so the list shows
+  it although the booking is a test, and settling it writes its credit note and
+  payout as for any owed refund (`tests/test-bookings-money.test.ts`).
 
 Tested in `tests/counter-owed.test.ts` on PGlite and Postgres: each of the
 five ways the venue cancels, both ways of settling, the desk and the manager,
@@ -884,10 +891,15 @@ who counted and who checked it.
   the accountant's, row for row (`tests/cash-up.test.ts`). One addition:
   where credit is the install's own (`MYSENAM_CREDIT_SCOPE=platform`), credit
   sold over this venue's counter is in its till though not in its books, and
-  is counted too (`receipts.counter_venue_id`). One subtraction: a
+  is counted too (`receipts.counter_venue_id`). A
   [test booking's](../product/marketplace.md#test-bookings-before-going-live)
-  receipt and credit notes, from before the venue went live, are no money in
-  the till and are left out (`tests/test-bookings.test.ts`).
+  receipt and credit notes, from before the venue went live, are **not added
+  into those totals but are never dropped**: they are shown below in a block of
+  their own, *Test bookings, from before the venue went live*, with its own
+  lines by method and totals (`test` on `GET /api/admin/cash-up`, on the
+  printout too), and one line saying that if any of it was real money the
+  booking is kept as real, which moves it into the real totals
+  (`tests/cash-up.test.ts`, `tests/test-bookings-money.test.ts`).
 - **What is not money** is shown apart: a booking paid from stored credit
   already sold moves no money, and is left out of the total.
 - **Front desk sees its own**: what it took and gave back itself, today or

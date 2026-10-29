@@ -764,4 +764,9 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Choose the weeks to move.": { ms: "Pilih minggu untuk dipindahkan.", zh: "请选择要调整的周。" },
   "The series changed since you looked. Look at it again.": { ms: "Siri ini telah berubah sejak anda melihatnya. Lihat semula.", zh: "自您查看以来，此系列已有变动。请重新查看。" },
   "outcome must be back or credit.": { ms: "outcome mestilah back atau credit.", zh: "outcome 须为 back 或 credit。" },
+  // r10a: real money is never a test (lib/test-bookings.ts).
+  "Say whether real money was taken on these test bookings: moneyTaken is none or real.": { ms: "Nyatakan sama ada wang sebenar diterima pada tempahan percubaan ini: moneyTaken ialah none atau real.", zh: "请说明这些测试预订是否收取过真实款项：moneyTaken 为 none 或 real。" },
+  "moneyTaken must be none or real.": { ms: "moneyTaken mestilah none atau real.", zh: "moneyTaken 须为 none 或 real。" },
+  "Test bookings with a payment recorded stand at this venue: {0}. Clear them, or keep them as real, before going live.": { ms: "Tempahan percubaan yang mempunyai bayaran masih ada di pusat ini: {0}. Kosongkannya, atau simpan sebagai sebenar, sebelum aktif.", zh: "本场馆仍有已记录付款的测试预订：{0}。请在上线前清除它们，或保留为真实预订。" },
+  "Test bookings with a payment recorded stand at this venue ({0}). The venue must clear them or keep them as real before it goes live.": { ms: "Tempahan percubaan yang mempunyai bayaran masih ada di pusat ini ({0}). Pusat mesti mengosongkannya atau menyimpannya sebagai sebenar sebelum aktif.", zh: "本场馆仍有已记录付款的测试预订（{0}）。场馆必须在上线前清除它们，或保留为真实预订。" },
 };
