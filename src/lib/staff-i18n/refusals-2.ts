@@ -764,4 +764,17 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Choose the weeks to move.": { ms: "Pilih minggu untuk dipindahkan.", zh: "请选择要调整的周。" },
   "The series changed since you looked. Look at it again.": { ms: "Siri ini telah berubah sejak anda melihatnya. Lihat semula.", zh: "自您查看以来，此系列已有变动。请重新查看。" },
   "outcome must be back or credit.": { ms: "outcome mestilah back atau credit.", zh: "outcome 须为 back 或 credit。" },
+  // R10B: an e-invoice whose outcome at LHDN is unknown (lib/myinvois.ts retryEInvoice, recordFromPortal)
+  "Whether LHDN holds this e-invoice is not known. Check the MyInvois portal: record LHDN's identifiers if it has it, or confirm it does not and send it again.": { ms: "Tidak diketahui sama ada LHDN memiliki e-invois ini. Semak portal MyInvois: rekodkan pengenal LHDN jika ia memilikinya, atau sahkan ia tidak memilikinya dan hantar semula.", zh: "尚不清楚 LHDN 是否已有此电子发票。请查看 MyInvois 门户：若 LHDN 已有，请记录其标识；若没有，请确认后重新提交。" },
+  "Only an e-invoice whose outcome at LHDN is unknown can be recorded this way.": { ms: "Hanya e-invois yang hasilnya di LHDN tidak diketahui boleh direkodkan dengan cara ini.", zh: "只有在 LHDN 处结果未知的电子发票才能这样记录。" },
+  "Give the submission ID or the document UUID the MyInvois portal shows.": { ms: "Berikan ID penyerahan atau UUID dokumen yang dipaparkan portal MyInvois.", zh: "请填写 MyInvois 门户显示的提交编号或文件 UUID。" },
+  "That is not an identifier the MyInvois portal shows.": { ms: "Itu bukan pengenal yang dipaparkan portal MyInvois.", zh: "这不是 MyInvois 门户会显示的标识。" },
+  "LHDN holds no document numbered {0} under that submission ID. Nothing was recorded.": { ms: "LHDN tidak memegang dokumen bernombor {0} di bawah ID penyerahan itu. Tiada apa-apa direkodkan.", zh: "LHDN 在该提交编号下没有编号为 {0} 的文件。未记录任何内容。" },
+  "LHDN holds {0} under another document UUID than that one. Nothing was recorded.": { ms: "LHDN memegang {0} di bawah UUID dokumen yang lain daripada itu. Tiada apa-apa direkodkan.", zh: "LHDN 保存的 {0} 对应的文件 UUID 与所填不同。未记录任何内容。" },
+  "MyInvois could not be asked: {0}. Nothing was changed.": { ms: "MyInvois tidak dapat ditanya: {0}. Tiada apa-apa diubah.", zh: "无法向 MyInvois 查询：{0}。未作任何更改。" },
+  "LHDN holds that document under the number {0}, not {1}. Nothing was recorded.": { ms: "LHDN memegang dokumen itu di bawah nombor {0}, bukan {1}. Tiada apa-apa direkodkan.", zh: "LHDN 保存该文件的编号是 {0}，不是 {1}。未记录任何内容。" },
+  "LHDN did not say which document number it holds under that UUID, so it was not recorded.": { ms: "LHDN tidak menyatakan nombor dokumen yang dipegangnya di bawah UUID itu, jadi ia tidak direkodkan.", zh: "LHDN 未说明该 UUID 对应的文件编号，因此未记录。" },
+  "LHDN says that document arrived in another submission than that one. Nothing was recorded.": { ms: "LHDN menyatakan dokumen itu sampai dalam penyerahan lain daripada yang itu. Tiada apa-apa direkodkan.", zh: "LHDN 表示该文件属于另一次提交，而非所填的这次。未记录任何内容。" },
+  "Another e-invoice here already holds that document UUID. Nothing was recorded.": { ms: "E-invois lain di sini sudah memegang UUID dokumen itu. Tiada apa-apa direkodkan.", zh: "此处另一张电子发票已使用该文件 UUID。未记录任何内容。" },
+  "It changed while LHDN was being asked. Look at the list again.": { ms: "Ia berubah semasa LHDN ditanya. Lihat senarai semula.", zh: "向 LHDN 查询期间它已有变动。请重新查看列表。" },
 };

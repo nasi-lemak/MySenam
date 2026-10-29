@@ -122,11 +122,13 @@ export default async function ReceiptPage({
         <>
           <p className="rounded-lg border border-slate-200 p-3 text-slate-700">
             {t("einv.yours", { code: einvoice.einvoice.codeNumber })}:{" "}
-            {einvoice.einvoice.status === "rejected"
-              ? t("ei7.status.rejected")
-              : einvoice.einvoice.status === "cancelled"
-                ? t("ei7.status.cancelled")
-                : t(`einv.status.${einvoice.einvoice.status}`)}
+            {einvoice.einvoice.outcomeUnknown
+              ? t("ei10.status.unknown")
+              : einvoice.einvoice.status === "rejected"
+                ? t("ei7.status.rejected")
+                : einvoice.einvoice.status === "cancelled"
+                  ? t("ei7.status.cancelled")
+                  : t(`einv.status.${einvoice.einvoice.status}`)}
             .
             {einvoice.einvoice.link && (
               <>

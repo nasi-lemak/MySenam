@@ -99,6 +99,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "einvoice.settings": "Changed e-invoicing settings",
   "einvoice.consolidated": "Sent last month's consolidated e-invoice",
   "einvoice.retried": "Sent an e-invoice again",
+  "einvoice.recorded": "Recorded an e-invoice LHDN already held, from the MyInvois portal",
+  "einvoice.not_at_lhdn": "Confirmed in the MyInvois portal that LHDN does not hold an e-invoice, and sent it again",
   "review.replied": "Replied to a review",
   "review.reported": "Reported a review to the platform",
   "review.requests": "Changed review requests",

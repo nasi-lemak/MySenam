@@ -37,6 +37,8 @@ import { addDays, todayISO } from "../src/lib/time";
 import { staleDrafts } from "../src/lib/drafts";
 import * as einvoicing from "../src/app/api/admin/einvoicing/route";
 import ReceiptPage from "../src/app/receipt/[code]/page";
+import { REFUSALS as REFUSALS_2 } from "../src/lib/staff-i18n/refusals-2";
+import { staffTranslator } from "../src/lib/staff-i18n";
 
 /**
  * What happens to an e-invoice once it has reached LHDN, and to one that has
@@ -67,6 +69,8 @@ const sent: Sent[] = [];
 const verdicts = new Map<string, "Valid" | "Invalid" | "Submitted" | "Cancelled">();
 let rejectNext: string | null = null;
 let downNext = false;
+/** The next submission reaches LHDN and then times out: LHDN may hold it and MySenam never hears (an unknown outcome). */
+let timeoutNext = false;
 
 function fakeMyInvois() {
   vi.stubGlobal(
@@ -81,6 +85,10 @@ function fakeMyInvois() {
         const [d] = (JSON.parse(init.body as string) as { documents: { document: string; codeNumber: string }[] }).documents;
         const json = Buffer.from(d.document, "base64").toString("utf8");
         sent.push({ codeNumber: d.codeNumber, json });
+        if (timeoutNext) {
+          timeoutNext = false;
+          throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+        }
         if (rejectNext) {
           const why = rejectNext;
           rejectNext = null;
@@ -97,14 +105,20 @@ function fakeMyInvois() {
       }
       const details = url.match(/\/documents\/([^/]+)\/details$/);
       if (details) {
-        const status = verdicts.get(decodeURIComponent(details[1])) ?? "Valid";
+        const uuid = decodeURIComponent(details[1]);
+        const status = verdicts.get(uuid) ?? "Valid";
+        // LHDN says whose it is: the number the sender gave it, and its submission (here `U-<code>` and `S-<code>`).
+        const whose = uuid.startsWith("U-") ? { internalId: uuid.slice(2), submissionUid: `S-${uuid.slice(2)}` } : {};
         if (status === "Invalid")
           return Response.json({
             status,
+            ...whose,
             validationResults: { validationSteps: [{ status: "Invalid", error: { innerError: [{ error: "Supplier TIN does not match" }] } }] },
           });
-        return Response.json({ status, longId: status === "Valid" || status === "Cancelled" ? `LONG-${details[1]}` : null });
+        return Response.json({ status, ...whose, longId: status === "Valid" || status === "Cancelled" ? `LONG-${details[1]}` : null });
       }
+      const submission = url.match(/\/documentsubmissions\/S-([^/]+)$/);
+      if (submission) return Response.json({ documentSummary: [{ uuid: `U-${submission[1]}`, internalId: submission[1] }] });
       return new Response("not found", { status: 404 });
     })
   );
@@ -468,5 +482,139 @@ describe("the staff screen", () => {
     for (const e of list) await call({ action: "retry", id: e.id });
     const after = await hashes();
     for (const h of before) expect(after).toContain(h);
+  });
+});
+
+describe("an e-invoice whose outcome at LHDN is unknown, through the staff route", () => {
+  let managerCookie: string;
+  let deskCookie: string;
+  const post = (cookie: string, body: Record<string, unknown>) =>
+    einvoicing.POST(new NextRequest("http://localhost/api/admin/einvoicing", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ venueId, ...body }) }));
+  const list = async () =>
+    (await (await einvoicing.GET(new NextRequest(`http://localhost/api/admin/einvoicing?venueId=${venueId}`, { headers: { cookie: managerCookie } }))).json()).einvoices as EInvoice[];
+  /** A customer's own e-invoice whose submission timed out after it reached LHDN. */
+  async function unknownOne() {
+    const receipt = await familyReceipt(null, `${thisMonth}-01 04:00:00`);
+    timeoutNext = true;
+    const e = await ask(receipt.ref);
+    expect(e).toMatchObject({ status: "failed", state: "unknown", outcome: "unknown" });
+    return { e, receipt };
+  }
+  /** How many times LHDN was sent this document (the timed-out submission counts: LHDN received it). */
+  const timesSent = (code: string) => sent.filter((s) => s.codeNumber === code).length;
+  const logged = async (action: string) =>
+    (await getDb().prepare("SELECT admin_name, detail FROM staff_actions WHERE action = ? ORDER BY id").all(action)) as { admin_name: string; detail: string }[];
+
+  beforeAll(async () => {
+    const mgr = await createAdmin({ name: "Mgr Unknown", email: "r10b-mgr@records.test", password: "a long enough password", venueId, role: "manager" });
+    const desk = await createAdmin({ name: "Desk Unknown", email: "r10b-desk@records.test", password: "a long enough password", venueId, role: "desk" });
+    if (!mgr.ok || !desk.ok) throw new Error("admins");
+    managerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(mgr.admin.id)).token}`;
+    deskCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
+  });
+
+  it("says unknown in the list answer, and a send is refused unless the manager says LHDN does not have it", async () => {
+    const { e } = await unknownOne();
+    const shown = (await list()).find((x) => x.id === e.id)!;
+    expect(shown).toMatchObject({ status: "failed", state: "unknown", outcome: "unknown", outcomeUnknown: true, actions: ["record", "send"] });
+    expect(shown.history.map((h) => h.event)).toEqual(["claimed", "outcome_unknown"]);
+    for (const body of [{}, { notAtLhdn: false }, { notAtLhdn: "true" }, { notAtLhdn: 1 }]) {
+      const refused = await post(managerCookie, { action: "retry", id: e.id, ...body });
+      expect(refused.status).toBe(409);
+      expect((await refused.json()).error).toContain("not known");
+    }
+    expect(timesSent(e.codeNumber)).toBe(1);
+    // The scheduler's own run never sends it.
+    await submitPending(venueId);
+    expect(timesSent(e.codeNumber)).toBe(1);
+
+    const ok = await post(managerCookie, { action: "retry", id: e.id, notAtLhdn: true });
+    expect(ok.status).toBe(200);
+    expect(timesSent(e.codeNumber)).toBe(2);
+    const after = (await list()).find((x) => x.id === e.id)!;
+    expect(after).toMatchObject({ status: "submitted", outcomeUnknown: false });
+    expect(after.history.map((h) => [h.event, h.by])).toEqual([
+      ["claimed", null],
+      ["outcome_unknown", null],
+      ["confirmed_not_at_lhdn", "Mgr Unknown"],
+      ["claimed", null],
+      ["sent", null],
+    ]);
+    // Logged with who, under its own label.
+    expect((await logged("einvoice.not_at_lhdn")).at(-1)).toMatchObject({ admin_name: "Mgr Unknown", detail: e.codeNumber });
+  });
+
+  it("records LHDN's identifiers from the portal when LHDN confirms the number, and refuses a document that is not this one", async () => {
+    const { e } = await unknownOne();
+    const wrong = await post(managerCookie, { action: "record", id: e.id, documentUuid: "U-CON-1999-01" });
+    expect(wrong.status).toBe(409);
+    expect((await wrong.json()).error).toContain("CON-1999-01");
+    expect((await post(managerCookie, { action: "record", id: e.id })).status).toBe(409);
+    expect((await list()).find((x) => x.id === e.id)).toMatchObject({ state: "unknown", uuid: null });
+
+    const ok = await post(managerCookie, { action: "record", id: e.id, documentUuid: `U-${e.codeNumber}` });
+    expect(ok.status).toBe(200);
+    const after = (await list()).find((x) => x.id === e.id)!;
+    expect(after).toMatchObject({ status: "valid", state: "valid", uuid: `U-${e.codeNumber}`, submissionUid: `S-${e.codeNumber}`, outcomeUnknown: false });
+    expect(after.history.map((h) => [h.event, h.by]).at(-1)).toEqual(["recorded_from_portal", "Mgr Unknown"]);
+    expect((await logged("einvoice.recorded")).at(-1)).toMatchObject({ admin_name: "Mgr Unknown", detail: e.codeNumber });
+    // What was sent is what is stored, and it was sent once.
+    expect(await frozen(e.id)).toMatchObject({ document: docOf(e.codeNumber), uuid: `U-${e.codeNumber}` });
+    expect(timesSent(e.codeNumber)).toBe(1);
+    // The same by the submission ID.
+    const { e: f } = await unknownOne();
+    expect((await post(managerCookie, { action: "record", id: f.id, submissionUid: `S-${f.codeNumber}` })).status).toBe(200);
+    expect((await list()).find((x) => x.id === f.id)).toMatchObject({ uuid: `U-${f.codeNumber}` });
+    // And it is no longer something that can be recorded or sent again.
+    expect((await post(managerCookie, { action: "record", id: f.id, submissionUid: `S-${f.codeNumber}` })).status).toBe(409);
+    expect((await post(managerCookie, { action: "retry", id: f.id, notAtLhdn: true })).status).toBe(409);
+  });
+
+  it("is not done by the front desk: both are refused with 403 and change nothing", async () => {
+    const { e } = await unknownOne();
+    for (const body of [
+      { action: "retry", id: e.id, notAtLhdn: true },
+      { action: "record", id: e.id, documentUuid: `U-${e.codeNumber}` },
+    ]) {
+      const res = await post(deskCookie, body);
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe("MANAGER_ONLY");
+    }
+    expect(timesSent(e.codeNumber)).toBe(1);
+    expect((await list()).find((x) => x.id === e.id)).toMatchObject({ state: "unknown", uuid: null });
+    expect(await getDb().prepare("SELECT 1 FROM e_invoice_attempts WHERE e_invoice_id = ? AND event IN ('confirmed_not_at_lhdn', 'recorded_from_portal')").get(e.id)).toBeUndefined();
+  });
+
+  it("is told to the customer as being checked, never as not sent, on their receipt", async () => {
+    const { e, receipt } = await unknownOne();
+    const page = renderToStaticMarkup(await ReceiptPage({ params: Promise.resolve({ code: receipt.ref }), searchParams: Promise.resolve({ t: receiptToken(receipt.ref) }) }));
+    expect(page).toContain(`${e.codeNumber}`);
+    expect(page).toContain("the venue is checking with LHDN whether it arrived");
+    expect(page).not.toContain("not sent yet");
+  });
+
+  it("says the same in Malay and Chinese on the staff screen, in the refusals and in the alert", () => {
+    const en = staffTranslator("en");
+    const ms = staffTranslator("ms");
+    const zh = staffTranslator("zh");
+    expect([en("ei10.status.unknown"), ms("ei10.status.unknown"), zh("ei10.status.unknown")]).toEqual(["Needs verification", "Perlu pengesahan", "待核实"]);
+    expect(en("ei10.unknownTitle")).toBe("Submission outcome unknown");
+    expect(ms("ei10.unknownTitle")).toBe("Hasil penyerahan tidak diketahui");
+    expect(zh("ei10.unknownTitle")).toBe("提交结果未知");
+    // Never worded as not sent: the state's own words carry no "not sent".
+    for (const t of [en, ms, zh]) for (const k of ["ei10.status.unknown", "ei10.unknownTitle", "ei10.next.unknown"] as const) expect(t(k)).not.toMatch(/not sent|tidak dihantar|未提交/i);
+    // The refusals the route sends are in the staff map.
+    const sentence = "Whether LHDN holds this e-invoice is not known. Check the MyInvois portal: record LHDN's identifiers if it has it, or confirm it does not and send it again.";
+    expect(REFUSALS_2[sentence]).toBeDefined();
+    expect(ms.err({ error: sentence })).toBe(REFUSALS_2[sentence].ms);
+    expect(zh.err({ error: "LHDN holds that document under the number CON-1999-01, not EI-R-000001. Nothing was recorded." })).toContain("CON-1999-01");
+  });
+
+  it("keeps the history of an unknown outcome through the statutory period's retention run", async () => {
+    const { e } = await unknownOne();
+    await getDb().prepare("UPDATE e_invoices SET created_at = datetime('now', '-30 years') WHERE id = ?").run(e.id);
+    await pruneOldData();
+    expect((await list()).find((x) => x.id === e.id)).toMatchObject({ state: "unknown" });
+    expect((await list()).find((x) => x.id === e.id)!.history.length).toBe(2);
   });
 });

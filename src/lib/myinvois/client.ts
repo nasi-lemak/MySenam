@@ -83,6 +83,21 @@ async function call<T>(c: Connection, method: "GET" | "POST", path: string, body
   return data;
 }
 
+/**
+ * Whether LHDN may hold a document whose submission ended in this error. It did not, for certain, when MySenam
+ * could not connect at all (refused, no such host, no route: nothing was sent) and when LHDN answered that it
+ * did not take the request (a 4xx, or 503 unavailable). It may have, when the answer never came cleanly: a
+ * timeout, a connection cut after the request went out, an answer that could not be read, a gateway or server
+ * error that does not say what was done. Those are shown as an unknown outcome, never as "not sent"
+ * (docs/integrations/myinvois.md#sending-once). UNVERIFIED: which statuses LHDN returns for these is assumed.
+ */
+export function mayHaveReachedLhdn(err: unknown): boolean {
+  if (err instanceof MyInvoisError) return err.status < 400 || (err.status >= 500 && err.status !== 503);
+  const cause = (err as { cause?: { code?: string } } | null)?.cause;
+  const said = `${cause?.code ?? ""} ${err instanceof Error ? err.message : String(err)}`;
+  return !/\b(ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|UND_ERR_CONNECT_TIMEOUT)\b/.test(said);
+}
+
 export interface SubmitOutcome {
   submissionUid: string;
   /** Accepted for validation, with LHDN's id; or refused at once, with why. */
@@ -116,18 +131,56 @@ export interface DocumentStatus {
   longId: string | null;
   /** Why it is invalid, when it is. */
   problems: string[];
+  /** The document number the sender gave it (ours): `internalId` in LHDN's answer; null when LHDN did not say. */
+  internalId: string | null;
+  /** The submission LHDN says it arrived in; null when LHDN did not say. */
+  submissionUid: string | null;
 }
 
-/** Where a document stands: still being validated, valid (with the long id for its public link), or invalid and why. */
+/**
+ * Where a document stands: still being validated, valid (with the long id for its public link), or invalid and why.
+ * Also whose it is: the number we gave it and its submission, which is how a document found in the MyInvois portal
+ * is matched to ours. UNVERIFIED like the rest of this file: `internalId` and `submissionUid` are the field names
+ * of LHDN's published "get document details".
+ */
 export async function documentStatus(c: Connection, uuid: string): Promise<DocumentStatus> {
   const data = await call<{
     status: DocumentStatus["status"];
     longId?: string | null;
+    internalId?: string | null;
+    submissionUid?: string | null;
+    submissionUID?: string | null;
     validationResults?: { validationSteps?: { status?: string; error?: { innerError?: { error?: string }[]; error?: string } }[] };
   }>(c, "GET", `/api/v1.0/documents/${encodeURIComponent(uuid)}/details`);
   const problems = (data.validationResults?.validationSteps ?? [])
     .filter((s) => s.status === "Invalid")
     .flatMap((s) => (s.error?.innerError?.length ? s.error.innerError.map((e) => e.error ?? "") : [s.error?.error ?? ""]))
     .filter(Boolean);
-  return { status: data.status, longId: data.longId ?? null, problems };
+  return {
+    status: data.status,
+    longId: data.longId ?? null,
+    problems,
+    internalId: data.internalId ?? null,
+    submissionUid: data.submissionUid ?? data.submissionUID ?? null,
+  };
+}
+
+export interface SubmissionDocument {
+  uuid: string;
+  /** The number the sender gave the document (ours). */
+  internalId: string;
+}
+
+/**
+ * The documents LHDN holds under one submission ID: the way to find a document by the submission ID shown in the
+ * MyInvois portal. Read-only. UNVERIFIED: the path and the `documentSummary` fields are written from LHDN's
+ * published "get submission" and have not been checked against the sandbox.
+ */
+export async function submissionDocuments(c: Connection, submissionUid: string): Promise<SubmissionDocument[]> {
+  const data = await call<{ documentSummary?: { uuid?: string; internalId?: string }[] }>(
+    c,
+    "GET",
+    `/api/v1.0/documentsubmissions/${encodeURIComponent(submissionUid)}`
+  );
+  return (data.documentSummary ?? []).flatMap((d) => (d.uuid && d.internalId ? [{ uuid: d.uuid, internalId: d.internalId }] : []));
 }

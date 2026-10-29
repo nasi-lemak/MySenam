@@ -92,6 +92,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "einvoice.settings": "act.a.einvoiceSettings",
   "einvoice.consolidated": "act.a.einvoiceConsolidated",
   "einvoice.retried": "act.a.einvoiceRetried",
+  "einvoice.recorded": "ei10.act.recorded",
+  "einvoice.not_at_lhdn": "ei10.act.notAtLhdn",
   "review.replied": "act.a.reviewReplied",
   "review.reported": "act.a.reviewReported",
   "review.requests": "act.a.reviewRequests",

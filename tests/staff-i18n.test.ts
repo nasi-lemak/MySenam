@@ -54,6 +54,21 @@ describe("the staff dictionaries", () => {
     expect(staffRefusal("Nothing the server ever says.", "zh")).toBeNull();
   });
 
+  it("name an e-invoice whose outcome at LHDN is unknown as needing verification in all three languages, never as not sent (R10B)", () => {
+    const words = { en: "Needs verification", ms: "Perlu pengesahan", zh: "待核实" } as const;
+    for (const locale of ["en", "ms", "zh"] as const) {
+      const t = staffTranslator(locale);
+      expect(t("ei10.status.unknown")).toBe(words[locale]);
+      // The badge, the box's heading and what to do next never say "not sent" (whose own words are `einv.status.failed`).
+      const notSent = t("einv.status.failed");
+      for (const key of ["ei10.status.unknown", "ei10.unknownTitle", "ei10.next.unknown", "ei10.explain", "ei10.explainLegacy", "ei10.alert.s"] as const)
+        expect(t(key, { code: "X", when: "now" })).not.toContain(notSent);
+      expect(t("ei10.alert.b", { code: "EI-1", venue: "Hall" })).toContain("EI-1");
+      for (const event of ["claimed", "sent", "rejected", "not_sent", "outcome_unknown", "confirmed_not_at_lhdn", "recorded_from_portal"] as const)
+        expect(t(`ei10.hist.${event}`)).not.toBe(`ei10.hist.${event}`);
+    }
+  });
+
   it("write Chinese in simplified characters", () => {
     // Common characters whose traditional form differs; none may appear.
     const traditional = /[們個會員價錢費號碼確認請與為對還開關門點東網頁帳顯場時間這預訂課練賽聯單設選擇區條約資訊應該現發記錄]/;

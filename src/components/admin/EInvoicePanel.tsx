@@ -28,6 +28,8 @@ const TONE: Record<EInvoice["status"], string> = {
   rejected: "bg-rose-100 text-rose-800",
   cancelled: "bg-slate-200 text-slate-700",
 };
+/** A draft whose outcome at LHDN is unknown is not "not sent": it stands out from one that certainly was not. */
+const UNKNOWN_TONE = "bg-orange-100 text-orange-900";
 
 type Form = {
   enabled: boolean;
@@ -93,6 +95,10 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The document whose "LHDN has it" form is open, and what was typed. */
+  const [recording, setRecording] = useState<number | null>(null);
+  const [ids, setIds] = useState({ submissionUid: "", documentUuid: "" });
+  const [historyOf, setHistoryOf] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -112,7 +118,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
     load();
   }, [load]);
 
-  async function act(body: Record<string, unknown>, ok: string) {
+  async function act(body: Record<string, unknown>, ok: string): Promise<boolean> {
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -126,8 +132,10 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
       if (!res.ok) throw new Error(t.err(data, t("einv.requestFailed")));
       setNotice(typeof data.period === "string" ? t.plural("einv.consolidatedPeriod", data.made, { period: data.period }) : ok);
       await load();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : t("einv.requestFailed"));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -136,6 +144,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
   /** What staff can do next with a document in its state: the same rules the server applies (`actions`). */
   const nextStep = (e: EInvoice): string => {
     if (e.clearedAt) return t("ei8.cleared", { when: clock.when(e.clearedAt, e.venueId) });
+    if (e.outcomeUnknown) return t("ei10.next.unknown");
     if (e.replacedByCode) return t("ei7.next.replaced");
     if (e.waitingFor) return t("ei7.waitingFor", { code: e.waitingFor });
     if (e.replaceBlocked === "consolidated") return t("ei7.next.blockedConsolidated");
@@ -361,13 +370,41 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TONE[e.status]}`}>{STATUS[e.status]}</span>
+                  <span className={`rounded px-2 py-0.5 text-xs font-semibold ${e.outcomeUnknown ? UNKNOWN_TONE : TONE[e.status]}`}>
+                    {e.outcomeUnknown ? t("ei10.status.unknown") : STATUS[e.status]}
+                  </span>
                   {e.link && (
                     <a href={e.link} target="_blank" rel="noreferrer" className="text-teal-700 hover:underline">
                       {t("einv.viewAtLhdn")}
                     </a>
                   )}
-                  {e.actions.includes("send") && (
+                  {e.actions.includes("record") && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setIds({ submissionUid: "", documentUuid: "" });
+                        setRecording(recording === e.id ? null : e.id);
+                      }}
+                      className="text-teal-700 hover:underline"
+                    >
+                      {t("ei10.has")}
+                    </button>
+                  )}
+                  {e.actions.includes("send") && e.outcomeUnknown && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        if (window.confirm(t("ei10.notAtLhdnConfirm", { code: e.codeNumber })))
+                          void act({ action: "retry", id: e.id, notAtLhdn: true }, t("ei10.sentAgain"));
+                      }}
+                      className="text-teal-700 hover:underline"
+                    >
+                      {t("ei10.hasNot")}
+                    </button>
+                  )}
+                  {e.actions.includes("send") && !e.outcomeUnknown && (
                     <button type="button" disabled={busy} onClick={() => void act({ action: "retry", id: e.id }, t("ei7.sent"))} className="text-teal-700 hover:underline">
                       {t("ei7.send")}
                     </button>
@@ -393,7 +430,49 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
               </div>
               {e.replacesCode && <p className="text-slate-600">{t("ei7.replaces", { code: e.replacesCode })}</p>}
               {e.replacedByCode && <p className="text-slate-600">{t("ei7.replacedBy", { code: e.replacedByCode })}</p>}
-              {e.error && (
+              {e.outcomeUnknown && (
+                <div className="space-y-1 rounded-md border border-orange-300 bg-orange-50 p-2 text-orange-900">
+                  <p className="font-semibold">{t("ei10.unknownTitle")}</p>
+                  <p>
+                    {e.lastAttemptAt
+                      ? t("ei10.explain", { code: e.codeNumber, when: clock.when(e.lastAttemptAt, venueId) })
+                      : t("ei10.explainLegacy", { code: e.codeNumber, when: clock.when(e.outcomeUnknownAt ?? e.createdAt, venueId) })}
+                  </p>
+                  <p className="font-mono text-xs">{t("ei10.look", { code: e.codeNumber })}</p>
+                  {e.error && <p>{t("ei10.unknownWhy", { why: e.error })}</p>}
+                </div>
+              )}
+              {recording === e.id && e.outcomeUnknown && (
+                <form
+                  className="space-y-2 rounded-md border border-slate-200 p-2"
+                  onSubmit={(ev) => {
+                    ev.preventDefault();
+                    void act({ action: "record", id: e.id, ...ids }, t("ei10.recorded")).then((done) => done && setRecording(null));
+                  }}
+                >
+                  <p className="font-medium text-slate-700">{t("ei10.hasTitle", { code: e.codeNumber })}</p>
+                  <p className="text-xs text-slate-600">{t("ei10.hasHelp", { code: e.codeNumber })}</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="text-sm">
+                      <span className="font-medium text-slate-700">{t("ei7.submissionId")}</span>
+                      <input className={`${input} mt-1 font-mono`} value={ids.submissionUid} autoComplete="off" onChange={(ev) => setIds({ ...ids, submissionUid: ev.target.value })} />
+                    </label>
+                    <label className="text-sm">
+                      <span className="font-medium text-slate-700">{t("ei10.documentUuid")}</span>
+                      <input className={`${input} mt-1 font-mono`} value={ids.documentUuid} autoComplete="off" onChange={(ev) => setIds({ ...ids, documentUuid: ev.target.value })} />
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={busy || (!ids.submissionUid.trim() && !ids.documentUuid.trim())} className="rounded-md bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+                      {t("ei10.record")}
+                    </button>
+                    <button type="button" onClick={() => setRecording(null)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium">
+                      {t("c.cancel")}
+                    </button>
+                  </div>
+                </form>
+              )}
+              {e.error && !e.outcomeUnknown && (
                 <p className="text-rose-700">
                   {e.status === "rejected"
                     ? t("ei7.refusedWhy", { why: e.error })
@@ -416,6 +495,24 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
               {e.checkedAt && <p className="text-xs text-slate-500">{t("ei7.checkedAt", { when: clock.when(e.checkedAt, venueId) })}</p>}
               {e.correctedBy.length > 0 && <p className="text-slate-600">{t("ei7.correctedBy", { list: e.correctedBy.join(t("srv.list.comma")) })}</p>}
               <p className="text-xs text-slate-600">{nextStep(e)}</p>
+              {e.history.length > 0 && (
+                <div>
+                  <button type="button" className="text-xs font-medium text-teal-700 hover:underline" onClick={() => setHistoryOf(historyOf === e.id ? null : e.id)}>
+                    {historyOf === e.id ? t("ei10.hideHistory") : t("ei10.history")}
+                  </button>
+                  {historyOf === e.id && (
+                    <ul className="mt-1 space-y-0.5 rounded-md bg-slate-50 p-2 text-xs text-slate-700">
+                      {e.history.map((h, i) => (
+                        <li key={i} className="break-words">
+                          {clock.when(h.at, venueId)} · {t(`ei10.hist.${h.event}`)}
+                          {h.by ? ` · ${t("ei10.byWho", { who: h.by })}` : ""}
+                          {h.detail ? ` · ${h.detail}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {e.sentLines && (
                 <div>
                   <button type="button" className="text-xs font-medium text-teal-700 hover:underline" onClick={() => setShown(shown === e.id ? null : e.id)}>

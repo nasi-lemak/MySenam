@@ -1,8 +1,17 @@
 import { salesJournal, type Category } from "./accounting";
-import { getDb } from "./db";
+import { getDb, mustRethrow } from "./db";
 import { documentById, documentId } from "./documents";
 import { errorText, translator, type ErrorCode } from "./i18n";
-import { documentStatus, MyInvoisError, submitDocument, validationLink, type Connection, type DocumentStatus } from "./myinvois/client";
+import {
+  documentStatus,
+  mayHaveReachedLhdn,
+  submissionDocuments,
+  submitDocument,
+  token,
+  validationLink,
+  type Connection,
+  type DocumentStatus,
+} from "./myinvois/client";
 import { buildDocument, STATE_CODES, type DocLine, type Party, type Supplier } from "./myinvois/ubl";
 import { receiptFor } from "./receipts";
 import { region, roundMoney } from "./region";
@@ -13,6 +22,7 @@ import { todayISO } from "./time";
 import type { Refusal } from "./types";
 import { venueZoneOf } from "./zones";
 import { englishOf, said, type ServerPhrase, type StaffText } from "./staff-text";
+import { tellVenueStaffEach } from "./owner-alerts";
 
 /**
  * Malaysia's e-invoicing (LHDN MyInvois), for a venue that must or wants to.
@@ -267,7 +277,12 @@ async function supplierFor(venueId: number): Promise<Supplier | null> {
  *   stays pending until what it corrects is valid at LHDN.
  * - `failed`: not sent: the venue's details were incomplete, nothing was
  *   left to send, or MyInvois could not be reached. Still a draft, sent
- *   again as it is once put right.
+ *   again as it is once put right. Unless its outcome is unknown
+ *   (`outcomeUnknown`, migration 0260): MySenam asked LHDN and never
+ *   recorded the answer, so LHDN may hold it. That is shown as needing
+ *   verification, never as not sent, and is sent again only once staff say
+ *   LHDN does not have it (`retryEInvoice`), or recorded as sent once staff
+ *   give LHDN's identifiers and LHDN confirms them (`recordFromPortal`).
  * - `rejected`: LHDN refused it when it was sent: it has a submission ID and
  *   LHDN's reasons, no UUID.
  * - `submitted`: LHDN accepted it for validation and gave it a UUID.
@@ -302,7 +317,16 @@ const UNSENT = "document IS NULL AND submission_uid IS NULL AND uuid IS NULL AND
  * LHDN where one it accepted stands (how a cancellation made in the portal
  * reaches MySenam).
  */
-export type EInvoiceAction = "send" | "replace" | "recheck";
+export type EInvoiceAction = "send" | "replace" | "recheck" | "record";
+
+/** One step in a document's attempts to reach LHDN (`e_invoice_attempts`, migration 0260). */
+export interface EInvoiceAttempt {
+  at: string;
+  event: "claimed" | "sent" | "rejected" | "not_sent" | "outcome_unknown" | "confirmed_not_at_lhdn" | "recorded_from_portal";
+  /** The staff member, for a step staff took. */
+  by: string | null;
+  detail: string | null;
+}
 
 export interface EInvoice {
   id: number;
@@ -321,6 +345,20 @@ export interface EInvoice {
   submissionUid: string | null;
   longId: string | null;
   status: EInvoiceStatus;
+  /**
+   * What the document is to anyone reading it: `unknown` for a draft whose outcome at LHDN is not known (its
+   * `status` is still `failed`), else its `status`.
+   */
+  state: EInvoiceStatus | "unknown";
+  /** `unknown`: MySenam asked LHDN and never recorded the answer, so LHDN may hold it; null otherwise. */
+  outcome: "unknown" | null;
+  outcomeUnknown: boolean;
+  /** When that was found. */
+  outcomeUnknownAt: string | null;
+  /** When the latest attempt to send it began; null before one. */
+  lastAttemptAt: string | null;
+  /** Each attempt to send it, and each staff step on it, oldest first. */
+  history: EInvoiceAttempt[];
   /** Why it was not sent, or LHDN's reasons as LHDN gave them. */
   error: string | null;
   refersCode: string | null;
@@ -381,6 +419,11 @@ interface EInvoiceRow {
   cleared_at: string | null;
   /** Claimed by a sender, until LHDN's answer is written (migration 0256). */
   sending_at: string | null;
+  /** LHDN may hold it: its answer was never recorded (migration 0260). */
+  outcome_unknown_at: string | null;
+  last_attempt_at: string | null;
+  /** What the latest attempt sent, while LHDN's answer is unknown (JSON). */
+  attempt_payload: string | null;
 }
 
 /** It has reached LHDN: what it holds is LHDN's record too, and never changes (a tombstone included). */
@@ -388,6 +431,14 @@ const reached = (r: Pick<EInvoiceRow, "document" | "submission_uid" | "uuid" | "
 /** The number a document and its replacements are looked up by: the first one's. */
 const seriesOf = (r: Pick<EInvoiceRow, "series_code" | "code_number">) => r.series_code ?? r.code_number;
 const isRefused = (s: EInvoiceStatus) => REFUSED_STATUSES.includes(s);
+/**
+ * A draft whose outcome at LHDN is unknown: MySenam asked LHDN and never recorded the answer, so LHDN may hold it.
+ * Rows from before migration 0260 carry only the old error sentence, which counts too.
+ */
+const isUnknown = (r: Pick<EInvoiceRow, "status" | "document" | "submission_uid" | "uuid" | "cleared_at" | "outcome_unknown_at" | "error">) =>
+  r.status === "failed" && !reached(r) && (r.outcome_unknown_at !== null || r.error === SENDING_INTERRUPTED);
+/** The same, in SQL (one parameter: `SENDING_INTERRUPTED`). */
+const UNKNOWN_SQL = `status = 'failed' AND ${UNSENT} AND (outcome_unknown_at IS NOT NULL OR error = ?)`;
 
 async function rowById(id: number): Promise<EInvoiceRow | undefined> {
   return (await getDb().prepare("SELECT * FROM e_invoices WHERE id = ?").get(id)) as EInvoiceRow | undefined;
@@ -417,6 +468,27 @@ function sentLinesOf(document: string | null): EInvoice["sentLines"] {
   }
 }
 
+async function historyOf(id: number): Promise<EInvoiceAttempt[]> {
+  const rows = (await getDb()
+    .prepare("SELECT at, event, admin_name, detail FROM e_invoice_attempts WHERE e_invoice_id = ? ORDER BY id")
+    .all(id)) as { at: string; event: EInvoiceAttempt["event"]; admin_name: string | null; detail: string | null }[];
+  // The interruption's sentence is said by the screen in its own words.
+  return rows.map((a) => ({ at: a.at, event: a.event, by: a.admin_name, detail: a.detail === SENDING_INTERRUPTED ? null : a.detail }));
+}
+
+/** The staff member taking a step on a document (for its history). */
+export interface StaffActor {
+  id: number | null;
+  name: string;
+}
+
+/** Add a step to a document's history. Append-only (migration 0260). */
+async function noteAttempt(id: number, event: EInvoiceAttempt["event"], detail: string | null = null, by: StaffActor | null = null): Promise<void> {
+  await getDb()
+    .prepare("INSERT INTO e_invoice_attempts (e_invoice_id, event, admin_id, admin_name, detail) VALUES (?, ?, ?, ?, ?)")
+    .run(id, event, by?.id ?? null, by?.name ?? null, detail?.slice(0, 1000) ?? null);
+}
+
 async function toEInvoice(r: EInvoiceRow): Promise<EInvoice> {
   const db = getDb();
   const sandbox = (await settingsRow(r.venue_id))?.sandbox === 1;
@@ -440,6 +512,9 @@ async function toEInvoice(r: EInvoiceRow): Promise<EInvoice> {
   let replaceBlocked: EInvoice["replaceBlocked"] = null;
   // A tombstone (the statutory period over) is the books' record only: nothing more is done with it.
   const live = !r.cleared_at;
+  const unknown = live && isUnknown(r);
+  // Its outcome unknown: LHDN's identifiers may be recorded, or, once staff confirm LHDN does not have it, it is sent again.
+  if (unknown) actions.push("record");
   if (live && !reached(r) && r.status === "failed") actions.push("send");
   // A refused one; or, from before migration 0220, one sent again in place and left waiting or failed.
   if (live && !replacement && reached(r) && (isRefused(r.status) || r.status === "pending" || r.status === "failed")) {
@@ -463,7 +538,14 @@ async function toEInvoice(r: EInvoiceRow): Promise<EInvoice> {
     submissionUid: r.submission_uid,
     longId: r.long_id,
     status: r.status,
-    error: r.error,
+    state: unknown ? "unknown" : r.status,
+    outcome: unknown ? "unknown" : null,
+    outcomeUnknown: unknown,
+    outcomeUnknownAt: r.outcome_unknown_at,
+    lastAttemptAt: r.last_attempt_at,
+    history: await historyOf(r.id),
+    // The sentence an interruption leaves is said by the screen in its own words.
+    error: unknown && r.error === SENDING_INTERRUPTED ? null : r.error,
     refersCode: r.refers_code,
     createdAt: r.created_at,
     submittedAt: r.submitted_at,
@@ -830,13 +912,37 @@ export const SENDING_INTERRUPTED =
  * it at the same moment, or two servers, one sends it and the other leaves
  * it, as a refund is claimed before the gateway is asked. The claim is
  * cleared when LHDN's answer (or the failure) is written.
+ *
+ * What the failure was decides what it is called (migration 0260): one that
+ * certainly did not reach LHDN (details incomplete, nothing to send, no
+ * sign-in, no connection) is *not sent*; one that may have (a timeout, a
+ * connection cut after the request, an answer that could not be read) is an
+ * *unknown outcome* that staff reconcile with LHDN before anything is sent
+ * again (`mayHaveReachedLhdn`). Each attempt is written to the document's
+ * history.
  */
 export async function submitOne(id: number, now = new Date()): Promise<EInvoice> {
   const db = getDb();
   const r = (await rowById(id))!;
   if (r.status !== "pending" || reached(r) || r.sending_at) return toEInvoice(r);
+  /** It did not reach LHDN, certainly: not sent, and still a draft. */
   const fail = async (error: string) => {
-    await db.prepare(`UPDATE e_invoices SET status = 'failed', error = ?, sending_at = NULL WHERE id = ? AND ${UNSENT}`).run(error.slice(0, 1000), id);
+    const done = await db
+      .prepare(`UPDATE e_invoices SET status = 'failed', error = ?, sending_at = NULL, attempt_payload = NULL WHERE id = ? AND ${UNSENT}`)
+      .run(error.slice(0, 1000), id);
+    if (done.changes === 1) await noteAttempt(id, "not_sent", error);
+    return toEInvoice((await rowById(id))!);
+  };
+  /** LHDN may hold it and MySenam has no answer: kept as a draft, marked unknown, and the venue's staff told once. */
+  const unknown = async (error: string) => {
+    const done = await db.transaction(async () => {
+      const marked = await db
+        .prepare(`UPDATE e_invoices SET status = 'failed', error = ?, sending_at = NULL, outcome_unknown_at = datetime('now') WHERE id = ? AND ${UNSENT}`)
+        .run(error.slice(0, 1000), id);
+      if (marked.changes === 1) await noteAttempt(id, "outcome_unknown", error);
+      return marked.changes;
+    })();
+    if (done === 1) await alertUnknown(r.venue_id, r.code_number);
     return toEInvoice((await rowById(id))!);
   };
   const connection = await connectionFor(r.venue_id);
@@ -865,35 +971,73 @@ export async function submitOne(id: number, now = new Date()): Promise<EInvoice>
     lines,
     refers,
   });
-  // Claimed, or left to whoever claimed it first.
-  const claimed = await db
-    .prepare(`UPDATE e_invoices SET sending_at = datetime('now') WHERE id = ? AND status = 'pending' AND sending_at IS NULL AND ${UNSENT}`)
-    .run(id);
-  if (claimed.changes !== 1) return toEInvoice((await rowById(id))!);
+  // Signed in first: a sign-in that fails has sent nothing, so it is not an attempt that might have reached LHDN.
+  try {
+    await token(connection);
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "MyInvois could not be reached.");
+  }
+  // Claimed, or left to whoever claimed it first. What is about to be sent is kept with the claim, so that if LHDN's
+  // answer is never recorded and staff find LHDN holds it, the record says exactly what was sent.
+  const claimed = await db.transaction(async () => {
+    const took = await db
+      .prepare(
+        `UPDATE e_invoices SET sending_at = datetime('now'), last_attempt_at = datetime('now'), attempt_payload = ?
+          WHERE id = ? AND status = 'pending' AND sending_at IS NULL AND ${UNSENT}`
+      )
+      .run(JSON.stringify({ document: doc.json, total: doc.gross, covers, refersUuid: refers?.uuid ?? null }), id);
+    if (took.changes === 1) await noteAttempt(id, "claimed");
+    return took.changes;
+  })();
+  if (claimed !== 1) return toEInvoice((await rowById(id))!);
   let outcome: Awaited<ReturnType<typeof submitDocument>>;
   try {
     outcome = await submitDocument(connection, r.code_number, doc.json);
   } catch (err) {
-    return fail(err instanceof MyInvoisError || err instanceof Error ? err.message : "MyInvois could not be reached.");
+    const why = err instanceof Error ? err.message : "MyInvois could not be reached.";
+    return mayHaveReachedLhdn(err) ? unknown(why) : fail(why);
   }
   // From here it is LHDN's record too: kept as sent, with LHDN's identifiers
   // (and, refused, LHDN's reasons as given), and never changed after.
   const sent = [doc.json, doc.gross, covers ? JSON.stringify(covers) : null, outcome.submissionUid || null, refers?.uuid ?? null];
-  if (outcome.accepted)
-    await db
-      .prepare(
-        `UPDATE e_invoices SET status = 'submitted', error = NULL, document = ?, total = ?, covers = ?, submission_uid = ?, refers_uuid = ?,
-           uuid = ?, submitted_at = datetime('now'), sending_at = NULL WHERE id = ? AND ${UNSENT}`
-      )
-      .run(...sent, outcome.accepted.uuid, id);
-  else
-    await db
-      .prepare(
-        `UPDATE e_invoices SET status = 'rejected', error = ?, document = ?, total = ?, covers = ?, submission_uid = ?, refers_uuid = ?,
-           submitted_at = datetime('now'), sending_at = NULL WHERE id = ? AND ${UNSENT}`
-      )
-      .run((outcome.rejected ?? "MyInvois did not accept it.").slice(0, 1000), ...sent, id);
+  await db.transaction(async () => {
+    if (outcome.accepted) {
+      await db
+        .prepare(
+          `UPDATE e_invoices SET status = 'submitted', error = NULL, document = ?, total = ?, covers = ?, submission_uid = ?, refers_uuid = ?,
+             uuid = ?, submitted_at = datetime('now'), sending_at = NULL, attempt_payload = NULL WHERE id = ? AND ${UNSENT}`
+        )
+        .run(...sent, outcome.accepted.uuid, id);
+      await noteAttempt(id, "sent", outcome.submissionUid ? `Submission ${outcome.submissionUid}` : null);
+    } else {
+      const why = (outcome.rejected ?? "MyInvois did not accept it.").slice(0, 1000);
+      await db
+        .prepare(
+          `UPDATE e_invoices SET status = 'rejected', error = ?, document = ?, total = ?, covers = ?, submission_uid = ?, refers_uuid = ?,
+             submitted_at = datetime('now'), sending_at = NULL, attempt_payload = NULL WHERE id = ? AND ${UNSENT}`
+        )
+        .run(why, ...sent, id);
+      await noteAttempt(id, "rejected", why);
+    }
+  })();
   return toEInvoice((await rowById(id))!);
+}
+
+/**
+ * The venue's staff are told once that a document's outcome at LHDN is unknown, each in their own staff language,
+ * so it is not missed (the same path as other venue alerts, `tellVenueStaffEach`). Never throws.
+ */
+async function alertUnknown(venueId: number, code: string): Promise<void> {
+  try {
+    const venue = (await getDb().prepare("SELECT name FROM venues WHERE id = ?").get(venueId)) as { name: string } | undefined;
+    await tellVenueStaffEach(venueId, (t) => ({
+      subject: t("ei10.alert.s", { code }),
+      body: t("ei10.alert.b", { code, venue: venue?.name ?? t("r9d.yourVenue") }),
+    }));
+  } catch (err) {
+    if (mustRethrow(err)) throw err;
+    console.error("[mysenam] could not tell staff that an e-invoice's outcome is unknown:", err);
+  }
 }
 
 /**
@@ -1003,17 +1147,24 @@ export async function recheckEInvoice(id: number, venueId: number): Promise<{ ok
  * Send whatever is waiting, for one venue or all. A draft claimed for sending
  * longer ago than `SENDING_CLAIM_MINUTES` (LHDN is given 30 seconds) was
  * interrupted between asking LHDN and writing its answer down, so LHDN may
- * have it: it is marked not sent, saying so, for staff to check the portal
- * before sending it again, never sent again by itself.
+ * have it: it is marked *outcome unknown* (migration 0260), the claim's start
+ * kept as the attempt's time, and the venue's staff told once. Staff check the
+ * portal; it is never sent again by itself.
  */
 export async function submitPending(venueId?: number, now = new Date()): Promise<number> {
   const db = getDb();
-  await db
-    .prepare(
-      `UPDATE e_invoices SET status = 'failed', error = ?, sending_at = NULL
-        WHERE status = 'pending' AND sending_at < datetime('now', '-${SENDING_CLAIM_MINUTES} minutes') AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""}`
-    )
-    .run(SENDING_INTERRUPTED, ...(venueId ? [venueId] : []));
+  const interrupted = await db.transaction(async () => {
+    const stale = (await db
+      .prepare(
+        `UPDATE e_invoices SET status = 'failed', error = ?, sending_at = NULL, outcome_unknown_at = datetime('now')
+          WHERE status = 'pending' AND sending_at < datetime('now', '-${SENDING_CLAIM_MINUTES} minutes') AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""}
+          RETURNING id, venue_id, code_number`
+      )
+      .all(SENDING_INTERRUPTED, ...(venueId ? [venueId] : []))) as { id: number; venue_id: number; code_number: string }[];
+    for (const e of stale) await noteAttempt(e.id, "outcome_unknown", SENDING_INTERRUPTED);
+    return stale;
+  })();
+  for (const e of interrupted) await alertUnknown(e.venue_id, e.code_number);
   const rows = (await db
     .prepare(`SELECT id FROM e_invoices WHERE status = 'pending' AND sending_at IS NULL AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
     .all(...(venueId ? [venueId] : []))) as { id: number }[];
@@ -1021,7 +1172,12 @@ export async function submitPending(venueId?: number, now = new Date()): Promise
   return rows.length;
 }
 
-export type RetryResult = { ok: true; einvoice: EInvoice; from: string } | { ok: false; error: string };
+/** `confirmedNotAtLhdn`: the document's outcome was unknown and staff confirmed LHDN does not hold it. */
+export type RetryResult = { ok: true; einvoice: EInvoice; from: string; confirmedNotAtLhdn?: boolean } | { ok: false; error: string };
+
+/** What a send of a document whose outcome is unknown says until staff confirm LHDN does not have it. */
+const UNKNOWN_NEEDS_CONFIRMATION =
+  "Whether LHDN holds this e-invoice is not known. Check the MyInvois portal: record LHDN's identifiers if it has it, or confirm it does not and send it again.";
 
 /**
  * Put one right, once the venue has: one never sent is sent as it is; one
@@ -1029,16 +1185,33 @@ export type RetryResult = { ok: true; einvoice: EInvoice; from: string } | { ok:
  * and a new document goes in its place under its own number (`CON-2026-10-R2`),
  * linked to it, its lines drawn afresh from the receipts. Only what
  * `actions` offers; anything else is refused.
+ *
+ * One whose outcome at LHDN is unknown is never sent blindly: it is refused
+ * unless `notAtLhdn` says the manager checked the MyInvois portal and LHDN
+ * does not have it, and that confirmation, with who gave it, goes into the
+ * document's history (migration 0260).
  */
-export async function retryEInvoice(id: number, venueId: number): Promise<RetryResult> {
+export async function retryEInvoice(id: number, venueId: number, opts: { notAtLhdn?: boolean; by?: StaffActor } = {}): Promise<RetryResult> {
   const db = getDb();
   const r = (await db.prepare("SELECT * FROM e_invoices WHERE id = ? AND venue_id = ?").get(id, venueId)) as EInvoiceRow | undefined;
   const cannot = "Only an e-invoice that was not sent, or that LHDN refused, found invalid or cancelled, can be sent again.";
   if (!r) return { ok: false, error: cannot };
   if (!reached(r)) {
-    const done = await db.prepare(`UPDATE e_invoices SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed' AND ${UNSENT}`).run(id);
-    if (done.changes !== 1) return { ok: false, error: cannot };
-    return { ok: true, einvoice: await submitOne(id), from: r.code_number };
+    const doubtful = isUnknown(r);
+    if (doubtful && opts.notAtLhdn !== true) return { ok: false, error: UNKNOWN_NEEDS_CONFIRMATION };
+    const done = await db.transaction(async () => {
+      const set = await db
+        .prepare(
+          `UPDATE e_invoices SET status = 'pending', error = NULL, outcome_unknown_at = NULL, attempt_payload = NULL
+            WHERE id = ? AND status = 'failed' AND ${UNSENT}${doubtful ? " AND (outcome_unknown_at IS NOT NULL OR error = ?)" : ""}`
+        )
+        .run(id, ...(doubtful ? [SENDING_INTERRUPTED] : []));
+      if (set.changes === 1 && doubtful)
+        await noteAttempt(id, "confirmed_not_at_lhdn", "Checked in the MyInvois portal: LHDN does not hold it. Sent again.", opts.by ?? null);
+      return set.changes;
+    })();
+    if (done !== 1) return { ok: false, error: cannot };
+    return { ok: true, einvoice: await submitOne(id), from: r.code_number, ...(doubtful ? { confirmedNotAtLhdn: true } : {}) };
   }
   const now = await toEInvoice(r);
   if (!now.actions.includes("replace")) {
@@ -1062,6 +1235,98 @@ export async function retryEInvoice(id: number, venueId: number): Promise<RetryR
     | undefined;
   if (!made) return { ok: false, error: "It has been replaced already." };
   return { ok: true, einvoice: await submitOne(made.id), from: r.code_number };
+}
+
+export type RecordResult = { ok: true; einvoice: EInvoice } | { ok: false; error: string };
+
+/** What the MyInvois portal shows for a submission ID or a document UUID. */
+const PORTAL_IDENTIFIER = /^[A-Za-z0-9._:-]{1,100}$/;
+
+/**
+ * *LHDN has it: record its identifiers*, for a document whose outcome at LHDN is unknown. Staff give the submission
+ * ID and/or the document UUID the MyInvois portal shows; MySenam asks LHDN for that submission or document with the
+ * venue's own credentials (read-only calls), and records them only when LHDN says the document it holds under them
+ * carries this document's number (its internal ID, our number). The document then stands as sent, with what the
+ * attempt sent as it was kept at the claim, and moves on as *Ask LHDN again* moves it (valid, invalid, cancelled).
+ * A mismatch, a number LHDN does not hold or a lookup that fails changes nothing and says why. UNVERIFIED: the
+ * lookups are written from LHDN's published API (`submissionDocuments`, `documentStatus`), against a stand-in only.
+ */
+export async function recordFromPortal(
+  id: number,
+  venueId: number,
+  input: { submissionUid?: unknown; documentUuid?: unknown },
+  by: StaffActor
+): Promise<RecordResult> {
+  const db = getDb();
+  const r = (await db.prepare("SELECT * FROM e_invoices WHERE id = ? AND venue_id = ?").get(id, venueId)) as EInvoiceRow | undefined;
+  if (!r || r.cleared_at || !isUnknown(r)) return { ok: false, error: "Only an e-invoice whose outcome at LHDN is unknown can be recorded this way." };
+  const given = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  let submissionUid = given(input.submissionUid);
+  let uuid = given(input.documentUuid);
+  if (!submissionUid && !uuid) return { ok: false, error: "Give the submission ID or the document UUID the MyInvois portal shows." };
+  if ([submissionUid, uuid].some((v) => v !== null && !PORTAL_IDENTIFIER.test(v)))
+    return { ok: false, error: "That is not an identifier the MyInvois portal shows." };
+  const connection = await connectionFor(venueId);
+  if (!connection) return { ok: false, error: "Fill in the MyInvois credentials and the TIN first." };
+
+  let status: DocumentStatus;
+  try {
+    if (submissionUid) {
+      const ours = (await submissionDocuments(connection, submissionUid)).filter((d) => d.internalId === r.code_number);
+      if (ours.length === 0) return { ok: false, error: `LHDN holds no document numbered ${r.code_number} under that submission ID. Nothing was recorded.` };
+      if (uuid && !ours.some((d) => d.uuid === uuid))
+        return { ok: false, error: `LHDN holds ${r.code_number} under another document UUID than that one. Nothing was recorded.` };
+      uuid ??= ours[0].uuid;
+    }
+    status = await documentStatus(connection, uuid!);
+  } catch (err) {
+    return { ok: false, error: `MyInvois could not be asked: ${err instanceof Error ? err.message : "no answer"}. Nothing was changed.` };
+  }
+  if (status.internalId !== r.code_number)
+    return {
+      ok: false,
+      error: status.internalId
+        ? `LHDN holds that document under the number ${status.internalId}, not ${r.code_number}. Nothing was recorded.`
+        : `LHDN did not say which document number it holds under that UUID, so it was not recorded.`,
+    };
+  if (submissionUid && status.submissionUid && status.submissionUid !== submissionUid)
+    return { ok: false, error: `LHDN says that document arrived in another submission than that one. Nothing was recorded.` };
+  submissionUid ??= status.submissionUid;
+  if (await db.prepare("SELECT 1 FROM e_invoices WHERE uuid = ? AND id <> ?").get(uuid, id))
+    return { ok: false, error: "Another e-invoice here already holds that document UUID. Nothing was recorded." };
+
+  let kept: { document?: string; total?: number; covers?: string[] | null; refersUuid?: string | null } | null = null;
+  try {
+    kept = r.attempt_payload ? JSON.parse(r.attempt_payload) : null;
+  } catch {
+    kept = null;
+  }
+  const recorded = await db.transaction(async () => {
+    // From here it is LHDN's record too. What the attempt sent is as it was kept at the claim (a document marked
+    // before migration 0260 kept none: it then holds LHDN's identifiers only).
+    const set = await db
+      .prepare(
+        `UPDATE e_invoices SET status = 'submitted', error = NULL, document = ?, total = ?, covers = ?, refers_uuid = ?,
+           submission_uid = ?, uuid = ?, submitted_at = COALESCE(last_attempt_at, datetime('now')), sending_at = NULL, attempt_payload = NULL
+          WHERE id = ? AND status = 'failed' AND ${UNKNOWN_SQL}`
+      )
+      .run(
+        kept?.document ?? null,
+        kept?.total ?? r.total,
+        kept?.covers ? JSON.stringify(kept.covers) : null,
+        kept?.refersUuid ?? null,
+        submissionUid,
+        uuid,
+        id,
+        SENDING_INTERRUPTED
+      );
+    if (set.changes === 1)
+      await noteAttempt(id, "recorded_from_portal", `Found at LHDN under ${[submissionUid && `submission ${submissionUid}`, `document ${uuid}`].filter(Boolean).join(", ")}; LHDN says ${status.status}.`, by);
+    return set.changes;
+  })();
+  if (recorded !== 1) return { ok: false, error: "It changed while LHDN was being asked. Look at the list again." };
+  await applyVerdict((await rowById(id))!, status);
+  return { ok: true, einvoice: await toEInvoice((await rowById(id))!) };
 }
 
 /**
@@ -1111,7 +1376,10 @@ export async function pruneEInvoices(): Promise<number> {
   // Its own transaction (a savepoint inside the run's): the trigger's permission lasts only for it, and goes
   // with it if anything is refused.
   return db.transaction(async () => {
-    const drafts = await db.prepare(`DELETE FROM e_invoices WHERE ${UNSENT} AND created_at < datetime('now', ?)`).run(cutoff);
+    // A draft whose outcome at LHDN is unknown is not "never sent": LHDN may hold it, so it stays until staff settle it.
+    const drafts = await db
+      .prepare(`DELETE FROM e_invoices WHERE ${UNSENT} AND NOT (${UNKNOWN_SQL}) AND created_at < datetime('now', ?)`)
+      .run(SENDING_INTERRUPTED, cutoff);
     await db.prepare("SELECT set_config('mysenam.einvoice_retention', 'on', true)").get();
     const cleared = await db
       .prepare(
@@ -1130,10 +1398,10 @@ export async function einvoicesDue(): Promise<number> {
   const row = (await getDb()
     .prepare(
       `SELECT COUNT(*)::int AS n FROM e_invoices
-        WHERE (${UNSENT} AND created_at < datetime('now', ?))
+        WHERE (${UNSENT} AND NOT (${UNKNOWN_SQL}) AND created_at < datetime('now', ?))
            OR (cleared_at IS NULL AND NOT (${UNSENT}) AND COALESCE(submitted_at, created_at) < datetime('now', ?))`
     )
-    .get(`-${years} years`, `-${years} years`)) as { n: number };
+    .get(SENDING_INTERRUPTED, `-${years} years`, `-${years} years`)) as { n: number };
   return Number(row.n);
 }
 
@@ -1168,7 +1436,7 @@ export async function einvoicesExport(userId: number): Promise<unknown[]> {
     receipt: r.receipt_number,
     corrects: r.refers_code,
     total: Number(r.total),
-    status: r.status,
+    status: isUnknown(r) ? "unknown" : r.status,
     askedAt: r.created_at,
     sentAt: r.submitted_at,
     lhdnUuid: r.uuid,
