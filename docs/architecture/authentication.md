@@ -308,7 +308,7 @@ password is needed, and every other session ends; this one stays. An account
 made with Google has no password, so it can set one without giving one —
 then it can sign in with email too.
 
-The links go out by email (`SMTP_URL` and `MAIL_FROM`). An install with no email set up cannot
+The links go out by email (Amazon SES or SMTP, with `MAIL_FROM`: [email transports](../integrations/messaging.md#email-transports)). An install with no email set up cannot
 send them; with `MYSENAM_SEND=log` they are written to the server log instead,
 which is how to test it locally.
 
@@ -344,7 +344,7 @@ remove whom is in [tenancy](tenancy.md#who-manages-staff-accounts).
   one saying so. The account moves to the new address only when that
   invitation is accepted, with a password chosen there, and every session it
   had ends; until then it signs in as before.
-- **Where the install cannot send email** (no `SMTP_URL` and `MAIL_FROM`),
+- **Where the install cannot send email** (neither Amazon SES nor SMTP set up, with `MAIL_FROM`),
   there is nothing to send an invitation with: the manager gives a password
   (8+ characters) and the account is made at once, which they can change once
   signed in, and an address is corrected at once. Where email is set up, a

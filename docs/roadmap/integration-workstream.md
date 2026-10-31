@@ -37,9 +37,11 @@ Checked on 29 October 2026 with no credentials: HTTPS reaches Stripe's, Meta's,
 Billplz's sandbox, Backblaze's, Twilio's and Resend's addresses. **Raw SMTP does
 not**: connections to ports 25, 465 and 587 are refused here, and cloud hosts
 commonly refuse them on new accounts too (to be confirmed for the host chosen).
-So email through `SMTP_URL`, the only transport built, cannot be proved from
-here, and may not be reachable from the production host either. That decides
-step 1. A provider callback or webhook needs a public HTTPS address, which
+So email through `SMTP_URL` cannot be proved from here, and may not be
+reachable from the production host either. That decided step 1: an HTTPS
+transport for Amazon SES is now built next to SMTP
+([email transports](../integrations/messaging.md#email-transports)), tested
+against a stand-in only. A provider callback or webhook needs a public HTTPS address, which
 this environment does not have; a payment is settled here by the return page,
 which asks the provider (`scripts/verify-integrations.mjs`), and only the
 callback and signature steps wait for a public address (step 4).
@@ -62,14 +64,14 @@ credentials are in place.
 
 ## Decisions that need the owner
 
-1. **Email provider.** The recommendation in
-   [launch providers](../integrations/launch-providers.md#transactional-email)
-   is Amazon SES over SMTP, but SMTP is unreachable from here and may be
-   from the production host. Recommended: add one HTTPS email-API transport
-   next to SMTP (small, one adapter and its tests) and verify with **Resend**
-   (free tier, no card, can send to the owner's own address before a domain is
-   verified); SES remains the cheaper choice at volume, over SMTP on a
-   non-blocked port or its HTTPS API. The provider is the owner's.
+1. **Email provider.** The owner chose Amazon SES (Singapore,
+   `ap-southeast-1`; the domain is bought and SES is set up), and SMTP is
+   unreachable from here and may be from the production host. So the
+   transport built is SES over its HTTPS API, next to SMTP
+   ([email transports](../integrations/messaging.md#email-transports),
+   [launch providers](../integrations/launch-providers.md#transactional-email));
+   step 1 is checking it against the real account. Resend would need a
+   transport of its own and is not built.
 2. **How the check gets a public address** (step 4): (a) the existing staging
    kit on one small DigitalOcean droplet, destroyed afterwards, a few cents;
    (b) a free tunnel from this environment, which exposes a running copy

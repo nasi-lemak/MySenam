@@ -39,7 +39,7 @@ import type { StaffRole } from "./roles";
  * the link that it already has an account. Within what the inviter can see,
  * a clash is said at once.
  *
- * Where the install has no email account (no SMTP_URL and MAIL_FROM), there
+ * Where the install has no email account (neither SES nor SMTP set up, see emailConfig), there
  * is nothing to send an invitation with, so the manager gives a password, as
  * before; where it has one, a typed password is refused.
  */

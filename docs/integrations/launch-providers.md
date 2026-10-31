@@ -141,13 +141,20 @@ Sources: [SES pricing](https://aws.amazon.com/ses/pricing/),
 [Resend](https://resend.com/pricing), [Mailgun](https://www.mailgun.com/pricing/),
 [Brevo](https://www.brevo.com/pricing.md), [Postmark](https://postmarkapp.com/pricing).
 
-**Recommendation: Amazon SES in Singapore (ap-southeast-1) over SMTP**,
-switched to pay-as-you-go pricing. It works with `SMTP_URL` as it is, it is
-the cheapest at this volume by far, and its bounce and complaint
-notifications are what reading bounces back would use later. Set up SPF,
-DKIM and DMARC on the sending domain. Resend is the simpler alternative if a
-flat $20 a month and webhooks out of the box are worth more than the
-saving.
+**Recommendation: Amazon SES in Singapore (ap-southeast-1), over its HTTPS
+API or over SMTP**, switched to pay-as-you-go pricing. The app has both
+([email transports](messaging.md#email-transports)): the HTTPS API
+(`SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY`, `SES_REGION`, `MAIL_FROM`) is
+the one to start with, because many cloud hosts refuse outgoing SMTP ports
+(25, 465 and 587), the real-service checks cannot reach them from the cloud
+environment they run in, and port 443 is not refused; `SMTP_URL` works as it
+is wherever those ports are open. SES is the cheapest at this volume by far,
+and its bounce and complaint notifications are what reading bounces back
+would use later. A new account is in the sandbox (verified recipients only)
+until production access is requested. Set up DKIM and DMARC on the sending
+domain. Resend is the simpler alternative if a flat $20 a month and webhooks
+out of the box are worth more than the saving, but it would need its own
+transport, which is not built.
 
 ## Phone verification
 
@@ -331,7 +338,7 @@ operates it is configuration, not code, so no company structure is built in:
 | Venue country: currency, tax names, phone numbers, time zone, laws cited | `MYSENAM_COUNTRY` | install |
 | Venues' takings | each venue's own gateway account | venue |
 | MySenam's invoices to venues, and its tax registration | `MYSENAM_PAYMENT_PROVIDER` and its keys, `MYSENAM_TAX_RATE`, `MYSENAM_TAX_REG_NO`, `MYINVOIS_*` | install |
-| WhatsApp and messaging | `WHATSAPP_*`, `SMTP_URL`, `MAIL_FROM`, `SMS_*` | install |
+| WhatsApp and messaging | `WHATSAPP_*`, `SES_*` or `SMTP_URL`, `MAIL_FROM`, `SMS_*` | install |
 | Where data is kept | the database host, `PHOTOS_S3_*`, `OFFSITE_S3_*` with `OFFSITE_DATA_LOCATION` | install |
 
 Customers' own countries do not change any of these: a booking is governed

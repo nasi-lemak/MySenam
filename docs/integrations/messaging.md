@@ -13,8 +13,9 @@ The booking code is on the customer's screen the moment the booking is made,
 with *Add to Google Calendar* and a calendar file beside it, so nothing waits
 on a message arriving. Messages are the copy they keep:
 
-- **Email first** (`SMTP_URL` + `MAIL_FROM`, any SMTP account — Gmail, Zoho,
-  Brevo, Amazon SES). Anyone who gives an address gets their confirmation by
+- **Email first** (`SMTP_URL` + `MAIL_FROM` for any SMTP account — Gmail, Zoho,
+  Brevo — or the `SES_*` settings + `MAIL_FROM` for Amazon SES over HTTPS;
+  [email transports](#email-transports)). Anyone who gives an address gets their confirmation by
   email, with the booking attached as a calendar invite (each week of a
   series, and a reminder an hour before), so it is in their diary in a tap.
   It costs next to nothing. The booking form asks for the address as *Email
@@ -61,6 +62,67 @@ when a signed-in request carries a different language; migration 0112), or
 the install's first language before it has one or if it no longer offers
 it. What staff typed (a venue's reason for moving a game) and the names of
 rounds ("Semi-final 2") stay as written.
+
+### Email transports
+
+Email leaves by one of two transports, chosen by configuration alone
+(`emailConfig` in `src/lib/transports.ts`, the one place that says whether
+email is set up and how). Both send the same message: the same sender,
+subject and text, the booking as a calendar invite, and a venue's news with
+the one-click unsubscribe headers.
+
+| | SMTP | Amazon SES over HTTPS |
+| - | ---- | --------------------- |
+| Set by | `SMTP_URL`, `MAIL_FROM` | `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY`, `SES_REGION`, `MAIL_FROM`; optionally `SES_SESSION_TOKEN`, `SES_CONFIGURATION_SET` |
+| Goes through | nodemailer, to any SMTP server, on port 25, 465 or 587 | SESv2 `SendEmail` at `https://email.<region>.amazonaws.com/v2/email/outbound-emails`, port 443 |
+| Why | Any provider | Many cloud hosts refuse outgoing SMTP ports, especially on new accounts; HTTPS is not refused |
+
+If both are set, **SES is used and `SMTP_URL` is not**. SES is chosen only
+when all four of its required settings are present; the `AWS_*` variable
+names are deliberately not read, since other tools on a machine set them
+(sometimes to placeholders). With neither set, messages queue and the
+dashboard says so, as for any unconfigured channel.
+
+**How the SES transport sends** (`src/lib/ses.ts`). The message is built
+with nodemailer (`streamTransport`), without sending it, to get the finished
+email as raw MIME; that goes as base64 in `Content.Raw.Data` with the sender,
+the one recipient and the configuration set if there is one. The request is
+signed with AWS Signature Version 4, service `ses`, by the signer the
+off-site copies use (`signV4` in `src/lib/offsite.ts`), with no SDK and no
+new dependency; it has a 15-second limit. `SES_REGION` must look like an AWS
+region (`ap-southeast-1`) before it becomes part of the host name. SES's
+`MessageId` is kept as the message's provider id.
+
+**When SES says no.** The error carries SES's own words and the HTTP status
+(`Amazon SES refused it (400): …`) and never a credential. A throttle (429,
+`TooManyRequestsException`) or a 5xx is worded as SES being throttled or
+unavailable; everything else, including the sandbox refusing an address that
+is not verified (`MessageRejected`, "Email address is not verified"), is a
+plain failure with its reason. Every failure goes through the outbox's usual
+retry (1, 5, 30 and 120 minutes, five tries) and then the message is
+abandoned with the reason, so a throttle is retried and not lost, and
+staff see why under *Venues*.
+
+**Sandbox and production access.** A new SES account is in the sandbox: it
+sends only to addresses and domains verified in SES, at most about 200 a day
+and one a second, and the sender (`MAIL_FROM`) must be a verified identity.
+For real customers the account needs *production access*, which the owner
+requests in the SES console (a description of the use; usually answered
+within a day). The domain is verified by publishing the DKIM records SES
+gives, and DMARC should be set on it too. The real-service check reads the
+account and the sender's identity and says which of these is the case
+([checks](../development/testing.md#staging-and-real-services)).
+
+**What a bounce looks like.** The app does not read bounces or complaints
+back: SES accepting the request is "sent" in the outbox, which is not proof
+the message arrived. A bounce, a complaint or a suppressed address is
+visible in SES's console and, with `SES_CONFIGURATION_SET` pointing at a set
+with an event destination, in the events it publishes; reading them back into
+the outbox is a known limitation. Nothing here has been checked against a
+real SES account yet: the transport is tested against a stand-in for SES, so
+email stays `INTEGRATION_VERIFICATION_REQUIRED` until the real-service check
+passes ([workstream](../roadmap/integration-workstream.md)); what a bounce
+looks like in practice is recorded then.
 
 ### Emails that belong to no venue's customers
 

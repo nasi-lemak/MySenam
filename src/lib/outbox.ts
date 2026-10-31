@@ -451,8 +451,8 @@ export function setTransport(t: Transport | null): void {
  * `MYSENAM_SEND=log` writes the message to the server log and marks it sent,
  * which is what you want while developing, whatever else is configured.
  * Otherwise each message goes out on its own channel: WhatsApp when
- * WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID are set, email when SMTP_URL and
- * MAIL_FROM are. With neither, messages queue up and the dashboard says so,
+ * WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID are set, email when Amazon SES
+ * or SMTP is set up (`emailConfig`). With neither, messages queue up and the dashboard says so,
  * which is honest; a message silently marked sent would not be.
  */
 export function transport(): Transport | null {

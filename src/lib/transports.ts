@@ -4,12 +4,14 @@ import { DICTIONARIES, Locale, Phrase } from "./i18n";
 import type { MessageKind, OutboxMessage, Transport } from "./outbox";
 import { region } from "./region";
 import { internationalNumber } from "./phone";
+import { sendRawEmail, sesConfigFromEnv } from "./ses";
+import type { SesConfig } from "./ses";
 
 /**
  * The real ways a message leaves the machine: WhatsApp and email.
  *
  * Both are switched on by configuration alone, and neither is required. A venue
- * that has only an SMTP account still gets its confirmations out by email; one
+ * that has only an email account (SMTP, or Amazon SES over HTTPS) still gets its confirmations out by email; one
  * with only WhatsApp reaches everybody, because everybody books with a phone
  * number.
  */
@@ -165,17 +167,30 @@ async function post(config: WhatsAppConfig, message: Record<string, unknown>): P
 
 // --------------------------------------------------------------------- email
 
-export interface EmailConfig {
-  /** smtp://user:pass@host:587 or smtps://user:pass@host:465 */
-  url: string;
-  from: string;
-}
+export type EmailConfig =
+  | {
+      /** Optional so that a config written before there were two ways (a bare `{ url, from }`) is still SMTP. */
+      kind?: "smtp";
+      /** smtp://user:pass@host:587 or smtps://user:pass@host:465 */
+      url: string;
+      from: string;
+    }
+  | SesConfig;
 
+/**
+ * Whether email is set up, and how: the one place that answers it.
+ *
+ * Amazon SES over HTTPS (SES_ACCESS_KEY_ID, SES_SECRET_ACCESS_KEY, SES_REGION, MAIL_FROM) wins when
+ * both it and SMTP (SMTP_URL, MAIL_FROM) are set, because the cloud hosts that refuse SMTP are why
+ * it exists. Neither set: null.
+ */
 export function emailConfig(): EmailConfig | null {
+  const ses = sesConfigFromEnv();
+  if (ses) return ses;
   const url = process.env.SMTP_URL;
   const from = process.env.MAIL_FROM;
   if (!url || !from) return null;
-  return { url, from };
+  return { kind: "smtp", url, from };
 }
 
 let mailer: { url: string; transporter: Transporter } | null = null;
@@ -191,23 +206,37 @@ export function unsubscribeHeaders(link: unknown): { headers?: Record<string, st
   return { headers: { "List-Unsubscribe": `<${oneClick}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } };
 }
 
+/** The message as nodemailer is given it, the same whichever way it leaves. */
+function mailFor(from: string, message: OutboxMessage) {
+  return {
+    from,
+    to: message.recipient,
+    subject: message.subject ?? undefined,
+    text: message.body,
+    // The booking as a calendar invite: in the customer's diary in a tap,
+    // with its own reminder.
+    ...(message.calendar ? { icalEvent: { filename: "booking.ics", method: "PUBLISH", content: message.calendar } } : {}),
+    // A venue's news: the mail app's own unsubscribe button, one click (RFC 8058).
+    ...(message.kind === "campaign" ? unsubscribeHeaders(message.params?.link) : {}),
+  };
+}
+
+/** The finished message as the bytes of an email (MIME), without sending it anywhere. */
+async function rawMessage(mail: ReturnType<typeof mailFor>): Promise<Buffer> {
+  const info = await nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "windows" }).sendMail(mail);
+  return info.message as Buffer;
+}
+
 export function emailTransport(config: EmailConfig): Transport {
   return {
     name: "email",
     async send(message: OutboxMessage) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message.recipient))
         throw new Error(`${message.recipient} is not an email address.`);
-      await transporterFor(config.url).sendMail({
-        from: config.from,
-        to: message.recipient,
-        subject: message.subject ?? undefined,
-        text: message.body,
-        // The booking as a calendar invite: in the customer's diary in a tap,
-        // with its own reminder.
-        ...(message.calendar ? { icalEvent: { filename: "booking.ics", method: "PUBLISH", content: message.calendar } } : {}),
-        // A venue's news: the mail app's own unsubscribe button, one click (RFC 8058).
-        ...(message.kind === "campaign" ? unsubscribeHeaders(message.params?.link) : {}),
-      });
+      const mail = mailFor(config.from, message);
+      if (config.kind === "ses")
+        return await sendRawEmail(config, { from: config.from, to: message.recipient, raw: await rawMessage(mail) });
+      await transporterFor(config.url).sendMail(mail);
     },
   };
 }

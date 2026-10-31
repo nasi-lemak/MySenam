@@ -264,10 +264,16 @@ these once with a real account, in its sandbox where it has one:
       more set before the first start (without it production makes no owner
       and refuses the published default); `MYSENAM_SECRET` set and
       kept out of backups; two-factor sign-in on for the owner account.
-- [ ] **Email**: `SMTP_URL` and `MAIL_FROM` send a booking confirmation that
-      arrives in an inbox, not spam (SPF/DKIM on the sending domain), with
-      its calendar invite, and a venue's news shows the mail app's own
-      unsubscribe button.
+- [ ] **Email**: either Amazon SES over HTTPS (`SES_ACCESS_KEY_ID`,
+      `SES_SECRET_ACCESS_KEY`, `SES_REGION`, `MAIL_FROM`; SES wins if
+      `SMTP_URL` is set too) or SMTP (`SMTP_URL`, `MAIL_FROM`; ports 25, 465
+      and 587 are refused by many cloud hosts, so check the host allows them).
+      A booking confirmation arrives in an inbox, not spam (DKIM and DMARC on
+      the sending domain), with its calendar invite, and a venue's news
+      shows the mail app's own unsubscribe button. With SES, the account has
+      production access (not the sandbox), the sending domain is verified,
+      and `node scripts/verify-integrations.mjs email --send` passes
+      ([email transports](../integrations/messaging.md#email-transports)).
 - [ ] **WhatsApp**: every template under *Messages to customers* submitted
       and approved by Meta in each language, word for word; a confirmation
       and a waitlist offer arrive; the delivery webhook reaches

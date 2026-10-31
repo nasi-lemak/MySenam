@@ -48,7 +48,7 @@ Every role as the code has it, and the main journeys through the app, are in
 | Messages | Email, WhatsApp and SMS confirmations, reminders and urgent news, with delivery tracking; venue alerts; marketing email with consent | [messaging](../integrations/messaging.md) |
 | Marketplace | Self-service sign-up, checks before going live, monthly invoices, suspension, storefront domains, businesses with branches | [marketplace](marketplace.md), [tenancy](../architecture/tenancy.md) |
 | Regions | Malaysia or Singapore per install; English, Bahasa Malaysia, Chinese and Tamil; SST/GST; MyInvois e-invoicing | [regions and tax](regions-and-tax.md) |
-| Integrations | Billplz, Stripe, WhatsApp Cloud API, SMTP, SMS, MyInvois, Google sign-in, a public API and webhooks, Reserve with Google feeds | [integrations](../index.md#integrations) |
+| Integrations | Billplz, Stripe, WhatsApp Cloud API, email (SMTP or Amazon SES), SMS, MyInvois, Google sign-in, a public API and webhooks, Reserve with Google feeds | [integrations](../index.md#integrations) |
 
 ## Terms used in this documentation
 

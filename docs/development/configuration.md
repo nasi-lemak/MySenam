@@ -77,8 +77,11 @@ Everything is an environment variable; there is nothing else to configure.
 | `WHATSAPP_APP_SECRET` | — | The Meta app's secret, which signs each delivery to `/api/whatsapp/webhook` |
 | `WHATSAPP_VERIFY_TOKEN` | — | Any long random string, given to Meta when subscribing the webhook |
 | `MYSENAM_WHATSAPP_CHAT_HOLD_MINUTES` | `3` | How long a confirmation waits for the customer to open the chat before it goes as a template |
-| `SMTP_URL` | — | `smtp://user:pass@host:587` (or `smtps://…:465`). With `MAIL_FROM`, sends email |
-| `MAIL_FROM` | — | The sender, e.g. `Arena Bookings <bookings@arena.my>` |
+| `SMTP_URL` | — | `smtp://user:pass@host:587` (or `smtps://…:465`). With `MAIL_FROM`, sends email by SMTP. Not used while the three required `SES_*` settings below are set as well (SES then wins) |
+| `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY`, `SES_REGION` | — | Email through Amazon SES's HTTPS API, for hosts that refuse SMTP ports. With `MAIL_FROM`, all four must be set (those three and the sender); then SES is used and `SMTP_URL` is not. `SES_REGION` is the SES region, e.g. `ap-southeast-1`. The key needs `ses:SendEmail`, and for the real-service check `ses:GetAccount` and `ses:GetEmailIdentity`. Deliberately not the `AWS_*` names, which other tools on a machine set. See [email transports](../integrations/messaging.md#email-transports) |
+| `SES_SESSION_TOKEN` | — | Optional: the session token of temporary SES credentials |
+| `SES_CONFIGURATION_SET` | — | Optional: a SES configuration set applied to every message (event destinations for bounces and complaints, reputation tracking) |
+| `MAIL_FROM` | — | The sender, e.g. `Arena Bookings <bookings@arena.my>`; needed by both email ways. With SES it must be an address or a domain verified in SES |
 | `MYSENAM_SECRET` | `secret.key` in the data folder | Encrypts stored payment keys. Keep it out of the backups |
 | `SECURE_COOKIES` | — | `1` forces the `Secure` flag on session cookies, for a proxy that sets no `X-Forwarded-Proto`. See [authentication](../architecture/authentication.md#session-cookies) |
 | `MYSENAM_PG_DUMP`, `MYSENAM_PG_RESTORE` | `pg_dump`, `pg_restore` | Paths to the Postgres client tools used by backups and restores, when they are not on `PATH` |

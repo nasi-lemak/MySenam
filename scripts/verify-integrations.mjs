@@ -6,7 +6,7 @@
  *   node scripts/verify-integrations.mjs all
  *   node scripts/verify-integrations.mjs stripe [--through http://127.0.0.1:3900]
  *   node scripts/verify-integrations.mjs billplz [--through …]
- *   node scripts/verify-integrations.mjs email [--send]
+ *   node scripts/verify-integrations.mjs email [--send]      (Amazon SES over HTTPS, or SMTP)
  *   node scripts/verify-integrations.mjs whatsapp [--send]
  *   node scripts/verify-integrations.mjs sms [--send]
  *   node scripts/verify-integrations.mjs b2
@@ -273,10 +273,18 @@ async function billplz() {
 // ------------------------------------------------------------ email
 
 async function email() {
+  // Amazon SES over HTTPS is what the app uses when its four settings are all present (it wins over SMTP).
+  const sesNames = ["SES_ACCESS_KEY_ID", "SES_SECRET_ACCESS_KEY", "SES_REGION", "MAIL_FROM"];
+  if (missing(sesNames).length === 0) return await emailSes();
   const p = provider("email");
   console.log("Email (SMTP and the sending domain's DNS)");
   const need = missing(["SMTP_URL", "MAIL_FROM"]);
-  if (need.length) return p.blocked(need);
+  if (need.length) {
+    // Neither way is set up: name both. If some SES settings are set, the missing SES ones are what is needed.
+    const someSes = sesNames.slice(0, 3).some((v) => process.env[v]);
+    console.log(`  (Amazon SES over HTTPS needs ${sesNames.join(", ")}; SMTP needs SMTP_URL and MAIL_FROM)`);
+    return p.blocked(someSes && !process.env.SMTP_URL ? missing(sesNames) : need);
+  }
   const domain = /@([^>\s]+)/.exec(process.env.MAIL_FROM)?.[1];
   if (!domain) {
     p.step("sender address", false, "MAIL_FROM has no address in it");
@@ -306,6 +314,102 @@ async function email() {
     p.step("arrived in the inbox, with SPF/DKIM/DMARC passing", null, "read the message's headers at the test address: not visible from here");
   } else p.step("send a message", null, "give --send and VERIFY_EMAIL_TO (an address you control)");
   p.step("bounces", null, "not read back by the app: watch the provider's dashboard (known limitations)");
+  return p.result;
+}
+
+/** What AWS answers when the key itself is refused (not merely not allowed to read something). */
+const SES_KEY_REFUSED = /UnrecognizedClient|InvalidSignature|SignatureDoesNotMatch|InvalidClientTokenId|ExpiredToken|IncompleteSignature|MissingAuthenticationToken/i;
+
+/** Amazon SES over its HTTPS API, with the app's own client (src/lib/ses.ts). */
+async function emailSes() {
+  const p = provider("email");
+  console.log("Email (Amazon SES over HTTPS, and the sending domain's DNS)");
+  const { sesConfigFromEnv, sesCall, sendRawEmail } = await import("../src/lib/ses.ts");
+  const config = sesConfigFromEnv();
+  const domain = /@([^>\s]+)/.exec(config.from)?.[1];
+  if (!domain) {
+    p.step("sender address", false, "MAIL_FROM has no address in it");
+    return p.result;
+  }
+  const said = (reply) => `${reply.status} ${reply.json?.message ?? reply.json?.Message ?? reply.type ?? ""}`.trim();
+  const call = async (path) => {
+    try {
+      return { reply: await sesCall(config, { method: "GET", path }) };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  // The account: is the key accepted, sandbox or production, the 24-hour quota, sending enabled.
+  const account = await call("/v2/email/account");
+  if (account.error) {
+    p.step("Amazon SES reached with the key", false, account.error);
+    return p.result;
+  }
+  const a = account.reply;
+  if (a.status === 200) {
+    p.step(`Amazon SES accepted the key in ${config.region}`, true);
+    p.step("sending enabled for the account", a.json?.SendingEnabled === true, `SendingEnabled=${a.json?.SendingEnabled}`);
+    const production = a.json?.ProductionAccessEnabled === true;
+    p.step("production access (not the sandbox)", production ? true : null, production ? "production" : "sandbox: SES sends only to verified addresses and domains, and typically 200 a day; request production access in the SES console");
+    const quota = a.json?.SendQuota ?? {};
+    p.step("24-hour sending quota", null, `${quota.SentLast24Hours ?? "?"} sent of ${quota.Max24HourSend ?? "?"}, at most ${quota.MaxSendRate ?? "?"} a second`);
+  } else if (SES_KEY_REFUSED.test(a.type ?? "")) {
+    p.step(`Amazon SES accepted the key in ${config.region}`, false, said(a));
+    return p.result;
+  } else if (a.status === 403) {
+    p.step("account details (sandbox or production, quota)", null, `could not read: the key may not be allowed ses:GetAccount (${said(a)}); sending is not affected`);
+  } else {
+    p.step("account details (sandbox or production, quota)", null, `could not read (${said(a)})`);
+  }
+
+  // The sending identity: the MAIL_FROM domain (or the address itself), its DKIM and whether it may send.
+  const address = /<?([^<>\s]+@[^<>\s]+)>?\s*$/.exec(config.from)?.[1];
+  let identity = await call(`/v2/email/identities/${encodeURIComponent(domain)}`);
+  let named = domain;
+  if (identity.reply?.status === 404 && address) {
+    identity = await call(`/v2/email/identities/${encodeURIComponent(address)}`);
+    named = address;
+  }
+  if (identity.error) p.step(`sending identity ${named}`, null, `could not read: ${identity.error}`);
+  else if (identity.reply.status === 200) {
+    const i = identity.reply.json ?? {};
+    p.step(`${named} verified for sending in SES`, i.VerifiedForSendingStatus === true, `VerifiedForSendingStatus=${i.VerifiedForSendingStatus}`);
+    const dkim = i.DkimAttributes?.Status;
+    if (dkim === undefined) p.step(`DKIM for ${named}`, null, "none reported (an address identity has no DKIM of its own)");
+    else p.step(`DKIM for ${named}`, dkim === "SUCCESS", `status ${dkim}${i.DkimAttributes?.SigningEnabled === false ? ", signing disabled" : ""}`);
+    if (i.MailFromAttributes?.MailFromDomain)
+      p.step(`custom MAIL FROM ${i.MailFromAttributes.MailFromDomain}`, i.MailFromAttributes.MailFromDomainStatus === "SUCCESS" ? true : null, `status ${i.MailFromAttributes.MailFromDomainStatus}`);
+  } else if (identity.reply.status === 404) {
+    p.step(`sending identity ${domain}`, false, "SES has no identity for the MAIL_FROM domain or address: it will refuse to send from it (verify the domain in the SES console)");
+  } else {
+    p.step(`sending identity ${named}`, null, `could not read: the key may not be allowed ses:GetEmailIdentity (${said(identity.reply)}); sending is not affected`);
+  }
+
+  // DMARC and SPF in the domain's DNS (SES signs with DKIM; SPF matters only for a custom MAIL FROM domain).
+  const txt = async (name) => (await dns.resolveTxt(name).catch(() => [])).map((r) => r.join(""));
+  const dmarc = (await txt(`_dmarc.${domain}`)).find((r) => r.startsWith("v=DMARC1"));
+  p.step(`DMARC for ${domain}`, !!dmarc, dmarc ?? "no v=DMARC1 record");
+  const spf = (await txt(domain)).find((r) => r.startsWith("v=spf1"));
+  p.step(`SPF for ${domain}`, spf ? true : null, spf ?? "no v=spf1 record (SES's own bounce domain carries SPF; DMARC passes through DKIM)");
+
+  if (send && process.env.VERIFY_EMAIL_TO) {
+    try {
+      const nodemailer = (await import("nodemailer")).default;
+      const mime = await nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "windows" }).sendMail({
+        from: config.from,
+        to: process.env.VERIFY_EMAIL_TO,
+        subject: `MySenam integration check ${new Date().toISOString()}`,
+        text: "A synthetic message from scripts/verify-integrations.mjs. Check it arrived in the inbox, not spam, and that SPF, DKIM and DMARC pass in its headers.",
+      });
+      const sent = await sendRawEmail(config, { from: config.from, to: process.env.VERIFY_EMAIL_TO, raw: mime.message });
+      p.step("message accepted by SES for the test address", !!sent.providerId, sent.providerId ?? "no message id");
+      p.step("arrived in the inbox, with SPF/DKIM/DMARC passing", null, "read the message's headers at the test address: not visible from here");
+    } catch (err) {
+      p.step("message accepted by SES for the test address", false, err instanceof Error ? err.message : String(err));
+    }
+  } else p.step("send a message", null, "give --send and VERIFY_EMAIL_TO (an address you control; in the sandbox it must be verified in SES)");
+  p.step("bounces", null, "not read back by the app: watch the SES console's reputation dashboard, or a configuration set's event destination (known limitations)");
   return p.result;
 }
 
