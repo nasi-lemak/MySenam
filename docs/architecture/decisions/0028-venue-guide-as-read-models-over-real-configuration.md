@@ -15,7 +15,7 @@
   application actually does.
 - **Decision:**
   - **One venue profile, read from the real configuration.**
-    `readVenueProfile(venueId)` reads what the venue has (its activities and
+    `readVenueProfile(venueId)` (named here for what it does; its place is in the feature page) reads what the venue has (its activities and
     resources, hours, rates in force and rates scheduled, policies, payment
     set-up, staff, programmes, memberships and passes, branches, test
     bookings) from the existing tables, through the existing lookups
@@ -33,7 +33,7 @@
     log entry and effective-dating) or opens the existing screen. A step is
     done when the saved state says so, never because *Next* was pressed; an
     acknowledgement is a recorded, manager-only, logged act and is shown as one.
-  - **A typed capability registry** (`src/lib/guide/capabilities.ts`) is the
+  - **A typed capability registry** (the guide's library under `src/lib`) is the
     one list of what the guide may say MySenam can do: each capability names
     its row in [feature status](../../product/feature-status.md), whether it
     needs configuration, an external integration or an approval, the screen
