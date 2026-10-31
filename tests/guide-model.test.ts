@@ -188,13 +188,13 @@ describe("the setup plan", () => {
     const answers = withAnswers({ types: ["badminton-and-pickleball"], customersDo: ["reserve"], resources: "few", branches: "one", staffing: "staffed", channels: ["online", "counter"], coaching: false, children: false, audience: "public" });
     const steps = ids(profile, answers);
     expect(steps).toEqual(expect.arrayContaining(["details", "courts", "cancellation-terms", "online-payment", "test-booking"]));
-    for (const absent of ["coaches", "coach-hours", "branches", "copied-branch", "classes", "memberships", "equipment", "guardians", "unattended"]) expect(steps, absent).not.toContain(absent);
+    for (const absent of ["coaches", "coach-hours", "branches", "copied-branch", "classes", "memberships", "equipment", "guardians", "unattended", "tournaments", "discounts", "shared-resources", "participant-requirements", "einvoicing", "activities"]) expect(steps, absent).not.toContain(absent);
     // The plan is in the order of its groups: the venue first, going live last.
     const plan = buildSetupPlan(ctx(profile, answers));
-    expect(plan.groups.map((g) => g.group)).toEqual(["identity", "resources", "policies", "payments", "launch"]);
-    expect(plan.items.at(-1)!.id).toBe("test-booking");
-    // Each says why it is shown.
-    for (const item of plan.items) expect(item.because.key.startsWith("gd.because."), item.id).toBe(true);
+    expect(plan.groups.map((g) => g.group)).toEqual(["identity", "resources", "pricing", "policies", "people", "payments", "launch"]);
+    expect(plan.items.at(-1)!.id).toBe("launch");
+    // Each says why it is shown (the framework's own reasons, or the setup journey's).
+    for (const item of plan.items) expect(/^g[ds]\.because\./.test(item.because.key), item.id).toBe(true);
   });
 
   it("is conditional: a coaching academy gets coach, class and children steps, and no equipment hire", () => {

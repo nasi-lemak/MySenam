@@ -769,6 +769,10 @@ WhatsApp* link opens a chat with that number, the booking's code written in
   does not have (a front desk's link to Reports) opens on Bookings; a venue
   it does not run is ignored. The current tab is marked for screen readers
   (`aria-current`) as well as by colour (`components/admin/place.tsx`).
+- **The set-up checklist at the top of the dashboard has a longer form.** Its
+  three steps are the first three of the *Guide → Set up* journey, read from the
+  same answers; the journey adds the questions, the plan and *Try it*
+  ([the setup journey](venue-guide.md#the-setup-journey)).
 - **The day list and the schedule keep up by themselves.** While on screen
   they read the day again every minute, and at once on coming back to a tab
   hidden for a while; not while hidden. Only their data is read: what is

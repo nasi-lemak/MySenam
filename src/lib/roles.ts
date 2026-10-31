@@ -100,7 +100,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/setup$/, methods: ["POST"] },
   // The setup journey (lib/guide): what it knows of the venue's configuration, the manager's answers and what they reviewed.
   // Its playbook route answers every role, each its own guide (docs/features/venue-guide.md#permissions).
-  { path: /^\/api\/admin\/guide\/setup$/, methods: "all" },
+  { path: /^\/api\/admin\/guide\/setup(\/journey)?$/, methods: "all" },
 ];
 
 export type StaffRole = "manager" | "desk";

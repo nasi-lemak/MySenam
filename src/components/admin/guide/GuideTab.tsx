@@ -5,11 +5,11 @@ import { useCallback, useEffect, useState } from "react";
 import type { Court, Venue } from "@/lib/types";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import type { SetupView } from "@/lib/guide/http";
-import type { PlanItem, Say, SetupGroup, StepStatus } from "@/lib/guide/plan";
-import type { ReadinessItem } from "@/lib/guide/readiness";
+import type { Say } from "@/lib/guide/plan";
 import { GUIDE_VIEWS, type DashboardTab, type GuideRole, type GuideView } from "@/lib/guide/shell";
 import { placeParam, setPlaceParams, useAddressed } from "../place";
 import { useStaffT } from "../StaffLanguage";
+import { SetupPlanView } from "./SetupPlanView";
 
 /**
  * The venue guide's tab (`?tab=guide&view=setup|playbook|discover`;
@@ -23,25 +23,6 @@ import { useStaffT } from "../StaffLanguage";
  * the playbook: setting a venue up is a manager's, and the server refuses the
  * desk the setup routes regardless of what is drawn here.
  */
-
-const GROUP_PHRASES: Record<SetupGroup, StaffPhrase> = {
-  identity: "gd.group.identity",
-  resources: "gd.group.resources",
-  pricing: "gd.group.pricing",
-  policies: "gd.group.policies",
-  people: "gd.group.people",
-  payments: "gd.group.payments",
-  programmes: "gd.group.programmes",
-  launch: "gd.group.launch",
-};
-
-const STATE_PHRASES: Record<StepStatus, StaffPhrase> = {
-  done: "gd.state.done",
-  todo: "gd.state.todo",
-  optional: "gd.state.optional",
-  "review-needed": "gd.state.reviewNeeded",
-  blocked: "gd.state.blocked",
-};
 
 const VIEW_PHRASES: Record<GuideView, StaffPhrase> = {
   setup: "gd.view.setup",
@@ -145,7 +126,7 @@ export function GuideTab({
       ) : view === "discover" ? (
         <SetupData key={`discover-${venueId}`} venueId={venueId} render={(data, post) => <DiscoverView data={data} post={post} onGo={onGo} />} />
       ) : (
-        <SetupData key={`setup-${venueId}`} venueId={venueId} render={(data, post) => <SetupPlanView data={data} post={post} onGo={onGo} />} />
+        <SetupData key={`setup-${venueId}`} venueId={venueId} render={(data) => <SetupPlanView data={data} onGo={onGo} />} />
       )}
     </div>
   );
@@ -223,118 +204,6 @@ function Placeholder() {
     <p data-placeholder className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
       {t("gd.placeholder")}
     </p>
-  );
-}
-
-// ---------------------------------------------------------------- the setup view (placeholder: the setup journey replaces it)
-
-function SetupPlanView({ data, post, onGo }: { data: SetupView; post: Post; onGo: (tab: DashboardTab) => void }) {
-  const t = useStaffT();
-  const c = data.plan.counts;
-  return (
-    <section aria-labelledby="guide-setup-heading" className="space-y-4">
-      <h3 id="guide-setup-heading" className="font-semibold">
-        {t("gs.heading")}
-      </h3>
-      <Placeholder />
-      <p className="text-sm text-slate-600">{t("gd.plan.counts", { done: c.done, todo: c.todo, optional: c.optional, review: c["review-needed"] })}</p>
-      {data.plan.groups.length === 0 && <p className="text-sm text-slate-500">{t("gd.plan.empty")}</p>}
-      {data.plan.groups.map((group) => (
-        <div key={group.group}>
-          <h4 className="text-sm font-semibold text-slate-700">{t(GROUP_PHRASES[group.group])}</h4>
-          <ul className="mt-1 space-y-2">
-            {group.items.map((item) => (
-              <PlanRow key={item.id} item={item} onGo={onGo} onReviewed={() => post({ action: "acknowledge", step: item.id })} />
-            ))}
-          </ul>
-        </div>
-      ))}
-      <Readiness data={data} onGo={onGo} />
-    </section>
-  );
-}
-
-function PlanRow({ item, onGo, onReviewed }: { item: PlanItem; onGo: (tab: DashboardTab) => void; onReviewed: () => void }) {
-  const t = useStaffT();
-  const unverified = item.state.status === "done" && item.state.verified === false;
-  return (
-    <li className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" data-step={item.id}>
-      <p className="font-medium">
-        {t(item.titleKey)} <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{t(STATE_PHRASES[item.state.status])}</span>{" "}
-        <span className="text-xs font-normal text-slate-500">{item.required ? t("gd.required") : t("gd.optionalTag")}</span>
-      </p>
-      <p className="text-slate-600">{t(item.whyKey)}</p>
-      <p className="text-xs text-slate-500">{say(t, item.because)}</p>
-      {item.recommend && (
-        <p className="text-xs text-slate-600">
-          {t("gd.recommended")}: {say(t, item.recommend)}
-        </p>
-      )}
-      {item.consequence && (
-        <p className="text-xs text-slate-600">
-          {t("gd.consequence")}: {say(t, item.consequence)}
-        </p>
-      )}
-      {item.state.note && <p className="text-xs text-slate-600">{say(t, item.state.note)}</p>}
-      {unverified && !item.state.note && <p className="text-xs text-slate-600">{t("gd.unverified")}</p>}
-      {item.state.blockedBy && <p className="text-xs text-slate-600">{t("gd.blockedBy", { steps: item.state.blockedBy.join(", ") })}</p>}
-      {item.state.reviewedAt && <p className="text-xs text-slate-600">{t("gd.reviewedOn", { at: item.state.reviewedAt, name: item.state.reviewedBy ?? "" })}</p>}
-      <div className="mt-1 flex flex-wrap items-center gap-3">
-        {item.configure &&
-          (item.allowed ? (
-            <button type="button" onClick={() => onGo(item.configure!.tab)} className="min-h-8 rounded-md bg-teal-600 px-3 text-xs font-medium text-white hover:bg-teal-700">
-              {t("gd.openScreen", { screen: t(TAB_PHRASES[item.configure.tab]) })}
-            </button>
-          ) : (
-            <span className="text-xs text-slate-500">{t("gd.managerChanges")}</span>
-          ))}
-        {item.kind === "review" && item.state.status !== "done" && (
-          <button type="button" onClick={onReviewed} className="min-h-8 rounded-md border border-slate-300 px-3 text-xs font-medium hover:border-teal-400">
-            {t("gd.markReviewed")}
-          </button>
-        )}
-      </div>
-    </li>
-  );
-}
-
-function Readiness({ data, onGo }: { data: SetupView; onGo: (tab: DashboardTab) => void }) {
-  const t = useStaffT();
-  const r = data.readiness;
-  const groups: [StaffPhrase, ReadinessItem[]][] = [
-    ["gd.ready.missing", r.requiredMissing],
-    ["gd.ready.unverified", r.unverifiedExternal],
-    ["gd.ready.legal", r.legalPrerequisite],
-    ["gd.ready.feature", r.featureSpecific],
-    ["gd.ready.optional", r.optionalEnhancements],
-    ["gd.ready.complete", r.configurationComplete],
-  ];
-  return (
-    <div className="space-y-2" data-readiness>
-      <h4 className="text-sm font-semibold text-slate-700">{t("gd.ready.heading")}</h4>
-      <p className="text-xs text-slate-500">{t("gd.ready.intro")}</p>
-      {groups.map(([title, items]) => (
-        <div key={title}>
-          <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t(title)}</h5>
-          {items.length === 0 ? (
-            <p className="text-xs text-slate-400">{t("gd.ready.none")}</p>
-          ) : (
-            <ul className="list-disc pl-5 text-sm text-slate-700">
-              {items.map((item) => (
-                <li key={item.id}>
-                  {item.say ? t.say(item.say) : say(t, item.label)}{" "}
-                  {item.configure && (
-                    <button type="button" onClick={() => onGo(item.configure!.tab)} className="text-xs underline hover:text-teal-700">
-                      {t("gd.open")}
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ))}
-    </div>
   );
 }
 

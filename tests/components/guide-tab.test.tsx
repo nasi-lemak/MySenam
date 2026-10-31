@@ -56,8 +56,8 @@ describe("the guide tab", () => {
     expect(within(nav).getAllByRole("button").map((b) => b.textContent)).toEqual(["Set up", "How to run it", "Discover"]);
     await step("courts");
     expect(fetchMock.mock.calls[0][0]).toBe("/api/admin/guide/setup?venueId=3");
-    // The placeholder says what it is, and what is already known is listed.
-    expect(document.querySelector("[data-placeholder]")).not.toBeNull();
+    // The setup view is the journey itself, no longer a placeholder.
+    expect(document.querySelector("[data-guide-setup]")).not.toBeNull();
     // The step's state is a word, not only a colour; the requirement is said.
     const courts = document.querySelector('[data-step="courts"]')!;
     expect(within(courts as HTMLElement).getByText("Done")).toBeTruthy();

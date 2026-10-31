@@ -44,12 +44,30 @@ export interface GuideAnswers {
   /** Takes bookings for children. */
   children?: boolean;
   audience?: (typeof AUDIENCE_ANSWERS)[number];
+  /** Wants to run tournaments or leagues: until they say so, a venue is not led through scoring (the setup journey's question). */
+  competitions?: boolean;
+  /** Wants to offer discounts (student or senior prices, promo codes): until they say so, none are set up. */
+  discounts?: boolean;
 }
 
 /** A change to answers: a key set to a value, or to null to take its answer back. */
 export type AnswerPatch = { [K in keyof Omit<GuideAnswers, "v">]?: GuideAnswers[K] | null };
 
-export const ANSWER_KEYS = ["types", "activities", "customersDo", "resources", "branches", "staffing", "channels", "memberships", "coaching", "children", "audience"] as const;
+export const ANSWER_KEYS = [
+  "types",
+  "activities",
+  "customersDo",
+  "resources",
+  "branches",
+  "staffing",
+  "channels",
+  "memberships",
+  "coaching",
+  "children",
+  "audience",
+  "competitions",
+  "discounts",
+] as const;
 export type AnswerKey = (typeof ANSWER_KEYS)[number];
 
 export const emptyAnswers = (): GuideAnswers => ({ v: ANSWERS_VERSION });
@@ -91,6 +109,8 @@ const CHECKS: Record<AnswerKey, Check> = {
   coaching: (value) => (typeof value === "boolean" ? { ok: true, value } : { ok: false, error: "Coaching is yes or no." }),
   children: (value) => (typeof value === "boolean" ? { ok: true, value } : { ok: false, error: "Children is yes or no." }),
   audience: choice(AUDIENCE_ANSWERS, "Who the venue is for"),
+  competitions: (value) => (typeof value === "boolean" ? { ok: true, value } : { ok: false, error: "Competitions is yes or no." }),
+  discounts: (value) => (typeof value === "boolean" ? { ok: true, value } : { ok: false, error: "Discounts is yes or no." }),
 };
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);

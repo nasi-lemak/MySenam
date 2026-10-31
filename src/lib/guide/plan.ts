@@ -49,6 +49,25 @@ export type StepKind = "form" | "link" | "review";
 
 export type StepStatus = "done" | "todo" | "optional" | "review-needed" | "blocked";
 
+/**
+ * What a step proposes, in words (never by colour alone): the venue's own
+ * `saved` setting (the step's state is done), MySenam's `recommendation`
+ * (from the activity catalogue's policy and template and the install's
+ * region, never a saved setting), or the operator's `choice` (nothing is
+ * proposed). A rule the platform always enforces is a separate note
+ * (`SetupStep.platformRule`), so a card can say both.
+ */
+export type ProposalNature = "recommendation" | "saved" | "choice";
+
+/**
+ * The existing editor or route a step runs inside the journey
+ * (components/admin/guide/setup/actions.tsx): the same request, validation,
+ * permission, log entry and effective-dating as the screen it belongs to. A
+ * step with no action opens that screen instead.
+ */
+export const SETUP_ACTIONS = ["hours", "resources", "prices", "peak-hours", "price-dates", "booking-rules", "cancellation", "staff", "try-it", "readiness"] as const;
+export type SetupAction = (typeof SETUP_ACTIONS)[number];
+
 export interface StepState {
   status: StepStatus;
   /** For `blocked`: the ids of the steps to do first. */
@@ -68,6 +87,12 @@ export interface StepContext {
   answers: GuideAnswers;
   acknowledged: Record<string, Acknowledgement>;
   role: GuideRole;
+  /**
+   * A targeted journey (`?view=setup&focus=<group or capability id>`): the
+   * steps of that capability or group, shown whether or not the venue said
+   * it wanted them, with the steps they wait for. Absent: the whole plan.
+   */
+  focus?: string;
 }
 
 export interface SetupStep {
@@ -99,6 +124,12 @@ export interface SetupStep {
   recommend?(ctx: StepContext): Say | null;
   /** Said before a financial or consequential choice: what saving it will do, as the application does it. */
   consequence?: Say;
+  /** The existing editor run inside the journey; absent for a step that opens its screen (or only asks for a review). */
+  action?: SetupAction;
+  /** Steps this one waits for: a targeted journey brings them along. */
+  after?: string[];
+  /** A rule MySenam always enforces here, said plainly beside the choice (booking integrity, the cancellation cutoff). */
+  platformRule?: Say;
 }
 
 export interface PlanItem {
@@ -119,6 +150,13 @@ export interface PlanItem {
   staffAction: StaffActionName | null;
   /** The role the plan is for may use what it opens: a link is shown only when true. */
   allowed: boolean;
+  /** What is proposed: a recommendation, a setting already saved, or the operator's own choice. */
+  nature: ProposalNature;
+  /** A rule MySenam always enforces here. */
+  platformRule: Say | null;
+  /** The existing editor run inside the journey, if the step has one. */
+  action: SetupAction | null;
+  after: string[];
 }
 
 export interface SetupPlan {
@@ -126,7 +164,15 @@ export interface SetupPlan {
   /** The items by group, in the groups' order; a group with none is left out. */
   groups: { group: SetupGroup; items: PlanItem[] }[];
   /** Counts by state: not a percentage, which would say more than the plan knows. */
-  counts: Record<StepStatus, number> & { requiredOpen: number };
+  counts: Record<StepStatus, number> & { requiredOpen: number; requiredTotal: number };
+}
+
+/** A step is shown in a targeted journey for this focus when its group is it, or it concerns that capability. */
+const matchesFocus = (step: SetupStep, focus: string): boolean => step.group === focus || step.capabilities.includes(focus);
+
+/** The ids a journey can be focused on: the groups, and every capability a step concerns. */
+export function focusIds(registry: readonly SetupStep[] = SETUP_STEPS): string[] {
+  return [...new Set<string>([...SETUP_GROUPS, ...registry.flatMap((s) => s.capabilities)])];
 }
 
 /**
@@ -141,12 +187,32 @@ export interface SetupPlan {
 export function buildSetupPlan(ctx: StepContext, registry: readonly SetupStep[] = SETUP_STEPS): SetupPlan {
   const may = staffMay(ctx.role === "coach" ? "desk" : ctx.role);
   const history = hasHistory(ctx.profile);
+  const byId = new Map(registry.map((s) => [s.id, s]));
+  // A targeted journey: the steps that match, and (whatever they are) the steps those wait for.
+  let wanted: Set<string> | null = null;
+  if (ctx.focus) {
+    wanted = new Set(registry.filter((s) => matchesFocus(s, ctx.focus!)).map((s) => s.id));
+    const queue = [...wanted];
+    while (queue.length > 0) {
+      for (const before of byId.get(queue.pop()!)?.after ?? []) {
+        if (byId.has(before) && !wanted.has(before)) {
+          wanted.add(before);
+          queue.push(before);
+        }
+      }
+    }
+  }
   const items: PlanItem[] = [];
   for (const step of registry) {
     if (history && step.effect === "defaults") continue;
-    const because = step.applies(ctx);
+    if (wanted && !wanted.has(step.id)) continue;
+    const reason = step.applies(ctx);
+    // Asked for by name, a step is shown even where the venue's answers would have left it out.
+    const because: Say | null = reason ?? (wanted ? { key: matchesFocus(step, ctx.focus!) ? "gs.because.focus" : "gs.because.prerequisite" } : null);
     if (because === null) continue;
     const required = typeof step.required === "function" ? step.required(ctx) : step.required;
+    const state = step.state(ctx);
+    const recommend = step.recommend?.(ctx) ?? null;
     items.push({
       id: step.id,
       group: step.group,
@@ -156,19 +222,24 @@ export function buildSetupPlan(ctx: StepContext, registry: readonly SetupStep[] 
       titleKey: step.titleKey,
       whyKey: step.whyKey,
       because,
-      state: step.state(ctx),
+      state,
       required,
-      recommend: step.recommend?.(ctx) ?? null,
+      recommend,
       consequence: step.consequence ?? null,
       configure: step.configure ?? null,
       staffAction: step.staffAction ?? null,
       allowed: step.staffAction === undefined ? true : may[step.staffAction],
+      nature: state.status === "done" && step.kind !== "review" ? "saved" : recommend ? "recommendation" : "choice",
+      platformRule: step.platformRule ?? null,
+      action: step.action ?? null,
+      after: step.after ?? [],
     });
   }
   items.sort((a, b) => SETUP_GROUPS.indexOf(a.group) - SETUP_GROUPS.indexOf(b.group));
-  const counts = { done: 0, todo: 0, optional: 0, "review-needed": 0, blocked: 0, requiredOpen: 0 };
+  const counts = { done: 0, todo: 0, optional: 0, "review-needed": 0, blocked: 0, requiredOpen: 0, requiredTotal: 0 };
   for (const item of items) {
     counts[item.state.status]++;
+    if (item.required) counts.requiredTotal++;
     if (item.required && item.state.status !== "done") counts.requiredOpen++;
   }
   return {

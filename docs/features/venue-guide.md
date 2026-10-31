@@ -25,10 +25,11 @@ The shared model all three guides are built on, in `src/lib/guide/`:
 | Discoveries | `discover.ts` | Up to three capabilities that suit the venue and that it does not use |
 | Routes and shell | `http.ts`, `facts.ts`, `shell.ts`; `GuideTab.tsx` | Three routes, the dashboard's `guide` tab, roles |
 
-The tab's three views (setup, playbook, discover) are placeholders: each reads
-its route and shows what comes back as plain lists, marked as such on the
-screen, for the setup journey, the playbook and the contextual help to replace
-one function at a time ([the dashboard tab](#the-dashboard-tab)). The
+The tab's setup view is [the setup journey](#the-setup-journey). Its playbook
+and discover views are placeholders: each reads its route and shows what comes
+back as plain lists, marked as such on the screen, for the playbook and the
+contextual help to replace one function at a time ([the dashboard
+tab](#the-dashboard-tab)). The
 checklist at the top of the dashboard is unchanged, with one added line that
 opens the guide; the plan's first three steps are its three steps, read from
 the same answers (`venueSetup`), not recomputed.
@@ -150,7 +151,9 @@ keys), `customersDo` (reserve, classes, memberships, hire), `resources` (one,
 few, several, many), `branches` (one, several), `staffing` (staffed, partial,
 unattended), `channels` (online, counter), `memberships` (memberships,
 passes; an empty list is *answered: neither*), `coaching`, `children`,
-`audience` (public, members, both). A fact the profile already shows is never
+`audience` (public, members, both), and, added for the setup journey without
+changing the version (both optional), `competitions` (wants tournaments or
+leagues) and `discounts` (wants concessions or promo codes). A fact the profile already shows is never
 asked again.
 
 `validatePatch` refuses unknown keys and values and over-long lists rather
@@ -218,14 +221,174 @@ Rules the plan keeps, held by `tests/guide-model.test.ts` and
 
 ### Setup steps
 
-`SETUP_STEPS` (`src/lib/guide/steps.ts`) are the framework's own proof; the
-setup journey shapes and extends them. Today: `details`, `courts` and
-`test-booking` (the three of the checklist, required to go live), `online-payment`
-(optional), `cancellation-terms`, `guardians` and `copied-branch` (reviews),
-and the conditional `branches`, `equipment`, `unattended`, `coaches`,
-`coach-hours` (blocked until there is a coach), `classes` and `memberships`.
-Required for going live are the checklist's three; `cancellation-terms` becomes
-required once money is taken online.
+`SETUP_STEPS` (`src/lib/guide/steps.ts`) is the one list of steps; the setup
+journey ([below](#the-setup-journey)) lists each, with when it is shown, what
+it opens and what it runs. Required for going live are the checklist's three
+(`details`, `courts`, `test-booking`); `cancellation-terms` becomes required
+once money is taken online. A step may also carry `action` (the existing
+editor it runs in the journey), `after` (the steps it waits for) and
+`platformRule` (a rule MySenam always enforces there); `buildSetupPlan` adds
+`nature` (recommendation, saved setting or the operator's choice) and, given a
+`focus`, narrows the plan to a capability or group with what it waits for.
+
+## The setup journey
+
+The dashboard's `setup` view (`?tab=guide&view=setup`), built into
+`SetupPlanView.tsx` with `SetupDiscovery.tsx`, `SetupStepCard.tsx`,
+`SetupReadiness.tsx`, `SetupTryIt.tsx` and `setup/` (`actions.tsx`, `say.ts`,
+`api.ts`, `tabs.ts`); the plan it draws is `buildSetupPlan`'s, the questions
+are `src/lib/guide/setup-questions.ts`, and what it reads beside the plan is
+`journeyView` (`src/lib/guide/setup-journey.ts`, `GET
+/api/admin/guide/setup/journey`). Staff text is in `guide-setup.ts` (`gs.`).
+It owns no setting: what it saves is the manager's answers and reviews
+(`venue_guide`), and every setting goes through the existing editor's or
+route's own request, so the same validation, permission, log entry and
+effective-dating apply, and its refusals are shown as the application words
+them.
+
+### Two stages
+
+- **Questions** (`SetupDiscovery`), on a first visit to a venue with nothing
+  set up and nothing said (`rev` 0, no bookings), or from *Review my
+  business*; `?stage=questions|plan` is in the address. One question at a time,
+  in this order, each an answer key of `GuideAnswers`: kinds of business,
+  activities, what customers do, how many facilities, branches, staffing,
+  how customers book, memberships or passes, discounts, coaching, children,
+  tournaments and leagues, who the venue is for. A question the saved
+  settings already answer is not asked but shown as a fact "from your
+  settings" (courts exist, activities offered, a business with several
+  locations, hours with nobody at the desk, online and counter payments both
+  in use, plans or passes sold, concessions or promo codes, coaches, children
+  or approvals, tournaments or leagues, a members-only or private venue); one
+  earlier answers make irrelevant is left out (no memberships question when
+  customers neither buy memberships nor join classes; no coaching question for
+  kinds of business without coaching when customers do not join classes; no
+  tournaments question for one facility). Every answer is saved with the
+  revision it was given on, as it is given: a phone and a computer agree, a
+  stale save is refused with *Somebody saved answers since you opened this*,
+  the answers now saved are shown, and what was entered stays on screen to be
+  saved again on top. *Back* saves the answer on screen as *Next* does, so
+  going back loses nothing; *Not sure: skip* leaves a question unanswered, to
+  come back to ("n questions are still open"). The activity picker lists the
+  catalogue, those of the chosen kinds first, each with its support level and,
+  where something is not built, the catalogue's own note as *Limitation* (a gym
+  is told that entry on a membership without booking a session is not built).
+- **The plan**: a counts line ("3 of 7 required steps done"; never a
+  percentage), a list of steps (sticky beside the plan, a button that opens it
+  on a phone, `aria-current="step"` on the step the journey is on, focus moved
+  to a step's heading when it is chosen, the step kept in the address as
+  `step=`), and a card for each step, in groups.
+
+### A step's card
+
+Title; **why it is shown** (the answer or the fact); its state in words and an
+icon (done, to do, optional, to review, waiting on another step, and what it
+waits for); whether it is required for going live; what it proposes, as a typed
+label, never colour alone: **Recommendation** (the step says it is not a saved
+setting: nothing changes until the manager saves), **Saved setting** (the
+step's state is done from saved state) or **Your choice**; a **Platform rule**
+where MySenam always enforces something there (bookings never overlap; the
+cancellation cutoff; guardians declared, not verified); a short explanation
+with the longer one folded away (`gs.more.<step id>`); **Before you save**,
+the consequence of a financial or consequential choice as the application does
+it; and the action. A recommendation comes only from the activity catalogue's
+own `policy` (a booking length) and the platform's own defaults (the peak
+window of `DEFAULT_PEAK`, the payment provider the install's region offers
+first); none is invented, and none is ever saved by the journey.
+
+### The steps
+
+| Step | Group | Shown when | What it does |
+| ---- | ----- | ---------- | ------------ |
+| `details` | venue | always (required) | **Runs** `PATCH /api/admin/venues/:id` for the usual hours (the checklist's *details checked* is set by that route; refused, with the bookings in the way listed, where hours would leave one outside them) and `POST /api/admin/setup` (*they are right as they are*); `HoursFromDate` for a later date |
+| `copied-branch`, `branches` | venue | a branch started from another's; several locations | Review (acknowledged); link to Venue details |
+| `activities` | resources | activities were chosen | Link; done when each chosen activity is offered by a resource |
+| `courts` | resources | always (required) | **Runs** `AddResourcesForm` (`POST /api/admin/courts`, the activity's template) |
+| `equipment`, `shared-resources` | resources | hire chosen or hire resources; shared or linked resources, or kinds of business that share space | Link to Courts & rates |
+| `prices` | pricing | always; waits for a court | **Runs** `PATCH /api/admin/courts/:id` for each court's rates, from now; read-only where the venue has bookings, which are pointed to `price-dates` |
+| `peak-hours` | pricing | always; waits for a court | **Runs** `PeakHoursEditor` (`/api/admin/peak-rules`, `/holidays`) and shows the example price |
+| `price-dates` | pricing | rates or hours scheduled, or the venue has bookings | **Runs** `CourtChangesFromDate` and `HoursFromDate` (ADR 0027) |
+| `discounts` | pricing | concessions or promo codes exist, or discounts wanted | Link to Courts & rates |
+| `booking-rules` | policies | always; waits for a court | **Runs** `BookingPolicyEditor` (`/api/admin/booking-policies`) with an example of what cleaning time does to the next time offered |
+| `cancellation-terms` | policies | always (required once money is taken online) | **Runs** `CancelPolicyEditor` (`/api/admin/cancel-policy`) and the cutoff (`PATCH /api/admin/venues/:id`), then a review the manager acknowledges |
+| `guardians`, `participant-requirements`, `unattended` | policies | children, approvals or coaching; staffing | Review; links |
+| `communications` | policies | always | Review: email, optional WhatsApp, and what MySenam cannot check |
+| `staff` | people | always, unless the venue is unattended | **Runs** `POST /api/admin/admins` (an emailed invitation, or an account with a typed password where this install cannot email) |
+| `coaches`, `coach-hours` | people | coaching | Links to Classes; the hours step waits for a coach |
+| `counter-payments` | payments | counter payments in use or chosen | Review |
+| `online-payment` | payments | online payment chosen, in use, or not yet said | Link to Venue details (credentials are never collected in the journey); *connected, not yet proven* until a payment is taken |
+| `einvoicing` | payments | on, or a tax-registered Malaysian venue | Link; the compliance notice stays in readiness whatever |
+| `classes`, `memberships`, `tournaments` | programmes | classes, plans or passes, or competitions wanted or run | Links |
+| `test-booking` | going live | always (required) | **Runs** *Try it* |
+| `launch` | going live | always | **Runs** the readiness summary |
+
+Every embedded action is an existing component or route, so no setting has a
+table or route of the journey's own. A venue with bookings is shown what it has
+as done and is never offered a step that writes starting values; the rates are
+read-only for it.
+
+### Existing venues and targeted journeys
+
+A venue with bookings, payments or receipts (`hasHistory`) is told that the
+guide reviews and adds and never changes a saved setting unless it saves one
+in its own screen, and is offered *Add an activity*, *Add a programme or class*,
+*Add a branch*, *Invite staff* and *Review a policy*. Each opens a targeted
+journey, `?view=setup&focus=<group or capability id>`: the steps of that group
+or capability (`focusIds`) shown whether or not the answers asked for them, with
+the steps they wait for (`after`), and no others; *Show the whole plan* leaves
+it. Reading the journey, saving answers and saying a review was done change no
+setting (held by `tests/guide-setup.test.ts`).
+
+A link to another screen keeps the step in the address, so the browser's Back
+button and the guide tab (always in the tab bar) return to it. The other
+screens do not show their own *back to the guide* control.
+
+### Try it, and launch readiness
+
+*Try it* is the `test-booking` step's panel: make a test booking on the venue's
+public page, see it on the staff schedule, check the price, change it, cancel it
+and read the terms, take a counter payment where used, check the customer
+messages, and, where online payment is on, see what is and is not verified.
+Each check is ticked only from saved state where state exists (a booking made
+while the venue was a draft is a test, a counter payment is on one, one was
+cancelled by staff and not cleared by the banner) and says *Not checked by
+MySenam* where it cannot know (a price compared by eye, a booking changed, a
+message arriving). The price example is one hour at 8 pm on the next Saturday,
+worked out by `quoteFor`, the function a booking is priced by, from the
+venue's saved rates and peak hours. A live venue is told it is live and that a
+booking made now is real; it is never encouraged to make a pretend one.
+Simulated tests are not provider verification: the panel says MySenam's own
+tests use stand-in payment services and that only a real payment through the
+venue's own account proves the provider.
+
+The `launch` step holds the readiness summary: the six groups of
+`launchReadiness`, each item with why it is on the list and where to fix it (a
+link the role may use, or *Ask whoever runs this install*), and no score. It is
+not an item of its own summary.
+
+### The checklist and the journey
+
+`SetupChecklist.tsx` is unchanged and links into the journey; its three steps
+are the journey's first three, read from the same answers (`venueSetup`), and
+`tests/guide-setup.test.ts` fails if the checklist and the plan disagree about
+whether a venue is set up at any stage.
+
+### Language and accessibility
+
+All text is in the staff dictionaries (`guide-setup.ts`: English first and
+authoritative; the Malay and Chinese are machine-assisted and await review by
+native speakers); money, times and dates use the staff language's own helpers.
+One column, large type, folded detail, no drag-and-drop and no animation that
+carries meaning; every field has a name (`tests/form-labels.test.ts`), controls
+are 32 px or more, and the step list collapses on a phone.
+
+### Not built
+
+A step that is only a link (equipment, discounts, classes, memberships,
+tournaments, coaches, online payment, the guardians settings) opens the screen
+that has it. Weekday-by-weekday hours, holidays and closed days are edited in
+Venue details. The journey does not connect a payment provider (credentials are
+never taken here) and cannot tell whether a message arrived.
 
 ## Launch readiness
 
@@ -309,8 +472,9 @@ account). Tenant scope is in [tenancy](../architecture/tenancy.md#the-venue-guid
 address, like the tab, so a reload or a link lands where it was). Every
 account has the tab; the front desk is shown only *How to run it*, and the
 server refuses it the setup regardless. `src/components/admin/guide/GuideTab.tsx`
-renders the switcher and a placeholder for each view that replaces cleanly:
-`SetupPlanView`, `PlaybookView`, `DiscoverView`, each fed by one route. The
+renders the switcher and, for each view, `SetupPlanView` (the setup journey, in
+`SetupPlanView.tsx`) or a placeholder that replaces cleanly (`PlaybookView`,
+`DiscoverView`), each fed by one route. The
 dashboard's tab list and `DASHBOARD_TABS` (`src/lib/guide/shell.ts`) are held
 equal by `tests/guide-model.test.ts`. All text is in the staff dictionaries:
 `guide.ts` (`gd.`: the shell, refusals' words, readiness, discoveries, log
@@ -335,6 +499,7 @@ build on. Import from the files named; do not reach into another worker's.
 | Say if ready | `launchReadiness(profile, plan?)` → `LaunchReadiness` |
 | Suggest | `discover(profile, answers, dismissed)`, `DISCOVERY_RULES` |
 | Serve a view | `setupView(venueId, role, state?)`, `guideVenue`, `ownRole` (`http.ts`); `guideFacts` (`facts.ts`) |
+| Serve the setup journey | `journeyView(venueId, role, focus)`, `isFocus`, `nextSaturday` (`setup-journey.ts`); `questionFlow`, `unanswered`, `QUESTIONS` (`setup-questions.ts`); `focusIds`, `SETUP_ACTIONS` (`plan.ts`) |
 | Roles and screens | `GuideRole`, `mayViewAs`, `DashboardTab`, `DASHBOARD_TABS`, `GuideView` (`shell.ts`) |
 
 A `Say` is `{ key, vars? }`: a staff-dictionary phrase and its values, which the
@@ -393,7 +558,17 @@ readiness groups, discoveries, the tab list); `tests/guide-profile.test.ts`
 (the profile against fixture venues and secrets, tenant isolation, answers,
 stale saves and concurrent saves, `fit` through `submitApplication`, a copied
 branch, the routes and their log entries and refusals);
-`tests/components/guide-tab.test.tsx` (the tab: roles, links, reviews). The
+`tests/components/guide-tab.test.tsx` (the tab: roles, links, reviews);
+`tests/guide-setup.test.ts` (the journey's conditional steps for a small
+badminton centre, a coaching academy and a multi-sport business with branches,
+targeted journeys, the route and its tenant and role refusals, the price
+example against `quoteFor`, *Try it* from saved bookings, each action's route
+changing real behaviour and refusing where the application refuses, save and
+resume across two sessions, a stale save, an established venue left unchanged,
+the checklist and the plan agreeing, readiness for counter-only and online
+venues, the words in all three languages); `tests/guide-setup-ui.test.tsx` (the
+questions and the plan on screen, phone structure and focus, and, over the real
+routes and database, the actions run from the cards). The
 concurrent-save and tenancy tests are run on Postgres as well as PGlite. A test
 against a payment or message provider is a stand-in; the guide never says one
 is verified.

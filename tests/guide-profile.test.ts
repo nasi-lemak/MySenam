@@ -266,9 +266,24 @@ describe("readVenueProfile", () => {
 });
 
 describe("the plan and readiness over real venues", () => {
-  it("leads a fresh draft through the checklist's three steps, in order, and nothing it did not choose", async () => {
+  it("leads a fresh draft through the checklist's three steps, in order, with the steps every venue has and nothing it did not choose", async () => {
     const view = await setupView(fresh, "manager");
-    expect(view.plan.items.map((i) => i.id)).toEqual(["details", "courts", "cancellation-terms", "online-payment", "test-booking"]);
+    // The three of the checklist among the steps every venue is shown (the setup journey's own list): no coach, class, branch or tournament step.
+    expect(view.plan.items.map((i) => i.id)).toEqual([
+      "details",
+      "courts",
+      "prices",
+      "peak-hours",
+      "booking-rules",
+      "cancellation-terms",
+      "communications",
+      "staff",
+      "counter-payments",
+      "online-payment",
+      "test-booking",
+      "launch",
+    ]);
+    expect(view.plan.items.filter((i) => i.required).map((i) => i.id)).toEqual(["details", "courts", "test-booking"]);
     expect(view.readiness.requiredMissing.map((i) => i.id)).toEqual(expect.arrayContaining(["details", "courts", "test-booking", "go-live-0"]));
   });
 
