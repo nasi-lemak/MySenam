@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "child_process";
+import { withoutProviderEnv } from "../hermetic-env";
 import fs from "fs";
 import net from "net";
 import path from "path";
@@ -42,7 +43,7 @@ export default async function setup(project: TestProject) {
   server = spawn(path.join(ROOT, "node_modules", ".bin", "next"), ["start", "-p", String(port), "-H", "127.0.0.1"], {
     cwd: ROOT,
     env: {
-      ...process.env,
+      ...withoutProviderEnv(process.env),
       NODE_ENV: "production",
       MYSENAM_DB: ":memory:",
       DATABASE_URL: "",

@@ -95,6 +95,13 @@ when the run ends however it ends.
 
 ### Staging and real services
 
+The suites are hermetic: `tests/setup-env.ts` removes every provider credential
+and address from the environment they run in (email, SES, WhatsApp, SMS, payment
+gateways, off-site and photo storage, MyInvois, Google, alert webhooks), and the
+browser suites' server is started without them, so a cloud session that holds
+real test credentials for the checks below cannot have a test send a message or
+upload a file; a test that needs one sets it for itself.
+
 The real-service checks (`scripts/verify-integrations.mjs`) read their test
 credentials from the environment's secret store and print none of them. The
 `email` check uses Amazon SES over HTTPS when `SES_ACCESS_KEY_ID`,
