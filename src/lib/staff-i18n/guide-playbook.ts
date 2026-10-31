@@ -37,7 +37,7 @@ const rows = [
   ["gp.v.ratesPeak", "{low} to {high} an hour, with peak and off-peak rates", "{low} hingga {high} sejam, dengan kadar waktu puncak dan bukan puncak", "每小时 {low} 至 {high}，设有高峰与非高峰价格"],
   ["gp.v.rateOne", "{low} an hour", "{low} sejam", "每小时 {low}"],
   ["gp.v.ratesRange", "{low} to {high} an hour", "{low} hingga {high} sejam", "每小时 {low} 至 {high}"],
-  ["gp.v.staff", "{managers} managers and {desk} front desk", "{managers} pengurus dan {desk} kaunter hadapan", "{managers} 位经理和 {desk} 位前台"],
+  ["gp.v.staff", "Managers: {managers}; front desk: {desk}", "{managers} pengurus dan {desk} kaunter hadapan", "{managers} 位经理和 {desk} 位前台"],
   ["gp.v.counter", "Staff who are signed in take bookings and payments here.", "Kakitangan yang telah log masuk mengambil tempahan dan bayaran di sini.", "已登录的员工在这里接受预订和付款。"],
   ["gp.v.page.draft", "Not open to customers yet: a draft that only your staff can see", "Belum dibuka kepada pelanggan: draf yang hanya boleh dilihat kakitangan anda", "尚未对客户开放：仅员工可见的草稿"],
   ["gp.v.page.suspended", "Suspended", "Digantung", "已暂停"],

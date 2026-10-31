@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B63, M16–M29 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B65, M16–M29 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -706,6 +706,10 @@ The public guide, the setup journey, the playbook and the contextual help
   which is unverified against the live service.
 - **Online payment in the setup journey is a link** to the payment settings,
   not a step it completes: provider keys are never entered in the guide.
+- **A draft with no courts**: its launch-readiness item says there is no
+  screen for it, though Courts & rates is where it is fixed, and repeats the
+  *Add your courts* step listed above it. The wording is wrong, the facts are
+  not.
 - **The illustrative examples** on the public guide use a 24-hour
   cancellation cutoff to show a policy; a venue's own default is 2 hours
   ([booking](../features/booking.md)).
@@ -889,6 +893,8 @@ IDs are not reused. Each fix came with the test recommended above.
 | B61 | Booking rules that narrowed a court's (or a sport's, the venue's or the business's) hours from today saved without looking at bookings already made, leaving them outside the hours; the change is now refused while any would fall outside, every one listed, as narrowing from a date is | `tests/dated-changes.test.ts` |
 | B62 | The hours-from-a-date form named its fields *Opens* and *Closes*, as the usual hours do, so a screen reader heard two of each on the same page; they are named for the date they apply from. Found by the acceptance scenarios (*Venue 1*) | `tests/uat/venue-setup.uat.ts` (Venue 1) |
 | B63 | The front desk was shown the Tournaments and Leagues tabs' set-up forms and buttons, which the server refuses it (creating, calling off, the draw, rules, seasons, a correction's knock-on), and offered moving a fixture, a correction once the knockout had moved on and disqualifying, which the routes refuse it; now hidden, or shown read-only, the desk's own entries, check-in, payments, officials and results kept | `tests/components/desk-sees-what-it-may.test.tsx`, `tests/components/tournaments-tab.test.tsx` |
+| B64 | The set-up journey's cancellation card showed an unfilled `{late}` where the sentence about what happens after the cutoff belonged (English, Malay and Chinese) | The phrase names the value the card passes (`{keep}`); the card is checked for any `{name}` left in its text | `tests/guide-setup-ui.test.tsx` |
+| B65 | A cancellation review's time was shown as the stored UTC timestamp, a day early or late for a venue in Kuala Lumpur | Shown on the venue's own clock like other staff moments | `tests/components/guide-tab.test.tsx` |
 
 ### Resolved limitations without a number
 

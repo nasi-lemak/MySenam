@@ -341,7 +341,7 @@ describe("what every number and policy in the text is", () => {
     expect(text).toContain("RM18 to RM40 an hour");
     expect(text).toContain("5 holidays still to come are priced like the weekend");
     expect(text).toContain("3 closed days are coming up");
-    expect(text).toContain("2 managers and 3 front desk");
+    expect(text).toContain("Managers: 2; front desk: 3");
     expect(text).toContain("1 invitations to staff are waiting to be accepted");
     expect(text).toContain("5 classes are still to come");
     expect(text).toContain("2 online refunds are owed now");
