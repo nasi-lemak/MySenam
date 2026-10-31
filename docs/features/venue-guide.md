@@ -172,7 +172,7 @@ two people saving at once never overwrite each other unseen: one wins, the
 other is told what it lost to and saves again on top (tested on PGlite and
 Postgres with many concurrent saves). `acknowledge` and `dismiss` add one
 entry each atomically and move `rev`. A review is recorded with who and when;
-it is shown as "reviewed on…", and nothing infers it from a click on *Next*.
+it is shown as "reviewed on…" with the date and time on the venue's own clock, and nothing infers it from a click on *Next*.
 
 ### What a visitor chose
 

@@ -512,6 +512,9 @@ describe("the actions a card runs, against the real routes", () => {
     await act(async () => within(card).getAllByRole("button", { name: "Save" })[0].click());
     await waitFor(async () => expect((await store.getVenue(venueId))!.cancelCutoffHours).toBe(12));
     await waitFor(() => expect(card.querySelector("[data-terms]")!.textContent).toContain("12 hours"));
+    // The sentence is said whole: a value the phrase names and the card forgot to pass would show as a bare {name} (found by the acceptance run, Guide A).
+    expect(card.querySelector("[data-terms]")!.textContent).not.toMatch(/\{[a-z]+\}/i);
+    expect(card.querySelector("[data-terms]")!.textContent).toContain("After that they cannot cancel online");
     // Not done until the manager says so.
     expect(document.querySelector('[data-step="cancellation-terms"]')!.getAttribute("data-state")).toBe("review-needed");
     await act(async () => within(document.querySelector('[data-step="cancellation-terms"]') as HTMLElement).getByRole("button", { name: "I have reviewed this" }).click());

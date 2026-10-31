@@ -627,9 +627,9 @@ const rows = [
   ["gs.act.cancel.cutoffSaved", "Cancellation cutoff saved.", "Had masa pembatalan disimpan.", "取消截止时间已保存。"],
   [
     "gs.act.cancel.now",
-    "Today: customers get everything back if they cancel more than {hours} hours before a booking starts. {late}",
-    "Hari ini: pelanggan mendapat semua wangnya kembali jika membatalkan lebih daripada {hours} jam sebelum tempahan bermula. {late}",
-    "目前：顾客在预订开始前 {hours} 小时以上取消，可全额取回。{late}",
+    "Today: customers get everything back if they cancel more than {hours} hours before a booking starts. {keep}",
+    "Hari ini: pelanggan mendapat semua wangnya kembali jika membatalkan lebih daripada {hours} jam sebelum tempahan bermula. {keep}",
+    "目前：顾客在预订开始前 {hours} 小时以上取消，可全额取回。{keep}",
   ],
   ["gs.act.staff.have", "{managers} managers, {desk} front desk, {pending} invitations not yet used.", "{managers} pengurus, {desk} meja depan, {pending} jemputan belum digunakan.", "{managers} 位经理，{desk} 位前台，{pending} 个邀请尚未使用。"],
   ["gs.act.staff.role", "Role", "Peranan", "角色"],

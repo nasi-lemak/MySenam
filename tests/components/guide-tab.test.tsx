@@ -120,7 +120,8 @@ describe("the guide tab", () => {
     expect(within(row).getByText(/If customers cancel within the cutoff/)).toBeTruthy();
     await act(async () => within(row).getByRole("button", { name: "I have reviewed this" }).click());
     expect(call).toBeGreaterThan(1);
-    expect(await screen.findByText("Reviewed on 2026-10-31 10:00:00 by Musa")).toBeTruthy();
+    // The stored moment is 10:00 UTC; staff read it on the venue's clock, as every other moment on the dashboard (found by the acceptance run, Guide A: it was shown as stored, hours behind).
+    expect(await screen.findByText("Reviewed on 2026-10-31 6:00 PM by Musa")).toBeTruthy();
   });
 
   it("says the guide could not be read, with a way to try again", async () => {
