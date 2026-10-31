@@ -332,6 +332,23 @@ would be a live call to LHDN's sandbox. The app's output is kept as
 `server.log` beside the evidence (`E2E_SERVER_LOG`); the server sends with
 `MYSENAM_SEND=log`, so that file is where scenarios read the emails sent.
 
+The venue guide ([venue guide](../features/venue-guide.md)) has nine scenarios in
+`tests/uat/guide.uat.ts` (*Guide A* a small badminton venue set up from nothing
+by its operator, a test booking, the manager's playbook, the venue made live and
+its public prices and hours read, a phone, the print view and a "?" from the
+keyboard; *B* a multi-sport centre with a linked pitch and prices of different
+kinds; *C* a coaching academy and a coach's own guide), `guide-venues.uat.ts`
+(*D* an established venue shown what it has and changed in nothing; *E* a branch
+started from another's set-up with a guide of its own and nothing private
+carried; *F* a manager and a front desk on a phone, the desk refused by the
+routes and by the address) and `guide-changes.uat.ts` (*G* prices and hours set
+from a later date, in the playbook beside today's; *H* an unsupported capability
+on the public guide in English and Malay and in Discover; *I* a counter-only venue
+and then online payment through the sandbox stand-in, which is Billplz-sandbox-like
+and not Billplz). The venue is signed up on the real form, so *A*, *B*, *C*, *E*,
+*H* and *I* are skipped against a deployment that is not a marketplace; *D*, *F*
+and *G* use venues the owner made. Shared steps are in `tests/uat/guide-support.ts`.
+
 Last run: see the newest [release record](#release-records); 14 of 14, before
 scenario H was added, against a staging deployment
 on Postgres 16 with seeded data. Not driven from

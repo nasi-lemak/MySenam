@@ -5,7 +5,7 @@ import type { StaffPhrase } from "@/lib/staff-i18n";
 import type { PlanItem, ProposalNature, StepStatus } from "@/lib/guide/plan";
 import type { JourneyView } from "@/lib/guide/setup-journey";
 import type { DashboardTab } from "@/lib/guide/shell";
-import { useStaffT } from "../StaffLanguage";
+import { useStaffClock, useStaffT } from "../StaffLanguage";
 import { ACTIONS, ALWAYS_SHOWN } from "./setup/actions";
 import { renderSay } from "./setup/say";
 import { TAB_PHRASES } from "./setup/tabs";
@@ -61,6 +61,7 @@ export function SetupStepCard({
   onReviewed: (id: string) => void;
 }) {
   const t = useStaffT();
+  const clock = useStaffClock();
   const heading = useRef<HTMLHeadingElement>(null);
   const Action = item.action ? ACTIONS[item.action] : null;
   const shown = item.action !== null && ALWAYS_SHOWN.includes(item.action);
@@ -122,7 +123,7 @@ export function SetupStepCard({
           ))}
         </p>
       )}
-      {item.state.reviewedAt && <p className="mt-2 text-slate-700">{t("gd.reviewedOn", { at: item.state.reviewedAt, name: item.state.reviewedBy ?? "" })}</p>}
+      {item.state.reviewedAt && <p className="mt-2 text-slate-700">{t("gd.reviewedOn", { at: clock.when(item.state.reviewedAt, view.venueId), name: item.state.reviewedBy ?? "" })}</p>}
 
       {/* The action: the existing editor here, or the existing screen; a link only where the role may use what it opens. */}
       {item.allowed ? (
