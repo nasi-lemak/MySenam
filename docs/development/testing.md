@@ -95,6 +95,14 @@ when the run ends however it ends.
 
 ### Staging and real services
 
+The real-service checks (`scripts/verify-integrations.mjs`) read their test
+credentials from the environment's secret store and print none of them. The
+`email` check uses Amazon SES over HTTPS when `SES_ACCESS_KEY_ID`,
+`SES_SECRET_ACCESS_KEY`, `SES_REGION` and `MAIL_FROM` are set (it reads the
+account, the sender's identity and its DKIM where the key may, and with `--send`
+sends one message to `VERIFY_EMAIL_TO`), otherwise SMTP, which is refused from
+the cloud environment the checks run in.
+
 **On this machine, with Docker** (`npm run stage -- …`, `scripts/stage.mjs`):
 the app as an immutable image built from this source, its own Postgres,
 synthetic data, the tests run against it, the evidence kept, and everything
