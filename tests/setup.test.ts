@@ -64,6 +64,28 @@ describe("setting up a new venue", () => {
     expect(await venueSetup(venueId)).toMatchObject({ testBooking: true, onlinePayment: false, complete: true });
   });
 
+  it("is not ticked off by saving only the cancellation cutoff, which is not looking at the hours (S34)", async () => {
+    const made = await createVenue({ name: "Cutoff Hall", area: "Klang", address: "Jalan 2, Klang", phone: "0330000001" });
+    if (!made.ok) throw new Error("venue");
+    const operator = await createAdmin({ name: "Hana", email: "hana@example.my", password: "hana-password-1", venueId: made.venue.id });
+    if (!operator.ok) throw new Error(operator.error);
+    const mine = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(operator.admin.id)).token}`;
+    const { PATCH } = await import("../src/app/api/admin/venues/[id]/route");
+    const patch = (body: object) =>
+      PATCH(
+        new NextRequest(`http://localhost/api/admin/venues/${made.venue.id}`, {
+          method: "PATCH",
+          headers: { cookie: mine, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ id: String(made.venue.id) }) }
+      );
+    expect((await patch({ cancelCutoffHours: 4 })).status).toBe(200);
+    expect((await venueSetup(made.venue.id)).detailsChecked).toBe(false);
+    expect((await patch({ openHour: 7 })).status).toBe(200);
+    expect((await venueSetup(made.venue.id)).detailsChecked).toBe(true);
+  });
+
   it("answers the venue's own operator, and goes when dismissed", async () => {
     const res = await call("GET");
     expect(res.status).toBe(200);

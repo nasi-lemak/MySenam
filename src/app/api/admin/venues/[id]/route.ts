@@ -155,8 +155,10 @@ export async function PATCH(
       { status: result.error === "Venue not found." ? 404 : 400 }
     );
   if (amenities) await setVenueAmenities(venueId, amenities.filter(isAmenity));
-  // Saving the venue's details is the owner having looked at its hours.
-  await markDetailsChecked(venueId);
+  // Saving the venue's details is the owner having looked at its hours. Saving only the cancellation cutoff, which
+  // the setup journey does on its own, is not (S34: it ticked the checklist's hours step unseen).
+  const onlyCutoff = Object.keys(changes).every((k) => k === "cancelCutoffHours") && !pin && !amenities;
+  if (!onlyCutoff) await markDetailsChecked(venueId);
   // A venue's name is what customers trust. An operator may change their own,
   // but the platform owner hears about it, so a venue cannot quietly become
   // "AAA Best Courts" or borrow a better-known name.
