@@ -683,6 +683,33 @@ customers (the owner, 24 October 2026), so these reviews are a
 English, Malay and Chinese, not Tamil (the owner, the same day), and its
 review is part of the same blocker.
 
+### The venue guide
+
+The public guide, the setup journey, the playbook and the contextual help
+([venue guide](../features/venue-guide.md)) describe only what the code and
+[feature status](../product/feature-status.md) support. Their limits:
+
+- **Not reviewed by a native speaker:** the Malay and Chinese wording of the
+  staff-facing guide, playbook and help (machine-assisted), and the Malay,
+  Chinese and Tamil wording of the public guide (`fit.*`, `gcap.*`, `gbt.*`).
+  Part of the same [language blocker](#blockers-for-any-launch).
+- **Not described, because the app has no such feature:** a staff rota, coach
+  attendance registers, and procedures for waiting lists, customer notes,
+  waivers, private-hire enquiries and booking alerts. The discover view lists
+  what exists; it does not invent the rest.
+- **Rendered per request,** never cached across requests or venues, so a
+  change shows at once and a busy venue's guide costs a read of its settings.
+- **"Branch copied"** is read from the staff log (the copy leaves no column
+  of its own), so a log pruned by retention loses it.
+- **The public guide is not in a storefront's sitemap,** and its mention of
+  Stripe refunds on venue cancellation rests on the Stripe integration row,
+  which is unverified against the live service.
+- **Online payment in the setup journey is a link** to the payment settings,
+  not a step it completes: provider keys are never entered in the guide.
+- **The illustrative examples** on the public guide use a 24-hour
+  cancellation cutoff to show a policy; a venue's own default is 2 hours
+  ([booking](../features/booking.md)).
+
 ### Money (M)
 
 None open.
