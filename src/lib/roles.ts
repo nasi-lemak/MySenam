@@ -98,6 +98,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/branches$/, methods: ["POST"] },
   // Ticking "details checked" on the set-up checklist, or hiding it: setting the venue up is a manager's (lib/setup.ts); the desk may read it.
   { path: /^\/api\/admin\/setup$/, methods: ["POST"] },
+  // The setup journey (lib/guide): what it knows of the venue's configuration, the manager's answers and what they reviewed.
+  // Its playbook route answers every role, each its own guide (docs/features/venue-guide.md#permissions).
+  { path: /^\/api\/admin\/guide\/setup$/, methods: "all" },
 ];
 
 export type StaffRole = "manager" | "desk";
@@ -207,6 +210,16 @@ export const STAFF_ACTIONS = {
   // Leagues: setting up, seasons and stopping. The desk runs players, payments and results.
   leagues: "POST /api/admin/leagues",
   leagueRun: "POST /api/admin/leagues/1",
+  // The venue guide's setup journey and discoveries (lib/guide); the playbook is every role's own.
+  guideSetup: "POST /api/admin/guide/setup",
+  // Screens the guide links to that a manager alone uses, named so a link can be held to what its reader may open.
+  einvoicing: "GET /api/admin/einvoicing",
+  reports: "GET /api/admin/reports",
+  exports: "GET /api/admin/export",
+  marketing: "GET /api/admin/marketing",
+  apiKeys: "GET /api/admin/integrations",
+  paymentSettings: "GET /api/admin/venues/1/payment-settings",
+  staffLog: "GET /api/admin/activity",
 } as const satisfies Record<string, string>;
 
 export type StaffActionName = keyof typeof STAFF_ACTIONS;

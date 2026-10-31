@@ -24,6 +24,7 @@ import { ErrorsPanel } from "@/components/admin/ErrorsPanel";
 import { IntegrityCheck } from "@/components/admin/IntegrityCheck";
 import { PlayerReportsPanel } from "@/components/admin/PlayerReportsPanel";
 import { VenuesTab } from "@/components/admin/VenuesTab";
+import { GuideTab } from "@/components/admin/guide/GuideTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
 import type { TwoFactorStatus } from "@/lib/two-factor";
@@ -32,7 +33,8 @@ import { useTabInAddress } from "@/components/admin/place";
 import { StaffMayProvider } from "@/components/admin/StaffMay";
 import type { StaffActionName } from "@/lib/roles";
 
-const TABS = ["bookings", "schedule", "occupancy", "reports", "courts", "classes", "tournaments", "leagues", "credit", "venues"] as const;
+// The guide's own list of screens (lib/guide/shell.ts DASHBOARD_TABS) is held to this one by tests/guide-shell.test.ts.
+const TABS = ["bookings", "schedule", "occupancy", "reports", "courts", "classes", "tournaments", "leagues", "credit", "venues", "guide"] as const;
 type Tab = (typeof TABS)[number];
 
 /** A phrase with elements (a button, a link) where its `{name}` placeholders are. */
@@ -225,6 +227,8 @@ export default function AdminPage() {
     ["leagues", t("sh.tab.leagues")],
     ["credit", t("sh.tab.credit")],
     ["venues", isOwner ? t("sh.tab.venuesStaff") : isManager ? t("sh.tab.branchesStaff") : t("sh.tab.venueDetails")],
+    // Every account has the guide; front desk is shown only its playbook (components/admin/guide/GuideTab.tsx).
+    ["guide", t("gd.tab")],
   ];
 
   // Times on every screen below are read in the zone of the venue they belong to (useStaffClock).
@@ -369,6 +373,7 @@ export default function AdminPage() {
           {tab === "venues" && (
             <VenuesTab admin={admin} venues={venues} onChange={refreshVenues} />
           )}
+          {tab === "guide" && <GuideTab venues={venues} role={desk ? "desk" : "manager"} onGo={setTab} />}
         </>
       )}
     </div>

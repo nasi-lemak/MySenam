@@ -16,7 +16,7 @@ interface VenueSetup {
   complete: boolean;
 }
 
-type Tab = "courts" | "venues" | "bookings";
+type Tab = "courts" | "venues" | "bookings" | "guide";
 
 /**
  * Where a newly approved venue starts.
@@ -165,6 +165,9 @@ export function SetupChecklist({
           </li>
         ))}
       </ol>
+      <button onClick={() => onGo("guide")} className="mt-3 block text-sm font-medium text-teal-700 underline hover:text-teal-800">
+        {t("gd.checklistLink")}
+      </button>
       <button
         onClick={() => act("dismiss")}
         className="mt-4 text-xs text-slate-500 underline hover:text-teal-700"

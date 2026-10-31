@@ -212,6 +212,24 @@ source does, today and on a date its hours and rates from a later date apply
 (member, peak, holiday and second-activity prices, starts, linked courts),
 and that no table outside the copied ones holds anything for the new branch.
 
+### The venue guide's scope
+
+The guide ([venue guide](../features/venue-guide.md), ADR 0028) is read per
+venue and keeps nothing between requests, so there is no copy of one venue's
+configuration to serve to another. `readVenueProfile(venueId)` queries by that
+venue's id alone and holds counts and settings, never a key, a tax identifier
+or a person's details. Its routes ask the same two questions as any admin
+route: `requireAdmin` (the setup routes are in `MANAGER_ONLY`, so the front
+desk is refused them) and `denyVenue`, so a branch manager reads and writes
+only their own branches and a business manager only their business's. The
+guide's own table, `venue_guide`, is one row per venue, removed with it. The
+role a guide is *for* is taken from the session, never from a parameter:
+`as=` on the playbook may ask only for a role at or below the caller's. A
+branch started from another's set-up is a venue of its own and gets no row
+and no answers from its source. `tests/guide-profile.test.ts` holds these
+(another venue's marker is never in a profile, plan or readiness; a branch
+manager of one venue, a business manager and the desk are refused another's).
+
 ## A venue business's own copy
 
 The same code runs as the shared MySenam marketplace and as one business's own

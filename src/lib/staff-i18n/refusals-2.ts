@@ -782,4 +782,15 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "moneyTaken must be none or real.": { ms: "moneyTaken mestilah none atau real.", zh: "moneyTaken 须为 none 或 real。" },
   "Test bookings with a payment recorded stand at this venue: {0}. Clear them, or keep them as real, before going live.": { ms: "Tempahan percubaan yang mempunyai bayaran masih ada di pusat ini: {0}. Kosongkannya, atau simpan sebagai sebenar, sebelum aktif.", zh: "本场馆仍有已记录付款的测试预订：{0}。请在上线前清除它们，或保留为真实预订。" },
   "Test bookings with a payment recorded stand at this venue ({0}). The venue must clear them or keep them as real before it goes live.": { ms: "Tempahan percubaan yang mempunyai bayaran masih ada di pusat ini ({0}). Pusat mesti mengosongkannya atau menyimpannya sebagai sebenar sebelum aktif.", zh: "本场馆仍有已记录付款的测试预订（{0}）。场馆必须在上线前清除它们，或保留为真实预订。" },
+  // The venue guide (lib/guide, api/admin/guide).
+  "Somebody saved the guide's answers since you opened them. The latest are shown; check them and save again.": {
+    ms: "Seseorang telah menyimpan jawapan panduan sejak anda membukanya. Yang terkini ditunjukkan; semak dan simpan semula.",
+    zh: "自您打开以来，有人已保存了指南的回答。现显示最新内容；请核对后重新保存。",
+  },
+  "Give the revision (rev) of the answers you were looking at.": { ms: "Berikan semakan (rev) jawapan yang anda lihat.", zh: "请提供您所查看回答的修订号（rev）。" },
+  "That step is not one to review.": { ms: "Langkah itu bukan yang perlu disemak.", zh: "该步骤无需核对。" },
+  "That suggestion is not one MySenam makes.": { ms: "Cadangan itu bukan salah satu yang dibuat oleh MySenam.", zh: "MySenam 没有提出该建议。" },
+  "You can see the guide only for your own role or one below it.": { ms: "Anda hanya boleh melihat panduan untuk peranan anda sendiri atau yang lebih rendah.", zh: "您只能查看自己角色或更低角色的指南。" },
+  "Answers must be an object.": { ms: "Jawapan mestilah objek.", zh: "回答必须是一个对象。" },
+  "That is not a guide role.": { ms: "Itu bukan peranan panduan.", zh: "那不是指南角色。" },
 };

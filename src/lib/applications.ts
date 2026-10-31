@@ -18,6 +18,7 @@ import { areaMatches, distanceM, findAddress, formatDistance, geocoderOn, inCoun
 import { region } from "./region";
 import { englishOf, said, type StaffText } from "./staff-text";
 import { paidStandingTests, paidTestsBlockApproval, paidTestsBlockRequest } from "./test-bookings";
+import { normaliseFit, seedFromFit } from "./guide/answers";
 
 /**
  * Businesses joining the marketplace, and their venues going live.
@@ -265,6 +266,8 @@ export async function submitApplication(input: {
   message?: string;
   lat: unknown;
   lng: unknown;
+  /** What the visitor chose in the public guide (business types and activities), kept to start the venue's setup from (lib/guide/answers.ts `normaliseFit`). */
+  fit?: unknown;
 }): Promise<SubmitResult & { emailSent?: boolean }> {
   const text = (v: string, min: number, max: number) => v.trim().length >= min && v.trim().length <= max;
   if (!text(input.businessName, 2, 100)) return { ok: false, error: "Give the venue's name." };
@@ -281,6 +284,8 @@ export async function submitApplication(input: {
   if ((input.message ?? "").length > 2000) return { ok: false, error: "The message is too long." };
   const pinned = readPin(input.lat, input.lng);
   if (!pinned.ok) return pinned;
+  const fit = normaliseFit(input.fit);
+  if (!fit.ok) return fit;
 
   const db = getDb();
   if (await db.prepare("SELECT id FROM admins WHERE email = ?").get(email))
@@ -301,8 +306,8 @@ export async function submitApplication(input: {
     .prepare(`
       INSERT INTO venue_applications
         (business_name, area, address, venue_phone, contact_name, email, password_hash, message,
-         lat, lng, found_lat, found_lng, pin_place, email_check, email_token, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, 'draft')
+         lat, lng, found_lat, found_lng, pin_place, email_check, email_token, status, fit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, 'draft', ?)
     `)
     .run(
       input.businessName.trim(),
@@ -318,7 +323,8 @@ export async function submitApplication(input: {
       found?.lat ?? null,
       found?.lng ?? null,
       place,
-      sha256(token)
+      sha256(token),
+      fit.fit ? JSON.stringify(fit.fit) : null
     );
   const id = info.lastInsertRowid as number;
 
@@ -338,6 +344,24 @@ export async function submitApplication(input: {
     if (!opened.ok) return opened;
   }
   return { ok: true, application: (await applicationById(id))!, emailSent };
+}
+
+/**
+ * What the visitor chose in the public guide becomes the new venue's starting
+ * intent (lib/guide/answers.ts), once, and never over answers a manager has
+ * saved. An application with no choice, or one that no longer reads, starts nothing.
+ */
+async function startGuideFromFit(applicationId: number, venueId: number): Promise<void> {
+  const row = (await getDb().prepare("SELECT fit FROM venue_applications WHERE id = ?").get(applicationId)) as { fit: string | null } | undefined;
+  if (!row?.fit) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.fit);
+  } catch {
+    return;
+  }
+  const fit = normaliseFit(parsed);
+  if (fit.ok && fit.fit) await seedFromFit(venueId, fit.fit);
 }
 
 /**
@@ -374,6 +398,7 @@ async function openAccount(id: number): Promise<{ ok: true; venueId: number } | 
       await db
         .prepare("UPDATE venue_applications SET venue_id = ?, password_hash = NULL WHERE id = ?")
         .run(venueId, id);
+      await startGuideFromFit(id, venueId);
     })();
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Could not open the account." };
@@ -817,6 +842,7 @@ async function approveFromBefore(row: Row, deciderId: number, checks: readonly s
       await db.prepare(
         "UPDATE venue_applications SET status = 'approved', venue_id = ?, review_checks = ?, decided_at = datetime('now'), decided_by = ? WHERE id = ?"
       ).run(venueId, checks === "auto" ? "auto" : REVIEW_CHECKS.map((c) => c.id).join(","), deciderId, row.id);
+      await startGuideFromFit(row.id, venueId);
       await startBilling(venueId);
     })();
   } catch (err) {

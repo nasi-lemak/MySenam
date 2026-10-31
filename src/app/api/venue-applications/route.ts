@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
     message: input.message as string | undefined,
     lat: input.lat,
     lng: input.lng,
+    // What the visitor chose in the public guide, if they did: checked and kept by submitApplication.
+    fit: input.fit,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   // Whether to tell them to look for a link in their email.
