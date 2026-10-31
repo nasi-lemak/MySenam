@@ -39,6 +39,11 @@ independent venues, players booking across them.
   into **the platform's own Billplz account** (`BILLPLZ_*`), which is never a
   venue's: this is the platform's income. The owner sets each venue's fee and
   start date there, and marks a bank transfer paid or voids an invoice.
+- **How MySenam fits a business** is explained at `/for-venues` (linked from
+  the site's navigation): the visitor picks the kinds of business and
+  activities and sees a day in MySenam for them, what is and is not supported,
+  and the way on to `/list-your-venue` with the choice carried. It writes
+  nothing ([the public guide](../features/venue-guide.md#the-public-guide)).
 - **Prices are published** at `/pricing` (linked from the footer and the
   sign-up page), worked out from the same tiers and settings the invoices
   use, so the page cannot say one thing and the bill another.

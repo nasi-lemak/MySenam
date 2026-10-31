@@ -25,6 +25,7 @@ The shared model all three guides are built on, in `src/lib/guide/`:
 | Discoveries | `discover.ts` | Up to three capabilities that suit the venue and that it does not use |
 | Routes and shell | `http.ts`, `shell.ts`; `GuideTab.tsx` | Three routes, the dashboard's `guide` tab, roles |
 | Operating playbook | `playbook/` | `buildPlaybook`, the modules and topics, the coach's page ([below](#the-operating-playbook)) |
+| Public guide | `public/` (`workflows.ts`, `steps.ts`, `view.ts`, `select.ts`, `present.ts`); `src/components/fit/`; `src/app/for-venues/` | *How MySenam fits your business*: [the public guide](#the-public-guide) |
 
 The tab's setup view is [the setup journey](#the-setup-journey) and its
 playbook view is [the operating playbook](#the-operating-playbook). Its discover
@@ -660,6 +661,144 @@ later workers (`guide-setup.ts` `gs.`, `guide-playbook.ts` `gp.`,
 readers: state is a word beside the colour, controls are buttons with names, and
 the lists are plain lists.
 
+## The public guide
+
+*How MySenam fits your business* is the first of the three guides, and the
+only one a visitor meets before registering. It is the marketplace's own
+(`isMarketplace()`; any other install answers `404`, as `/list-your-venue`
+does), is in the visitor's language, and **writes nothing**: no cookie, no
+record, no analytics. A test counts the rows of every table before and after
+rendering every page, its metadata and the sitemap
+(`tests/guide-public-pages.test.tsx`).
+
+### Routes
+
+| Route | What it is |
+| ----- | ---------- |
+| `/for-venues` | The picker: the thirteen kinds of business, several at once, and a refinement by activity (the catalogue's keys). A plain `GET` form, so it works with no script; the choice is in the address, `?types=a,b&activities=x` (a form's repeated boxes and a comma list mean the same; what does not exist is ignored). With a choice it shows the tailored explanation; bare it is the indexed page, and a choice is `noindex` with the bare page as its canonical address |
+| `/for-venues/[type]` | One server-rendered, indexable page for each business type (`BUSINESS_TYPE_IDS`): its own title, description and canonical address, in the visitor's language. `?activities=` refines it; a type that does not exist is `404` |
+| `/sitemap.xml` | Lists `/for-venues` and each type page, in marketplace mode and not on a storefront |
+
+The site navigation has the link (*For venues*, beside *List your venue*), and
+the application form reads the choice back (below). No API route is added.
+
+### What a page shows
+
+For the selection (`fitView(selection)`, `src/lib/guide/public/view.ts`):
+
+1. **Your day in MySenam**: the types' journeys (`WORKFLOW_IDS`), as tabs (one
+   journey at a time) of stepped walkthroughs: for each step who does it, what
+   they see, what MySenam checks, the capabilities it relies on, and a small
+   *illustrative* screen with made-up sample data, labelled as such. The
+   journeys: a customer booking a court, staff booking at the counter, paying
+   online, membership benefits, passes, class enrolment, a lesson with a coach,
+   a parent registering a child, tournaments, leagues, open games, equipment
+   hire with a deposit, unstaffed entry (only where an activity may be left
+   unstaffed), timed sessions, sign-offs, a company account, cancelling and the
+   venue cancelling, and several branches: each only where the type uses it.
+2. **How these fit together**, when several types, the mixed venue or
+   activities of several resource models are chosen (`composeTypes`): each
+   activity keeps its own rates and rules; booking rules by venue, activity or
+   court; models side by side; one sign-in; branches. Each statement rests on
+   capabilities the selection lists (`COMBINED_CLAIMS`).
+3. **What you would set up**: the available capabilities, grouped in the order a
+   venue is set up, with their blurbs.
+4. **What is available**: a chip for each capability, in five groups by
+   `availabilityOf` (available now; with configuration; requires an external
+   integration, naming which; requires the operator's approval; not currently
+   supported). A state is a word and a mark, never a colour alone.
+5. **Good to know**: each chosen activity whose catalogue support is not `full`,
+   with the catalogue's own `supportNote` (in English, marked `lang="en"`).
+6. **What MySenam does not do**: every unsupported capability with what to do
+   instead, those that concern the selection first (a type's own, an activity's
+   `activityNote`, and `LIMITS_WITH`: Billplz refunds by hand, the platform's
+   WhatsApp number, one door code per lock), then the rest.
+7. **The way on**: `/list-your-venue?fit=…` and a link to `/pricing`. The page
+   says nothing of price plans beyond that link.
+
+There are no testimonials, savings or statistics; the only figures are the
+made-up sample data in the illustrative screens.
+
+### Where the content lives
+
+All of it is data derived from the shared model; none is copied from it.
+
+- `public/steps.ts`: every step (`STEP_LIST`): its `actor`, the capabilities it
+  `needs` (all) or `any` (one of several ways), its `notes` (each shown only
+  where the selection lists the capabilities it needs), unsupported `limits` it
+  names, `optional`, and its screen's lines (`fit.tk.<token>` phrases; `#…` is
+  a literal, `$40` an amount in the install's currency).
+- `public/workflows.ts`: `WORKFLOWS`, each journey's steps in order;
+  `shownSteps` (what a selection's capabilities allow), `claimsOf` (what a
+  shown step claims).
+- `public/view.ts`: `fitView`, `MODEL_CAPABILITIES` / `MODEL_WORKFLOWS` (what an
+  activity added by the visitor brings), `LIMITS_WITH`, `COMBINED_CLAIMS`,
+  `workflowApplies` (unstaffed entry is not shown for swimming, water polo or
+  anything on the water: the catalogue's `supervised`).
+- `public/select.ts`: the address (`parseSelection`, `guideAddress`,
+  `encodeFit`, `decodeFit`, `applyAddress`); `public/present.ts`: the words in a
+  language.
+- Words: the customer dictionaries, `fit.` phrases (`fit.s.<step>.t|s|c|x.<note>`,
+  `fit.w.<workflow>.t|d`, `fit.tk.<token>`, the page's own); the `gcap.` and
+  `gbt.` phrases of the registry and the types are reused.
+
+**To add a step** or a journey: add the step to `STEP_LIST`, its id to the
+workflow in `WORKFLOWS`, and its phrases in four languages. **To add a business
+type** or a workflow id: see
+[adding a business type](#adding-a-business-type-or-a-workflow).
+`tests/guide-public.test.ts` names what is missing.
+
+### The rules the content keeps
+
+- A step relies only on capabilities that exist and are `available`; a limit is
+  an `unsupported` one. A test fails otherwise, when a business type lists too
+  little for a journey's required steps, and when a shown step or note claims a
+  capability the selection does not list.
+- Every available capability a page shows rests on a feature-status row that is
+  `IMPLEMENTED_AND_TESTED`, or `INTEGRATION_VERIFICATION_REQUIRED` and labelled
+  as needing an integration.
+- Every business type's chips equal `availabilityOf`; the gym, climbing,
+  bowling, swimming, equipment-rental, Billplz and WhatsApp cases are tested as
+  the owner listed them.
+- What every venue has (`resources`, `booking-rules`, `day-list`,
+  `receipts-tax`) is added to every business type's list (`EVERY_VENUE` in
+  `business-types.ts`), so a journey can rely on it; the gym also lists
+  `shared-facilities`. `day-list` (the staff's list of the day's bookings) is
+  a capability added for the public guide.
+
+### Handing the choice to the application
+
+The call to action goes to `/list-your-venue?fit=types:a,b~activities:x,y`
+(short and readable; never anything personal). `ApplyForm` reads it
+(`decodeFit`, lenient: a value that does not exist is dropped, and JSON of the
+`GuideAnswers` shape is accepted too), says *You told us you run: …* with
+*Change* (back to the guide with the same choice) and *Leave this out*, and
+sends it as `fit` in the existing request. The server side is
+[what a visitor chose](#what-a-visitor-chose): checked by `normaliseFit`, kept
+with the application, seeded once into the venue's intent. The visitor is never
+asked it twice (`tests/guide-public-handoff.test.tsx` runs the form's request
+through the real route to `venue_guide`).
+
+### Phones, keyboards and languages
+
+The walkthrough is a plain ordered list until the page has loaded (every step
+open, no controls: what a search engine, a reader without script and a phone
+see); then it becomes a stepper (headings that are buttons with
+`aria-expanded`, *Previous step* and *Next step*, focus following the step
+opened, a status line) and the journeys become tabs (arrow keys, Home and End,
+one tab in the tab order). One `h1`, sections as `h2` with jump links,
+journeys `h3`, steps `h4`; every box is inside its label; targets are at least
+36 pixels; no horizontal scroll at 360 pixels (checked in a browser);
+illustrative buttons are pictures, not controls. Nothing depends on animation
+or dragging.
+
+English is written first and is authoritative. **Malay, Chinese (Simplified)
+and Tamil are machine-assisted and await native review**, as the rest of the
+app's do: the `fit.` phrases (about 560, in `src/lib/i18n.ts`, `i18n-zh.ts`,
+`i18n-ta.ts`) and `gcap.day-list.*`; in particular the wording of what MySenam
+checks (money, approvals, guardians). The catalogue's own `supportNote` for
+partly supported activities is English only.
+
 ## Interfaces
 
 What the setup journey, the public guide, the playbook and the contextual help
@@ -752,7 +891,11 @@ guides, topics written once, determinism, no store, the three languages, no
 secret), `tests/guide-playbook-venues.test.ts` (the route and its roles, tenant
 isolation, a change showing on the next request, a branch's own guide, the
 coach's page and link), `tests/components/guide-playbook.test.tsx` (contents,
-search, folding, links, the role preview, the print view). The
+search, folding, links, the role preview, the print view). `tests/guide-public.test.ts` (the public guide's content against the registry,
+feature status and the dictionaries), `tests/guide-public-pages.test.tsx` (the
+pages, metadata, the sitemap, no writes), `tests/components/fit-guide.test.tsx`
+(stepper, tabs, labels, targets) and `tests/guide-public-handoff.test.tsx` (the
+choice through the form to `venue_guide`). The
 concurrent-save and tenancy tests, and the playbook's tenancy and change tests,
 are run on Postgres as well as PGlite. A test
 against a payment or message provider is a stand-in; the guide never says one

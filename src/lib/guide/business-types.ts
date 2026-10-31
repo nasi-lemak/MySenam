@@ -115,6 +115,9 @@ function spread(p: VenueProfile, keys: string[], total: number) {
   used.forEach((m, i) => (p.resources.byModel[m] = Math.floor(total / used.length) + (i < total % used.length ? 1 : 0)));
 }
 
+/** What every venue has whatever it sells: somewhere to book, rules for booking it, the staff's day list, and receipts for what it is paid. */
+const EVERY_VENUE = ["resources", "booking-rules", "day-list", "receipts-tax"];
+
 function type(id: BusinessTypeId, activities: string[], capabilities: string[], workflows: WorkflowId[], over: (p: VenueProfile) => void): BusinessType {
   return {
     id,
@@ -125,7 +128,7 @@ function type(id: BusinessTypeId, activities: string[], capabilities: string[], 
       over(p);
       spread(p, activities, p.resources.total);
     }),
-    capabilities,
+    capabilities: [...new Set([...EVERY_VENUE, ...capabilities])],
     workflows,
   };
 }
@@ -172,7 +175,7 @@ export const BUSINESS_TYPES: readonly BusinessType[] = [
     p.staff = { managers: 2, desk: 4, pendingInvitations: 0 };
     p.commerce = { ...p.commerce, membershipPlans: 2, passProducts: 2, companyAccounts: 1 };
   }),
-  type("gym-and-fitness", ["gym", "yoga", "pilates"], ["resources", "opening-hours", "memberships", "passes", "membership-suspension", "family-memberships", "check-in", "sign-offs", "waivers", "classes", "unstaffed-access", "counter-payments", "refunds", "gym-walk-in", "test-bookings", "go-live"], ["timed-session", "class-enrolment", "membership-benefits", "pass-redemption", "first-visit-sign-off", "unstaffed-entry"], (p) => {
+  type("gym-and-fitness", ["gym", "yoga", "pilates"], ["resources", "shared-facilities", "opening-hours", "memberships", "passes", "membership-suspension", "family-memberships", "check-in", "sign-offs", "waivers", "classes", "unstaffed-access", "counter-payments", "refunds", "gym-walk-in", "test-bookings", "go-live"], ["timed-session", "class-enrolment", "membership-benefits", "pass-redemption", "first-visit-sign-off", "unstaffed-entry"], (p) => {
     p.resources.total = 3;
     p.resources.shared = 1;
     p.commerce.membershipPlans = 3;

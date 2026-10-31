@@ -2,11 +2,14 @@
 
 import { readJson } from "@/lib/read-response";
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 import { useT } from "@/components/Language";
 import PinPicker from "@/components/PinPicker";
 import type { MapPoint } from "@/components/PinMap";
-import { translateError } from "@/lib/i18n";
+import { sportLabel, translateError } from "@/lib/i18n";
+import { businessType } from "@/lib/guide/business-types";
+import { decodeFit, guideAddress, selectionOf } from "@/lib/guide/public/select";
 
 const EMPTY = {
   businessName: "",
@@ -27,6 +30,11 @@ export default function ApplyForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<{ to: string; confirm: boolean } | null>(null);
+  // What the visitor chose in the public guide (`?fit=`): shown back, sent with the application, never asked twice.
+  const raw = useSearchParams()?.get("fit");
+  const fit = useMemo(() => decodeFit(raw), [raw]);
+  const [leaveFitOut, setLeaveFitOut] = useState(false);
+  const sendFit = leaveFitOut ? null : fit;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,7 +45,7 @@ export default function ApplyForm() {
       const res = await fetch("/api/venue-applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, ...pin }),
+        body: JSON.stringify({ ...form, ...pin, ...(sendFit ? { fit: sendFit } : {}) }),
       });
       const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || t("apply.failed"));
@@ -96,6 +104,27 @@ export default function ApplyForm() {
           </Link>
         </p>
       </div>
+      {sendFit && (
+        <section aria-labelledby="fit-told" className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm">
+          <p id="fit-told" className="m-0 font-medium text-slate-900">
+            {t("fit.told", {
+              list: new Intl.ListFormat(t.locale === "zh" ? "zh-Hans" : t.locale, { style: "long", type: "conjunction" }).format([
+                ...selectionOf(sendFit).types.map((id) => t(businessType(id)!.titleKey)),
+                ...selectionOf(sendFit).activities.map((key) => sportLabel(t, key)),
+              ]),
+            })}
+          </p>
+          <p className="m-0 mt-1 text-slate-600">{t("fit.told.note")}</p>
+          <p className="m-0 mt-2 flex flex-wrap items-center gap-3">
+            <Link href={guideAddress(selectionOf(sendFit))} className="inline-flex min-h-9 items-center font-medium text-teal-800 underline">
+              {t("fit.told.change")}
+            </Link>
+            <button type="button" onClick={() => setLeaveFitOut(true)} className="inline-flex min-h-9 items-center rounded-md px-2 font-medium text-slate-700 underline">
+              {t("fit.told.leave")}
+            </button>
+          </p>
+        </section>
+      )}
       <form onSubmit={submit} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         {field("businessName", t("apply.business"), { maxLength: 100 })}
         <div className="grid gap-4 sm:grid-cols-2">
