@@ -8,6 +8,7 @@ import { emptyProfile } from "../../src/lib/guide/profile-types";
 import { launchReadiness } from "../../src/lib/guide/readiness";
 import { discover } from "../../src/lib/guide/discover";
 import { emptyAnswers } from "../../src/lib/guide/answer-schema";
+import { buildPlaybook } from "../../src/lib/guide/playbook";
 
 /**
  * The guide's tab in the dashboard: every account has it; a manager is
@@ -33,7 +34,7 @@ function setupAnswer(role: "manager" | "desk" = "manager") {
 beforeEach(() => {
   window.history.replaceState(null, "", "/admin?tab=guide");
   fetchMock = vi.fn(async (url: string) => {
-    if (url.includes("/guide/playbook")) return json({ venueId: 3, role: "desk", ownRole: "desk", roles: ["desk", "coach"], facts: [{ key: "gd.fact.resources", vars: { n: 2 } }] });
+    if (url.includes("/guide/playbook")) return json({ venueId: 3, role: "desk", ownRole: "desk", roles: ["desk", "coach"], playbook: buildPlaybook(setupAnswer("desk").profile, "desk", { venueName: "Court House" }) });
     return json(setupAnswer());
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -72,7 +73,7 @@ describe("the guide tab", () => {
     await step("courts");
     await act(async () => screen.getByRole("button", { name: "How to run it" }).click());
     expect(window.location.search).toContain("view=playbook");
-    expect(await screen.findByText("2 resources are set up.")).toBeTruthy();
+    expect(await screen.findByText("Your venue has 2 bookable resources.")).toBeTruthy();
     expect(fetchMock.mock.calls.some((c) => String(c[0]).startsWith("/api/admin/guide/playbook?venueId=3"))).toBe(true);
     await act(async () => screen.getByRole("button", { name: "Discover" }).click());
     expect(await screen.findByText("Discover what else MySenam can do")).toBeTruthy();
@@ -84,7 +85,7 @@ describe("the guide tab", () => {
     render(<GuideTab venues={venues} role="desk" onGo={() => undefined} />);
     const nav = screen.getByRole("navigation", { name: "Guide sections" });
     expect(within(nav).getAllByRole("button").map((b) => b.textContent)).toEqual(["How to run it"]);
-    expect(await screen.findByText("2 resources are set up.")).toBeTruthy();
+    expect(await screen.findByText("Your venue has 2 bookable resources.")).toBeTruthy();
     expect(fetchMock.mock.calls.every((c) => !String(c[0]).includes("/guide/setup"))).toBe(true);
     expect(screen.queryByText("Set up your venue")).toBeNull();
   });

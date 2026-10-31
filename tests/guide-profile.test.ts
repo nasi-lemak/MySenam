@@ -535,10 +535,11 @@ describe("the routes", () => {
     expect(playbook.status).toBe(200);
     const body = await playbook.json();
     expect(body).toMatchObject({ venueId: configured, role: "desk", ownRole: "desk", roles: ["desk", "coach"] });
-    expect(body.facts.length).toBeGreaterThan(0);
-    // No money settings, no staff and no scheduled prices in the desk's facts.
-    const keys = body.facts.map((f: { key: string }) => f.key);
-    for (const manager of ["gd.fact.staff", "gd.fact.onlinePayments", "gd.fact.scheduled", "gd.fact.coaches"]) expect(keys).not.toContain(manager);
+    // The playbook is the desk's own: no manager's section, and no module of a manager's (tests/guide-playbook*.test.ts holds the rest).
+    expect(body.playbook).toMatchObject({ role: "desk", venue: { id: configured } });
+    expect(body.playbook.sections.map((s: { id: string }) => s.id)).not.toContain("manager");
+    expect(body.playbook.modules).not.toContain("manager.staff");
+    expect(body.playbook.modules).not.toContain("manager.finance");
   });
 
   it("take the role from the session and refuse a role above it", async () => {
@@ -550,14 +551,14 @@ describe("the routes", () => {
     expect(below.status).toBe(200);
     expect((await below.json()).role).toBe("coach");
     expect((await get(playbookGet, `/api/admin/guide/playbook?venueId=${configured}&as=owner`, asDesk)).status).toBe(400);
-    // A manager may prepare the desk's training: the desk's facts, not their own.
+    // A manager may prepare the desk's training: the desk's guide, not their own.
     const manager = await get(playbookGet, `/api/admin/guide/playbook?venueId=${configured}`, asConfiguredManager);
     const asManager = await manager.json();
     expect(asManager).toMatchObject({ role: "manager", roles: ["manager", "desk", "coach"] });
-    expect(asManager.facts.map((f: { key: string }) => f.key)).toContain("gd.fact.staff");
+    expect(asManager.playbook.modules).toContain("manager.staff");
     const preview = await (await get(playbookGet, `/api/admin/guide/playbook?venueId=${configured}&as=desk`, asConfiguredManager)).json();
     expect(preview).toMatchObject({ role: "desk", ownRole: "manager" });
-    expect(preview.facts.map((f: { key: string }) => f.key)).not.toContain("gd.fact.staff");
+    expect(preview.playbook.modules).not.toContain("manager.staff");
     // And asking for a venue not yours is refused in the playbook as everywhere.
     expect((await get(playbookGet, `/api/admin/guide/playbook?venueId=${theirs}`, asDesk)).status).toBe(403);
   });

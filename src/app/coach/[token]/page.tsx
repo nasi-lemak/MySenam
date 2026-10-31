@@ -8,6 +8,7 @@ import { addDays, formatHour, todayISO } from "@/lib/time";
 import CoachSelfService from "@/components/CoachSelfService";
 import Link from "next/link";
 import { linkIn } from "@/lib/link-locale";
+import { staffLocale, staffTranslator } from "@/lib/staff-i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,12 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
         {t("apr.coachSignIn")}{" "}
         <Link href="/account/approvals" className="font-semibold text-teal-700 underline">
           {t("apr.coachSignInLink")}
+        </Link>
+      </p>
+      {/* What this page does, and what the coach can and cannot see (lib/guide/playbook). */}
+      <p className="text-sm">
+        <Link href={`/coach/${token}/guide`} className="font-semibold text-teal-700 underline">
+          {staffTranslator(staffLocale(t.locale), site)("gp.ui.coachLink")}
         </Link>
       </p>
       <CoachLanguage token={token} chosen={found.locale} />

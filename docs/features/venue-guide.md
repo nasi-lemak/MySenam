@@ -23,12 +23,14 @@ The shared model all three guides are built on, in `src/lib/guide/`:
 | Setup plan | `plan.ts`, `steps.ts` | The step registry and `buildSetupPlan`: ordered, grouped, conditional, with each step's state read from saved state |
 | Launch readiness | `readiness.ts` | `launchReadiness`: six kinds of thing, no single score |
 | Discoveries | `discover.ts` | Up to three capabilities that suit the venue and that it does not use |
-| Routes and shell | `http.ts`, `facts.ts`, `shell.ts`; `GuideTab.tsx` | Three routes, the dashboard's `guide` tab, roles |
+| Routes and shell | `http.ts`, `shell.ts`; `GuideTab.tsx` | Three routes, the dashboard's `guide` tab, roles |
+| Operating playbook | `playbook/` | `buildPlaybook`, the modules and topics, the coach's page ([below](#the-operating-playbook)) |
 
-The tab's three views (setup, playbook, discover) are placeholders: each reads
-its route and shows what comes back as plain lists, marked as such on the
-screen, for the setup journey, the playbook and the contextual help to replace
-one function at a time ([the dashboard tab](#the-dashboard-tab)). The
+The tab's setup and discover views are placeholders: each reads its route and
+shows what comes back as plain lists, marked as such on the screen, for the
+setup journey and the contextual help to replace one function at a time
+([the dashboard tab](#the-dashboard-tab)). The playbook view is built
+([the operating playbook](#the-operating-playbook)). The
 checklist at the top of the dashboard is unchanged, with one added line that
 opens the guide; the plan's first three steps are its three steps, read from
 the same answers (`venueSetup`), not recomputed.
@@ -282,14 +284,188 @@ their body with `jsonObject`:
 
 ### The playbook route
 
-`GET /playbook?venueId=&as=` answers `{ venueId, role, ownRole, roles, facts }`.
-The role a guide is *for* is the session's own (`manager` or `desk`); `as` may
-name `manager`, `desk` or `coach`, and only a role at or below the caller's
+`GET /playbook?venueId=&as=` answers `{ venueId, role, ownRole, roles, playbook }`:
+the venue's [operating playbook](#the-operating-playbook) for the role. The role
+a guide is *for* is the session's own (`manager` or `desk`); `as` may name
+`manager`, `desk` or `coach`, and only a role at or below the caller's
 (`mayViewAs`): a desk asking `as=manager` gets `403`, an unknown role `400`. It
-is every role's, the front desk included. Until the playbook is built on it,
-`facts` are phrases chosen from the profile for the role (`guideFacts`): the
-front desk is not shown the money settings or the staff, a coach only the
-activities.
+is every role's, the front desk included, and is built afresh from the saved
+configuration on each request.
+
+## The operating playbook
+
+The guide to running *this* venue day to day, for the person doing it: a
+manager, the front desk, or a coach. It is built from the venue's saved
+configuration (the [venue profile](#the-venue-profile)) and nothing else, by
+`buildPlaybook(profile, role, ctx)` (`src/lib/guide/playbook/index.ts`): a pure
+function with no language model, no service and no store. It is computed on each
+request, so a change to a rate, a cutoff, the hours, the activities or the
+payment set-up shows in the very next one, and nothing is kept that could be
+stale or could be served to another venue (`tests/guide-playbook.test.ts`,
+`tests/guide-playbook-venues.test.ts`). The decision is
+[ADR 0028](../architecture/decisions/0028-venue-guide-as-read-models-over-real-configuration.md).
+
+### What it is made of
+
+A `Playbook` is `{ venue, role, summary, sections, toc, scheduled, modules }`
+(`src/lib/guide/playbook/types.ts`). Its content is **typed blocks**, never
+English and never a string built in code: `heading`, `paragraph`, `steps`
+(ordered; a step may carry a link), `facts`, `callout` (`note`, `warning`,
+`policy`, and `scheduled` for what is coming), `link` and `table`. Each block
+holds `Words`: a staff-dictionary phrase (`gp.`, `src/lib/staff-i18n/guide-playbook.ts`,
+or the dashboard's own title for a screen, so a step names a screen as the
+screen names itself) with values that stay typed until they are said: money,
+a time of day, a date, an activity, a list, or a nested phrase. `say` in
+`src/lib/guide/playbook/render.ts` writes them in the reader's language with the
+dashboard's own helpers (`money`, `minuteClock`, `shortDate`, `activityName`);
+what the venue typed is said as typed. The screen, the print view, the search
+index and the tests all read the same words through it.
+
+Content is **modules** (`PlaybookModule`: `id`, `section`, `roles`, `applies(profile)`,
+`blocks(context)`), one file per area in `src/lib/guide/playbook/modules/`. A module
+that does not apply to the venue, or is not for the role, is simply absent, so a
+guide is the venue's own and not a manual with every feature switched on.
+
+| Section | Modules, and when each is there |
+| ------- | -------------------------------- |
+| Getting started | `start.overview` (what the venue is: resources, activities, today's hours and rates, the booking page, payment and counter methods, staff for a manager); `start.draft` (a draft venue); `start.scheduled` (anything coming, below); `start.features` (what the profile shows the venue uses); `start.where` (the screens, as links); `start.roles` (manager) and `start.deskLimits` (desk) |
+| Before opening | `before.day`, `before.attention`; `before.owed` where the counter takes money; `before.classes` with classes to come; `before.unstaffed` with unstaffed hours |
+| Handling a customer booking | `booking.counter`, `booking.behalf`, `booking.eligibility` (why somebody cannot reserve, and memberships, discounts and passes for the desk where the venue has them), `booking.changes`, `booking.payments`; `booking.online` for a live venue; `booking.availability` where there are buffers, shared or linked facilities; `booking.prices` once rates are set |
+| During operations | `during.checkin`, `during.walkins`, `during.noshows` (the venue's strike limit, or none), `during.requests`; `during.outage` once there are resources; `during.hire` where hire is against a deposit; `during.classes`; `during.coaching` |
+| Cancellations and refunds | `cancel.policy` (the venue's actual cutoff, late share, strike limit, what its online-refund setting governs and the refund period), `cancel.venue` (the venue-wide policy), `cancel.staff`, `cancel.reschedule`, `cancel.obligations`; `cancel.partial` with shared, per-person, guardian or class places; `cancel.manual` (manager) and `cancel.manualDesk` (desk) where money is paid online |
+| End of day | `eod.cashup`, `eod.unpaid`, `eod.exceptions`; `eod.owedCounter` where the counter takes money; `eod.owedOnline` and `eod.reports` (manager) |
+| Manager responsibilities | `manager.pricesHours`, `manager.staff`, `manager.overrides`, `manager.incidents`, `manager.finance`, `manager.future`; `manager.commerce` and `manager.memberships` where the venue has promotions, passes, concessions or memberships; `manager.testBookings` for a draft or while tests stand |
+| Specialised workflows | `spec.coaching` and `spec.classes` where there are coaches or classes; `spec.tournaments`, `spec.leagues` (manager) and `spec.competitionsDesk` (desk) where there are any; `spec.openGames`; `spec.family`; `spec.guardians`; `spec.unstaffed`; `spec.accounts`; `spec.branches` (manager, several branches). A court-only venue has none of them |
+| Quick reference cards | Create a booking; handle a cancellation; collect payment; resolve an unpaid booking; check in a customer; respond to an outage; invite staff (manager); handle an approval request (where approvals or sign-offs are used), each step by step with the screen's link |
+| Your lessons and schedule | The coach's guide (below) |
+
+Every statement is one the feature documents make
+([booking](booking.md), [pricing](pricing.md), [payments and credit](payments-and-credit.md),
+[venue operations](venue-operations.md), [programmes](programmes.md),
+[activities](activities.md), [tournaments](tournaments.md),
+[matchmaking](matchmaking.md)). What the application does not do is not in
+the guide: there is no staff rota, so nothing is said of staff assignments; the
+coach's page has no attendance control, so the coach's guide has none; waiting
+lists, notes on a customer, waivers, private-hire enquiries and booking alerts
+are not yet written up.
+
+### Current and scheduled
+
+What the profile says is in force today is described as in force. A change of
+opening hours or of rates set from a later date (`hours.scheduled`,
+`rates.scheduled`) is never merged into today's text: it is its own
+*Coming on <date>* callout, with the words *Coming later*, under *Coming
+changes* in Getting started, and a `scheduled` entry in the answer. The
+callout says that until the date today's hours or rates stand, and that a
+booking already made keeps the price it was sold at. A coach's guide has none.
+
+### Roles
+
+The role a guide is *for* is the session's own (`ownRole` in `http.ts`); a
+manager may ask for the front desk's or a coach's to train them (`as`, held to
+`mayViewAs`), never the reverse. The three guides:
+
+- **Manager**: configuration, policies, approvals, financial operations,
+  exceptions and reporting, with a link to each screen.
+- **Front desk**: daily reservations, check-in, attendance, customers'
+  questions, counter payments, the refunds the desk may give (today's counter
+  takings; an earlier day's is a manager's) and when to ask a manager. It
+  contains no manager-only instruction and no manager-only link: modules of
+  the manager section are for the manager alone, and a desk's guide never names
+  a screen only a manager has.
+- **Coach**: their own lessons and schedule, their hours and days off, and what
+  they can and cannot see, as the coach's page already works. Nothing about money
+  and nothing about the venue's other people; no links, because a coach has no
+  dashboard.
+
+Every link is `{ tab, view?, label, staffAction? }` and is added only if
+`linkAllowed(role, tab, staffAction)` (`dsl.ts`) is true: a coach has none; the
+desk only the tabs it has (not Reports, Courts & rates or Venue details) and only
+actions `staffMay("desk")` allows, which is `MANAGER_ONLY`'s answer; a manager
+what `staffMay` allows. `tests/guide-playbook.test.ts` iterates every link of
+every role over every fixture venue against the real rules. A link grants
+nothing: the screen and the server ask again.
+
+### Topics, for contextual help
+
+The explanations the application gives in more than one place are written once, as
+**topics** (`src/lib/guide/playbook/topics.ts`): booking buffers
+(`buffers`), shared and linked facilities (`shared-linked`), peak and off-peak
+rates and prices from a date (`peak-dated`), concessions, promo codes and
+stacking (`discounts`), memberships: booking privileges and taking part
+(`memberships`), what a membership covers (`membership-covers`), passes
+(`passes`), guardians and approvals (`guardians`), who refunds what
+(`refunds`), why a customer cannot reserve (`cannot-reserve`: the reasons the
+application gives, only those that apply to the venue), assigning another coach
+(`another-coach`), unattended access (`unattended`) and test bookings
+(`test-bookings`). `buildTopic(id, profile, role)` returns the topic's title,
+blocks and related topics, or null for a role it is not written for (the coach
+has none); `TOPIC_IDS` lists them. The playbook's sections use the same
+function, so the text in a section is the topic's own, unchanged and once per
+guide (`topicBlocks`; held by a test), and the contextual help beside a screen
+can say the same words. A topic tells a manager where to change the setting
+(with a link) and the desk that a manager does.
+
+### Reading it
+
+`PlaybookView` (`src/components/admin/guide/PlaybookView.tsx`) reads the route and
+draws `PlaybookDocument`: a table of contents (with the quick-reference cards under
+their section), a search box over the text already loaded (it shows the matching
+topics, opens them and counts them), collapsible sections (real buttons with
+`aria-expanded`), numbered steps, callouts labelled with a word as well as a
+colour, links that open the dashboard's tab, and for a manager *View as*
+front desk or coach, with a note saying whose guide it is. *Print this guide*
+uses the browser's own print: the print stylesheet shows the guide alone on A4,
+every section and topic open whatever was folded or searched, nothing split
+inside a step, no controls or links, with the venue's name and *Printed on
+<date> from the current settings*. Nothing is uploaded or stored. It works at
+360 px, with 24 px targets, labelled fields and a keyboard.
+
+### The coach's page
+
+`/coach/<token>/guide` (`src/app/coach/[token]/guide/page.tsx`) is the coach's
+guide, at the same private link as their schedule, checked as it is: a wrong,
+lapsed or withdrawn link is the same *not found*. It is built from the coach's
+venue (a coach record belongs to one) and the coach's own counts (their
+lessons coming, whether their hours are set, their days off), links back to the
+schedule, is print-friendly, and is linked from the schedule page. It is
+written in the coach's own language where the staff dictionaries have it
+(English, Malay, Chinese), else the install's first staff language: the staff
+dictionaries have no Tamil.
+
+### Languages and formats
+
+All text is in the staff dictionaries, English, Malay and Chinese
+(`guide-playbook.ts`, prefix `gp.`, one row per phrase with the three side by
+side): English is written first and is authoritative; the Malay and Chinese are
+machine-assisted and await native review, like the rest of the dashboard's.
+`tests/guide-playbook.test.ts` checks that every phrase is in all three with the
+same values, that none is unused or missing, and that a whole guide in each
+language has no value left unfilled.
+
+### Adding to it
+
+- **A module**: add a `PlaybookModule` to the file for its section in
+  `src/lib/guide/playbook/modules/` and its phrases to `guide-playbook.ts`.
+  Say in `applies` which profiles it is true of and in `roles` who is shown it;
+  write only what a feature document says; take links from `c.go(tab, action)`
+  so a role that may not use the screen is not given one.
+- **A role**: add it as under [adding a role](#adding-a-role), give modules
+  `roles` that include it, and a section title if it has its own.
+- **A topic**: add its id to `TOPIC_IDS`, a row in `topics.ts` and its
+  `gp.t.<id>.*` phrases; use `topicBlocks` where a section explains it.
+- A topic or module never states a rule twice: put the rule in a topic and
+  use it.
+
+### What it does not say
+
+No secret, key, tax identifier or person's name, number or address is in a
+playbook: it carries counts and settings from the profile and the venue's own
+name (`tests/guide-playbook.test.ts` scans every guide in every language for
+them). A gateway is named only by its public name. Whether something must be
+invoiced or taxed is never settled in it: it says that is for the venue and its
+accountant, and that a tax treatment MySenam suggests is a provisional starting
+point.
 
 ## Permissions
 
@@ -309,8 +485,9 @@ account). Tenant scope is in [tenancy](../architecture/tenancy.md#the-venue-guid
 address, like the tab, so a reload or a link lands where it was). Every
 account has the tab; the front desk is shown only *How to run it*, and the
 server refuses it the setup regardless. `src/components/admin/guide/GuideTab.tsx`
-renders the switcher and a placeholder for each view that replaces cleanly:
-`SetupPlanView`, `PlaybookView`, `DiscoverView`, each fed by one route. The
+renders the switcher and a placeholder for each view that is still to come
+(`SetupPlanView`, `DiscoverView`, each fed by one route); the playbook view
+is `PlaybookView` in its own file. The
 dashboard's tab list and `DASHBOARD_TABS` (`src/lib/guide/shell.ts`) are held
 equal by `tests/guide-model.test.ts`. All text is in the staff dictionaries:
 `guide.ts` (`gd.`: the shell, refusals' words, readiness, discoveries, log
@@ -334,7 +511,7 @@ build on. Import from the files named; do not reach into another worker's.
 | Plan the setup | `buildSetupPlan(ctx, registry?)` → `SetupPlan`; `SetupStep`, `StepContext`, `StepState`, `PlanItem`, `Say` (`plan.ts`); `SETUP_STEPS`, `reviewState`, `becauseAnswer`, `becauseFact` (`steps.ts`) |
 | Say if ready | `launchReadiness(profile, plan?)` → `LaunchReadiness` |
 | Suggest | `discover(profile, answers, dismissed)`, `DISCOVERY_RULES` |
-| Serve a view | `setupView(venueId, role, state?)`, `guideVenue`, `ownRole` (`http.ts`); `guideFacts` (`facts.ts`) |
+| Serve a view | `setupView(venueId, role, state?)`, `guideVenue`, `ownRole` (`http.ts`); `playbookFor(venueId, role)` (`playbook/server.ts`), `buildPlaybook` (`playbook/index.ts`) |
 | Roles and screens | `GuideRole`, `mayViewAs`, `DashboardTab`, `DASHBOARD_TABS`, `GuideView` (`shell.ts`) |
 
 A `Say` is `{ key, vars? }`: a staff-dictionary phrase and its values, which the
@@ -372,8 +549,8 @@ checks that each type's activities, capabilities and workflows exist.
 ### Adding a role
 
 Add it to `GUIDE_ROLES` and `GUIDE_ROLE_RANK` (`shell.ts`), `ROLE_PHRASES` in
-`GuideTab.tsx` and `gd.role.<role>` in the staff dictionaries; what a role may
-see is whatever its modules say for it, held to `staffMay`.
+`PlaybookDocument.tsx` and `gd.role.<role>` in the staff dictionaries; what a role
+may see is whatever its modules say for it, held to `staffMay`.
 
 ## What is stored, and what is not
 
@@ -394,6 +571,15 @@ readiness groups, discoveries, the tab list); `tests/guide-profile.test.ts`
 stale saves and concurrent saves, `fit` through `submitApplication`, a copied
 branch, the routes and their log entries and refusals);
 `tests/components/guide-tab.test.tsx` (the tab: roles, links, reviews). The
-concurrent-save and tenancy tests are run on Postgres as well as PGlite. A test
+playbook: `tests/guide-playbook.test.ts` (fixture venues and which modules each
+gets, every number and policy equal to the profile's, current against scheduled,
+every link of every role against `MANAGER_ONLY`, the desk's and the coach's
+guides, topics written once, determinism, no store, the three languages, no
+secret), `tests/guide-playbook-venues.test.ts` (the route and its roles, tenant
+isolation, a change showing on the next request, a branch's own guide, the
+coach's page and link), `tests/components/guide-playbook.test.tsx` (contents,
+search, folding, links, the role preview, the print view). The
+concurrent-save and tenancy tests, and the playbook's tenancy and change tests,
+are run on Postgres as well as PGlite. A test
 against a payment or message provider is a stand-in; the guide never says one
 is verified.

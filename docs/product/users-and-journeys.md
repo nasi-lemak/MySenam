@@ -18,7 +18,7 @@ those, or through a private link, or not at all.
 | **Business manager** | A staff account with a business (`admins.business_id`) | Every branch of their business: settings, staff, branches, reports ([tenancy](../architecture/tenancy.md)) |
 | **Venue manager** | Branch staff with the manager role | Their venue only: courts, prices, policies, payment account, refunds, classes, tournaments, leagues, reports, and its front-desk staff ([tenancy](../architecture/tenancy.md#managers-and-front-desk)) |
 | **Front desk** | Branch staff with the desk role | The day's work: bookings, payments at the counter, check-in, hire; not prices, refunds or set-up, which it sees read-only ([what the front desk is shown](../architecture/tenancy.md#what-the-front-desk-is-shown)) |
-| **Coach** | Not an account: a name the venue lists, with a private link | Their own hours, time off and lessons on the link's page; a calendar feed ([programmes](../features/programmes.md#one-to-one-coaching)) |
+| **Coach** | Not an account: a name the venue lists, with a private link | Their own hours, time off and lessons on the link's page; a calendar feed ([programmes](../features/programmes.md#one-to-one-coaching)); their own guide at the same link, saying what they can and cannot see ([venue guide](../features/venue-guide.md#the-operating-playbook)) |
 | **Class instructor** | A name on a class | Nothing in the app |
 | **Tournament organiser** | Not a role of its own: a venue manager | Set up, draw, correct and resolve ([tournaments](../features/tournaments.md)) |
 | **Tournament official** | Not an account: a private link for one tournament | Enter results for that tournament's matches still to be decided ([tournaments](../features/tournaments.md#results)) |
@@ -28,6 +28,8 @@ those, or through a private link, or not at all.
 | **Participant** | Not an account: somebody who takes part where that is not the account holder (a child a parent books for, a person staff add at the counter): `participants`, by id ([ADR 0023](../architecture/decisions/0023-participants-apart-from-accounts.md)) | Nothing themself; their eligibility (sign-offs, inductions, waivers) is theirs alone. May later be linked to their own login, which then holds their history and eligibility |
 | **Guardian of a participant** | A customer account with a declared relationship to a participant (`participant_guardians`), or a name and number a venue's staff recorded at the counter | Book, apply, agree to waivers and be told for them; give a second guardian or the participant's own login a code; stop being their guardian ([applying for somebody you manage](../features/activities.md#applying-for-somebody-you-manage)) |
 | **Guardian on a tournament entry** | Not an account: a name and a tick on a minor's tournament entry, as the entrant declared them | Nothing in the app ([tournaments](../features/tournaments.md#setting-one-up)) |
+
+A venue's staff and coaches each have a guide to their own part of running the venue, written from that venue's saved configuration and held to what their role may do: a manager's, the front desk's (`How to run it` in the dashboard's *Guide* tab) and the coach's own page ([venue guide](../features/venue-guide.md#the-operating-playbook)).
 
 **The account holder, the booker, the payer and the participant are not
 assumed to be one person.** An adult booking for themself is all four, as
