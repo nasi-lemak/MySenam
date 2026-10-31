@@ -45,6 +45,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | Tournaments, competitions with divisions, competition rules and templates, results, corrections, box leagues | [Tournaments and leagues](features/tournaments.md) |
 | Open games, suggested games and players, invitations, private games, weekly games, community groups, blocking and reporting | [Open games and matchmaking](features/matchmaking.md) |
 | Check-in, unstaffed hours, equipment hire, notes, waivers, hire enquiries, booking alerts | [Venue operations](features/venue-operations.md) |
+| How MySenam fits a kind of venue (public), the adaptive setup journey, the personalised operating playbook, contextual help | [The venue guide](features/venue-guide.md) |
 | Search, near me, facilities, photos, reviews, notices, SEO, installing as an app | [Discovery](features/discovery.md) |
 | Reports, exports, sales journal, activity log | [Reporting](features/reporting.md) |
 | The marketplace: sign-up, going live, venue billing, suspension, storefronts | [Marketplace](product/marketplace.md) |
@@ -93,7 +94,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0024 Supporting documents scanned before release; retention by configured purpose](architecture/decisions/0024-documents-scanned-before-release-retention-by-purpose.md) ·
 [0025 Benefits and privileges by the scope they apply to](architecture/decisions/0025-benefits-and-privileges-by-scope.md) ·
 [0026 The same venue policies on every booking path, with audited manager overrides](architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md) ·
-[0027 Opening hours and rates from a date](architecture/decisions/0027-hours-and-rates-from-a-date.md)
+[0027 Opening hours and rates from a date](architecture/decisions/0027-hours-and-rates-from-a-date.md) ·
+[0028 The venue guide as read models over the real configuration](architecture/decisions/0028-venue-guide-as-read-models-over-real-configuration.md)
 
 ## Integrations
 
