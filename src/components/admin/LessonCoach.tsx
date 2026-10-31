@@ -6,6 +6,7 @@ import type { Coach } from "@/lib/coaching";
 import type { CoachChangeTerms, CoachMoney } from "@/lib/lesson-coaches";
 import { money as formatMoney } from "@/lib/region";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 
 /**
  * Which coach a lesson being moved goes with (`POST
@@ -113,7 +114,10 @@ export function LessonCoach({
           ))}
         </select>
       </label>
-      <p className="mt-1 text-xs text-slate-600">{t("fin6.bk.coachHelp")}</p>
+      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        {t("fin6.bk.coachHelp")}
+        <HelpTip place="bookings.coach" venueId={venueId} />
+      </p>
       {refused && (
         <p className="mt-2 text-xs font-medium text-red-700" data-testid="coach-refused">
           {refused}

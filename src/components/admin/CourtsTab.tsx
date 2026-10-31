@@ -20,6 +20,7 @@ import { SURFACES, type CourtFeatures } from "@/lib/facilities";
 import { hasPhrase, sportLabel, type T } from "@/lib/i18n";
 import { region } from "@/lib/region";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import { ParticipantPicker, type PickedParticipant } from "./ParticipantPicker";
 import { ManagerChangesNote, ManagerOnly, useStaffMay } from "./StaffMay";
 import { CourtChangesFromDate } from "./DatedChanges";
@@ -432,7 +433,10 @@ export function CourtsTab({
       {door && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-sm font-semibold">{t("ct.doorTitle", { name: door.court.name })}</p>
+            <p className="flex items-center gap-2 text-sm font-semibold">
+              {t("ct.doorTitle", { name: door.court.name })}
+              <HelpTip place="courts.door" venueId={door.court.venueId} />
+            </p>
             <button
               onClick={() => setDoor(null)}
               className="text-xs font-medium text-slate-500 hover:text-slate-700"
@@ -1087,7 +1091,10 @@ function CourtLinksEditor({ venueId, courts }: { venueId: number; courts: Court[
   if (!links) return null;
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">{t("ct.linksTitle")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold">{t("ct.linksTitle")}</h3>
+        <HelpTip place="courts.links" venueId={venueId} />
+      </div>
       <p className="mt-1 text-xs text-slate-500">{t("ct.linksIntro")}</p>
       {wholes.length > 0 && (
         <ul className="mt-3 space-y-1">

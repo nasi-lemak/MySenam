@@ -6,6 +6,7 @@ import { useT } from "@/components/Language";
 import { LOCALE_NAMES, offeredLocales, type Locale } from "@/lib/i18n";
 import type { ManagedVenue } from "./shared";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import { PhoneCheckAdvice } from "./PhoneCheckAdvice";
 import { startingLanguage } from "./WaitlistJoin";
 
@@ -259,7 +260,10 @@ export function ParticipantsPanel({ venues, role = "manager", owner = false }: {
 
   return (
     <section>
-      <h2 className="text-lg font-bold">{t("pbk.pp.title")}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-bold">{t("pbk.pp.title")}</h2>
+        <HelpTip place="people.participants" venueId={venueId} />
+      </div>
       <p className="mt-1 text-sm text-slate-500">
         {t("pbk.pp.intro")} {t("gv.pp.intro")} {t("gw5.pp.intro")}
       </p>

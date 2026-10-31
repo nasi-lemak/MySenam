@@ -20,6 +20,7 @@ import { isDay, UpdatedNote, useAddressed, useAutoRefresh } from "./place";
 import { clockTime, money, region } from "@/lib/region";
 import { isConcessionPreset } from "@/lib/concessions-shared";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import PassAllocation, { passCodesOf, type AllocPass } from "@/components/PassAllocation";
 import type { PlanPlace } from "@/lib/pass-rules";
 import { errorText } from "@/lib/i18n";
@@ -2377,7 +2378,10 @@ function CancelPanel({
       : t("p8a.cx.lateNone", { n: p.cutoffHours });
   return (
     <div className="rounded-xl border border-red-200 bg-red-50/40 px-4 py-3 text-sm" data-testid="cancel-panel">
-      <p className="font-semibold">{t("p8a.cx.title", { code: p.code })}</p>
+      <p className="flex flex-wrap items-center gap-2 font-semibold">
+        {t("p8a.cx.title", { code: p.code })}
+        <HelpTip place="bookings.cancel" venueId={venueId} />
+      </p>
       <p className="mt-1 text-slate-700">{paidLine}</p>
       {p.deposit > 0 && <p className="text-slate-700">{t("p8a.cx.deposit", { amount: money(p.deposit) })}</p>}
       <p className="text-slate-600">{terms}</p>

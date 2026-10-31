@@ -45,6 +45,7 @@ import { minuteClock, region } from "@/lib/region";
 import type { StaffText } from "@/lib/staff-text";
 import type { EInvoiceRetention } from "@/lib/einvoice-retention";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import DocumentPolicy from "./DocumentPolicy";
 import { StaffAccounts } from "./StaffAccounts";
 import { ManagerChangesNote, ManagerOnly, useStaffMay } from "./StaffMay";
@@ -567,7 +568,10 @@ function VenueRow({
       <div className="w-full border-t border-slate-100 pt-3">
         <div className="flex flex-wrap items-end gap-2">
           <div>
-            <p className="text-xs font-semibold text-slate-700">{t("vn.counter")}</p>
+            <p className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+              {t("vn.counter")}
+              <HelpTip place="venues.unattended" venueId={venue.id} />
+            </p>
             <p className="text-xs text-slate-500">{t("vn.counterIntro")}</p>
           </div>
           <label className="flex flex-col text-xs font-medium text-slate-500">

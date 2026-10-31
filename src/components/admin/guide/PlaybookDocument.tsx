@@ -6,6 +6,7 @@ import type { StaffPhrase } from "@/lib/staff-i18n";
 import { blockText, say, sayLink, type Speaker } from "@/lib/guide/playbook/render";
 import type { Block, CalloutKind, GuideLink, Playbook, PlaybookSection } from "@/lib/guide/playbook/types";
 import type { GuideRole } from "@/lib/guide/shell";
+import { placeParam, setPlaceParams } from "../place";
 import { useStaffT } from "../StaffLanguage";
 
 /**
@@ -116,6 +117,22 @@ export function PlaybookDocument({
     scrollTo.current = null;
     document.getElementById(id)?.scrollIntoView?.({ block: "start" });
   });
+
+  // "Open this in the guide" from a "?" beside a screen (`&topic=`): open the section that explains the topic and bring it into view,
+  // once (the address forgets it, so a later visit starts where it always does). A topic the venue's guide has no section for is not there.
+  // After the effect above, so the section is open when it looks for the target.
+  useEffect(() => {
+    const asked = placeParam("topic");
+    if (!asked) return;
+    setPlaceParams({ topic: null });
+    const target = `topic-${asked}`;
+    const section = playbook.sections.find((s) => s.blocks.some((b) => b.type === "heading" && b.id === target));
+    if (!section) return;
+    setOpen((o) => ({ ...o, [section.id]: true }));
+    scrollTo.current = target;
+    // Once, on the first draw of this guide.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const jump = (sectionId: string, targetId: string) => {
     setQuery("");
@@ -284,7 +301,8 @@ function LinkButton({ link, speaker, onGo }: { link: GuideLink; speaker: Speaker
   );
 }
 
-function BlockView({ block, speaker, onGo }: { block: Block; speaker: Speaker; onGo?: (link: GuideLink) => void }) {
+/** One block of a guide or of a topic: the one renderer both the playbook and the contextual help use (HelpTip.tsx). */
+export function BlockView({ block, speaker, onGo }: { block: Block; speaker: Speaker; onGo?: (link: GuideLink) => void }) {
   const t = speaker.t;
   switch (block.type) {
     case "heading": {

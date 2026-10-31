@@ -9,6 +9,7 @@ import type { DayHours, HoursChange, WeekHours } from "@/lib/week-hours";
 import { ClockField } from "@/components/ClockField";
 import { CourtWeekHours } from "./BookingPolicyEditor";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import { todayLocal } from "./shared";
 
 /**
@@ -343,7 +344,10 @@ export function CourtChangesFromDate({ venueId, courts }: { venueId: number; cou
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-600 shadow-sm">
-      <h3 className="text-sm font-semibold text-slate-900">{t("r9b.rates.title")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-slate-900">{t("r9b.rates.title")}</h3>
+        <HelpTip place="courts.dated" venueId={venueId} />
+      </div>
       <p className="mt-1 text-sm text-slate-500">{t("r9b.rates.intro")}</p>
       {listing && (
         <div className="mt-2">

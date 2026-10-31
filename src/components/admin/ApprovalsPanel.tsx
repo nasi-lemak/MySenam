@@ -11,6 +11,7 @@ import type { StaffT } from "@/lib/staff-i18n";
 import type { Court } from "@/lib/types";
 import { ApprovalReview, type Say } from "@/components/ApprovalReview";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import { DocumentPurposeField, EMPTY_RETENTION, RetentionFields, retentionBody, retentionFormOf } from "./ApprovalRetention";
 
 /**
@@ -170,7 +171,10 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
   const label = "flex flex-col text-xs font-medium text-slate-500";
   return (
     <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h3 className="font-semibold">{t("apr.set.title")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold">{t("apr.set.title")}</h3>
+        <HelpTip place="people.approvals" venueId={venueId} />
+      </div>
       <p className="text-sm text-slate-500">{t("apr.set.intro")}</p>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {requirements.length > 0 && (

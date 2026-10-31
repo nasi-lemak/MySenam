@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { type Sport } from "@/lib/types";
 import { CONCESSION_PRESETS, type ConcessionPreset } from "@/lib/concessions-shared";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import { withMarks } from "./ResourcesEditor";
 
 interface Concession {
@@ -91,7 +92,10 @@ export function ConcessionsEditor({ venueId }: { venueId: number }) {
   if (!list) return null;
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">{t("con.title")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold">{t("con.title")}</h3>
+        <HelpTip place="courts.concessions" venueId={venueId} />
+      </div>
       <p className="mt-1 text-xs text-slate-500">
         {withMarks(t("con.intro"), { seen: <em>{t("con.proofSeen")}</em>, none: <em>{t("con.noProof")}</em> })}
       </p>
