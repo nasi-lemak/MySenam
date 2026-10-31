@@ -248,7 +248,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B63, M16–M29 and
-S12–S31, found and fixed in the same work) and
+S12–S32, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
@@ -839,6 +839,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | S29 | The staff activity log, alerts and error reports caught every failure of their own write, a serialization failure included: on Postgres the transaction they sat in was left aborted rather than run again, so its next statement failed (a membership suspended while somebody booked a day inside it answered with an error) | `tests/aside-writes.test.ts` (also on Postgres), `tests/membership-suspensions.test.ts` |
 | S30 | Ticking off or hiding a venue's set-up checklist was not refused to the front desk by the server (the desk was not shown it); `POST /api/admin/setup` is a manager's | `tests/roles.test.ts` |
 | S31 | Clearing a test booking that had real counter cash wrote its credit note with nobody named handing the money back, no payout and no owed record, and the cash-up omitted the receipt, so real money could vanish from the financial records; a test left standing at a live venue was left out of the consolidated e-invoice; now: the manager says whether real money was taken (declared synthetic, or owed back and settled by a named person); the cash-up shows tests in a block of its own; a payment once the venue is live makes a test real; a paid test standing at a live venue goes in the e-invoice | `tests/test-bookings-money.test.ts`, `tests/test-bookings.test.ts` |
+| S32 | The email check reported a domain's DMARC and SPF records missing when its DNS lookups could not be made at all (raw DNS is refused from the cloud environment it runs in), and did not notice two DMARC records, which a receiver ignores | The records are read over DNS over HTTPS, a lookup that cannot be made is reported as such, and more than one DMARC record fails | `scripts/verify-integrations.mjs` (run against the owner's domain on 31 October 2026) |
 | B51 | The schedule listed a day's neighbours' bookings that only touched it (zero-minute rows at midnight) and showed an after-midnight booking under the following day; it now lists only what overlaps the day's own window, the evening's late hours with the evening | `tests/schedule-own-day.test.ts` |
 | B52 | Twelve kinds of activity-log entry (tournament rules, results and corrections, league results and joining) had no label and showed their raw names; they are labelled in every staff language, and the label test reads every way an action is chosen | `tests/activity-labels.test.ts` |
 | M23 | A tournament's entry fee was read from the tournament at payment and on the counter receipt, so changing the fee would have repriced entries already made; each entry keeps its own fee (migration 0238, backfilled) | `tests/tournament-changes.test.ts` |

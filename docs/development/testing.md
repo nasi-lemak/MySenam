@@ -101,7 +101,10 @@ credentials from the environment's secret store and print none of them. The
 `SES_SECRET_ACCESS_KEY`, `SES_REGION` and `MAIL_FROM` are set (it reads the
 account, the sender's identity and its DKIM where the key may, and with `--send`
 sends one message to `VERIFY_EMAIL_TO`), otherwise SMTP, which is refused from
-the cloud environment the checks run in.
+the cloud environment the checks run in. The domain's SPF and DMARC records are
+read over DNS over HTTPS there, since raw DNS is refused too; a lookup that could
+not be made is reported as such, never as a missing record, and two DMARC
+records are a failure (a receiver ignores both).
 
 **On this machine, with Docker** (`npm run stage -- …`, `scripts/stage.mjs`):
 the app as an immutable image built from this source, its own Postgres,

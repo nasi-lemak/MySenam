@@ -34,6 +34,28 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { ROOT } from "./lib/source.mjs";
 
+/**
+ * TXT records of a name, as strings; null when they could not be looked up at all (an empty list means the name has
+ * none). Raw DNS (UDP) is refused from the cloud environment the checks run in, where every lookup then looks like
+ * "no record" (the first run reported a DMARC record missing that was there), so this asks DNS over HTTPS when the
+ * system resolver finds nothing, and says so when neither could answer.
+ */
+async function lookupTxt(name) {
+  const direct = (await dns.resolveTxt(name).catch(() => [])).map((r) => r.join(""));
+  if (direct.length > 0) return direct;
+  for (const url of [`https://dns.google/resolve?name=${encodeURIComponent(name)}&type=TXT`, `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=TXT`]) {
+    try {
+      const res = await fetch(url, { headers: { accept: "application/dns-json" }, signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) continue;
+      const body = await res.json();
+      return (body.Answer ?? []).filter((a) => a.type === 16).map((a) => String(a.data).replace(/^"|"$/g, "").replace(/"\s*"/g, ""));
+    } catch {
+      /* try the next */
+    }
+  }
+  return null;
+}
+
 const args = process.argv.slice(2);
 const which = args[0] ?? "all";
 const flag = (name) => {
@@ -290,11 +312,13 @@ async function email() {
     p.step("sender address", false, "MAIL_FROM has no address in it");
     return p.result;
   }
-  const txt = async (name) => (await dns.resolveTxt(name).catch(() => [])).map((r) => r.join(""));
-  const spf = (await txt(domain)).find((r) => r.startsWith("v=spf1"));
-  p.step(`SPF for ${domain}`, !!spf, spf ?? "no v=spf1 record");
-  const dmarc = (await txt(`_dmarc.${domain}`)).find((r) => r.startsWith("v=DMARC1"));
-  p.step(`DMARC for ${domain}`, !!dmarc, dmarc ?? "no v=DMARC1 record");
+  const spfRecords = await lookupTxt(domain);
+  const spf = spfRecords?.find((r) => r.startsWith("v=spf1"));
+  p.step(`SPF for ${domain}`, spfRecords === null ? null : !!spf, spf ?? (spfRecords === null ? "could not look up DNS from here" : "no v=spf1 record"));
+  const dmarcRecords = await lookupTxt(`_dmarc.${domain}`);
+  const dmarc = dmarcRecords?.find((r) => r.startsWith("v=DMARC1"));
+  const dmarcCount = dmarcRecords?.filter((r) => r.startsWith("v=DMARC1")).length ?? 0;
+  p.step(`DMARC for ${domain}`, dmarcRecords === null ? null : dmarcCount === 1, dmarcCount > 1 ? `${dmarcCount} v=DMARC1 records: a receiver ignores them all, keep one` : dmarc ?? (dmarcRecords === null ? "could not look up DNS from here" : "no v=DMARC1 record"));
   if (process.env.DKIM_SELECTOR) {
     const dkim = (await txt(`${process.env.DKIM_SELECTOR}._domainkey.${domain}`)).find((r) => r.includes("p="));
     p.step(`DKIM key at ${process.env.DKIM_SELECTOR}._domainkey.${domain}`, !!dkim, dkim ? "published" : "no key found");
@@ -387,11 +411,13 @@ async function emailSes() {
   }
 
   // DMARC and SPF in the domain's DNS (SES signs with DKIM; SPF matters only for a custom MAIL FROM domain).
-  const txt = async (name) => (await dns.resolveTxt(name).catch(() => [])).map((r) => r.join(""));
-  const dmarc = (await txt(`_dmarc.${domain}`)).find((r) => r.startsWith("v=DMARC1"));
-  p.step(`DMARC for ${domain}`, !!dmarc, dmarc ?? "no v=DMARC1 record");
-  const spf = (await txt(domain)).find((r) => r.startsWith("v=spf1"));
-  p.step(`SPF for ${domain}`, spf ? true : null, spf ?? "no v=spf1 record (SES's own bounce domain carries SPF; DMARC passes through DKIM)");
+  const dmarcRecords = await lookupTxt(`_dmarc.${domain}`);
+  const dmarc = dmarcRecords?.find((r) => r.startsWith("v=DMARC1"));
+  const dmarcCount = dmarcRecords?.filter((r) => r.startsWith("v=DMARC1")).length ?? 0;
+  p.step(`DMARC for ${domain}`, dmarcRecords === null ? null : dmarcCount === 1, dmarcCount > 1 ? `${dmarcCount} v=DMARC1 records: a receiver ignores them all, keep one` : dmarc ?? (dmarcRecords === null ? "could not look up DNS from here" : "no v=DMARC1 record"));
+  const spfRecords = await lookupTxt(domain);
+  const spf = spfRecords?.find((r) => r.startsWith("v=spf1"));
+  p.step(`SPF for ${domain}`, spf ? true : null, spf ?? (spfRecords === null ? "could not look up DNS from here" : "no v=spf1 record on the domain itself (SES's own or a custom MAIL FROM domain carries SPF; DMARC passes through DKIM)"));
 
   if (send && process.env.VERIFY_EMAIL_TO) {
     try {
