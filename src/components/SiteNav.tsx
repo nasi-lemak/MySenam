@@ -63,6 +63,11 @@ export default function SiteNav({ listVenue = false }: { listVenue?: boolean }) 
           </Link>
         ))}
         {listVenue && (
+          <Link href="/for-venues" className={ITEM}>
+            {t("fit.nav")}
+          </Link>
+        )}
+        {listVenue && (
           <Link
             href="/list-your-venue"
             className="ml-1 inline-flex min-h-9 items-center rounded-full border border-slate-300 px-3 transition hover:border-teal-600 hover:text-teal-700"
@@ -101,6 +106,11 @@ export default function SiteNav({ listVenue = false }: { listVenue?: boolean }) 
               {l.label}
             </Link>
           ))}
+          {listVenue && (
+            <Link href="/for-venues" className={`${ITEM} w-full`}>
+              {t("fit.nav")}
+            </Link>
+          )}
           {listVenue && (
             <Link href="/list-your-venue" className={`${ITEM} w-full`}>
               {t("nav.listVenue")}

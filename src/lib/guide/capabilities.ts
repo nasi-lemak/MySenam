@@ -135,6 +135,7 @@ const AVAILABLE: Capability[] = [
   available("outages", "booking", { featureRow: "Courts out of service", configure: courts(), staffAction: "outages" }),
   available("who-venue-is-for", "booking", { featureRow: "Who a venue is for, residents' guests", configure: venues, staffAction: "venueAccess" }),
   available("test-bookings", "booking", { featureRow: "Test bookings before going live", configure: bookings, staffAction: "testBookings" }),
+  available("day-list", "booking", { featureRow: "The day list and starting a booking", configure: bookings, staffAction: null, requires: [] }),
   // ------------------------------------------------------------ pricing
   available("peak-pricing", "pricing", { featureRow: "Peak bands and holidays", configure: courts(), staffAction: "peakRules" }),
   available("rates-from-date", "pricing", { featureRow: "Court rates from a later date", configure: courts(), staffAction: "datedCourtChanges" }),
