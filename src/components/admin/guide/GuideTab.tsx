@@ -6,9 +6,10 @@ import type { Court, Venue } from "@/lib/types";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import type { SetupView } from "@/lib/guide/http";
 import type { Say } from "@/lib/guide/plan";
-import { GUIDE_VIEWS, type DashboardTab, type GuideRole, type GuideView } from "@/lib/guide/shell";
+import { GUIDE_VIEWS, type DashboardTab, type GuideView } from "@/lib/guide/shell";
 import { placeParam, setPlaceParams, useAddressed } from "../place";
 import { useStaffT } from "../StaffLanguage";
+import { PlaybookView } from "./PlaybookView";
 import { SetupPlanView } from "./SetupPlanView";
 
 /**
@@ -19,7 +20,7 @@ import { SetupPlanView } from "./SetupPlanView";
  * view, a clearly marked placeholder that reads the real API and shows what
  * it returns as plain lists, so the setup journey, the playbook and the
  * discovery view each replace one function below (`SetupView`,
- * `PlaybookView`, `DiscoverView`) and nothing else. Front desk is shown only
+ * `DiscoverView`; `PlaybookView` is built, in PlaybookView.tsx) and nothing else. Front desk is shown only
  * the playbook: setting a venue up is a manager's, and the server refuses the
  * desk the setup routes regardless of what is drawn here.
  */
@@ -28,12 +29,6 @@ const VIEW_PHRASES: Record<GuideView, StaffPhrase> = {
   setup: "gd.view.setup",
   playbook: "gd.view.playbook",
   discover: "gd.view.discover",
-};
-
-const ROLE_PHRASES: Record<GuideRole, StaffPhrase> = {
-  manager: "gd.role.manager",
-  desk: "gd.role.desk",
-  coach: "gd.role.coach",
 };
 
 /** What a screen name is called in the dashboard's own tab labels. */
@@ -50,14 +45,6 @@ const TAB_PHRASES: Record<DashboardTab, StaffPhrase> = {
   venues: "sh.tab.venueDetails",
   guide: "gd.tab",
 };
-
-interface PlaybookAnswer {
-  venueId: number;
-  role: GuideRole;
-  ownRole: GuideRole;
-  roles: GuideRole[];
-  facts: Say[];
-}
 
 export function GuideTab({
   venues,
@@ -120,7 +107,7 @@ export function GuideTab({
         )}
       </div>
       {venues.length === 0 ? null : view === "playbook" ? (
-        <PlaybookView key={`playbook-${venueId}`} venueId={venueId} />
+        <PlaybookView key={`playbook-${venueId}`} venueId={venueId} onGo={onGo} onView={setView} />
       ) : role === "desk" ? (
         <p className="text-sm text-slate-600">{t("gd.managerOnly")}</p>
       ) : view === "discover" ? (
@@ -207,63 +194,6 @@ function Placeholder() {
   );
 }
 
-// ---------------------------------------------------------------- the playbook (placeholder: the playbook replaces it)
-
-function PlaybookView({ venueId }: { venueId: number }) {
-  const t = useStaffT();
-  const [as, setAs] = useState<GuideRole | null>(null);
-  const [data, setData] = useState<PlaybookAnswer | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let current = true;
-    setError(null);
-    fetch(`/api/admin/guide/playbook?venueId=${venueId}${as ? `&as=${as}` : ""}`, { cache: "no-store" })
-      .then(async (res) => {
-        const body = await readJson(res);
-        if (!res.ok) throw new Error(t.err(body, t("gd.failed")));
-        if (current) setData(body);
-      })
-      .catch((err) => current && setError(err instanceof Error ? err.message : t("gd.failed")));
-    return () => {
-      current = false;
-    };
-  }, [venueId, as, t]);
-
-  if (error)
-    return (
-      <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-        {error}
-      </p>
-    );
-  if (!data) return <p className="text-sm text-slate-500">{t("gd.loading")}</p>;
-  return (
-    <section aria-labelledby="guide-playbook-heading" className="space-y-3">
-      <h3 id="guide-playbook-heading" className="font-semibold">
-        {t("gp.heading")}
-      </h3>
-      <Placeholder />
-      {data.roles.length > 1 && (
-        <label className="flex items-center gap-2 text-sm">
-          {t("gd.playbook.as")}
-          <select value={data.role} onChange={(e) => setAs(e.target.value as GuideRole)} className="rounded-md border border-slate-300 px-2 py-1 text-sm">
-            {data.roles.map((r) => (
-              <option key={r} value={r}>
-                {t(ROLE_PHRASES[r])}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <h4 className="text-sm font-semibold text-slate-700">{t("gd.playbook.heading")}</h4>
-      <ul className="list-disc pl-5 text-sm text-slate-700">
-        {data.facts.map((fact, i) => (
-          <li key={i}>{say(t, fact)}</li>
-        ))}
-      </ul>
-    </section>
-  );
-}
 
 // ---------------------------------------------------------------- discoveries (placeholder: contextual help and discovery replace it)
 

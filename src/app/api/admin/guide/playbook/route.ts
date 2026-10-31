@@ -1,22 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { guideFacts } from "@/lib/guide/facts";
 import { guideVenue, ownRole } from "@/lib/guide/http";
-import { readVenueProfile } from "@/lib/guide/profile";
+import { playbookFor } from "@/lib/guide/playbook/server";
 import { GUIDE_ROLES, isGuideRole, mayViewAs } from "@/lib/guide/shell";
 
 export const dynamic = "force-dynamic";
 
 /**
- * The operating guide for a venue (`?venueId=`, or the admin's own), for a
+ * The operating playbook of a venue (`?venueId=`, or the admin's own), for a
  * role: the session's own, or with `as=` a role at or below it (a manager
  * preparing the front desk's or a coach's training), never above. The role a
  * guide is *for* is decided here from the session; `as` can only ask for less.
- * Every role may read its own, front desk included; the answer is built from
- * the venue's saved configuration alone, each request.
+ * Every role may read its own, front desk included.
  *
- * Until the playbook is built on it, the answer is the role's `facts` from
- * the profile (lib/guide/facts.ts).
+ * The answer is `{ venueId, role, ownRole, roles, playbook }`: the playbook is
+ * typed content (docs/features/venue-guide.md, "The operating playbook")
+ * composed from the venue's saved configuration alone, on each request, and
+ * kept nowhere: not here, not in a cache, not between venues. Links in it are
+ * only those the role may use.
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -31,9 +32,9 @@ export async function GET(req: NextRequest) {
     if (!mayViewAs(own, asked)) return NextResponse.json({ error: "You can see the guide only for your own role or one below it." }, { status: 403 });
     role = asked;
   }
-  const profile = await readVenueProfile(venueId);
+  const playbook = await playbookFor(venueId, role);
   return NextResponse.json(
-    { venueId, role, ownRole: own, roles: GUIDE_ROLES.filter((r) => mayViewAs(own, r)), facts: guideFacts(profile, role) },
+    { venueId, role, ownRole: own, roles: GUIDE_ROLES.filter((r) => mayViewAs(own, r)), playbook },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
