@@ -8,6 +8,7 @@ import { region } from "@/lib/region";
 import { todayISO, type PeakRules } from "@/lib/time";
 import { clockOf, parseClock } from "@/lib/interval";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import { withMarks } from "./ResourcesEditor";
 
 type Rules = Omit<PeakRules, "holidays">;
@@ -158,7 +159,10 @@ export function PeakHoursEditor({ venueId }: { venueId: number }) {
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">{t("pk.title")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold">{t("pk.title")}</h3>
+        <HelpTip place="courts.peak" venueId={venueId} />
+      </div>
       <p className="mt-1 text-xs text-slate-500">{t("pk.intro")}</p>
       <div className="mt-3 space-y-2">
         <p>

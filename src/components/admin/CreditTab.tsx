@@ -20,6 +20,7 @@ import { money, region } from "@/lib/region";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import type { CounterMethod } from "@/lib/types";
 import type { PassProduct } from "@/lib/pass-products";
 import { MethodSelect } from "./CounterMethod";
@@ -395,7 +396,10 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
 
   return (
     <section className="border-t border-slate-200 pt-6">
-      <h2 className="text-lg font-bold">{t("cr.passesTitle")}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-bold">{t("cr.passesTitle")}</h2>
+        <HelpTip place="credit.passes" venueId={venueId} />
+      </div>
       <p className="mt-1 text-sm text-slate-600">
         {t("cr.passesIntro")}
       </p>
@@ -882,7 +886,10 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
 
   return (
     <section className="border-t border-slate-200 pt-6">
-      <h2 className="text-lg font-bold">{t("cr.promosTitle")}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-bold">{t("cr.promosTitle")}</h2>
+        <HelpTip place="credit.promos" venueId={venueId} />
+      </div>
       <p className="mt-1 text-sm text-slate-600">
         {t("cr.promosIntro")}
       </p>
@@ -1272,7 +1279,10 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
 
   return (
     <section className="border-t border-slate-200 pt-6">
-      <h2 className="text-lg font-bold">{t("cr.membershipsTitle")}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-bold">{t("cr.membershipsTitle")}</h2>
+        <HelpTip place="credit.memberships" venueId={venueId} />
+      </div>
       <p className="mt-1 text-sm text-slate-600">
         {intro[0]}
         <strong>{t("cr.courtsAndRates")}</strong>
@@ -1685,7 +1695,10 @@ function MembershipPlans({ venueId }: { venueId: number }) {
   const inputClass = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
   return (
     <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
-      <h3 className="font-semibold">{t("cr.plansTitle")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold">{t("cr.plansTitle")}</h3>
+        <HelpTip place="credit.plans" venueId={venueId} />
+      </div>
       <p className="mt-0.5 text-sm text-slate-600">
         {t("cr.plansIntro")}
       </p>

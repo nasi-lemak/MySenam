@@ -5,10 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import type { Court, Venue } from "@/lib/types";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import type { SetupView } from "@/lib/guide/http";
-import type { Say } from "@/lib/guide/plan";
 import { GUIDE_VIEWS, type DashboardTab, type GuideView } from "@/lib/guide/shell";
 import { placeParam, setPlaceParams, useAddressed } from "../place";
 import { useStaffT } from "../StaffLanguage";
+import { DiscoverView } from "./DiscoverView";
 import { PlaybookView } from "./PlaybookView";
 import { SetupPlanView } from "./SetupPlanView";
 
@@ -17,33 +17,16 @@ import { SetupPlanView } from "./SetupPlanView";
  * docs/features/venue-guide.md#the-dashboard-tab).
  *
  * The shell the three guides are built into: a view switcher and, for each
- * view, a clearly marked placeholder that reads the real API and shows what
- * it returns as plain lists, so the setup journey, the playbook and the
- * discovery view each replace one function below (`SetupView`,
- * `DiscoverView`; `PlaybookView` is built, in PlaybookView.tsx) and nothing else. Front desk is shown only
- * the playbook: setting a venue up is a manager's, and the server refuses the
- * desk the setup routes regardless of what is drawn here.
+ * view, its own component (`SetupPlanView`, `PlaybookView`, `DiscoverView`),
+ * each fed by one route. Front desk is shown only the playbook: setting a
+ * venue up is a manager's, and the server refuses the desk the setup routes
+ * regardless of what is drawn here.
  */
 
 const VIEW_PHRASES: Record<GuideView, StaffPhrase> = {
   setup: "gd.view.setup",
   playbook: "gd.view.playbook",
   discover: "gd.view.discover",
-};
-
-/** What a screen name is called in the dashboard's own tab labels. */
-const TAB_PHRASES: Record<DashboardTab, StaffPhrase> = {
-  bookings: "sh.tab.bookings",
-  schedule: "sh.tab.schedule",
-  occupancy: "sh.tab.occupancy",
-  reports: "sh.tab.reports",
-  courts: "sh.tab.courts",
-  classes: "sh.tab.classes",
-  tournaments: "sh.tab.tournaments",
-  leagues: "sh.tab.leagues",
-  credit: "sh.tab.credit",
-  venues: "sh.tab.venueDetails",
-  guide: "gd.tab",
 };
 
 export function GuideTab({
@@ -70,6 +53,12 @@ export function GuideTab({
   const setView = (next: GuideView) => {
     setViewState(next);
     setPlaceParams({ view: next });
+  };
+
+  // A suggestion's "Set this up": the setup journey narrowed to that capability, not the whole of setup again.
+  const startSetup = (focus: string) => {
+    setPlaceParams({ focus, step: null });
+    setView("setup");
   };
 
   return (
@@ -111,7 +100,7 @@ export function GuideTab({
       ) : role === "desk" ? (
         <p className="text-sm text-slate-600">{t("gd.managerOnly")}</p>
       ) : view === "discover" ? (
-        <SetupData key={`discover-${venueId}`} venueId={venueId} render={(data, post) => <DiscoverView data={data} post={post} onGo={onGo} />} />
+        <SetupData key={`discover-${venueId}`} venueId={venueId} render={(data, post) => <DiscoverView data={data} post={post} onGo={onGo} onSetUp={startSetup} />} />
       ) : (
         <SetupData key={`setup-${venueId}`} venueId={venueId} render={(data) => <SetupPlanView data={data} onGo={onGo} />} />
       )}
@@ -180,50 +169,5 @@ function SetupData({ venueId, render }: { venueId: number; render: (data: SetupV
       )}
       {render(data, post)}
     </>
-  );
-}
-
-const say = (t: ReturnType<typeof useStaffT>, s: Say) => t(s.key, s.vars);
-
-function Placeholder() {
-  const t = useStaffT();
-  return (
-    <p data-placeholder className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-      {t("gd.placeholder")}
-    </p>
-  );
-}
-
-
-// ---------------------------------------------------------------- discoveries (placeholder: contextual help and discovery replace it)
-
-function DiscoverView({ data, post, onGo }: { data: SetupView; post: Post; onGo: (tab: DashboardTab) => void }) {
-  const t = useStaffT();
-  return (
-    <section aria-labelledby="guide-discover-heading" className="space-y-3">
-      <h3 id="guide-discover-heading" className="font-semibold">
-        {t("gh.discoverHeading")}
-      </h3>
-      <Placeholder />
-      <h4 className="text-sm font-semibold text-slate-700">{t("gd.discover.heading")}</h4>
-      {data.discoveries.length === 0 && <p className="text-sm text-slate-500">{t("gd.discover.none")}</p>}
-      <ul className="space-y-2">
-        {data.discoveries.map((d) => (
-          <li key={d.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" data-discovery={d.id}>
-            <p>{say(t, d.reason)}</p>
-            <div className="mt-1 flex flex-wrap gap-3">
-              {d.configure && (
-                <button type="button" onClick={() => onGo(d.configure!.tab)} className="min-h-8 rounded-md bg-teal-600 px-3 text-xs font-medium text-white hover:bg-teal-700">
-                  {t("gd.openScreen", { screen: t(TAB_PHRASES[d.configure.tab]) })}
-                </button>
-              )}
-              <button type="button" onClick={() => post({ action: "dismiss", id: d.id })} className="min-h-8 rounded-md border border-slate-300 px-3 text-xs font-medium hover:border-teal-400">
-                {t("gd.discover.dismiss")}
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }

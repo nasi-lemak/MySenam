@@ -4,7 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { activityIcon } from "@/lib/activity-registry";
 import { accountDetour } from "@/lib/phone-detour";
 import BookingTermsNotice from "@/components/BookingTermsNotice";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Booking, busyness, COUNTER_METHODS, Court, CourtAvailability, isHire, isShared, MAX_RECUR_WEEKS, MAX_GROUP_COURTS, Sport, Pass, PublicPolicy, StartOption, VenueClosure, type CounterMethod } from "@/lib/types";
 import { headedRows, placesPerBooking } from "@/lib/court-activities";
 import { concessionWords } from "@/lib/concessions-shared";
@@ -26,6 +26,9 @@ import type { Phrase, T } from "@/lib/i18n";
 import { downloadIcs, googleCalendarUrl, whatsappShareUrl } from "@/lib/booking-links";
 import CheckInQr from "@/components/CheckInQr";
 import PayOnline from "@/components/PayOnline";
+
+/** The venue's own staff at the counter are given the explanation beside a refusal (contextual help); loaded only then, so a customer's page does not carry it. */
+const CounterHelpTip = lazy(() => import("@/components/admin/guide/HelpTip").then((m) => ({ default: m.HelpTip })));
 import { SplitCost } from "@/components/SplitCost";
 import AddonPicker, { pickedList, pickedTotal, type OfferedAddon, type Picked } from "@/components/AddonPicker";
 import { forgetGuest, rememberedGuest, rememberGuest } from "@/lib/guest-memory";
@@ -1194,7 +1197,18 @@ function BookingForm({
           {quote && quote.billedMinutes !== length && quote.billedMinutes > 0 && (
             <div className="text-xs text-slate-500">{t("quote.billed", { len: lengthLabel(t, quote.billedMinutes) })}</div>
           )}
-          {quote && !quote.allowed && !override && <div className="text-xs font-medium text-amber-700">{translateError(t, quote)}</div>}
+          {quote && !quote.allowed && !override && (
+            <div className="text-xs font-medium text-amber-700">
+              {translateError(t, quote)}
+              {atCounter && (
+                <span className="ml-2 inline-block align-middle">
+                  <Suspense fallback={null}>
+                    <CounterHelpTip place="counter.quote" venueId={court.venueId} />
+                  </Suspense>
+                </span>
+              )}
+            </div>
+          )}
           {quote?.members && !atCounter && <MembershipEligibility lines={quote.members} date={date} onFollow={onClose} />}
           {remembered && (
             <button
@@ -1656,6 +1670,13 @@ function BookingForm({
       {error && (
         <div ref={errorRef} tabIndex={-1} role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 focus:outline-none">
           {error}
+          {atCounter && (
+            <span className="ml-2 inline-block align-middle">
+              <Suspense fallback={null}>
+                <CounterHelpTip place="counter.refusal" venueId={court.venueId} />
+              </Suspense>
+            </span>
+          )}
           <VenueContact t={t} venue={venueName} contact={contact} className="mt-1 text-xs text-red-800" />
         </div>
       )}

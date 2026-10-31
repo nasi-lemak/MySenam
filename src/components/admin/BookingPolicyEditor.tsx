@@ -12,6 +12,7 @@ import { sportLabel } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
 import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 
 /**
  * A venue's booking rules (lib/booking-policy.ts): when bookings may start,
@@ -241,7 +242,10 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-      <h3 className="font-semibold">{t("pol.title")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold">{t("pol.title")}</h3>
+        <HelpTip place="courts.buffers" venueId={venueId} />
+      </div>
       <p className="mt-1 text-xs text-slate-500">{t("pol.intro")}</p>
 
       <label className="mt-3 block text-xs font-medium text-slate-600">

@@ -26,12 +26,12 @@ The shared model all three guides are built on, in `src/lib/guide/`:
 | Routes and shell | `http.ts`, `shell.ts`; `GuideTab.tsx` | Three routes, the dashboard's `guide` tab, roles |
 | Operating playbook | `playbook/` | `buildPlaybook`, the modules and topics, the coach's page ([below](#the-operating-playbook)) |
 | Public guide | `public/` (`workflows.ts`, `steps.ts`, `view.ts`, `select.ts`, `present.ts`); `src/components/fit/`; `src/app/for-venues/` | *How MySenam fits your business*: [the public guide](#the-public-guide) |
+| Contextual help | `help.ts`, `HelpTip.tsx`, `playbook/topics.ts`; `GET /api/admin/guide/topic` | The "?" beside a control: a topic of the playbook, read on demand ([below](#contextual-help-and-discovery)) |
+| Discovery view | `help-catalogue.ts`, `DiscoverView.tsx` | Suggestions with their reasons, and everything MySenam can do, marked in use, available or not currently supported ([below](#contextual-help-and-discovery)) |
 
 The tab's setup view is [the setup journey](#the-setup-journey) and its
 playbook view is [the operating playbook](#the-operating-playbook). Its discover
-view is a placeholder: it reads its route and shows what comes back as plain
-lists, marked as such on the screen, for the contextual help to replace
-([the dashboard tab](#the-dashboard-tab)). The
+view is [contextual help and discovery](#contextual-help-and-discovery). The
 checklist at the top of the dashboard is unchanged, with one added line that
 opens the guide; the plan's first three steps are its three steps, read from
 the same answers (`venueSetup`), not recomputed.
@@ -630,6 +630,157 @@ invoiced or taxed is never settled in it: it says that is for the venue and its
 accountant, and that a tax treatment MySenam suggests is a provisional starting
 point.
 
+## Contextual help and discovery
+
+Help where an operator works, and a way to find what else MySenam does. Neither
+is a chatbot or a free-text answerer: a "?" says what the [playbook](#the-operating-playbook)
+says of a subject, a suggestion comes from a published rule, and the reason a
+customer cannot reserve is the reason the application already gave.
+
+### The "?" beside a control
+
+`HelpTip` (`src/components/admin/guide/HelpTip.tsx`) is a button with a visible
+**?**, 28 px square, named for the question it answers (*Help: How do booking
+buffers work?*), placed beside the heading or control it explains, one to a
+place. It holds no text. A **place** (`HELP_PLACES`, `src/lib/guide/help.ts`)
+names a [topic](#topics-for-contextual-help) of the playbook and the question
+(`gh.q.` phrases); opened, the tip shows that topic, built from the venue's own
+saved settings (its cutoff, its rates in force, whether it has shared facilities)
+and drawn with the playbook's own renderer (`BlockView` in `PlaybookDocument.tsx`;
+there is no second one), so what a tip says and what the guide says are one text.
+
+- **It opens a dialog** (`components/Dialog.tsx`): named by its question, focus
+  moved into it, kept in it by Tab and Shift+Tab, closed by Escape or *Close*,
+  and given back to the **?** it came from. It is a modal sheet at most 32 rem
+  wide and 85% of the screen high, scrolling inside itself, so it works at 360 px.
+  Nothing in it moves, and nothing is told by colour alone.
+- **It loads lazily and once.** A screen with tips reads nothing for them. The
+  first opening asks `GET /api/admin/guide/topic` ([the route](#the-topic-route));
+  opening it again does not ask again; a failure says so with *Try again*.
+- **It follows the role.** The server answers with the topic for the caller's
+  *own* role, the front desk's version for the front desk (told a manager changes
+  it, with no link to a screen it cannot use). A role a topic is not written for
+  (`TOPIC_ROLES`: today only the coach, who has no dashboard) is given no tip, and a
+  tip the server answers 404 to removes itself.
+- **A link to the guide only if it may be used.** *Open this in the guide* is
+  shown when the route sends it (the `guide` tab is every account's), and opens
+  `?tab=guide&view=playbook&venue=&topic=`; the playbook opens the section that
+  explains the topic and brings it into view, then forgets `topic` in the address.
+  A topic is in a venue's guide only where the venue uses what it explains (the
+  guide has no buffers section for a venue without buffers): where it is not, the
+  guide simply opens. A step in a topic that names a screen opens it as the
+  dashboard's own tabs do (from the counter's booking page, by going there).
+
+**Where they are** (one `<HelpTip place="…">` each; held to the map by
+`tests/guide-help.test.ts`, which fails for a place used twice or never):
+
+| Screen | Place | Topic |
+| ------ | ----- | ----- |
+| Courts & rates: booking rules heading (`BookingPolicyEditor`) | `courts.buffers` | `buffers` |
+| Courts & rates: courts that share a floor (`CourtLinksEditor`) | `courts.links` | `shared-linked` |
+| Courts & rates: the door panel of a court | `courts.door` | `unattended` |
+| Courts & rates: peak hours (`PeakHoursEditor`) | `courts.peak` | `peak-dated` |
+| Courts & rates: rates from a later date (`CourtChangesFromDate`, also in the setup journey) | `courts.dated` | `peak-dated` |
+| Courts & rates: concession prices (`ConcessionsEditor`) | `courts.concessions` | `discounts` |
+| Credit & passes: promo codes | `credit.promos` | `discounts` |
+| Credit & passes: membership plans (`MembershipPlans`) | `credit.plans` | `memberships` |
+| Credit & passes: members (the customer's membership) | `credit.memberships` | `membership-covers` |
+| Credit & passes: passes | `credit.passes` | `passes` |
+| Venue details: participants and guardians (`ParticipantsPanel`) | `people.participants` | `guardians` |
+| Courts & rates: approval settings (`ApprovalSettings`) | `people.approvals` | `guardians` |
+| Venue details: cancellation terms (`CancelPolicyEditor`) | `venues.cancellation` | `refunds` |
+| Day list: the cancel panel of a booking | `bookings.cancel` | `refunds` |
+| Day list: the coach of a lesson being moved (`LessonCoach`) | `bookings.coach` | `another-coach` |
+| Venue details: the hours nobody is at the counter | `venues.unattended` | `unattended` |
+| The counter's booking form: beside the price check's reason | `counter.quote` | `cannot-reserve` |
+| The counter's booking form: beside a refusal | `counter.refusal` | `cannot-reserve` |
+| Go-live banner of a draft venue | `golive.draft` | `test-bookings` |
+| The test bookings of a live venue | `golive.tests` | `test-bookings` |
+
+The front desk has a tip only where it uses the screen: a tip inside a region only
+a manager changes is inside that region's read-only fieldset, as the region is
+(`ManagerOnly`), so the desk meets the tips of the cancel panel, the coach of a
+lesson, the counter, passes and the members list, with its own version of each.
+The counter's tips appear only for the venue's own staff at the counter; a
+customer's booking page has none. Places with **no topic** are given no tip and no
+invented text: staff roles (`StaffAccounts`: the playbook says who can do what in
+its guides but has no topic for it), and anything else in the dashboard the
+playbook does not yet write up.
+
+**The rule-specific answer** is the reason the application gives, shown with the tip
+that explains the rule: the counter shows the refusal it already shows (a time
+taken, a closed venue, a limit) and the tip *Why can't this customer reserve this?*
+opens the `cannot-reserve` topic, whose table is the reasons the application gives
+and only those that apply to the venue. There is no free-text question.
+
+### The topic route
+
+`GET /api/admin/guide/topic?venueId=&id=` answers `{ venueId, role, topic, guide }`:
+`topic` is the playbook's topic (typed content: phrases and values, not English)
+for the session's own role, `guide` the link *Open this in the guide* or `null`.
+Every staff role may read it; the role is the session's (there is no parameter
+that changes it), the tenant is checked as for every guide route (`403` for a
+venue the caller may not manage, `400` for none named, the platform owner any),
+and `404` for a topic that does not exist or is not written for the role. It is
+`no-store` and kept nowhere ([routes](../architecture/http-api.md)).
+
+### Discovery
+
+The discover view (`DiscoverView.tsx`; a manager's, `?tab=guide&view=discover`)
+has two parts, and says *suggestions* throughout: they come from the rules in
+[Discoveries](#discoveries) over the saved settings and answers, and nothing is
+learned, ranked or switched on.
+
+- **Suggestions**: the profile's `discover()` result, at most three, each with the
+  reason sentence, what the capability needs in the guide's five words
+  (`availabilityOf`: available now; available with configuration; requires an
+  external integration; requires the operator's approval; not currently
+  supported) and the outside service it names (*Needs Billplz.*; never called
+  verified), then **Set this up**, **Not for us** and **How it works**.
+  *Set this up* starts a targeted journey (`?tab=guide&view=setup&focus=<capability>`,
+  [the setup journey](#existing-venues-and-targeted-journeys)) without rerunning
+  setup; where the setup plan has no step for the capability (company accounts,
+  booking alerts) it opens the screen that has it instead. *Not for us* is the
+  existing `dismiss` action (logged as `guide.dismissed`) and the suggestion does
+  not come back. *How it works* shows the capability's own sentence from the
+  registry and, where the playbook has a topic for it (`CAPABILITY_TOPIC`), the
+  venue's version of it, read when first opened.
+- **Everything MySenam can do**: the registry (`catalogue()` in `help-catalogue.ts`;
+  `capabilitiesIn` for each group, so a capability added to the registry is here),
+  grouped, each item marked **In use**, **Available** or **Not currently
+  supported**, in words as well as a badge. *In use* is shown only where the saved
+  configuration says so (`capabilityInUse`: a count or a setting the venue saved);
+  where the profile cannot tell, the item is *Available*. An unsupported item shows
+  what to do instead (`gcap.<id>.alt`) and, for a way of selling the catalogue
+  names, its limitation; it is never offered for setup and has no setup control.
+  An item that is among the suggestions above is marked *Suggested above* and has no
+  second set of buttons, so nothing is offered twice.
+
+A venue is never offered what it uses (the rule's `unused`), nothing unsupported is
+a suggestion (`DISCOVERY_RULES` name available capabilities only), and the front
+desk has no discover view (the tab hides it and the server refuses it the data).
+
+### Language, accessibility, tests
+
+Text is in the staff dictionaries, `guide-help.ts` (`gh.`), English first and
+authoritative; the Malay and Chinese are machine-assisted and **await review by native
+speakers**. A tip's explanation is the playbook's own text (`gp.t.`); the
+capability names, sentences and alternatives are the customer dictionaries'
+(`gcap.`, read through `t.customer`). Every control has a name
+(`tests/form-labels.test.ts`), targets are 24 px or more, and nothing depends on
+motion.
+
+`tests/guide-help.test.ts` (the places, the dictionaries, the route: each role's
+own topics, the desk's version, role from the session, `404`, tenant `403`, no
+other venue's values; also on Postgres), `tests/guide-help-discover.test.ts` (the
+catalogue equals the registry, nothing unsupported offered, in use, dismissal
+persisting and logged, the targeted journey, roles and tenants; also on
+Postgres), `tests/components/guide-help.test.tsx` (the tip: opening, Escape, focus,
+lazy and once, role, link; the guide opening at a topic; the discover view),
+`tests/components/guide-help-screens.test.tsx` (the tips on the real tabs against
+the real routes, the desk's), `tests/components/guide-help-places.test.tsx` (the
+cancel panel, the coach, the banner, the counter and not a customer's page).
+
 ## Permissions
 
 The setup routes are in `MANAGER_ONLY` and `STAFF_ACTIONS` has `guideSetup`
@@ -650,7 +801,7 @@ account has the tab; the front desk is shown only *How to run it*, and the
 server refuses it the setup regardless. `src/components/admin/guide/GuideTab.tsx`
 renders the switcher and, for each view, `SetupPlanView` (the setup journey, in
 `SetupPlanView.tsx`), `PlaybookView` (the playbook, in its own file) or, for the
-discover view, a placeholder that replaces cleanly (`DiscoverView`), each fed by
+discover view, `DiscoverView` ([below](#contextual-help-and-discovery)), each fed by
 one route. The
 dashboard's tab list and `DASHBOARD_TABS` (`src/lib/guide/shell.ts`) are held
 equal by `tests/guide-model.test.ts`. All text is in the staff dictionaries:
@@ -816,6 +967,8 @@ build on. Import from the files named; do not reach into another worker's.
 | Serve a view | `setupView(venueId, role, state?)`, `guideVenue`, `ownRole` (`http.ts`); `playbookFor(venueId, role)` (`playbook/server.ts`), `buildPlaybook` (`playbook/index.ts`) |
 | Serve the setup journey | `journeyView(venueId, role, focus)`, `isFocus`, `nextSaturday` (`setup-journey.ts`); `questionFlow`, `unanswered`, `QUESTIONS` (`setup-questions.ts`); `focusIds`, `SETUP_ACTIONS` (`plan.ts`) |
 | Roles and screens | `GuideRole`, `mayViewAs`, `DashboardTab`, `DASHBOARD_TABS`, `GuideView` (`shell.ts`) |
+| Put a "?" on a screen | `<HelpTip place="…" venueId={…} />` (`HelpTip.tsx`); `HELP_PLACES`, `TOPIC_ROLES`, `topicWrittenFor`, `guideAddress` (`help.ts`) |
+| List what MySenam can do | `catalogue(profile, suggested)`, `capabilityInUse`, `setupFocus`, `CAPABILITY_TOPIC` (`help-catalogue.ts`) |
 
 A `Say` is `{ key, vars? }`: a staff-dictionary phrase and its values, which the
 screen says in the reader's language (`t(say.key, say.vars)`); the plan and the

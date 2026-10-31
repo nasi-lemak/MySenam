@@ -4,6 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { CancelPolicy } from "@/lib/cancel-policy";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 
 /**
  * What a late cancellation or a no-show costs here: whether customers may
@@ -50,7 +51,10 @@ export function CancelPolicyEditor({ venueId }: { venueId: number }) {
   const num = (v: string) => (v === "" ? null : Number(v));
   return (
     <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
-      <h3 className="font-semibold">{t("cxl.title")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold">{t("cxl.title")}</h3>
+        <HelpTip place="venues.cancellation" venueId={venueId} />
+      </div>
       <p className="mt-1 text-xs text-slate-500">{t("cxl.intro")}</p>
       <label className="mt-3 flex flex-wrap items-center gap-2">
         <input

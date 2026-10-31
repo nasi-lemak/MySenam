@@ -773,6 +773,12 @@ WhatsApp* link opens a chat with that number, the booking's code written in
   three steps are the first three of the *Guide → Set up* journey, read from the
   same answers; the journey adds the questions, the plan and *Try it*
   ([the setup journey](venue-guide.md#the-setup-journey)).
+- **A small "?" beside some controls explains them.** On the screens for booking
+  rules, shared and linked courts, peak and dated prices, discounts, passes and
+  memberships, guardians, cancellation terms, the cancel panel, a lesson's coach,
+  unattended hours, test bookings and a refusal at the counter, it opens what the
+  guide says of that subject for this venue and the reader's role, read only
+  when opened ([contextual help](venue-guide.md#contextual-help-and-discovery)).
 - **The day list and the schedule keep up by themselves.** While on screen
   they read the day again every minute, and at once on coming back to a tab
   hidden for a while; not while hidden. Only their data is read: what is

@@ -4,6 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
 import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
+import { HelpTip } from "./guide/HelpTip";
 import { ManagerOnly, useStaffMay } from "./StaffMay";
 import { formatHour } from "@/lib/time";
 
@@ -102,7 +103,7 @@ export function GoLiveBanner({
   }
 
   const testPanel = (
-    <TestBookingsPanel venueId={venueId} bookings={tests} onDone={() => setTestsChanged((n) => n + 1)} />
+    <TestBookingsPanel venueId={venueId} bookings={tests} tip={status?.state === "live"} onDone={() => setTestsChanged((n) => n + 1)} />
   );
   if (!status) return null;
   if (status.state === "live") return tests.length > 0 ? testPanel : null;
@@ -136,8 +137,9 @@ export function GoLiveBanner({
     <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-semibold">
+          <p className="flex flex-wrap items-center gap-2 font-semibold">
             {waiting ? t("live.waiting", { name }) : t("live.draft", { name })}
+            <HelpTip place="golive.draft" venueId={venueId} />
           </p>
           {waiting ? (
             <p className="mt-1">{t("live.waitingBody")}</p>
@@ -226,7 +228,7 @@ function MoneyQuestion({ id, value, onChange }: { id: string; value: MoneyAnswer
  * clear them all or keep one as a real booking. Shown until none is left,
  * after going live too.
  */
-function TestBookingsPanel({ venueId, bookings, onDone }: { venueId: number; bookings: TestBooking[]; onDone: () => void }) {
+function TestBookingsPanel({ venueId, bookings, tip = false, onDone }: { venueId: number; bookings: TestBooking[]; /** A live venue's has the tip; a draft's banner above it has it already. */ tip?: boolean; onDone: () => void }) {
   const t = useStaffT();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -268,7 +270,10 @@ function TestBookingsPanel({ venueId, bookings, onDone }: { venueId: number; boo
 
   return (
     <section className="rounded-xl border border-slate-300 bg-slate-50 p-4 text-sm text-slate-800">
-      <p className="font-semibold">{t.plural("r9c.test.title", bookings.length)}</p>
+      <p className="flex flex-wrap items-center gap-2 font-semibold">
+        {t.plural("r9c.test.title", bookings.length)}
+        {tip && <HelpTip place="golive.tests" venueId={venueId} />}
+      </p>
       <p className="mt-1">{t("r9c.test.body")}</p>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <button type="button" onClick={() => setOpen(!open)} className="underline">
