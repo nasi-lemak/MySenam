@@ -721,9 +721,21 @@ the pages and the venue API. Its limits:
 
 - **Not yet tried from a real AI client** (Claude, ChatGPT, Cursor) against a
   public address; the connection examples follow each client's documentation.
-- **claude.ai and ChatGPT connectors sign in with OAuth** and cannot send a
-  venue's key, so through them only the public tools work until
-  [layer 3](roadmap.md) is built.
+- **Signing in from an assistant** (OAuth, `/api/mcp/staff`) is tested only
+  against the route handlers. Only public clients with https or loopback
+  redirect addresses are accepted, so clients using a custom scheme (Cursor,
+  VS Code) and browser-based clients cannot sign in; connectors use the
+  install's own address, not a storefront's.
+- **A connection has no fixed end:** it lasts while it is refreshed at least
+  every 30 days and the person keeps the venue and role. Registered clients
+  that never connect are kept.
+- **Through an assistant, bookings follow the venue API's limits** (no
+  override, no payment) even for managers, and the platform owner acts for
+  one venue at a time.
+- **Previews of setting changes run the change and roll it back**, which is
+  safe only because those routes write nothing outside the database; a route
+  added to the tools must keep to that
+  ([ADR 0030](../architecture/decisions/0030-oauth-sign-in-for-ai-assistants.md)).
 - **A booking preview** cannot say whether the time is still free or allowed
   by the court's rules at that moment; only the confirmed call can.
 - **Waiting lists and taking one person off a booking** are in the venue API
