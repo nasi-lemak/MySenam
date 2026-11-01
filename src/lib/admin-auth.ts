@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { AsyncLocalStorage } from "async_hooks";
 import { hasTwoFactor, twoFactorRequired } from "./two-factor";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, withTransaction } from "./db";
@@ -200,7 +201,26 @@ export async function getAdminByToken(token: string): Promise<Admin | null> {
   return row ? await toAdmin(row) : null;
 }
 
+/**
+ * A member of staff acting through an AI assistant they signed in from
+ * (lib/mcp/oauth.ts, ADR 0030): while the MCP server runs one of the
+ * dashboard's own route handlers for them (lib/mcp/config-tools.ts), that
+ * handler's `requireAdmin` finds them here, as their staff record is now,
+ * narrowed to the one venue they allowed and named as acting through the
+ * assistant, so the route's own checks, refusals and log entries apply
+ * unchanged. Set only by the MCP server after it has checked the token; the
+ * request it hands the route carries no cookie.
+ */
+const delegated = new AsyncLocalStorage<Admin>();
+
+/** Run `work` with `admin` as the signed-in member of staff, for the route handlers it calls. */
+export function asDelegate<T>(admin: Admin, work: () => Promise<T>): Promise<T> {
+  return delegated.run(admin, work);
+}
+
 export async function getSessionAdmin(req: NextRequest): Promise<Admin | null> {
+  const acting = delegated.getStore();
+  if (acting) return acting;
   const token = req.cookies.get(ADMIN_SESSION_COOKIE)?.value;
   if (!token) return null;
   const admin = await getAdminByToken(token);

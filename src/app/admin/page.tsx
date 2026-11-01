@@ -27,6 +27,8 @@ import { VenuesTab } from "@/components/admin/VenuesTab";
 import { GuideTab } from "@/components/admin/guide/GuideTab";
 import type { ManagedVenue } from "@/components/admin/shared";
 import { TwoFactorPanel } from "@/components/admin/TwoFactorPanel";
+import { AssistantsPanel } from "@/components/admin/AssistantsPanel";
+import { safePath } from "@/lib/safe-path";
 import type { TwoFactorStatus } from "@/lib/two-factor";
 import { StaffZones, useAccountLanguage, useStaffT } from "@/components/admin/StaffLanguage";
 import { useTabInAddress } from "@/components/admin/place";
@@ -78,6 +80,14 @@ export default function AdminPage() {
       .catch(() => setAdmin(null))
       .finally(() => setLoaded(true));
   }, [refreshVenues]);
+
+  // Sent here to sign in by an AI assistant's consent page (app/oauth/authorize): back to it once signed in, with
+  // two-factor sign-in set up where it is required. Only that page, by a path on this site (lib/safe-path.ts).
+  useEffect(() => {
+    if (!admin || (twoFactor?.required && !twoFactor.enabled)) return;
+    const next = safePath(new URLSearchParams(window.location.search).get("next"), "");
+    if (next.startsWith("/oauth/authorize?")) window.location.assign(next);
+  }, [admin, twoFactor]);
 
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
@@ -276,6 +286,8 @@ export default function AdminPage() {
           </div>
         </details>
       )}
+      {/* AI assistants signed in as this account, and a manager's venues' (docs/integrations/mcp.md#revoking). */}
+      <AssistantsPanel />
 
       {isOwner && <SystemHealth />}
       {isOwner && <ErrorsPanel />}

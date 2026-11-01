@@ -46,4 +46,7 @@
   reaches the assistant with no change here. The tests compare tool answers
   with the pages, routes and `/api/v1` (`tests/mcp.test.ts`). Not yet tried
   from a real AI client against a public address. OAuth connectors and
-  changing settings are planned, not built.
+  changing settings were planned here as layer 3, and were then built as
+  [ADR 0030](0030-oauth-sign-in-for-ai-assistants.md) decided (1 November
+  2026): new authorities in this registry, as this record expected, and the
+  protocol still hand-written.

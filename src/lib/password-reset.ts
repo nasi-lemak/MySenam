@@ -177,6 +177,7 @@ export async function resetPassword(kind: AccountKind, token: string, password: 
     if (kind === "user")
       await db.prepare("UPDATE users SET email_confirmed_at = COALESCE(email_confirmed_at, datetime('now')) WHERE id = ?").run(claimed.account_id);
     await db.prepare(`DELETE FROM ${t.sessions} WHERE ${t.sessionColumn} = ?`).run(claimed.account_id);
+    if (kind === "admin") await endAssistants(claimed.account_id, "the password was reset");
     // Any other links still out for this account are void now too.
     await db
       .prepare("UPDATE password_resets SET used_at = datetime('now') WHERE kind = ? AND account_id = ? AND used_at IS NULL")
@@ -207,7 +208,13 @@ export async function changePassword(
     return refuse("PASSWORD_WRONG");
   await db.prepare(`UPDATE ${t.accounts} SET password_hash = ? WHERE id = ?`).run(hashPassword(next), accountId);
   await db.prepare(`DELETE FROM ${t.sessions} WHERE ${t.sessionColumn} = ? AND token <> ?`).run(accountId, keepToken ? sessionKey(keepToken) : "");
+  if (kind === "admin") await endAssistants(accountId, "the password was changed");
   return { ok: true };
+}
+
+/** AI assistants signed in as a staff account end with its other sessions (lib/mcp/oauth.ts). */
+async function endAssistants(adminId: number, reason: string): Promise<void> {
+  await getDb().prepare("UPDATE oauth_grants SET revoked_at = datetime('now'), revoked_reason = ? WHERE admin_id = ? AND revoked_at IS NULL").run(reason, adminId);
 }
 
 /** Whether the account has a password at all (one made with Google may not). */

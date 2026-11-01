@@ -462,6 +462,8 @@ the same list (`400`).
 | POST | `/api/admin/addons` | `{ venueId, name, kind: "rental" \| "sale", price, stock?, sport? }` |
 | PATCH | `/api/admin/addons/:id` | Change it, or retire it with `active: false` and bring it back with `true` |
 | DELETE | `/api/admin/addons/:id` | Retired, not deleted: bookings that had it still say what they had |
+| GET | `/api/admin/assistants` | AI assistants connected by signing in ([MCP server](../integrations/mcp.md#revoking)): the account's own, and for a manager also everybody's at the venues they manage: client name (not verified), venue, person, scopes, connected and last used. Every role |
+| POST | `/api/admin/assistants` | `{ action: "revoke", id }`: one of those, ended at once with every token of it (`oauth.revoked`); `404` for one not seen |
 | GET | `/api/admin/approvals` | `?venueId[&waiting=1]` → applications to be approved for an activity here, those waiting on the venue first, how many wait, and `flags`: bookings to decide after an approval was revoked ([activities](../features/activities.md#registering-online-for-approval)) |
 | POST | `/api/admin/approvals` | `{ venueId, id, action: "approve" \| "reject" \| "ask" \| "in_person" \| "check" \| "revoke" \| "authority", reason?, payLater? }`: decide one. Refusing, asking and revoking need a reason; approving accepts the online part where an in-person step is still to come, otherwise writes the sign-off and books a slot asked for if it is still free, held for payment where the venue asks payment to hold (`payLater`: an exception, paid at the counter, on record). A safety-assessed activity is approved, and its in-person step recorded, only by a manager or front desk delegated for it (403 `APR_SAFETY_AUTHORITY`); `check` records the administrative check; `authority` records that the authority of an adult who applied for somebody they manage was reviewed (by those who may grant it), which approval waits for where the activity asks it (409 `APR_CHILD_AUTHORITY_UNREVIEWED`). `{ venueId, flagId, action: "resolve_flag", note }`: a flagged booking dealt with. Recorded in its history and the activity log |
 | GET | `/api/admin/approvals/document` | `?venueId&id` → a document sent with an application here, as the customer's route serves it (released documents only, `409 SCAN_NOT_RELEASED` before); each opening recorded under the staff member's name |
@@ -621,12 +623,24 @@ the same list (`400`).
 | GET | `/api/admin/whatsapp` | `?venueId=` — whether the venue sends WhatsApp, and what it has left to send with |
 | POST | `/api/admin/whatsapp` | `{ venueId, action }`: - `"mode", mode: "off" \| "urgent" \| "all"` — the venue's staff; - `"buy"` — order a pack, then `"pay", packId` to pay it online; - `"grant", messages` / `"markPaid" \| "void", packId` — the platform owner |
 
-### MCP server for AI assistants (no credentials, or a venue's key; see [MCP server](../integrations/mcp.md))
+### MCP server for AI assistants (no credentials, a venue's key, or a member of staff signed in; see [MCP server](../integrations/mcp.md))
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | POST | `/api/mcp` | One JSON-RPC 2.0 message of the Model Context Protocol (Streamable HTTP, stateless, answered with JSON; a notification `202`): `initialize`, `ping`, `tools/list`, `tools/call`. No `Authorization`: the public tools (60 a minute per address); `Bearer <key>`: also the key's venue's tools up to its scope (120 a minute per key); a bad key `401` with `WWW-Authenticate`, never anonymous. A cookie never authenticates; an `Origin` not the site's is `403`; an unsupported `MCP-Protocol-Version` `400` |
 | GET/DELETE | `/api/mcp` | `405` (`Allow: POST`): no event stream and no session |
+| POST | `/api/mcp/staff` | The same protocol for a member of staff signed in from an assistant's connector ([signing in](../integrations/mcp.md#signing-in-from-an-ai-assistant)): `Bearer <access token>` for this address only; without a good one `401` with `WWW-Authenticate: Bearer resource_metadata="<site>/.well-known/oauth-protected-resource/api/mcp/staff"`. The tools the grant's scopes and the person's current role reach, for the one venue allowed, including the [configuration tools](../integrations/mcp.md#changing-the-venues-settings) (preview, then `confirm` with the `previewToken`). 120 a minute per connection; no cookie read; a foreign `Origin` `403` |
+| GET/DELETE | `/api/mcp/staff` | `405` (`Allow: POST`) |
+| POST | `/api/oauth/register` | RFC 7591: `{ redirect_uris, client_name?, client_uri?, grant_types?, response_types?, token_endpoint_auth_method? }` → `201 { client_id, … , token_endpoint_auth_method: "none" }`, never a secret; redirect URIs `https` or loopback `http`; `400 invalid_redirect_uri` / `invalid_client_metadata`; 30 an hour per address |
+| GET | `/api/oauth/authorize` | The authorization request's own query (for the consent page `/oauth/authorize`, with the staff session cookie) → `400 { problem: "client" \| "redirect" }` (never sent anywhere), `{ redirect }` (an OAuth error back to the registered address with `state`), `{ signIn }` (the staff sign-in, coming back; also while two-factor sign-in is still to set up), or `{ request, person, venues }` (the client's unverified name, the return host, the scopes, and each venue with the person's role and what it may allow) |
+| POST | `/api/oauth/authorize` | `{ query, decision: "allow" \| "deny", venueId, scopes }` as JSON from this site (otherwise `403`), signed in as staff (`401`) → `{ redirect }` with the code and `state`, or `access_denied`; `403` for a venue not managed or a scope the role may not allow (front desk: `venue:configure`), `400` for one not asked for. Logged (`oauth.granted`) |
+| POST | `/api/oauth/token` | Form-encoded: `grant_type=authorization_code` (`code`, `redirect_uri`, `client_id`, `code_verifier`, `resource?`) or `refresh_token` (`refresh_token`, `client_id`, `scope?`, `resource?`) → `{ access_token, token_type: "Bearer", expires_in: 3600, refresh_token, scope }`; OAuth errors (`invalid_grant`, `invalid_target`, `invalid_scope`, `unsupported_grant_type`) as `400`. A code or refresh token used twice ends the connection. 600 in 10 minutes per address |
+| POST | `/api/oauth/revoke` | RFC 7009, form-encoded `token`, `client_id`: the connection it belongs to ends; always `200` |
+
+The discovery documents are outside `/api`: `GET /.well-known/oauth-protected-resource`
+and `GET /.well-known/oauth-protected-resource/api/mcp/staff` (RFC 9728), and
+`GET /.well-known/oauth-authorization-server` (RFC 8414), each public and
+readable from any site.
 
 ### Public API for venues' own systems (key; see [external API](../integrations/external-api.md))
 

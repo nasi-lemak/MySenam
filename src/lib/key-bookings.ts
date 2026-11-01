@@ -44,7 +44,13 @@ export const CANCELLED_CUSTOMER_TOLD = "The customer is told the venue cancelled
  * `{ courtId, date, start, end, name, phone, … }` (see the route) → a booking,
  * as the venue's own system makes it; with `preview`, what it would be.
  */
-export async function bookThroughKey(caller: ApiCaller, body: Record<string, unknown> | null, opts: { preview?: boolean } = {}): Promise<NextResponse> {
+export async function bookThroughKey(
+  caller: ApiCaller,
+  body: Record<string, unknown> | null,
+  // `actor`: who the participants' records name as booking them, where that is a member of staff acting through an
+  // AI assistant they signed in from (lib/mcp/oauth.ts) rather than the key itself.
+  opts: { preview?: boolean; actor?: { adminId: number | null; name: string } } = {}
+): Promise<NextResponse> {
   // A key never overrides the venue's policies, nor takes payment: refused, never ignored (lib/policy-overrides.ts).
   if (body && (asksStaffPowers(body) || body.override !== undefined))
     return NextResponse.json({ error: errorText(translator("en"), "R9_API_NO_OVERRIDE"), code: "R9_API_NO_OVERRIDE" }, { status: 400 });
@@ -173,7 +179,7 @@ export async function bookThroughKey(caller: ApiCaller, body: Record<string, unk
   // The discounts asked for, as on every path: the same price for the same request.
   const discounts = await applyAskedDiscounts([made.booking], { concessionId: body.concessionId, placeConcessions, promoCode: body.promoCode });
   if (selection)
-    await recordBookedFor(selection.participants, { adminId: null, name: `API key ${caller.keyId}` }, { venueId: caller.venueId, codes: [made.booking.code], how: "api" });
+    await recordBookedFor(selection.participants, opts.actor ?? { adminId: null, name: `API key ${caller.keyId}` }, { venueId: caller.venueId, codes: [made.booking.code], how: "api" });
   await notifyBookingConfirmed([made.booking], "en", null);
   return NextResponse.json(
     {

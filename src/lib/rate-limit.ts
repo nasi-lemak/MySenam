@@ -75,6 +75,10 @@ export const POLICIES = {
   api: { limit: 120, windowMs: MINUTE },
   /** An AI assistant on the MCP server without a key, per address: a conversation's worth of searches, not a scrape (a key counts as `api`). */
   mcp: { limit: 60, windowMs: MINUTE },
+  /** An AI assistant's connector registering itself (lib/mcp/oauth.ts), per address: one per connector added, not a flood of rows. A provider's servers register for all their users from few addresses, hence not fewer. */
+  oauthRegister: { limit: 30, windowMs: 60 * MINUTE },
+  /** Exchanging a sign-in code or a refresh token, per address: each connection refreshes about once an hour, all of a provider's from few addresses; the tokens are too long to guess. */
+  oauthToken: { limit: 600, windowMs: 10 * MINUTE },
 } satisfies Record<string, Policy>;
 
 export type PolicyName = keyof typeof POLICIES;

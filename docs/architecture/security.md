@@ -36,10 +36,42 @@ API under `/api/v1/` are not checked. A proxy that rewrites `Host` must pass
 the original in `X-Forwarded-Host`, or `MYSENAM_URL` must name the site.
 
 The [MCP server](../integrations/mcp.md#who-is-calling) (`/api/mcp`) is
-authorised by a venue's API key alone, never by a cookie, and refuses any
-request whose `Origin` is not the site's (`MYSENAM_URL`'s host, or a
-storefront's own name; not the request's `Host`, which a rebound name sets to
-itself), cookie or not.
+authorised by a venue's API key alone, and its signed-in address
+(`/api/mcp/staff`) by an OAuth access token alone, never by a cookie; both
+refuse any request whose `Origin` is not the site's (`MYSENAM_URL`'s host, or
+a storefront's own name; not the request's `Host`, which a rebound name sets
+to itself), cookie or not.
+
+## AI assistants signed in as staff
+
+Signing an AI assistant's connector in as a member of staff
+([MCP server](../integrations/mcp.md#signing-in-from-an-ai-assistant),
+[ADR 0030](decisions/0030-oauth-sign-in-for-ai-assistants.md)) is held to
+these:
+
+- **Consent is a same-site JSON request.** The decision on `/oauth/authorize`
+  is `POST /api/oauth/authorize` with a JSON body, refused (`403`) from
+  another site by the middleware and by the route's own check, and as a form
+  or plain text; the page cannot be framed (`frame-ancestors 'none'` in
+  the [response headers](#response-headers)).
+- **No open redirect.** The browser is sent back only to a redirect URI the
+  client registered, matched exactly; an unknown client or address is shown
+  on the page, never followed. Registered addresses are `https`, or `http` on
+  the same computer.
+- **PKCE `S256` always**; codes for five minutes and once; a code or refresh
+  token used twice ends the connection.
+- **Tokens are bearer secrets kept as SHA-256**, for one address (`resource`),
+  an hour for access; refresh tokens rotate.
+- **Never more than the person.** The person's staff record is read on every
+  call; a lower role, a venue lost or the account removed ends the
+  connection; what a tool may do is the dashboard's own permission
+  (`staffMay`, `MANAGER_ONLY`) and the dashboard's own routes run the
+  changes. Front desk cannot allow changing settings at all.
+- **A client's name is its own claim**, shown as not verified on the consent
+  page and in the list of connections, cleaned of control and text-direction
+  characters.
+- Registration is 30 an hour per address, token requests 600 in ten minutes,
+  calls 120 a minute per connection ([rate limiting](#rate-limiting)).
 
 ## Where sign-in sends you next
 
@@ -217,7 +249,9 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 | Checking or using a sign-up link | Same budget as signing in |
 | Booking lookup / cancel by code | 20 per 10 min |
 | Booking creation | 20 per hour |
-| The MCP server without a key | 60 per minute ([MCP server](../integrations/mcp.md)); with a key, the public API's 120 per minute per key |
+| The MCP server without a key | 60 per minute ([MCP server](../integrations/mcp.md)); with a key, the public API's 120 per minute per key; signed in from an assistant, 120 per minute per connection |
+| Registering an AI assistant's connector (`/api/oauth/register`) | 30 per hour (a provider registers for all its users from few addresses) |
+| Exchanging or revoking an assistant's tokens (`/api/oauth/token`, `/api/oauth/revoke`) | 600 per 10 min (every connection of a provider refreshes from few addresses; the tokens cannot be guessed) |
 
 Counters live in process memory by default, which is right for one instance.
 Behind several, set `MYSENAM_RATE_LIMITS=shared` and they live in Postgres

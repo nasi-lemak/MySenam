@@ -96,7 +96,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0026 The same venue policies on every booking path, with audited manager overrides](architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md) ·
 [0027 Opening hours and rates from a date](architecture/decisions/0027-hours-and-rates-from-a-date.md) ·
 [0028 The venue guide as read models over the real configuration](architecture/decisions/0028-venue-guide-as-read-models-over-real-configuration.md) ·
-[0029 An MCP server over the existing functions](architecture/decisions/0029-mcp-server-over-existing-functions.md)
+[0029 An MCP server over the existing functions](architecture/decisions/0029-mcp-server-over-existing-functions.md) ·
+[0030 Signing staff in from AI assistants with an authorization server inside the app](architecture/decisions/0030-oauth-sign-in-for-ai-assistants.md)
 
 ## Integrations
 
@@ -108,7 +109,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | WhatsApp set-up and every template, word for word | [WhatsApp templates](integrations/whatsapp-templates.md) |
 | LHDN MyInvois e-invoicing | [MyInvois](integrations/myinvois.md) |
 | Public API, outgoing webhooks, Reserve with Google feeds | [External API](integrations/external-api.md) |
-| Using MySenam from an AI assistant: the MCP server, its tools, keys and personal data | [MCP server](integrations/mcp.md) |
+| Using MySenam from an AI assistant: the MCP server, its tools, keys, signing in from a connector (OAuth), changing settings, and personal data | [MCP server](integrations/mcp.md) |
 
 ## Development and operations
 

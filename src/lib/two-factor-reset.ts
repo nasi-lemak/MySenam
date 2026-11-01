@@ -41,6 +41,8 @@ async function reset(target: Admin, entry: { by: Admin | null; reason: string })
       .run(target.id);
     await db.prepare("DELETE FROM admin_sessions WHERE admin_id = ?").run(target.id);
     await db.prepare("DELETE FROM admin_login_tickets WHERE admin_id = ?").run(target.id);
+    // AI assistants signed in as the account are signed out with it (lib/mcp/oauth.ts).
+    await db.prepare("UPDATE oauth_grants SET revoked_at = datetime('now'), revoked_reason = 'two-factor sign-in was reset' WHERE admin_id = ? AND revoked_at IS NULL").run(target.id);
     await db
       .prepare("INSERT INTO two_factor_resets (admin_id, reset_by, by_console, reason) VALUES (?, ?, ?, ?)")
       .run(target.id, entry.by?.id ?? null, entry.by === null, entry.reason.trim());

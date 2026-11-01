@@ -302,6 +302,7 @@ function McpSection({ origin }: { origin: string }) {
     <>
       <h3 className="mt-4 font-semibold">{t("int.mcp")}</h3>
       <p className="mt-1 text-sm text-slate-600">{withParts(t("int.mcpIntro"), { url: <code className="rounded bg-slate-100 px-1">{url}</code> })}</p>
+      <p className="mt-1 text-sm text-slate-600">{withParts(t("oa.connector"), { url: <code className="rounded bg-slate-100 px-1">{`${origin}/api/mcp/staff`}</code> })}</p>
       <p className="mt-1 text-sm text-slate-600">{t("int.mcpKey")}</p>
       {examples.map((e) => (
         <div key={e.label} className="mt-2">

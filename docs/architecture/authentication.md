@@ -355,3 +355,25 @@ remove whom is in [tenancy](tenancy.md#who-manages-staff-accounts).
   `staff.invitation_resent`, `staff.invitation_withdrawn`, `staff.joined`,
   `staff.added` (a typed password), `staff.corrected`, `staff.address_invited`,
   `staff.address_changed`, `staff.role`, `staff.removed`.
+
+## Staff signed in from an AI assistant
+
+A member of staff can sign an AI assistant's connector (claude.ai, ChatGPT,
+another OAuth-capable MCP client) in as themselves, through an OAuth 2.1
+authorization server inside the app; the whole of it is in
+[the MCP server](../integrations/mcp.md#signing-in-from-an-ai-assistant) and
+[ADR 0030](decisions/0030-oauth-sign-in-for-ai-assistants.md). What it shares
+with the sign-in here:
+
+- The consent page (`/oauth/authorize`) uses the staff session: somebody not
+  signed in, or held back by two-factor sign-in still to set up, is sent to
+  the staff sign-in (`/admin?next=…`) and comes back; the code is asked for
+  there as at any sign-in.
+- Its tokens are kept as SHA-256 only, as sessions are; an access token lasts
+  an hour and a refresh token is replaced on each use.
+- It is no session: no cookie is set or read on the MCP server, and each call
+  reads the person's staff record afresh, so removing them, taking the venue
+  away or lowering their role ends the connection at once. A password reset
+  or change, a two-factor reset, or the account moving to a new address ends
+  every connection of theirs, as it ends their other sessions. One
+  connection alone is revoked under *AI assistants connected*.

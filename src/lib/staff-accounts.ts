@@ -360,6 +360,8 @@ export async function acceptInvitation(token: string, password: string): Promise
       // A new address and password: whoever was signed in as the account before is not now.
       await db.prepare("DELETE FROM admin_sessions WHERE admin_id = ?").run(row.admin_id);
       await db.prepare("DELETE FROM admin_login_tickets WHERE admin_id = ?").run(row.admin_id);
+      // AI assistants signed in as the account are signed out with it (lib/mcp/oauth.ts).
+      await db.prepare("UPDATE oauth_grants SET revoked_at = datetime('now'), revoked_reason = 'the account moved to a new address' WHERE admin_id = ? AND revoked_at IS NULL").run(row.admin_id);
       await db
         .prepare("UPDATE staff_invitations SET withdrawn_at = datetime('now') WHERE admin_id = ? AND id <> ? AND accepted_at IS NULL AND withdrawn_at IS NULL")
         .run(row.admin_id, row.id);

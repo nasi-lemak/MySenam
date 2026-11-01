@@ -789,6 +789,13 @@ is for the venue and its adviser. Off, bookings reach the assistant as times,
 court, status, price, payment status and a code; the public tools see only
 what the public pages show. The public API (`/api/v1`) is not affected.
 
+A member of staff can also [sign an assistant in as themselves](../integrations/mcp.md#signing-in-from-an-ai-assistant).
+The same setting governs what customers' data it sees, whatever the person
+could see on the dashboard. A connection keeps who allowed it (the staff
+account, the venue, the role and the scopes) and the name the assistant gave
+itself; it goes with the staff account when that is removed. Its tokens are
+kept only as hashes, and cleared once expired (when new ones are issued).
+
 ### Open questions for professional review: retention and documents
 
 None of these is settled by the code; each is recorded here for a lawyer in

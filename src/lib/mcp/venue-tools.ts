@@ -26,9 +26,16 @@ import { courtDay } from "./shape";
  * addresses are left out unless a manager of the venue turned them on
  * (lib/ai-personal-data.ts). Writes take `confirm: true`; without it they
  * answer what would happen and change nothing.
+ *
+ * A member of staff signed in through an assistant (lib/mcp/oauth.ts) reaches
+ * the same tools by their grant's scopes, for the one venue they allowed, as
+ * the API reaches them (no override, no payment taken), named in the staff
+ * log as themselves acting through the assistant; the setup status is a
+ * manager's, and the playbook their own role's.
  */
 
-const caller = (ctx: McpContext): ApiCaller => ctx.caller!;
+/** The caller as the API's code takes one: the key, or the signed-in person's one venue (no key: `keyId` 0, never logged). */
+const caller = (ctx: McpContext): ApiCaller => (ctx.person ? { keyId: 0, venueId: ctx.person.venueId, scope: "write" } : ctx.caller!);
 
 /** A booking as this venue lets an assistant see it. */
 async function bookingView(ctx: McpContext, booking: Record<string, unknown>, shown?: boolean): Promise<Record<string, unknown>> {
@@ -51,6 +58,7 @@ const myVenue: McpTool = {
   title: "This key's venue",
   description: "Returns the venue this API key belongs to, as GET /api/v1/venue does: name, area, address, phone, time zone, usual and weekday hours, and each court with its sport, off-peak and peak rates and places; and whether this venue shows customers' personal data to AI assistants.",
   authority: "availability",
+  scope: "venue:read",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   annotations: { ...READ_ONLY, title: "My venue" },
   async run(_args, ctx) {
@@ -65,6 +73,7 @@ const myAvailability: McpTool = {
   title: "My venue's day",
   description: "Returns each of the venue's courts on a date as GET /api/v1/availability does (rooms run as classes included): the lengths its rules take, each start a booking may have with the longest it may run, and the day in columns with each column's price and whether it is free.",
   authority: "availability",
+  scope: "venue:read",
   inputSchema: {
     type: "object",
     properties: { date: { type: "string", description: "YYYY-MM-DD; today if left out." }, activity: { type: "string" } },
@@ -87,6 +96,7 @@ const myBookings: McpTool = {
   title: "My venue's bookings",
   description: `Returns the venue's bookings from one date to another (at most ${MAX_RANGE_DAYS} days), cancelled ones included, as GET /api/v1/bookings does: code, status, payment status, date and times, court, price and what was paid. Customers' names, phone numbers and emails only if a manager turned that on for AI assistants.`,
   authority: "read",
+  scope: "venue:read",
   inputSchema: {
     type: "object",
     properties: { from: { type: "string", description: "YYYY-MM-DD" }, to: { type: "string", description: "YYYY-MM-DD; the same day if left out." } },
@@ -115,6 +125,7 @@ const myBooking: McpTool = {
   title: "One of my venue's bookings",
   description: "Returns one of the venue's bookings by its code, as GET /api/v1/bookings/<code> does. Another venue's booking is not found. Customers' personal data only if a manager turned it on for AI assistants.",
   authority: "read",
+  scope: "venue:read",
   inputSchema: { type: "object", properties: { code: { type: "string" } }, required: ["code"], additionalProperties: false },
   annotations: { ...READ_ONLY, title: "My booking" },
   async run(args, ctx) {
@@ -136,6 +147,9 @@ const mySetupStatus: McpTool = {
   description:
     "Returns the venue's setup plan as its manager's setup guide shows it, read afresh from the venue's saved configuration: each step with its group, whether it is done, to do, optional, to review or waiting for another, and why it is shown; and launch readiness in its six lists (complete, optional, required and missing, configured but not verified against the real service, the venue adviser's to decide, feature needs). Never a percentage.",
   authority: "read",
+  scope: "venue:read",
+  // The manager's setup guide: front desk does not have it on the dashboard either (lib/roles.ts MANAGER_ONLY).
+  staffAction: "guideSetup",
   inputSchema: { type: "object", properties: { locale: STAFF_LOCALE_ARG }, additionalProperties: false },
   annotations: { ...READ_ONLY, title: "Setup status" },
   async run(args, ctx) {
@@ -176,17 +190,18 @@ const myPlaybook: McpTool = {
   name: "my_playbook",
   title: "My venue's operating playbook",
   description:
-    "Returns the venue's operating playbook, the manager's version, as plain-text sections composed from the venue's saved configuration: what the venue is, the day, bookings, money, specialised activities and quick references. Screens are named, not linked. It contains no secrets.",
+    "Returns the venue's operating playbook, the manager's version (signed in as a member of staff, the version for their own role), as plain-text sections composed from the venue's saved configuration: what the venue is, the day, bookings, money, specialised activities and quick references. Screens are named, not linked. It contains no secrets.",
   authority: "read",
+  scope: "venue:read",
   inputSchema: { type: "object", properties: { locale: STAFF_LOCALE_ARG }, additionalProperties: false },
   annotations: { ...READ_ONLY, title: "Playbook" },
   async run(args, ctx) {
     const t = staffT(args);
     const speaker: Speaker = { t, locale: t.locale };
-    const book = await playbookFor(caller(ctx).venueId, "manager");
+    const book = await playbookFor(caller(ctx).venueId, ctx.person?.role ?? "manager");
     // Links said as their labels, the screens' names (lib/guide/playbook/render.ts `blockText`); no address is given.
     const sections = book.sections.map((s) => ({ title: sayWords(speaker, s.title), lines: s.blocks.flatMap((b) => blockText(speaker, b)) }));
-    return answer(`The operating playbook of ${book.venue.name ?? "the venue"} for its manager, ${sections.length} sections.`, {
+    return answer(`The operating playbook of ${book.venue.name ?? "the venue"} for its ${ctx.person?.role === "desk" ? "front desk" : "manager"}, ${sections.length} sections.`, {
       summary: book.summary.map((w) => sayWords(speaker, w)),
       sections,
     });
@@ -201,6 +216,7 @@ const createBooking: McpTool = {
   description:
     "Books a court at this venue for a customer, unpaid, exactly as POST /api/v1/bookings does: the court's booking rules, the venue's policies and the customer's waiver are checked, and the customer is sent the usual confirmation. Without confirm: true it books nothing and answers the preview: court, date, time, price now, and what the customer will be told. Times are minutes of the venue's day or HH:MM. A key never overrides the venue's policies or takes payment.",
   authority: "write",
+  scope: "venue:book",
   inputSchema: {
     type: "object",
     properties: {
@@ -229,18 +245,18 @@ const createBooking: McpTool = {
     // Anything else sent is passed on, so a field the API refuses (an override) is refused here too, never ignored.
     for (const [k, v] of Object.entries(args)) if (k !== "confirm") body[k] = v;
     if (args.confirm !== true) {
-      const { status, body: out } = await fromResponse(await bookThroughKey(caller(ctx), body, { preview: true }));
+      const { status, body: out } = await fromResponse(await bookThroughKey(caller(ctx), body, { preview: true, actor: actor(ctx) }));
       await logCall(ctx, "create_booking", status === 200 ? "preview, nothing booked" : `preview refused${out.code ? `: ${out.code}` : ""}`);
       if (status !== 200) return refusedBy(out);
       return answer("Nothing was booked. This is what booking it would do; call again with confirm: true to book. Whether the time is still free is known only when booking.", out.preview);
     }
-    const { status, body: out } = await fromResponse(await bookThroughKey(caller(ctx), body));
+    const { status, body: out } = await fromResponse(await bookThroughKey(caller(ctx), body, { actor: actor(ctx) }));
     if (status !== 201) {
       await logCall(ctx, "create_booking", `refused${out.code ? `: ${out.code}` : ""}`);
       return refusedBy(out);
     }
     const booking = out.booking as Record<string, unknown>;
-    await logAction(by(ctx), { venueId: caller(ctx).venueId, action: "booking.created", bookingCode: String(booking.code), detail: `Booked through an AI assistant (MCP) with API key ${caller(ctx).keyId}` });
+    await logAction(by(ctx), { venueId: caller(ctx).venueId, action: "booking.created", bookingCode: String(booking.code), detail: `Booked through an AI assistant (MCP) ${how(ctx)}` });
     return answer(`Booked: ${booking.code}, unpaid. The customer is sent the usual confirmation.`, { ...out, booking: await bookingView(ctx, booking) });
   },
 };
@@ -251,6 +267,7 @@ const cancelBooking: McpTool = {
   description:
     "Cancels one of this venue's bookings as its staff would, exactly as POST /api/v1/bookings/<code>/cancel does: in full, money paid online, with credit or a pass goes back, a counter payment is written down as owed back for the desk, and the customer is told. Without confirm: true it cancels nothing and answers the preview: the booking and what cancelling it would do.",
   authority: "write",
+  scope: "venue:book",
   inputSchema: {
     type: "object",
     properties: { code: { type: "string" }, confirm: { type: "boolean", description: "true to cancel; otherwise only the preview." } },
@@ -276,22 +293,42 @@ const cancelBooking: McpTool = {
       return refusedBy(body);
     }
     const booking = body.booking as Record<string, unknown>;
-    await logAction(by(ctx), { venueId: caller(ctx).venueId, action: "booking.cancelled", bookingCode: code, detail: `Cancelled through an AI assistant (MCP) with API key ${caller(ctx).keyId}` });
+    await logAction(by(ctx), { venueId: caller(ctx).venueId, action: "booking.cancelled", bookingCode: code, detail: `Cancelled through an AI assistant (MCP) ${how(ctx)}` });
     return answer(`Cancelled: ${code}. The customer is told.`, { booking: await bookingView(ctx, booking) });
   },
 };
 
-/** Who the staff activity log names for a call through a key: the key, as the API's own entries do. */
-const by = (ctx: McpContext) => ({ id: null, name: `API key ${caller(ctx).keyId}` });
+/**
+ * Who the staff activity log names for a call: the key, as the API's own
+ * entries do; or the member of staff signed in through an assistant, by name,
+ * as acting through it ("Maya through Claude (AI assistant)").
+ */
+export const by = (ctx: McpContext): { id: number | null; name: string } =>
+  ctx.person ? { id: ctx.person.adminId, name: ctx.person.acting.name } : { id: null, name: `API key ${caller(ctx).keyId}` };
+
+/** Who a participant's record names as booking them through an assistant. */
+const actor = (ctx: McpContext): { adminId: number | null; name: string } => {
+  const who = by(ctx);
+  return { adminId: who.id, name: who.name };
+};
+
+/** How a booking made or cancelled through an assistant was reached, for the log's detail. */
+const how = (ctx: McpContext): string => (ctx.person ? `by ${ctx.person.acting.name}` : `with API key ${caller(ctx).keyId}`);
 
 /**
- * One entry in the staff activity log for a call through a key that changed
- * nothing (`mcp.tool`): which tool, never its arguments, so no customer's
+ * One entry in the staff activity log for a call that changed nothing:
+ * `mcp.tool` through a key, `mcp.staff_tool` for a member of staff signed in
+ * through an assistant: which tool, never its arguments, so no customer's
  * name or number is written there. A booking made or cancelled is logged as
- * such instead (`booking.created`, `booking.cancelled`), naming the key.
+ * such instead (`booking.created`, `booking.cancelled`), naming the key or
+ * the person, and a setting changed by the dashboard's own route's entry.
  */
 export async function logCall(ctx: McpContext, tool: string, outcome?: string): Promise<void> {
-  await logAction(by(ctx), { venueId: caller(ctx).venueId, action: "mcp.tool", detail: `${tool} through an AI assistant (MCP)${outcome ? `: ${outcome}` : ""}` });
+  await logAction(by(ctx), {
+    venueId: caller(ctx).venueId,
+    action: ctx.person ? "mcp.staff_tool" : "mcp.tool",
+    detail: `${tool} through an AI assistant (MCP)${outcome ? `: ${outcome}` : ""}`,
+  });
 }
 
 export const VENUE_TOOLS: McpTool[] = [myVenue, myAvailability, myBookings, myBooking, mySetupStatus, myPlaybook, createBooking, cancelBooking];
