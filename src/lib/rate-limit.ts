@@ -73,6 +73,8 @@ export const POLICIES = {
   quote: { limit: 120, windowMs: 10 * MINUTE },
   /** A venue's own systems on the public API, per key: plenty for a front-desk screen polling, not a scrape. */
   api: { limit: 120, windowMs: MINUTE },
+  /** An AI assistant on the MCP server without a key, per address: a conversation's worth of searches, not a scrape (a key counts as `api`). */
+  mcp: { limit: 60, windowMs: MINUTE },
 } satisfies Record<string, Policy>;
 
 export type PolicyName = keyof typeof POLICIES;

@@ -101,7 +101,9 @@ describe("the picker page", () => {
     const d = await index({ types: "badminton-and-pickleball" });
     expect(d.querySelectorAll("h1").length).toBe(1);
     const h2 = [...d.querySelectorAll("h2")].map((h) => h.id);
-    expect(h2).toEqual(["day-h", "setup-h", "available-h", "know-h", "not-h", "start-h"]);
+    // Then, at the foot of the guide, using MySenam from an AI assistant (docs/integrations/mcp.md#connecting).
+    expect(h2).toEqual(["day-h", "setup-h", "available-h", "know-h", "not-h", "start-h", "ai-h"]);
+    expect(d.querySelector("#ai")!.textContent).toContain("/api/mcp");
     expect(d.querySelectorAll("h3").length).toBeGreaterThan(5);
     expect(d.querySelectorAll("h4").length).toBeGreaterThan(10);
     // Landmarks and jump links that land on a section.

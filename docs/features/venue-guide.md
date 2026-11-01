@@ -867,6 +867,12 @@ For the selection (`fitView(selection)`, `src/lib/guide/public/view.ts`):
 7. **The way on**: `/list-your-venue?fit=…` and a link to `/pricing`. The page
    says nothing of price plans beyond that link.
 
+The bare picker page and every choice on it then end with *Use MySenam from
+your AI assistant* (`src/components/fit/AiAssistants.tsx`): the address of the
+[MCP server](../integrations/mcp.md), whose public tools need no key and answer
+from this same model (`guide_business_types`, `guide_fit`), and a line on a
+venue's own key kept in an environment variable.
+
 There are no testimonials, savings or statistics; the only figures are the
 made-up sample data in the illustrative screens.
 

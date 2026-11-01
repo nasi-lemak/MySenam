@@ -1,6 +1,7 @@
 import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { apiCaller } from "@/lib/api-keys";
+import { apiCourtDays } from "@/lib/public-api";
 import { getAvailability } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { type Sport } from "@/lib/types";
@@ -24,17 +25,5 @@ export async function GET(req: NextRequest) {
   if (sport && !(await isActivity(sport))) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
   // The venue's own system sees everything it may hire out, rooms run as classes included.
   const grid = await getAvailability(caller.venueId, date, (sport as Sport) || undefined, false, true);
-  return NextResponse.json({
-    date,
-    courts: grid.map((g) => ({
-      id: g.court.id,
-      name: g.court.name,
-      sport: g.court.sport,
-      policy: g.policy,
-      starts: g.starts,
-      grid: g.grid,
-      unit: g.unit,
-      slots: g.slots.map((s) => ({ minute: s.minute, hour: s.hour, rate: s.rate, available: s.available, partly: s.partly ?? false, booked: s.booked, capacity: s.capacity })),
-    })),
-  });
+  return NextResponse.json({ date, courts: apiCourtDays(grid) });
 }

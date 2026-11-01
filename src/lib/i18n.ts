@@ -3604,6 +3604,11 @@ const EN = {
   "gcap.day-list.title": "The day's bookings",
   "gcap.day-list.blurb": "The staff's list of the day's bookings, with the customer, court, time and whether it is paid; staff start a booking for a walk-in from it.",
   // fit: end
+  // mcp: the public guide's note on using MySenam from an AI assistant (docs/integrations/mcp.md)
+  "mcp.title": "Use MySenam from your AI assistant",
+  "mcp.body": "An AI assistant that speaks the Model Context Protocol (Claude, ChatGPT, Cursor and others) can read this guide, search for free courts and look up a venue's public page at {url}. These public tools need no key and see only what this site shows anybody.",
+  "mcp.venue": "A venue's manager can also connect their assistant with one of the venue's API keys, made under Venues & staff, API and webhooks, to see that venue's availability, bookings and set-up, and book or cancel after confirming. Customers' names, phone numbers and emails stay hidden unless the venue turns them on. Keep the key in an environment variable; never paste it into a chat.",
+  "mcp.example": "For example, in Claude Code:",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -7155,6 +7160,11 @@ const MS: Record<Phrase, string> = {
   "gcap.day-list.title": "Tempahan hari ini",
   "gcap.day-list.blurb": "Senarai tempahan hari ini untuk kakitangan, dengan pelanggan, gelanggang, masa dan status bayaran; kakitangan memulakan tempahan untuk pelanggan yang datang terus daripadanya.",
   // fit: end
+  // mcp
+  "mcp.title": "Gunakan MySenam daripada pembantu AI anda",
+  "mcp.body": "Pembantu AI yang menggunakan Model Context Protocol (Claude, ChatGPT, Cursor dan lain-lain) boleh membaca panduan ini, mencari gelanggang yang kosong dan melihat halaman awam sesebuah pusat di {url}. Alat awam ini tidak memerlukan kunci dan hanya melihat apa yang laman ini tunjukkan kepada sesiapa sahaja.",
+  "mcp.venue": "Pengurus pusat juga boleh menyambungkan pembantunya dengan salah satu kunci API pusat itu, yang dibuat di Pusat & kakitangan, API dan webhook, untuk melihat ketersediaan, tempahan dan penyediaan pusat itu, serta menempah atau membatalkan selepas mengesahkan. Nama, nombor telefon dan e-mel pelanggan kekal tersembunyi melainkan pusat itu menghidupkannya. Simpan kunci dalam pemboleh ubah persekitaran; jangan sekali-kali tampal ke dalam sembang.",
+  "mcp.example": "Contohnya, dalam Claude Code:",
 };
 
 /** Exported so a test can hold the two languages against each other. */

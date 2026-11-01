@@ -510,7 +510,7 @@ the same list (`400`).
 | POST | `/api/admin/holidays` | `{ venueId, date, name }`: price that date like the weekend. Or `{ venueId, fill: true, state }`: every public holiday to come, in Malaysia the state's own too |
 | DELETE | `/api/admin/holidays` | `?venueId&date`: back to an ordinary day |
 | GET | `/api/admin/integrations` | `?venueId=` → the venue's API keys (never the keys themselves), webhook addresses and recent deliveries |
-| POST | `/api/admin/integrations` | `{ venueId, action }`: `key` with `name`, `scope` (the key is in the answer, this once); `revoke` with `id`; `webhook` with `url` (its signing secret in the answer, this once); `remove`, `ping` or `resume` with `id`; `google` with `on` |
+| POST | `/api/admin/integrations` | `{ venueId, action }`: `key` with `name`, `scope` (the key is in the answer, this once); `revoke` with `id`; `webhook` with `url` (its signing secret in the answer, this once); `remove`, `ping` or `resume` with `id`; `google` with `on`; `aiPersonalData` with `on` (a boolean): whether AI assistants using the venue's keys through the [MCP server](../integrations/mcp.md#customers-personal-data) see customers' names, phone numbers and emails, recorded with who and when and logged (`integration.ai_personal_data`). GET also answers `aiPersonalData` (`{ on, changedAt, changedBy }`) |
 | GET | `/api/admin/leagues` | `?venueId=` — a venue's leagues, for its staff, with the head-to-head templates a new one can be scored by |
 | POST | `/api/admin/leagues` | A new league, its first season forming; `template?` and `rules?` set how its matches are scored and boxes ranked (the sport's template by default) |
 | GET | `/api/admin/leagues/:id` | The league as staff see it, `?season=` for an earlier one |
@@ -620,6 +620,13 @@ the same list (`400`).
 | POST | `/api/admin/waiver/sign` | `{ bookingId }`: the customer signed the venue's waiver on paper at the desk |
 | GET | `/api/admin/whatsapp` | `?venueId=` — whether the venue sends WhatsApp, and what it has left to send with |
 | POST | `/api/admin/whatsapp` | `{ venueId, action }`: - `"mode", mode: "off" \| "urgent" \| "all"` — the venue's staff; - `"buy"` — order a pack, then `"pay", packId` to pay it online; - `"grant", messages` / `"markPaid" \| "void", packId` — the platform owner |
+
+### MCP server for AI assistants (no credentials, or a venue's key; see [MCP server](../integrations/mcp.md))
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/mcp` | One JSON-RPC 2.0 message of the Model Context Protocol (Streamable HTTP, stateless, answered with JSON; a notification `202`): `initialize`, `ping`, `tools/list`, `tools/call`. No `Authorization`: the public tools (60 a minute per address); `Bearer <key>`: also the key's venue's tools up to its scope (120 a minute per key); a bad key `401` with `WWW-Authenticate`, never anonymous. A cookie never authenticates; an `Origin` not the site's is `403`; an unsupported `MCP-Protocol-Version` `400` |
+| GET/DELETE | `/api/mcp` | `405` (`Allow: POST`): no event stream and no session |
 
 ### Public API for venues' own systems (key; see [external API](../integrations/external-api.md))
 

@@ -508,6 +508,23 @@ const en = {
   "ei10.alert.b": "MySenam asked LHDN to take e-invoice {code} for {venue} but did not record LHDN's answer, so LHDN may hold it. It will not be sent again by itself. Open E-invoicing in the dashboard, check the MyInvois portal, then record LHDN's identifiers if it has it, or confirm it does not and send it again.",
   "ei10.act.recorded": "Recorded an e-invoice LHDN already held, from the MyInvois portal",
   "ei10.act.notAtLhdn": "Confirmed in the MyInvois portal that LHDN does not hold an e-invoice, and sent it again",
+  // MCP1: AI assistants through the MCP server (docs/integrations/mcp.md)
+  "int.mcp": "AI assistants (MCP)",
+  "int.mcpIntro": "An AI assistant that speaks the Model Context Protocol (Claude, ChatGPT, Cursor and others) can use MySenam at {url}. Without a key it sees what the public sees. With one of this venue's API keys it sees this venue only: its availability, bookings, setup status and playbook; with a write key it can also book and cancel, each time showing what it would do before it does it.",
+  "int.mcpKey": "Keep the key in an environment variable on the computer that runs the assistant, and refer to it there as in these examples. Never paste a key into a chat: what you type there goes to the assistant's provider.",
+  "int.mcpClaudeCode": "Claude Code",
+  "int.mcpCursor": "Cursor (mcp.json)",
+  "int.mcpDesktop": "Claude Desktop, through the free mcp-remote bridge (claude_desktop_config.json)",
+  "int.mcpUntested": "These examples follow each assistant's own instructions; MySenam has not yet tried them from every assistant.",
+  "int.aiData": "Customers' personal data for AI assistants",
+  "int.aiDataOff": "Off: an AI assistant using your keys sees bookings by their times, court, status, price, payment status and code, never customers' names, phone numbers or emails.",
+  "int.aiDataOn": "On: an AI assistant using your keys sees customers' names, phone numbers and emails, as your own systems do through the API.",
+  "int.aiDataWarning": "Before you turn this on: the company behind the AI assistant may process your customers' personal data outside the country, under its own terms. Whether you may share it with them, and how you tell your customers, is your venue's decision and responsibility. MySenam does not decide that it is lawful; ask your adviser.",
+  "int.aiDataToggle": "Show customers' names, phone numbers and emails to AI assistants",
+  "int.aiDataConfirm": "Show customers' personal data to AI assistants using this venue's keys? Their provider may process it outside the country, and your venue is responsible for that choice.",
+  "int.aiDataChanged": "Last changed by {name}, {date}.",
+  "int.act.aiPersonalData": "Turned customers' personal data for AI assistants on or off",
+  "int.act.mcpTool": "An AI assistant used a tool with the venue's API key (MCP)",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1010,6 +1027,23 @@ const ms: Record<keyof typeof en, string> = {
   "ei10.alert.b": "MySenam meminta LHDN menerima e-invois {code} untuk {venue} tetapi tidak merekodkan jawapan LHDN, jadi LHDN mungkin sudah memilikinya. Ia tidak akan dihantar semula dengan sendirinya. Buka E-invois dalam papan pemuka, semak portal MyInvois, kemudian rekodkan pengenal LHDN jika ia memilikinya, atau sahkan ia tidak memilikinya dan hantar semula.",
   "ei10.act.recorded": "Merekodkan e-invois yang sudah dimiliki LHDN, daripada portal MyInvois",
   "ei10.act.notAtLhdn": "Mengesahkan dalam portal MyInvois bahawa LHDN tidak memiliki e-invois, dan menghantarnya semula",
+  // MCP1
+  "int.mcp": "Pembantu AI (MCP)",
+  "int.mcpIntro": "Pembantu AI yang menggunakan Model Context Protocol (Claude, ChatGPT, Cursor dan lain-lain) boleh menggunakan MySenam di {url}. Tanpa kunci, ia melihat apa yang dilihat orang awam. Dengan salah satu kunci API pusat ini, ia melihat pusat ini sahaja: ketersediaan, tempahan, status penyediaan dan buku panduannya; dengan kunci tulis ia juga boleh menempah dan membatalkan, setiap kali menunjukkan apa yang akan dilakukannya sebelum melakukannya.",
+  "int.mcpKey": "Simpan kunci dalam pemboleh ubah persekitaran pada komputer yang menjalankan pembantu itu, dan rujuk kepadanya di situ seperti dalam contoh ini. Jangan sekali-kali tampal kunci ke dalam sembang: apa yang anda taip di situ dihantar kepada penyedia pembantu itu.",
+  "int.mcpClaudeCode": "Claude Code",
+  "int.mcpCursor": "Cursor (mcp.json)",
+  "int.mcpDesktop": "Claude Desktop, melalui jambatan percuma mcp-remote (claude_desktop_config.json)",
+  "int.mcpUntested": "Contoh ini mengikut arahan setiap pembantu; MySenam belum mencubanya daripada setiap pembantu.",
+  "int.aiData": "Data peribadi pelanggan untuk pembantu AI",
+  "int.aiDataOff": "Mati: pembantu AI yang menggunakan kunci anda melihat tempahan mengikut masa, gelanggang, status, harga, status bayaran dan kodnya, tidak pernah nama, nombor telefon atau e-mel pelanggan.",
+  "int.aiDataOn": "Hidup: pembantu AI yang menggunakan kunci anda melihat nama, nombor telefon dan e-mel pelanggan, seperti sistem anda sendiri melalui API.",
+  "int.aiDataWarning": "Sebelum anda menghidupkan ini: syarikat di sebalik pembantu AI mungkin memproses data peribadi pelanggan anda di luar negara, di bawah syaratnya sendiri. Sama ada anda boleh berkongsi data itu dengan mereka, dan cara anda memaklumkan pelanggan, ialah keputusan dan tanggungjawab pusat anda. MySenam tidak memutuskan bahawa ia sah di sisi undang-undang; tanya penasihat anda.",
+  "int.aiDataToggle": "Tunjukkan nama, nombor telefon dan e-mel pelanggan kepada pembantu AI",
+  "int.aiDataConfirm": "Tunjukkan data peribadi pelanggan kepada pembantu AI yang menggunakan kunci pusat ini? Penyedianya mungkin memproses data itu di luar negara, dan pusat anda bertanggungjawab atas pilihan itu.",
+  "int.aiDataChanged": "Kali terakhir diubah oleh {name}, {date}.",
+  "int.act.aiPersonalData": "Menghidupkan atau mematikan data peribadi pelanggan untuk pembantu AI",
+  "int.act.mcpTool": "Pembantu AI menggunakan alat dengan kunci API pusat (MCP)",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1512,6 +1546,23 @@ const zh: Record<keyof typeof en, string> = {
   "ei10.alert.b": "MySenam 已请求 LHDN 接收 {venue} 的电子发票 {code}，但未记录到 LHDN 的答复，因此 LHDN 可能已收到。系统不会自行重新提交。请在控制台打开“电子发票”，查看 MyInvois 门户，若 LHDN 已有则记录其标识，若没有则确认后重新提交。",
   "ei10.act.recorded": "按 MyInvois 门户记录了 LHDN 已有的电子发票",
   "ei10.act.notAtLhdn": "在 MyInvois 门户确认 LHDN 没有某电子发票后，重新提交了它",
+  // MCP1
+  "int.mcp": "AI 助手（MCP）",
+  "int.mcpIntro": "支持 Model Context Protocol 的 AI 助手（Claude、ChatGPT、Cursor 等）可通过 {url} 使用 MySenam。没有密钥时，它只能看到公众可见的内容。使用本场馆的 API 密钥时，它只能看到本场馆：空档、预订、设置状态和运营手册；使用写入密钥时还可以预订和取消，每次执行前都会先说明将要做什么。",
+  "int.mcpKey": "请把密钥保存在运行该助手的电脑的环境变量中，并按下面的示例引用它。切勿把密钥粘贴到聊天中：您在聊天中输入的内容会发送给助手的提供商。",
+  "int.mcpClaudeCode": "Claude Code",
+  "int.mcpCursor": "Cursor（mcp.json）",
+  "int.mcpDesktop": "Claude Desktop，通过免费的 mcp-remote 桥接（claude_desktop_config.json）",
+  "int.mcpUntested": "这些示例依照各助手自己的说明编写；MySenam 尚未在每个助手上实际试过。",
+  "int.aiData": "提供给 AI 助手的顾客个人资料",
+  "int.aiDataOff": "关闭：使用您密钥的 AI 助手只能看到预订的时间、场地、状态、价格、付款状态和编号，绝不会看到顾客的姓名、电话号码或电邮。",
+  "int.aiDataOn": "开启：使用您密钥的 AI 助手可以看到顾客的姓名、电话号码和电邮，与您自己的系统通过 API 看到的一样。",
+  "int.aiDataWarning": "开启之前请注意：AI 助手背后的公司可能会按其自身条款在国外处理您顾客的个人资料。您是否可以与其分享这些资料，以及如何告知顾客，由您的场馆决定并负责。MySenam 不判定此举是否合法；请咨询您的顾问。",
+  "int.aiDataToggle": "向 AI 助手显示顾客的姓名、电话号码和电邮",
+  "int.aiDataConfirm": "要向使用本场馆密钥的 AI 助手显示顾客个人资料吗？其提供商可能在国外处理这些资料，此选择由您的场馆负责。",
+  "int.aiDataChanged": "最近由 {name} 于 {date} 更改。",
+  "int.act.aiPersonalData": "开启或关闭了提供给 AI 助手的顾客个人资料",
+  "int.act.mcpTool": "AI 助手使用场馆的 API 密钥调用了工具（MCP）",
 };
 
 const area = { en, ms, zh };

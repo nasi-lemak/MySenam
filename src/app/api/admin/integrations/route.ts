@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
+import { aiPersonalData, setAiPersonalData } from "@/lib/ai-personal-data";
 import { createApiKey, listApiKeys, revokeApiKey } from "@/lib/api-keys";
 import { googleReserveOn, setGoogleReserve } from "@/lib/google-feeds";
 import { addEndpoint, listEndpoints, pingEndpoint, removeEndpoint, resumeEndpoint } from "@/lib/webhooks";
@@ -15,14 +16,23 @@ export async function GET(req: NextRequest) {
   if (!Number.isInteger(venueId) || venueId <= 0) return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
-  return NextResponse.json({ keys: await listApiKeys(venueId), endpoints: await listEndpoints(venueId), google: await googleReserveOn(venueId) });
+  return NextResponse.json({
+    keys: await listApiKeys(venueId),
+    endpoints: await listEndpoints(venueId),
+    google: await googleReserveOn(venueId),
+    // Whether AI assistants using the venue's keys through the MCP server see customers' personal data (lib/ai-personal-data.ts).
+    aiPersonalData: await aiPersonalData(venueId),
+  });
 }
 
 /**
  * `{ venueId, action }`: `key` with `name`, `scope` (the key is in the answer,
  * this once); `revoke` with `id`; `webhook` with `url` (its signing secret in
  * the answer, this once); `remove`, `ping` or `resume` with `id`; `google`
- * with `on`.
+ * with `on`; `aiPersonalData` with `on` (true or false): whether AI assistants
+ * using the venue's keys through the MCP server see customers' names, phone
+ * numbers and emails, recorded with who and when (managers only, as all of
+ * this; the screen warns first).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -65,6 +75,12 @@ export async function POST(req: NextRequest) {
       await setGoogleReserve(venueId, body.on === true);
       await log(`Reserve with Google feeds: ${body.on === true ? "in" : "out"}`);
       return NextResponse.json({ google: await googleReserveOn(venueId) });
+    case "aiPersonalData": {
+      if (typeof body.on !== "boolean") return NextResponse.json({ error: "Say on: true or on: false." }, { status: 400 });
+      const now = await setAiPersonalData(venueId, body.on, admin);
+      await logAction(admin, { venueId, action: "integration.ai_personal_data", detail: `Customers' personal data shown to AI assistants (MCP): ${body.on ? "on" : "off"}` });
+      return NextResponse.json({ aiPersonalData: now });
+    }
     default:
       return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   }

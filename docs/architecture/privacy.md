@@ -775,6 +775,20 @@ them within that window; the privacy notice should say so.
    registration, a data protection officer and breach notices; the exact
    Malaysian breach-notice deadlines and thresholds.
 
+### AI assistants
+
+A venue can let an AI assistant use its API key through the
+[MCP server](../integrations/mcp.md). Customers' names, phone numbers and
+emails are **not** given to the assistant unless a manager of the venue turns
+that on (`venues.ai_personal_data`, migration 0262, off by default), after a
+warning that the assistant's provider may process them outside the country
+under its own terms and that the choice, and telling customers, is the
+venue's responsibility. The app records the choice (who and when, on the
+setting and in the staff activity log) and does not treat it as lawful: that
+is for the venue and its adviser. Off, bookings reach the assistant as times,
+court, status, price, payment status and a code; the public tools see only
+what the public pages show. The public API (`/api/v1`) is not affected.
+
 ### Open questions for professional review: retention and documents
 
 None of these is settled by the code; each is recorded here for a lawyer in

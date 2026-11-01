@@ -1,7 +1,7 @@
 import { apiBooking, apiParticipants } from "./api-keys";
 import { getDb } from "./db";
 import { findBookingByCode, getCourt } from "./store";
-import type { Booking } from "./types";
+import type { Booking, Court, CourtAvailability, Venue } from "./types";
 
 /**
  * What the public API (`/api/v1`, lib/api-keys.ts) reads, for one venue at a
@@ -38,4 +38,38 @@ export async function bookingForVenue(venueId: number, code: string): Promise<Re
 /** Days between two dates, inclusive of both. */
 export function spanDays(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+/** The key's venue as `GET /api/v1/venue` and the MCP server's `my_venue` give it: its details, hours and courts with their rates. */
+export function apiVenue(v: Venue & { courts: Court[] }): Record<string, unknown> {
+  return {
+    id: v.id,
+    name: v.name,
+    area: v.area,
+    address: v.address,
+    phone: v.phone,
+    timeZone: v.timeZone,
+    // Usual hours in minutes of the business day (and in hours).
+    openMin: v.openMin,
+    closeMin: v.closeMin,
+    openHour: v.openHour,
+    closeHour: v.closeHour,
+    // Weekdays with their own hours, or closed; null when every day keeps the usual ones.
+    weekHours: v.weekHours ?? null,
+    courts: v.courts.map((c) => ({ id: c.id, name: c.name, sport: c.sport, offPeakRate: c.offPeakRate, peakRate: c.peakRate, capacity: c.capacity })),
+  };
+}
+
+/** Each court's day as `GET /api/v1/availability` and the MCP server's `my_availability` give it. */
+export function apiCourtDays(grid: CourtAvailability[]): Record<string, unknown>[] {
+  return grid.map((g) => ({
+    id: g.court.id,
+    name: g.court.name,
+    sport: g.court.sport,
+    policy: g.policy,
+    starts: g.starts,
+    grid: g.grid,
+    unit: g.unit,
+    slots: g.slots.map((s) => ({ minute: s.minute, hour: s.hour, rate: s.rate, available: s.available, partly: s.partly ?? false, booked: s.booked, capacity: s.capacity })),
+  }));
 }
