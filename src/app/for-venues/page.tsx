@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import FitGuide from "@/components/fit/FitGuide";
 import FitPicker from "@/components/fit/FitPicker";
+import AiAssistants from "@/components/fit/AiAssistants";
 import { fitView } from "@/lib/guide/public/view";
 import { isEmptySelection, parseSelection, type Params } from "@/lib/guide/public/select";
 import { serverT } from "@/lib/locale";
@@ -47,6 +48,7 @@ export default async function ForVenuesPage({ searchParams }: Props) {
       </header>
       <FitPicker selection={selection} t={t} showCards={view.empty} />
       {!view.empty && <FitGuide view={view} t={t} />}
+      <AiAssistants t={t} url={`${await siteOrigin()}/api/mcp`} />
     </div>
   );
 }

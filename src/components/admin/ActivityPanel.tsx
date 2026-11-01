@@ -9,6 +9,8 @@ import { useStaffClock, useStaffT } from "./StaffLanguage";
 /** Each kind of entry's words in the staff dictionary; a kind not listed shows as lib/activity-labels.ts says it. */
 const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "booking.created": "act.a.bookingCreated",
+  "integration.ai_personal_data": "int.act.aiPersonalData",
+  "mcp.tool": "int.act.mcpTool",
   "competition.cancelled": "act.a.competitionCancelled",
   "retention.policy": "act.a.retentionPolicy",
   "retention.reviewed": "act.a.retentionReviewed",

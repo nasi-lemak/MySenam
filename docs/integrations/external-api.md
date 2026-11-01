@@ -1,6 +1,8 @@
 # Public API, webhooks and Reserve with Google
 
 The key-authenticated API and signed webhooks for a venue's own systems, and the Reserve with Google feeds.
+The same keys also connect an AI assistant through the [MCP server](mcp.md), which runs this API's code for
+reading, booking and cancelling, and hides customers' personal data unless the venue turns it on.
 
 ## Public API and webhooks
 

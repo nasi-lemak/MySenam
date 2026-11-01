@@ -95,7 +95,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0025 Benefits and privileges by the scope they apply to](architecture/decisions/0025-benefits-and-privileges-by-scope.md) ·
 [0026 The same venue policies on every booking path, with audited manager overrides](architecture/decisions/0026-same-policies-on-every-path-with-manager-overrides.md) ·
 [0027 Opening hours and rates from a date](architecture/decisions/0027-hours-and-rates-from-a-date.md) ·
-[0028 The venue guide as read models over the real configuration](architecture/decisions/0028-venue-guide-as-read-models-over-real-configuration.md)
+[0028 The venue guide as read models over the real configuration](architecture/decisions/0028-venue-guide-as-read-models-over-real-configuration.md) ·
+[0029 An MCP server over the existing functions](architecture/decisions/0029-mcp-server-over-existing-functions.md)
 
 ## Integrations
 
@@ -107,6 +108,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | WhatsApp set-up and every template, word for word | [WhatsApp templates](integrations/whatsapp-templates.md) |
 | LHDN MyInvois e-invoicing | [MyInvois](integrations/myinvois.md) |
 | Public API, outgoing webhooks, Reserve with Google feeds | [External API](integrations/external-api.md) |
+| Using MySenam from an AI assistant: the MCP server, its tools, keys and personal data | [MCP server](integrations/mcp.md) |
 
 ## Development and operations
 
@@ -175,6 +177,7 @@ The README used to hold everything. Sections it named in passing (*see
 | Countries, Tax | [Regions and tax](product/regions-and-tax.md) |
 | E-invoicing (MyInvois) | [MyInvois](integrations/myinvois.md) |
 | Public API and webhooks, Reserve with Google | [External API](integrations/external-api.md) |
+| AI assistants (MCP) | [MCP server](integrations/mcp.md) |
 | Audit fixes | [Business rules](product/business-rules.md) |
 | Roadmap ideas, Deliberately not built | [Roadmap](roadmap/roadmap.md), [known limitations](roadmap/known-limitations.md) |
 | Every other feature section | The feature documents under [`features/`](features/) |

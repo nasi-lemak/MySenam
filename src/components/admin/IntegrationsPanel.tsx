@@ -2,6 +2,7 @@
 
 import { readJson } from "@/lib/read-response";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import type { AiPersonalData } from "@/lib/ai-personal-data";
 import type { ApiKey } from "@/lib/api-keys";
 import type { Endpoint } from "@/lib/webhooks";
 import type { ManagedVenue } from "./shared";
@@ -24,6 +25,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [google, setGoogle] = useState(false);
+  const [ai, setAi] = useState<AiPersonalData>({ on: false, changedAt: null, changedBy: null });
   const [keyForm, setKeyForm] = useState({ name: "", scope: "read" });
   const [url, setUrl] = useState("");
   const [shown, setShown] = useState<{ label: string; value: string } | null>(null);
@@ -38,6 +40,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
     setKeys(d.keys);
     setEndpoints(d.endpoints);
     setGoogle(d.google);
+    setAi(d.aiPersonalData);
   }, [venueId, t]);
 
   useEffect(() => {
@@ -242,6 +245,71 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
           ))}
         </p>
       )}
+
+      <McpSection origin={origin} />
+
+      <h3 className="mt-4 font-semibold">{t("int.aiData")}</h3>
+      <p className="mt-1 text-sm text-slate-600">
+        <span aria-hidden>{ai.on ? "● " : "○ "}</span>
+        {ai.on ? t("int.aiDataOn") : t("int.aiDataOff")}
+      </p>
+      <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{t("int.aiDataWarning")}</div>
+      <label className="mt-2 flex min-h-6 items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={ai.on}
+          onChange={(e) => {
+            const on = e.target.checked;
+            // Turning it on is said plainly first; turning it off needs no warning.
+            if (on && !window.confirm(t("int.aiDataConfirm"))) return;
+            void act({ action: "aiPersonalData", on });
+          }}
+          className="mt-1"
+        />
+        <span>{t("int.aiDataToggle")}</span>
+      </label>
+      {ai.changedAt && ai.changedBy && <p className="mt-1 text-xs text-slate-500">{t("int.aiDataChanged", { name: ai.changedBy, date: clock.when(ai.changedAt, venueId) })}</p>}
     </section>
+  );
+}
+
+/**
+ * How to add the MCP server to an AI assistant (docs/integrations/mcp.md#connecting):
+ * its address and an example per assistant, each reading the key from an
+ * environment variable, never from the chat.
+ */
+function McpSection({ origin }: { origin: string }) {
+  const t = useStaffT();
+  const url = `${origin}/api/mcp`;
+  // Commands and configuration as typed, the same in every language.
+  const examples: { label: string; code: string }[] = [
+    { label: t("int.mcpClaudeCode"), code: `claude mcp add --transport http mysenam ${url} --header "Authorization: Bearer $MYSENAM_API_KEY"` }, // staff-i18n-ignore
+    {
+      label: t("int.mcpCursor"),
+      code: JSON.stringify({ mcpServers: { mysenam: { url, headers: { Authorization: "Bearer ${env:MYSENAM_API_KEY}" } } } }, null, 2), // staff-i18n-ignore
+    },
+    {
+      label: t("int.mcpDesktop"),
+      code: JSON.stringify(
+        // staff-i18n-ignore
+        { mcpServers: { mysenam: { command: "npx", args: ["-y", "mcp-remote", url, "--header", "Authorization:${MYSENAM_AUTH}"], env: { MYSENAM_AUTH: "Bearer <key>" } } } }, // staff-i18n-ignore
+        null,
+        2
+      ),
+    },
+  ];
+  return (
+    <>
+      <h3 className="mt-4 font-semibold">{t("int.mcp")}</h3>
+      <p className="mt-1 text-sm text-slate-600">{withParts(t("int.mcpIntro"), { url: <code className="rounded bg-slate-100 px-1">{url}</code> })}</p>
+      <p className="mt-1 text-sm text-slate-600">{t("int.mcpKey")}</p>
+      {examples.map((e) => (
+        <div key={e.label} className="mt-2">
+          <p className="m-0 text-xs font-medium text-slate-700">{e.label}</p>
+          <pre className="mt-1 overflow-x-auto rounded bg-slate-100 p-2 text-xs">{e.code}</pre>
+        </div>
+      ))}
+      <p className="mt-1 text-xs text-slate-500">{t("int.mcpUntested")}</p>
+    </>
   );
 }

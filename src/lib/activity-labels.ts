@@ -111,6 +111,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "review.shown": "Showed a review again",
   "campaign.sent": "Emailed news to customers who asked for it",
   "integration.changed": "Changed API keys or webhooks",
+  "integration.ai_personal_data": "Turned customers' personal data for AI assistants on or off",
+  "mcp.tool": "An AI assistant used a tool with the venue's API key (MCP)",
   "promo.created": "Made a promo code",
   "promo.voided": "Voided a promo code",
   "staff.added": "Added staff",

@@ -39,6 +39,26 @@ function ownHosts(req: RequestFacts): Set<string> {
   return hosts;
 }
 
+/**
+ * A request a browser sent from another site, cookies or not: an `Origin`
+ * (or `Sec-Fetch-Site: cross-site`) whose host is not one of `allowed`. For
+ * an endpoint no cookie authorises (the MCP server, app/api/mcp), against DNS
+ * rebinding as the MCP specification asks: `allowed` is the configured site
+ * and a storefront's own name, never just the `Host` the request carries,
+ * which a rebound name would set to itself. A client that is not a browser
+ * sends no `Origin` and is not affected.
+ */
+export function foreignOrigin(req: Pick<RequestFacts, "header">, allowed: readonly string[]): boolean {
+  if (req.header("sec-fetch-site") === "cross-site") return true;
+  const origin = req.header("origin");
+  if (!origin) return false;
+  try {
+    return !allowed.map((h) => h.toLowerCase()).includes(new URL(origin).host.toLowerCase());
+  } catch {
+    return true;
+  }
+}
+
 /** Why the request is refused, or null when it may go on. */
 export function crossSiteRefusal(req: RequestFacts): string | null {
   if (SAFE_METHODS.has(req.method.toUpperCase())) return null;

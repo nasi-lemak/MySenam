@@ -35,6 +35,12 @@ cookies (gateway callbacks, WhatsApp's webhook) and the key-authorised public
 API under `/api/v1/` are not checked. A proxy that rewrites `Host` must pass
 the original in `X-Forwarded-Host`, or `MYSENAM_URL` must name the site.
 
+The [MCP server](../integrations/mcp.md#who-is-calling) (`/api/mcp`) is
+authorised by a venue's API key alone, never by a cookie, and refuses any
+request whose `Origin` is not the site's (`MYSENAM_URL`'s host, or a
+storefront's own name; not the request's `Host`, which a rebound name sets to
+itself), cookie or not.
+
 ## Where sign-in sends you next
 
 A page that goes on somewhere it was handed (`?next=` on sign-in, Google
@@ -211,6 +217,7 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 | Checking or using a sign-up link | Same budget as signing in |
 | Booking lookup / cancel by code | 20 per 10 min |
 | Booking creation | 20 per hour |
+| The MCP server without a key | 60 per minute ([MCP server](../integrations/mcp.md)); with a key, the public API's 120 per minute per key |
 
 Counters live in process memory by default, which is right for one instance.
 Behind several, set `MYSENAM_RATE_LIMITS=shared` and they live in Postgres
