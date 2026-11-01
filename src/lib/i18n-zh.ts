@@ -3439,7 +3439,7 @@ export const ZH: Record<Phrase, string> = {
   "gcap.day-list.blurb": "员工查看当天预订的名单，包含顾客、场地、时间和付款状态；员工可从这里为现场顾客开始预订。",
   // fit: end
   // mcp
-  "mcp.title": "通过您的 AI 助手使用 MySenam",
+  "mcp.title": "通过您的 AI 助手使用 {site}",
   "mcp.body": "支持 Model Context Protocol 的 AI 助手（Claude、ChatGPT、Cursor 等）可以通过 {url} 阅读本指南、搜索空闲场地并查看场馆的公开页面。这些公开工具无需密钥，只能看到本网站向任何人显示的内容。",
   "mcp.venue": "场馆经理也可以用场馆的 API 密钥（在“场馆与员工”的“API 与 Webhook”中创建）连接自己的助手，查看该场馆的空档、预订和设置，并在确认后预订或取消。除非场馆开启，否则顾客的姓名、电话号码和电邮始终隐藏。请把密钥保存在环境变量中，切勿粘贴到聊天里。",
   "mcp.example": "例如，在 Claude Code 中：",

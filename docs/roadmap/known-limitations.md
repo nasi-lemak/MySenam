@@ -714,6 +714,27 @@ The public guide, the setup journey, the playbook and the contextual help
   cancellation cutoff to show a policy; a venue's own default is 2 hours
   ([booking](../features/booking.md)).
 
+### AI assistants (MCP)
+
+The [MCP server](../integrations/mcp.md) answers through the same functions as
+the pages and the venue API. Its limits:
+
+- **Not yet tried from a real AI client** (Claude, ChatGPT, Cursor) against a
+  public address; the connection examples follow each client's documentation.
+- **claude.ai and ChatGPT connectors sign in with OAuth** and cannot send a
+  venue's key, so through them only the public tools work until
+  [layer 3](roadmap.md) is built.
+- **A booking preview** cannot say whether the time is still free or allowed
+  by the court's rules at that moment; only the confirmed call can.
+- **Waiting lists and taking one person off a booking** are in the venue API
+  but not offered as tools.
+- **Every call through a key is logged,** reads included, so an assistant
+  that reads availability often fills the staff log.
+- **Customers' details sent to an AI provider** may be processed outside the
+  country. They are off by default; a manager who turns them on records the
+  venue's choice, which the app does not judge lawful
+  ([privacy](../architecture/privacy.md#ai-assistants)).
+
 ### Money (M)
 
 None open.
