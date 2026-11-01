@@ -933,6 +933,7 @@ async function phoneCheckingServer(dir: string): Promise<{ base: string; output:
   const net = await import("net");
   const path = await import("path");
   const { OWNER } = await import("../e2e/server");
+  const { withoutProviderEnv } = await import("../hermetic-env");
   const port = await new Promise<number>((resolve, reject) => {
     const probe = net.createServer();
     probe.listen(0, () => {
@@ -946,7 +947,8 @@ async function phoneCheckingServer(dir: string): Promise<{ base: string; output:
   const child = spawn(path.join(root, "node_modules", ".bin", "next"), ["start", "-p", String(port), "-H", "127.0.0.1"], {
     cwd: root,
     env: {
-      ...process.env,
+      // As the main acceptance server (tests/e2e/server.ts): no provider credentials, so it behaves as an install without them (S33).
+      ...withoutProviderEnv(process.env),
       NODE_ENV: "production",
       MYSENAM_DB: ":memory:",
       DATABASE_URL: "",

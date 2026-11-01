@@ -14,6 +14,8 @@ export default defineConfig({
   test: {
     include: ["tests/uat/**/*.uat.ts"],
     environment: "node",
+    // No provider credentials in the scenarios' own process either, nor in any server one of them starts (S33).
+    setupFiles: ["./tests/setup-env.ts"],
     globalSetup: ["./tests/uat/setup.ts", "./tests/uat/scanner.ts", "./tests/uat/gateway.ts", "./tests/e2e/server.ts"],
     fileParallelism: false,
     testTimeout: 180_000,
