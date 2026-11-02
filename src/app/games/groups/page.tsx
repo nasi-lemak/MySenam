@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
 import { useOfferedSports } from "@/components/OfferedSports";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel } from "@/lib/i18n";
 import type { Group } from "@/lib/groups";
 import type { Sport } from "@/lib/types";
@@ -59,7 +59,7 @@ export default function GroupsPage() {
           {groups.map((g) => (
             <li key={g.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
               <Link href={`/games/groups/${g.id}`} className="font-medium underline">
-                {activityIcon(g.sport)} {g.name}
+                <ActivityGlyph sport={g.sport} /> {g.name}
               </Link>
               <span className="text-slate-500">
                 {sportLabel(t, g.sport)}

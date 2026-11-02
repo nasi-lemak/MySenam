@@ -119,6 +119,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Every environment variable | [Configuration](development/configuration.md) |
 | Tests, what they prove, the verification runner, staging, real-service checks, acceptance scenarios, CI, documentation checks | [Testing](development/testing.md) |
 | Where documentation belongs, statuses in plain words, the feature-document outline, names, keeping history | [Documentation](development/documentation.md) |
+| MySenam's pictures: the glyph standard (24-unit grid, line drawings in the text's colour), tiles and their tone tokens, accessibility, where pictures are used and not, replacing a glyph, their cost | [Images](development/images.md) |
 | Production, proxies, upgrading, staging before a release, the launch checklist | [Deployment](operations/deployment.md); kit in [`deploy/digitalocean`](../deploy/digitalocean/README.md) |
 | Backups, off-site copies, restoring (disaster recovery) | [Backups](operations/backups.md) |
 | Alerts, errors, health checks | [Monitoring](operations/monitoring.md) |

@@ -1,4 +1,5 @@
-import { activityIcon, isKnownActivity } from "@/lib/activity-registry";
+import { isKnownActivity } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { serverT } from "@/lib/locale";
@@ -38,7 +39,7 @@ export default async function LeaguesPage({ searchParams }: { searchParams: Prom
           </Link>
           {offered.map((s) => (
             <Link key={s} href={`/leagues?sport=${s}`} className={chip(sport === s)}>
-              {activityIcon(s)} {sportLabel(t, s)}
+              <ActivityGlyph sport={s} /> {sportLabel(t, s)}
             </Link>
           ))}
         </nav>
@@ -54,7 +55,7 @@ export default async function LeaguesPage({ searchParams }: { searchParams: Prom
               className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-teal-500 hover:shadow-md"
             >
               <div className="text-lg font-semibold">
-                {activityIcon(x.sport)} {x.name}
+                <ActivityGlyph sport={x.sport} /> {x.name}
               </div>
               <div className="mt-1 text-sm text-slate-600">
                 {x.venueName} · 📍 {x.area}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GlyphTile } from "@/components/Glyph";
 import type { Metadata } from "next";
 import { findGames } from "@/lib/games";
 import { publicLeagues } from "@/lib/leagues";
@@ -27,9 +28,9 @@ export default async function PlayPage() {
   ]);
   const upcoming = tournaments.filter((x) => x.status === "open" || x.status === "closed" || x.status === "drawn");
   const cards = [
-    { href: "/games", icon: "🤝", title: t("nav.games"), body: t("games.intro"), count: t("play.games", { n: games.length }) },
-    { href: "/tournaments", icon: "🏆", title: t("nav.tournaments"), body: t("tour.intro"), count: t("play.tournaments", { n: upcoming.length }) },
-    { href: "/leagues", icon: "📊", title: t("nav.leagues"), body: t("leag.intro"), count: t("play.leagues", { n: leagues.length }) },
+    { href: "/games", glyph: "feature/games", title: t("nav.games"), body: t("games.intro"), count: t("play.games", { n: games.length }) },
+    { href: "/tournaments", glyph: "feature/tournaments", title: t("nav.tournaments"), body: t("tour.intro"), count: t("play.tournaments", { n: upcoming.length }) },
+    { href: "/leagues", glyph: "feature/leagues", title: t("nav.leagues"), body: t("leag.intro"), count: t("play.leagues", { n: leagues.length }) },
   ];
   return (
     <div className="space-y-6">
@@ -44,9 +45,7 @@ export default async function PlayPage() {
             href={c.href}
             className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-teal-500 hover:shadow-md"
           >
-            <div className="text-3xl" aria-hidden>
-              {c.icon}
-            </div>
+            <GlyphTile name={c.glyph} tone="racket" size={44} />
             <div className="mt-2 text-lg font-semibold">{c.title}</div>
             <p className="mt-1 flex-1 text-sm text-slate-600">{c.body}</p>
             <div className="mt-3 text-sm font-semibold text-teal-700">{c.count} →</div>

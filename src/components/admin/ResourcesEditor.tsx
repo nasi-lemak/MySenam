@@ -1,9 +1,11 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ACTIVITY_CATEGORIES, RESOURCE_MODELS, RESOURCE_NOUNS } from "@/lib/activity-catalogue";
-import { activityIcon, type Activity } from "@/lib/activity-registry";
+import { Fragment, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { ACTIVITY_CATEGORIES, BUILTIN_ACTIVITIES, RESOURCE_MODELS, RESOURCE_NOUNS } from "@/lib/activity-catalogue";
+import { type Activity } from "@/lib/activity-registry";
+import { ActivityGlyph, GlyphTile } from "@/components/Glyph";
+import { GENERIC_GLYPHS, isGlyphName } from "@/lib/icons/glyphs";
 import { courtSports, mostPerBookingAllowed } from "@/lib/court-activities";
 import { sportLabel } from "@/lib/i18n";
 import { region } from "@/lib/region";
@@ -83,7 +85,7 @@ function ActivityPicker({
             <optgroup key={cat} label={t(`res.cat.${cat}`)}>
               {here.map((a) => (
                 <option key={a.key} value={a.key}>
-                  {a.icon} {nameOf(t, a)}
+                  {nameOf(t, a)}
                   {a.businessId !== null || a.venueId !== null ? ` (${t("res.yours")})` : ""}
                 </option>
               ))}
@@ -220,7 +222,10 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
       </form>
       {chosen && (
         <p className="text-xs text-slate-500">
-          <span className="font-semibold">{chosen.icon} {nameOf(t, chosen)}</span>: {t(`res.model.${chosen.template.model}`)}.{" "}
+          <span className="font-semibold">
+            <ActivityGlyph sport={chosen.key} icon={chosen.icon} /> {nameOf(t, chosen)}
+          </span>
+          : {t(`res.model.${chosen.template.model}`)}.{" "}
           <span className={chosen.support === "full" ? "text-emerald-700" : chosen.support === "basic" ? "text-amber-700" : "text-red-700"}>
             {t(`res.support.${chosen.support}`)}
           </span>
@@ -228,6 +233,17 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
           {chosen.template.signOff ? ` ${t("res.needsSignOff")}` : ""}
           {chosen.policy.defaultLength && chosen.policy.defaultLength !== 60 ? ` ${t("res.usualLength", { n: chosen.policy.defaultLength })}` : ""}
         </p>
+      )}
+      {chosen && (chosen.businessId !== null || chosen.venueId !== null) && (
+        <OwnPicture
+          key={chosen.key}
+          venueId={venueId}
+          activity={chosen}
+          onSaved={() => {
+            reload();
+            onAdded(t("gly.saved", { name: nameOf(t, chosen) }));
+          }}
+        />
       )}
       <button type="button" onClick={() => setOwnOpen(!ownOpen)} className="text-xs font-semibold text-teal-700 hover:underline">
         {ownOpen ? t("c.close") : t("res.ownToggle")}
@@ -287,10 +303,6 @@ function OwnActivityForm({ venueId, onAdded }: { venueId: number; onAdded: (key:
             <input required={l === "en"} maxLength={40} value={form[l]} onChange={(e) => setForm({ ...form, [l]: e.target.value })} className={`mt-1 w-36 ${input}`} />
           </label>
         ))}
-        <label className="flex flex-col text-xs font-medium text-slate-500">
-          {t("res.icon")}
-          <input maxLength={4} value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="🏑" className={`mt-1 w-14 ${input}`} />
-        </label>
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col text-xs font-medium text-slate-500">
@@ -327,11 +339,97 @@ function OwnActivityForm({ venueId, onAdded }: { venueId: number; onAdded: (key:
           {t("res.aliases")}
           <input value={form.aliases} onChange={(e) => setForm({ ...form, aliases: e.target.value })} className={`mt-1 w-48 ${input}`} />
         </label>
-        <button type="submit" className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
-          {t("res.addActivity")}
+      </div>
+      <GlyphPicker value={form.icon} category={form.category} onChange={(icon) => setForm({ ...form, icon })} />
+      <button type="submit" className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
+        {t("res.addActivity")}
+      </button>
+    </form>
+  );
+}
+
+/** The picture of one of the venue's own activities, changed (a legacy emoji stays until somebody chooses a glyph). */
+function OwnPicture({ venueId, activity, onSaved }: { venueId: number; activity: Activity; onSaved: () => void }) {
+  const t = useStaffT();
+  const [open, setOpen] = useState(false);
+  const [icon, setIcon] = useState(activity.icon);
+  const [error, setError] = useState<string | null>(null);
+  async function save() {
+    setError(null);
+    try {
+      await json(
+        await fetch("/api/admin/activities", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: activity.key, venueId, icon }),
+        }),
+        t
+      );
+      setOpen(false);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("c.failed"));
+    }
+  }
+  if (!open)
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="block min-h-6 text-xs font-semibold text-teal-700 hover:underline">
+        {t("gly.change", { name: nameOf(t, activity) })}
+      </button>
+    );
+  return (
+    <div className="space-y-2 rounded-lg bg-slate-50 p-3">
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      <GlyphPicker value={icon} category={activity.category} legacy={isGlyphName(activity.icon) ? undefined : activity.icon} onChange={setIcon} />
+      <div className="flex gap-2">
+        <button type="button" onClick={() => void save()} className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
+          {t("c.save")}
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">
+          {t("c.close")}
         </button>
       </div>
-    </form>
+    </div>
+  );
+}
+
+const PICK = "flex w-20 cursor-pointer flex-col items-center gap-1 rounded-lg border border-slate-200 bg-white p-1.5 text-center text-[11px] leading-tight text-slate-700 has-[:checked]:border-teal-600 has-[:checked]:bg-teal-50 has-[:checked]:font-semibold has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-teal-500";
+
+/**
+ * Choosing an activity's picture (docs/development/images.md): the category's
+ * own, a generic one, or a built-in activity's, each a radio button under its
+ * name, so the arrow keys move through them and a screen reader reads the
+ * names. A picture from before glyphs (an emoji) is offered as it is, to keep.
+ */
+export function GlyphPicker({ value, category, legacy, onChange }: { value: string; category: string; legacy?: string; onChange: (icon: string) => void }) {
+  const t = useStaffT();
+  const name = useId();
+  const chosen = value === "" ? `category/${category}` : value;
+  const option = (icon: string, label: string, tile: ReactNode) => (
+    <label key={icon} className={PICK}>
+      <input type="radio" name={name} value={icon} checked={chosen === icon} onChange={() => onChange(icon)} className="sr-only" />
+      {tile}
+      <span>{label}</span>
+    </label>
+  );
+  return (
+    <fieldset className="min-w-0 space-y-2">
+      <legend className="text-xs font-medium text-slate-500">{t("gly.picture")}</legend>
+      <p className="text-xs text-slate-500">{t("gly.pictureHelp")}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {legacy !== undefined && option(legacy, t("gly.keep"), <GlyphTile name={legacy} tone={category} size={32} />)}
+        {option(`category/${category}`, t("gly.categoryDefault"), <GlyphTile name={`category/${category}`} tone={category} size={32} />)}
+        {GENERIC_GLYPHS.map((g) => option(g, t(`gly.${g.replace("/", ".")}` as never), <GlyphTile name={g} tone={category} size={32} />))}
+      </div>
+      <details>
+        <summary className="min-h-6 cursor-pointer text-xs font-semibold text-teal-700">{t("gly.activities")}</summary>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {BUILTIN_ACTIVITIES.map((a) =>
+            option(a.icon, sportLabel(t.customer, a.key), <GlyphTile name={a.icon} tone={category} size={32} />)
+          )}
+        </div>
+      </details>
+    </fieldset>
   );
 }
 
@@ -404,12 +502,12 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
       </div>
       <ul className="space-y-1 text-sm">
         <li className="text-slate-500">
-          {activityIcon(court.sport)} {t("res.mainActivity", { sport: sportLabel(t.customer, court.sport) })}
+          <ActivityGlyph sport={court.sport} /> {t("res.mainActivity", { sport: sportLabel(t.customer, court.sport) })}
         </li>
         {rows.map((r, i) => (
           <li key={r.sport} className="flex flex-wrap items-center gap-2">
             <span>
-              {activityIcon(r.sport)} {sportLabel(t.customer, r.sport)}
+              <ActivityGlyph sport={r.sport} /> {sportLabel(t.customer, r.sport)}
             </span>
             <input
               type="number"
@@ -442,7 +540,7 @@ export function CourtActivitiesEditor({ venueId, courts, onSaved }: { venueId: n
             .filter((a) => !offered.includes(a.key) && !rows.some((r) => r.sport === a.key))
             .map((a) => (
               <option key={a.key} value={a.key}>
-                {a.icon} {nameOf(t, a)}
+                {nameOf(t, a)}
               </option>
             ))}
         </select>
@@ -579,7 +677,7 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
           <option value="">{t("res.anythingHere")}</option>
           {sports.map((s) => (
             <option key={s} value={s}>
-              {activityIcon(s)} {sportLabel(t.customer, s)}
+              {sportLabel(t.customer, s)}
             </option>
           ))}
         </select>
@@ -619,7 +717,13 @@ export function SignOffsPanel({ venueId, courts }: { venueId: number; courts: Co
               <span>
                 {r.kind === "certification" ? `📜 ${r.reference} · ` : ""}
                 {r.name}
-                {r.managedPersonId ? ` (${t("ptc.ind.participant")})` : ""} · {r.phone} · {r.sport ? `${activityIcon(r.sport)} ${sportLabel(t.customer, r.sport)}` : t("res.anything")}
+                {r.managedPersonId ? ` (${t("ptc.ind.participant")})` : ""} · {r.phone} · {r.sport ? (
+                  <>
+                    <ActivityGlyph sport={r.sport} /> {sportLabel(t.customer, r.sport)}
+                  </>
+                ) : (
+                  t("res.anything")
+                )}
                 {r.businessId ? ` · ${t("res.everyBranchRow")}` : ""}
                 {r.expiresOn ? ` · ${t("res.untilDate", { date: r.expiresOn })}` : ""}
                 {` · ${r.userId ? t("res.accountLinked") : t("res.noAccount")}`}

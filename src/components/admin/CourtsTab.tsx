@@ -2,7 +2,8 @@
 
 import { readJson } from "@/lib/read-response";
 import { mostPerBookingAllowed, placesPerBooking, sportsOf } from "@/lib/court-activities";
-import { activity, activityIcon } from "@/lib/activity-registry";
+import { activity } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { PeakHoursEditor } from "./PeakHoursEditor";
 import { AddResourcesForm, CourtActivitiesEditor, SignOffsPanel, withMarks } from "./ResourcesEditor";
 import { BookingPolicyEditor } from "./BookingPolicyEditor";
@@ -636,7 +637,7 @@ function CourtRow({
         />
       </td>
       <td className="px-3 py-2">
-        {activityIcon(court.sport)} {sportLabel(t.customer, court.sport)}
+        <ActivityGlyph sport={court.sport} /> {sportLabel(t.customer, court.sport)}
       </td>
       <td className="px-3 py-2">
         <input disabled={!editable} aria-label={t("q8b.l.of", { field: t("ct.col.offPeak"), thing: court.name })}
@@ -748,7 +749,7 @@ function CourtFeaturesRow({ court: saved, onFeatures: save }: { court: Court; on
   return (
     <tr className="border-b border-slate-100 last:border-0">
       <td className="w-48 px-3 py-2 font-medium">
-        {activityIcon(court.sport)} {court.name}
+        <ActivityGlyph sport={court.sport} /> {court.name}
       </td>
       <td className="px-3 py-2">
         {/* For players comparing venues; saved as soon as it changes. */}

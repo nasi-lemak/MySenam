@@ -793,4 +793,5 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "You can see the guide only for your own role or one below it.": { ms: "Anda hanya boleh melihat panduan untuk peranan anda sendiri atau yang lebih rendah.", zh: "您只能查看自己角色或更低角色的指南。" },
   "Answers must be an object.": { ms: "Jawapan mestilah objek.", zh: "回答必须是一个对象。" },
   "That is not a guide role.": { ms: "Itu bukan peranan panduan.", zh: "那不是指南角色。" },
+  "Choose a picture from the list.": { ms: "Pilih gambar daripada senarai.", zh: "请从列表中选择图片。" },
 };

@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { useCallback, useEffect, useState } from "react";
 import { Busyness, LiveOccupancy as Live } from "@/lib/types";
 import { useT } from "@/components/Language";
@@ -73,7 +73,7 @@ export default function LiveOccupancy({ venueId }: { venueId: number }) {
           <li key={o.courtId}>
             <div className="flex items-baseline justify-between text-sm">
               <span className="font-medium">
-                {activityIcon(o.sport)} {o.courtName}
+                <ActivityGlyph sport={o.sport} /> {o.courtName}
               </span>
               <span className={`font-semibold ${TEXT_STYLES[o.level]}`}>
                 {t(`busy.${o.level}` as Phrase)}

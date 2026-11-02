@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -217,7 +217,7 @@ export default function AccountPage() {
               <li key={b.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                 <div className="min-w-0 text-sm">
                   <p className="truncate font-semibold">
-                    {activityIcon(b.sport)} {b.venueName}
+                    <ActivityGlyph sport={b.sport} /> {b.venueName}
                   </p>
                   <p className="truncate text-slate-600">
                     {b.courtName} · {formatHour(b.startHour, t.locale)}–{formatHour(b.endHour, t.locale)}
@@ -348,7 +348,7 @@ export default function AccountPage() {
                   <tr key={b.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-3 py-2 font-mono text-teal-700">{b.code}</td>
                     <td className="px-3 py-2">
-                      {activityIcon(b.sport)} {b.courtName}
+                      <ActivityGlyph sport={b.sport} /> {b.courtName}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">{shortDate(b.date, t.locale, true)}</td>
                     <td className="whitespace-nowrap px-3 py-2">
@@ -600,7 +600,7 @@ function BookingCard({
       </div>
       <div className="mt-3 space-y-1 text-sm">
         <div className="font-semibold">
-          {activityIcon(b.sport)} {b.courtName}
+          <ActivityGlyph sport={b.sport} /> {b.courtName}
         </div>
         {/* Who takes part, where that is somebody the account books for (a child; ADR 0023). */}
         {b.participantName && <div className="font-medium text-slate-700">{t("guard.forLine", { name: b.participantName })}</div>}

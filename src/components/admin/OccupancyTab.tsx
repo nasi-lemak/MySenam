@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { useCallback, useEffect, useState } from "react";
 
 import type { Court, Venue } from "@/lib/types";
@@ -89,7 +89,7 @@ export function OccupancyTab({
               {report.courts.map((court) => (
                 <tr key={court.id} className="border-b border-slate-100 last:border-0">
                   <td className="whitespace-nowrap px-3 py-2 font-medium">
-                    {activityIcon(court.sport)} {court.name}
+                    <ActivityGlyph sport={court.sport} /> {court.name}
                   </td>
                   {report.days.map((d) => {
                     const cell = d.perCourt.find((c) => c.courtId === court.id);

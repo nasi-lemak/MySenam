@@ -2,7 +2,7 @@
 
 import { readJson } from "@/lib/read-response";
 import { ManagerOnly, useStaffMay } from "./StaffMay";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { ClockField } from "@/components/ClockField";
 import { useCallback, useEffect, useState } from "react";
 import { CoachesPanel } from "./CoachesPanel";
@@ -209,7 +209,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                   </td>
                   <td className="px-3 py-2">{session.instructor}</td>
                   <td className="px-3 py-2">
-                    {activityIcon(session.sport)} {session.courtName}
+                    <ActivityGlyph sport={session.sport} /> {session.courtName}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">
                     {session.date} · {formatHour(session.startHour, t.locale)}–{formatHour(session.endHour, t.locale)}

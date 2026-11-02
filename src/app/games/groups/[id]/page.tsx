@@ -4,7 +4,7 @@ import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel, translateError } from "@/lib/i18n";
 import type { Group } from "@/lib/groups";
 
@@ -53,7 +53,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       </Link>
       <div>
         <h1 className="text-2xl font-bold">
-          {activityIcon(group.sport)} {group.name}
+          <ActivityGlyph sport={group.sport} /> {group.name}
         </h1>
         <p className="text-sm text-slate-600">
           {sportLabel(t, group.sport)}

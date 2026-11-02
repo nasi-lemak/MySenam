@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { useEffect, useState } from "react";
 import { Pass } from "@/lib/types";
 import { useT } from "@/components/Language";
@@ -58,9 +58,13 @@ export default function MyPasses() {
                   <div className="font-semibold">{pass.name}</div>
                   <div className="text-xs text-slate-500">
                     {pass.venueName} ·{" "}
-                    {pass.sport
-                      ? `${activityIcon(pass.sport)} ${sportLabel(t, pass.sport)}`
-                      : t("passes.anySport")}
+                    {pass.sport ? (
+                      <>
+                        <ActivityGlyph sport={pass.sport} /> {sportLabel(t, pass.sport)}
+                      </>
+                    ) : (
+                      t("passes.anySport")
+                    )}
                   </div>
                 </div>
                 <span className="whitespace-nowrap font-mono text-xs font-semibold text-slate-500">

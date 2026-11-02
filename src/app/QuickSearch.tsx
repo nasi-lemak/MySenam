@@ -1,6 +1,6 @@
 "use client";
 
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useT } from "@/components/Language";
@@ -75,7 +75,7 @@ export function QuickSearch({ sports }: { sports: Sport[] }) {
       <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.sport")}>
         {sports.slice(0, SHOWN).map((s) => (
           <button key={s} type="button" aria-pressed={sport === s} onClick={() => setSport(s)} className={chip(sport === s)}>
-            {activityIcon(s)} {sportLabel(t, s)}
+            <ActivityGlyph sport={s} /> {sportLabel(t, s)}
           </button>
         ))}
         {sports.length > SHOWN && (
@@ -88,7 +88,7 @@ export function QuickSearch({ sports }: { sports: Sport[] }) {
             <option value="">{t("quick.moreActivities")}</option>
             {sports.slice(SHOWN).map((s) => (
               <option key={s} value={s}>
-                {activityIcon(s)} {sportLabel(t, s)}
+                {sportLabel(t, s)}
               </option>
             ))}
           </select>

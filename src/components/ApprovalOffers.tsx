@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requirementsAt } from "@/lib/approvals";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel, type T } from "@/lib/i18n";
 
 /**
@@ -22,7 +22,7 @@ export default async function ApprovalOffers({ t, venueId }: { t: T; venueId: nu
               href={`/account/approvals?venueId=${venueId}&sport=${encodeURIComponent(r.sport)}`}
               className="inline-block rounded-full border border-violet-300 bg-white px-3 py-1 font-medium text-violet-800 hover:bg-violet-100"
             >
-              {activityIcon(r.sport)} {t("apr.offersApply", { activity: sportLabel(t, r.sport) })}
+              <ActivityGlyph sport={r.sport} /> {t("apr.offersApply", { activity: sportLabel(t, r.sport) })}
             </Link>
           </li>
         ))}

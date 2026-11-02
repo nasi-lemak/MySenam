@@ -2,7 +2,7 @@
 
 import { readJson } from "@/lib/read-response";
 import { useStaffMay } from "./StaffMay";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { AttentionPanel } from "./AttentionPanel";
 import { EnquiriesPanel } from "./EnquiriesPanel";
 import { ChangeTime } from "@/components/ChangeTime";
@@ -1316,7 +1316,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                     <span className="font-mono font-semibold text-teal-700">{b.code}</span>
                     <SeriesChip b={b} act={act} />
                     <div className="mt-0.5 text-sm font-medium">
-                      {activityIcon(b.sport)} {b.courtName}
+                      <ActivityGlyph sport={b.sport} /> {b.courtName}
                     </div>
                     <div className="text-sm text-slate-500">
                       {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
@@ -1381,7 +1381,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                     </td>
                     {showVenue && <td className="px-3 py-2">{b.venueName}</td>}
                     <td className="px-3 py-2">
-                      {activityIcon(b.sport)} {b.courtName}
+                      <ActivityGlyph sport={b.sport} /> {b.courtName}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}

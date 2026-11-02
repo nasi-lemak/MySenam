@@ -3,7 +3,7 @@
 import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { ApprovalRequest, Decision } from "@/lib/approvals";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { formatMinute } from "@/lib/interval";
 import { intlTag, region } from "@/lib/region";
 import { DocumentLink } from "@/components/ApprovalDocumentLink";
@@ -323,7 +323,7 @@ export function ApprovalReview({
             <li key={r.id} className="space-y-1 py-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium">
-                  {activityIcon(r.sport)} {activityLabel(r.sport)} · {r.name} · {r.phone}
+                  <ActivityGlyph sport={r.sport} /> {activityLabel(r.sport)} · {r.name} · {r.phone}
                 </span>
                 <StatusBadge say={say} request={r} />
               </div>

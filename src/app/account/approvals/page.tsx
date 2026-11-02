@@ -4,7 +4,7 @@ import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApprovalRequest } from "@/lib/approvals";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel, type Phrase, type T } from "@/lib/i18n";
 import { useT } from "@/components/Language";
 import { ApprovalForm, SlotFields, explainApproval, slotBody, type ApplyInfo } from "@/components/ApprovalForm";
@@ -166,7 +166,7 @@ function RequestCard({
     <li className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-semibold">
-          {activityIcon(r.sport)} {t("apr.cardTitle", { activity: sportLabel(t, r.sport), venue: r.venueName })}
+          <ActivityGlyph sport={r.sport} /> {t("apr.cardTitle", { activity: sportLabel(t, r.sport), venue: r.venueName })}
         </span>
         <StatusBadge say={say} request={r} />
       </div>

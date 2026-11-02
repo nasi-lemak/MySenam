@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { accountDetour } from "@/lib/phone-detour";
 import BookingTermsNotice from "@/components/BookingTermsNotice";
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -475,7 +475,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                 : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
             }`}
           >
-            {activityIcon(s)} {sportLabel(t, s)}
+            <ActivityGlyph sport={s} /> {sportLabel(t, s)}
           </button>
         ))}
       </div>

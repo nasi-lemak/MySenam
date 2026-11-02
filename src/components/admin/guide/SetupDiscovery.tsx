@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BUILTIN_ACTIVITIES } from "@/lib/activity-catalogue";
 import { BUSINESS_TYPES, type BusinessTypeId } from "@/lib/guide/business-types";
+import { BUSINESS_TONES } from "@/lib/icons/glyphs";
+import { ActivityTile, GlyphTile } from "@/components/Glyph";
 import type { AnswerKey, AnswerPatch, GuideAnswers } from "@/lib/guide/answer-schema";
 import type { SetupView } from "@/lib/guide/http";
 import { questionFlow, type Question } from "@/lib/guide/setup-questions";
@@ -176,16 +178,17 @@ function QuestionInput({ q, draft, setDraft, answers }: { q: Question; draft: Dr
   if (q.kind === "types") {
     const chosen = (draft as string[]) ?? [];
     return (
-      <fieldset className="space-y-2">
+      <fieldset className="grid gap-2 sm:grid-cols-2">
         <legend className="sr-only">{t(q.title)}</legend>
         {BUSINESS_TYPES.map((b) => (
-          <label key={b.id} className={choiceClass}>
+          <label key={b.id} className={`${choiceClass} items-center`}>
             <input
               type="checkbox"
               checked={chosen.includes(b.id)}
               onChange={(e) => setDraft(e.target.checked ? [...chosen, b.id] : chosen.filter((x) => x !== b.id))}
-              className="mt-0.5 h-5 w-5 accent-teal-600"
+              className="h-5 w-5 shrink-0 accent-teal-600"
             />
+            <GlyphTile name={`business/${b.id}`} tone={BUSINESS_TONES[b.id]} size={36} />
             <span>{t.customer(b.titleKey as never)}</span>
           </label>
         ))}
@@ -255,10 +258,9 @@ function ActivityPicker({ chosen, setChosen, types }: { chosen: string[]; setCho
               onChange={(e) => setChosen(e.target.checked ? [...chosen, a.key] : chosen.filter((x) => x !== a.key))}
               className="mt-0.5 h-5 w-5 accent-teal-600"
             />
+            <ActivityTile sport={a.key} size={32} />
             <span>
-              <span className="font-medium">
-                {a.icon} {activityName(t, a.key)}
-              </span>{" "}
+              <span className="font-medium">{activityName(t, a.key)}</span>{" "}
               <span className="text-xs text-slate-500">{t(`res.support.${a.support}`)}</span>
               {note && (
                 <span className="mt-0.5 block text-xs text-slate-600">
