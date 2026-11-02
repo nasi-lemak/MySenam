@@ -5,6 +5,7 @@ import { MAX_COURT_HOURS, type CourtHoursChange, type Sport } from "./types";
 import { changeOn, parseWeekHours } from "./week-hours";
 import { clockValue, lengthText, said, type StaffText, type StaffValue } from "./staff-text";
 import {
+  MAX_GAMES,
   SETTING_KEYS,
   TURNOVERS,
   resolvePolicy,
@@ -81,6 +82,12 @@ interface Row {
   sign_off: boolean | null;
   needs_certification: boolean | null;
   separate_places?: boolean | null;
+  game_minutes?: number | null;
+  game_minutes_each?: number | null;
+  max_games?: number | null;
+  lane_on_arrival?: boolean | null;
+  game_price?: number | string | null;
+  game_peak_price?: number | string | null;
 }
 
 const numbers = (raw: string | null): number[] | null => {
@@ -130,6 +137,12 @@ function toSettings(r: Row): PolicySettings {
     signOff: r.sign_off,
     certification: r.needs_certification,
     separatePlaces: r.separate_places ?? null,
+    gameMinutes: r.game_minutes ?? null,
+    gameMinutesEach: r.game_minutes_each ?? null,
+    maxGames: r.max_games ?? null,
+    laneOnArrival: r.lane_on_arrival ?? null,
+    gamePrice: money(r.game_price ?? null),
+    gamePeakPrice: money(r.game_peak_price ?? null),
   };
 }
 
@@ -319,6 +332,22 @@ export function validateSettings(input: Record<string, unknown>): { ok: true; se
         if (typeof v !== "boolean") return { ok: false, error: "One person can be taken off a booking here, or not." };
         set(key, v);
         break;
+      case "gameMinutes":
+      case "gameMinutesEach":
+        // 0 minutes for one game: sold by time here, over a level beneath that sells by the game.
+        if (!isWhole(v, 0, 240)) return { ok: false, error: "A game's estimated time is 0 to 240 minutes." };
+        set(key, v as number);
+        break;
+      case "maxGames":
+        if (!isWhole(v, 1, MAX_GAMES)) return { ok: false, error: `The most games in one booking is 1 to ${MAX_GAMES}.` };
+        set(key, v as number);
+        break;
+      case "laneOnArrival":
+        if (typeof v !== "boolean") return { ok: false, error: "The lane is given on arrival, or chosen when booking." };
+        set(key, v);
+        break;
+      case "gamePrice":
+      case "gamePeakPrice":
       case "minCharge":
       case "setupFee":
       case "cleanupFee":
@@ -379,11 +408,18 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     settings.signOff ?? null,
     settings.certification ?? null,
     settings.separatePlaces ?? null,
+    settings.gameMinutes ?? null,
+    settings.gameMinutesEach ?? null,
+    settings.maxGames ?? null,
+    settings.laneOnArrival ?? null,
+    settings.gamePrice ?? null,
+    settings.gamePeakPrice ?? null,
   ];
   const cols = `start_every = ?, start_offset = ?, start_times = ?, length_step = ?, min_length = ?, max_length = ?, lengths = ?,
     default_length = ?, buffer_before = ?, buffer_after = ?, operational_before = ?, operational_after = ?, turnover = ?, week_hours = ?,
     notice_minutes = ?, rate_mode = ?, bill_step = ?,
-    min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, needs_certification = ?, separate_places = ?, updated_at = datetime('now')`;
+    min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, needs_certification = ?, separate_places = ?,
+    game_minutes = ?, game_minutes_each = ?, max_games = ?, lane_on_arrival = ?, game_price = ?, game_peak_price = ?, updated_at = datetime('now')`;
   const done = await db.prepare(`UPDATE booking_policies SET ${cols} WHERE ${where.sql}`).run(...values, ...where.params);
   if (done.changes > 0) return;
   const scopeCols =
@@ -399,8 +435,8 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
       `INSERT INTO booking_policies (business_id, venue_id, sport, court_id, start_every, start_offset, start_times, length_step,
          min_length, max_length, lengths, default_length, buffer_before, buffer_after, operational_before, operational_after,
          turnover, week_hours, notice_minutes, rate_mode, bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee,
-         sign_off, needs_certification, separate_places)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         sign_off, needs_certification, separate_places, game_minutes, game_minutes_each, max_games, lane_on_arrival, game_price, game_peak_price)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(scopeCols.business, scopeCols.venue, scopeCols.sport, scopeCols.court, ...values);
 }

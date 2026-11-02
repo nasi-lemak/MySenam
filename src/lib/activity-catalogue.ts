@@ -629,12 +629,14 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     names: { en: "Bowling", ms: "Boling", zh: "保龄球", ta: "பௌலிங்" },
     aliases: ["tenpin", "ten-pin bowling"],
     template: t("lanes", "lane", { count: 8, perPlayer: true, maxPlayers: 6, setting: "indoor" }),
-    policy: halfHours(60),
+    // Sold by the game, with a lane given on arrival: about 12 minutes a game for one bowler and 10 more for each other,
+    // held in quarter hours from the half hour (a venue sets its own estimate, price per game and most games).
+    policy: halfHours(60, { lengthStep: 15, minLength: 15, gameMinutes: 12, gameMinutesEach: 10, maxGames: 6, laneOnArrival: true }),
     surfaced: false,
     supervised: false,
     filters: INDOOR,
-    support: "specialised",
-    supportNote: "Lanes can be hired by time, priced per player, with shoe hire as an extra. Not built: selling by the game, and assigning a lane on arrival.",
+    support: "full",
+    supportNote: null,
     country: {},
   },
   {

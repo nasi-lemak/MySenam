@@ -72,7 +72,10 @@ export interface Capability {
   featureRow: string | null;
   /** An anchor in docs/roadmap/known-limitations.md that is its accurate caveat or, for an unsupported one, its source. */
   limitation?: string;
-  /** For an unsupported way of selling: the catalogue activity whose `supportNote` names it. */
+  /**
+   * For an unsupported way of selling: the catalogue activity whose `supportNote` names it. For an available one: the
+   * catalogue activity sold that way by default, so choosing the activity lists it.
+   */
   activityNote?: string;
   /** Where the existing screen is. */
   configure?: ConfigureTarget;
@@ -146,6 +149,7 @@ const AVAILABLE: Capability[] = [
   available("promo-codes", "pricing", { featureRow: "Promo codes", configure: credit, staffAction: "promos" }),
   available("discount-stacking", "pricing", { featureRow: "Discounts together, by the venue's rule", configure: credit, staffAction: "promoStacking" }),
   available("regular-free-hour", "pricing", { featureRow: "A free hour for regulars", configure: courts(), staffAction: "loyalty" }),
+  available("bowling-by-game", "pricing", { featureRow: "Selling by the game, a lane given on arrival", activityNote: "bowling", configure: courts(), staffAction: "bookingPolicies", models: ["lanes"] }),
   // ------------------------------------------------------------ memberships, passes and credit
   available("memberships", "memberships", { featureRow: "Membership plans and tiers online", configure: credit, staffAction: "membershipPlans" }),
   available("passes", "memberships", { featureRow: "Multi-visit passes and lesson packs", configure: credit, staffAction: "passProducts" }),
@@ -240,7 +244,6 @@ const AVAILABLE: Capability[] = [
 const UNSUPPORTED: Capability[] = [
   unsupported("gym-walk-in", "access", { featureRow: null, activityNote: "gym", models: ["shared"] }),
   unsupported("open-day-pass", "booking", { featureRow: null, activityNote: "climbing", models: ["shared"] }),
-  unsupported("bowling-by-game", "pricing", { featureRow: null, activityNote: "bowling", models: ["lanes"] }),
   unsupported("range-officer", "people", { featureRow: null, activityNote: "archery", models: ["lanes"] }),
   unsupported("venue-whatsapp-number", "communication", { featureRow: "WhatsApp template messages" }),
   unsupported("web-push", "communication", { featureRow: null, limitation: "integrations-awaiting-live-verification-or-a-partner" }),

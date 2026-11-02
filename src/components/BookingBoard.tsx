@@ -11,7 +11,7 @@ import { concessionWords } from "@/lib/concessions-shared";
 import { pricedByQuantity } from "@/lib/pricing";
 import { formatMinute, parseClock } from "@/lib/interval";
 import { isPastSlot } from "@/lib/time";
-import { lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
+import { gameHold, gamesUpTo, lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
 import PassAllocation, { passCodesOf } from "@/components/PassAllocation";
 import WaiverTick from "@/components/WaiverTick";
 import { explainGuard } from "@/components/ManagedPeople";
@@ -67,6 +67,14 @@ interface Selection {
   courtId: number;
   start: number;
   length: number;
+  /** Sold by the game: how many games; `length` is then the venue's estimate of them (lib/booking-rules.ts `gameHold`). */
+  games?: number;
+}
+
+/** A policy sold by the game, as `gameHold` takes it; null for one sold by time. */
+function gameRules(policy: PublicPolicy | undefined | null): { gameMinutes: number; gameMinutesEach: number; lengthStep: number; maxGames: number } | null {
+  if (!policy?.gameMinutes) return null;
+  return { gameMinutes: policy.gameMinutes, gameMinutesEach: policy.gameMinutesEach ?? 0, lengthStep: policy.lengthStep, maxGames: policy.maxGames ?? 1 };
 }
 
 /** What the server says a booking would cost (/api/quote). */
@@ -296,8 +304,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
         const option = court?.starts.find((s) => s.minute === pending.start);
         if (court && option) {
           const allowed = startLengths(court.policy, option);
-          const length = pending.minutes !== undefined && allowed.includes(pending.minutes) ? pending.minutes : firstLength(court.policy, option);
-          if (length) setSelection({ courtId: court.court.id, start: option.minute, length });
+          const byGame = gameRules(court.policy);
+          // A lane given on arrival is booked as any lane; by the game, one game to start with.
+          const courtId = court.policy.laneOnArrival ? ANY_COURT : court.court.id;
+          const length = byGame ? gameHold(byGame, 1) : pending.minutes !== undefined && allowed.includes(pending.minutes) ? pending.minutes : firstLength(court.policy, option);
+          if (length) setSelection({ courtId, start: option.minute, length, ...(byGame ? { games: 1 } : {}) });
         }
       }
     } catch (e) {
@@ -333,8 +344,10 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
    * A row standing for "whichever court, pick the cheapest". Worth offering
    * only when there is more than one court to choose between.
    */
+  // Lanes given on arrival: shown as lanes free at each time, not lane by lane, and booked as any lane (lib/lanes.ts).
+  const onArrival = !!availability && availability.length > 0 && availability.every((a) => a.policy.laneOnArrival);
   const anyRow = useMemo(() => {
-    if (!availability || availability.length < 2) return null;
+    if (!availability || (availability.length < 2 && !onArrival)) return null;
     return availability[0].slots.map((cell, i) => {
       const free = availability.map((a) => a.slots[i]).filter((s) => s && s.minute === cell.minute && s.available);
       return {
@@ -344,7 +357,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
         courts: free.length,
       };
     });
-  }, [availability]);
+  }, [availability, onArrival]);
 
   /** The starts and rules of the court picked (or of "any court"). */
   const picked = useMemo(() => {
@@ -373,7 +386,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       return {
         id: ANY_COURT,
         venueId: first.venueId,
-        name: t("board.anyCourt"),
+        name: onArrival ? t("bowl.anyLane") : t("board.anyCourt"),
         sport: first.sport,
         offPeakRate: 0,
         peakRate: 0,
@@ -383,7 +396,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
       } as Court;
     }
     return availability?.find((a) => a.court.id === selection?.courtId)?.court ?? null;
-  }, [availability, selection, t]);
+  }, [availability, selection, t, onArrival]);
 
   /**
    * Others free for the same start and length, to book with it as one: other
@@ -393,6 +406,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
    */
   const alsoFree = useMemo(() => {
     if (!selection || !availability || selection.courtId === ANY_COURT) return [];
+    // By the game, one lane at a time.
+    if (selection.games !== undefined) return [];
     const picked = availability.find((a) => a.court.id === selection.courtId)?.court;
     const shared = (picked?.capacity ?? 1) > 1;
     const sameHeading = (c: Court) => !!picked?.heading && c.heading?.toLowerCase() === picked.heading.toLowerCase();
@@ -435,8 +450,9 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     const starts = courtId === ANY_COURT ? anyStarts(availability ?? []) : (availability?.find((a) => a.court.id === courtId)?.starts ?? []);
     const policy = (courtId === ANY_COURT ? availability?.[0] : availability?.find((a) => a.court.id === courtId))?.policy;
     if (!policy) return;
+    const byGame = gameRules(policy);
     setSelection((prev) => {
-      if (prev && prev.courtId === courtId) {
+      if (prev && prev.courtId === courtId && !byGame) {
         if (minute < prev.start + prev.length && minute + grid > prev.start) return null;
         if (minute >= prev.start + prev.length) {
           const from = starts.find((s) => s.minute === prev.start);
@@ -450,6 +466,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
         starts.find((s) => s.minute >= minute && s.minute < minute + grid) ??
         [...starts].reverse().find((s) => s.minute < minute && s.minute + s.maxLength > minute);
       if (!option) return prev;
+      // By the game: one game to start with, the form taking the players and games (its length follows them).
+      if (byGame) return { courtId, start: option.minute, length: gameHold(byGame, prev?.games ?? 1), games: prev?.games ?? 1 };
       const length = firstLength(policy, option);
       return length ? { courtId, start: option.minute, length } : prev;
     });
@@ -552,9 +570,9 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
               {anyRow && (
                 <tr className="border-b border-slate-200 bg-teal-50/40">
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-teal-50 px-3 py-2 font-medium">
-                    {t("board.anyCourt")}
+                    {onArrival ? t("bowl.anyLane") : t("board.anyCourt")}
                     <span className="block text-xs font-normal text-slate-500">
-                      {t("board.anyCourtHint")}
+                      {onArrival ? t("bowl.anyLaneHint") : t("board.anyCourtHint")}
                     </span>
                   </td>
                   {anyRow.map((slot) => {
@@ -567,10 +585,12 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                           onClick={() => tapCell(ANY_COURT, slot.minute)}
                           title={
                             slot.available
-                              ? t.plural("board.anyFree", slot.courts, {
-                                  time: formatMinute(slot.minute, t.locale),
-                                  rate: slot.rate,
-                                })
+                              ? onArrival
+                                ? t.plural("bowl.lanesFree", slot.courts, { time: formatMinute(slot.minute, t.locale) })
+                                : t.plural("board.anyFree", slot.courts, {
+                                    time: formatMinute(slot.minute, t.locale),
+                                    rate: slot.rate,
+                                  })
                               : t("board.anyNone")
                           }
                           className={`h-9 w-11 rounded-md text-xs font-medium transition ${
@@ -581,14 +601,15 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                                 : "bg-teal-100 text-teal-800 hover:bg-teal-200"
                           }`}
                         >
-                          {slot.available || isSelected ? (slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)) : "—"}
+                          {/* Lanes given on arrival: how many are free then, not a price by the hour. */}
+                          {slot.available || isSelected ? (onArrival ? slot.courts : slot.rate === 0 ? t("price.free") : plainAmount(slot.rate)) : "—"}
                         </button>
                       </td>
                     );
                   })}
                 </tr>
               )}
-              {headed.map(({ court, slots, heading, under, policy }) => (
+              {!onArrival && headed.map(({ court, slots, heading, under, policy }) => (
                 <Fragment key={court.id}>
                 {heading && (
                   // Kinds of the same thing under one heading: "Kayaks", then each kind.
@@ -630,7 +651,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                     const shared = isShared(court);
                     const left = slot.capacity - slot.booked;
                     const level = busyness(slot.booked, slot.capacity);
-                    const queue = canQueue(slot, date, zone);
+                    // By the game, the waiting list (by time) is not offered.
+                    const queue = !policy.gameMinutes && canQueue(slot, date, zone);
                     // Partly held: a booking may still start in it, or run into it.
                     const pickable = slot.available || (slot.partly === true && !slot.outside);
                     return (
@@ -686,9 +708,11 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                                 : "—"
                               : shared
                                 ? left
-                                : slot.rate === 0
-                                  ? t("price.free")
-                                  : plainAmount(slot.rate)}
+                                : policy.gameMinutes
+                                  ? "✓"
+                                  : slot.rate === 0
+                                    ? t("price.free")
+                                    : plainAmount(slot.rate)}
                           {slot.available && slot.lastMinute && (
                             <span className={`block text-[9px] font-semibold leading-none ${isSelected ? "text-white" : "text-amber-700"}`}>
                               {t("lm.badge", { n: slot.lastMinute })}
@@ -884,6 +908,8 @@ function BookingForm({
   const [players, setPlayers] = useState(shared ? 1 : 2);
   const mostPlayers = placesPerBooking(court);
   const counted = mostPlayers > 1;
+  // Sold by the game: how many games (the form below offers those that fit).
+  const games = gameRules(policy) ? (selection.games ?? 1) : undefined;
 
   // People the signed-in adult manages, booked for by them (lib/participant-bookings.ts; ADR 0023):
   // each ticked takes a place, and the adult one too where they take part.
@@ -919,7 +945,7 @@ function BookingForm({
     const where = court.id === ANY_COURT ? `venueId=${court.venueId}&sport=${court.sport}` : `courtId=${court.id}&sport=${court.sport}`;
     const timer = setTimeout(() => {
       fetch(
-        `/api/quote?${where}&date=${date}&start=${start}&end=${end}${counted ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}${
+        `/api/quote?${where}&date=${date}&start=${start}${games !== undefined ? `&games=${games}` : `&end=${end}`}${counted ? `&players=${players}` : ""}${moreKey ? `&also=${moreKey}` : ""}${
           // Who takes part, so each person's own membership prices their place as the booking will (lib/entitlements.ts).
           peopleKey ? peopleKey : forOthers ? "&forOthers=1" : ""
         }${promoAsked ? `&promoCode=${encodeURIComponent(promoAsked)}` : ""}`,
@@ -933,7 +959,7 @@ function BookingForm({
       live = false;
       clearTimeout(timer);
     };
-  }, [court.id, court.venueId, court.sport, counted, date, start, end, players, moreKey, forOthers, peopleKey, promoAsked]);
+  }, [court.id, court.venueId, court.sport, counted, date, start, end, games, players, moreKey, forOthers, peopleKey, promoAsked]);
   const othersTotal = (quote?.others ?? []).filter((o) => more.includes(o.courtId)).reduce((sum, o) => sum + o.total, 0);
   // A concession for one person's place (lib/entitlements.ts): whose, among those taking part; off their place's share alone.
   const onePlace = concession?.scope === "participant";
@@ -967,6 +993,18 @@ function BookingForm({
     : null;
   const optionAt = starts.find((s) => s.minute === start);
   const lengths = optionAt ? startLengths(policy, optionAt) : lengthsUpTo(policy, length);
+  // Sold by the game: the games that fit from this start for these players, and the lane held for them follows.
+  const byGame = gameRules(policy);
+  const gamePlayers = counted ? players : 1;
+  const gameChoices = byGame ? gamesUpTo(byGame, gamePlayers, optionAt?.maxLength ?? Infinity) : [];
+  useEffect(() => {
+    if (!byGame) return;
+    const fit = gameChoices.length > 0 ? gameChoices : [selection.games ?? 1];
+    const g = fit.includes(selection.games ?? 1) ? (selection.games ?? 1) : fit[fit.length - 1];
+    const held = gameHold(byGame, g, gamePlayers);
+    if (g !== selection.games || held !== selection.length) onChange({ ...selection, games: g, length: held });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recomputed when what decides it changes
+  }, [byGame?.gameMinutes, gamePlayers, selection.start, selection.games, selection.length, optionAt?.maxLength]);
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
   const [passCode, setPassCode] = useState("");
@@ -1096,7 +1134,8 @@ function BookingForm({
             : { courtId: court.id, sport: court.sport }),
           date,
           start,
-          end,
+          // By the game, how many; the lane is held for the venue's estimate of them.
+          ...(games !== undefined ? { games } : { end }),
           ...(override ? { override: true } : {}),
           name,
           phone,
@@ -1188,7 +1227,8 @@ function BookingForm({
             </button>
           </div>
           <div className="text-sm text-slate-600">
-            {shortDate(date, t.locale, true)} · {formatMinute(start, t.locale)} – {formatMinute(end, t.locale)} · {lengthLabel(t, length)} ·{" "}
+            {shortDate(date, t.locale, true)} · {formatMinute(start, t.locale)} – {formatMinute(end, t.locale)} ·{" "}
+            {games !== undefined ? t.plural("bowl.gamesCount", games) : lengthLabel(t, length)} ·{" "}
             <span className="font-semibold text-slate-900">
               {withExtras === null ? t("quote.loading") : withExtras === 0 ? t("price.free") : `${money(withExtras)}`}
             </span>
@@ -1238,6 +1278,7 @@ function BookingForm({
           lengths={lengths}
           override={override}
           onChange={onChange}
+          games={byGame ? (gameChoices.length > 0 ? gameChoices : [selection.games ?? 1]) : undefined}
         />
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("form.name")}
@@ -1711,6 +1752,7 @@ function TimePicker({
   lengths,
   override,
   onChange,
+  games,
 }: {
   t: T;
   selection: Selection;
@@ -1718,6 +1760,8 @@ function TimePicker({
   lengths: number[];
   override: boolean;
   onChange: (s: Selection) => void;
+  /** Sold by the game: the numbers of games that fit, offered in place of a length (the form works the length out). */
+  games?: number[];
 }) {
   const field = "mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-teal-500 focus:outline-none";
   const clock = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
@@ -1767,6 +1811,19 @@ function TimePicker({
           </select>
         )}
       </label>
+      {games ? (
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          {t("bowl.games")}
+          <select value={selection.games ?? 1} onChange={(e) => onChange({ ...selection, games: Number(e.target.value) })} className={field}>
+            {games.map((g) => (
+              <option key={g} value={g}>
+                {t.plural("bowl.gamesCount", g)}
+              </option>
+            ))}
+          </select>
+          <span className="mt-0.5 font-normal text-slate-400">{t("bowl.estimate", { len: lengthLabel(t, selection.length) })}</span>
+        </label>
+      ) : (
       <label className="flex flex-col text-xs font-medium text-slate-500">
         {t("board.length")}
         {freeLength ? (
@@ -1797,6 +1854,7 @@ function TimePicker({
           </span>
         )}
       </label>
+      )}
     </>
   );
 }

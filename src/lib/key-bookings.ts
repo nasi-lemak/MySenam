@@ -58,7 +58,8 @@ export async function bookThroughKey(
   const court = await getCourt(body.courtId as number);
   if (!court || court.venueId !== caller.venueId) return NextResponse.json({ error: "That court is not at this key's venue." }, { status: 404 });
   if (typeof body.date !== "string" || !isValidDateString(body.date)) return NextResponse.json({ error: "date (YYYY-MM-DD) is required." }, { status: 400 });
-  const time = readTime(body);
+  // By the time, or (on a resource sold by the game) a start and `games`.
+  const time = readTime(body, { games: true });
   if (!time.ok) return NextResponse.json({ error: time.error }, { status: 400 });
   if (typeof body.name !== "string" || body.name.trim().length < 2 || typeof body.phone !== "string" || body.phone.trim().length < 7)
     return NextResponse.json({ error: "name and phone are required." }, { status: 400 });
@@ -143,6 +144,7 @@ export async function bookThroughKey(
         date: body.date,
         startMin: priced.span.start,
         endMin: priced.span.end,
+        ...(time.when.games !== undefined ? { games: time.when.games } : {}),
         totalPrice: priced.quote.total,
         fees: priced.quote.fees,
         paymentStatus: "unpaid",

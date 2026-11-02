@@ -77,10 +77,14 @@ export const NO_PRICING_RULES: PricingPolicy = {
   fixedPrices: null,
   setupFee: 0,
   cleanupFee: 0,
+  gamePrice: null,
+  gamePeakPrice: null,
 };
 
 export interface PriceLine {
-  kind: "time" | "fixed" | "quantity" | "minimum" | "setup" | "cleanup";
+  kind: "time" | "fixed" | "games" | "quantity" | "minimum" | "setup" | "cleanup";
+  /** Games this line is for (games), at `rate` each. */
+  games?: number;
   /** Minutes this line is for (time), from `start`. */
   minutes?: number;
   start?: number;
@@ -164,6 +168,8 @@ export function priceBooking(input: {
   pricing?: PricingPolicy;
   at?: number;
   players?: number;
+  /** A booking sold by the game: how many (lib/booking-rules.ts `soldByGame`); priced per game where the policy has a price for one. */
+  games?: number | null;
 }): Quote {
   const court = ratesOn(input.court, input.date);
   const member = input.member ?? false;
@@ -188,7 +194,18 @@ export function priceBooking(input: {
   let billedMinutes = length;
 
   const fixed = pricing.fixedPrices?.find((f) => f.minutes === length);
-  if (fixed) {
+  const games = input.games ?? null;
+  const perGame = games !== null && games > 0 && pricing.gamePrice !== null && pricing.gamePrice !== undefined;
+  if (perGame) {
+    // So many games at the price of one, as a fixed price is: peak by the start, a tier's share, a last-minute price.
+    const peak = isPeakAt(input.span.start);
+    const one = toMinor(peak && pricing.gamePeakPrice !== null && pricing.gamePeakPrice !== undefined ? pricing.gamePeakPrice : pricing.gamePrice!);
+    const percent = typeof member === "number" ? member : 100;
+    const off = offAt(input.span.start);
+    const each = Math.round((one * percent * (100 - off)) / 10_000);
+    courtMinor = each * games;
+    lines.push({ kind: "games", games, minutes: length, start: input.span.start, peak, rate: fromMinor(each), amount: fromMinor(courtMinor) });
+  } else if (fixed) {
     const peak = isPeakAt(input.span.start);
     const base = toMinor(peak && fixed.peakPrice !== null ? fixed.peakPrice : fixed.price);
     const percent = typeof member === "number" ? member : 100;

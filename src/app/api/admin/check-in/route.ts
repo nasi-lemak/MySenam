@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { checkIn, checkOut, getVenueIdForBookingCode, markPlace } from "@/lib/store";
+import { checkIn, checkInOnLane, checkOut, getCourt, getVenueIdForBookingCode, markPlace } from "@/lib/store";
 import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
 import { participationLapses, type MemberCover } from "@/lib/entitlements";
@@ -14,7 +14,10 @@ export const dynamic = "force-dynamic";
  * Somebody on a members' session whose membership no longer covers its date
  * is a warning (`MV6_DESK_WARNING`, 409, with `warnings`); staff decide, and
  * `admit: true` (with a `note`) checks them in all the same, kept and logged
- * (`checkin.membership_admitted`).
+ * (`checkin.membership_admitted`). `{ code, laneId }` checks a booking in on
+ * the lane given to it there (a lane given on arrival, lib/lanes.ts): moved to
+ * that lane first, as any booking is moved, and refused (nothing checked in)
+ * where the lane is not free for its time; the move is logged as one.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -26,7 +29,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, out, placeId, mark, admit, note } = (body ?? {}) as Record<string, unknown>;
+  const { code, out, placeId, mark, admit, note, laneId } = (body ?? {}) as Record<string, unknown>;
   if (typeof code !== "string" || code.trim() === "")
     return NextResponse.json({ error: "code is required." }, { status: 400 });
 
@@ -66,9 +69,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ booking: marked.booking, people: marked.places });
   }
 
+  if (laneId !== undefined && laneId !== null) {
+    if (out === true || !Number.isInteger(laneId) || (laneId as number) <= 0) return NextResponse.json({ error: "laneId must be a court's id." }, { status: 400 });
+    // The lane given must be one this member of staff manages (the store refuses another venue's, or one without the sport).
+    const lane = await getCourt(laneId as number);
+    if (!lane) return NextResponse.json({ error: "Court not found." }, { status: 404 });
+    const deniedLane = denyVenue(admin, lane.venueId);
+    if (deniedLane) return deniedLane;
+  }
   const lapsed = out !== true && admit === true ? await lapsesForCode(code) : [];
-  const result = out === true ? await checkOut(code) : await checkIn(code, admitting);
+  const onLane = out !== true && Number.isInteger(laneId) ? await checkInOnLane(code, laneId as number, admitting) : null;
+  const result = onLane ?? (out === true ? await checkOut(code) : await checkIn(code, admitting));
   if (!result.ok) return warned(result);
+  // Given another lane on arrival: on the record as a move.
+  if (onLane?.ok && onLane.moved)
+    await logAction(admin, { venueId, action: "booking.moved", bookingCode: result.booking.code, detail: `${onLane.moved.from.name} to ${onLane.moved.to.name}, given on arrival` });
   if (lapsed.length > 0)
     await logAction(admin, { venueId, action: "checkin.membership_admitted", bookingCode: result.booking.code, detail: `Admitted ${admitted(lapsed)}${why}` });
   return NextResponse.json({ booking: result.booking });

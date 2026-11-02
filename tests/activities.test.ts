@@ -59,7 +59,7 @@ describe("the catalogue", () => {
   it("has 32 built-in activities, each below full support saying what is not built", () => {
     expect(BUILTIN_ACTIVITIES).toHaveLength(32);
     const count = (level: string) => BUILTIN_ACTIVITIES.filter((a) => a.support === level).length;
-    expect([count("full"), count("basic"), count("specialised")]).toEqual([23, 8, 1]);
+    expect([count("full"), count("basic"), count("specialised")]).toEqual([24, 8, 0]);
     for (const a of BUILTIN_ACTIVITIES) if (a.support !== "full") expect(a.supportNote, a.key).toMatch(/Not built/);
   });
 

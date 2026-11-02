@@ -86,7 +86,8 @@ export const DAY_MODULES: PlaybookModule[] = [
           step("gp.during.checkin.s2"),
           step("gp.during.checkin.s3"),
           (p.commerce.membershipPlans > 0 || p.identity.visibility === "members") && step("gp.during.checkin.s4"),
-          p.guardians.participants > 0 && step("gp.during.checkin.s5")
+          p.guardians.participants > 0 && step("gp.during.checkin.s5"),
+          (p.resources.laneOnArrival ?? 0) > 0 && step("gp.during.checkin.lanes")
         ),
         note("gp.during.checkin.exclusive"),
       ];

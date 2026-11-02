@@ -162,5 +162,8 @@ export function apiBooking(b: Booking & { courtName?: string; sport?: string }):
     createdAt: b.createdAt,
     // Places it takes (or players, on a court priced per player); 1 for a court booked whole.
     players: b.players ?? 1,
+    // Sold by the game: how many games; and a lane given on arrival, its lane still provisional until check-in (lib/lanes.ts).
+    ...(b.games ? { games: b.games } : {}),
+    ...(b.laneOnArrival ? { laneOnArrival: true, laneProvisional: !b.checkedInAt } : {}),
   };
 }

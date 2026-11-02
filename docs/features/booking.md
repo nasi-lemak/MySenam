@@ -218,6 +218,70 @@ error says so, rather than reporting the last court's "someone just took it";
 structural reasons — venue closed, outside trading hours, no courts of that
 sport — are surfaced as themselves.
 
+## By the game, and a lane given on arrival
+
+Bowling lanes are sold by the game, and the lane is given at the counter
+when the customer arrives. Both are booking rules
+(*Courts & rates → Booking rules → Sold by the game*; `lib/booking-rules.ts`),
+inherited like the rest, and the [activity catalogue](activities.md#selling-units-by-time-or-by-the-game)
+gives them to bowling; any lane activity can be sold so, and a venue selling
+its lanes by time sets the minutes for a game to 0 and the lane to *chosen
+when booking*.
+
+**By the game.** The customer chooses a number of games, 1 to the most the
+venue sells in one booking (6 unless it says), and how many play. The lane is
+held for the venue's estimate: the minutes for one game of one player, and
+more for each other player (on a lane priced per lane players are not
+counted, so the venue gives the minutes of a usual game), times the games,
+rounded up to the length step (`gameHold`; bowling: 12 minutes, 10 more each,
+in quarter hours, so two games for three take 75 minutes). Starts, hours,
+notice, buffers, closures and the venue's policies are as for any booking;
+lengths by time are not asked. Asked for by time on a lane sold by the game,
+a booking is refused (`GAMES_NEEDED`), as are games on a court sold by time
+(`GAMES_NOT_HERE`) and more games than the most (`GAMES_RANGE`). The price is
+the venue's price for a game, for each player where the lane is priced per
+player ([pricing](pricing.md#a-price-per-game)). The booking keeps how many
+games it was for (`bookings.games`, migration 0265). Cancelling, late
+cancellation, no-shows, holds and deposits to pay online, discounts and
+receipts treat it as any booking, on its price.
+
+**A lane given on arrival.** The booking holds one lane like any other: the
+cheapest free for the whole time, as [any court](#booking-without-naming-a-court)
+is taken, so the database refuses an overlap and decides a race for the last
+lane. But the lane is provisional (`bookings.lane_on_arrival`):
+
+- The board shows **lanes free** at each time, one row, not lane by lane, and
+  books *a lane, given when you arrive*; search says *a lane* too.
+- Until it is checked in, the customer is never told which lane: not in the
+  booking's answer, *My booking*, the account's bookings, the times offered
+  for a change, the confirmation, reminder, change, cancellation or payment
+  messages, the calendar file or a receipt issued before then. They read
+  *Lane given on arrival* (`lib/lanes.ts`).
+- Staff see the lane held, marked *lane given on arrival*. *Check in* asks
+  which lane: keep the one held, or any other free for the booking's whole
+  time. It is moved there as [moving a booking](#moving-a-booking) moves one,
+  in one step under the claims, then checked in; a lane not free then is
+  refused and nothing is checked in. The move is in the activity log, and the
+  customer is not sent a message about it (they were never told a lane).
+- Checked in, at the desk or by the QR code (which keeps the lane held), the
+  lane is theirs and is shown.
+
+**Playing on.** *Add a game* at the desk holds the lane on from where the
+booking ends for the estimate of one more game, while that time on the same
+lane is free (`GAMES_ADD_TAKEN` otherwise), up to the most games. The game is
+priced as one is that day, without the discounts already on the booking, and
+added to what is still to pay; a booking anything is paid towards already
+(paid, a deposit or a friend's share, on an account, a payment page open) is
+not changed (`GAMES_ADD_SETTLED`): book the extra games as a booking of their
+own on the lane. In the activity log as *Added games to a booking*.
+
+**Where games are taken.** The booking board (any lane or a named lane),
+the counter, weekly bookings, the quote, `POST /api/v1/bookings` and the MCP
+server's `create_booking` take `games`. What cannot take them refuses rather
+than book by time: the waiting list for a taken time (`GAMES_NO_WAITLIST`),
+an approval application's slot, and anything else that books a fixed time
+(`GAMES_NEEDED`). *Change time* and moving keep the time the games hold.
+
 ## Several courts in one booking
 
 A company night or a club session wants three badminton courts at 8 PM, not

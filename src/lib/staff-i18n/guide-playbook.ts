@@ -703,6 +703,8 @@ const rows = [
   ["gp.ui.coachLink", "How to use this page, and what you can see", "Cara menggunakan halaman ini, dan apa yang anda boleh lihat", "如何使用本页面，以及您能看到什么"],
   ["gp.ui.coachBack", "Back to your schedule", "Kembali ke jadual anda", "返回您的日程"],
   ["gp.ui.coachTitle", "Your guide as a coach", "Panduan anda sebagai jurulatih", "您作为教练的指南"],
+  // bowl: lanes given on arrival (lib/lanes.ts)
+  ["gp.during.checkin.lanes", "Where lanes are given on arrival, the customer has been told only that a lane is given when they arrive. Check-in asks which lane: keep the one held for them (marked provisional) or choose another lane free for the whole booking. Tell them their lane then. When they want to play on, Add a game holds the lane longer while it is free after them.", "Jika lorong diberi semasa tiba, pelanggan hanya dimaklumkan bahawa lorong diberi apabila mereka tiba. Daftar masuk bertanya lorong mana: kekalkan lorong yang ditahan untuk mereka (bertanda sementara) atau pilih lorong lain yang kosong untuk seluruh tempahan. Beritahu mereka lorong mereka ketika itu. Jika mereka mahu terus bermain, Tambah permainan menahan lorong lebih lama selagi ia kosong selepas mereka.", "如果球道在到场时分配，顾客只被告知到场后会分配球道。签到时会询问用哪条球道：保留为其预留的那条（标为“临时”），或选择整个预订时段都空闲的另一条。届时再告诉顾客球道号。如果顾客想继续打，“加一局”会在其后时段空闲时延长占用该球道。"],
 ] as const satisfies readonly Row[];
 
 type Key = (typeof rows)[number][0];

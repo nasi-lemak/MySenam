@@ -763,6 +763,20 @@ const en = {
   "r9e.sm.done": "Weeks moved: {n}. The customer is told once.",
   "r9e.sm.left": "Not moved: {list}.",
   "r9e.sm.failed": "Moving the series failed",
+  // bowl: games and lanes given on arrival at the desk (lib/lanes.ts)
+  "bowl.provisional": "lane given on arrival",
+  "bowl.provisionalTitle": "Provisional: the customer has not been told this lane. Choose their lane when you check them in.",
+  "bowl.games_one": "{n} game",
+  "bowl.games_other": "{n} games",
+  "bowl.checkInTitle": "Check in, and choose the lane",
+  "bowl.laneWhich": "Check {code} in on which lane?",
+  "bowl.laneHelp": "The lane held for it, or another free for the whole booking. Tell the customer their lane now.",
+  "bowl.keepLane": "{lane} (held)",
+  "bowl.add": "Add a game",
+  "bowl.addTitle": "One more game, while the lane is free after this booking",
+  "bowl.added": "{code}: {games} games in all, {amount} more to pay.",
+  "bowl.addFailed": "Could not add a game",
+  "bowl.act.gamesAdded": "Added games to a booking",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1508,6 +1522,20 @@ const ms: Record<keyof typeof en, string> = {
   "r9e.sm.done": "Minggu dipindahkan: {n}. Pelanggan dimaklumkan sekali.",
   "r9e.sm.left": "Tidak dipindahkan: {list}.",
   "r9e.sm.failed": "Gagal memindahkan siri",
+  // bowl
+  "bowl.provisional": "lorong diberi semasa tiba",
+  "bowl.provisionalTitle": "Sementara: pelanggan belum dimaklumkan lorong ini. Pilih lorong mereka semasa mendaftar masuk.",
+  "bowl.games_one": "{n} permainan",
+  "bowl.games_other": "{n} permainan",
+  "bowl.checkInTitle": "Daftar masuk, dan pilih lorong",
+  "bowl.laneWhich": "Daftar masuk {code} di lorong mana?",
+  "bowl.laneHelp": "Lorong yang ditahan untuknya, atau lorong lain yang kosong untuk seluruh tempahan. Beritahu pelanggan lorong mereka sekarang.",
+  "bowl.keepLane": "{lane} (ditahan)",
+  "bowl.add": "Tambah permainan",
+  "bowl.addTitle": "Satu permainan lagi, selagi lorong kosong selepas tempahan ini",
+  "bowl.added": "{code}: {games} permainan semuanya, {amount} lagi perlu dibayar.",
+  "bowl.addFailed": "Tidak dapat menambah permainan",
+  "bowl.act.gamesAdded": "Menambah permainan pada tempahan",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2253,6 +2281,20 @@ const zh: Record<keyof typeof en, string> = {
   "r9e.sm.done": "已调整周次：{n}。顾客只会收到一次通知。",
   "r9e.sm.left": "未调整：{list}。",
   "r9e.sm.failed": "调整系列失败",
+  // bowl
+  "bowl.provisional": "到场分配球道",
+  "bowl.provisionalTitle": "临时：尚未告知顾客此球道。签到时为其选择球道。",
+  "bowl.games_one": "{n} 局",
+  "bowl.games_other": "{n} 局",
+  "bowl.checkInTitle": "签到并选择球道",
+  "bowl.laneWhich": "将 {code} 签到在哪条球道？",
+  "bowl.laneHelp": "为其预留的球道，或整个预订时段都空闲的另一条。现在告诉顾客球道号。",
+  "bowl.keepLane": "{lane}（预留）",
+  "bowl.add": "加一局",
+  "bowl.addTitle": "在此预订之后球道仍空闲时，再加一局",
+  "bowl.added": "{code}：共 {games} 局，需再付 {amount}。",
+  "bowl.addFailed": "无法加局",
+  "bowl.act.gamesAdded": "为预订加局",
 };
 
 const area = { en, ms, zh };

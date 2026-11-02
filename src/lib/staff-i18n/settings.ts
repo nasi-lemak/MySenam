@@ -561,6 +561,23 @@ const en = {
   "oa.act.granted": "Connected an AI assistant by signing in (MCP)",
   "oa.act.revoked": "Disconnected an AI assistant",
   "oa.act.staffTool": "A member of staff used a tool through an AI assistant (MCP)",
+  // bowl: selling by the game, and a lane given on arrival, in the booking rules (lib/booking-rules.ts)
+  "bowl.pol.title": "Sold by the game",
+  "bowl.pol.intro": "Customers choose a number of games and players instead of a length. The lane is held for your estimate of them, rounded up to the length step. Bowling starts sold this way.",
+  "bowl.pol.gameMinutes": "Minutes for one game, one player",
+  "bowl.pol.gameMinutesNote": "With a figure here, the time is sold by the game; 0 sells it by time again.",
+  "bowl.pol.gameMinutesEach": "More minutes for each other player",
+  "bowl.pol.gameMinutesEachNote": "On a lane priced per lane, players are not counted: set the minutes for a usual game.",
+  "bowl.pol.maxGames": "Most games in one booking",
+  "bowl.pol.gamePrice": "Price of a game",
+  "bowl.pol.gamePriceNote": "Per player on a lane priced per player. None: the time held, at the lane's rates.",
+  "bowl.pol.gamePeakPrice": "Price of a game at peak",
+  "bowl.pol.laneOnArrival": "Which lane",
+  "bowl.pol.laneOnArrivalNote": "Given on arrival: customers book any lane and are told their lane at check-in, where the desk may choose another free one.",
+  "bowl.pol.inheritsOnArrival": "Inherited: given on arrival",
+  "bowl.pol.inheritsChosen": "Inherited: chosen when booking",
+  "bowl.pol.onArrival": "Given on arrival",
+  "bowl.pol.chosen": "Chosen when booking",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1116,6 +1133,23 @@ const ms: Record<keyof typeof en, string> = {
   "oa.act.granted": "Menyambungkan pembantu AI dengan log masuk (MCP)",
   "oa.act.revoked": "Memutuskan sambungan pembantu AI",
   "oa.act.staffTool": "Kakitangan menggunakan alat melalui pembantu AI (MCP)",
+  // bowl
+  "bowl.pol.title": "Dijual mengikut permainan",
+  "bowl.pol.intro": "Pelanggan memilih bilangan permainan dan pemain, bukan tempoh. Lorong ditahan mengikut anggaran anda, dibundarkan ke atas kepada langkah tempoh. Boling bermula dengan dijual begini.",
+  "bowl.pol.gameMinutes": "Minit untuk satu permainan, seorang pemain",
+  "bowl.pol.gameMinutesNote": "Dengan angka di sini, masa dijual mengikut permainan; 0 menjualnya mengikut masa semula.",
+  "bowl.pol.gameMinutesEach": "Minit tambahan bagi setiap pemain lain",
+  "bowl.pol.gameMinutesEachNote": "Pada lorong yang berharga satu lorong, pemain tidak dikira: tetapkan minit untuk permainan biasa.",
+  "bowl.pol.maxGames": "Paling banyak permainan dalam satu tempahan",
+  "bowl.pol.gamePrice": "Harga satu permainan",
+  "bowl.pol.gamePriceNote": "Seorang pada lorong yang berharga seorang. Tiada: masa yang ditahan, pada kadar lorong.",
+  "bowl.pol.gamePeakPrice": "Harga satu permainan pada waktu puncak",
+  "bowl.pol.laneOnArrival": "Lorong mana",
+  "bowl.pol.laneOnArrivalNote": "Diberi semasa tiba: pelanggan menempah mana-mana lorong dan dimaklumkan lorong mereka semasa daftar masuk, di mana meja depan boleh memilih lorong kosong yang lain.",
+  "bowl.pol.inheritsOnArrival": "Diwarisi: diberi semasa tiba",
+  "bowl.pol.inheritsChosen": "Diwarisi: dipilih semasa menempah",
+  "bowl.pol.onArrival": "Diberi semasa tiba",
+  "bowl.pol.chosen": "Dipilih semasa menempah",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1671,6 +1705,23 @@ const zh: Record<keyof typeof en, string> = {
   "oa.act.granted": "通过登录连接了 AI 助手（MCP）",
   "oa.act.revoked": "断开了 AI 助手的连接",
   "oa.act.staffTool": "员工通过 AI 助手使用了工具（MCP）",
+  // bowl
+  "bowl.pol.title": "按局出售",
+  "bowl.pol.intro": "顾客选择局数和人数，而不是时长。球道按您的估计时间预留，并向上取整到时长步长。保龄球默认按此方式出售。",
+  "bowl.pol.gameMinutes": "一人打一局的分钟数",
+  "bowl.pol.gameMinutesNote": "填写数字即按局出售；填 0 则恢复按时间出售。",
+  "bowl.pol.gameMinutesEach": "每多一人增加的分钟数",
+  "bowl.pol.gameMinutesEachNote": "按球道计价的球道不计人数：请填写一局通常所需的分钟数。",
+  "bowl.pol.maxGames": "一次预订最多局数",
+  "bowl.pol.gamePrice": "每局价格",
+  "bowl.pol.gamePriceNote": "按人计价的球道为每人价格。不填：按预留时间以球道费率计价。",
+  "bowl.pol.gamePeakPrice": "高峰时段每局价格",
+  "bowl.pol.laneOnArrival": "使用哪条球道",
+  "bowl.pol.laneOnArrivalNote": "到场分配：顾客预订任意球道，签到时才被告知球道，前台可改为另一条空闲球道。",
+  "bowl.pol.inheritsOnArrival": "继承：到场分配",
+  "bowl.pol.inheritsChosen": "继承：预订时选择",
+  "bowl.pol.onArrival": "到场分配",
+  "bowl.pol.chosen": "预订时选择",
 };
 
 const area = { en, ms, zh };

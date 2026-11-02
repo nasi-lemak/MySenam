@@ -88,6 +88,8 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
   const [notice, setNotice] = useState<string | null>(null);
   // The booking being moved, and the courts it could go to.
   const [moving, setMoving] = useState<{ code: string; courts: Court[] } | null>(null);
+  // A lane given on arrival: the lane to check the booking in on (lib/lanes.ts), its own first.
+  const [laneFor, setLaneFor] = useState<{ code: string; own: { id: number; name: string }; courts: Court[] } | null>(null);
   // The booking (or `series:` code) whose payment method is being asked for.
   const [paying, setPaying] = useState<string | null>(null);
   // The booking being changed to another day or time.
@@ -196,6 +198,57 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       setMoving({ code, courts: data.courts });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("bk.courtsLoadFailed"));
+    }
+  }
+
+  /** A lane given on arrival: which lane to check it in on, the one held for it or another free for its time. */
+  async function openLane(b: AdminBookingRow) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/bookings/move?code=${encodeURIComponent(b.code)}`, { cache: "no-store" });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("bk.courtsLoadFailed")));
+      setLaneFor({ code: b.code, own: { id: b.courtId, name: b.courtName }, courts: data.courts });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("bk.courtsLoadFailed"));
+    }
+  }
+
+  async function checkInOnLane(code: string, laneId: number) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/check-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, laneId }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("bk.checkInFailed")));
+      setLaneFor(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("bk.checkInFailed"));
+    }
+  }
+
+  /** One more game on a booking sold by the game, while the lane is free after it (lib/store.ts `addGames`). */
+  async function addGame(code: string) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/bookings/games", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, add: 1 }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("bowl.addFailed")));
+      setNotice(t("bowl.added", { code, games: data.booking.games, amount: money(data.priceChange) }));
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("bowl.addFailed"));
     }
   }
 
@@ -773,6 +826,8 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     checkPlaceConcession,
     payWithPasses,
     collectCoachDifference,
+    openLane,
+    addGame,
   };
 
   // Through the filters; the venue column only where more than one venue is shown.
@@ -964,6 +1019,33 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
               onClick={() => setMoving(null)}
               className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
             >
+              {t("c.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {laneFor && (
+        <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3">
+          <p className="text-sm font-semibold">{t("bowl.laneWhich", { code: laneFor.code })}</p>
+          <p className="mt-0.5 text-xs text-slate-600">{t("bowl.laneHelp")}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => checkInOnLane(laneFor.code, laneFor.own.id)}
+              className="rounded-lg border border-teal-500 bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
+            >
+              {t("bowl.keepLane", { lane: laneFor.own.name })}
+            </button>
+            {laneFor.courts.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => checkInOnLane(laneFor.code, c.id)}
+                className="rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100"
+              >
+                {c.name}
+              </button>
+            ))}
+            <button onClick={() => setLaneFor(null)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700">
               {t("c.cancel")}
             </button>
           </div>
@@ -1317,6 +1399,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                     <SeriesChip b={b} act={act} />
                     <div className="mt-0.5 text-sm font-medium">
                       <ActivityGlyph sport={b.sport} /> {b.courtName}
+                      <ProvisionalLane b={b} />
                     </div>
                     <div className="text-sm text-slate-500">
                       {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
@@ -1382,6 +1465,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                     {showVenue && <td className="px-3 py-2">{b.venueName}</td>}
                     <td className="px-3 py-2">
                       <ActivityGlyph sport={b.sport} /> {b.courtName}
+                      <ProvisionalLane b={b} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {formatHour(b.startHour, t.locale)} – {formatHour(b.endHour, t.locale)}
@@ -1470,6 +1554,8 @@ interface Act {
   checkPlaceConcession: (b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused", remember?: string) => void;
   payWithPasses: (code: string, passCodes: string[]) => Promise<string | null>;
   collectCoachDifference: (b: AdminBookingRow, changeId: number, via: CounterMethod, closePage?: boolean) => void;
+  openLane: (b: AdminBookingRow) => void;
+  addGame: (code: string) => void;
 }
 
 const CHIP = "inline-flex min-h-7 items-center rounded-full px-2.5 text-xs font-semibold transition";
@@ -1570,12 +1656,24 @@ function WaiverChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   );
 }
 
+/** A lane given on arrival, not yet checked in: the lane held is provisional, and the customer has not been told it (lib/lanes.ts). */
+function ProvisionalLane({ b }: { b: AdminBookingRow }) {
+  const t = useStaffT();
+  if (!b.laneOnArrival || b.checkedInAt || b.status !== "confirmed") return null;
+  return (
+    <span title={t("bowl.provisionalTitle")} className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200">
+      {t("bowl.provisional")}
+    </span>
+  );
+}
+
 /** Rackets, shuttles or drinks to hand over with the booking. */
 function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
   if (!b.addons?.length)
     return (
       <>
+        {b.games ? <div className="mt-1 text-xs text-slate-600">{t.plural("bowl.games", b.games)}</div> : null}
         {(b.players ?? 1) > 1 && <div className="mt-1 text-xs text-slate-600">👥 {t.plural("bk.players", b.players ?? 1)}</div>}
         {b.coachName && <Coach b={b} act={act} />}
         <ConcessionCheck b={b} act={act} />
@@ -1584,6 +1682,7 @@ function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
   return (
     <div className="mt-1 text-xs text-slate-600">
       {b.coachName && <Coach b={b} act={act} />}
+      {b.games ? <div>{t.plural("bowl.games", b.games)}</div> : null}
       {(b.players ?? 1) > 1 && <div>👥 {t.plural("bk.players", b.players ?? 1)}</div>}
       🎒 {b.addons.map((a) => (a.kind === "rental" ? t("bk.addonHire", { qty: a.quantity, name: a.name }) : `${a.quantity} × ${a.name}`)).join(", ")}
       <ConcessionCheck b={b} act={act} />
@@ -2032,8 +2131,9 @@ function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   return (
     <span className="inline-flex gap-1">
       <button
-        onClick={() => act.toggleCheckIn(b.code, false)}
-        title={t("bk.checkInTitle")}
+        // A lane given on arrival: staff choose the lane as it is checked in (the one held, or another free).
+        onClick={() => (b.laneOnArrival ? act.openLane(b) : act.toggleCheckIn(b.code, false))}
+        title={b.laneOnArrival ? t("bowl.checkInTitle") : t("bk.checkInTitle")}
         className={`${CHIP} bg-teal-50 text-teal-700 hover:bg-teal-100`}
       >
         {t("bk.checkIn")}
@@ -2236,6 +2336,16 @@ function RowActions({ b, act }: { b: AdminBookingRow; act: Act }) {
           {t("bk.changeTime")}
         </button>
       )}
+      {/* Sold by the game: one more, while the lane is free after it (an overrun). */}
+      {b.games && !b.checkedOutAt && b.paymentStatus !== "paid" ? (
+        <button
+          onClick={() => act.addGame(b.code)}
+          title={t("bowl.addTitle")}
+          className="inline-flex min-h-7 items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"
+        >
+          {t("bowl.add")}
+        </button>
+      ) : null}
       <button
         onClick={() => act.openCorrect(b)}
         className="inline-flex min-h-7 items-center rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-600 hover:border-teal-500 hover:text-teal-700"

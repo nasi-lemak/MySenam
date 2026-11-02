@@ -163,6 +163,10 @@ What may be booked is kept apart from what can be stored
 | Charge by steps of / at least (minutes) / at least (amount) | none | Rounding and minimums |
 | Prices for set lengths | none | 90 minutes RM40, RM55 when it starts at peak |
 | Setup fee / cleanup fee | 0 | Shown apart from the time |
+| Sold by the game: minutes for one game of one player / more for each other player (`gameMinutes`, `gameMinutesEach`) | none (by time) / 0 | The booking holds the games' estimate, rounded up to the length step; 0 minutes sells by time over an activity that sells by the game ([by the game](../features/booking.md#by-the-game-and-a-lane-given-on-arrival)) |
+| Most games in one booking (`maxGames`) | 10 | 1 to 20 |
+| Price of a game / at peak (`gamePrice`, `gamePeakPrice`) | none | None: the time held, at the court's rates |
+| Lane given on arrival (`laneOnArrival`) | no | The booking claims one lane like any other; the lane is provisional, not told to the customer before check-in, where the desk may move it to any lane free ([lib/lanes.ts](../../src/lib/lanes.ts)) |
 
 - **Inheritance, setting by setting**: a court's own, else its sport's at
   the venue, else the venue's, else its business's (every branch), else the

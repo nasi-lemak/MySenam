@@ -93,8 +93,10 @@ export { passCost } from "./pass-rules";
 import {
   breachMessage,
   claimBuffers,
+  gameHold,
   gridMinutes,
   lengthAllowed,
+  soldByGame,
   policiesFor,
   policyBuffers,
   policyBreaches,
@@ -410,6 +412,7 @@ export const cancelBooking = busyAware(cancelBookingOnce);
 export const adminCancelBooking = busyAware(adminCancelBookingOnce);
 export const rescheduleBooking = busyAware(rescheduleBookingOnce);
 export const moveBooking = busyAware(moveBookingOnce);
+export const addGames = busyAware(addGamesOnce);
 export const enrolInClass = busyAware(enrolInClassOnce);
 /** Several people in a class at once, all or none (lib/participant-bookings.ts). */
 export const enrolPeople = busyAware(enrolPeopleOnce);
@@ -490,6 +493,8 @@ interface BookingRow {
   tax_rate?: number | string | null;
   participant_id?: number | null;
   participant_name?: string | null;
+  games?: number | null;
+  lane_on_arrival?: boolean;
   sport: Sport;
 }
 
@@ -597,6 +602,8 @@ function toBooking(r: BookingRow): Booking {
     coachFee: Number(r.coach_fee ?? 0),
     accountId: r.account_id ?? null,
     taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : Number(r.tax_rate),
+    ...(r.games ? { games: r.games } : {}),
+    ...(r.lane_on_arrival === true ? { laneOnArrival: true } : {}),
   };
 }
 
@@ -653,10 +660,27 @@ export interface WhenInput {
   end?: number;
   minutes?: number;
   hours?: number[];
+  /**
+   * On a resource sold by the game (lib/booking-rules.ts `soldByGame`): how
+   * many games, from `start` (or the first of `hours`). The length is the
+   * venue's estimate for them and the players (`gameHold`); an end or length
+   * given with it is not read.
+   */
+  games?: number;
 }
 
-/** The span a request asks for on a court with this policy. */
-export function spanFor(when: WhenInput, policy: BookingPolicy): { ok: true; span: Span } | Refusal {
+/**
+ * The span a request asks for on a court with this policy: by the game, the
+ * games for `players` from its start; otherwise the time it gives.
+ */
+export function spanFor(when: WhenInput, policy: BookingPolicy, players = 1): { ok: true; span: Span } | Refusal {
+  if (when.games !== undefined) {
+    if (!soldByGame(policy)) return refuse("GAMES_NOT_HERE");
+    if (!Number.isInteger(when.games) || when.games < 1 || when.games > policy.maxGames) return refuse("GAMES_RANGE", { max: policy.maxGames });
+    const from = when.start ?? (when.hours && when.hours.length > 0 ? minutesOf(Math.min(...when.hours)) : undefined);
+    if (from === undefined || !isMinute(from)) return refuse("NO_HOURS");
+    return { ok: true, span: { start: from, end: from + gameHold(policy, when.games, players) } };
+  }
   if (when.start !== undefined) {
     const end = when.end ?? (when.minutes !== undefined ? when.start + when.minutes : undefined);
     if (!isMinute(when.start) || !isMinute(end) || end <= when.start) return refuse("NO_HOURS");
@@ -687,14 +711,16 @@ export async function policyForSport(venueId: number, sport: Sport): Promise<Cou
  */
 export async function requestedSpan(
   where: { courtId: number } | { venueId: number; sport: Sport },
-  when: WhenInput
+  when: WhenInput,
+  /** Players, where the length is by the game. */
+  players = 1
 ): Promise<{ ok: true; span: Span } | Refusal> {
   if ("courtId" in where) {
     const court = await getCourt(where.courtId);
     if (!court) return refuse("COURT_NOT_FOUND");
-    return spanFor(when, await policyFor(court));
+    return spanFor(when, await policyFor(court), players);
   }
-  return spanFor(when, await sportPolicyAt(where.venueId, where.sport));
+  return spanFor(when, await sportPolicyAt(where.venueId, where.sport), players);
 }
 
 /** A court's rules and hours on a date: everything a booking of it is checked against, short of what holds it. */
@@ -787,7 +813,7 @@ function whyTaken(
  * evening booking on the same courts. Each court's own policy decides whether
  * it may be booked for that time at all.
  */
-export async function courtsForAnyBooking(input: { venueId: number; sport: Sport; date: string } & WhenInput): Promise<Court[]> {
+export async function courtsForAnyBooking(input: { venueId: number; sport: Sport; date: string; players?: number } & WhenInput): Promise<Court[]> {
   const { venueId, sport, date } = input;
   const db = getDb();
   const courts = (
@@ -803,13 +829,16 @@ export async function courtsForAnyBooking(input: { venueId: number; sport: Sport
   const priced: { court: Court; price: number }[] = [];
   for (const court of courts) {
     const day = days.get(court.id)!;
-    const asked = spanFor(input, day.policy);
+    const players = Math.min(Math.max(1, input.players ?? 1), placesPerBooking(court));
+    const asked = spanFor(input, day.policy, players);
     if (!asked.ok || day.closed) continue;
+    // Sold by the game, a booking asks for games; by time, it does not (createBookingSeries says why to the customer).
+    if (soldByGame(day.policy) !== (input.games !== undefined)) continue;
     const span = asked.span;
     if (policyBreaches(day.policy, span, day, minutesUntil(date, span.start, zone)).length > 0) continue;
     if (minutesUntil(date, span.start, zone) <= 0) continue;
     if (!fits(held.get(court.id)!, court.capacity, span, policyBuffers(day.policy))) continue;
-    priced.push({ court, price: priceBooking({ court, date, span, rules, pricing: day.policy.pricing, at: Date.now() }).total });
+    priced.push({ court, price: priceBooking({ court, date, span, rules, pricing: day.policy.pricing, at: Date.now(), players, games: input.games ?? null }).total });
   }
   return priced.sort((a, b) => a.price - b.price || a.court.id - b.court.id).map((p) => p.court);
 }
@@ -1022,6 +1051,8 @@ function publicPolicy(p: BookingPolicy): CourtAvailability["policy"] {
     defaultLength: p.defaultLength,
     noticeMinutes: p.noticeMinutes,
     needs: needsOf(p),
+    ...(soldByGame(p) ? { gameMinutes: p.gameMinutes, gameMinutesEach: p.gameMinutesEach, maxGames: p.maxGames } : {}),
+    ...(p.laneOnArrival ? { laneOnArrival: true } : {}),
   };
 }
 
@@ -1043,7 +1074,7 @@ export function startOptions(day: CourtDay, occupants: Occupant[], date: string,
     const ahead = minutesUntil(date, start, day.zone);
     if (ahead <= 0 || ahead < policy.noticeMinutes) continue;
     const fitting: number[] = [];
-    const candidates = lengths ?? lengthsBetween(policy);
+    const candidates = soldByGame(policy) ? gameLengths(policy, placesPerBooking(court)) : (lengths ?? lengthsBetween(policy));
     for (const length of candidates) {
       if (start + length > day.closeMin) break;
       // Where the clocks change, no booking touching the change (lib/time.ts); longer ones would too.
@@ -1060,6 +1091,18 @@ export function startOptions(day: CourtDay, occupants: Occupant[], date: string,
     // Every length up to the longest, unless some in between do not fit.
     out.push(candidates[fitting.length - 1] === longest ? { minute: start, maxLength: longest } : { minute: start, maxLength: longest, lengths: fitting });
   }
+  return out;
+}
+
+/**
+ * The lengths a booking sold by the game may hold, shortest first: every
+ * length step up to the most games for the most players, so a start says how
+ * many games fit from it for any number of players.
+ */
+function gameLengths(policy: BookingPolicy, mostPlayers: number): number[] {
+  const step = Math.max(1, policy.lengthStep);
+  const out: number[] = [];
+  for (let l = step; l <= gameHold(policy, policy.maxGames, Math.max(1, mostPlayers)); l += step) out.push(l);
   return out;
 }
 
@@ -1208,6 +1251,10 @@ export interface SearchResult {
    * itself. Never added up: a single kayak is not a double one.
    */
   groups: SearchGroup[];
+  /** Sold by the game (lib/booking-rules.ts `soldByGame`): the result is one game, for one player, held for the venue's estimate of it. */
+  games?: number;
+  /** Its lanes are given on arrival (lib/lanes.ts): a lane, never which, is shown. */
+  laneOnArrival?: true;
 }
 
 /** One heading's kinds at a search result's venue and time (`SearchResult.groups`). */
@@ -1660,7 +1707,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
   const allCourts = inReach.map((r) => courtFor(toCourt(r), input.sport));
   // Not a court whose policy will not take a booking that long.
   const days = await courtDays(allCourts, input.date);
-  const candidates = inReach.filter((row) => lengthAllowed(days.get(row.id)!.policy, length) && !days.get(row.id)!.closed);
+  // Sold by the game, a court takes one game, whatever the length asked (its board offers more).
+  const candidates = inReach.filter((row) => (soldByGame(days.get(row.id)!.policy) || lengthAllowed(days.get(row.id)!.policy, length)) && !days.get(row.id)!.closed);
   if (candidates.length === 0) return [];
   const zones = new Map(candidates.map((row) => [row.v_id, zoneOfRow(row)]));
   const held = await occupantsOn(candidates.map(toCourt), input.date, (venueId) => zones.get(venueId)!);
@@ -1713,28 +1761,33 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     }
     const occupants = held.get(court.id)!;
     const buffers = policyBuffers(day.policy);
+    // By the game: one game, for one player, held for the venue's estimate of it.
+    const byGame = soldByGame(day.policy);
+    const held1 = byGame ? gameHold(day.policy, 1) : length;
     // A booking of `length` must still finish by the court's close.
     let shownUpTo = -Infinity;
-    for (const start of startsWithin(day.policy, Math.max(wantFrom, day.openMin), Math.min(wantTo, day.closeMin - length) + 1)) {
+    for (const start of startsWithin(day.policy, Math.max(wantFrom, day.openMin), Math.min(wantTo, day.closeMin - held1) + 1)) {
       if (start < shownUpTo + apart || start % apart !== 0) continue;
       const ahead = minutesUntil(input.date, start, zone);
       if (ahead <= 0 || ahead < day.policy.noticeMinutes) continue;
-      const span = { start, end: start + length };
+      const span = { start, end: start + held1 };
       if (!fits(occupants, court.capacity, span, buffers)) continue;
       shownUpTo = start;
       results.push({
         venue,
         court,
         startMin: start,
-        endMin: start + length,
+        endMin: start + held1,
         startHour: hoursOf(start),
-        endHour: hoursOf(start + length),
-        totalPrice: priceBooking({ court, date: input.date, span, rules: rulesOf.get(row.v_id), pricing: day.policy.pricing, at: Date.now() }).total,
+        endHour: hoursOf(start + held1),
+        totalPrice: priceBooking({ court, date: input.date, span, rules: rulesOf.get(row.v_id), pricing: day.policy.pricing, at: Date.now(), ...(byGame ? { games: 1 } : {}) }).total,
         alsoFree: 0,
         pricesVary: false,
         needs: needsOf(day.policy),
         groups: [],
         ...(distanceKm !== undefined ? { distanceKm } : {}),
+        ...(byGame ? { games: 1 } : {}),
+        ...(day.policy.laneOnArrival ? { laneOnArrival: true as const } : {}),
       });
     }
   }
@@ -1905,9 +1958,21 @@ export function quoteBooking(
   member: MemberPricing,
   rules: PeakRules,
   at: number | undefined,
-  players = 1
+  players = 1,
+  /** Sold by the game: how many; priced per game where the policy has a price for one. */
+  games: number | null = null
 ): Quote {
-  return priceBooking({ court, date, span, member, rules, pricing: policy.pricing, at, players });
+  return priceBooking({ court, date, span, member, rules, pricing: policy.pricing, at, players, games });
+}
+
+/**
+ * A booking by time on a resource sold by the game, or the other way round:
+ * the refusal the customer is told. A class enrolment is the class's.
+ */
+export function gamesRefusal(policy: BookingPolicy, when: WhenInput, sport: Sport): Refusal | null {
+  if (soldByGame(policy) && when.games === undefined) return refuse("GAMES_NEEDED", { sport: activityName(sport), max: policy.maxGames });
+  if (!soldByGame(policy) && when.games !== undefined) return refuse("GAMES_NOT_HERE");
+  return null;
 }
 
 export { hasMemberRate } from "./pricing";
@@ -1942,10 +2007,13 @@ export async function quoteFor(input: {
   const court = courtFor(found, input.sport ?? found.sport);
   if (!isValidDateString(input.date)) return refuse("NO_HOURS");
   const day = await courtDay(court, input.date);
-  const asked = spanFor(input, day.policy);
+  const players = Math.min(Math.max(1, input.players ?? 1), placesPerBooking(court));
+  const wrongUnit = gamesRefusal(day.policy, input, court.sport);
+  if (wrongUnit) return wrongUnit;
+  const asked = spanFor(input, day.policy, players);
   if (!asked.ok) return asked;
   const span = asked.span;
-  const players = Math.min(Math.max(1, input.players ?? 1), placesPerBooking(court));
+  const games = input.games ?? null;
   const rules = await peakRules(court.venueId);
   let quote: Quote;
   if (input.people && input.phone) {
@@ -1959,17 +2027,17 @@ export async function quoteFor(input: {
       date: input.date,
     });
     const now = Date.now();
-    quote = quoteBooking(court, day.policy, input.date, span, members.booking?.level ?? false, rules, now, players);
+    quote = quoteBooking(court, day.policy, input.date, span, members.booking?.level ?? false, rules, now, players, games);
     const off = roundMoney(
       members.places.reduce(
-        (s, p) => s + Math.max(0, roundMoney((quote.court - quoteBooking(court, day.policy, input.date, span, p.level, rules, now, players).court) / players)),
+        (s, p) => s + Math.max(0, roundMoney((quote.court - quoteBooking(court, day.policy, input.date, span, p.level, rules, now, players, games).court) / players)),
         0
       )
     );
     if (off > 0) quote = { ...quote, court: roundMoney(quote.court - off), total: roundMoney(quote.total - off) };
   } else {
     const member = input.phone ? await memberPricing(court.venueId, input.phone, input.date, input.by ? { userId: input.userId, by: input.by } : undefined) : false;
-    quote = quoteBooking(court, day.policy, input.date, span, member, rules, Date.now(), players);
+    quote = quoteBooking(court, day.policy, input.date, span, member, rules, Date.now(), players, games);
   }
   const breaches = policyBreaches(day.policy, span, day, minutesUntil(input.date, span.start, day.zone));
   if (day.closed) return { ok: true, span, quote, allowed: false, refusal: refuse("VENUE_CLOSED") };
@@ -2178,9 +2246,17 @@ export async function createBookingSeries(
   // A class the venue has put in the diary can be joined whenever it is (a term runs past the window).
   if (!input.classId && !override && !isBookableDate(date, zone, await venueAheadDays(court.venueId)))
     return refuse("DATE_OUT_OF_WINDOW_FIRST");
-  const asked = spanFor(input, policy);
+  // Sold by the game, a number of games; by time, a time (a class's place is the class's).
+  if (!input.classId) {
+    const wrongUnit = gamesRefusal(policy, input, court.sport);
+    if (wrongUnit) return wrongUnit;
+  }
+  const asked = spanFor(input, policy, players);
   if (!asked.ok) return asked;
   const span = asked.span;
+  const games = input.classId ? null : (input.games ?? null);
+  // A lane given on arrival: the lane claimed is provisional, never named to the customer before check-in (lib/lanes.ts).
+  const laneOnArrival = !input.classId && policy.laneOnArrival;
   // Closed that day (a closure, or a weekday it never opens) says so, rather than "outside the hours".
   if (day.closed && !input.classId) return refuse("VENUE_CLOSED");
   // The court's rules: customers keep to them; staff allowed to may go past them, and it is recorded.
@@ -2315,7 +2391,7 @@ export async function createBookingSeries(
         if (week > 0 && (await getVenueClosure(court.venueId, weekDate))) reason = "venue closed";
         const members = await membersOn(weekDate);
         const member: MemberPricing = members.booking?.level ?? false;
-        const quote = quoteBooking(court, policy, weekDate, span, member, rules, bookedAt, players);
+        const quote = quoteBooking(court, policy, weekDate, span, member, rules, bookedAt, players, games);
         // A member's own place at the member's price, the others' at the public one: each place's share of the court time.
         // (A class is priced at the class's rate instead.)
         const memberPlaces = input.classId
@@ -2323,7 +2399,7 @@ export async function createBookingSeries(
           : members.places
               .map((p) => ({
                 ...p,
-                amount: roundMoney((quote.court - quoteBooking(court, policy, weekDate, span, p.level, rules, bookedAt, players).court) / players),
+                amount: roundMoney((quote.court - quoteBooking(court, policy, weekDate, span, p.level, rules, bookedAt, players, games).court) / players),
               }))
               .filter((p) => p.amount > 0);
         const placeOff = roundMoney(memberPlaces.reduce((s, p) => s + p.amount, 0));
@@ -2334,8 +2410,9 @@ export async function createBookingSeries(
               const id = (await db
                 .prepare(
                   `INSERT INTO bookings (code, court_id, sport, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
-                     fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override, last_minute, made_on, guest_of_entry)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                     fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override, last_minute, made_on, guest_of_entry,
+                     games, lane_on_arrival)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
                 )
                 .get(
                   generateCode(), courtId, court.sport, weekDate, span.start, span.end,
@@ -2343,8 +2420,9 @@ export async function createBookingSeries(
                   name, phone, email ?? null, roundMoney(quote.total - placeOff), quote.fees,
                   userId ?? null, seriesCode, randomBytes(16).toString("hex"),
                   input.classId ?? null, players, breaches.length > 0,
-                  quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players).total ? 1 : 0,
-                  input.madeOn ?? input.by ?? "customer", input.guestOf ?? null
+                  quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players, games).total ? 1 : 0,
+                  input.madeOn ?? input.by ?? "customer", input.guestOf ?? null,
+                  games, laneOnArrival
                 )) as { id: number };
               // Who takes part, where that is somebody other than (or as well as) the customer.
               await placeParticipants(id.id, {
@@ -3492,7 +3570,7 @@ async function rescheduleBookingOnce(
   // What the old time cost when booked: a last-minute price stays with the time
   // it was given for, so moving away from it costs the difference.
   const fromPolicy = await policyFor(fromCourt);
-  const oldPrice = quoteBooking(fromCourt, fromPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await member(booking.date), rules, bookedAtOf(booking), players).total;
+  const oldPrice = quoteBooking(fromCourt, fromPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await member(booking.date), rules, bookedAtOf(booking), players, booking.games ?? null).total;
   const newMember = await member(to.date);
   let firstRefusal: Refusal | null = null;
 
@@ -3555,7 +3633,7 @@ async function rescheduleBookingOnce(
     }
     // Another coach's fee in place of the one on it.
     const feeChange = lesson ? lesson.fee - (booking.coachFee ?? 0) : 0;
-    const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players).total - oldPrice + feeChange) * 100) / 100;
+    const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players, booking.games ?? null).total - oldPrice + feeChange) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
     let coachChange: import("./lesson-coaches").CoachChange | undefined;
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
@@ -3760,7 +3838,7 @@ export async function rescheduleOptions(code: string, date: string, opts: { coac
   const rules = await peakRules(court.venueId);
   const players = booking.players ?? 1;
   const ownPolicy = await policyFor(court);
-  const now = quoteBooking(court, ownPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await memberPricing(court.venueId, booking.phone, booking.date), rules, undefined, players).total;
+  const now = quoteBooking(court, ownPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await memberPricing(court.venueId, booking.phone, booking.date), rules, undefined, players, booking.games ?? null).total;
   const courts = [
     court,
     ...(
@@ -3784,7 +3862,7 @@ export async function rescheduleOptions(code: string, date: string, opts: { coac
       if (policyBreaches(day.policy, span, day, minutesUntil(date, start, zone)).length > 0) continue;
       if (coachFree && !coachFree.some((f) => f.start <= span.start && span.end <= f.end)) continue;
       if (!fits(held.get(c.id)!, c.capacity, span, policyBuffers(day.policy), own, players)) continue;
-      const price = quoteBooking(c, day.policy, date, span, member, rules, undefined, players).total;
+      const price = quoteBooking(c, day.policy, date, span, member, rules, undefined, players, booking.games ?? null).total;
       options.set(start, {
         startMin: start,
         startHour: hoursOf(start),
@@ -3920,6 +3998,85 @@ async function moveBookingOnce(code: string, toCourtId: number): Promise<MoveRes
     fromCourt,
     toCourt,
   };
+}
+
+/**
+ * Check a booking in at the desk on the lane staff give it (a lane given on
+ * arrival, lib/lanes.ts): moved there first, in one step under the claims'
+ * constraints exactly as `moveBooking` moves any booking (refused, and
+ * nothing checked in, where that lane is not free for its time), then
+ * checked in. Its own lane checks it in where it is.
+ */
+export async function checkInOnLane(code: string, laneId: number, opts: { admit?: MembershipAdmit } = {}): Promise<DeskCheckInResult & { moved?: { from: Court; to: Court } }> {
+  const booking = await bookingByCode(code);
+  if (!booking) return refuse("BOOKING_NOT_FOUND");
+  if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+  if (booking.checkedInAt) return { ok: false, error: "Already checked in." };
+  // Not moved for a check-in that would not happen: too early, or after it ended.
+  const windowError = checkInWindowError(booking, await courtZone(booking.courtId));
+  if (windowError) return { ok: false, error: windowError };
+  let moved: { from: Court; to: Court } | undefined;
+  if (laneId !== booking.courtId) {
+    const result = await moveBooking(code, laneId);
+    if (!result.ok) return result;
+    moved = { from: result.fromCourt, to: result.toCourt };
+  }
+  const checked = await checkIn(code, opts);
+  return moved ? { ...checked, moved } : checked;
+}
+
+export type AddGamesResult = { ok: true; booking: Booking; added: number; priceChange: number } | Refusal;
+
+/**
+ * More games on a booking sold by the game, at the desk, when the players
+ * want to play on: the lane is held on for the venue's estimate of them, from
+ * where the booking ends, while that time on the same lane is free; the
+ * claims' constraints decide, in one transaction with the new price. The
+ * games are priced as a game is on the day (lib/pricing.ts), without the
+ * discounts already on the booking, and added to what is still to pay. Only
+ * a booking nothing is paid towards yet: one paid, part-paid, on an account,
+ * or with a payment page open is not changed (book the extra games as a
+ * booking of their own on the lane).
+ */
+async function addGamesOnce(code: string, extra: number): Promise<AddGamesResult> {
+  const booking = await bookingByCode(code);
+  if (!booking) return refuse("BOOKING_NOT_FOUND");
+  if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+  if (!booking.games) return refuse("GAMES_NOT_HERE");
+  const court = await bookedCourt(booking);
+  if (!court) return refuse("COURT_NOT_FOUND");
+  const day = await courtDay(court, booking.date);
+  const { policy, zone } = day;
+  if (!soldByGame(policy)) return refuse("GAMES_NOT_HERE");
+  const games = booking.games + extra;
+  if (!Number.isInteger(extra) || extra < 1 || games > policy.maxGames) return refuse("GAMES_RANGE", { max: policy.maxGames });
+  if (booking.checkedOutAt || minutesUntil(booking.date, booking.endMin, zone) <= 0) return { ok: false, error: "That booking has already finished." };
+  // Money already on it is settled on its price as it stands.
+  if (booking.paymentStatus === "paid" || booking.sharesPaid > 0.005 || booking.accountId || (await paymentPageOpen(booking.id))) return refuse("GAMES_ADD_SETTLED");
+  const players = booking.players ?? 1;
+  const span = { start: booking.startMin, end: booking.endMin + gameHold(policy, extra, players) };
+  if (span.end > day.closeMin) return refuse("HOURS_OUTSIDE_OPENING");
+  const rules = await peakRules(court.venueId);
+  const member = await memberPricing(court.venueId, booking.phone, booking.date);
+  const priceChange = quoteBooking(court, policy, booking.date, { start: booking.endMin, end: span.end }, member, rules, undefined, players, extra).court;
+  const db = getDb();
+  try {
+    await withTransaction(async () => {
+      const now = (await db
+        .prepare("SELECT status, end_min, court_id, payment_status, games FROM bookings WHERE id = ? FOR UPDATE")
+        .get(booking.id)) as { status: string; end_min: number; court_id: number; payment_status: string; games: number | null };
+      if (now.status !== booking.status || now.end_min !== booking.endMin || now.court_id !== booking.courtId || now.payment_status !== booking.paymentStatus || now.games !== booking.games)
+        throw new BookingChanged();
+      // The claims decide: the next time on the lane booked, blocked or kept free refuses it.
+      await reclaimBooking(booking, court, booking.date, span, zone, policy);
+      await db.prepare("UPDATE bookings SET games = ?, total_price = total_price + ? WHERE id = ?").run(games, priceChange, booking.id);
+    });
+  } catch (err) {
+    if (err instanceof BookingChanged) return refuse("RESCHEDULE_CHANGED");
+    if (isConflict(err)) return refuse("GAMES_ADD_TAKEN", { court: court.name });
+    throw err;
+  }
+  return { ok: true, booking: (await bookingByCode(code))!, added: extra, priceChange };
 }
 
 /** Courts a booking could move to right now, for the staff picker. */
@@ -9019,6 +9176,8 @@ export async function joinSlotWaitlist(input: {
     if (!isMinute(start) || !isMinute(end) || end <= start) return refuse("THOSE_HOURS_OUTSIDE_OPENING");
     const span = { start, end };
     if (day.closed) return refuse("VENUE_CLOSED");
+    // A waiting list is for a time, and its offer is booked by time: not for a resource sold by the game.
+    if (soldByGame(day.policy)) return refuse("GAMES_NO_WAITLIST");
     // Asked for as a booking would be: the court's rules.
     const breaches = policyBreaches(day.policy, span, day, minutesUntil(date, start, day.zone)).filter((b) => b !== "NOTICE");
     if (breaches.includes("HOURS")) return refuse("THOSE_HOURS_OUTSIDE_OPENING");

@@ -26,7 +26,7 @@ An activity has:
 | `icon`, `names` | Its picture, a glyph name ([pictures](#pictures)), and its name in English, Malay, Chinese and Tamil |
 | `aliases` | Other words people search by (*shuttle*, *bulu tangkis*, *ping pong*, *SUP*, *spin*) |
 | `template` | What a new resource for it starts as (below) |
-| `policy` | Its usual booking rules, beneath every venue's own: padel's half-hour starts and 90-minute games |
+| `policy` | Its usual booking rules, beneath every venue's own: padel's half-hour starts and 90-minute games; bowling sold by the game, its lane given on arrival |
 | `surfaced`, `supervised` | Whether a surface is worth naming (a court, not a table); whether it may never run in unstaffed hours (pools, water) |
 | `filters` | Which court filters mean something for it in search (air-con for badminton; floodlit for football; none for kayaks) |
 | `country` | Per-country names, aliases and filters: *Takraw* in Thailand, *Sipa* in the Philippines |
@@ -65,6 +65,20 @@ count, per-player pricing, most per booking and indoor or outdoor are in the
 form before the resources are made; everything is changeable on each
 resource afterwards, and the sign-off in the booking rules. Nothing about a
 resource's behaviour depends on which template it came from.
+
+### Selling units: by time, or by the game
+
+A resource is sold by time unless its booking rules sell it **by the game**:
+the customer chooses a number of games and players, the venue prices a game
+(per player where the lane is priced per player), and the lane is held for
+the venue's estimate of that many games. Its lane can also be **given on
+arrival**: booked as any lane, told to the customer only at check-in. Both
+are booking rules like the rest, set at any level (a venue, an activity at
+it, one lane), not a kind of activity: any lane activity can be sold so, and
+the catalogue's `policy` gives them to bowling, the built-in one usually sold
+that way (about 12 minutes a game for one bowler, 10 more for each other,
+6 games at most). How such a booking is made, priced, given its lane and
+extended is in [booking](booking.md#by-the-game-and-a-lane-given-on-arrival).
 
 ## Setting activities up (dashboard)
 
@@ -628,13 +642,14 @@ booking (`tests/activity-coverage.test.ts` does this for every built-in one).
 Sport-specific extras that nobody needs to sell the activity (scoring,
 rankings, logbooks) do not count against a level.
 
-**Count:** 32 built-in activities: 23 full, 8 basic, 1 specialised
+**Count:** 32 built-in activities: 24 full, 8 basic, 0 specialised
 (`tests/activities.test.ts` holds these numbers).
 
 Tested: `tests/activity-coverage.test.ts` (every built-in, set up from its
 template, found and booked as it is sold), `tests/activities.test.ts`
 (catalogue, templates, multi-activity resources, places, search),
-`tests/hire-pricing.test.ts` (pricing models), `tests/sign-offs.test.ts`,
+`tests/hire-pricing.test.ts` (pricing models), `tests/bowling-games.test.ts`
+(selling by the game and lanes given on arrival), `tests/sign-offs.test.ts`,
 `tests/approvals.test.ts` (registering online for approval: approval,
 refusal, questions answered, expiry and renewal, holds and races on
 Postgres, money, who may decide, in-person steps, minors, documents, door
@@ -658,7 +673,7 @@ codes), `tests/sports.test.ts`, `tests/capacity.test.ts` and
 | Climbing | Specialist | Wall with places, per climber, belay sign-off by default | Basic | Open-ended day passes |
 | Bouldering | Specialist | Wall with places, per climber | Basic | Open-ended day passes |
 | Archery | Specialist | Lanes, per archer, range-briefing sign-off by default | Basic | Scheduling a range officer per session |
-| Bowling | Specialist | Lanes by time, per player | Specialised | Selling by the game; assigning a lane on arrival |
+| Bowling | Specialist | Lanes sold by the game, per player, the lane given on arrival; shoe hire as an extra | Full | — |
 | An operator's own activity | Any | Any | Basic until reviewed | Whatever its workflow needs beyond the models above |
 
 Each activity's note is also shown to operators as they pick it. The work to

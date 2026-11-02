@@ -39,12 +39,13 @@ export async function GET(req: NextRequest) {
   const date = q.get("date") ?? "";
   if (!isValidDateString(date)) return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
   const raw = Object.fromEntries(
-    (["start", "end", "minutes"] as const)
+    (["start", "end", "minutes", "games"] as const)
       .filter((k) => q.get(k) !== null)
       .map((k) => [k, /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : q.get(k)])
   );
-  const time = readTime(raw);
-  if (!time.ok || time.when.start === undefined) return NextResponse.json({ error: "Give start, and end or minutes." }, { status: 400 });
+  // By the game: a start and `games` (lib/booking-rules.ts `soldByGame`).
+  const time = readTime(raw, { games: true });
+  if (!time.ok || time.when.start === undefined) return NextResponse.json({ error: "Give start, and end or minutes (or games)." }, { status: 400 });
   const limited = await rateLimit(req, "quote");
   if (limited) return limited;
 
@@ -56,7 +57,8 @@ export async function GET(req: NextRequest) {
     if (!Number.isInteger(venueId) || venueId <= 0 || !(await isActivity(sport)))
       return NextResponse.json({ error: "Give a courtId, or a venueId and sport." }, { status: 400 });
     if (!(await mayShowVenue(venueId, req)).show) return NextResponse.json({ error: "Venue not found." }, { status: 404 });
-    const free = await courtsForAnyBooking({ venueId, sport, date, ...time.when });
+    const asked = q.get("players") !== null ? Number(q.get("players")) : undefined;
+    const free = await courtsForAnyBooking({ venueId, sport, date, ...time.when, ...(asked !== undefined && Number.isInteger(asked) ? { players: asked } : {}) });
     if (free.length === 0) return refusal({ ok: false, error: "No court is free for that whole time. Please pick another time.", code: "NO_COURT_FREE" });
     courtId = free[0].id;
   }

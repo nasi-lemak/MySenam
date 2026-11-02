@@ -2829,7 +2829,7 @@ export const ZH: Record<Phrase, string> = {
   "gcap.open-day-pass.blurb": "攀岩或抱石的日票，没有固定时间。",
   "gcap.open-day-pass.alt": "出售有名额的限时时段，按每位攀岩者计价。",
   "gcap.bowling-by-game.title": "按局出售保龄球",
-  "gcap.bowling-by-game.blurb": "按局而不是按球道时间收费，并在到场时分配球道。",
+  "gcap.bowling-by-game.blurb": "顾客选择局数和人数，按每局价格计费；球道按您的估计时间预留，并在顾客到场时于柜台分配。",
   "gcap.bowling-by-game.alt": "按时间租用球道，按每位玩家计价，租鞋作为附加项目。",
   "gcap.range-officer.title": "为每节课安排射击场主管",
   "gcap.range-officer.blurb": "为每节射箭时段指派一名固定的场地主管。",
@@ -3443,6 +3443,24 @@ export const ZH: Record<Phrase, string> = {
   "mcp.body": "支持 Model Context Protocol 的 AI 助手（Claude、ChatGPT、Cursor 等）可以通过 {url} 阅读本指南、搜索空闲场地并查看场馆的公开页面。这些公开工具无需密钥，只能看到本网站向任何人显示的内容。",
   "mcp.venue": "场馆经理也可以用场馆的 API 密钥（在“场馆与员工”的“API 与 Webhook”中创建）连接自己的助手，查看该场馆的空档、预订和设置，并在确认后预订或取消。除非场馆开启，否则顾客的姓名、电话号码和电邮始终隐藏。请把密钥保存在环境变量中，切勿粘贴到聊天里。",
   "mcp.example": "例如，在 Claude Code 中：",
+  // bowl
+  "bowl.laneOnArrival": "到场后分配球道",
+  "bowl.anyLane": "一条球道，到场后分配",
+  "bowl.anyLaneHint": "球道在柜台分配",
+  "bowl.lanesFree_one": "{time} · {n} 条球道空闲",
+  "bowl.lanesFree_other": "{time} · {n} 条球道空闲",
+  "bowl.games": "局数",
+  "bowl.gamesCount_one": "{n} 局",
+  "bowl.gamesCount_other": "{n} 局",
+  "bowl.estimate": "约占用球道 {len}",
+  "bowl.perGame": "每局",
+  "bowl.perPlayerGame": "每人每局",
+  "err.GAMES_NEEDED": "此处的{sport}按局预订：请说明局数，1 至 {max} 局。",
+  "err.GAMES_NOT_HERE": "此项按时间预订，不按局预订。",
+  "err.GAMES_RANGE": "请说明局数：1 至 {max} 局。",
+  "err.GAMES_ADD_SETTLED": "只有尚未付任何款项的预订才能加局。请把加打的局数作为同一球道上的单独预订。",
+  "err.GAMES_ADD_TAKEN": "{court} 在此之后已被预订：该球道没有空闲时间再打更多局。",
+  "err.GAMES_NO_WAITLIST": "按局预订没有候补名单。请选择其他时间。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

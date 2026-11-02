@@ -9,6 +9,7 @@ import { ratesOn } from "../pricing";
 import { region } from "../region";
 import { venueSetup } from "../setup";
 import { getVenue } from "../store";
+import { policiesFor } from "../booking-policy";
 import { hoursFor } from "../week-hours";
 import { paidStandingTests, standingTestBookings } from "../test-bookings";
 import { emailConfig, whatsappConfig } from "../transports";
@@ -224,6 +225,8 @@ export async function readVenueProfile(venueId: number, opts: { today?: string }
     priced,
     perPlayer,
     unmanned,
+    // Lanes the desk gives on arrival (lib/lanes.ts), as each one's booking rules resolve.
+    laneOnArrival: [...(await policiesFor(venue.courts.filter((c) => !c.classesOnly))).values()].filter((p) => p.laneOnArrival).length,
   };
 
   // ------------------------------------------------------------ hours and rates
