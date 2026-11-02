@@ -795,6 +795,41 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 2 November 2026, commit `af5ddb5`
+
+The owner's initiative of 31 October 2026, personalised venue onboarding: the
+public guide *How MySenam fits your business*, the adaptive setup journey over
+the venue's real configuration with launch readiness, the deterministic
+playbook for manager, front desk and coach, contextual help and capability
+discovery ([venue guide](../features/venue-guide.md), ADR 0028); then, at the
+owner's request of 1 and 2 November, the MCP server for AI assistants in three
+layers ([MCP](../integrations/mcp.md), ADRs 0029 and 0030) and the image
+standard ([images](images.md)). Not a launch. Run on one cloud container,
+Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 114 passed |
+| Suite on PGlite | 399 files (3 Postgres-only skipped); 4373 passed, 12 skipped |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 399 files; 4385 passed |
+| Guide, MCP and pictures inside both suites | Among them: `tests/guide-*.test.ts` (profile, plan, setup journey, playbook, public guide, help and discovery), `tests/mcp.test.ts` and `tests/mcp-oauth.test.ts` (protocol, keys, scopes, personal data hidden by default, PKCE, token rotation and reuse, grants ended on role change, configuration tools against the dashboard's routes), `tests/public-api.test.ts`, `tests/glyphs.test.ts`, `tests/activity-pictures.test.ts`, `tests/site.test.ts` |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`), the venue guide's A to I among them (`tests/uat/guide*.uat.ts`) | 20 files; 80 of 80 |
+| CI | Not run (deferred) |
+| Real services | None checked: payments against the fake gateways and the Billplz stand-in, messages through the outbox only, the MCP server and its OAuth sign-in through the route handlers and a browser, never from claude.ai, ChatGPT or another real assistant |
+
+Earlier full runs on the way found, and this one confirms fixed: provider
+credentials of the cloud session reaching a second acceptance server (S33,
+its remainder); 76 public phrases naming the site directly instead of
+`{site}`; a scenario counting rows before the list was read again after a
+save; a test that failed on Mondays (its week-later booking past the
+14-day window). Two runs were cut short when the container was recycled
+while idle. Gaps: no live integration has passed its check; machine-assisted
+Malay, Chinese and Tamil await native review; the pictures are drawn
+in-house, not by a designer.
+
 #### 30 October 2026, commit `9db93d4`
 
 The owner's decisions closing round 9 (29 October 2026), reconciled before
