@@ -603,7 +603,8 @@ describe("changing a class", () => {
       await form.getByLabel("Also every later session of this weekly class that has not started").check();
       await form.getByRole("button", { name: "Save changes" }).click();
       await manager.page.getByText("Changed 4 sessions.").waitFor();
-      expect(await manager.page.locator("tr").filter({ hasText: className }).filter({ hasText: "Cikgu Rina" }).count()).toBe(0);
+      // The list is read again after the save, a moment after the message: wait for it rather than count the rows it is replacing.
+      await expect.poll(() => manager.page.locator("tr").filter({ hasText: className }).filter({ hasText: "Cikgu Rina" }).count(), { timeout: 15_000 }).toBe(0);
     });
 
     await s.step(member, "sees each session of the class listed with Coach Hafiz on the classes page, none with Cikgu Rina", async () => {
