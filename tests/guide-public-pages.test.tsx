@@ -162,12 +162,16 @@ describe("a page for each kind of business", () => {
 
   it("refines by activity from the address, and says what the catalogue says of it", async () => {
     marketplace(true);
-    const d = await typePage("badminton-and-pickleball", { activities: "bowling,kayak" });
-    expect(d.querySelector("#know")!.textContent).toContain("Not built: selling by the game");
-    expect(d.querySelector("#know")!.textContent).toContain("Time can be booked; the usual way of selling it is not built");
-    expect(d.querySelector("#not")!.textContent).toContain("Selling bowling by the game");
-    expect(d.querySelector("#not")!.textContent).toContain("Hire lanes by time, priced per player");
+    const d = await typePage("badminton-and-pickleball", { activities: "archery,kayak" });
+    expect(d.querySelector("#know")!.textContent).toContain("Not built: scheduling a range officer for each session");
+    expect(d.querySelector("#know")!.textContent).toContain("Basic support");
+    expect(d.querySelector("#not")!.textContent).toContain("Scheduling a range officer for each session");
+    expect(d.querySelector("#not")!.textContent).toContain("Book lanes by the hour with a range briefing as a sign-off");
     expect(d.querySelector("#day")!.textContent).toContain("Hiring equipment with a deposit");
+    // Bowling is sold by the game now: nothing about it is "not built".
+    const bowling = await typePage("badminton-and-pickleball", { activities: "bowling" });
+    expect(bowling.querySelector("#know")?.textContent ?? "").not.toContain("Not built");
+    expect(bowling.querySelector("#not")?.textContent ?? "").not.toContain("Selling bowling by the game");
     // The catalogue's own English note is marked as English.
     expect(d.querySelector('#know [lang="en"]')).not.toBeNull();
   });
@@ -185,11 +189,14 @@ describe("a page for each kind of business", () => {
     }
   });
 
-  it("states a gym's limit plainly and gives the alternative, and never shows swimming an unstaffed door", async () => {
+  it("states a supervised range's limit plainly and gives the alternative, offers a gym entry without booking, and never shows swimming an unstaffed door", async () => {
     marketplace(true);
+    const range = await typePage("archery-and-supervised");
+    expect(range.querySelector("#not")!.textContent).toContain("Scheduling a range officer for each session");
+    expect(range.querySelector("#not")!.textContent).toContain("Book lanes by the hour with a range briefing as a sign-off");
     const gym = await typePage("gym-and-fitness");
-    expect(gym.querySelector("#not")!.textContent).toContain("Gym entry without booking a session");
-    expect(gym.querySelector("#not")!.textContent).toContain("Sell timed sessions with places");
+    // Built now (entry with no set time): never listed as something MySenam does not do.
+    expect(gym.querySelector("#not")?.textContent ?? "").not.toContain("Gym entry without booking a session");
     expect(gym.body.textContent).toContain("Entry when nobody is at the desk");
     const swim = await typePage("swimming");
     expect(swim.body.textContent).not.toContain("Entry when nobody is at the desk");

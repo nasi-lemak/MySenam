@@ -4,6 +4,10 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { ChangeTime } from "../../src/components/ChangeTime";
 import type { Booking } from "../../src/lib/types";
+import { addDays, todayISO } from "../../src/lib/time";
+
+/** Tomorrow, so the booking is never in the past whenever the test runs (the screen moves a past date to today). */
+const DAY = addDays(todayISO(), 1);
 
 /**
  * Changing a booking's time with a preview first (lib/game-moves.ts): what a
@@ -11,13 +15,13 @@ import type { Booking } from "../../src/lib/types";
  * game with players asks for the reason its players are told.
  */
 
-const booking = { code: "MS-GAME01", date: "2026-11-02", startMin: 1080, endMin: 1140, courtId: 3, paymentStatus: "unpaid" } as unknown as Booking;
+const booking = { code: "MS-GAME01", date: DAY, startMin: 1080, endMin: 1140, courtId: 3, paymentStatus: "unpaid" } as unknown as Booking;
 const option = { startMin: 1200, startHour: 20, courtId: 3, courtName: "Court 3", price: 25, difference: 0 };
 
 function preview(outcome: "move" | "proposal" | "venue") {
   return {
-    from: { date: "2026-11-02", startMin: 1080, endMin: 1140, courtId: 3, courtName: "Court 3" },
-    to: { date: "2026-11-02", startMin: 1200, endMin: 1260, courtId: 3, courtName: "Court 3" },
+    from: { date: DAY, startMin: 1080, endMin: 1140, courtId: 3, courtName: "Court 3" },
+    to: { date: DAY, startMin: 1200, endMin: 1260, courtId: 3, courtName: "Court 3" },
     priceChange: 0,
     unchargedDifference: 0,
     outcome,
@@ -86,7 +90,7 @@ describe("changing the time with a preview", () => {
     await act(async () => {
       fireEvent.click(confirm);
     });
-    expect(submit).toHaveBeenCalledWith(option, "2026-11-02", "Court 3 is flooded");
+    expect(submit).toHaveBeenCalledWith(option, DAY, "Court 3 is flooded");
   });
 
   it("goes back without changing anything", async () => {

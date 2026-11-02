@@ -795,6 +795,36 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 3 November 2026, commit `5b11351`
+
+The owner's request of 2 November 2026: multi-visit passes sold online
+(migration 0264), bowling sold by the game with a lane given on arrival
+(0265), and entry with no set time with day passes and gym entry on a
+membership (0266); a lost chargeback on a membership now credits its receipt
+(M31). Not a launch. Run on one cloud container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 114 passed |
+| Suite on PGlite | 402 files (3 Postgres-only skipped); 4428 passed, 5 failed, 12 skipped; the 5 corrected and passed (below) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 402 files; 4440 passed, 5 failed; the 5 corrected and passed (below) |
+| The new work inside both suites | Among them: `tests/passes-online.test.ts` (issued once with webhook and return racing), `tests/bowling-games.test.ts` (the race for the last free lane), `tests/entries.test.ts` (eight admissions at once for three places), `tests/membership-purchases.test.ts` (M31) |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 20 files; 79 of 80; Guide H corrected and passed (below) |
+| CI | Not run (deferred) |
+| Real services | None checked: passes paid through the Stripe and Billplz stand-ins only |
+
+The six failures were tests stating what had just changed: four still took gym
+entry, climbing day passes or bowling by the game for things not built (now
+built; they take archery's range officer, still not built, and check the new
+ones are no longer listed), and one fixed its booking on 2 November, past by
+the run (it now books tomorrow). The tests were corrected, not the code: the
+four unit files passed on both engines and the scenario file against the
+same build, after the commit. Gaps: no live integration has passed its check;
+machine-assisted Malay, Chinese and Tamil await native review.
+
 #### 2 November 2026, commit `af5ddb5`
 
 The owner's initiative of 31 October 2026, personalised venue onboarding: the

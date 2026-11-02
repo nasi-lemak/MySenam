@@ -139,51 +139,47 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
     });
   });
 
-  scenario("Guide H: a visitor who runs a gym and a climbing wall is told, in English and in Malay, what MySenam does not do and what to do instead; the dashboard says the same and never offers to set it up", async (s) => {
+  scenario("Guide H: an archery range is told, in English and Malay, what MySenam does not do (a range officer per session) and what to do instead; gym entry and day passes, built now, are not among it; setup never offers it", async (s) => {
     const visitor = await s.actor("Visitor");
     const page = visitor.page;
 
-    await s.step(visitor, "chooses a gym and a climbing centre, refining by the gym activity, on the public guide", async () => {
+    await s.step(visitor, "chooses an archery range and a gym, refining by archery, on the public guide", async () => {
       await page.goto(`${url}/for-venues`);
       await page.getByRole("heading", { name: "How MySenam fits your business", level: 1 }).waitFor();
+      await page.getByLabel("Archery or other supervised sport").check();
       await page.getByLabel("Gym or fitness centre").check();
-      await page.getByLabel("Climbing or bouldering centre").check();
       await page.getByText("Refine by activity (optional)").click();
-      await page.getByLabel("Gym", { exact: true }).check();
+      await page.getByLabel("Archery", { exact: true }).check();
       await page.getByRole("button", { name: "Show how it fits" }).click();
       await page.getByRole("heading", { name: "What MySenam does not do", exact: true }).waitFor();
       expect(page.url()).toContain("types=");
     });
 
-    await s.step(visitor, "reads what MySenam does not do: entry on a membership without booking a session and open-ended day passes, each with the alternative, and none of it listed as available", async () => {
+    await s.step(visitor, "reads what MySenam does not do: a range officer for each session, with the alternative, and none of it listed as available; gym entry and day passes are not there", async () => {
       const not = page.locator("#not");
-      const gym = not.locator("li").filter({ hasText: "Gym entry without booking a session" });
-      await gym.getByText("Letting members in on a membership alone, counting walk-ins by check-in.").waitFor();
-      await gym.getByText("Instead: Sell timed sessions with places and let members and pass holders book them.").waitFor();
-      const day = not.locator("li").filter({ hasText: "Open-ended day passes" });
-      await day.getByText("Instead: Sell timed sessions with places, priced per climber.").waitFor();
+      const officer = not.locator("li").filter({ hasText: "Scheduling a range officer for each session" });
+      await officer.getByText("Assigning a named range officer to each archery session.").waitFor();
+      await officer.getByText("Instead: Book lanes by the hour with a range briefing as a sign-off").waitFor();
+      expect(await not.innerText()).not.toMatch(/Gym entry without booking a session|Open-ended day passes/);
       // The groups of what is available: the unsupported thing is only in the group that says so.
       const groups = await page.locator("#available > div > div").evaluateAll((divs) => divs.map((d) => ({ heading: d.querySelector("h3")?.textContent ?? "", items: [...d.querySelectorAll("li")].map((li) => li.textContent ?? "") })));
       const unsupported = groups.find((g) => g.heading.includes("Not currently supported"))!;
-      expect(unsupported.items.some((i) => i.includes("Gym entry without booking a session"))).toBe(true);
+      expect(unsupported.items.some((i) => i.includes("Scheduling a range officer for each session"))).toBe(true);
+      expect(unsupported.items.some((i) => /Gym entry without booking a session|Open-ended day passes/.test(i))).toBe(false);
       for (const g of groups.filter((x) => !x.heading.includes("Not currently supported")))
-        for (const item of g.items) {
-          expect(item, `${g.heading} lists ${item}`).not.toContain("Gym entry without booking a session");
-          expect(item).not.toContain("Open-ended day passes");
-        }
-      expect(unsupported.items.find((i) => i.includes("Gym entry without booking a session"))).not.toMatch(/Available/i);
+        for (const item of g.items) expect(item, `${g.heading} lists ${item}`).not.toContain("Scheduling a range officer for each session");
       // The catalogue's own note, kept in English and marked as such, says the part that is not built.
-      await page.locator("#know").getByText(/Not built: entry on a membership without booking a session/).waitFor();
+      await page.locator("#know").getByText(/Not built: scheduling a range officer for each session/).waitFor();
       expect(await page.locator("#know [lang=en]").count()).toBeGreaterThan(0);
     });
 
-    await s.step(visitor, "switches the page to Bahasa Malaysia: the heading, the group and the unsupported items are in Malay, and still say not supported", async () => {
+    await s.step(visitor, "switches the page to Bahasa Malaysia: the heading, the group and the unsupported item are in Malay, and still say not supported", async () => {
       await page.getByTitle("Bahasa Malaysia", { exact: true }).first().click();
       await page.getByRole("heading", { name: "Bagaimana MySenam sesuai dengan perniagaan anda", level: 1 }).waitFor();
       await page.getByRole("heading", { name: /Belum disokong/ }).first().waitFor();
       const not = page.locator("#not");
-      await not.getByText("Kemasukan gim tanpa menempah sesi").waitFor();
-      await not.getByText("Jual sesi bermasa dengan tempat dan benarkan ahli serta pemegang pas menempahnya.").waitFor();
+      await not.getByText("Menjadual pegawai kawasan untuk setiap sesi").waitFor();
+      await not.getByText(/Tempah lorong mengikut jam dengan taklimat kawasan sebagai pengesahan/).waitFor();
       expect(await page.locator("#not h3").count()).toBeGreaterThan(0);
       const text = (await page.locator("#available").innerText()).replace(/\s+/g, " ");
       expect(text).toContain("Belum disokong");
@@ -197,15 +193,15 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
       await page.getByText(/You told us you run:/).waitFor();
       const href = new URL(page.url());
       expect(href.pathname).toBe("/list-your-venue");
-      expect(href.searchParams.get("fit")).toContain("gym-and-fitness");
+      expect(href.searchParams.get("fit")).toContain("archery-and-supervised");
       // Nothing was stored by looking: the guide is public and the choice travels in the address (the only cookie is the language's).
       expect((await page.context().cookies()).filter((c) => c.name !== "ms_lang")).toEqual([]);
     });
 
     const operator = visitor;
-    const venueId = await s.step(operator, "signs up with that choice carried into the form", async () => signUpVenue(operator, `Pusat Gim Panjat Guide ${stamp()}`, { here: true }));
+    const venueId = await s.step(operator, "signs up with that choice carried into the form", async () => signUpVenue(operator, `Pusat Memanah Guide ${stamp()}`, { here: true }));
 
-    await s.step(operator, "opens Guide → Set up: not asked again what kind of venue it is or what it offers; the gym's limitation is shown as the catalogue says it", async () => {
+    await s.step(operator, "opens Guide → Set up: not asked again what kind of venue it is or what it offers; archery's limitation is shown as the catalogue says it", async () => {
       await openGuide(page, "Set up");
       const p = page;
       await p.locator("#guide-setup-heading").waitFor();
@@ -218,26 +214,26 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
       // Going back shows what was said, ticked.
       await p.getByRole("button", { name: "Back", exact: true }).click();
       await p.locator('[data-question="activities"]').waitFor();
-      expect(await p.getByRole("checkbox", { name: /(^|\s)Gym(\s|$)/ }).first().isChecked()).toBe(true);
-      await p.getByText(/Limitation:.*Not built: entry on a membership without booking a session/).first().waitFor();
+      expect(await p.getByRole("checkbox", { name: /(^|\s)Archery(\s|$)/ }).first().isChecked()).toBe(true);
+      await p.getByText(/Limitation:.*Not built: scheduling a range officer for each session/).first().waitFor();
       await p.getByRole("button", { name: "Back", exact: true }).click();
       await p.locator('[data-question="types"]').waitFor();
+      expect(await p.getByLabel("Archery or other supervised sport", { exact: true }).isChecked()).toBe(true);
       expect(await p.getByLabel("Gym or fitness centre", { exact: true }).isChecked()).toBe(true);
-      expect(await p.getByLabel("Climbing or bouldering centre", { exact: true }).isChecked()).toBe(true);
       await p.getByRole("button", { name: "Go to my plan" }).click();
       // No step sets up what MySenam cannot do.
       const html = await p.locator("[data-guide-setup]").innerHTML();
-      expect(html).not.toMatch(/gym-walk-in|Gym entry without booking a session|open-day-pass/);
+      expect(html).not.toMatch(/range-officer|Scheduling a range officer/);
     });
 
-    await s.step(operator, "opens Discover: every unsupported thing says so, what to do instead, and has no way to set it up; the gym's says what is not built", async () => {
+    await s.step(operator, "opens Discover: every unsupported thing says so, what to do instead, and has no way to set it up; gym entry and day passes are available", async () => {
       const p = page;
       await openGuide(p, "Discover");
       await p.getByRole("heading", { name: "Everything MySenam can do" }).waitFor();
       // The catalogue is in groups, each folded: open every one, as a person does.
       for (const summary of await p.locator("details[data-group] > summary").all()) await summary.click();
       const unsupported = p.locator('li[data-capability][data-state="unsupported"]');
-      expect(await unsupported.count()).toBe(13);
+      expect(await unsupported.count()).toBe(10);
       for (const li of await unsupported.all()) {
         const id = await li.getAttribute("data-capability");
         await li.getByText("Not currently supported", { exact: true }).waitFor();
@@ -247,12 +243,14 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
         expect(await li.getByRole("button").allTextContents(), `${id} has controls`).toEqual(["How it works"]);
         expect(await li.getByRole("link").count(), `${id} has links`).toBe(0);
       }
-      const gym = p.locator('li[data-capability="gym-walk-in"]');
-      await gym.getByText("Instead: Sell timed sessions with places and let members and pass holders book them.").waitFor();
-      await gym.getByText(/^Limitation: .*Not built: entry on a membership without booking a session/).waitFor();
+      const officer = p.locator('li[data-capability="range-officer"]');
+      await officer.getByText("Instead: Book lanes by the hour with a range briefing as a sign-off").waitFor();
+      // Built now: gym entry and day passes are not unsupported.
+      for (const id of ["gym-walk-in", "open-day-pass", "bowling-by-game"])
+        expect(await p.locator(`li[data-capability="${id}"]`).first().getAttribute("data-state"), id).not.toBe("unsupported");
       // Nothing unsupported is among the suggestions.
       const suggestions = await p.locator('li[data-capability][data-state="available"]:has-text("Suggested above")').evaluateAll((els) => els.map((e) => e.getAttribute("data-capability")));
-      expect(suggestions.filter((id) => id === "gym-walk-in" || id === "open-day-pass")).toEqual([]);
+      expect(suggestions.filter((id) => id === "range-officer")).toEqual([]);
       expect(venueId).toBeGreaterThan(0);
     });
   });

@@ -189,15 +189,15 @@ describe("the questions", () => {
     expect(document.querySelector("[data-question='coaching']")).toBeNull();
   });
 
-  it("show an activity's limitation as the catalogue says it, so a gym is not promised walk-in entry", async () => {
-    renderJourney(viewOf({ rev: 1, answers: { v: 1, types: ["gym-and-fitness"] } }));
+  it("show an activity's limitation as the catalogue says it, so a range is not promised a range officer", async () => {
+    renderJourney(viewOf({ rev: 1, answers: { v: 1, types: ["archery-and-supervised"] } }));
     window.history.replaceState(null, "", "/admin?tab=guide&view=setup&stage=questions");
     document.body.innerHTML = "";
-    renderJourney(viewOf({ rev: 1, answers: { v: 1, types: ["gym-and-fitness"] } }));
+    renderJourney(viewOf({ rev: 1, answers: { v: 1, types: ["archery-and-supervised"] } }));
     expect(await screen.findByRole("heading", { name: "Which activities will you offer?" })).toBeTruthy();
-    const gym = screen.getByLabelText(/Gym/).closest("label")!;
-    expect(gym.textContent).toContain("Limitation");
-    expect(gym.textContent).toContain("Not built: entry on a membership without booking a session");
+    const archery = screen.getByLabelText(/Archery/).closest("label")!;
+    expect(archery.textContent).toContain("Limitation");
+    expect(archery.textContent).toContain("Not built: scheduling a range officer for each session");
   });
 });
 

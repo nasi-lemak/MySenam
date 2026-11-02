@@ -54,8 +54,11 @@ describe("adding resources from a template", () => {
     await act(async () => {});
     fireEvent.change(screen.getByRole("combobox", { name: /Activity/ }), { target: { value: "climbing" } });
     expect(screen.getByText(/staff sign-off before they book it/)).toBeTruthy();
-    expect(screen.getByText(/Not built: open-ended day passes/)).toBeTruthy();
     expect((screen.getByRole("combobox", { name: /Indoor or outdoor/ }) as HTMLSelectElement).value).toBe("indoor");
+    // Climbing's day passes are built (entry with no set time); archery's range officer is not.
+    expect(screen.queryByText(/Not built/)).toBeNull();
+    fireEvent.change(screen.getByRole("combobox", { name: /Activity/ }), { target: { value: "archery" } });
+    expect(screen.getByText(/Not built: scheduling a range officer for each session/)).toBeTruthy();
   });
 });
 
