@@ -83,7 +83,7 @@ export function activity(key: string): Activity {
   return {
     key,
     category: "specialist",
-    icon: "📍",
+    icon: "generic/court",
     names: { en: name },
     aliases: [],
     template: { model: "exclusive", noun: "court", capacity: 1, count: 1, perPlayer: false, maxPlayers: null, setting: null, signOff: false },
@@ -118,6 +118,7 @@ export function activityName(key: string, locale: string = "en", where: string =
   return local?.[l] ?? a.names[l] ?? local?.en ?? a.names.en;
 }
 
+/** Its picture as stored: a glyph name, or an operator's emoji from before glyphs (components/Glyph.tsx draws either). */
 export function activityIcon(key: string): string {
   return activity(key).icon;
 }

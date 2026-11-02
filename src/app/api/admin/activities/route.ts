@@ -75,6 +75,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ activity: made.activity }, { status: 201 });
 }
 
+/** The refusals that say an activity is not this admin's to change (403); any other is about what was sent (400). */
+const FORBIDDEN = new Set(["Only its owner can change that activity.", "A built-in activity is changed in the code; it can only be offered or not."]);
+
 /** `{ key, venueId, ...what changes, active? }`: change an operator's own, or retire it. The platform owner may also stop offering a built-in. */
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -85,7 +88,11 @@ export async function PATCH(req: NextRequest) {
   const who = await ownerFor(admin, body.venueId);
   if (who instanceof NextResponse) return who;
   const changed = await updateActivity(body.key, body as Partial<ActivityInput> & { active?: boolean }, isOwner(admin) ? { ...who, platform: true } : who);
-  if (!changed.ok) return NextResponse.json({ error: changed.error }, { status: changed.error === "Activity not found." ? 404 : 403 });
+  if (!changed.ok) {
+    // Not found, not theirs to change, or (400) something wrong in what was sent: a name too long, a picture not on the list.
+    const status = changed.error === "Activity not found." ? 404 : FORBIDDEN.has(changed.error) ? 403 : 400;
+    return NextResponse.json({ error: changed.error }, { status });
+  }
   await logAction(admin, {
     venueId: who.venueId,
     action: "activity.changed",

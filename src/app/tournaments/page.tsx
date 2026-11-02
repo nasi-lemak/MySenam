@@ -1,4 +1,5 @@
-import { activityIcon, isKnownActivity } from "@/lib/activity-registry";
+import { isKnownActivity } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { serverT } from "@/lib/locale";
@@ -39,7 +40,7 @@ export default async function TournamentsPage({ searchParams }: { searchParams: 
           </Link>
           {offered.map((s) => (
             <Link key={s} href={`/tournaments?sport=${s}`} className={chip(sport === s)}>
-              {activityIcon(s)} {sportLabel(t, s)}
+              <ActivityGlyph sport={s} /> {sportLabel(t, s)}
             </Link>
           ))}
         </nav>
@@ -56,7 +57,7 @@ export default async function TournamentsPage({ searchParams }: { searchParams: 
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="text-lg font-semibold">
-                  {activityIcon(x.sport)} {x.name}
+                  <ActivityGlyph sport={x.sport} /> {x.name}
                 </div>
                 <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700">
                   {t(`tour.status.${x.status}`)}

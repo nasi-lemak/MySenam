@@ -1,3 +1,5 @@
+import { GlyphTile } from "@/components/Glyph";
+import { BUSINESS_TONES } from "@/lib/icons/glyphs";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -44,7 +46,10 @@ export default async function ForVenueTypePage({ params, searchParams }: Props) 
   return (
     <div className="mx-auto max-w-4xl space-y-8 py-2">
       <header className="max-w-2xl">
-        <h1 className="text-2xl font-bold">{t("fit.type.title", { type: name })}</h1>
+        <div className="flex items-center gap-3">
+          <GlyphTile name={`business/${known.id}`} tone={BUSINESS_TONES[known.id]} size={48} />
+          <h1 className="text-2xl font-bold">{t("fit.type.title", { type: name })}</h1>
+        </div>
         <p className="mt-2 text-slate-600">{t("fit.type.desc", { type: name })}</p>
         <p className="mt-3 flex flex-wrap gap-x-4 text-sm">
           <Link href={guideAddress({ types: [known.id], activities: [] })} className="inline-flex min-h-9 items-center font-medium text-teal-800 underline">

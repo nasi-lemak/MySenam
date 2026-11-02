@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Phrase, T } from "@/lib/i18n";
 import type { Availability } from "@/lib/guide/capabilities";
+import { ActivityGlyph } from "@/components/Glyph";
 import { activityName, list, presentCapability, presentChip, presentWorkflows, typeName, type ChipPresentation } from "@/lib/guide/public/present";
 import { applyAddress } from "@/lib/guide/public/select";
 import type { FitView } from "@/lib/guide/public/view";
@@ -183,7 +184,7 @@ export default function FitGuide({ view, t }: { view: FitView; t: T }) {
               {view.partial.map((a) => (
                 <li key={a.key} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
                   <p className="m-0 font-semibold text-slate-900">
-                    {activityName(t, a.key)} <span className="font-normal text-slate-600">· {t(a.support === "specialised" ? "fit.support.specialised" : "fit.support.basic")}</span>
+                    <ActivityGlyph sport={a.key} /> {activityName(t, a.key)} <span className="font-normal text-slate-600">· {t(a.support === "specialised" ? "fit.support.specialised" : "fit.support.basic")}</span>
                   </p>
                   {a.supportNote && (
                     <p className="m-0 mt-1 text-slate-700">

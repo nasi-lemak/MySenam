@@ -2,7 +2,7 @@
 
 import { readJson } from "@/lib/read-response";
 import { ManagerOnly, useStaffMay } from "./StaffMay";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { ReceiptsPanel } from "./ReceiptsPanel";
 import { VouchersPanel } from "./VouchersPanel";
 import { CounterSalesPanel } from "./CounterSalesPanel";
@@ -487,7 +487,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
             <option value="">{t("cr.anySport")}</option>
             {sports.map((sp) => (
               <option key={sp} value={sp}>
-                {activityIcon(sp)} {sportLabel(t.customer, sp)}
+                {sportLabel(t.customer, sp)}
               </option>
             ))}
           </select>
@@ -699,7 +699,7 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="px-3 py-2">
                   {pass.name}
                   <span className="ml-1 text-xs text-slate-400">
-                    {pass.sport ? activityIcon(pass.sport) : t("cr.allSports")}
+                    {pass.sport ? <ActivityGlyph sport={pass.sport} label={sportLabel(t.customer, pass.sport)} /> : t("cr.allSports")}
                     {pass.coachName && ` · ${t("cr.passLessonsWith", { name: pass.coachName })}`}
                     {pass.scope && pass.scope !== "booking" && ` · ${scopeLabel(t, pass.scope)}`}
                   </span>
@@ -976,7 +976,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
             <option value="">{t("cr.anySport")}</option>
             {sports.map((sp) => (
               <option key={sp} value={sp}>
-                {activityIcon(sp)} {sportLabel(t.customer, sp)}
+                {sportLabel(t.customer, sp)}
               </option>
             ))}
           </select>
@@ -1093,7 +1093,7 @@ function PromosPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="px-3 py-2">
                   {p.description}
                   <span className="ml-1 text-xs text-slate-400">
-                    {p.sport ? activityIcon(p.sport) : t("cr.allSports")}
+                    {p.sport ? <ActivityGlyph sport={p.sport} label={sportLabel(t.customer, p.sport)} /> : t("cr.allSports")}
                     {p.minHours > 1 ? ` · ${t("cr.minHoursShort", { n: p.minHours })}` : ""}
                     {p.combinable ? ` · ${t("stk.combinableChip")}` : ""}
                   </span>

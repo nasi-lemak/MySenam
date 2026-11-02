@@ -98,6 +98,11 @@ export interface CountryVariant {
 export interface ActivityDefinition {
   key: string;
   category: ActivityCategory;
+  /**
+   * Its picture: a glyph name (lib/icons/glyphs.ts; `activity/<key>` for a
+   * built-in). An operator's own activity made before glyphs may still hold
+   * the emoji it was given, shown as it is until changed.
+   */
   icon: string;
   names: ActivityNames;
   /** Other words people search for it by ("ping pong", "SUP"), any language. */
@@ -159,7 +164,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "badminton",
     category: "racket",
-    icon: "🏸",
+    icon: "activity/badminton",
     names: { en: "Badminton", ms: "Badminton", zh: "羽毛球", ta: "பூப்பந்து" },
     aliases: ["shuttle", "shuttlecock", "bulu tangkis"],
     template: t("exclusive", "court", { setting: "indoor" }),
@@ -174,7 +179,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "tennis",
     category: "racket",
-    icon: "🎾",
+    icon: "activity/tennis",
     names: { en: "Tennis", ms: "Tenis", zh: "网球", ta: "டென்னிஸ்" },
     aliases: [],
     template: t("exclusive", "court", { setting: "outdoor" }),
@@ -189,7 +194,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "pickleball",
     category: "racket",
-    icon: "🥒",
+    icon: "activity/pickleball",
     names: { en: "Pickleball", ms: "Pickleball", zh: "匹克球", ta: "பிக்கல்பால்" },
     aliases: [],
     template: t("exclusive", "court"),
@@ -204,7 +209,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "padel",
     category: "racket",
-    icon: "🥎",
+    icon: "activity/padel",
     names: { en: "Padel", ms: "Padel", zh: "板式网球", ta: "பேடல்" },
     aliases: ["paddle tennis"],
     template: t("exclusive", "court"),
@@ -220,7 +225,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "squash",
     category: "racket",
-    icon: "⚫",
+    icon: "activity/squash",
     names: { en: "Squash", ms: "Skuasy", zh: "壁球", ta: "ஸ்குவாஷ்" },
     aliases: [],
     template: t("exclusive", "court", { setting: "indoor" }),
@@ -235,7 +240,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "table_tennis",
     category: "racket",
-    icon: "🏓",
+    icon: "activity/table_tennis",
     names: { en: "Table tennis", ms: "Ping pong", zh: "乒乓球", ta: "மேசைப்பந்து" },
     aliases: ["ping pong", "pingpong"],
     template: t("lanes", "table", { setting: "indoor" }),
@@ -251,7 +256,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "futsal",
     category: "team",
-    icon: "⚽",
+    icon: "activity/futsal",
     names: { en: "Futsal", ms: "Futsal", zh: "室内足球", ta: "ஃபுட்சல்" },
     aliases: ["5-a-side", "five a side"],
     template: t("exclusive", "court"),
@@ -266,7 +271,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "football",
     category: "team",
-    icon: "🥅",
+    icon: "activity/football",
     names: { en: "Football", ms: "Bola sepak", zh: "足球", ta: "கால்பந்து" },
     aliases: ["soccer", "7-a-side", "11-a-side"],
     template: t("exclusive", "pitch", { setting: "outdoor" }),
@@ -281,7 +286,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "basketball",
     category: "team",
-    icon: "🏀",
+    icon: "activity/basketball",
     names: { en: "Basketball", ms: "Bola keranjang", zh: "篮球", ta: "கூடைப்பந்து" },
     aliases: ["3x3"],
     template: t("exclusive", "court"),
@@ -296,7 +301,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "volleyball",
     category: "team",
-    icon: "🏐",
+    icon: "activity/volleyball",
     names: { en: "Volleyball", ms: "Bola tampar", zh: "排球", ta: "கைப்பந்து" },
     aliases: ["beach volleyball"],
     template: t("exclusive", "court"),
@@ -311,7 +316,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "netball",
     category: "team",
-    icon: "🤾",
+    icon: "activity/netball",
     names: { en: "Netball", ms: "Bola jaring", zh: "无板篮球", ta: "வலைப்பந்து" },
     aliases: [],
     template: t("exclusive", "court"),
@@ -326,7 +331,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "floorball",
     category: "team",
-    icon: "🏑",
+    icon: "activity/floorball",
     names: { en: "Floorball", ms: "Floorball", zh: "福乐球", ta: "ஃப்ளோர்பால்" },
     aliases: ["unihockey", "floor hockey"],
     template: t("exclusive", "court", { setting: "indoor" }),
@@ -341,7 +346,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "sepak_takraw",
     category: "team",
-    icon: "🦶",
+    icon: "activity/sepak_takraw",
     names: { en: "Sepak takraw", ms: "Sepak takraw", zh: "藤球", ta: "செபக் தக்ராவ்" },
     aliases: ["takraw", "sipa", "kick volleyball"],
     template: t("exclusive", "court"),
@@ -359,7 +364,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "cricket",
     category: "team",
-    icon: "🏏",
+    icon: "activity/cricket",
     names: { en: "Cricket", ms: "Kriket", zh: "板球", ta: "கிரிக்கெட்" },
     aliases: ["cricket nets", "batting cage"],
     template: t("lanes", "net", { count: 3 }),
@@ -375,7 +380,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "swimming",
     category: "aquatic",
-    icon: "🏊",
+    icon: "activity/swimming",
     names: { en: "Swimming", ms: "Renang", zh: "游泳", ta: "நீச்சல்" },
     aliases: ["pool", "lap swim", "lane swim"],
     template: t("lanes", "lane", { count: 6, capacity: 4 }),
@@ -390,7 +395,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "water_polo",
     category: "aquatic",
-    icon: "🤽",
+    icon: "activity/water_polo",
     names: { en: "Water polo", ms: "Polo air", zh: "水球", ta: "நீர்ப் போலோ" },
     aliases: [],
     template: t("exclusive", "pool"),
@@ -406,7 +411,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "kayak",
     category: "water",
-    icon: "🛶",
+    icon: "activity/kayak",
     names: { en: "Kayak hire", ms: "Sewa kayak", zh: "皮划艇租借", ta: "கயாக் வாடகை" },
     aliases: ["kayaking", "kayak rental"],
     template: t("hire", "boat", { capacity: 10, maxPlayers: 10, setting: "outdoor" }),
@@ -422,7 +427,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "canoe",
     category: "water",
-    icon: "🛶",
+    icon: "activity/canoe",
     names: { en: "Canoeing", ms: "Berkanu", zh: "划独木舟", ta: "கேனோ படகோட்டம்" },
     aliases: ["canoe hire", "dragon boat"],
     template: t("hire", "boat", { capacity: 8, maxPlayers: 8, setting: "outdoor" }),
@@ -437,7 +442,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "paddleboard",
     category: "water",
-    icon: "🏄",
+    icon: "activity/paddleboard",
     names: { en: "Stand-up paddleboarding", ms: "Papan dayung berdiri", zh: "立式桨板", ta: "நின்று துடுப்புப் பலகை" },
     aliases: ["SUP", "paddle board", "paddleboarding"],
     template: t("hire", "board", { capacity: 10, maxPlayers: 10, setting: "outdoor" }),
@@ -453,7 +458,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "gym",
     category: "fitness",
-    icon: "🏋️",
+    icon: "activity/gym",
     names: { en: "Gym", ms: "Gim", zh: "健身房", ta: "ஜிம்" },
     aliases: ["fitness", "weights", "gym session"],
     template: t("shared", "floor", { capacity: 30, setting: "indoor" }),
@@ -468,7 +473,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "cycling",
     category: "fitness",
-    icon: "🚴",
+    icon: "activity/cycling",
     names: { en: "Cycling", ms: "Berbasikal", zh: "骑行", ta: "சைக்கிள் ஓட்டுதல்" },
     aliases: ["bike hire", "bicycle", "spin", "indoor cycling"],
     template: t("hire", "bike", { capacity: 12, maxPlayers: 6 }),
@@ -484,7 +489,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "yoga",
     category: "studio",
-    icon: "🧘",
+    icon: "activity/yoga",
     names: { en: "Yoga", ms: "Yoga", zh: "瑜伽", ta: "யோகா" },
     aliases: [],
     template: t("class", "studio", { capacity: 20, setting: "indoor" }),
@@ -499,7 +504,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "pilates",
     category: "studio",
-    icon: "🤸",
+    icon: "activity/pilates",
     names: { en: "Pilates", ms: "Pilates", zh: "普拉提", ta: "பிலாட்டிஸ்" },
     aliases: ["reformer"],
     template: t("class", "studio", { capacity: 10, setting: "indoor" }),
@@ -514,7 +519,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "dance",
     category: "studio",
-    icon: "💃",
+    icon: "activity/dance",
     names: { en: "Dance", ms: "Tarian", zh: "舞蹈", ta: "நடனம்" },
     aliases: ["zumba", "ballet", "hip hop"],
     template: t("class", "studio", { capacity: 25, setting: "indoor" }),
@@ -529,7 +534,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "martial_arts",
     category: "studio",
-    icon: "🥋",
+    icon: "activity/martial_arts",
     names: { en: "Martial arts", ms: "Seni mempertahankan diri", zh: "武术", ta: "தற்காப்புக் கலை" },
     aliases: ["silat", "taekwondo", "karate", "judo", "bjj", "muay thai", "wushu"],
     template: t("class", "mat", { capacity: 20, setting: "indoor" }),
@@ -544,7 +549,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "boxing",
     category: "studio",
-    icon: "🥊",
+    icon: "activity/boxing",
     names: { en: "Boxing", ms: "Tinju", zh: "拳击", ta: "குத்துச்சண்டை" },
     aliases: ["kickboxing", "ring hire"],
     template: t("class", "ring", { capacity: 12, setting: "indoor" }),
@@ -560,7 +565,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "climbing",
     category: "specialist",
-    icon: "🧗",
+    icon: "activity/climbing",
     names: { en: "Climbing", ms: "Panjat dinding", zh: "攀岩", ta: "சுவர் ஏறுதல்" },
     aliases: ["rock climbing", "top rope", "lead climbing", "auto belay"],
     template: t("shared", "wall", { capacity: 30, maxPlayers: 6, setting: "indoor", signOff: true }),
@@ -575,7 +580,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "bouldering",
     category: "specialist",
-    icon: "🪨",
+    icon: "activity/bouldering",
     names: { en: "Bouldering", ms: "Bouldering", zh: "抱石", ta: "பாறை ஏறுதல்" },
     aliases: ["boulder"],
     template: t("shared", "wall", { capacity: 40, maxPlayers: 6, setting: "indoor" }),
@@ -590,7 +595,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "archery",
     category: "specialist",
-    icon: "🏹",
+    icon: "activity/archery",
     names: { en: "Archery", ms: "Memanah", zh: "射箭", ta: "வில்வித்தை" },
     aliases: ["archery range", "archery tag"],
     template: t("lanes", "lane", { count: 6, perPlayer: true, maxPlayers: 4, signOff: true }),
@@ -605,7 +610,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "golf_simulator",
     category: "specialist",
-    icon: "⛳",
+    icon: "activity/golf_simulator",
     names: { en: "Golf simulator", ms: "Simulator golf", zh: "高尔夫模拟器", ta: "கோல்ஃப் சிமுலேட்டர்" },
     aliases: ["golf", "screen golf", "golf bay", "driving range"],
     template: t("lanes", "bay", { count: 2, maxPlayers: 4, setting: "indoor" }),
@@ -620,7 +625,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "bowling",
     category: "specialist",
-    icon: "🎳",
+    icon: "activity/bowling",
     names: { en: "Bowling", ms: "Boling", zh: "保龄球", ta: "பௌலிங்" },
     aliases: ["tenpin", "ten-pin bowling"],
     template: t("lanes", "lane", { count: 8, perPlayer: true, maxPlayers: 6, setting: "indoor" }),
@@ -635,7 +640,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
   {
     key: "fencing",
     category: "specialist",
-    icon: "🤺",
+    icon: "activity/fencing",
     names: { en: "Fencing", ms: "Lawan pedang", zh: "击剑", ta: "வாள்வீச்சு" },
     aliases: ["epee", "foil", "sabre"],
     template: t("lanes", "piste", { count: 4, setting: "indoor" }),

@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import type { CreditPosition } from "@/lib/reports";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CoachPayoutsPanel } from "./CoachPayoutsPanel";
@@ -448,7 +448,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
               {report.byCourt.map((c) => (
                 <div key={c.courtId} className="flex flex-wrap items-center gap-3 text-sm">
                   <div className="w-44 shrink-0">
-                    {activityIcon(c.sport)} {c.courtName}
+                    <ActivityGlyph sport={c.sport} /> {c.courtName}
                   </div>
                   <div
                     className="h-3 min-w-[8rem] flex-1 overflow-hidden rounded-full bg-slate-100"
@@ -502,7 +502,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                 {report.bySport.map((s) => (
                   <tr key={s.sport} className="border-b border-slate-100 last:border-0">
                     <td className="px-3 py-2">
-                      {activityIcon(s.sport)} {sportLabel(t.customer, s.sport)}
+                      <ActivityGlyph sport={s.sport} /> {sportLabel(t.customer, s.sport)}
                     </td>
                     <td className="px-3 py-2 tabular-nums">{s.bookings}</td>
                     <td className="px-3 py-2 tabular-nums">{s.hours}</td>

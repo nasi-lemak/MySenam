@@ -1,5 +1,6 @@
 import { offeredCourts } from "@/lib/court-activities";
-import { activity, activityIcon } from "@/lib/activity-registry";
+import { activity } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel, type T } from "@/lib/i18n";
 import { AMENITY_ICONS, summariseCourts, type Highlight, highlightIcon } from "@/lib/facilities";
 import { type Court, type Venue } from "@/lib/types";
@@ -30,7 +31,7 @@ export function VenueFacilities({ t, venue }: { t: T; venue: Venue & { courts: C
             <li key={s.sport} className="flex flex-wrap justify-between gap-x-3">
               <span>
                 <span className="font-medium">
-                  {activityIcon(s.sport)} {sportLabel(t, s.sport)}
+                  <ActivityGlyph sport={s.sport} /> {sportLabel(t, s.sport)}
                 </span>{" "}
                 <span className="text-slate-500">· {parts.join(" · ")}</span>
               </span>

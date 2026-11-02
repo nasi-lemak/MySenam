@@ -23,7 +23,8 @@
     "bench": "vitest run --config vitest.bench.config.mts",
     "verify": "node scripts/verify.mjs",
     "stage": "node scripts/stage.mjs",
-    "uat": "vitest run --config vitest.uat.config.mts"
+    "uat": "vitest run --config vitest.uat.config.mts",
+    "glyphs:export": "node scripts/export-glyphs.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

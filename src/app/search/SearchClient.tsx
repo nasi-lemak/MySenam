@@ -1,7 +1,8 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activity, activityFilters, activityIcon, activityKeys, findActivities } from "@/lib/activity-registry";
+import { activity, activityFilters, activityKeys, findActivities } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { ACTIVITY_CATEGORIES } from "@/lib/activity-catalogue";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -428,7 +429,7 @@ export default function SearchClient({
                         <div className="text-sm text-slate-500">
                           📍 {g.area}
                           {g.distanceKm !== undefined && ` · ${t("near.away", { km: g.distanceKm })}`} ·{" "}
-                          {activityIcon(cheapest.court.sport)} {cheapest.court.heading ? `${cheapest.court.heading} · ${cheapest.court.name}` : cheapest.court.name}
+                          <ActivityGlyph sport={cheapest.court.sport} /> {cheapest.court.heading ? `${cheapest.court.heading} · ${cheapest.court.name}` : cheapest.court.name}
                           {cheapest.needs && <NeedsLabel t={t} needs={cheapest.needs} lines={cheapest.eligibility} people={people} />}
                           {others > 0 && (
                             <span className="text-slate-400">
@@ -702,7 +703,7 @@ function ActivityChooser({
           <div className="flex flex-wrap gap-2" role="group" aria-label={t("search.find")}>
             {found.slice(0, 6).map((k) => (
               <button key={k} type="button" onClick={() => pick(k)} className={chipClass(k === sport)}>
-                {activityIcon(k)} {sportLabel(t, k)}
+                <ActivityGlyph sport={k} /> {sportLabel(t, k)}
               </button>
             ))}
           </div>
@@ -722,7 +723,7 @@ function ActivityChooser({
           {groups.length > 1 && <span className="w-full text-xs font-medium uppercase tracking-wide text-slate-400">{t(`activity.cat.${cat}`)}</span>}
           {keys.map((k) => (
             <button key={k} type="button" aria-pressed={k === sport} onClick={() => pick(k)} className={chipClass(k === sport)}>
-              {activityIcon(k)} {sportLabel(t, k)}
+              <ActivityGlyph sport={k} /> {sportLabel(t, k)}
             </button>
           ))}
         </div>

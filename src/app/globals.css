@@ -5,6 +5,30 @@
   --brand-dark: #0f766e;
 }
 
+/*
+ * Glyph tile tones (docs/development/images.md#tiles): a light ground and a
+ * dark ink per category, and a neutral one, as `bg-tile-<tone>` and
+ * `text-tile-<tone>-ink`. Every ink is over 7:1 on its ground.
+ */
+@theme {
+  --color-tile-racket: #ccfbf1;
+  --color-tile-racket-ink: #115e59;
+  --color-tile-team: #dcfce7;
+  --color-tile-team-ink: #166534;
+  --color-tile-aquatic: #e0f2fe;
+  --color-tile-aquatic-ink: #075985;
+  --color-tile-water: #cffafe;
+  --color-tile-water-ink: #155e75;
+  --color-tile-fitness: #ffedd5;
+  --color-tile-fitness-ink: #9a3412;
+  --color-tile-studio: #fce7f3;
+  --color-tile-studio-ink: #9d174d;
+  --color-tile-specialist: #ede9fe;
+  --color-tile-specialist-ink: #5b21b6;
+  --color-tile-neutral: #f1f5f9;
+  --color-tile-neutral-ink: #334155;
+}
+
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }

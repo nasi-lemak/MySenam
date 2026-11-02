@@ -4,6 +4,8 @@ import { ACTIVITY_CATEGORIES, BUILTIN_ACTIVITIES } from "@/lib/activity-catalogu
 import { BUSINESS_TYPES } from "@/lib/guide/business-types";
 import { activityName } from "@/lib/guide/public/present";
 import type { Selection } from "@/lib/guide/public/select";
+import { BUSINESS_TONES } from "@/lib/icons/glyphs";
+import { ActivityGlyph, GlyphTile } from "@/components/Glyph";
 
 /**
  * The picker: the kinds of business, several at once, and the activities to
@@ -30,6 +32,7 @@ export default function FitPicker({ selection, t, showCards }: { selection: Sele
               <li key={b.id}>
                 <label className={BOX}>
                   <input type="checkbox" name="types" value={b.id} defaultChecked={types.has(b.id)} className="h-4 w-4 shrink-0 accent-teal-700" />
+                  <GlyphTile name={`business/${b.id}`} tone={BUSINESS_TONES[b.id]} size={32} />
                   <span>{t(b.titleKey)}</span>
                 </label>
               </li>
@@ -51,6 +54,7 @@ export default function FitPicker({ selection, t, showCards }: { selection: Sele
                       <li key={a.key}>
                         <label className={BOX}>
                           <input type="checkbox" name="activities" value={a.key} defaultChecked={activities.has(a.key)} className="h-4 w-4 shrink-0 accent-teal-700" />
+                          <ActivityGlyph sport={a.key} className="text-slate-600" />
                           <span>{activityName(t, a.key)}</span>
                         </label>
                       </li>
@@ -78,7 +82,8 @@ export default function FitPicker({ selection, t, showCards }: { selection: Sele
           <ul className="m-0 mt-3 grid list-none gap-2 p-0 sm:grid-cols-2 lg:grid-cols-3">
             {BUSINESS_TYPES.map((b) => (
               <li key={b.id}>
-                <Link href={`/for-venues/${b.id}`} className="flex min-h-11 items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-teal-800 hover:border-teal-600">
+                <Link href={`/for-venues/${b.id}`} className="flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-teal-800 hover:border-teal-600">
+                  <GlyphTile name={`business/${b.id}`} tone={BUSINESS_TONES[b.id]} size={32} />
                   {t(b.titleKey)}
                 </Link>
               </li>

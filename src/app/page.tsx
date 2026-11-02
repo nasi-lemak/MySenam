@@ -1,5 +1,5 @@
 import { sportsOf } from "@/lib/court-activities";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listAreaCounts, listVenuePage, readNear, activitiesByPopularity } from "@/lib/store";
@@ -207,7 +207,11 @@ export default async function HomePage({
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <span aria-hidden>{sportsHere.slice(0, 3).map((s) => activityIcon(s)).join(" ")}</span>
+                    <span aria-hidden className="flex gap-2 text-teal-700">
+                      {sportsHere.slice(0, 3).map((s) => (
+                        <ActivityGlyph key={s} sport={s} />
+                      ))}
+                    </span>
                   )}
                 </div>
                 <div className="flex flex-1 flex-col p-5">
@@ -229,7 +233,7 @@ export default async function HomePage({
                       key={sport}
                       className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-medium text-teal-700"
                     >
-                      {activityIcon(sport)} {sportLabel(t, sport)}
+                      <ActivityGlyph sport={sport} /> {sportLabel(t, sport)}
                     </span>
                   ))}
                 </div>

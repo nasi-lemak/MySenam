@@ -2,7 +2,7 @@
 
 import { readJson } from "@/lib/read-response";
 import { useState } from "react";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel } from "@/lib/i18n";
 import type { PassProduct } from "@/lib/pass-products";
 import { money } from "@/lib/region";
@@ -91,7 +91,14 @@ export function PassProducts({
                 <span className="font-medium">{p.name}</span>{" "}
                 <span className="text-slate-500">
                   · {productTerms(t, p)} · {money(p.price)}
-                  {p.sport ? ` · ${activityIcon(p.sport)} ${sportLabel(t.customer, p.sport)}` : ""}
+                  {p.sport ? (
+                    <>
+                      {" · "}
+                      <ActivityGlyph sport={p.sport} /> {sportLabel(t.customer, p.sport)}
+                    </>
+                  ) : (
+                    ""
+                  )}
                   {p.coachName ? ` · ${t("cr.lessonsWith", { name: p.coachName })}` : ""}
                 </span>
               </span>
@@ -113,7 +120,7 @@ export function PassProducts({
             <option value="">{t("cr.anySport")}</option>
             {sports.map((sp) => (
               <option key={sp} value={sp}>
-                {activityIcon(sp)} {sportLabel(t.customer, sp)}
+                {sportLabel(t.customer, sp)}
               </option>
             ))}
           </select>

@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { WHO, type Who } from "@/lib/who-shared";
 import { accountDetour } from "@/lib/phone-detour";
 import Link from "next/link";
@@ -158,7 +158,7 @@ export default function GamesPage() {
           <h2 className="text-sm font-semibold text-teal-900">{t("games.shared")}</h2>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-sm">
             <span>
-              {activityIcon(shared.game.sport)} {dayLabel(shared.game.date)}, {formatHour(shared.game.startHour, t.locale)}–{formatHour(shared.game.endHour, t.locale)} ·{" "}
+              <ActivityGlyph sport={shared.game.sport} /> {dayLabel(shared.game.date)}, {formatHour(shared.game.startHour, t.locale)}–{formatHour(shared.game.endHour, t.locale)} ·{" "}
               {shared.game.venueName} · {t("games.hostedBy", { name: shared.game.hostName })}
             </span>
             <JoinButton t={t} g={shared.game} signedIn={signedIn} act={act} link={shared.link} />
@@ -200,7 +200,7 @@ export default function GamesPage() {
           </button>
           {sports.map((s) => (
             <button key={s} onClick={() => setSport(s)} className={chip(sport === s)}>
-              {activityIcon(s)} {sportLabel(t, s)}
+              <ActivityGlyph sport={s} /> {sportLabel(t, s)}
             </button>
           ))}
         </div>
@@ -260,7 +260,7 @@ export default function GamesPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-semibold">
-                    {activityIcon(g.sport)} {dayLabel(g.date)}, {formatHour(g.startHour, t.locale)}–{formatHour(g.endHour, t.locale)}
+                    <ActivityGlyph sport={g.sport} /> {dayLabel(g.date)}, {formatHour(g.startHour, t.locale)}–{formatHour(g.endHour, t.locale)}
                   </div>
                   <div className="text-sm text-slate-600">
                     <Link href={`/venue/${g.venueId}`} className="underline">

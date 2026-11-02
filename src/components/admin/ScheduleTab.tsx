@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { RainOutPanel } from "./RainOutPanel";
 import { RepeatBlockPanel } from "./RepeatBlockPanel";
@@ -297,7 +297,7 @@ export function ScheduleTab({
               {courts.map(({ court, slots }) => (
                 <tr key={court.id} className="border-b border-slate-100 last:border-0">
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2 font-medium">
-                    {activityIcon(court.sport)} {court.name}
+                    <ActivityGlyph sport={court.sport} /> {court.name}
                     {isShared(court) && (
                       <span className="ml-1 text-xs font-normal text-slate-400">
                         {t.plural("sch.places", court.capacity)}

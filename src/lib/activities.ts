@@ -11,6 +11,7 @@ import {
   type ResourceNoun,
 } from "./activity-catalogue.ts";
 import { allActivities, isActiveActivity, isKnownActivity, setActivities, type Activity } from "./activity-registry.ts";
+import { isActivityGlyph } from "./icons/glyphs.ts";
 
 /**
  * The activity catalogue in the database (ADR 0011, migration 0092): the
@@ -185,6 +186,7 @@ export async function venueMayOffer(venueId: number, sport: string): Promise<boo
 export interface ActivityInput {
   names: Partial<ActivityNames>;
   category: string;
+  /** A glyph name (generic, an activity's or a category's), or a legacy emoji; none: the category's glyph. */
   icon?: string;
   aliases?: string[];
   model: string;
@@ -214,7 +216,28 @@ async function freshKey(db: ActivityRunner, name: string): Promise<string> {
   }
 }
 
-function readInput(input: ActivityInput): { ok: true; value: Omit<ActivityDefinition, "key"> } | { ok: false; error: string } {
+/** A short run of emoji and nothing else: the form an operator's own activity's picture took before glyphs. */
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Component})+$/u;
+const PICTOGRAPH = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
+
+export const ICON_REFUSAL = "Choose a picture from the list.";
+
+/**
+ * An activity's picture (docs/development/images.md): a glyph from the
+ * generic set, a built-in activity's or a category's; or, as before glyphs,
+ * a short emoji. None given: its category's glyph. Anything else is refused.
+ */
+export function readIcon(icon: unknown, category: string): { ok: true; icon: string } | { ok: false; error: string } {
+  if (icon === undefined || icon === null || (typeof icon === "string" && icon.trim() === "")) return { ok: true, icon: `category/${category}` };
+  if (typeof icon !== "string") return { ok: false, error: ICON_REFUSAL };
+  const v = icon.trim();
+  if (isActivityGlyph(v)) return { ok: true, icon: v };
+  if ([...v].length <= 8 && EMOJI_ONLY.test(v) && PICTOGRAPH.test(v)) return { ok: true, icon: v };
+  return { ok: false, error: ICON_REFUSAL };
+}
+
+/** `keepIcon`: the picture it has now, kept as it is even if it is no longer one that may be chosen. */
+function readInput(input: ActivityInput, keepIcon?: string): { ok: true; value: Omit<ActivityDefinition, "key"> } | { ok: false; error: string } {
   const en = typeof input.names?.en === "string" ? input.names.en.trim() : "";
   if (en.length < 2 || en.length > MAX_NAME) return { ok: false, error: `Give it a name in English, 2 to ${MAX_NAME} characters.` };
   const names: ActivityNames = { en };
@@ -244,7 +267,9 @@ function readInput(input: ActivityInput): { ok: true; value: Omit<ActivityDefini
     .map((x) => x.trim())
     .filter((x) => x !== "" && x.length <= MAX_NAME)
     .slice(0, 12);
-  const icon = typeof input.icon === "string" && input.icon.trim() !== "" ? [...input.icon.trim()].slice(0, 2).join("") : "📍";
+  const picture = keepIcon !== undefined && input.icon === keepIcon ? { ok: true as const, icon: keepIcon } : readIcon(input.icon, input.category);
+  if (!picture.ok) return picture;
+  const icon = picture.icon;
   return {
     ok: true,
     value: {
@@ -346,7 +371,7 @@ export async function updateActivity(
     capacity: input.capacity ?? current.template.capacity,
     perPlayer: input.perPlayer ?? current.template.perPlayer,
     maxPlayers: input.maxPlayers === undefined ? current.template.maxPlayers : input.maxPlayers,
-  });
+  }, current.icon);
   if (!read.ok) return read;
   const v = read.value;
   await db.query(

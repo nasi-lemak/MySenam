@@ -1,7 +1,6 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { activityIcon } from "@/lib/activity-registry";
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { formatHour } from "@/lib/time";
@@ -61,10 +60,7 @@ export default function CheckInPage({ params }: { params: Promise<{ token: strin
             <dl className="mt-5 space-y-1.5 text-left text-sm">
               {[
                 [t("checkin.venue"), `${result.venue.name} (${result.venue.area})`],
-                [
-                  t("checkin.facility"),
-                  `${activityIcon(result.court.sport)} ${result.court.name}`,
-                ],
+                [t("checkin.facility"), result.court.name],
                 [
                   t("checkin.time"),
                   `${formatHour(result.booking.startHour, t.locale)} – ${formatHour(result.booking.endHour, t.locale)}`,

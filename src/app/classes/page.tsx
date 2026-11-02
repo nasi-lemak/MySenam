@@ -3,7 +3,7 @@
 import { readJson } from "@/lib/read-response";
 import { useManagedPeople, WhoTakesPart, whoBody } from "@/components/WhoTakesPart";
 import { explainGuard } from "@/components/ManagedPeople";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { accountDetour } from "@/lib/phone-detour";
 import WaiverTick from "@/components/WaiverTick";
 import { useCallback, useEffect, useState } from "react";
@@ -89,7 +89,7 @@ export default function ClassesPage() {
                 : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-teal-400"
             }`}
           >
-            {activityIcon(s)} {sportLabel(t, s)}
+            <ActivityGlyph sport={s} /> {sportLabel(t, s)}
           </button>
         ))}
       </div>
@@ -133,7 +133,7 @@ export default function ClassesPage() {
                       </div>
                       <div className="min-w-[12rem] flex-1">
                         <div className="font-medium">
-                          {activityIcon(session.sport)} {session.name}
+                          <ActivityGlyph sport={session.sport} /> {session.name}
                           {session.who !== "anyone" && (
                             <span className="ml-2 rounded-full bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-800">
                               {t(`who.badge.${session.who}`)}

@@ -23,7 +23,7 @@ An activity has:
 | ----- | -------------- |
 | `key` | Its permanent name in the data (`sepak_takraw`, a slug); what bookings, courts, passes and rules refer to |
 | `category` | Racket, team, aquatic (in the pool), water (on the water), fitness, studio (classes and studios), specialist: how search and the dashboard group it |
-| `icon`, `names` | Its emoji and its name in English, Malay, Chinese and Tamil |
+| `icon`, `names` | Its picture, a glyph name ([pictures](#pictures)), and its name in English, Malay, Chinese and Tamil |
 | `aliases` | Other words people search by (*shuttle*, *bulu tangkis*, *ping pong*, *SUP*, *spin*) |
 | `template` | What a new resource for it starts as (below) |
 | `policy` | Its usual booking rules, beneath every venue's own: padel's half-hour starts and 90-minute games |
@@ -78,7 +78,8 @@ a hand-made API call.
   Rates are per hour, or per person where the resource is priced that way.
   The venue's cap on courts counts each one.
 - **Add your own activity** (managers): a name in at least English, a
-  category and a model; the rest is optional. It belongs to the business
+  category and a model; the rest is optional, its picture included
+  ([below](#pictures)). It belongs to the business
   (every branch), or to the venue where it is in no business, and nobody
   else sees it in their dashboard. It is offered and found in search like any
   built-in one (`POST /api/admin/activities`; the platform owner manages the
@@ -98,6 +99,31 @@ a hand-made API call.
   per player, per place, one price for the booking, quantity prices, the
   most in one booking, and classes only ([below](#pricing-a-booking-with-places)).
 - **Sign-offs and certifications** (`SignOffsPanel`): [below](#sign-offs).
+
+## Pictures
+
+Every activity has a picture: a glyph drawn to MySenam's standard
+([images](../development/images.md)), shown beside its name wherever it is
+listed. The `icon` field holds the glyph's name.
+
+- A built-in activity's is its own glyph, `activity/<key>`
+  (`activity/pickleball`). Like everything else about a built-in, it is
+  written over the table at every start, so a release changes it without a
+  migration.
+- An operator's own activity chooses one when it is added: from the generic
+  set (ball, racket, goal, water, weights, mat, target, wheel, mountain,
+  whistle, stopwatch, court) or any built-in activity's, in a picker of
+  radio buttons under *Add your own activity*. Chosen none, it has its
+  category's glyph (`category/team`). A manager changes it later with
+  *Change the picture of …* beside the activity chosen in *Add resources*
+  (`PATCH /api/admin/activities` with `icon`).
+- Activities made before glyphs hold the emoji they were typed with. Nothing
+  rewrote them: the emoji is shown as text, in the same place and tile, and
+  kept through any other change, until somebody chooses a glyph for it.
+- The route takes a glyph from those sets, or (as before) a short run of
+  emoji and nothing else; anything else (a kind of business's or the play
+  page's glyph, an unknown name, words, markup) is refused with *Choose a
+  picture from the list.* (400), and nothing is saved.
 
 ## One resource, several activities
 

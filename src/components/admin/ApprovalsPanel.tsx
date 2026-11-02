@@ -4,7 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApprovalRequirement, FlaggedBooking, ReviewLevel } from "@/lib/approvals";
 import { formatMinute } from "@/lib/interval";
-import { activityIcon } from "@/lib/activity-registry";
+import { ActivityGlyph } from "@/components/Glyph";
 import { courtSports } from "@/lib/court-activities";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffT } from "@/lib/staff-i18n";
@@ -182,7 +182,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
           {requirements.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
               <span>
-                {activityIcon(r.sport)} {sportLabel(t.customer, r.sport)} · {r.open ? t("apr.set.open") : t("apr.set.closed")} ·{" "}
+                <ActivityGlyph sport={r.sport} /> {sportLabel(t.customer, r.sport)} · {r.open ? t("apr.set.open") : t("apr.set.closed")} ·{" "}
                 {[r.declaration && t("apr.set.mDeclaration"), r.documentLabel && t("apr.set.mDocuments"), r.videoUrl && t("apr.set.mVideo"), r.inPerson && t("apr.set.mInPerson")]
                   .filter(Boolean)
                   .join(", ")}
@@ -213,7 +213,7 @@ export function ApprovalSettings({ venueId, courts }: { venueId: number; courts:
               <option value="">—</option>
               {sports.map((s) => (
                 <option key={s} value={s}>
-                  {activityIcon(s)} {sportLabel(t.customer, s)}
+                  {sportLabel(t.customer, s)}
                 </option>
               ))}
             </select>
