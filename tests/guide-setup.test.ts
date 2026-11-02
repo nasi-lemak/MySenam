@@ -609,13 +609,15 @@ describe("launch readiness, as the journey shows it", () => {
 describe("what it says of the catalogue", () => {
   it("says an activity's limitation as the catalogue says it, and never claims what is not built", async () => {
     const { activityFacts } = await import("../src/lib/guide/business-types");
-    const gym = activityFacts("gym")!;
-    expect(gym.support).toBe("basic");
-    expect(gym.supportNote).toContain("Not built");
+    // Archery (a gym's entry without a session is built since: lib/entries.ts).
+    const archery = activityFacts("archery")!;
+    expect(archery.support).toBe("basic");
+    expect(archery.supportNote).toContain("Not built");
     // The picker reads the same note from the catalogue (components/admin/guide/SetupDiscovery.tsx); the dictionaries carry its Malay and Chinese.
-    for (const locale of ["ms", "zh"] as const) expect(STAFF_DICTIONARIES[locale]["srv.support.gym" as keyof (typeof STAFF_DICTIONARIES)["en"]]).toBeTruthy();
-    // A gym is not told it can admit walk-ins: the capability stays unsupported.
-    expect(capability("gym-walk-in")!.status).toBe("unsupported");
+    for (const locale of ["ms", "zh"] as const) expect(STAFF_DICTIONARIES[locale]["srv.support.archery" as keyof (typeof STAFF_DICTIONARIES)["en"]]).toBeTruthy();
+    // An archery range is not told a range officer is scheduled: the capability stays unsupported.
+    expect(capability("range-officer")!.status).toBe("unsupported");
+    expect(capability("gym-walk-in")!.status).toBe("available");
   });
 });
 

@@ -521,6 +521,13 @@ export interface Pass {
   createdAt: string;
   /** Bought and paid online (lib/pass-purchases.ts): the gateway's name and the payment's reference there. */
   boughtOnline?: { gateway: string; reference: string };
+  /**
+   * A day pass (lib/entries.ts): one entry that, once used, admits its person
+   * again all that day (`dayUsedOn`, the venue's date) and on no other. It
+   * pays for no booking.
+   */
+  dayPass?: boolean;
+  dayUsedOn?: string | null;
   /** Why the pass cannot be spent right now, if it cannot. */
   unusableReason?: string;
   /** The same, as a phrase a staff screen says in the staff language. */

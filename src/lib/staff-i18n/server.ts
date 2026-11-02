@@ -362,6 +362,9 @@ const en = {
   "srv.msgKind.venue_booking_change": "Online cancellation or change, to the venue",
   // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
   "srv.d8b.cancelled": "{code}, cancelled",
+  // nbk (entry with no set time, lib/entries.ts)
+  "srv.work.entries": "closing entries past their longest stay",
+  "srv.ret.entries": "Entries without a booking (who came in, and when)",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -722,6 +725,9 @@ const ms: Record<keyof typeof en, string> = {
   "srv.msgKind.venue_booking_change": "Pembatalan atau perubahan dalam talian, kepada tempat",
   // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
   "srv.d8b.cancelled": "{code}, dibatalkan",
+  // nbk (entry with no set time, lib/entries.ts)
+  "srv.work.entries": "menutup kemasukan yang melebihi tempoh tinggal terlama",
+  "srv.ret.entries": "Kemasukan tanpa tempahan (siapa masuk, dan bila)",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1082,6 +1088,9 @@ const zh: Record<keyof typeof en, string> = {
   "srv.msgKind.venue_booking_change": "在线取消或更改（通知场馆）",
   // A booking on a company account cancelled after its invoice was issued: its credit note's line (lib/accounts.ts; round 8, D8b)
   "srv.d8b.cancelled": "{code}，已取消",
+  // nbk (entry with no set time, lib/entries.ts)
+  "srv.work.entries": "关闭超过最长停留时间的入场",
+  "srv.ret.entries": "无预订入场记录（谁入场及时间）",
 };
 
 const area = { en, ms, zh };

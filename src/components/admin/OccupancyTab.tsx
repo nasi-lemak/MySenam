@@ -106,6 +106,8 @@ export function OccupancyTab({
                           {booked > 0 ? `${pct}%` : "·"}
                           {cell?.blocked ? <span className="ml-0.5">⛔</span> : null}
                         </div>
+                        {/* People let in with no booking that day (lib/entries.ts): a count, apart from the hours booked. */}
+                        {cell?.entries ? <div className="mt-0.5 text-[11px] text-slate-500">{t.plural("nbk.occ.entries", cell.entries)}</div> : null}
                       </td>
                     );
                   })}

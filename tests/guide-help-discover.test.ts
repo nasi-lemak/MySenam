@@ -230,7 +230,7 @@ describe("Set this up", () => {
 
   it("refuses a focus the setup has no steps for, and the front desk, and another venue's manager", async () => {
     expect((await journey(alpha, "company-accounts", asAlpha)).status).toBe(400);
-    expect((await journey(alpha, "gym-walk-in", asAlpha)).status).toBe(400);
+    expect((await journey(alpha, "web-push", asAlpha)).status).toBe(400);
     expect((await journey(alpha, "coaching", asAlphaDesk)).status).toBe(403);
     expect((await journey(alpha, "coaching", asBeta)).status).toBe(403);
   });

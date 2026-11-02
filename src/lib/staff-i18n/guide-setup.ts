@@ -777,6 +777,11 @@ const rows = [
   ["gs.ready.why.taxTreatment", "The suggested treatment is a starting point, not tax advice.", "Rawatan yang dicadangkan ialah titik permulaan, bukan nasihat cukai.", "建议的处理方式只是起点，不是税务建议。"],
   ["gs.ready.why.emergency", "People letting themselves in are shown these details.", "Orang yang masuk sendiri dipaparkan butiran ini.", "自行进入的人会看到这些信息。"],
   ["gs.ready.why.coachHours", "A coach with no hours cannot be booked.", "Jurulatih tanpa waktu tidak boleh ditempah.", "没有时间的教练无法被预订。"],
+  // nbk: entry with no set time (lib/entries.ts)
+  ["gs.step.entry.title", "Entry without a booking", "Kemasukan tanpa tempahan", "无预订入场"],
+  ["gs.step.entry.why", "Climbers and gym members often come in when they like rather than book a time. Turn on entry for the wall or floor, say who it admits and its walk-in price, and the desk lets people in while there is room.", "Pemanjat dan ahli gim sering datang bila-bila masa dan bukan menempah waktu. Hidupkan kemasukan untuk dinding atau lantai, nyatakan siapa yang dibenarkan dan harga masuk terus, dan kaunter membenarkan orang masuk selagi ada ruang.", "攀岩者和健身会员常常随时到场，而不是预订时段。为攀岩墙或场地开启入场，设定准许入场的对象和现场入场价，柜台就能在有空位时让人进场。"],
+  ["gs.because.fact.entry", "Because you have climbing, bouldering or a gym floor with places.", "Kerana anda mempunyai panjat dinding, bouldering atau lantai gim yang ada tempat.", "因为您有设名额的攀岩、抱石或健身场地。"],
+  ["gs.more.entry", "In the booking rules for the resource, set Entry without booking on, a walk-in price (or none for members and pass holders only), the longest stay, and whether customers may check themselves in. Then mark the membership plans that admit with no booking, and add a day pass to your passes if you sell one. Sessions booked on the resource keep their places.", "Dalam peraturan tempahan sumber itu, hidupkan Kemasukan tanpa tempahan, tetapkan harga masuk terus (atau tiada untuk ahli dan pemegang pas sahaja), tempoh tinggal terlama, dan sama ada pelanggan boleh daftar masuk sendiri. Kemudian tandakan pelan keahlian yang membenarkan masuk tanpa tempahan, dan tambah pas harian pada pas anda jika anda menjualnya. Sesi yang ditempah pada sumber itu kekal dengan tempatnya.", "在该资源的预订规则中开启“无预订入场”，设定现场入场价（或不设，仅限会员和次卡持有人）、最长停留时间，以及顾客能否自助签到。然后标记允许无预订入场的会员套餐，如有出售日票，请在次卡中添加。在该资源上预订的时段保留其名额。"],
 ] as const;
 
 type Key = (typeof rows)[number][0];

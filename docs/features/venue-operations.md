@@ -11,7 +11,9 @@ column), and optionally out again.
 
 `GET /api/venues/:id/live` — public, no session — answers *how busy is it right
 now*: someone counts as present once they have checked in, have not checked
-out, and their booking has not ended. Most people leave without telling the
+out, and their booking has not ended, and so does everybody in on an
+[entry with no set time](#entry-with-no-set-time) until they check out or
+their longest stay passes. Most people leave without telling the
 desk, so the booking's end time is the backstop that keeps the number honest.
 The venue page renders this as a **Here right now** panel that refreshes every
 30 seconds.
@@ -427,6 +429,123 @@ Scanning the code never admits somebody to a members-only session whose
 membership no longer covers its date: it is refused with the reason, and they
 check in at the desk, where staff decide (above;
 `MV6_CHECKIN_ENDED`, `MV6_CHECKIN_CANCELLED`, `MV6_CHECKIN_NONE`).
+
+## Entry with no set time
+
+A climbing wall, a bouldering room or a gym floor can let people in as they
+come, with no booked time, while it has room (`src/lib/entries.ts`, migration
+0266). It is a booking rule like the rest
+([booking rules](booking.md#booking-rules-starts-lengths-buffers)), set at any
+level (the venue, an activity there, one resource), and acts only on a
+resource with places that is not run as classes only. It is **off on every
+resource** until the venue turns it on: the catalogue marks climbing,
+bouldering and a gym as usually sold this way (`entrySuited`), and the
+booking-rules editor and the setup journey offer it for them, but nothing is
+switched on for a venue by itself.
+
+The settings, under *Courts* → booking rules → *Entry with no set time*:
+
+| Setting | Means |
+| ------- | ----- |
+| Entry without booking | On: the resource admits people with no set time. Off (the default): by booking only |
+| Walk-in price at the desk | What one entry costs at the counter. Blank: no walk-in is sold, only members and pass holders come in |
+| Longest stay | Minutes an entry counts for (30 to 1440; 240 unless set). After it the entry stops counting by itself |
+| Customers check themselves in | Somebody whose membership, pass or day pass admits them may let themself in by the resource's check-in page; otherwise only the desk admits |
+
+**Booked sessions keep their places.** Bookings, classes, blocks and outages
+on the resource are made and claimed as ever, and the database still refuses
+an overbooking of them ([ADR 0010](../architecture/decisions/0010-interval-booking.md)).
+An entry is not a claim: it is a row per person (`entries`), open from
+admission until checked out or until its longest stay passes. Somebody is let
+in only while the open entries and the places held now by claims overlapping
+this moment are fewer than the resource's places, so an entry never takes a
+place a booking holds. That is decided under the resource's lock (the
+advisory lock claims on it take, then its row), so two admissions at once
+never both take the last place (`tests/entries.test.ts`, also on Postgres). A
+booking made for now is not refused for people already in on entry: the
+venue's sessions keep their places, and the floor can briefly hold more than
+its places until somebody leaves.
+
+**What lets somebody in.**
+
+- A **membership** whose plan admits with no booking (*Credit* → membership
+  plans → *Members come in without a booking*; anywhere in the business, or,
+  through the plan's `admitsEntrySport`, only where a resource offers one
+  activity). It covers whom the membership covers on the day: the holder by
+  their number, a participant on their own or a family membership naming
+  them; never suspended, ended or cancelled
+  ([what a benefit applies to](pricing.md#what-a-benefit-applies-to)).
+- A **pass**: each admission spends one entry, by the pass's scope. One
+  person's pass admits only its person; a pass for a booking or for each
+  place admits anybody its holder's number brings, one entry each; a pass for
+  a resource hired whole, a lesson pack or a time pass admits nobody.
+- A **day pass**: one entry for one person that, once used, admits them again
+  all that day (the venue's date of its first use) and on no other
+  ([day passes](pricing.md#day-passes)).
+- At the desk only, a **walk-in** at the resource's price: sold as a counter
+  sale with its receipt ([selling at the counter](pricing.md#selling-at-the-counter)),
+  how it was paid asked as any counter sale asks. A price of nothing admits
+  for free, with no sale.
+
+**What every admission asks**, as a booking asks it of that person: the venue
+open; the number not on the venue's refused list; who the venue is for
+(members only, or its private list); the venue's waiver, agreed for
+themself or, for a child, by the guardian (at the desk *Agreed to the
+waiver on paper just now* records it, as a booking's agreement is); the
+activity's sign-off or certification (a belay check on a climbing wall); and
+a participant only as themself, under a live guardian's number
+([booking for somebody else](booking.md#booking-for-somebody-else)). Ages and
+guardians' agreement are as declared, never verified. The same person is not
+let in twice at once on one resource.
+
+**At the desk.** The Bookings tab shows *Entry without booking* at a venue
+with a resource taking entries: each resource's places taken (on entry, and
+held by bookings now), a search by phone number that lists what lets that
+person in (and each participant the venue knows on the number, each with
+their own), *Admit*, and everybody in now with *Check out*. Admitting and
+checking out are logged (`entry.admitted`, `entry.checked_out`).
+
+**Letting yourself in.** Where the resource allows it, its page
+`/checkin/entry/<court>` (linked from the venue's page; staff can print it as
+a QR code like any link) lets a signed-in customer check themself in on their
+own membership (on their proved number), pass or day pass. Nothing is paid
+there, and only the account holder is let in that way: a child is let in at
+the desk. Where the resource does not allow it, the page says to go to the
+desk (`NBK_SELF_OFF`).
+
+**Customers see**, on the venue's page, *No booking needed* for each such
+resource: the walk-in price (or that entry is with a membership or pass), the
+plans that admit and the passes and day passes the venue sells for it, and
+how full it is now as a level (quiet, filling up, busy, full), never who is
+there. The live crowd level above and the occupancy grid
+([reporting](reporting.md)) count entries.
+
+**Leaving.** Most people leave without telling the desk, so the longest stay is
+the backstop: an entry past it no longer counts, whether or not anybody
+closes it. The scheduler later closes such entries as having ended then
+(`closeEndedEntries`); nothing depends on it running.
+
+**Money.** A walk-in is a counter sale, receipted, in the day's takings, the
+cash-up, the sales journal and MyInvois consolidation as counter sales are.
+Day passes and passes are sold, refunded and accounted as passes are. An
+entry on a membership or a pass moves no money.
+
+**Not through the API or MCP.** `GET /api/v1/venue` and the MCP server's
+`my_venue` say which courts take entries (read only); nobody is let in or
+checked out through them.
+
+Entries are kept as long as arrivals at the desk
+([privacy](../architecture/privacy.md)), included in a venue's export of a
+customer's data, and an erased account's entries lose its name and number.
+
+Tested: `tests/entries.test.ts` (off by default and unchanged where off;
+membership, pass, day pass and walk-in; capacity with a booking holding
+places now; concurrent admissions for the last places, also on Postgres; the
+longest stay; check-out; waiver, sign-off, refused number, members only,
+guardian; a child as themself; self check-in only where allowed and only on
+the account's own; a day pass bought online and then used; the venue page's
+level without names; live occupancy and the grid; the activity log; the
+venue API; the guide).
 
 ## Resources nobody is standing next to
 

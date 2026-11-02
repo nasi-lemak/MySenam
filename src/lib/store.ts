@@ -4112,6 +4112,8 @@ export interface OccupancyDay {
     blocked: number;
     /** Place-hours that could have been sold: the day's hours times capacity, less `blocked`; none on a closed day. */
     sellable: number;
+    /** People let in that day with no booking (lib/entries.ts); not place-hours, and not in `booked`. */
+    entries?: number;
   }[];
   /**
    * The venue's day as the reports measure it (lib/reports.ts `measureUse`):
@@ -4145,8 +4147,10 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
   const { openMin, closeMin, zone } = await venueHours(venueId);
   const totals = await utilisationByDay(venueId, start, dates[dates.length - 1]);
   const days: OccupancyDay[] = [];
+  const { entriesOn } = await import("./entries");
   for (const date of dates) {
     const held = await occupantsOn(courts, date, zone);
+    const entered = await entriesOn(venueId, date, zone);
     const on = await venueHours(venueId, date);
     const shut = on.closed || (await getVenueClosure(venueId, date)) !== null;
     const day = { start: on.openMin, end: on.closeMin };
@@ -4167,6 +4171,7 @@ export async function getOccupancy(venueId: number, start: string, numDays: numb
           booked: minutes(occupants.filter((o) => o.kind === "booking"), (o) => o.places) / 60,
           blocked,
           sellable: offered - blocked,
+          ...(entered.has(c.id) ? { entries: entered.get(c.id)! } : {}),
         };
       }),
       totals: totals.get(date) ?? { courts: null, shared: null },
@@ -5475,7 +5480,8 @@ export async function returnHire(
  *
  * Someone counts as present when they have checked in, have not checked out,
  * and their booking has not ended yet — most people leave without telling the
- * desk, so the booking's end time is the backstop.
+ * desk, so the booking's end time is the backstop. People let in with no
+ * booking count the same way, their longest stay the backstop (lib/entries.ts).
  */
 export async function getLiveOccupancy(venueId: number): Promise<LiveOccupancy[]> {
   const db = getDb();
@@ -5501,6 +5507,15 @@ export async function getLiveOccupancy(venueId: number): Promise<LiveOccupancy[]
     if (new Date(row.ends_at).getTime() <= now) continue;
     present.set(row.court_id, (present.get(row.court_id) ?? 0) + 1);
   }
+  // People in with no booking (lib/entries.ts): each open entry, until checked out or its longest stay passes.
+  const at = new Date(now).toISOString();
+  const entered = (await db
+    .prepare(
+      `SELECT court_id, COUNT(*)::int AS n FROM entries
+        WHERE venue_id = ? AND checked_out_at IS NULL AND admitted_at <= ?::timestamptz AND stay_until > ?::timestamptz GROUP BY court_id`
+    )
+    .all(venueId, at, at)) as { court_id: number; n: number }[];
+  for (const e of entered) present.set(e.court_id, (present.get(e.court_id) ?? 0) + Number(e.n));
 
   return courts.map((court) => {
     const count = present.get(court.id) ?? 0;
@@ -7792,6 +7807,8 @@ interface PassRow {
   holder_participant_name: string | null;
   online_provider: string | null;
   online_bill: string | null;
+  day_pass?: boolean | null;
+  day_used_on?: string | null;
 }
 
 const PASS_SELECT = `
@@ -7801,7 +7818,8 @@ const PASS_SELECT = `
          p.scope, p.holder_kind, p.holder_participant_id, hp.display_name AS holder_participant_name,
          (SELECT COALESCE(SUM(delta), 0) FROM pass_entries e WHERE e.pass_id = p.id) AS spent,
          (SELECT op.provider FROM online_payments op WHERE op.pass_id = p.id) AS online_provider,
-         (SELECT op.bill_id FROM online_payments op WHERE op.pass_id = p.id) AS online_bill
+         (SELECT op.bill_id FROM online_payments op WHERE op.pass_id = p.id) AS online_bill,
+         p.day_pass, p.day_used_on::text AS day_used_on
   FROM passes p JOIN venues v ON v.id = p.venue_id LEFT JOIN coaches k ON k.id = p.coach_id
   LEFT JOIN participants hp ON hp.id = p.holder_participant_id
 `;
@@ -7834,16 +7852,20 @@ function toPass(r: PassRow): Pass {
     createdAt: r.created_at,
     // Bought online (lib/pass-purchases.ts): through which gateway, and its payment's reference there.
     ...(r.online_bill ? { boughtOnline: { gateway: gatewayFor(r.online_provider ?? "")?.name ?? r.online_provider ?? "", reference: r.online_bill } } : {}),
+    // A day pass (lib/entries.ts): the day it was first used, when it has been.
+    ...(r.day_pass ? { dayPass: true, dayUsedOn: r.day_used_on ?? null } : {}),
   };
   const reason = passBlocked(pass);
   return reason ? { ...pass, unusableReason: englishOf(reason), unusablePhrase: reason } : pass;
 }
 
 /** Why a pass cannot be spent today, or null when it can. */
-function passBlocked(pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind">): StaffText | null {
+function passBlocked(pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind" | "dayPass" | "dayUsedOn">): StaffText | null {
   if (pass.status === "void") return said("srv.unusable.passCancelled");
   // expires_on is inclusive, so a pass is good for the whole of that day.
   if (pass.expiresOn < todayISO()) return said("srv.unusable.passExpired", { date: pass.expiresOn });
+  // A day pass first used today still admits its person all day (lib/entries.ts), its one entry spent.
+  if (pass.dayPass && pass.dayUsedOn && pass.dayUsedOn === todayISO()) return null;
   if (pass.remaining <= 0) return said(pass.kind === "time" ? "srv.unusable.passNoTime" : "srv.unusable.passNoEntries");
   return null;
 }
@@ -7993,8 +8015,15 @@ export async function issuePass(input: {
   productId?: number | null;
   /** A price other than the product's, or no product: a manager's, with the reason (lib/counter-prices.ts), kept with the sale. */
   priceOverride?: CounterPriceOverride | null;
+  /**
+   * A day pass (lib/entries.ts): one entry for one person (`participant`
+   * scope), admitting them again all the day it is first used. Pays for no booking.
+   */
+  dayPass?: boolean;
 }): Promise<PassResult> {
   const scope = input.scope ?? "booking";
+  if (input.dayPass && (scope !== "participant" || (input.kind ?? "session") !== "session" || input.entries !== 1))
+    return { ok: false, error: "A day pass is one entry for one person." };
   if (!PASS_SCOPES.includes(scope)) return { ok: false, error: "A pass covers a booking, a resource hired whole, one person's place, or each place." };
   // Only a pass for one person's place is somebody else's to use.
   if (input.holderParticipantId !== undefined && input.holderParticipantId !== null && scope !== "participant")
@@ -8050,8 +8079,8 @@ export async function issuePass(input: {
     const info = await db
       .prepare(`
         INSERT INTO passes (code, venue_id, sport, name, kind, entry_minutes, max_minutes, entries, price, holder_name,
-                            holder_phone, user_id, expires_on, admin_id, coach_id, scope, holder_kind, holder_participant_id, product_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            holder_phone, user_id, expires_on, admin_id, coach_id, scope, holder_kind, holder_participant_id, product_id, day_pass)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         randomCode("PS-"),
@@ -8072,7 +8101,8 @@ export async function issuePass(input: {
         scope,
         input.holderParticipantId ? "participant" : "customer",
         input.holderParticipantId ?? null,
-        input.productId ?? null
+        input.productId ?? null,
+        input.dayPass === true
       );
     const pass = (await passById(Number(info.lastInsertRowid)))!;
     // A manager's price, kept with the sale in its transaction (lib/counter-prices.ts).
@@ -8134,6 +8164,8 @@ export async function voidPass(passId: number, opts: { refund?: boolean } = {}):
  * entry count, which is only safe to read inside the paying transaction.
  */
 async function passScopeError(pass: Pass, booking: Booking): Promise<string | null> {
+  // A day pass lets its person in with no booking (lib/entries.ts); it is not a way to pay one.
+  if (pass.dayPass) return "A day pass lets its holder in for a day with no booking. It does not pay for a booking.";
   const court = await getCourt(booking.courtId);
   if (!court) return "Court not found.";
   if (court.venueId !== pass.venueId && !(await sameBusiness(court.venueId, pass.venueId)))

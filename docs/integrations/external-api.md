@@ -21,7 +21,7 @@ are limited to 120 a minute per key.
 
 | Call | Scope | What |
 | --- | --- | --- |
-| `GET /venue` | read | The venue, its hours and courts with rates |
+| `GET /venue` | read | The venue, its hours and courts with rates; a court taking entries with no set time also says so (`entry`: its walk-in `price`, `maxStayMinutes`, `selfCheckIn`; [entry](../features/venue-operations.md#entry-with-no-set-time)). Nobody is let in, or checked out, through the API: entries are the desk's and the customer's own |
 | `GET /availability?date=&sport=` | read | Each court's day: when a booking may start and for how long (`starts`, `policy`; a start lists the `lengths` that fit where not every one up to its longest does, as when joining a session on a facility turned over whole), and the day in columns with price, free, partly held or held (`slots`, `grid`) |
 | `GET /bookings?from=&to=` | read | Bookings in up to 31 days, cancelled ones too |
 | `GET /bookings/<code>` | read | One booking |

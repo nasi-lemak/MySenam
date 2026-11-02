@@ -168,6 +168,7 @@ export async function POST(req: NextRequest) {
       paidVia: paidVia(via as string | null),
       productId: product?.id ?? null,
       priceOverride: priced.override,
+      dayPass: product?.dayPass ?? false,
     })
   );
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });

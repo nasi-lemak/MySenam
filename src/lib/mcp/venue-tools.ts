@@ -17,6 +17,7 @@ import type { Sport } from "../types";
 import { ArgError, optDate, optEnum, optString, reqString } from "./args";
 import { answer, READ_ONLY, refused, type McpContext, type McpTool, type ToolResult } from "./registry";
 import { courtDay } from "./shape";
+import { entryResources } from "../entries";
 
 /**
  * Layer 2: the venue's own tools, with its API key
@@ -56,7 +57,7 @@ const staffT = (args: Record<string, unknown>): StaffT => staffTranslator((optEn
 const myVenue: McpTool = {
   name: "my_venue",
   title: "This key's venue",
-  description: "Returns the venue this API key belongs to, as GET /api/v1/venue does: name, area, address, phone, time zone, usual and weekday hours, and each court with its sport, off-peak and peak rates and places; and whether this venue shows customers' personal data to AI assistants.",
+  description: "Returns the venue this API key belongs to, as GET /api/v1/venue does: name, area, address, phone, time zone, usual and weekday hours, and each court with its sport, off-peak and peak rates and places (and, where it takes entries with no set time, its entry price, longest stay and whether customers check themselves in; nobody is let in through this server); and whether this venue shows customers' personal data to AI assistants.",
   authority: "availability",
   scope: "venue:read",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -64,7 +65,7 @@ const myVenue: McpTool = {
   async run(_args, ctx) {
     const v = (await getVenue(caller(ctx).venueId))!;
     const pd = await aiPersonalData(v.id);
-    return answer(`${v.name}: the venue this key belongs to.`, { ...apiVenue(v), personalDataShownToAssistants: pd.on });
+    return answer(`${v.name}: the venue this key belongs to.`, { ...apiVenue(v, await entryResources(v.id)), personalDataShownToAssistants: pd.on });
   },
 };
 

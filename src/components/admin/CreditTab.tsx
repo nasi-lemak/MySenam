@@ -1600,6 +1600,9 @@ interface Plan {
   coverSwaps?: number;
   /** Whether a suspension moves its memberships' end by the days suspended (off by default; lib/membership-suspensions.ts). */
   extendOnSuspension?: boolean;
+  /** Its members come in with no booking where a resource takes entries (off by default; lib/entries.ts). */
+  admitsEntry?: boolean;
+  admitsEntrySport?: string | null;
 }
 
 const OFFERED_FOR: OfferedFor[] = ["account", "participant", "individual", "family"];
@@ -1680,6 +1683,7 @@ function MembershipPlans({ venueId }: { venueId: number }) {
       familyLimit?: number | null;
       coverSwaps?: number;
       extendOnSuspension?: boolean;
+      admitsEntry?: boolean;
     }
   ) {
     setError(null);
@@ -1811,6 +1815,10 @@ function MembershipPlans({ venueId }: { venueId: number }) {
                       onChange={(e) => benefits(p, { extendOnSuspension: e.target.checked })}
                     />
                     {t("ms7.cr.planExtends")}
+                  </label>
+                  <label className="inline-flex items-center gap-1">
+                    <input type="checkbox" checked={p.admitsEntry === true} onChange={(e) => benefits(p, { admitsEntry: e.target.checked })} />
+                    {t("nbk.plan.admits")}
                   </label>
                 </span>
               </span>

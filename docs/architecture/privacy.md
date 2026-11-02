@@ -162,6 +162,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | ---- | ---- | ---- |
 | Door codes shown | 180 days | deleted |
 | Arrivals at the desk | 365 days | deleted |
+| Entries with no set time: who came in, where, on what and when ([entry](../features/venue-operations.md#entry-with-no-set-time)) | 365 days | deleted (a pass's ledger line, a counter sale and its receipt kept) |
 | Phone check codes and links | 1 day | deleted |
 | Sign-up requests, and the addresses sign-up emails went to (with each link's keyed hash) | until worked through (a request), 1 day (what was sent) | deleted ([signing up](authentication.md#signing-up)) |
 | Settled waiting-list entries | 90 days | deleted |

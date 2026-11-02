@@ -53,6 +53,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "booking.rescheduled": "act.a.bookingRescheduled",
   "booking.no_show": "act.a.bookingNoShow",
   "booking.games_added": "bowl.act.gamesAdded",
+  "entry.admitted": "nbk.act.admitted",
+  "entry.checked_out": "nbk.act.checkedOut",
   "booking.concession": "act.a.bookingConcession",
   "waiver.signed": "act.a.waiverSigned",
   "enquiry.handled": "act.a.enquiryHandled",

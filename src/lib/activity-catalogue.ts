@@ -126,6 +126,12 @@ export interface ActivityDefinition {
   filters: CourtFilter[];
   support: SupportLevel;
   supportNote: string | null;
+  /**
+   * Usually sold as entry with no set time (a climbing wall, a gym floor):
+   * the booking-rules editor offers entry for it (lib/entries.ts). Only a
+   * suggestion: entry is off on every resource until the venue turns it on.
+   */
+  entrySuited?: boolean;
   country: Partial<Record<string, CountryVariant>>;
 }
 
@@ -466,8 +472,9 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     surfaced: false,
     supervised: false,
     filters: INDOOR,
-    support: "basic",
-    supportNote: "Timed sessions with places, memberships, passes and inductions work. Not built: entry on a membership without booking a session (walk-in access counted by check-in).",
+    support: "full",
+    supportNote: null,
+    entrySuited: true,
     country: {},
   },
   {
@@ -573,8 +580,9 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     surfaced: false,
     supervised: false,
     filters: INDOOR,
-    support: "basic",
-    supportNote: "Timed sessions with places, priced per climber, with a belay sign-off asked for unless the venue turns it off. Not built: open-ended day passes with no set time, and route or grade records.",
+    support: "full",
+    supportNote: null,
+    entrySuited: true,
     country: {},
   },
   {
@@ -588,8 +596,9 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     surfaced: false,
     supervised: false,
     filters: INDOOR,
-    support: "basic",
-    supportNote: "Timed sessions with places, priced per climber. Not built: open-ended day passes with no set time.",
+    support: "full",
+    supportNote: null,
+    entrySuited: true,
     country: {},
   },
   {

@@ -39,7 +39,7 @@ export function PassProducts({
   onChanged: () => void;
 }) {
   const t = useStaffT();
-  const [form, setForm] = useState({ name: "", sport: "", coachId: "", kind: "session" as "session" | "time", entries: "10", entryMinutes: "60", maxMinutes: "", scope: "booking" as BenefitScope, price: "", validDays: "90", soldOnline: false });
+  const [form, setForm] = useState({ name: "", sport: "", coachId: "", kind: "session" as "session" | "time", entries: "10", entryMinutes: "60", maxMinutes: "", scope: "booking" as BenefitScope, price: "", validDays: "90", soldOnline: false, dayPass: false });
   const [error, setError] = useState<string | null>(null);
 
   async function add(e: React.FormEvent) {
@@ -61,11 +61,13 @@ export function PassProducts({
         price: Number(form.price),
         validDays: Number(form.validDays),
         soldOnline: form.soldOnline,
+        // A day pass is one entry for one person, admitting them all day once used (lib/entries.ts).
+        dayPass: form.dayPass,
       }),
     });
     const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("p8b.prod.addFailed")));
-    setForm({ ...form, name: "", price: "", soldOnline: false });
+    setForm({ ...form, name: "", price: "", soldOnline: false, dayPass: false });
     onChanged();
   }
 
@@ -116,6 +118,7 @@ export function PassProducts({
                   {p.coachName ? ` · ${t("cr.lessonsWith", { name: p.coachName })}` : ""}
                 </span>
                 {p.soldOnline && <span className="ml-1 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-medium text-teal-800">{t("pso.prod.online")}</span>}
+                {p.dayPass && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">{t("nbk.pp.dayBadge")}</span>}
               </span>
               <span className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void online(p, !p.soldOnline)} className="rounded-md border border-teal-300 px-2 py-1 text-xs font-medium text-teal-700 hover:bg-white">
@@ -208,6 +211,10 @@ export function PassProducts({
         <label className="flex items-center gap-1.5 self-center text-xs font-medium text-slate-600">
           <input type="checkbox" checked={form.soldOnline} onChange={(e) => setForm({ ...form, soldOnline: e.target.checked })} />
           {t("pso.prod.soldOnline")}
+        </label>
+        <label className="flex items-center gap-1.5 self-center text-xs font-medium text-slate-600">
+          <input type="checkbox" checked={form.dayPass} onChange={(e) => setForm({ ...form, dayPass: e.target.checked })} />
+          {t("nbk.pp.dayPass")}
         </label>
         <button type="submit" className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700">
           {t("p8b.prod.add")}

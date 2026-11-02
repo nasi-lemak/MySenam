@@ -30,6 +30,7 @@ import type { CorrectionScope } from "@/lib/booking-corrections";
 import { AdjustPrice } from "./AdjustPrice";
 import { OwedRefunds } from "./OwedRefunds";
 import { SeriesMovePanel } from "./SeriesMovePanel";
+import { EntryDesk } from "./EntryDesk";
 
 /* ---------------- Bookings tab ---------------- */
 
@@ -848,6 +849,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       <style>{PRINT_CSS}</style>
       <AttentionPanel />
       <EnquiriesPanel />
+      <EntryDesk venues={venues} />
       <form
         className="flex flex-wrap items-center gap-2"
         onSubmit={async (e) => {

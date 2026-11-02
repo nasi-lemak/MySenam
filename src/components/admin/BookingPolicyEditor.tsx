@@ -9,6 +9,7 @@ import { PLATFORM_POLICY, SETTING_KEYS, type BookingPolicy, type FixedPrice, typ
 import { clockOf, parseClock } from "@/lib/interval";
 import { type Court, type Sport } from "@/lib/types";
 import { sportLabel } from "@/lib/i18n";
+import { activity } from "@/lib/activity-registry";
 import type { StaffT } from "@/lib/staff-i18n";
 import type { StaffText } from "@/lib/staff-text";
 import { useStaffT } from "./StaffLanguage";
@@ -73,8 +74,9 @@ const NUMBER_KEYS = [
   "gameMinutes",
   "gameMinutesEach",
   "maxGames",
+  "entryMaxStay",
 ] as const;
-const AMOUNT_KEYS = ["minCharge", "setupFee", "cleanupFee", "gamePrice", "gamePeakPrice"] as const;
+const AMOUNT_KEYS = ["minCharge", "setupFee", "cleanupFee", "gamePrice", "gamePeakPrice", "entryPrice"] as const;
 
 function toForm(s: PolicySettings): Form {
   const form = Object.fromEntries(SETTING_KEYS.map((k) => [k, ""])) as Form;
@@ -92,6 +94,8 @@ function toForm(s: PolicySettings): Form {
   form.certification = s.certification === true ? "yes" : s.certification === false ? "no" : "";
   form.separatePlaces = s.separatePlaces === true ? "yes" : s.separatePlaces === false ? "no" : "";
   form.laneOnArrival = s.laneOnArrival === true ? "yes" : s.laneOnArrival === false ? "no" : "";
+  form.entryMode = s.entryMode === true ? "yes" : s.entryMode === false ? "no" : "";
+  form.entrySelfCheckIn = s.entrySelfCheckIn === true ? "yes" : s.entrySelfCheckIn === false ? "no" : "";
   return form;
 }
 
@@ -127,6 +131,8 @@ function fromForm(form: Form, t: StaffT): Record<string, unknown> {
   out.certification = form.certification === "" ? null : form.certification === "yes";
   out.separatePlaces = form.separatePlaces === "" ? null : form.separatePlaces === "yes";
   out.laneOnArrival = form.laneOnArrival === "" ? null : form.laneOnArrival === "yes";
+  out.entryMode = form.entryMode === "" ? null : form.entryMode === "yes";
+  out.entrySelfCheckIn = form.entrySelfCheckIn === "" ? null : form.entrySelfCheckIn === "yes";
   return out;
 }
 
@@ -180,6 +186,10 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
     return null;
   }, [effective, level]);
 
+  // Activities here the catalogue says are usually sold as entry with no set time (climbing, bouldering, a gym floor).
+  const suitedForEntry = [...new Set(courts.filter((c) => c.capacity > 1).flatMap((c) => courtSports(c)))]
+    .filter((sport) => activity(sport).entrySuited === true)
+    .map((sport) => sportLabel(t.customer, sport));
   const hint = (key: (typeof SETTING_KEYS)[number]): string => {
     const value = now
       ? key in now
@@ -385,6 +395,34 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
               </label>
             </div>
           </fieldset>
+          {/* Entry with no set time (lib/entries.ts): only a resource with places takes entries; off unless set. */}
+          {courts.some((c) => c.capacity > 1) && (
+            <fieldset className="mt-3 rounded-lg border border-slate-200 p-3">
+              <legend className="px-1 text-xs font-semibold text-slate-700">{t("nbk.pol.title")}</legend>
+              <p className="text-xs text-slate-500">{t("nbk.pol.intro")}</p>
+              {suitedForEntry.length > 0 && <p className="mt-1 text-xs text-teal-700">{t("nbk.pol.suited", { list: suitedForEntry.join(", ") })}</p>}
+              <div className="mt-2 grid gap-3 sm:grid-cols-3">
+                <label className="block text-xs font-medium text-slate-600">
+                  {t("nbk.pol.mode")}
+                  <select value={form.entryMode} onChange={(e) => setForm({ ...form, entryMode: e.target.value })} className={input}>
+                    <option value="">{hint("entryMode") === "true" ? t("nbk.pol.inheritsOn") : t("nbk.pol.inheritsOff")}</option>
+                    <option value="yes">{t("nbk.pol.on")}</option>
+                    <option value="no">{t("nbk.pol.off")}</option>
+                  </select>
+                </label>
+                {field("entryPrice", t("nbk.pol.price"), t("nbk.pol.priceNote"))}
+                {field("entryMaxStay", t("nbk.pol.maxStay"), t("nbk.pol.maxStayNote"))}
+                <label className="block text-xs font-medium text-slate-600">
+                  {t("nbk.pol.self")}
+                  <select value={form.entrySelfCheckIn} onChange={(e) => setForm({ ...form, entrySelfCheckIn: e.target.value })} className={input}>
+                    <option value="">{hint("entrySelfCheckIn") === "true" ? t("nbk.pol.inheritsOn") : t("nbk.pol.inheritsOff")}</option>
+                    <option value="yes">{t("nbk.pol.selfYes")}</option>
+                    <option value="no">{t("nbk.pol.selfNo")}</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+          )}
           {level.level === "court" && (
             <CourtWeekHours value={form.weekHours} onChange={(weekHours) => setForm({ ...form, weekHours })} />
           )}

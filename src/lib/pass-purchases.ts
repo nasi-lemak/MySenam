@@ -166,6 +166,7 @@ export async function passForPayment(payment: PassPaymentRow, paidVia: string | 
     holderParticipantId: holder?.id ?? null,
     paidVia: paidVia ?? null,
     productId: product.id,
+    dayPass: product.dayPass,
   });
   if (!sold.ok) return { passId: null, why: (sold.code ?? sold.error).slice(0, 200) };
   if (holder)

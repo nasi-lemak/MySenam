@@ -80,8 +80,9 @@ describe("the capability registry", () => {
     ["staff-invitations", "staff-roles", "counter-payments", "cash-up", "pay-online-billplz", "pay-online-stripe", "stored-credit", "refunds", "receipts-tax", "check-in", "unstaffed-access", "sign-offs", "activity-approvals"].forEach(has);
     // Test bookings, branches and copying, e-invoicing, messages, company accounts, reports and exports, venue cancellations, languages.
     ["test-bookings", "branches", "branch-copy", "e-invoicing", "whatsapp-messages", "email-messages", "company-accounts", "reports", "exports", "venue-cancellations", "languages"].forEach(has);
-    // Not supported: sessionless gym admission, per-venue WhatsApp numbers, web push, a native app.
-    for (const id of ["gym-walk-in", "venue-whatsapp-number", "web-push", "native-app"]) expect(capability(id)?.status, id).toBe("unsupported");
+    // Not supported: per-venue WhatsApp numbers, web push, a native app. (Gym entry without a session is built: lib/entries.ts.)
+    for (const id of ["venue-whatsapp-number", "web-push", "native-app"]) expect(capability(id)?.status, id).toBe("unsupported");
+    expect(capability("gym-walk-in")?.status).toBe("available");
     expect(unsupportedCapabilities().length + availableCapabilities().length).toBe(CAPABILITIES.length);
   });
 
@@ -163,9 +164,10 @@ describe("the capability registry", () => {
     expect(availabilityOf(requireCapability("web-push"))).toBe("unsupported");
   });
 
-  it("says nothing about a gym that its catalogue note does not", () => {
+  it("says of a gym what its catalogue entry does: entry without a session is built, and listed with the gym", () => {
     const gym = BUILTIN_ACTIVITIES.find((a) => a.key === "gym")!;
-    expect(gym.supportNote).toContain("without booking a session");
-    expect(requireCapability("gym-walk-in").activityNote).toBe("gym");
+    expect([gym.support, gym.supportNote, gym.entrySuited]).toEqual(["full", null, true]);
+    expect(requireCapability("gym-walk-in")).toMatchObject({ status: "available", activityNote: "gym" });
+    expect(requireCapability("open-day-pass")).toMatchObject({ status: "available", activityNote: "climbing" });
   });
 });

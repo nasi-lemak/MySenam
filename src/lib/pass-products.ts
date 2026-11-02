@@ -34,6 +34,11 @@ export interface PassProduct {
   validDays: number;
   /** Offered on the venue's page, bought and paid online (migration 0264; lib/pass-purchases.ts). Off unless a manager says. */
   soldOnline: boolean;
+  /**
+   * A day pass (migration 0266; lib/entries.ts): one entry for one person,
+   * admitting them all the day it is first used, at a resource taking entries.
+   */
+  dayPass: boolean;
 }
 
 /** A venue's list stays short enough to pick from at a glance. */
@@ -55,6 +60,7 @@ interface Row {
   price: number | string;
   valid_days: number;
   sold_online: boolean | number | null;
+  day_pass?: boolean | null;
 }
 
 const SELECT = `SELECT p.*, k.name AS coach_name FROM pass_products p LEFT JOIN coaches k ON k.id = p.coach_id`;
@@ -74,6 +80,7 @@ const toProduct = (r: Row): PassProduct => ({
   price: Number(r.price),
   validDays: r.valid_days,
   soldOnline: Boolean(r.sold_online),
+  dayPass: r.day_pass === true,
 });
 
 /** What the venue offers now, cheapest first. */
@@ -137,6 +144,10 @@ const minutesOrNull = (v: unknown): number | null | false => (v === undefined ||
 export async function createPassProduct(venueId: number, input: Record<string, unknown>, adminId: number | null): Promise<ProductResult> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (name.length < 2 || name.length > 60) return { ok: false, error: "Give the pass a name of 2 to 60 characters." };
+  if (input.dayPass !== undefined && typeof input.dayPass !== "boolean") return { ok: false, error: "dayPass is true or false." };
+  // A day pass is one entry for one person, whatever else was said (lib/entries.ts).
+  const dayPass = input.dayPass === true;
+  if (dayPass) input = { ...input, kind: "session", entries: 1, entryMinutes: null, maxMinutes: null, scope: "participant", coachId: null };
   const kind = input.kind === undefined || input.kind === null || input.kind === "" ? "session" : input.kind;
   if (kind !== "session" && kind !== "time") return { ok: false, error: "A pass spends entries or court time." };
   const most = kind === "time" ? MAX_PASS_MINUTES : MAX_PASS_ENTRIES;
@@ -177,10 +188,10 @@ export async function createPassProduct(venueId: number, input: Record<string, u
   if (Number(n) >= MAX_PASS_PRODUCTS) return { ok: false, error: `A venue offers up to ${MAX_PASS_PRODUCTS} passes. Retire one first.` };
   const row = (await db
     .prepare(
-      `INSERT INTO pass_products (venue_id, name, sport, coach_id, kind, entries, entry_minutes, max_minutes, scope, price, valid_days, created_by, sold_online)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO pass_products (venue_id, name, sport, coach_id, kind, entries, entry_minutes, max_minutes, scope, price, valid_days, created_by, sold_online, day_pass)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
-    .get(venueId, name, sport, coachId, kind, input.entries, entryMinutes, longest, scope, roundMoney(input.price as number), input.validDays, adminId, soldOnline)) as { id: number };
+    .get(venueId, name, sport, coachId, kind, input.entries, entryMinutes, longest, scope, roundMoney(input.price as number), input.validDays, adminId, soldOnline, dayPass)) as { id: number };
   return { ok: true, product: (await passProductAt(venueId, row.id))! };
 }
 

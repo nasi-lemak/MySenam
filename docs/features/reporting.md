@@ -60,6 +60,9 @@ column.
   outage takes out for its time. Two kayaks of six blocked for an hour take
   two place-hours, not the hour; the cell says how many were taken out
   (`tests/partial-blocks.test.ts`, `tests/components/occupancy-tab.test.tsx`).
+  Under a resource taking [entries with no set time](venue-operations.md#entry-with-no-set-time)
+  each cell also counts the people let in that day; they are a count, not
+  place-hours, and are not in the percentage or the totals below.
   A court's cell counts the hours it was in use, so a court under a booked
   pitch shows that hour too. Below the courts each day has two totals,
   measured exactly as the report measures that day (`measureUse` in

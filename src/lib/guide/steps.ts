@@ -25,6 +25,9 @@ import { hasProgrammes, takesCounterPayments, usesOnlinePayments } from "./profi
  * are never a saved setting and never an invented number.
  */
 
+/** Activities the catalogue says are usually sold as entry with no set time (`entrySuited`). */
+const ENTRY_SUITED = new Set(BUILTIN_ACTIVITIES.filter((a) => a.entrySuited).map((a) => a.key));
+
 // ------------------------------------------------------------ reasons a step is shown
 
 const ALWAYS: Say = { key: "gd.because.always" };
@@ -205,6 +208,28 @@ export const SETUP_STEPS: readonly SetupStep[] = [
           ? becauseAnswer("types")
           : null,
     state: (ctx) => afterCourts(ctx, () => done(ctx.profile.resources.linked > 0, "optional")),
+  },
+  {
+    // Entry with no set time (lib/entries.ts): offered where the venue has an activity usually sold so (climbing,
+    // bouldering, a gym floor) on a resource with places; done once one takes entries. Off until the venue says.
+    id: "entry",
+    group: "resources",
+    capabilities: ["gym-walk-in", "open-day-pass"],
+    kind: "link",
+    effect: "open",
+    titleKey: "gs.step.entry.title",
+    whyKey: "gs.step.entry.why",
+    required: false,
+    after: ["courts"],
+    configure: { tab: "courts" },
+    staffAction: "bookingPolicies",
+    applies: (ctx) =>
+      ctx.profile.resources.shared > 0 && ctx.profile.activities.some((a) => ENTRY_SUITED.has(a.key))
+        ? becauseFact("gs.because.fact.entry")
+        : ctx.answers.types?.some((t) => t === "gym-and-fitness" || t === "climbing-and-bouldering")
+          ? becauseAnswer("types")
+          : null,
+    state: (ctx) => afterCourts(ctx, () => done((ctx.profile.resources.entry ?? 0) > 0, "optional")),
   },
 
   // ---------------------------------------------------------------- pricing

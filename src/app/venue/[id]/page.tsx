@@ -35,6 +35,8 @@ import { intlTag, money, shortDate } from "@/lib/region";
 import { venueContact } from "@/lib/venue-contact";
 import JoinMembership, { type Dependant, type FamilyMembership, type JoinStanding } from "@/components/JoinMembership";
 import BuyPass, { type PassStanding } from "@/components/BuyPass";
+import { EntryPanel } from "@/components/EntryPanel";
+import { publicEntries } from "@/lib/entries";
 import { listOnlinePassProducts } from "@/lib/pass-products";
 import { mayBuyAt } from "@/lib/pass-purchases";
 import type { Metadata } from "next";
@@ -315,6 +317,8 @@ export default async function VenuePage({
             )}
           </div>
         ))}
+      {/* No booking needed where a resource takes entries with no set time (lib/entries.ts). */}
+      <EntryPanel entries={await publicEntries(venue.id)} t={t} />
       {plans.length > 0 && access.access !== "private" && (
         // Where a refusal's renewal link lands (lib/entitlements.ts renewPath).
         <div id="membership" className="scroll-mt-20">

@@ -122,6 +122,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Entries without a booking past their longest stay: they had stopped counting; closed as having ended then (lib/entries.ts).
+    await (await import("./entries")).closeEndedEntries(now);
+  } catch (err) {
+    console.error("[mysenam] closing entries failed:", err);
+    await raiseAlert("scheduler:closing-entries-without-booking-failed", failed("srv.work.entries"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // A marketplace's monthly invoices, on the first tick of the month.
     const issued = await issueDueInvoices(now);
     if (issued.length > 0) result.invoices = issued.length;

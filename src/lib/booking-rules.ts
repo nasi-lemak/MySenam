@@ -140,6 +140,21 @@ export interface BookingPolicy {
    * lane free then (lib/lanes.ts).
    */
   laneOnArrival: boolean;
+  /**
+   * Entry with no set time (lib/entries.ts;
+   * docs/features/venue-operations.md#entry-with-no-set-time): on a resource
+   * with places, people are let in as they come, up to its places less those
+   * bookings overlapping now hold, and count until they check out or
+   * `entryMaxStay` minutes pass. Off unless a venue turns it on. Bookings are
+   * made as before; an entry never takes a place a booking holds.
+   */
+  entryMode: boolean;
+  /** What one entry costs paid at the counter (a walk-in); null: none sold. */
+  entryPrice: number | null;
+  /** The longest an entry counts for, in minutes. */
+  entryMaxStay: number;
+  /** Somebody a membership, pass or day pass admits may let themself in by the check-in code; else only the desk admits. */
+  entrySelfCheckIn: boolean;
   pricing: PricingPolicy;
 }
 
@@ -177,6 +192,11 @@ export type PolicySettings = {
   laneOnArrival?: boolean | null;
   gamePrice?: number | null;
   gamePeakPrice?: number | null;
+  /** Entry with no set time (lib/entries.ts). */
+  entryMode?: boolean | null;
+  entryPrice?: number | null;
+  entryMaxStay?: number | null;
+  entrySelfCheckIn?: boolean | null;
 };
 
 export const SETTING_KEYS = [
@@ -211,6 +231,10 @@ export const SETTING_KEYS = [
   "laneOnArrival",
   "gamePrice",
   "gamePeakPrice",
+  "entryMode",
+  "entryPrice",
+  "entryMaxStay",
+  "entrySelfCheckIn",
 ] as const satisfies readonly (keyof PolicySettings)[];
 
 /** The platform's: on the hour, an hour at a time, up to four hours. */
@@ -246,7 +270,14 @@ export const PLATFORM_POLICY: Required<{ [K in keyof PolicySettings]: NonNullabl
   laneOnArrival: false,
   gamePrice: null,
   gamePeakPrice: null,
+  entryMode: false,
+  entryPrice: null,
+  entryMaxStay: 240,
+  entrySelfCheckIn: false,
 };
+
+/** The shortest and longest an entry may be let count for, in minutes. */
+export const ENTRY_STAY = { min: 30, max: 1440 } as const;
 
 /** The most games a venue may let one booking be for. */
 export const MAX_GAMES = 20;
@@ -302,6 +333,10 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
     gameMinutesEach: pick("gameMinutesEach") ?? 0,
     maxGames: pick("maxGames") ?? 10,
     laneOnArrival: pick("laneOnArrival") === true,
+    entryMode: pick("entryMode") === true,
+    entryPrice: pick("entryPrice"),
+    entryMaxStay: pick("entryMaxStay") ?? 240,
+    entrySelfCheckIn: pick("entrySelfCheckIn") === true,
     pricing: {
       rateMode: pick("rateMode")!,
       billStep: pick("billStep"),

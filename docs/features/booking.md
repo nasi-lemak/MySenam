@@ -48,6 +48,11 @@ A refused claim is "just taken" to the customer.
 Capacity cannot be reduced below the places already booked at any upcoming
 moment, so shrinking a gym never strands a customer.
 
+A resource with places can also let people in with no booked time, while it
+has room, where the venue turns that on: [entry with no set
+time](venue-operations.md#entry-with-no-set-time). Its bookings keep their
+places; entries are not claims, and are counted against what bookings leave.
+
 For a customer this is the forward-looking crowd signal: a shared facility shows
 **places left** rather than a price in each cell, shaded from quiet through
 filling to busy, so you can see that Monday 7pm is always packed.

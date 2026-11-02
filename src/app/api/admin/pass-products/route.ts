@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   await logAction(admin, {
     venueId: venueId as number,
     action: "pass_product.added",
-    detail: `${p.name}: ${p.entries} ${p.kind === "time" ? "minutes" : "entries"}, ${p.validDays} days, ${money(p.price)}${p.soldOnline ? ", sold online" : ""}`,
+    detail: `${p.name}: ${p.entries} ${p.kind === "time" ? "minutes" : "entries"}, ${p.validDays} days, ${money(p.price)}${p.soldOnline ? ", sold online" : ""}${p.dayPass ? ", a day pass" : ""}`,
   });
   return NextResponse.json({ product: p }, { status: 201 });
 }

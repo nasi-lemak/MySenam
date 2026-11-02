@@ -50,6 +50,8 @@ export async function POST(req: NextRequest) {
     familyLimit: body.familyLimit,
     coverSwaps: body.coverSwaps,
     extendOnSuspension: body.extendOnSuspension,
+    admitsEntry: body.admitsEntry,
+    admitsEntrySport: body.admitsEntrySport,
   });
   if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 });
   await logAction(admin, {
@@ -76,7 +78,8 @@ export async function DELETE(req: NextRequest) {
 }
 
 /**
- * `{ venueId, id, ratePercent, aheadDays, scope?, offeredFor?, familyLimit?, coverSwaps?, extendOnSuspension? }`: a plan's benefits, each
+ * `{ venueId, id, ratePercent, aheadDays, scope?, offeredFor?, familyLimit?, coverSwaps?, extendOnSuspension?, admitsEntry?,
+ * admitsEntrySport? }`: a plan's benefits, each
  * null for the venue's; `scope` left out keeps what the price covers, `offeredFor` whom it is sold to online,
  * `extendOnSuspension` whether a suspension moves its memberships' end (off unless set; lib/membership-suspensions.ts).
  * Memberships on it get the benefits from now; those already sold keep whom they cover.
@@ -98,6 +101,8 @@ export async function PATCH(req: NextRequest) {
     familyLimit: body.familyLimit,
     coverSwaps: body.coverSwaps,
     extendOnSuspension: body.extendOnSuspension,
+    admitsEntry: body.admitsEntry,
+    admitsEntrySport: body.admitsEntrySport,
   });
   if (!set.ok) return NextResponse.json({ error: set.error }, { status: 400 });
   await logAction(admin, {
@@ -109,7 +114,9 @@ export async function PATCH(req: NextRequest) {
       set.plan.offeredFor === "family"
         ? `a family of up to ${set.plan.familyLimit} besides the holder, ${set.plan.coverSwaps} put on in place of others per term`
         : set.plan.offeredFor
-    }${set.plan.extendOnSuspension ? ", its end extended by the time suspended" : ""}`,
+    }${set.plan.extendOnSuspension ? ", its end extended by the time suspended" : ""}${
+      set.plan.admitsEntry ? `, members let in with no booking${set.plan.admitsEntrySport ? ` (${set.plan.admitsEntrySport} only)` : ""}` : ""
+    }`,
   });
   return NextResponse.json({ plan: set.plan });
 }

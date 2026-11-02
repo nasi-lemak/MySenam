@@ -94,6 +94,24 @@ export const DAY_MODULES: PlaybookModule[] = [
     },
   },
   {
+    // Entry with no set time (lib/entries.ts): admitting and checking out at the desk.
+    id: "during.entry",
+    section: "during",
+    roles: BOTH,
+    applies: (p) => (p.resources.entry ?? 0) > 0,
+    blocks: (c) => [
+      heading("gp.during.entry.h", "during-entry"),
+      para("gp.during.entry.text"),
+      steps(
+        step("gp.during.entry.s1", { screen: screen("bookings") }, c.go("bookings")),
+        step("gp.during.entry.s2"),
+        step("gp.during.entry.s3"),
+        step("gp.during.entry.s4")
+      ),
+      note("gp.during.entry.full"),
+    ],
+  },
+  {
     id: "during.walkins",
     section: "during",
     roles: BOTH,

@@ -109,7 +109,7 @@ venue the person allowed: another venue's court or booking is not found
 
 | Tool | Key scope | Signed in | Returns or does |
 | --- | --- | --- | --- |
-| `my_venue` | availability | `venue:read` | The venue as `GET /api/v1/venue` gives it, and whether personal data is shown to assistants |
+| `my_venue` | availability | `venue:read` | The venue as `GET /api/v1/venue` gives it (a court taking entries with no set time says so, read only: no tool lets anybody in), and whether personal data is shown to assistants |
 | `my_availability` | availability | `venue:read` | `{ date?, activity? }`: each court's day as `GET /api/v1/availability` gives it |
 | `my_bookings` | read | `venue:read` | `{ from, to? }` (at most 31 days): the bookings as `GET /api/v1/bookings` gives them |
 | `my_booking` | read | `venue:read` | `{ code }`: one booking |

@@ -41,7 +41,14 @@ export function spanDays(from: string, to: string): number {
 }
 
 /** The key's venue as `GET /api/v1/venue` and the MCP server's `my_venue` give it: its details, hours and courts with their rates. */
-export function apiVenue(v: Venue & { courts: Court[] }): Record<string, unknown> {
+export function apiVenue(
+  v: Venue & { courts: Court[] },
+  /**
+   * The courts taking entries with no set time (lib/entries.ts `entryResources`), shown on each as `entry`: its
+   * walk-in price, longest stay and whether customers check themselves in. Read only: nobody is let in through the API.
+   */
+  entries: { courtId: number; price: number | null; maxStay: number; selfCheckIn: boolean }[] = []
+): Record<string, unknown> {
   return {
     id: v.id,
     name: v.name,
@@ -56,7 +63,18 @@ export function apiVenue(v: Venue & { courts: Court[] }): Record<string, unknown
     closeHour: v.closeHour,
     // Weekdays with their own hours, or closed; null when every day keeps the usual ones.
     weekHours: v.weekHours ?? null,
-    courts: v.courts.map((c) => ({ id: c.id, name: c.name, sport: c.sport, offPeakRate: c.offPeakRate, peakRate: c.peakRate, capacity: c.capacity })),
+    courts: v.courts.map((c) => {
+      const entry = entries.find((e) => e.courtId === c.id);
+      return {
+        id: c.id,
+        name: c.name,
+        sport: c.sport,
+        offPeakRate: c.offPeakRate,
+        peakRate: c.peakRate,
+        capacity: c.capacity,
+        ...(entry ? { entry: { price: entry.price, maxStayMinutes: entry.maxStay, selfCheckIn: entry.selfCheckIn } } : {}),
+      };
+    }),
   };
 }
 

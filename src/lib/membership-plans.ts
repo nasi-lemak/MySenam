@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { isActivity } from "./activities";
 import { accountPhone } from "./access";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { inSameBusiness } from "./branches";
@@ -57,6 +58,13 @@ export interface MembershipPlan {
    * default: a suspension does not move a membership's end.
    */
   extendOnSuspension: boolean;
+  /**
+   * Its members are let in with no booking at a resource taking entries
+   * (migration 0266; lib/entries.ts), anywhere in the venue's business, or
+   * only where it offers `admitsEntrySport`. Off by default.
+   */
+  admitsEntry: boolean;
+  admitsEntrySport: string | null;
 }
 
 export const OFFERED_FOR = ["account", "participant", "individual", "family"] as const;
@@ -86,6 +94,8 @@ interface PlanRow {
   family_limit?: number | null;
   cover_swaps?: number | null;
   extend_on_suspension?: boolean | number | null;
+  admits_entry?: boolean | null;
+  admits_entry_sport?: string | null;
 }
 
 const toPlan = (r: PlanRow): MembershipPlan => ({
@@ -101,9 +111,11 @@ const toPlan = (r: PlanRow): MembershipPlan => ({
   familyLimit: r.offered_for === "family" ? (r.family_limit ?? null) : null,
   coverSwaps: r.offered_for === "family" ? (r.cover_swaps ?? 0) : 0,
   extendOnSuspension: r.extend_on_suspension === true || r.extend_on_suspension === 1,
+  admitsEntry: r.admits_entry === true,
+  admitsEntrySport: r.admits_entry === true ? (r.admits_entry_sport ?? null) : null,
 });
 
-const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension";
+const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension, admits_entry, admits_entry_sport";
 
 /** The plans a venue has on offer, cheapest first. */
 export async function listPlans(venueId: number): Promise<MembershipPlan[]> {
@@ -170,11 +182,36 @@ function readExtends(input: { extendOnSuspension?: unknown }, current: boolean):
   return typeof v === "boolean" ? v : "Say whether a suspension extends a membership's end: true or false.";
 }
 
+/**
+ * Whether a plan's members are let in with no booking (lib/entries.ts), as given: left out, as it is (off for a new
+ * plan); `admitsEntrySport` an activity to admit at only, or null for any resource taking entries.
+ */
+async function readAdmits(
+  input: { admitsEntry?: unknown; admitsEntrySport?: unknown },
+  current: { admitsEntry: boolean; admitsEntrySport: string | null }
+): Promise<{ admitsEntry: boolean; admitsEntrySport: string | null } | string> {
+  const admitsEntry = input.admitsEntry ?? current.admitsEntry;
+  if (typeof admitsEntry !== "boolean") return "Say whether its members come in with no booking: true or false.";
+  const sport = input.admitsEntrySport === undefined ? current.admitsEntrySport : input.admitsEntrySport === "" ? null : input.admitsEntrySport;
+  if (sport !== null && !(await isActivity(sport))) return "Unknown sport.";
+  return { admitsEntry, admitsEntrySport: admitsEntry ? (sport as string | null) : null };
+}
+
 /** Change a plan's benefits. Memberships already on it get them from now. */
 export async function setPlanBenefits(
   venueId: number,
   planId: number,
-  input: { ratePercent?: unknown; aheadDays?: unknown; scope?: unknown; offeredFor?: unknown; familyLimit?: unknown; coverSwaps?: unknown; extendOnSuspension?: unknown }
+  input: {
+    ratePercent?: unknown;
+    aheadDays?: unknown;
+    scope?: unknown;
+    offeredFor?: unknown;
+    familyLimit?: unknown;
+    coverSwaps?: unknown;
+    extendOnSuspension?: unknown;
+    admitsEntry?: unknown;
+    admitsEntrySport?: unknown;
+  }
 ): Promise<PlanResult> {
   const benefits = readBenefits(input);
   if (typeof benefits === "string") return { ok: false, error: benefits };
@@ -186,12 +223,15 @@ export async function setPlanBenefits(
   // Not said: whether a suspension extends its memberships stays as it is.
   const extendOnSuspension = readExtends(input, current.extendOnSuspension);
   if (typeof extendOnSuspension === "string") return { ok: false, error: extendOnSuspension };
+  // Not said: whether its members come in with no booking stays as it is.
+  const admits = await readAdmits(input, current);
+  if (typeof admits === "string") return { ok: false, error: admits };
   // Not said: what the price covers stays as it is.
   const done = await getDb()
     .prepare(
-      "UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope), offered_for = ?, family_limit = ?, cover_swaps = ?, extend_on_suspension = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL"
+      "UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope), offered_for = ?, family_limit = ?, cover_swaps = ?, extend_on_suspension = ?, admits_entry = ?, admits_entry_sport = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL"
     )
-    .run(benefits.ratePercent, benefits.aheadDays, input.scope === undefined || input.scope === null ? null : benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, extendOnSuspension, planId, venueId);
+    .run(benefits.ratePercent, benefits.aheadDays, input.scope === undefined || input.scope === null ? null : benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, extendOnSuspension, admits.admitsEntry, admits.admitsEntrySport, planId, venueId);
   if (done.changes !== 1) return { ok: false, error: "That plan is not offered here." };
   return { ok: true, plan: (await planById(planId))! };
 }
@@ -217,6 +257,8 @@ export async function createPlan(
     familyLimit?: unknown;
     coverSwaps?: unknown;
     extendOnSuspension?: unknown;
+    admitsEntry?: unknown;
+    admitsEntrySport?: unknown;
   }
 ): Promise<PlanResult> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
@@ -233,11 +275,13 @@ export async function createPlan(
   if (typeof holders === "string") return { ok: false, error: holders };
   const extendOnSuspension = readExtends(input, false);
   if (typeof extendOnSuspension === "string") return { ok: false, error: extendOnSuspension };
+  const admits = await readAdmits(input, { admitsEntry: false, admitsEntrySport: null });
+  if (typeof admits === "string") return { ok: false, error: admits };
   const info = await getDb()
     .prepare(
-      "INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension, admits_entry, admits_entry_sport) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays, benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, extendOnSuspension);
+    .run(venueId, name, input.months, input.price, benefits.ratePercent, benefits.aheadDays, benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, extendOnSuspension, admits.admitsEntry, admits.admitsEntrySport);
   return { ok: true, plan: (await planById(Number(info.lastInsertRowid)))! };
 }
 

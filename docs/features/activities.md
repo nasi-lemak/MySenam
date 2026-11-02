@@ -80,6 +80,16 @@ that way (about 12 minutes a game for one bowler, 10 more for each other,
 6 games at most). How such a booking is made, priced, given its lane and
 extended is in [booking](booking.md#by-the-game-and-a-lane-given-on-arrival).
 
+A resource with places can also take **entry with no set time**: people come
+in as they arrive while there is room, on a membership whose plan admits, a
+pass, a day pass or a walk-in at the desk, and count until they leave or the
+longest stay passes; its bookings keep their places. This too is a booking
+rule, off on every resource until the venue turns it on. The catalogue only
+marks the activities usually sold so (`entrySuited`: climbing, bouldering,
+a gym), for which the booking-rules editor and the setup journey offer it;
+it never turns it on. How entries are admitted, counted and paid for is in
+[venue operations](venue-operations.md#entry-with-no-set-time).
+
 ## Setting activities up (dashboard)
 
 All of this is under *Courts* in the dashboard; nothing needs the database or
@@ -642,7 +652,7 @@ booking (`tests/activity-coverage.test.ts` does this for every built-in one).
 Sport-specific extras that nobody needs to sell the activity (scoring,
 rankings, logbooks) do not count against a level.
 
-**Count:** 32 built-in activities: 24 full, 8 basic, 0 specialised
+**Count:** 32 built-in activities: 27 full, 5 basic, 0 specialised
 (`tests/activities.test.ts` holds these numbers).
 
 Tested: `tests/activity-coverage.test.ts` (every built-in, set up from its
@@ -650,6 +660,7 @@ template, found and booked as it is sold), `tests/activities.test.ts`
 (catalogue, templates, multi-activity resources, places, search),
 `tests/hire-pricing.test.ts` (pricing models), `tests/bowling-games.test.ts`
 (selling by the game and lanes given on arrival), `tests/sign-offs.test.ts`,
+`tests/entries.test.ts` (entry with no set time and day passes),
 `tests/approvals.test.ts` (registering online for approval: approval,
 refusal, questions answered, expiry and renewal, holds and races on
 Postgres, money, who may decide, in-person steps, minors, documents, door
@@ -667,11 +678,11 @@ codes), `tests/sports.test.ts`, `tests/capacity.test.ts` and
 | Yoga, Pilates, dance, martial arts, boxing | Studio | Rooms run as classes | Full | — |
 | Golf simulator | Specialist | Bays (lanes) | Full | — |
 | Fencing | Specialist | Pistes (lanes); lessons and club nights as classes | Full | — |
-| Gym | Fitness | Floor with places: timed sessions, memberships, passes, inductions | Basic | Entry on a membership without booking a session (walk-in access counted at check-in) |
+| Gym | Fitness | Floor with places: timed sessions, memberships, passes, inductions; entry with no set time on a membership, pass or walk-in where the venue turns it on | Full | — |
 | Kayak, canoe, stand-up paddleboarding | Water | Fleet hire, per item; kinds of boat or board as resources of their own, booked together with a number of each | Basic | Tide and launch windows |
 | Cycling | Fitness | Bike hire (sizes as resources of their own); spin as classes | Basic | Track or velodrome sessions run in heats |
-| Climbing | Specialist | Wall with places, per climber, belay sign-off by default | Basic | Open-ended day passes |
-| Bouldering | Specialist | Wall with places, per climber | Basic | Open-ended day passes |
+| Climbing | Specialist | Wall with places, per climber, belay sign-off by default; day passes and entry with no set time where the venue turns it on | Full | — |
+| Bouldering | Specialist | Wall with places, per climber; day passes and entry with no set time where the venue turns it on | Full | — |
 | Archery | Specialist | Lanes, per archer, range-briefing sign-off by default | Basic | Scheduling a range officer per session |
 | Bowling | Specialist | Lanes sold by the game, per player, the lane given on arrival; shoe hire as an extra | Full | — |
 | An operator's own activity | Any | Any | Basic until reviewed | Whatever its workflow needs beyond the models above |

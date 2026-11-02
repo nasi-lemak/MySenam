@@ -85,10 +85,11 @@ describe("business types", () => {
   });
 
   it("warn about what is not supported, where the catalogue says so, instead of promising it", () => {
-    // A gym is never sold as sessionless admission: the type lists the unsupported capability, and the catalogue's own note is why.
+    // A gym's entry without a session and climbing's day passes are built (lib/entries.ts): the types list them, available.
     expect(businessType("gym-and-fitness")!.capabilities).toContain("gym-walk-in");
-    expect(capability("gym-walk-in")!.status).toBe("unsupported");
+    expect(capability("gym-walk-in")!.status).toBe("available");
     expect(businessType("climbing-and-bouldering")!.capabilities).toContain("open-day-pass");
+    expect(capability("open-day-pass")!.status).toBe("available");
     // A type never offers an available capability its own list does not name, and a coaching academy does not hire equipment out.
     expect(businessType("coaching-academy")!.capabilities).not.toContain("equipment-hire");
     expect(businessType("coaching-academy")!.capabilities).toContain("coaching");
@@ -102,7 +103,9 @@ describe("business types", () => {
       expect(facts.supportNote).toBe(a.supportNote);
       expect(facts.model).toBe(a.template.model);
     }
-    expect(activityFacts("climbing")!.supportNote).toContain("open-ended day passes");
+    // Climbing's day passes with no set time are built (lib/entries.ts): fully supported, with nothing to note.
+    expect(activityFacts("climbing")!.supportNote).toBeNull();
+    expect(activityFacts("archery")!.supportNote).toContain("range officer");
     expect(activityFacts("not-an-activity")).toBeUndefined();
   });
 

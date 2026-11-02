@@ -380,6 +380,7 @@ A pass is a session pass or a time pass (`passes.kind`, `passCost` in
 | Waiting lists | Entries keep the minutes wanted; an offer is a claim with `expires_at` |
 | Moving, rescheduling | The booking's claims released and claimed again in one transaction, so a booking may slide over its own old time |
 | Coaching | Lesson claims for the court, coach claims for the coach |
+| Entry with no set time | Not a claim: a row per person in `entries`, admitted only while open entries plus the places claims hold at that moment are under capacity, decided under the court's advisory lock (the one claims take) and its row ([entry](../features/venue-operations.md#entry-with-no-set-time)); bookings are never refused for entries |
 | Search | Candidate starts from each court's policy, one read of the day's claims for the candidate courts, a sweep in memory |
 | Reports, exports, feeds, messages | Minutes from the booking; moments from `starts_at`/`ends_at` |
 

@@ -92,6 +92,8 @@ export interface VenueProfile {
     unmanned: number;
     /** Resources whose lane is given on arrival (lib/lanes.ts): the desk chooses the lane at check-in. */
     laneOnArrival?: number;
+    /** Resources taking entries with no set time (lib/entries.ts): the desk admits and checks people out. */
+    entry?: number;
   };
 
   hours: {

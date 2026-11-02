@@ -192,17 +192,18 @@ describe("what a business type's page shows", () => {
     const view = (...types: string[]) => fitView({ types: types as never, activities: [] });
     const unsupported = (v: ReturnType<typeof fitView>) => v.limits.relevant.map((c) => c.id);
 
-    // A gym: no entry on a membership without booking a session, said; the session journey is there instead.
+    // A gym: entry on a membership without booking a session is built (lib/entries.ts), listed as available; sessions too.
     const gym = view("gym-and-fitness");
-    expect(unsupported(gym)).toContain("gym-walk-in");
+    expect(unsupported(gym)).not.toContain("gym-walk-in");
+    expect(gym.listed.find((l) => l.capability.id === "gym-walk-in")?.capability.status).toBe("available");
     expect(gym.workflows.map((w) => w.id)).toContain("timed-session");
-    expect(en("gcap.gym-walk-in.alt")).toMatch(/timed sessions/i);
-    expect(gym.partial.map((a) => a.key)).toContain("gym");
-    expect(gym.partial.find((a) => a.key === "gym")!.supportNote).toBe(activityFacts("gym")!.supportNote);
+    expect(gym.partial.map((a) => a.key)).not.toContain("gym");
+    expect(activityFacts("gym")!.supportNote).toBeNull();
 
-    // Climbing: no open-ended day pass; sessions and a sign-off instead.
+    // Climbing: day passes with no set time are built, beside sessions and a sign-off.
     const climbing = view("climbing-and-bouldering");
-    expect(unsupported(climbing)).toContain("open-day-pass");
+    expect(unsupported(climbing)).not.toContain("open-day-pass");
+    expect(climbing.listed.find((l) => l.capability.id === "open-day-pass")?.capability.status).toBe("available");
     expect(climbing.workflows.map((w) => w.id)).toEqual(expect.arrayContaining(["timed-session", "first-visit-sign-off", "equipment-hire"]));
 
     // Bowling is sold by the game, the lane given on arrival: adding it lists that, as the catalogue says, and nothing short of full.
@@ -262,8 +263,9 @@ describe("a selection of several kinds of business", () => {
       const claim = COMBINED_CLAIMS.find((c) => c.id === id)!;
       for (const need of claim.needs) expect(view.listed.some((l) => l.capability.id === need && l.capability.status === "available")).toBe(true);
     }
-    // Both kinds' limits are shown.
-    expect(view.limits.relevant.map((c) => c.id)).toContain("gym-walk-in");
+    // Both kinds' limits are shown; a gym's entry without a session is built (lib/entries.ts), so it is listed, not a limit.
+    expect(view.limits.relevant.map((c) => c.id)).toContain("venue-whatsapp-number");
+    expect(view.listed.map((l) => l.capability.id)).toContain("gym-walk-in");
   });
 
   it("treats the mixed venue and activities of several models as combined, and one ordinary type as not", () => {
@@ -281,7 +283,8 @@ describe("a selection of several kinds of business", () => {
     expect(kayak.workflows.map((w) => w.id)).not.toContain("unstaffed-entry");
     const climb = fitView({ types: ["badminton-and-pickleball"], activities: ["climbing"] });
     expect(climb.workflows.map((w) => w.id)).toEqual(expect.arrayContaining(["court-booking", "timed-session", "first-visit-sign-off"]));
-    expect(climb.limits.relevant.map((c) => c.id)).toContain("open-day-pass");
+    // Climbing's own way of selling it (a day pass with no set time) comes with it, available (lib/entries.ts).
+    expect(climb.listed.map((l) => l.capability.id)).toContain("open-day-pass");
     expect(climb.activities.find((a) => a.key === "climbing")!.from).toEqual(["activity"]);
     // What the models bring are real capabilities and journeys.
     for (const ids of Object.values(MODEL_CAPABILITIES)) for (const id of ids) expect(AVAILABLE(id), id).toBe(true);

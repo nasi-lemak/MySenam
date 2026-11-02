@@ -379,7 +379,7 @@ describe("the discover view", () => {
     expect(states.get("classes")!.getAttribute("data-state")).toBe("in-use");
     expect(states.get("coaching")!.getAttribute("data-state")).toBe("available");
     // An unsupported way of selling says what the catalogue says of it.
-    expect(states.get("gym-walk-in")!.textContent).toMatch(/Limitation:/);
+    expect(states.get("range-officer")!.textContent).toMatch(/Limitation:/);
   });
 
   it("offers each available, unused capability a way to set it up only where setup has steps for it, else the screen that has it", async () => {

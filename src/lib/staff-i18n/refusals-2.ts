@@ -801,4 +801,14 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "games must be a whole number of games, 1 to 20.": { ms: "games mestilah nombor bulat permainan, 1 hingga 20.", zh: "games 必须是 1 至 20 的整数局数。" },
   "laneId must be a court's id.": { ms: "laneId mestilah id gelanggang.", zh: "laneId 必须是场地的 id。" },
   "add must be a whole number of games.": { ms: "add mestilah nombor bulat permainan.", zh: "add 必须是整数局数。" },
+  // nbk: entry with no set time (lib/entries.ts)
+  "People come in with no booking here, or only by booking.": { ms: "Orang masuk tanpa tempahan di sini, atau melalui tempahan sahaja.", zh: "此处可无预订入场，或仅限预订。" },
+  "Customers let themselves in by the check-in code, or only the desk admits them.": { ms: "Pelanggan daftar masuk sendiri dengan kod daftar masuk, atau hanya kaunter membenarkan mereka masuk.", zh: "顾客凭签到码自助入场，或仅由柜台准许入场。" },
+  "The longest stay is 30 to 1440 minutes.": { ms: "Tempoh tinggal terlama ialah 30 hingga 1440 minit.", zh: "最长停留时间为 30 至 1440 分钟。" },
+  "Say whether its members come in with no booking: true or false.": { ms: "Nyatakan sama ada ahlinya masuk tanpa tempahan: true atau false.", zh: "请说明其会员是否无需预订即可入场：true 或 false。" },
+  "A day pass is one entry for one person.": { ms: "Pas harian ialah satu kemasukan untuk seorang.", zh: "日票为一人一次入场。" },
+  "dayPass is true or false.": { ms: "dayPass ialah true atau false.", zh: "dayPass 为 true 或 false。" },
+  "A day pass lets its holder in for a day with no booking. It does not pay for a booking.": { ms: "Pas harian membenarkan pemegangnya masuk selama sehari tanpa tempahan. Ia tidak membayar tempahan.", zh: "日票让持有人一天内无需预订入场，不能用来支付预订。" },
+  "That resource takes no entries here.": { ms: "Sumber itu tidak menerima kemasukan di sini.", zh: "该资源在此不接受入场。" },
+  "A phone number is required.": { ms: "Nombor telefon diperlukan.", zh: "需要电话号码。" },
 };

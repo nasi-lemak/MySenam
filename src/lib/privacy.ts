@@ -181,6 +181,14 @@ const RULES: Rule[] = [
     where: "checked_in_at < ?",
   },
   {
+    // Entries without a booking (lib/entries.ts): who came in and when, kept as long as arrivals at the desk.
+    what: said("srv.ret.entries"),
+    days: RETENTION.checkInDays,
+    action: "deleted",
+    table: "entries",
+    where: "admitted_at < ?::timestamptz",
+  },
+  {
     what: said("srv.ret.waitlist"),
     days: RETENTION.waitlistDays,
     action: "deleted",
@@ -769,6 +777,7 @@ export interface PhoneExport {
   giftVouchers: unknown[];
   reviews: unknown[];
   counterSales: unknown[];
+  entries: unknown[];
   /** Concession proof seen at the counter: the fact, by whom and until when; no proof itself is kept. */
   concessionProofs: unknown[];
   /** Company or school accounts that list this number as allowed to book on them (lib/accounts.ts). */
@@ -886,6 +895,13 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
     counterSales: await all(
       `SELECT created_at, customer_name, customer_phone, lines, total, paid_via, voided_at FROM counter_sales
         WHERE venue_id IN (${marks}) AND phone_key(customer_phone) = phone_key(?) ORDER BY id`,
+      ...venueIds,
+      phone
+    ),
+    // Entries without a booking (lib/entries.ts) on the number: who came in, where, on what, and when.
+    entries: await all(
+      `SELECT e.name, c.name AS resource, e.admitted_by, e.channel, e.admitted_at, e.checked_out_at FROM entries e JOIN courts c ON c.id = e.court_id
+        WHERE e.venue_id IN (${marks}) AND phone_key(e.phone) = phone_key(?) ORDER BY e.id`,
       ...venueIds,
       phone
     ),
@@ -1120,6 +1136,8 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
     await db.prepare(
       "UPDATE memberships SET holder_name = ?, holder_phone = '', user_id = NULL WHERE user_id = ?"
     ).run(ANONYMOUS, userId);
+    // Entries without a booking (lib/entries.ts) they made as themself: who it was goes; that somebody came in stays.
+    await db.prepare("UPDATE entries SET name = ?, phone = '', user_id = NULL WHERE user_id = ?").run(ANONYMOUS, userId);
     await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
     // Applied again after a restore, it is the same erasure: no second entry.
     if (!opts.reapplying) entry = await ledger.recordErasure(userId, String(account.created_at));

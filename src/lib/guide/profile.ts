@@ -10,6 +10,7 @@ import { region } from "../region";
 import { venueSetup } from "../setup";
 import { getVenue } from "../store";
 import { policiesFor } from "../booking-policy";
+import { entryResources } from "../entries";
 import { hoursFor } from "../week-hours";
 import { paidStandingTests, standingTestBookings } from "../test-bookings";
 import { emailConfig, whatsappConfig } from "../transports";
@@ -227,6 +228,8 @@ export async function readVenueProfile(venueId: number, opts: { today?: string }
     unmanned,
     // Lanes the desk gives on arrival (lib/lanes.ts), as each one's booking rules resolve.
     laneOnArrival: [...(await policiesFor(venue.courts.filter((c) => !c.classesOnly))).values()].filter((p) => p.laneOnArrival).length,
+    // Resources taking entries with no set time (lib/entries.ts), as their booking rules resolve.
+    entry: (await entryResources(venue.id)).length,
   };
 
   // ------------------------------------------------------------ hours and rates

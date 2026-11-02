@@ -5,6 +5,7 @@ import { MAX_COURT_HOURS, type CourtHoursChange, type Sport } from "./types";
 import { changeOn, parseWeekHours } from "./week-hours";
 import { clockValue, lengthText, said, type StaffText, type StaffValue } from "./staff-text";
 import {
+  ENTRY_STAY,
   MAX_GAMES,
   SETTING_KEYS,
   TURNOVERS,
@@ -88,6 +89,10 @@ interface Row {
   lane_on_arrival?: boolean | null;
   game_price?: number | string | null;
   game_peak_price?: number | string | null;
+  entry_mode?: boolean | null;
+  entry_price?: number | string | null;
+  entry_max_stay?: number | null;
+  entry_self_check_in?: boolean | null;
 }
 
 const numbers = (raw: string | null): number[] | null => {
@@ -143,6 +148,10 @@ function toSettings(r: Row): PolicySettings {
     laneOnArrival: r.lane_on_arrival ?? null,
     gamePrice: money(r.game_price ?? null),
     gamePeakPrice: money(r.game_peak_price ?? null),
+    entryMode: r.entry_mode ?? null,
+    entryPrice: money(r.entry_price ?? null),
+    entryMaxStay: r.entry_max_stay ?? null,
+    entrySelfCheckIn: r.entry_self_check_in ?? null,
   };
 }
 
@@ -346,8 +355,21 @@ export function validateSettings(input: Record<string, unknown>): { ok: true; se
         if (typeof v !== "boolean") return { ok: false, error: "The lane is given on arrival, or chosen when booking." };
         set(key, v);
         break;
+      case "entryMode":
+        if (typeof v !== "boolean") return { ok: false, error: "People come in with no booking here, or only by booking." };
+        set(key, v);
+        break;
+      case "entrySelfCheckIn":
+        if (typeof v !== "boolean") return { ok: false, error: "Customers let themselves in by the check-in code, or only the desk admits them." };
+        set(key, v);
+        break;
+      case "entryMaxStay":
+        if (!isWhole(v, ENTRY_STAY.min, ENTRY_STAY.max)) return { ok: false, error: `The longest stay is ${ENTRY_STAY.min} to ${ENTRY_STAY.max} minutes.` };
+        set(key, v as number);
+        break;
       case "gamePrice":
       case "gamePeakPrice":
+      case "entryPrice":
       case "minCharge":
       case "setupFee":
       case "cleanupFee":
@@ -414,12 +436,17 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
     settings.laneOnArrival ?? null,
     settings.gamePrice ?? null,
     settings.gamePeakPrice ?? null,
+    settings.entryMode ?? null,
+    settings.entryPrice ?? null,
+    settings.entryMaxStay ?? null,
+    settings.entrySelfCheckIn ?? null,
   ];
   const cols = `start_every = ?, start_offset = ?, start_times = ?, length_step = ?, min_length = ?, max_length = ?, lengths = ?,
     default_length = ?, buffer_before = ?, buffer_after = ?, operational_before = ?, operational_after = ?, turnover = ?, week_hours = ?,
     notice_minutes = ?, rate_mode = ?, bill_step = ?,
     min_billed = ?, min_charge = ?, fixed_prices = ?, setup_fee = ?, cleanup_fee = ?, sign_off = ?, needs_certification = ?, separate_places = ?,
-    game_minutes = ?, game_minutes_each = ?, max_games = ?, lane_on_arrival = ?, game_price = ?, game_peak_price = ?, updated_at = datetime('now')`;
+    game_minutes = ?, game_minutes_each = ?, max_games = ?, lane_on_arrival = ?, game_price = ?, game_peak_price = ?,
+    entry_mode = ?, entry_price = ?, entry_max_stay = ?, entry_self_check_in = ?, updated_at = datetime('now')`;
   const done = await db.prepare(`UPDATE booking_policies SET ${cols} WHERE ${where.sql}`).run(...values, ...where.params);
   if (done.changes > 0) return;
   const scopeCols =
@@ -435,8 +462,9 @@ export async function savePolicy(scope: PolicyScope, settings: PolicySettings): 
       `INSERT INTO booking_policies (business_id, venue_id, sport, court_id, start_every, start_offset, start_times, length_step,
          min_length, max_length, lengths, default_length, buffer_before, buffer_after, operational_before, operational_after,
          turnover, week_hours, notice_minutes, rate_mode, bill_step, min_billed, min_charge, fixed_prices, setup_fee, cleanup_fee,
-         sign_off, needs_certification, separate_places, game_minutes, game_minutes_each, max_games, lane_on_arrival, game_price, game_peak_price)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         sign_off, needs_certification, separate_places, game_minutes, game_minutes_each, max_games, lane_on_arrival, game_price, game_peak_price,
+         entry_mode, entry_price, entry_max_stay, entry_self_check_in)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(scopeCols.business, scopeCols.venue, scopeCols.sport, scopeCols.court, ...values);
 }

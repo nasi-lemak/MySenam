@@ -149,6 +149,10 @@ const AVAILABLE: Capability[] = [
   available("promo-codes", "pricing", { featureRow: "Promo codes", configure: credit, staffAction: "promos" }),
   available("discount-stacking", "pricing", { featureRow: "Discounts together, by the venue's rule", configure: credit, staffAction: "promoStacking" }),
   available("regular-free-hour", "pricing", { featureRow: "A free hour for regulars", configure: courts(), staffAction: "loyalty" }),
+  // Entry with no set time (lib/entries.ts): a gym floor or a climbing wall letting people in as they come, on a
+  // membership whose plan admits, a pass, a day pass or a walk-in at the desk. Off until the venue turns it on.
+  available("gym-walk-in", "access", { featureRow: "Entry with no set time", activityNote: "gym", configure: courts(), staffAction: "bookingPolicies", models: ["shared"] }),
+  available("open-day-pass", "booking", { featureRow: "Day passes", activityNote: "climbing", configure: credit, staffAction: "passProducts", models: ["shared"] }),
   available("bowling-by-game", "pricing", { featureRow: "Selling by the game, a lane given on arrival", activityNote: "bowling", configure: courts(), staffAction: "bookingPolicies", models: ["lanes"] }),
   // ------------------------------------------------------------ memberships, passes and credit
   available("memberships", "memberships", { featureRow: "Membership plans and tiers online", configure: credit, staffAction: "membershipPlans" }),
@@ -249,8 +253,6 @@ const AVAILABLE: Capability[] = [
 ];
 
 const UNSUPPORTED: Capability[] = [
-  unsupported("gym-walk-in", "access", { featureRow: null, activityNote: "gym", models: ["shared"] }),
-  unsupported("open-day-pass", "booking", { featureRow: null, activityNote: "climbing", models: ["shared"] }),
   unsupported("range-officer", "people", { featureRow: null, activityNote: "archery", models: ["lanes"] }),
   unsupported("venue-whatsapp-number", "communication", { featureRow: "WhatsApp template messages" }),
   unsupported("web-push", "communication", { featureRow: null, limitation: "integrations-awaiting-live-verification-or-a-partner" }),

@@ -907,6 +907,14 @@ set under *Credit → Plans and tiers*:
 - **A suspension extends the end** (off unless set): a plan's memberships
   run on by the days a suspension takes out of their term
   ([suspending a membership](#suspending-a-membership)).
+- **Members come in without a booking** (off unless set; migration 0266): at a
+  resource taking [entry with no set time](venue-operations.md#entry-with-no-set-time),
+  the plan's members are let in on their membership alone, anywhere in the
+  business or only where a resource offers one activity (`admitsEntrySport`,
+  set through the plans route; the screen sets the plan on or off). It admits
+  whom the membership covers on the day, each person once, and moves no
+  money. A membership sold at the counter admits only if it is on such a
+  plan.
 - **Changing plan** (upgrading or downgrading) takes effect at renewal,
   never mid-term and never silently unprorated: the new plan is bought in
   the renewal window and starts the day after the current membership ends,
@@ -1061,6 +1069,23 @@ written for that much only, at the tax the pass was sold at; what was spent
 stays revenue (`voidPass` in `src/lib/store.ts`; `tests/void-credit-notes.test.ts`).
 Customers see their passes with a used/remaining meter on `/account`,
 and staff sell and cancel them from the *Credit & passes* tab.
+
+### Day passes
+
+A **day pass** is a pass product marked *Day pass* (migration 0266;
+`dayPass` on `pass_products` and `passes`): one entry for one person (a pass
+for one person's place, `participant` scope, whatever else the form says),
+for a resource taking [entry with no set time](venue-operations.md#entry-with-no-set-time).
+Its first use spends the entry and keeps the venue's date of that day on the
+pass; that person is then let in again all that day, at any resource there
+taking entries, and on no other day. It is valid from the day it is sold for
+as many days as the product says, like any pass, so a customer may buy it
+ahead and use it on the day they come (from first use, not the date bought:
+the owner may want to choose otherwise). It pays for no booking (refused with
+the reason). It is sold at the counter from the venue's list and online as
+any pass is (below), receipted and accounted as a pass; voided with money
+back, an unused day pass is refunded in full and a used one not at all, by
+the pass refund rule above.
 
 ### Buying a pass online
 

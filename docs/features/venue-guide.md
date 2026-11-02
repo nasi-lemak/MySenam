@@ -122,15 +122,21 @@ The rules, held by `tests/guide-capabilities.test.ts`, which parses
 
 The registry also keeps the guide honest about the activity catalogue: what an
 activity's support level and `supportNote` say is read from
-`src/lib/activity-catalogue.ts` (`activityFacts`), never copied. Sessionless
-gym admission, open-ended climbing day passes,
-scheduling a range officer, a WhatsApp number of the venue's own, web push, a
+`src/lib/activity-catalogue.ts` (`activityFacts`), never copied.
+Scheduling a range officer, a WhatsApp number of the venue's own, web push, a
 store app, demand pricing, referral credit, Billplz refunds, booking from
 Google, smart locks and per-person door credentials are registered as
 unsupported, each with what to do instead. Selling bowling by the game, with
 the lane given on arrival, is an available capability tied to its activity
 (`activityNote`): choosing bowling lists it. Where a venue's lanes are given on
-arrival, the playbook's check-in steps say how the desk gives the lane.
+arrival, the playbook's check-in steps say how the desk gives the lane. Gym entry without
+booking a session (`gym-walk-in`, tied to the gym) and day passes with no set
+time (`open-day-pass`, tied to climbing) are available capabilities resting on
+the feature-status rows *Entry with no set time* and *Day passes*
+([entry](venue-operations.md#entry-with-no-set-time)); where any resource
+takes entries, the playbook's `during.entry` topic says how the desk admits
+and checks people out, and the setup journey's `entry` step offers it where
+the venue has climbing, bouldering or a gym floor with places.
 
 ## Business types
 
@@ -310,6 +316,7 @@ first); none is invented, and none is ever saved by the journey.
 | `activities` | resources | activities were chosen | Link; done when each chosen activity is offered by a resource |
 | `courts` | resources | always (required) | **Runs** `AddResourcesForm` (`POST /api/admin/courts`, the activity's template) |
 | `equipment`, `shared-resources` | resources | hire chosen or hire resources; shared or linked resources, or kinds of business that share space | Link to Courts & rates |
+| `entry` | resources | climbing, bouldering or a gym floor with places, or a gym or climbing business; done once a resource takes entries, else optional | Link to Courts & rates (booking rules) |
 | `prices` | pricing | always; waits for a court | **Runs** `PATCH /api/admin/courts/:id` for each court's rates, from now; read-only where the venue has bookings, which are pointed to `price-dates` |
 | `peak-hours` | pricing | always; waits for a court | **Runs** `PeakHoursEditor` (`/api/admin/peak-rules`, `/holidays`) and shows the example price |
 | `price-dates` | pricing | rates or hours scheduled, or the venue has bookings | **Runs** `CourtChangesFromDate` and `HoursFromDate` (ADR 0027) |
@@ -497,7 +504,7 @@ guide is the venue's own and not a manual with every feature switched on.
 | Getting started | `start.overview` (what the venue is: resources, activities, today's hours and rates, the booking page, payment and counter methods, staff for a manager); `start.draft` (a draft venue); `start.scheduled` (anything coming, below); `start.features` (what the profile shows the venue uses); `start.where` (the screens, as links); `start.roles` (manager) and `start.deskLimits` (desk) |
 | Before opening | `before.day`, `before.attention`; `before.owed` where the counter takes money; `before.classes` with classes to come; `before.unstaffed` with unstaffed hours |
 | Handling a customer booking | `booking.counter`, `booking.behalf`, `booking.eligibility` (why somebody cannot reserve, and memberships, discounts and passes for the desk where the venue has them), `booking.changes`, `booking.payments`; `booking.online` for a live venue; `booking.availability` where there are buffers, shared or linked facilities; `booking.prices` once rates are set |
-| During operations | `during.checkin`, `during.walkins`, `during.noshows` (the venue's strike limit, or none), `during.requests`; `during.outage` once there are resources; `during.hire` where hire is against a deposit; `during.classes`; `during.coaching` |
+| During operations | `during.checkin`, `during.entry` where a resource takes entries with no set time, `during.walkins`, `during.noshows` (the venue's strike limit, or none), `during.requests`; `during.outage` once there are resources; `during.hire` where hire is against a deposit; `during.classes`; `during.coaching` |
 | Cancellations and refunds | `cancel.policy` (the venue's actual cutoff, late share, strike limit, what its online-refund setting governs and the refund period), `cancel.venue` (the venue-wide policy), `cancel.staff`, `cancel.reschedule`, `cancel.obligations`; `cancel.partial` with shared, per-person, guardian or class places; `cancel.manual` (manager) and `cancel.manualDesk` (desk) where money is paid online |
 | End of day | `eod.cashup`, `eod.unpaid`, `eod.exceptions`; `eod.owedCounter` where the counter takes money; `eod.owedOnline` and `eod.reports` (manager) |
 | Manager responsibilities | `manager.pricesHours`, `manager.staff`, `manager.overrides`, `manager.incidents`, `manager.finance`, `manager.future`; `manager.commerce` and `manager.memberships` where the venue has promotions, passes, concessions or memberships; `manager.testBookings` for a draft or while tests stand |

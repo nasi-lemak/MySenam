@@ -55,6 +55,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "booking.rescheduled": "Changed a booking's time",
   "booking.no_show": "Marked a no-show",
   "booking.games_added": "Added games to a booking",
+  "entry.admitted": "Let somebody in without a booking",
+  "entry.checked_out": "Checked somebody out (entry without booking)",
   "booking.concession": "Checked a concession price",
   "waiver.signed": "Recorded a waiver signed on paper",
   "enquiry.handled": "Answered a private hire enquiry",
