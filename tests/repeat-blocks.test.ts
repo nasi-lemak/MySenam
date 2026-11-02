@@ -25,6 +25,8 @@ beforeAll(async () => {
   if (!a.ok || !b.ok) throw new Error("court");
   courtA = a.court.id;
   courtB = b.court.id;
+  // The booking a week after "tuesday" can be 15 days off (on a Monday), past the usual 14: this venue opens 28 days ahead.
+  await getDb().prepare("UPDATE venues SET book_ahead_days = 28 WHERE id = ?").run(venueId);
 });
 
 const free = async (courtId: number, date: string, hour: number) =>
