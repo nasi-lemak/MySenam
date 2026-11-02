@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B65, M16–M29 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B65, M16–M30 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -710,6 +710,9 @@ The public guide, the setup journey, the playbook and the contextual help
   screen for it, though Courts & rates is where it is fixed, and repeats the
   *Add your courts* step listed above it. The wording is wrong, the facts are
   not.
+- **Activity and business pictures** are MySenam's own line drawings, made
+  to the [image standard](../development/images.md) and not yet reviewed by a
+  designer; any can be replaced without code changes (`npm run glyphs:export`).
 - **The illustrative examples** on the public guide use a 24-hour
   cancellation cutoff to show a policy; a venue's own default is 2 hours
   ([booking](../features/booking.md)).
@@ -915,6 +918,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | M27 | Late-cancellation fees kept were missing from the period report's collected figure and its tax, which drifted a cent from the journal; the report and the journal now count them with the same SQL, and a late fee's tax is worked out on the fee itself | `tests/late-cancel-report.test.ts` |
 | M28 | The sales journal subtracted the credit note of a cancelled booking paid with a pass without ever having counted it as a sale (the pass was), understating takings; such credit notes are left out | `tests/void-credit-notes.test.ts` |
 | M29 | A counter payment on a booking the venue cancelled with others (a closed day, an outage, a rain-out, its API key, a class called off) was credited at once with nobody named, and counted in that day's cash-up as cash given back that never left the till; now owed back and settled by a named person, the credit note and the payout in the cash-up of the day it is handed back | `tests/counter-owed.test.ts` (also on Postgres) |
+| M30 | Changing an operator's own activity answered 403 *not allowed* for every refusal, a name too long or a bad picture among them, so a manager was told they could not change what they could | 403 only for what is not theirs, 404 for not found, 400 for bad input | `tests/activity-pictures.test.ts` |
 | B53 | Entries made at once could overfill a tournament, and a division's cap or a league join could race (two joins of one player hit a database error); entries are counted and taken under the tournament's (and competition's) lock, league joins under the league's | `tests/entry-races.test.ts` |
 | B54 | Two first splits of one booking at once failed with a database error, and a re-split while a friend was paying left a paid share at the old amount; splitting runs under the booking's lock and a re-split is refused while a share is paid or being paid | `tests/split-races.test.ts` |
 | B55 | The schedule kept no track of which answer it was waiting for: an answer for a day or venue left a moment before could arrive late and show under the one now chosen; a late answer is dropped | `tests/components/staff-place.test.tsx` |
