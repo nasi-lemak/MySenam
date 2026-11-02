@@ -397,6 +397,13 @@ export interface Booking {
   coachFee?: number;
   /** Charged to a company or school account, paid on its invoice (lib/accounts.ts). */
   accountId?: number | null;
+  /** Sold by the game (lib/booking-rules.ts `soldByGame`): how many games; absent for a booking by time. */
+  games?: number;
+  /**
+   * Its lane is given on arrival (lib/lanes.ts): the lane it holds is
+   * provisional, shown to staff and never to the customer before check-in.
+   */
+  laneOnArrival?: true;
 }
 
 export type ClassStatus = "scheduled" | "cancelled";
@@ -804,6 +811,16 @@ export interface PublicPolicy {
   noticeMinutes: number;
   /** A staff sign-off or a recorded certification its rules ask for first (lib/court-activities.ts `needsOf`). */
   needs?: "signOff" | "certification" | null;
+  /**
+   * Sold by the game (lib/booking-rules.ts `soldByGame`): the venue's
+   * estimate of one game for one player and for each further one, and the
+   * most games; the board offers games, and holds `gameHold` of them.
+   */
+  gameMinutes?: number | null;
+  gameMinutesEach?: number;
+  maxGames?: number;
+  /** The lane is given on arrival: shown as lanes free, booked on any lane, never named to the customer. */
+  laneOnArrival?: boolean;
 }
 
 /** Where a booking may start on a court, and the longest it may run from there. */

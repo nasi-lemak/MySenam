@@ -146,6 +146,24 @@ otherwise (`priceBooking` in `src/lib/pricing.ts`).
   too ([activities](activities.md#pricing-a-booking-with-places)). It cannot
   also be priced per player.
 
+## A price per game
+
+Where a resource is sold by the game ([booking](booking.md#by-the-game-and-a-lane-given-on-arrival)),
+its booking rules give the price of a game, and of a game at peak where it
+differs (*Courts & rates → Booking rules → Sold by the game*). A booking
+costs that times its games, and times its players on a lane priced per
+player: four bowlers, two games at RM12 a game, RM96. It is priced as a
+fixed price for a length is (`priceBooking` in `src/lib/pricing.ts`, a
+`games` line): at peak by when it starts, a tier's share of the price where
+the member's tier has one, a last-minute price where one applies, quantity
+prices and the minimum charge as for any booking; setup and cleanup fees
+apart. With no price for a game set, a game booking costs the time it holds
+at the lane's rates, as a booking by time would. Concessions, promo codes,
+passes, credit, deposits and refunds work on that price as on any other.
+Games added at the desk ([playing on](booking.md#by-the-game-and-a-lane-given-on-arrival))
+are priced the same way on the day, without the discounts already on the
+booking.
+
 ## A court offering several activities
 
 A court booked for more than one activity (badminton or pickleball on one

@@ -70,8 +70,11 @@ const NUMBER_KEYS = [
   "noticeMinutes",
   "billStep",
   "minBilled",
+  "gameMinutes",
+  "gameMinutesEach",
+  "maxGames",
 ] as const;
-const AMOUNT_KEYS = ["minCharge", "setupFee", "cleanupFee"] as const;
+const AMOUNT_KEYS = ["minCharge", "setupFee", "cleanupFee", "gamePrice", "gamePeakPrice"] as const;
 
 function toForm(s: PolicySettings): Form {
   const form = Object.fromEntries(SETTING_KEYS.map((k) => [k, ""])) as Form;
@@ -88,6 +91,7 @@ function toForm(s: PolicySettings): Form {
   form.signOff = s.signOff === true ? "yes" : s.signOff === false ? "no" : "";
   form.certification = s.certification === true ? "yes" : s.certification === false ? "no" : "";
   form.separatePlaces = s.separatePlaces === true ? "yes" : s.separatePlaces === false ? "no" : "";
+  form.laneOnArrival = s.laneOnArrival === true ? "yes" : s.laneOnArrival === false ? "no" : "";
   return form;
 }
 
@@ -122,6 +126,7 @@ function fromForm(form: Form, t: StaffT): Record<string, unknown> {
   out.signOff = form.signOff === "" ? null : form.signOff === "yes";
   out.certification = form.certification === "" ? null : form.certification === "yes";
   out.separatePlaces = form.separatePlaces === "" ? null : form.separatePlaces === "yes";
+  out.laneOnArrival = form.laneOnArrival === "" ? null : form.laneOnArrival === "yes";
   return out;
 }
 
@@ -359,6 +364,27 @@ export function BookingPolicyEditor({ venueId, courts }: { venueId: number; cour
               <span className="mt-0.5 block font-normal text-slate-400">{t("ent.pol.separateNote")}</span>
             </label>
           </div>
+          {/* Sold by the game, with the lane given on arrival (lib/booking-rules.ts `soldByGame`, lib/lanes.ts). */}
+          <fieldset className="mt-3 rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-xs font-semibold text-slate-700">{t("bowl.pol.title")}</legend>
+            <p className="text-xs text-slate-500">{t("bowl.pol.intro")}</p>
+            <div className="mt-2 grid gap-3 sm:grid-cols-3">
+              {field("gameMinutes", t("bowl.pol.gameMinutes"), t("bowl.pol.gameMinutesNote"))}
+              {field("gameMinutesEach", t("bowl.pol.gameMinutesEach"), t("bowl.pol.gameMinutesEachNote"))}
+              {field("maxGames", t("bowl.pol.maxGames"))}
+              {field("gamePrice", t("bowl.pol.gamePrice"), t("bowl.pol.gamePriceNote"))}
+              {field("gamePeakPrice", t("bowl.pol.gamePeakPrice"))}
+              <label className="block text-xs font-medium text-slate-600">
+                {t("bowl.pol.laneOnArrival")}
+                <select value={form.laneOnArrival} onChange={(e) => setForm({ ...form, laneOnArrival: e.target.value })} className={input}>
+                  <option value="">{hint("laneOnArrival") === "true" ? t("bowl.pol.inheritsOnArrival") : t("bowl.pol.inheritsChosen")}</option>
+                  <option value="yes">{t("bowl.pol.onArrival")}</option>
+                  <option value="no">{t("bowl.pol.chosen")}</option>
+                </select>
+                <span className="mt-0.5 block font-normal text-slate-400">{t("bowl.pol.laneOnArrivalNote")}</span>
+              </label>
+            </div>
+          </fieldset>
           {level.level === "court" && (
             <CourtWeekHours value={form.weekHours} onChange={(weekHours) => setForm({ ...form, weekHours })} />
           )}

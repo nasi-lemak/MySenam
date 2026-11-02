@@ -115,7 +115,8 @@ export function receiptLineText(t: T, line: Pick<Line, "description" | "concessi
  */
 function slotText(t: T, s: NonNullable<Line["slot"]>): string {
   let text = t("lo6.rcpt.slot", {
-    court: s.court,
+    // A lane still to be given on arrival is said so in the reader's language (lib/lanes.ts).
+    court: s.onArrival ? t("bowl.laneOnArrival") : s.court,
     activity: activityName(s.sport, t.locale),
     date: s.date,
     from: formatMinute(s.startMin, t.locale),

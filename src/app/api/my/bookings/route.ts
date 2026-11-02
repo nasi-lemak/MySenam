@@ -6,6 +6,8 @@ import { holdPolicy } from "@/lib/holds";
 import { struckOut } from "@/lib/cancel-policy";
 import { windowFor } from "@/lib/house-rules";
 import { addDays, todayISO } from "@/lib/time";
+import { customerCourtName, laneHidden } from "@/lib/lanes";
+import { currentLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
-  const rows = await listUserBookings(user.id);
+  const listed = await listUserBookings(user.id);
+  // A lane given on arrival is not named before check-in (lib/lanes.ts).
+  const locale = listed.some(laneHidden) ? await currentLocale() : "en";
+  const rows = listed.map((b) => ({ ...b, courtName: customerCourtName(b.courtName, b, locale) }));
   const online = new Map<number, boolean>();
   const bookings = [];
   for (const b of rows) {

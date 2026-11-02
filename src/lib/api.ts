@@ -43,6 +43,8 @@ export interface RequestedTime {
   end?: number;
   minutes?: number;
   hours?: number[];
+  /** On a resource sold by the game: how many games from `start` (lib/store.ts `spanFor`). */
+  games?: number;
 }
 
 /**
@@ -52,10 +54,21 @@ export interface RequestedTime {
  * the grid columns chosen (18 and 18.5), read on the court's own grid.
  * Whether the court allows that time is the store's to say.
  */
-export function readTime(body: Record<string, unknown>): { ok: true; when: RequestedTime } | { ok: false; error: string } {
+export function readTime(
+  body: Record<string, unknown>,
+  /** Where a booking may be asked for by the game: `games` and a `start` are enough (the bookings, quote and API routes). */
+  opts: { games?: boolean } = {}
+): { ok: true; when: RequestedTime } | { ok: false; error: string } {
   const minute = (v: unknown): number | null | undefined =>
     v === undefined || v === null ? undefined : typeof v === "string" ? parseClock(v) : isMinute(v) ? v : null;
   const start = minute(body.start);
+  if (opts.games && body.games !== undefined && body.games !== null) {
+    // By the game: a start and how many games; the length is the venue's estimate for them (lib/booking-rules.ts `gameHold`).
+    const games = typeof body.games === "string" && /^\d+$/.test(body.games) ? Number(body.games) : body.games;
+    if (!Number.isInteger(games) || (games as number) < 1 || (games as number) > 20) return { ok: false, error: "games must be a whole number of games, 1 to 20." };
+    if (start === undefined || start === null) return { ok: false, error: "start must be minutes of the day (0–1680) or HH:MM." };
+    return { ok: true, when: { start, games: games as number } };
+  }
   if (start !== undefined) {
     const end = minute(body.end);
     const minutes = body.minutes;

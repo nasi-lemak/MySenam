@@ -115,7 +115,7 @@ venue the person allowed: another venue's court or booking is not found
 | `my_booking` | read | `venue:read` | `{ code }`: one booking |
 | `my_setup_status` | read | `venue:read`, a manager | `{ locale? }`: the [setup plan](../features/venue-guide.md#the-setup-plan) and [launch readiness](../features/venue-guide.md#launch-readiness) of the manager's guide (`setupView`, `buildSetupPlan`, `launchReadiness`), each step with its state and why it is shown, readiness in its six lists; never a percentage. Front desk does not have it, as on the dashboard |
 | `my_playbook` | read | `venue:read` | `{ locale? }`: the [operating playbook](../features/venue-guide.md#the-operating-playbook) (`playbookFor`) as plain-text sections, the manager's for a key and the person's own role's signed in; links are said as their screens' names, no address |
-| `create_booking` | write | `venue:book` | The fields of `POST /api/v1/bookings`, and `confirm` |
+| `create_booking` | write | `venue:book` | The fields of `POST /api/v1/bookings` (`games` in place of `end` on a court sold by the game), and `confirm` |
 | `cancel_booking` | write | `venue:book` | `{ code, confirm }` |
 
 **Writes** run the very code `/api/v1` runs (`bookThroughKey` and

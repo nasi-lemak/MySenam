@@ -232,7 +232,6 @@ const en = {
   "srv.support.climbing": "Timed sessions with places, priced per climber, with a belay sign-off asked for unless the venue turns it off. Not built: open-ended day passes with no set time, and route or grade records.",
   "srv.support.bouldering": "Timed sessions with places, priced per climber. Not built: open-ended day passes with no set time.",
   "srv.support.archery": "Lanes by the hour, priced per archer, with a range briefing as a sign-off unless the venue turns it off; lessons as classes. Not built: scheduling a range officer for each session.",
-  "srv.support.bowling": "Lanes can be hired by time, priced per player, with shoe hire as an extra. Not built: selling by the game, and assigning a lane on arrival.",
   // Messages: how they are sent, and what each kind is (lib/outbox.ts, lib/transports.ts)
   "srv.transport.log": "log",
   "srv.transport.email": "email",
@@ -593,7 +592,6 @@ const ms: Record<keyof typeof en, string> = {
   "srv.support.climbing": "Sesi bermasa dengan tempat, harga bagi setiap pemanjat, dengan pengesahan belay diminta melainkan tempat mematikannya. Belum dibina: pas harian terbuka tanpa masa ditetapkan, dan rekod laluan atau gred.",
   "srv.support.bouldering": "Sesi bermasa dengan tempat, harga bagi setiap pemanjat. Belum dibina: pas harian terbuka tanpa masa ditetapkan.",
   "srv.support.archery": "Lorong mengikut jam, harga bagi setiap pemanah, dengan taklimat lapang sasar sebagai pengesahan melainkan tempat mematikannya; pelajaran sebagai kelas. Belum dibina: menjadualkan pegawai lapang sasar bagi setiap sesi.",
-  "srv.support.bowling": "Lorong boleh disewa mengikut masa, harga bagi setiap pemain, dengan sewa kasut sebagai tambahan. Belum dibina: menjual mengikut permainan, dan menetapkan lorong semasa ketibaan.",
   // Messages: how they are sent, and what each kind is (lib/outbox.ts, lib/transports.ts)
   "srv.transport.log": "log",
   "srv.transport.email": "e-mel",
@@ -954,7 +952,6 @@ const zh: Record<keyof typeof en, string> = {
   "srv.support.climbing": "带名额的定时时段，按攀岩者计价，除非场馆关闭，否则要求确保（belay）资格确认。尚未实现：不设时间的全天通票，以及路线或难度记录。",
   "srv.support.bouldering": "带名额的定时时段，按攀岩者计价。尚未实现：不设时间的全天通票。",
   "srv.support.archery": "按小时租用靶道，按射手计价，除非场馆关闭，否则以靶场讲解作为资格确认；教学以课程方式提供。尚未实现：为每个时段安排靶场安全官。",
-  "srv.support.bowling": "球道可按时间租用，按人计价，租鞋作为附加项。尚未实现：按局销售，以及到场时分配球道。",
   // Messages: how they are sent, and what each kind is (lib/outbox.ts, lib/transports.ts)
   "srv.transport.log": "日志",
   "srv.transport.email": "电子邮件",

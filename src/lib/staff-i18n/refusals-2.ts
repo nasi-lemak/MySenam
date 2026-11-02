@@ -794,4 +794,11 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Answers must be an object.": { ms: "Jawapan mestilah objek.", zh: "回答必须是一个对象。" },
   "That is not a guide role.": { ms: "Itu bukan peranan panduan.", zh: "那不是指南角色。" },
   "Choose a picture from the list.": { ms: "Pilih gambar daripada senarai.", zh: "请从列表中选择图片。" },
+  // bowl: selling by the game, and lanes given on arrival
+  "A game's estimated time is 0 to 240 minutes.": { ms: "Anggaran masa satu permainan ialah 0 hingga 240 minit.", zh: "一局的估计时间为 0 至 240 分钟。" },
+  "The most games in one booking is 1 to 20.": { ms: "Paling banyak permainan dalam satu tempahan ialah 1 hingga 20.", zh: "一次预订的最多局数为 1 至 20。" },
+  "The lane is given on arrival, or chosen when booking.": { ms: "Lorong diberi semasa tiba, atau dipilih semasa menempah.", zh: "球道要么到场分配，要么在预订时选择。" },
+  "games must be a whole number of games, 1 to 20.": { ms: "games mestilah nombor bulat permainan, 1 hingga 20.", zh: "games 必须是 1 至 20 的整数局数。" },
+  "laneId must be a court's id.": { ms: "laneId mestilah id gelanggang.", zh: "laneId 必须是场地的 id。" },
+  "add must be a whole number of games.": { ms: "add mestilah nombor bulat permainan.", zh: "add 必须是整数局数。" },
 };

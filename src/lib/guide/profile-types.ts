@@ -90,6 +90,8 @@ export interface VenueProfile {
     priced: number;
     perPlayer: number;
     unmanned: number;
+    /** Resources whose lane is given on arrival (lib/lanes.ts): the desk chooses the lane at check-in. */
+    laneOnArrival?: number;
   };
 
   hours: {

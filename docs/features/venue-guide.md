@@ -123,11 +123,14 @@ The rules, held by `tests/guide-capabilities.test.ts`, which parses
 The registry also keeps the guide honest about the activity catalogue: what an
 activity's support level and `supportNote` say is read from
 `src/lib/activity-catalogue.ts` (`activityFacts`), never copied. Sessionless
-gym admission, open-ended climbing day passes, selling bowling by the game,
+gym admission, open-ended climbing day passes,
 scheduling a range officer, a WhatsApp number of the venue's own, web push, a
 store app, demand pricing, referral credit, Billplz refunds, booking from
 Google, smart locks and per-person door credentials are registered as
-unsupported, each with what to do instead.
+unsupported, each with what to do instead. Selling bowling by the game, with
+the lane given on arrival, is an available capability tied to its activity
+(`activityNote`): choosing bowling lists it. Where a venue's lanes are given on
+arrival, the playbook's check-in steps say how the desk gives the lane.
 
 ## Business types
 

@@ -1,4 +1,5 @@
 import { activityName } from "./activity-registry";
+import { laneWords } from "./lanes";
 import { getDb, isUniqueViolation } from "./db";
 import { roundMoney } from "./region";
 import { taxIncluded, venueTax } from "./tax";
@@ -51,7 +52,17 @@ export interface Line {
    * Names only: nothing else about them. `description` stays as written, for
    * the books.
    */
-  slot?: { court: string; sport: string; date: string; startMin: number; endMin: number; players: number; for: string[] };
+  slot?: {
+    court: string;
+    sport: string;
+    date: string;
+    startMin: number;
+    endMin: number;
+    players: number;
+    for: string[];
+    /** Its lane was still to be given on arrival when the line was drawn: said so, the lane not named (lib/lanes.ts). */
+    onArrival?: true;
+  };
   /**
    * Whom the line is for, by name, where it names somebody (a child taken off
    * a booking, the family a membership covers): kept apart from the words, so
@@ -458,7 +469,9 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
               b.coach_fee::float AS coach_fee, k.name AS coach_name,
               b.concession_name, b.concession_off::float AS concession_off, b.concession_check, b.players,
               b.concession_preset, cn.name AS cn_name, cn.proof AS cn_proof, cn.preset AS cn_preset,
-              c.name AS court_name, b.sport, c.venue_id
+              c.name AS court_name, b.sport, c.venue_id,
+              -- A lane given on arrival, not yet checked in: not named to the customer (lib/lanes.ts).
+              (b.lane_on_arrival AND NOT EXISTS (SELECT 1 FROM check_ins ci WHERE ci.booking_id = b.id)) AS lane_hidden
          FROM bookings b JOIN courts c ON c.id = b.court_id LEFT JOIN coaches k ON k.id = b.coach_id
          LEFT JOIN concessions cn ON cn.id = b.concession_id WHERE b.id = ?`
     )
@@ -466,13 +479,14 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
     | {
         code: string; user_id: number | null; name: string; phone: string; date: string; start_min: number; end_min: number;
         total_price: number; shares_paid: number; deposit_paid: number; tax_rate: number | string | null; status: string; payment_status: string;
-        paid_via: string | null; court_name: string; sport: string; venue_id: number;
+        paid_via: string | null; court_name: string; sport: string; venue_id: number; lane_hidden: boolean;
         coach_fee: number; coach_name: string | null;
         concession_name: string | null; concession_off: number; concession_check: string | null; players: number;
         concession_preset: string | null; cn_name: string | null; cn_proof: string | null; cn_preset: string | null;
       }
     | undefined;
   if (!b) return null;
+  if (b.lane_hidden) b.court_name = laneWords("en");
   const extras = (await db
     .prepare("SELECT name, quantity, unit_price::float AS unit_price FROM booking_addons WHERE booking_id = ? ORDER BY id")
     .all(bookingId)) as { name: string; quantity: number; unit_price: number }[];
@@ -530,7 +544,16 @@ export async function bookingSale(bookingId: number): Promise<BookingSale | null
         Number(b.players) > 1 ? `, ${b.players} players` : ""
       }`,
       amount: roundMoney(b.total_price - extrasTotal + discount - b.coach_fee - adjustment),
-      slot: { court: b.court_name, sport: b.sport, date: b.date, startMin: b.start_min, endMin: b.end_min, players: Number(b.players), for: forNames },
+      slot: {
+        court: b.court_name,
+        sport: b.sport,
+        date: b.date,
+        startMin: b.start_min,
+        endMin: b.end_min,
+        players: Number(b.players),
+        for: forNames,
+        ...(b.lane_hidden ? { onArrival: true as const } : {}),
+      },
     },
     ...(b.coach_fee > 0 ? [{ description: `Coaching with ${b.coach_name ?? "a coach"}`, amount: b.coach_fee }] : []),
     ...extras.map((e) => ({ description: `${e.quantity} × ${e.name}`, amount: roundMoney(e.quantity * e.unit_price) })),

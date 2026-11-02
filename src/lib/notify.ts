@@ -1,4 +1,5 @@
 import { hasBeenLive } from "./listing";
+import { customerCourtName, laneHidden, laneWords } from "./lanes";
 import { hoursOf } from "./interval";
 import { coachNames } from "./coaching";
 import { refundLines } from "./refund-text";
@@ -123,15 +124,18 @@ export async function notifyBookingConfirmed(
   // A lesson says who is coaching it, where the court is named.
   const coach = first.coachId ? (await coachNames([first.id])).get(first.id) : undefined;
   const courtNames = group ? [...new Set(bookings.map((b) => names.get(b.courtId)!))].join(", ") : court.name;
+  // A lane given on arrival: the customer is told so, never the lane held for them (lib/lanes.ts); the venue's alert names it.
+  const shown = laneHidden(first) ? laneWords(locale) : null;
+  const theirCourts = shown ?? courtNames;
   // Who it is for, where it names somebody other than its customer, who is told (lib/participant-bookings.ts).
-  const where = forWhom(locale, coach ? translator(locale)("msg.lesson", { court: court.name, coach }) : courtNames, namesOn(bookings));
+  const where = forWhom(locale, coach ? translator(locale)("msg.lesson", { court: shown ?? court.name, coach }) : theirCourts, namesOn(bookings));
 
   await alertVenue(bookings, code, courtNames, venue);
   return await deliver(first, {
     bookingId: first.id,
     venueId: venue.id,
     kind: series ? "booking_series_confirmed" : "booking_confirmed",
-    calendar: calendarFor(bookings, group ? (b) => names.get(b.courtId)! : court.name, venue),
+    calendar: calendarFor(bookings, shown ?? (group ? (b) => names.get(b.courtId)! : court.name), venue),
     locale,
     subject: series ? "msg.seriesSubject" : "msg.confirmedSubject",
     body: series ? "msg.series" : "msg.confirmed",
@@ -140,7 +144,7 @@ export async function notifyBookingConfirmed(
     vars: {
       name: firstName(first.name),
       // Each court's own code, which is what the desk and /my-booking take.
-      code: group ? bookings.map((b) => `${b.code} (${names.get(b.courtId)})`).join(", ") : code,
+      code: group ? bookings.map((b) => `${b.code} (${shown ?? names.get(b.courtId)})`).join(", ") : code,
       venue: venue.name,
       weeks: bookings.length,
       ...slot(locale, where, venue.name, first),
@@ -373,7 +377,7 @@ export async function notifyBookingCancelled(
       name: firstName(booking.name),
       code: booking.code,
       venue: venue.name,
-      ...slot(locale, court.name, venue.name, booking),
+      ...slot(locale, customerCourtName(court.name, booking, locale), venue.name, booking),
       money: cancelMoney(locale, outcome),
     },
   });
@@ -392,7 +396,7 @@ export async function notifySeriesCancelled(
   const venue = await getVenue(court.venueId);
   if (!venue || !hasBeenLive(venue)) return null;
   const t = translator(locale);
-  const where = slot(locale, court.name, venue.name, first);
+  const where = slot(locale, customerCourtName(court.name, first, locale), venue.name, first);
   // Only customers cancel a series through here (api/bookings/cancel-series): the venue hears of the weeks soon enough to matter.
   await alertVenueChange("cancelled", [...bookings].sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin), venue, court.name);
   return await deliver(first, {
@@ -773,7 +777,9 @@ export async function notifyVenueCancelled(
   if (!venue || !hasBeenLive(venue)) return null;
   const locale = await localeOf(booking.id);
   const t = translator(locale);
-  const place = what ? `${what} (${court.name})` : court.name;
+  // A lane given on arrival is not named before it is given (lib/lanes.ts).
+  const theirCourt = customerCourtName(court.name, booking, locale);
+  const place = what ? `${what} (${theirCourt})` : theirCourt;
   const { where, when } = slot(locale, place, venue.name, booking);
   const reason = why ? ("phrase" in why ? t(why.phrase) : why.text.trim()) : "";
   const owed = settled ? t(settled.phrase, settled.vars) : t(booking.paymentStatus === "paid" ? "msg.refundOwed" : "msg.nothingOwed");
@@ -819,6 +825,8 @@ export type CancelReason = { phrase: Phrase } | { text: string };
 
 /** The venue moved a booking to another court: same time, same price. */
 export async function notifyMoved(booking: Booking): Promise<number | null> {
+  // A lane given on arrival, moved before it was given: the customer was never told a lane (lib/lanes.ts).
+  if (laneHidden(booking)) return null;
   const court = await getCourt(booking.courtId);
   if (!court) return null;
   const venue = await getVenue(court.venueId);
@@ -878,12 +886,14 @@ export async function notifyRescheduled(
   if (!venue || !hasBeenLive(venue)) return null;
   const locale = await localeOf(booking.id);
   const t = translator(locale);
-  const { where, when } = slot(locale, court.name, venue.name, booking);
+  // A lane given on arrival is not named before it is given (lib/lanes.ts).
+  const theirCourt = customerCourtName(court.name, booking, locale);
+  const { where, when } = slot(locale, theirCourt, venue.name, booking);
   const money =
     priceChange !== 0 && booking.paymentStatus !== "paid"
       ? t("msg.priceNow", { total: booking.totalPrice.toFixed(2) })
       : t("msg.priceSame");
-  const calendar = calendarFor([booking], court.name, venue);
+  const calendar = calendarFor([booking], theirCourt, venue);
   if (by === "customer") {
     await alertVenueChange("changed", [booking], venue, court.name, was);
     await deliver(
@@ -988,7 +998,7 @@ export async function notifyPaid(bookings: Booking[], how: "online" | "counter")
           taxLine,
           receiptUrl: linkIn(`${await venueBaseUrl(venue.id)}${receiptPath(booking.code)}`, locale),
           // Whom it is for, where it names somebody other than its customer: a guardian paying for children sees which booking is whose.
-          ...slot(locale, forWhom(locale, court.name, namesOn([booking])), venue.name, booking),
+          ...slot(locale, forWhom(locale, customerCourtName(court.name, booking, locale), namesOn([booking])), venue.name, booking),
         },
       },
       false
@@ -1047,7 +1057,8 @@ export async function notifyReminders(now = new Date()): Promise<number> {
         vars: {
           name: firstName(r.name as string),
           code: r.code as string,
-          ...slot(locale, forWhom(locale, court.name, (r.participant_name as string | null) ?? null), venue.name, { date: r.date as string, startHour: hoursOf(r.start_min as number), endHour: hoursOf(r.end_min as number) }),
+          // A lane given on arrival is not named before it is given (lib/lanes.ts): a reminder comes before check-in.
+          ...slot(locale, forWhom(locale, r.lane_on_arrival === true ? laneWords(locale) : court.name, (r.participant_name as string | null) ?? null), venue.name, { date: r.date as string, startHour: hoursOf(r.start_min as number), endHour: hoursOf(r.end_min as number) }),
           link: linkIn(`${await venueBaseUrl(venue.id)}${bookingLinkPath(r.code as string, r.date as string)}`, locale),
         },
       },

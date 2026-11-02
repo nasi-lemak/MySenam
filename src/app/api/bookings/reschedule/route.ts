@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { customerCourtName, laneHidden } from "@/lib/lanes";
+import { currentLocale } from "@/lib/locale";
 import { isMinute, parseClock } from "@/lib/interval";
 import { jsonObject, refusal } from "@/lib/api";
 import { notifyRescheduled, tickOutbox } from "@/lib/notify";
@@ -24,7 +26,11 @@ export async function GET(req: NextRequest) {
   // Offer nothing that choosing would be refused for.
   const tooLate = await customerChangeRefusal(booking);
   if (tooLate) return refusal(tooLate);
-  return NextResponse.json({ options: await rescheduleOptions(booking.code, date) });
+  // A lane given on arrival is not named before check-in (lib/lanes.ts): every option is "a lane".
+  const options = await rescheduleOptions(booking.code, date);
+  if (!laneHidden(booking)) return NextResponse.json({ options });
+  const locale = await currentLocale();
+  return NextResponse.json({ options: options.map((o) => ({ ...o, courtId: booking.courtId, courtName: customerCourtName(o.courtName, booking, locale) })) });
 }
 
 /** `{ code, phone, date, start }` → the booking, at its new time (`start` in minutes of the day or HH:MM; `startHour` the older form). */

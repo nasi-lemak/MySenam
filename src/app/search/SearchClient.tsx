@@ -429,7 +429,9 @@ export default function SearchClient({
                         <div className="text-sm text-slate-500">
                           📍 {g.area}
                           {g.distanceKm !== undefined && ` · ${t("near.away", { km: g.distanceKm })}`} ·{" "}
-                          <ActivityGlyph sport={cheapest.court.sport} /> {cheapest.court.heading ? `${cheapest.court.heading} · ${cheapest.court.name}` : cheapest.court.name}
+                          <ActivityGlyph sport={cheapest.court.sport} />{" "}
+                          {/* A lane given on arrival is not named: a lane is (lib/lanes.ts). */}
+                          {cheapest.laneOnArrival ? t("bowl.anyLane") : cheapest.court.heading ? `${cheapest.court.heading} · ${cheapest.court.name}` : cheapest.court.name}
                           {cheapest.needs && <NeedsLabel t={t} needs={cheapest.needs} lines={cheapest.eligibility} people={people} />}
                           {others > 0 && (
                             <span className="text-slate-400">
@@ -443,7 +445,11 @@ export default function SearchClient({
                       </div>
                       <div className="text-right">
                         <div className="font-bold">{money(cheapest.totalPrice)}</div>
-                        {cheapest.court.perPlayer && <div className="text-xs text-slate-400">{t("search.perPlayer")}</div>}
+                        {cheapest.games ? (
+                          <div className="text-xs text-slate-400">{t(cheapest.court.perPlayer ? "bowl.perPlayerGame" : "bowl.perGame")}</div>
+                        ) : (
+                          cheapest.court.perPlayer && <div className="text-xs text-slate-400">{t("search.perPlayer")}</div>
+                        )}
                         {others > 0 && cheapest.pricesVary && (
                           <div className="text-xs text-slate-400">{t("search.fromPrice")}</div>
                         )}

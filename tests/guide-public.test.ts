@@ -205,11 +205,11 @@ describe("what a business type's page shows", () => {
     expect(unsupported(climbing)).toContain("open-day-pass");
     expect(climbing.workflows.map((w) => w.id)).toEqual(expect.arrayContaining(["timed-session", "first-visit-sign-off", "equipment-hire"]));
 
-    // Bowling is sold by the lane's time, not by the game: adding it says so, as the catalogue says.
+    // Bowling is sold by the game, the lane given on arrival: adding it lists that, as the catalogue says, and nothing short of full.
     const bowling = fitView({ types: [], activities: ["bowling"] });
-    expect(unsupported(bowling)).toContain("bowling-by-game");
-    expect(bowling.partial.map((a) => a.key)).toEqual(["bowling"]);
-    expect(bowling.partial[0].support).toBe("specialised");
+    expect(unsupported(bowling)).not.toContain("bowling-by-game");
+    expect(bowling.listed.find((l) => l.capability.id === "bowling-by-game")?.capability.status).toBe("available");
+    expect(bowling.partial).toEqual([]);
 
     // Swimming is never left unstaffed, and its journeys never include unstaffed entry.
     const swimming = view("swimming");

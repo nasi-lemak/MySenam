@@ -6,7 +6,7 @@ import { NextRequest } from "next/server";
 import { BUILTIN_ACTIVITIES } from "../src/lib/activity-catalogue";
 import { registerUser } from "../src/lib/auth";
 import { policiesFor } from "../src/lib/booking-policy";
-import { usualMinutes } from "../src/lib/booking-rules";
+import { soldByGame, usualMinutes } from "../src/lib/booking-rules";
 import { getDb } from "../src/lib/db";
 import { createResources } from "../src/lib/resources";
 import { addSignOff } from "../src/lib/sign-offs";
@@ -84,15 +84,19 @@ describe("every built-in activity", () => {
       expect(found.map((r) => r.court.id), a.key).toContain(court.id);
       // Booked by a customer: one who has the sign-off where the activity asks for one.
       const policy = (await policiesFor([{ id: court.id, venueId, sport: a.key }])).get(court.id)!;
+      // Sold as its rules say: a time, or (sold by the game) a number of games, a time then refused.
+      const when = soldByGame(policy) ? { start, games: 1 } : { start, end: start + minutes };
+      if (soldByGame(policy))
+        expect(await createBooking({ courtId: court.id, date, start, end: start + minutes, name: "C", phone: "0166999999" }), a.key).toMatchObject({ ok: false, code: "GAMES_NEEDED" });
       const phone = `0166${String(++n).padStart(6, "0")}`;
       const user = await registerUser({ name: "Customer", email: `c${n}@cover.test`, phone, password: "a long enough password" });
       if (!user.ok) throw new Error(user.error);
       if (policy.signOff) {
-        expect(await createBooking({ courtId: court.id, date, start, end: start + minutes, name: "C", phone, userId: user.user.id }), a.key).toMatchObject({ ok: false });
+        expect(await createBooking({ courtId: court.id, date, ...when, name: "C", phone, userId: user.user.id }), a.key).toMatchObject({ ok: false });
         await getDb().prepare("UPDATE users SET phone_verified_at = datetime('now') WHERE id = ?").run(user.user.id);
         await addSignOff({ venueId, sport: a.key, phone, name: "Customer", adminId: null });
       }
-      const booked = await createBooking({ courtId: court.id, date, start, end: start + minutes, name: "C", phone, userId: user.user.id });
+      const booked = await createBooking({ courtId: court.id, date, ...when, name: "C", phone, userId: user.user.id });
       expect(booked.ok ? booked.booking.totalPrice : booked.error, a.key).toBeGreaterThan(0);
     });
   }

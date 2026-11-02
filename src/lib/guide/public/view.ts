@@ -152,7 +152,8 @@ export function fitView(selection: Selection): FitView {
   // Limits that go with an activity's own catalogue entry, or with a capability the selection lists.
   const limitFrom = new Map<string, Set<Origin>>();
   for (const c of CAPABILITIES) {
-    if (c.status !== "unsupported" || !c.activityNote) continue;
+    // An activity's own way of selling (supported or not), as its catalogue entry says.
+    if (!c.activityNote) continue;
     for (const a of activities) if (a.key === c.activityNote) for (const f of a.from) add(limitFrom, c.id, f);
   }
   for (const [id, from] of capFrom) for (const lim of LIMITS_WITH[id] ?? []) for (const f of from) add(limitFrom, lim, f);

@@ -55,6 +55,7 @@ import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
 import { readSelection, recordBookedFor, selectionAtVenue, selectionForAccount, type Named, type Selection } from "@/lib/participant-bookings";
 import { venueContact } from "@/lib/venue-contact";
+import { customerCourt, customerCourtName, laneHidden } from "@/lib/lanes";
 
 export const dynamic = "force-dynamic";
 
@@ -97,8 +98,8 @@ export async function POST(req: NextRequest) {
   }
   if (typeof date !== "string" || !isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-  // Exact minutes (start and end, or start and a length), or the older list of grid columns.
-  const time = readTime((body ?? {}) as Record<string, unknown>);
+  // Exact minutes (start and end, or start and a length), or the older list of grid columns; by the game, a start and `games`.
+  const time = readTime((body ?? {}) as Record<string, unknown>, { games: true });
   if (!time.ok) return NextResponse.json({ error: time.error }, { status: 400 });
   const when = time.when;
   if (typeof name !== "string" || name.trim().length < 2)
@@ -319,7 +320,7 @@ export async function POST(req: NextRequest) {
     const lessonSport = anyCourt ? (sport as Sport) : (await getCourt(courtId as number))?.sport;
     if (!coach || !coach.active || coach.venueId !== venueOfBooking || !lessonSport || !coach.sports.includes(lessonSport))
       return refusal({ ok: false, error: "That coach does not give lessons in this sport here.", code: "COACH_NOT_FOUND" });
-    const lesson = await requestedSpan(anyCourt ? { venueId: venueOfBooking!, sport: lessonSport } : { courtId: courtId as number }, when);
+    const lesson = await requestedSpan(anyCourt ? { venueId: venueOfBooking!, sport: lessonSport } : { courtId: courtId as number }, when, Number(players) || 1);
     if (!lesson.ok) return refusal(lesson);
     if (!coachWorks(coach, date, lesson.span))
       return refusal({
@@ -337,7 +338,7 @@ export async function POST(req: NextRequest) {
       return refusal({ ok: false, error: "A pass pays for court time only. Pay for a booking with extras another way.", code: "PASS_NOT_FOR_EXTRAS" });
     const court = anyCourt ? null : await getCourt(courtId as number);
     if (venueOfBooking !== undefined && (anyCourt || court)) {
-      const asked = await requestedSpan(anyCourt ? { venueId: venueOfBooking, sport: sport as Sport } : { courtId: court!.id }, when);
+      const asked = await requestedSpan(anyCourt ? { venueId: venueOfBooking, sport: sport as Sport } : { courtId: court!.id }, when, Number(players) || 1);
       if (!asked.ok) return refusal(asked);
       const priced = await priceChoice(chosen, {
         venueId: venueOfBooking,
@@ -554,6 +555,10 @@ export async function POST(req: NextRequest) {
 
   const court = (await getCourt(result.bookings[0].courtId))!;
   const venue = (await getVenue(court.venueId))!;
+  // A lane given on arrival: the customer is told so, never the lane held for them (lib/lanes.ts); the counter sees it.
+  const hidden = !byStaff && laneHidden(result.bookings[0]);
+  const shownCourt = hidden ? customerCourt(court, result.bookings[0], await currentLocale()) : court;
+  const shownCourtName = async (name: string) => (hidden ? customerCourtName(name, result.bookings[0], await currentLocale()) : name);
   if (agreeWaiver === true) {
     // Agreed by the customer for themself where they take part, and on behalf of each person named.
     if (customerTakesPart) await signWaiver(venue.id, { phone, name: name as string, bookingId: result.bookings[0].id });
@@ -633,9 +638,9 @@ export async function POST(req: NextRequest) {
       addonError,
       // The customer can open the chat themselves and have it there for free.
       chatNumber: (await chatOfferedFor(venue.id)) ? chatNumber() : null,
-      court,
+      court: shownCourt,
       // Courts booked together: each one's name, for the confirmation's list.
-      ...(group ? { courtNames: Object.fromEntries(await Promise.all(group.map(async (id) => [id, (await getCourt(id))?.name ?? ""]))) } : {}),
+      ...(group ? { courtNames: Object.fromEntries(await Promise.all(group.map(async (id) => [id, await shownCourtName((await getCourt(id))?.name ?? "")]))) } : {}),
       venue: { id: venue.id, name: venue.name, area: venue.area, timeZone: venue.timeZone },
       // A lesson: its coach, named or assigned by the venue, for the confirmation.
       lessonCoach,
@@ -674,8 +679,10 @@ export async function GET(req: NextRequest) {
       { status: 404 }
     );
 
-  const court = (await getCourt(booking.courtId))!;
-  const venue = (await getVenue(court.venueId))!;
+  const found = (await getCourt(booking.courtId))!;
+  const venue = (await getVenue(found.venueId))!;
+  // A lane given on arrival is not named before check-in (lib/lanes.ts).
+  const court = laneHidden(booking) ? customerCourt(found, booking, await currentLocale()) : found;
   return NextResponse.json({
     booking,
     court,

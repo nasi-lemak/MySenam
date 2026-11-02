@@ -214,7 +214,7 @@ const createBooking: McpTool = {
   name: "create_booking",
   title: "Book a court for a customer",
   description:
-    "Books a court at this venue for a customer, unpaid, exactly as POST /api/v1/bookings does: the court's booking rules, the venue's policies and the customer's waiver are checked, and the customer is sent the usual confirmation. Without confirm: true it books nothing and answers the preview: court, date, time, price now, and what the customer will be told. Times are minutes of the venue's day or HH:MM. A key never overrides the venue's policies or takes payment.",
+    "Books a court at this venue for a customer, unpaid, exactly as POST /api/v1/bookings does: the court's booking rules, the venue's policies and the customer's waiver are checked, and the customer is sent the usual confirmation. Without confirm: true it books nothing and answers the preview: court, date, time, price now, and what the customer will be told. Times are minutes of the venue's day or HH:MM; a court sold by the game takes games from a start instead of an end. A key never overrides the venue's policies or takes payment.",
   authority: "write",
   scope: "venue:book",
   inputSchema: {
@@ -225,6 +225,7 @@ const createBooking: McpTool = {
       start: { type: ["string", "integer"], description: "HH:MM, or minutes of the day." },
       end: { type: ["string", "integer"], description: "HH:MM, or minutes of the day." },
       minutes: { type: "integer", description: "Or the length, in place of end." },
+      games: { type: "integer", description: "On a court sold by the game (bowling): how many games from start, in place of end; the lane is held for the venue's estimate of them." },
       name: { type: "string", description: "The customer's name." },
       phone: { type: "string", description: "The customer's phone number." },
       email: { type: "string" },

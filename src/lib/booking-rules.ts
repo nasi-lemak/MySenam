@@ -59,6 +59,14 @@ export interface PricingPolicy {
   /** Charged on each booking, apart from the time: setting up, and clearing away. */
   setupFee: number;
   cleanupFee: number;
+  /**
+   * Where the time is sold by the game (`BookingPolicy.gameMinutes`): the
+   * price of one game, for the resource, or for each player on one priced per
+   * player; `gamePeakPrice` where it starts at peak and differs. Null: a game
+   * booking costs the time it holds, at the resource's rates.
+   */
+  gamePrice: number | null;
+  gamePeakPrice: number | null;
 }
 
 export interface BookingPolicy {
@@ -114,6 +122,24 @@ export interface BookingPolicy {
    * here as one package.
    */
   separatePlaces: boolean;
+  /**
+   * Sold by the game rather than by time (a bowling lane): the customer
+   * chooses a number of games and players, and the booking holds the lane for
+   * the venue's estimate of how long they take (`gameHold`): `gameMinutes` for
+   * one game of one player, `gameMinutesEach` more for each further player,
+   * times the games, rounded up to `lengthStep`. Null: sold by time.
+   */
+  gameMinutes: number | null;
+  gameMinutesEach: number;
+  /** The most games one booking may be for. */
+  maxGames: number;
+  /**
+   * The lane is given when the customer arrives: the booking holds one lane
+   * (so the database still refuses overlaps), but it is provisional, never
+   * told to the customer before check-in, and the desk may put them on any
+   * lane free then (lib/lanes.ts).
+   */
+  laneOnArrival: boolean;
   pricing: PricingPolicy;
 }
 
@@ -144,6 +170,13 @@ export type PolicySettings = {
   signOff?: boolean | null;
   certification?: boolean | null;
   separatePlaces?: boolean | null;
+  /** Minutes one game of one player is estimated to take; 0 sets "by time" over a level beneath that sells by the game. */
+  gameMinutes?: number | null;
+  gameMinutesEach?: number | null;
+  maxGames?: number | null;
+  laneOnArrival?: boolean | null;
+  gamePrice?: number | null;
+  gamePeakPrice?: number | null;
 };
 
 export const SETTING_KEYS = [
@@ -172,6 +205,12 @@ export const SETTING_KEYS = [
   "signOff",
   "certification",
   "separatePlaces",
+  "gameMinutes",
+  "gameMinutesEach",
+  "maxGames",
+  "laneOnArrival",
+  "gamePrice",
+  "gamePeakPrice",
 ] as const satisfies readonly (keyof PolicySettings)[];
 
 /** The platform's: on the hour, an hour at a time, up to four hours. */
@@ -201,7 +240,16 @@ export const PLATFORM_POLICY: Required<{ [K in keyof PolicySettings]: NonNullabl
   signOff: false,
   certification: false,
   separatePlaces: true,
+  gameMinutes: null,
+  gameMinutesEach: 0,
+  maxGames: 10,
+  laneOnArrival: false,
+  gamePrice: null,
+  gamePeakPrice: null,
 };
+
+/** The most games a venue may let one booking be for. */
+export const MAX_GAMES = 20;
 
 /** How long a game or session usually is, in minutes (the activity catalogue's, lib/activity-registry.ts). */
 export { usualMinutes } from "./activity-registry";
@@ -249,6 +297,11 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
     signOff: pick("signOff") === true,
     certification: pick("certification") === true,
     separatePlaces: pick("separatePlaces") !== false,
+    // 0 at a level is "by time", over an activity's usual selling by the game.
+    gameMinutes: pick("gameMinutes") || null,
+    gameMinutesEach: pick("gameMinutesEach") ?? 0,
+    maxGames: pick("maxGames") ?? 10,
+    laneOnArrival: pick("laneOnArrival") === true,
     pricing: {
       rateMode: pick("rateMode")!,
       billStep: pick("billStep"),
@@ -257,8 +310,43 @@ export function resolvePolicy(levels: PolicySettings[], sport: Sport | null): Bo
       fixedPrices: pick("fixedPrices"),
       setupFee: pick("setupFee")!,
       cleanupFee: pick("cleanupFee")!,
+      gamePrice: pick("gamePrice"),
+      gamePeakPrice: pick("gamePeakPrice"),
     },
   };
+}
+
+// ------------------------------------------------------------ by the game
+
+/** Is the time on a resource with this policy sold by the game? */
+export function soldByGame(policy: Pick<BookingPolicy, "gameMinutes">): boolean {
+  return policy.gameMinutes !== null && policy.gameMinutes > 0;
+}
+
+/**
+ * How long a booking of `games` games for `players` players holds the
+ * resource: the venue's estimate (one game of one player, and more for each
+ * further player), times the games, rounded up to the policy's length step.
+ */
+export function gameHold(
+  policy: Pick<BookingPolicy, "gameMinutes" | "gameMinutesEach" | "lengthStep">,
+  games: number,
+  players = 1
+): number {
+  const one = (policy.gameMinutes ?? 0) + policy.gameMinutesEach * Math.max(0, players - 1);
+  const step = Math.max(1, policy.lengthStep);
+  return Math.max(step, Math.ceil((one * games) / step) * step);
+}
+
+/** The games a booking may be for here, 1 to the most, whose hold for `players` fits `fit` minutes. */
+export function gamesUpTo(
+  policy: Pick<BookingPolicy, "gameMinutes" | "gameMinutesEach" | "lengthStep" | "maxGames">,
+  players: number,
+  fit = Infinity
+): number[] {
+  const out: number[] = [];
+  for (let g = 1; g <= policy.maxGames; g++) if (gameHold(policy, g, players) <= fit) out.push(g);
+  return out;
 }
 
 // ------------------------------------------------------------ the rules
@@ -398,7 +486,8 @@ export function policyBreaches(
 ): PolicyBreach[] {
   const out: PolicyBreach[] = [];
   if (!startAllowed(policy, span.start)) out.push("START");
-  if (!lengthAllowed(policy, span.end - span.start)) out.push("LENGTH");
+  // Sold by the game, the length is the games' estimated time; how many games is checked instead (lib/store.ts).
+  if (!soldByGame(policy) && !lengthAllowed(policy, span.end - span.start)) out.push("LENGTH");
   if (hours.closed || span.start < hours.openMin || span.end > hours.closeMin) out.push("HOURS");
   if (minutesAhead < policy.noticeMinutes) out.push("NOTICE");
   if (hours.date && hours.zone && crossesClockChange(hours.date, span.start, span.end, hours.zone)) out.push("CLOCK");
