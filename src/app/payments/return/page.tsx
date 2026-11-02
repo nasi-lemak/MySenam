@@ -177,6 +177,34 @@ export default async function PaymentReturnPage({
     );
   }
 
+  // A pass bought online: the pass it issued, or why there is none (lib/pass-purchases.ts).
+  if (payment?.purpose === "pass") {
+    const p = payment.pass;
+    return (
+      <div className="mx-auto max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">{p ? "🎫" : payment.status === "paid" ? "⚠️" : "↩️"}</div>
+          <h1 className="mt-2 text-xl font-bold">{p ? t("pso.paidTitle") : payment.status === "paid" ? t("pso.notMadeTitle") : t("pay.notPaidTitle")}</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            {p
+              ? t("pso.paidBody", { name: p.name, code: p.code, venue: p.venueName, until: p.expiresOn })
+              : payment.status === "paid"
+                ? t("pso.notMadeBody", { amount: payment.amount })
+                : t("pso.notPaidBody")}
+          </p>
+          {p?.holderName && <p className="mt-1 text-sm text-slate-600">{t("pso.paidFor", { name: p.holderName })}</p>}
+          {receiptLink}
+          <Link
+            href={payment.venueId ? `/venue/${payment.venueId}` : "/account"}
+            className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          >
+            {t("pso.back")}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // A gift voucher bought online: here it is, to print or pass on.
   if (payment?.purpose === "voucher") {
     const voucher = payment.status === "paid" ? await voucherOfPayment(payment.id) : null;

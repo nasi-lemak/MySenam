@@ -31,6 +31,7 @@ export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedV
     topup: t("opay.purpose.topup"),
     membership: t("opay.purpose.membership"),
     coach: t("cp7.opay.coach"),
+    pass: t("pso.opay.pass"),
   };
   const REFUND_STATE: Record<RefundInFlight["state"], string> = {
     asked: t("opay.state.asked"),

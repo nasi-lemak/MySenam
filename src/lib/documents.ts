@@ -910,14 +910,15 @@ export async function receiptFee(
   });
 }
 
-/** The receipt an online payment produced, if any: its own, or the membership it bought. */
+/** The receipt an online payment produced, if any: its own, or the membership or pass it bought. */
 export async function receiptOfPayment(paymentId: number): Promise<Document | null> {
   const row = (await getDb()
     .prepare(
       `SELECT r.* FROM receipts r
         WHERE r.source = 'payment:' || ? OR r.source = 'membership:' || (SELECT membership_id FROM online_payments WHERE id = ?)
+           OR r.source = 'pass:' || (SELECT pass_id FROM online_payments WHERE id = ?)
         ORDER BY r.id LIMIT 1`
     )
-    .get(String(paymentId), paymentId)) as Row | undefined;
+    .get(String(paymentId), paymentId, paymentId)) as Row | undefined;
   return row ? toDocument(row) : null;
 }

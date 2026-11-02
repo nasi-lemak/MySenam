@@ -149,6 +149,13 @@ const AVAILABLE: Capability[] = [
   // ------------------------------------------------------------ memberships, passes and credit
   available("memberships", "memberships", { featureRow: "Membership plans and tiers online", configure: credit, staffAction: "membershipPlans" }),
   available("passes", "memberships", { featureRow: "Multi-visit passes and lesson packs", configure: credit, staffAction: "passProducts" }),
+  available("passes-online", "memberships", {
+    featureRow: "Multi-visit passes sold online",
+    requires: ["configuration", "integration"],
+    integrations: ["billplz", "stripe"],
+    configure: credit,
+    staffAction: "passProducts",
+  }),
   available("family-memberships", "memberships", { featureRow: "Family membership dependants by plan policy", configure: credit, staffAction: "membershipPlans" }),
   available("membership-suspension", "memberships", { featureRow: "Membership suspension and reactivation", configure: credit, staffAction: "membershipSuspend" }),
   available("stored-credit", "memberships", { featureRow: "Stored credit and its scope", configure: credit, staffAction: null }),

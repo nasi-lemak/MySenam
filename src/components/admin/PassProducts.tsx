@@ -22,8 +22,8 @@ export function productTerms(t: ReturnType<typeof useStaffT>, p: PassProduct): s
 
 /**
  * The passes the venue sells over the counter, each with its terms and price
- * (X1-19; lib/pass-products.ts): a manager's to add and take off; the desk
- * sells from them at their price.
+ * (X1-19; lib/pass-products.ts): a manager's to add and take off, and to offer
+ * online as well (lib/pass-purchases.ts); the desk sells from them at their price.
  */
 export function PassProducts({
   venueId,
@@ -39,7 +39,7 @@ export function PassProducts({
   onChanged: () => void;
 }) {
   const t = useStaffT();
-  const [form, setForm] = useState({ name: "", sport: "", coachId: "", kind: "session" as "session" | "time", entries: "10", entryMinutes: "60", maxMinutes: "", scope: "booking" as BenefitScope, price: "", validDays: "90" });
+  const [form, setForm] = useState({ name: "", sport: "", coachId: "", kind: "session" as "session" | "time", entries: "10", entryMinutes: "60", maxMinutes: "", scope: "booking" as BenefitScope, price: "", validDays: "90", soldOnline: false });
   const [error, setError] = useState<string | null>(null);
 
   async function add(e: React.FormEvent) {
@@ -60,11 +60,25 @@ export function PassProducts({
         scope: form.scope,
         price: Number(form.price),
         validDays: Number(form.validDays),
+        soldOnline: form.soldOnline,
       }),
     });
     const data = await readJson(res).catch(() => ({}));
     if (!res.ok) return setError(t.err(data, t("p8b.prod.addFailed")));
-    setForm({ ...form, name: "", price: "" });
+    setForm({ ...form, name: "", price: "", soldOnline: false });
+    onChanged();
+  }
+
+  /** Offer it on the venue's page to be bought online, or stop (lib/pass-purchases.ts). */
+  async function online(p: PassProduct, soldOnline: boolean) {
+    setError(null);
+    const res = await fetch("/api/admin/pass-products", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId, id: p.id, soldOnline }),
+    });
+    const data = await readJson(res).catch(() => ({}));
+    if (!res.ok) return setError(t.err(data, t("pso.prod.onlineFailed")));
     onChanged();
   }
 
@@ -101,10 +115,16 @@ export function PassProducts({
                   )}
                   {p.coachName ? ` · ${t("cr.lessonsWith", { name: p.coachName })}` : ""}
                 </span>
+                {p.soldOnline && <span className="ml-1 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-medium text-teal-800">{t("pso.prod.online")}</span>}
               </span>
-              <button type="button" onClick={() => void retire(p)} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-white">
-                {t("cr.stopOffering")}
-              </button>
+              <span className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void online(p, !p.soldOnline)} className="rounded-md border border-teal-300 px-2 py-1 text-xs font-medium text-teal-700 hover:bg-white">
+                  {p.soldOnline ? t("pso.prod.stopOnline") : t("pso.prod.sellOnline")}
+                </button>
+                <button type="button" onClick={() => void retire(p)} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-white">
+                  {t("cr.stopOffering")}
+                </button>
+              </span>
             </li>
           ))}
         </ul>
@@ -185,10 +205,15 @@ export function PassProducts({
           {t("cr.price")}
           <input type="number" required step={0.01} min={0} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className={`mt-1 w-24 ${input}`} />
         </label>
+        <label className="flex items-center gap-1.5 self-center text-xs font-medium text-slate-600">
+          <input type="checkbox" checked={form.soldOnline} onChange={(e) => setForm({ ...form, soldOnline: e.target.checked })} />
+          {t("pso.prod.soldOnline")}
+        </label>
         <button type="submit" className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700">
           {t("p8b.prod.add")}
         </button>
       </form>
+      <p className="mt-1 text-xs text-slate-500">{t("pso.prod.soldOnlineHint")}</p>
     </div>
   );
 }

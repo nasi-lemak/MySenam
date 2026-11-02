@@ -116,6 +116,7 @@ import { utilisationByDay, type UseSplit } from "./reports";
 import { cancelPolicy, cancelPolicyFor, lateCancelTerms } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, issueReceipt, paidVia as paidViaLabel, saidLine, WHO } from "./documents";
+import { gatewayFor } from "./gateways";
 import { venueTax } from "./tax";
 import { englishOf, lengthText, readStaffText, said, withPhrase, type StaffText } from "./staff-text";
 
@@ -7632,6 +7633,8 @@ interface PassRow {
   holder_kind: "customer" | "participant";
   holder_participant_id: number | null;
   holder_participant_name: string | null;
+  online_provider: string | null;
+  online_bill: string | null;
 }
 
 const PASS_SELECT = `
@@ -7639,7 +7642,9 @@ const PASS_SELECT = `
          p.kind, p.entry_minutes, p.max_minutes, p.entries, p.price, p.holder_name, p.holder_phone, p.expires_on,
          p.status, p.created_at, p.coach_id, k.name AS coach_name,
          p.scope, p.holder_kind, p.holder_participant_id, hp.display_name AS holder_participant_name,
-         (SELECT COALESCE(SUM(delta), 0) FROM pass_entries e WHERE e.pass_id = p.id) AS spent
+         (SELECT COALESCE(SUM(delta), 0) FROM pass_entries e WHERE e.pass_id = p.id) AS spent,
+         (SELECT op.provider FROM online_payments op WHERE op.pass_id = p.id) AS online_provider,
+         (SELECT op.bill_id FROM online_payments op WHERE op.pass_id = p.id) AS online_bill
   FROM passes p JOIN venues v ON v.id = p.venue_id LEFT JOIN coaches k ON k.id = p.coach_id
   LEFT JOIN participants hp ON hp.id = p.holder_participant_id
 `;
@@ -7670,6 +7675,8 @@ function toPass(r: PassRow): Pass {
     expiresOn: r.expires_on,
     status: r.status,
     createdAt: r.created_at,
+    // Bought online (lib/pass-purchases.ts): through which gateway, and its payment's reference there.
+    ...(r.online_bill ? { boughtOnline: { gateway: gatewayFor(r.online_provider ?? "")?.name ?? r.online_provider ?? "", reference: r.online_bill } } : {}),
   };
   const reason = passBlocked(pass);
   return reason ? { ...pass, unusableReason: englishOf(reason), unusablePhrase: reason } : pass;
@@ -7810,7 +7817,7 @@ export async function issuePass(input: {
   holderName: string;
   holderPhone: string;
   expiresOn: string;
-  /** null: given by the system itself, a loyalty reward (lib/loyalty.ts). */
+  /** null: given by the system itself, a loyalty reward (lib/loyalty.ts), or bought online (lib/pass-purchases.ts). */
   adminId: number | null;
   userId?: number;
   /** A pack of lessons with this coach. */

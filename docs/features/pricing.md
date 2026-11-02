@@ -1043,3 +1043,73 @@ written for that much only, at the tax the pass was sold at; what was spent
 stays revenue (`voidPass` in `src/lib/store.ts`; `tests/void-credit-notes.test.ts`).
 Customers see their passes with a used/remaining meter on `/account`,
 and staff sell and cancel them from the *Credit & passes* tab.
+
+### Buying a pass online
+
+A venue that takes payment online can sell passes from its list online too,
+as memberships, credit and gift vouchers are (`src/lib/pass-purchases.ts`,
+`startPassPayment` in `src/lib/payments.ts`, migration 0264). Nothing about a
+pass changes: what is sold is the pass the counter sells from the same
+product, at the price paid.
+
+- **Which passes**: a manager marks a product *Also sold online* when adding
+  it, or *Sell online* / *Stop selling online* on the list under
+  *Passes the counter sells* (`PATCH /api/admin/pass-products`, a manager's;
+  logged as `pass_product.online` and `pass_product.offline`). Off by
+  default. A product sold online costs at least RM1 (a free pass is given at
+  the counter). Stopping changes no pass already sold and no page already
+  open.
+- **Where**: the venue's page lists them under *Passes*, each with its price,
+  what it spends (entries, entries of so many minutes, or hours of court
+  time), that it lasts so many days from the day it is paid, the longest
+  booking it pays for, its sport or coach, and what one use covers, with the
+  rules in a line: paid on the venue's own page, held on the account's phone
+  number and spent on bookings made with it, a refund of what is unused the
+  venue's to decide. A private venue shows them, and sells them, only to the
+  people on its list.
+- **Who and for whom**: a signed-in customer with a phone number on their
+  account (the checked one, where phone checks are on), which holds the pass
+  as the counter's holder number does. A pass for one person's place
+  (*Whose place it pays*) can be bought for a participant the account acts
+  for now (an active relationship, not paused for a review, archived or
+  revoked), as a membership is ([for somebody you look after](#for-somebody-you-look-after-or-a-family));
+  any other pass only for the buyer's own bookings, as the counter allows.
+  Refused with the reason otherwise (`PSO_NOT_FOR_PARTICIPANT`,
+  `PSO_NOT_GUARDIAN`, `PSO_PAUSED`, `PSO_NO_PHONE`), and nothing is opened.
+- **Refused outright**: a product of another venue, one not sold online or
+  retired, and every product of a draft venue (a test venue never takes real
+  money) or of one taken off the marketplace (`PSO_NOT_SOLD`, `PSO_OFFLINE`).
+- **Never a pass unpaid.** `POST /api/my/passes` opens the venue's payment
+  page (Billplz or Stripe, [ADR 0006](../architecture/decisions/0006-per-venue-payment-accounts.md)),
+  its expiry as a membership's (Stripe closes it after an hour; a Billplz
+  bill cannot be closed); the same pass for the same person asked for again
+  while that page is open goes back to it. The pass is issued only when the
+  gateway settles the payment, in the transaction that claims it: from its
+  product, at the price paid, its last day counted from the day it is paid;
+  the callback and the customer's return, each repeated or racing, issue one
+  (`online_payments.pass_id`, unique). A page that fails or expires issues
+  nothing and is not offered again; money that still comes in on a Billplz
+  bill issues the pass then. A product retired while the customer paid still
+  gives what they paid for. Checked again when the money comes in: an account
+  that no longer acts for the person, or has gone, gets nothing, and the
+  money is owed back ([a pass paid online](payments-and-credit.md#a-pass-paid-online)).
+- **Money** as at the counter: the pass's own receipt (`pass:<id>`), taxed as
+  the venue's tax setting taxes passes, by *Online (gateway)*; in the sales
+  journal and its export under *Passes* (a lesson pack under *Coaching*), in
+  the cash-up under online, in the period report's tax, and in the month's
+  consolidated e-invoice like any other online sale.
+- **Staff** see it in the passes list like any other, marked *Bought online*
+  with the gateway and the payment's reference; the activity log records the
+  purchase (`pass.bought_online`). A child's history records who bought it
+  (*pass.bought*). The page the customer returns to names the pass, its code
+  and last day, and whose place it pays.
+- **Refunds** follow voiding above: a manager voiding a pass bought online and
+  handing back its unused part (all of it, when nothing was used; the unused
+  share otherwise) credits that much and owes the same back on its payment in
+  the same change, listed under *Refunds owed* and refunded through the
+  gateway's refund API in one click (Stripe) or in its dashboard and marked
+  refunded (Billplz), once. Voided without money back, nothing is owed.
+
+Tested against stand-ins for Stripe's and Billplz's APIs and signed
+callbacks, on PGlite and Postgres (`tests/passes-online.test.ts`), never
+against the real gateways.

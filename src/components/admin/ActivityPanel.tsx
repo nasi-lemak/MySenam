@@ -212,6 +212,9 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "booking.test_kept": "r9c.act.testKept",
   "booking.series_moved": "r9e.act.seriesMoved",
   "payment.owed_credited": "r9e.act.owedCredited",
+  "pass.bought_online": "pso.act.boughtOnline",
+  "pass_product.online": "pso.act.online",
+  "pass_product.offline": "pso.act.offline",
 };
 
 /**

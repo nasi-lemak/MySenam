@@ -287,6 +287,30 @@ hold kept until it does; one that cannot close pages keeps the hour.
 Tested against stand-ins for Stripe's and Billplz's APIs and signed callbacks
 (`tests/membership-purchase-holds.test.ts`), never against the real gateways.
 
+### A pass paid online
+
+A pass bought online ([buying a pass online](pricing.md#buying-a-pass-online))
+is an online payment of purpose `pass` (migration 0264). It holds nothing
+while it is paid: passes are not scarce, so there is no hold, only the page,
+which closes when a membership's would (Stripe after an hour; a Billplz bill
+stays payable).
+
+- **Issued once**, when the payment settles, in the transaction that claims
+  it; the pass is named on the payment (`pass_id`). Its receipt is the
+  pass's own, by *Online (gateway)*, so the return page's *Receipt* link,
+  the sales journal, the cash-up (under online) and the consolidated
+  e-invoice treat it as any other online sale.
+- **Nothing issued**: a page that fails or expires is marked closed
+  (`page_closed_at`) and not offered again; money that still comes in on it
+  is settled as any other. Money that can buy nothing any more (the account
+  or the person it was for gone, or the account no longer acting for them)
+  is *owed back*, listed under *Refunds owed* as a pass.
+- **Refunded**: a manager voiding it with money back owes the credited
+  amount (its unused share) back on the payment in the same change
+  (`oweBackPass`), refunded from *Refunds owed* through Stripe in one click or
+  in Billplz's dashboard and marked done, once. A chargeback lost voids the
+  pass and credits its receipt for what went back.
+
 ### Refunds that are interrupted
 
 A refund through a gateway passes through steps, each written down before the

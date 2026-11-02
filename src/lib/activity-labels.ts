@@ -226,4 +226,8 @@ export const ACTION_LABELS: Record<string, string> = {
   // Round 9 (R9E): a weekly series moved in one step, and counter money owed back after the venue cancelled
   "booking.series_moved": "Moved the weeks of a weekly series in one step",
   "payment.owed_credited": "Gave money owed back after the venue cancelled as stored credit",
+  // Passes sold online (lib/pass-purchases.ts): a customer's purchase as its payment settled, and a manager offering one online
+  "pass.bought_online": "Bought a pass online",
+  "pass_product.online": "Offered a pass online",
+  "pass_product.offline": "Stopped offering a pass online",
 };

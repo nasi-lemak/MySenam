@@ -17,9 +17,10 @@ import type { DisputeEvent, RefundsEvent, SubscriptionEvent } from "./gateways/t
 import { staffSentences, tellOwnersEach, tellVenueStaffEach } from "./owner-alerts";
 import type { StaffT } from "./staff-i18n";
 import { seal, unseal } from "./secrets";
-import { findBooking, getCourt, getVenue, membershipById } from "./store";
+import { findBooking, getCourt, getPassById, getVenue, membershipById } from "./store";
 import { attachPayment, HOLD_MINUTES, holdPurchase, membershipForPayment, purchaseTerms, releaseForPayment, releasePurchase } from "./membership-purchases";
 import { accessSettings, accountPhone } from "./access";
+import { mayBuyAt, passForPayment, passPurchaseTerms, type PassPurchaseRequest } from "./pass-purchases";
 import { toWhatsAppNumber } from "./transports";
 import { baseUrl } from "./outbox";
 import { addDays, formatHour, localDateOf, todayISO } from "./time";
@@ -296,7 +297,7 @@ interface PaymentRow {
   refunded: number;
   /** 1: a page for the venue's deposit only, not the whole price. */
   deposit?: number;
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split" | "coach";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split" | "coach" | "pass";
   /** A dearer coach's difference (lib/lesson-coaches.ts): the change, and which attempt at paying it this page is. */
   coach_change_id?: number | null;
   coach_attempt?: number | null;
@@ -313,6 +314,12 @@ interface PaymentRow {
   membership_id?: number | null;
   auto_renew?: number;
   subscription_id?: string | null;
+  /** A pass bought online (migration 0264; lib/pass-purchases.ts): the product, the buyer, whose place, and the pass it issued. */
+  pass_product_id?: number | null;
+  pass_user_id?: number | null;
+  pass_holder_kind?: "customer" | "participant" | null;
+  pass_participant_id?: number | null;
+  pass_id?: number | null;
 }
 
 export interface OnlinePayment {
@@ -335,7 +342,7 @@ export interface OnlinePayment {
   refundsByApi: boolean;
   bookingCodes: string[];
   /** A customer paying for bookings, a player paying their share of somebody's, or a venue its invoice. */
-  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split" | "coach";
+  purpose: "booking" | "invoice" | "share" | "entry" | "league" | "pack" | "topup" | "membership" | "voucher" | "split" | "coach" | "pass";
   /** A dearer coach's difference: the coach change it was for. */
   coachChangeId?: number;
   /** The membership a paid membership fee made. */
@@ -352,6 +359,8 @@ export interface OnlinePayment {
   };
   /** On a refund owed (`refundsOwed`): since when, the date the customer was told, and whether that has passed. */
   owed?: RefundClock;
+  /** The pass a payment for one issued (lib/pass-purchases.ts). */
+  pass?: { code: string; name: string; venueId: number; venueName: string; expiresOn: string; holderName: string | null };
 }
 
 /** How long a refund has been owed, against the days the venue tells customers it takes. */
@@ -411,7 +420,15 @@ async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
     purpose: r.purpose,
     ...(r.membership_id ? { membership: await membershipSummary(r.membership_id) } : {}),
     ...(r.coach_change_id ? { coachChangeId: r.coach_change_id } : {}),
+    ...(r.pass_id ? { pass: await passSummary(r.pass_id) } : {}),
   };
+}
+
+async function passSummary(id: number): Promise<OnlinePayment["pass"]> {
+  const p = await getPassById(id);
+  return p
+    ? { code: p.code, name: p.name, venueId: p.venueId, venueName: p.venueName, expiresOn: p.expiresOn, holderName: p.holderParticipantName ?? null }
+    : undefined;
 }
 
 async function membershipSummary(id: number): Promise<OnlinePayment["membership"]> {
@@ -438,7 +455,7 @@ export async function paymentByBill(billId: string): Promise<OnlinePayment | nul
 
 export type StartResult =
   | { ok: true; url: string; amount: number; reused: boolean; /** Only the venue's deposit. */ deposit?: boolean }
-  | { ok: false; error: string; status: number; code?: ErrorCode | `MBO_${string}`; vars?: Record<string, string | number> };
+  | { ok: false; error: string; status: number; code?: ErrorCode | `MBO_${string}` | `PSO_${string}`; vars?: Record<string, string | number> };
 
 /**
  * Send a customer to pay for one or more of their bookings.
@@ -632,6 +649,9 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
   if (!row) return null;
   // A membership's payment failed or lapsed: the purchase holds nobody now (lib/membership-purchases.ts).
   if (!result.paid && row.purpose === "membership" && row.status === "pending") await releaseForPayment(row.id);
+  // A pass's page failed or expired: it is not offered again; a pass is made only when money comes in (lib/pass-purchases.ts).
+  if (!result.paid && row.purpose === "pass" && row.status === "pending")
+    await db.prepare("UPDATE online_payments SET page_closed_at = COALESCE(page_closed_at, datetime('now')) WHERE id = ?").run(row.id);
   // A coach's difference: the page failed or expired, the difference stays owed and the counter may take it.
   if (!result.paid && row.purpose === "coach" && row.status === "pending" && row.coach_change_id)
     await (await import("./lesson-coaches")).releaseCoachPage(row.coach_change_id, row.coach_attempt ?? null);
@@ -758,6 +778,40 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
     const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
     // Paid for nothing it can give: no more charges either.
     if (fresh.membership_id == null && fresh.subscription_id) await stopSubscription(fresh.subscription_id);
+    return { payment: await toPayment(fresh), newlyPaid: [] };
+  }
+
+  if (row.purpose === "pass") {
+    let made: number | null = null;
+    await db.transaction(async () => {
+      // The claim is the lock: the callback and the return, each repeated, race for it, and one wins.
+      const claimed = await db
+        .prepare("UPDATE online_payments SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .run(row.id);
+      if (claimed.changes !== 1) return;
+      // Issued from its product, at the price paid, its receipt the pass's own as at the counter (lib/pass-purchases.ts).
+      const issued = await passForPayment(row, paidVia("online", gatewayFor(row.provider)?.name) ?? undefined);
+      if (issued.passId !== null) {
+        await db.prepare("UPDATE online_payments SET pass_id = ? WHERE id = ?").run(issued.passId, row.id);
+        made = issued.passId;
+      }
+      // The product, the account or the person it was for went, or the account no longer acts for them: owed back.
+      else await db.prepare("UPDATE online_payments SET refund_due = amount WHERE id = ?").run(row.id);
+    })();
+    const fresh = (await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id)) as PaymentRow;
+    if (made !== null) {
+      const pass = await getPassById(made);
+      const { logAction } = await import("./activity");
+      if (pass)
+        await logAction(
+          { id: null, name: fresh.payer_name ?? "Customer" },
+          {
+            venueId: pass.venueId,
+            action: "pass.bought_online",
+            detail: `${pass.code}, ${pass.name}${pass.holderParticipantName ? ` for ${pass.holderParticipantName}` : ""}, ${money(Number(fresh.amount))}, ${gatewayFor(fresh.provider)?.name ?? fresh.provider} ${fresh.bill_id}`,
+          }
+        );
+    }
     return { payment: await toPayment(fresh), newlyPaid: [] };
   }
 
@@ -2271,6 +2325,89 @@ async function makePaidMembership(row: PaymentRow): Promise<number | null> {
   );
 }
 
+// ------------------------------------------------------------ passes
+
+/**
+ * A customer buying one of the venue's passes sold online (lib/pass-purchases.ts;
+ * docs/features/pricing.md#buying-a-pass-online): for their own bookings, or,
+ * on a pass for one person's place, for somebody they look after. The pass is
+ * issued only once the payment settles. The same purchase opened again while
+ * its page is still open goes back to that page; one the gateway said failed
+ * or expired (`page_closed_at`) is not offered again. The page closes when a
+ * membership's would (`membershipPageMinutes`); where the gateway cannot close
+ * it (Billplz), money that still comes in issues the pass.
+ */
+export async function startPassPayment(
+  user: { id: number; name: string; email: string },
+  venueId: number,
+  request: PassPurchaseRequest
+): Promise<StartResult> {
+  const venue = await getVenue(venueId);
+  // Not from a draft (a test is never sold for real money), nor a venue off the marketplace (lib/listing.ts).
+  const account = venue && isOpen(venue) ? await venueAccount(venueId) : null;
+  if (!venue || !account) return { ok: false, error: "This venue does not sell passes online at the moment. Buy one at the counter.", code: "PSO_OFFLINE", status: 409 };
+  if (!(await mayBuyAt(venueId, user.id))) return { ok: false, error: "That pass is not sold online here.", code: "PSO_NOT_SOLD", status: 404 };
+  const quoted = await passPurchaseTerms(user.id, venueId, request);
+  if (!quoted.ok) return { ok: false, error: quoted.error, code: quoted.code as `PSO_${string}`, vars: quoted.vars, status: quoted.status === 404 ? 404 : 409 };
+  const { product, holder, phone, price } = quoted.terms;
+  const holderKind = holder ? "participant" : "customer";
+  // The same pass, for the same person, on a page still open: back to it, rather than a second page to pay twice.
+  const open = (await getDb()
+    .prepare(
+      `SELECT url FROM online_payments
+        WHERE purpose = 'pass' AND status = 'pending' AND pass_user_id = ? AND pass_product_id = ? AND pass_holder_kind = ?
+          AND pass_participant_id IS NOT DISTINCT FROM ? AND page_closed_at IS NULL AND created_at > datetime('now', ?)
+        ORDER BY id DESC LIMIT 1`
+    )
+    .get(user.id, product.id, holderKind, holder?.id ?? null, `-${HOLD_MINUTES} minutes`)) as { url: string } | undefined;
+  if (open) return { ok: true, url: open.url, amount: price, reused: true };
+  const pageMinutes = membershipPageMinutes(gatewayFor(account.provider));
+  let bill;
+  try {
+    bill = await openCheckout(account, {
+      amount: price,
+      name: user.name,
+      email: user.email,
+      mobile: toWhatsAppNumber(phone),
+      // Whose it is, on the page: the participant's name only (never more about them).
+      description: `${venue.name}: ${product.name}${holder ? ` for ${holder.name}` : ""}`,
+      redirectUrl: `${await venueBaseUrl(venueId)}/payments/return`,
+      reference: { label: "Pass", value: `U${user.id}` },
+      ...(pageMinutes !== null ? { expiresInMinutes: pageMinutes } : {}),
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "The payment page could not be opened.", status: 502 };
+  }
+  await getDb()
+    .prepare(
+      `INSERT INTO online_payments (provider, bill_id, url, venue_id, amount, payer_name, payer_phone, purpose, pass_product_id, pass_user_id, pass_holder_kind, pass_participant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pass', ?, ?, ?, ?)`
+    )
+    .run(account.provider, bill.id, bill.url, venueId, price, user.name, phone, product.id, user.id, holderKind, holder?.id ?? null);
+  return { ok: true, url: bill.url, amount: price, reused: false };
+}
+
+/**
+ * A manager cancelling a pass bought online and handing back its unused part
+ * (lib/store.ts `voidPass`, which writes the credit note for that much): the
+ * same amount is owed back on the payment that bought it, listed under
+ * *Refunds owed* and refunded the usual way (through the gateway's refund API
+ * in one click where it has one, else in its dashboard and marked done),
+ * once. Call it in the transaction that voids it. The amount owed back, or
+ * null when no online payment bought it.
+ */
+export async function oweBackPass(passId: number, amount: number): Promise<number | null> {
+  if (!(amount > 0)) return null;
+  const row = (await getDb()
+    .prepare(
+      `UPDATE online_payments SET refund_due = LEAST(amount, refund_due + ?)
+        WHERE pass_id = ? AND purpose = 'pass' AND status = 'paid' AND refund_due < amount
+        RETURNING (refund_due - refunded)::float AS owed`
+    )
+    .get(roundMoney(amount), passId)) as { owed: number } | undefined;
+  return row ? Number(row.owed) : null;
+}
+
 // ------------------------------------------------------------ league fees
 
 /** A player paying this season's league fee, online, to the venue running it. */
@@ -2817,6 +2954,13 @@ async function takeBackWhatItBought(payment: PaymentRow, amount: number): Promis
         await flagAfterMembershipLoss(payment.membership_id, "revoked");
       }
       if (payment.subscription_id) await stopSubscription(payment.subscription_id);
+      break;
+    case "pass":
+      // A pass goes on any loss, as a membership does: its receipt is credited for what went back.
+      if (payment.pass_id != null) {
+        await db.prepare("UPDATE passes SET status = 'void' WHERE id = ?").run(payment.pass_id);
+        await creditReceipt(`pass:${payment.pass_id}`, "receipt.why.disputed", Number(payment.amount) > 0 ? Math.min(1, amount / Number(payment.amount)) : 1);
+      }
       break;
     case "share": {
       const place = (await db

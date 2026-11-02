@@ -381,9 +381,14 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
       const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("cr.passCancelFailed")));
       setNotice(
-        typeof data.refunded === "number" && data.refunded > 0
-          ? `${t("cr.passCancelled", { code: pass.code })} ${t("d8b.cr.passRefunded", { amount: money(data.refunded) })}`
-          : t("cr.passCancelled", { code: pass.code })
+        [
+          t("cr.passCancelled", { code: pass.code }),
+          typeof data.refunded === "number" && data.refunded > 0 ? t("d8b.cr.passRefunded", { amount: money(data.refunded) }) : "",
+          // Bought online: that much is owed back on its payment, refunded through the gateway (lib/payments.ts oweBackPass).
+          typeof data.owedBack === "number" ? t("pso.cr.owedBack", { amount: money(data.owedBack) }) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
       );
       await load();
     } catch (err) {
@@ -704,6 +709,11 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                     {pass.scope && pass.scope !== "booking" && ` · ${scopeLabel(t, pass.scope)}`}
                   </span>
                   <PriceSetNote set={(pass as Pass & { priceSet?: PriceSet | null }).priceSet ?? null} price={pass.price} />
+                  {pass.boughtOnline && (
+                    <span className="block text-xs text-teal-700">
+                      {t("pso.list.boughtOnline", { gateway: pass.boughtOnline.gateway, reference: pass.boughtOnline.reference })}
+                    </span>
+                  )}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   {pass.holderName}

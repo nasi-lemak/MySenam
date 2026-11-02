@@ -96,6 +96,7 @@ const PURPOSE: Record<string, Category> = {
   topup: "Stored credit",
   voucher: "Gift vouchers",
   membership: "Memberships",
+  pass: "Passes",
   entry: "Tournament entries",
   league: "League fees",
   share: "Game shares",

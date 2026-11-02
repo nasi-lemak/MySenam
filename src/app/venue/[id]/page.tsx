@@ -34,6 +34,9 @@ import { sportLabel } from "@/lib/i18n";
 import { intlTag, money, shortDate } from "@/lib/region";
 import { venueContact } from "@/lib/venue-contact";
 import JoinMembership, { type Dependant, type FamilyMembership, type JoinStanding } from "@/components/JoinMembership";
+import BuyPass, { type PassStanding } from "@/components/BuyPass";
+import { listOnlinePassProducts } from "@/lib/pass-products";
+import { mayBuyAt } from "@/lib/pass-purchases";
 import type { Metadata } from "next";
 import { siteOrigin, sportsLine, venueIsListed, venueJsonLd } from "@/lib/seo";
 import { photoAt } from "@/lib/photos-shared";
@@ -133,6 +136,14 @@ export default async function VenuePage({
         ? { kind: "early", until: String(terms.vars?.until), from: String(terms.vars?.from) }
         : { kind: "noPhone" };
   }
+  // Passes sold online (lib/pass-purchases.ts): a private venue's only to the people on its list.
+  const passProducts =
+    online && (viewer.userId === null ? access.access !== "private" : await mayBuyAt(venue.id, viewer.userId)) ? await listOnlinePassProducts(venue.id) : [];
+  const passStanding: PassStanding = viewer.userId === null ? "signIn" : (await accountPhone(viewer.userId)) ? "ok" : "noPhone";
+  const passPeople =
+    viewer.userId !== null && passProducts.some((p) => p.scope === "participant")
+      ? (await guardianshipsOf(viewer.userId)).map((g) => ({ id: g.participant.id, name: g.participant.displayName }))
+      : [];
   const canAutoRenew = plans.length > 0 && (await renewsByItself(venue.id));
   const renewals = plans.length > 0 && viewer.userId !== null ? await renewalsFor(viewer.userId, venue.id) : [];
   // Whom this account may buy for (lib/membership-purchases.ts): the people it looks after now, and its family memberships here.
@@ -316,6 +327,11 @@ export default async function VenuePage({
             people={people}
             families={families}
           />
+        </div>
+      )}
+      {passProducts.length > 0 && (
+        <div id="passes" className="scroll-mt-20">
+          <BuyPass venueId={venue.id} products={passProducts} standing={passStanding} people={passPeople} />
         </div>
       )}
       {coaches.length > 0 && (

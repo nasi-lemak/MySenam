@@ -174,6 +174,7 @@ export const STEP_LIST: WorkflowStep[] = [
     id: "pass-sell",
     actor: "staff",
     needs: ["passes", "counter-payments"],
+    notes: [note("online", "passes-online")],
     screen: [row("plain", "pass10", "$120"), row("plain", "passHours", "$100"), button("btnSellPass")],
   },
   {

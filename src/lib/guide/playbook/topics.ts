@@ -187,11 +187,15 @@ const TOPICS: PlaybookTopic[] = [
         para("gp.t.passes.kinds"),
         para("gp.t.passes.spend"),
         para("gp.t.passes.each"),
+        // Sold online too, where a manager marks a pass so (lib/pass-purchases.ts).
+        para("gp.t.passes.online"),
         facts(fact("gp.t.passes.f.products", "gp.t.passes.v.count", { n: p.commerce.passProducts })),
         c.role === "desk"
           ? para("gp.t.passes.deskSell")
           : steps(step("gp.t.passes.products", undefined, c.go("credit", "passProducts"))),
-      ];
+        // Money back on one bought online goes through Refunds owed, a manager's screen.
+        c.role === "desk" ? null : para("gp.t.passes.onlineRefund"),
+      ].filter((b): b is Block => b !== null);
     },
   },
   {

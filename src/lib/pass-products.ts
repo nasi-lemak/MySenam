@@ -32,6 +32,8 @@ export interface PassProduct {
   price: number;
   /** Days it lasts from the day it is sold, that day included. */
   validDays: number;
+  /** Offered on the venue's page, bought and paid online (migration 0264; lib/pass-purchases.ts). Off unless a manager says. */
+  soldOnline: boolean;
 }
 
 /** A venue's list stays short enough to pick from at a glance. */
@@ -52,6 +54,7 @@ interface Row {
   scope: string;
   price: number | string;
   valid_days: number;
+  sold_online: boolean | number | null;
 }
 
 const SELECT = `SELECT p.*, k.name AS coach_name FROM pass_products p LEFT JOIN coaches k ON k.id = p.coach_id`;
@@ -70,6 +73,7 @@ const toProduct = (r: Row): PassProduct => ({
   scope: isScope(r.scope, PASS_SCOPES) ? r.scope : "booking",
   price: Number(r.price),
   validDays: r.valid_days,
+  soldOnline: Boolean(r.sold_online),
 });
 
 /** What the venue offers now, cheapest first. */
@@ -78,6 +82,40 @@ export async function listPassProducts(venueId: number): Promise<PassProduct[]> 
     .prepare(`${SELECT} WHERE p.venue_id = ? AND p.retired_at IS NULL ORDER BY p.price, p.id`)
     .all(venueId)) as Row[];
   return rows.map(toProduct);
+}
+
+/** What the venue offers online now (lib/pass-purchases.ts), cheapest first. */
+export async function listOnlinePassProducts(venueId: number): Promise<PassProduct[]> {
+  return (await listPassProducts(venueId)).filter((p) => p.soldOnline);
+}
+
+/**
+ * One by id whatever became of it, for settling a payment made for it: a
+ * product retired while the customer paid still gives what they paid for.
+ */
+export async function passProductById(id: number): Promise<PassProduct | null> {
+  const row = (await getDb().prepare(`${SELECT} WHERE p.id = ?`).get(id)) as Row | undefined;
+  return row ? toProduct(row) : null;
+}
+
+/** The least a pass sold online may cost: a payment page asks for something. */
+export const MIN_ONLINE_PASS_PRICE = 1;
+
+/** Why this product cannot be sold online, or null: a free or token one is given at the counter. */
+export function onlineRefusal(product: Pick<PassProduct, "price">): string | null {
+  return product.price < MIN_ONLINE_PASS_PRICE ? `A pass sold online costs at least ${MIN_ONLINE_PASS_PRICE}.` : null;
+}
+
+/** A manager offers one online, or stops: passes already sold, and pages already open, are as they were. */
+export async function setSoldOnline(venueId: number, id: number, soldOnline: boolean): Promise<ProductResult | null> {
+  const product = await passProductAt(venueId, id);
+  if (!product) return null;
+  if (soldOnline) {
+    const why = onlineRefusal(product);
+    if (why) return { ok: false, error: why };
+  }
+  await getDb().prepare("UPDATE pass_products SET sold_online = ? WHERE id = ? AND venue_id = ?").run(soldOnline, id, venueId);
+  return { ok: true, product: (await passProductAt(venueId, id))! };
 }
 
 /** One the venue still offers; null for a retired one or another venue's. */
@@ -129,14 +167,20 @@ export async function createPassProduct(venueId: number, input: Record<string, u
     if (!coach || coach.venue_id !== venueId || coach.active !== 1) return { ok: false, error: "That coach does not take lessons here." };
     coachId = input.coachId as number;
   }
+  const soldOnline = input.soldOnline === true;
+  if (input.soldOnline !== undefined && typeof input.soldOnline !== "boolean") return { ok: false, error: "soldOnline is true or false." };
+  if (soldOnline) {
+    const why = onlineRefusal({ price: Number(input.price) });
+    if (why) return { ok: false, error: why };
+  }
   const { n } = (await db.prepare("SELECT COUNT(*)::int AS n FROM pass_products WHERE venue_id = ? AND retired_at IS NULL").get(venueId)) as { n: number };
   if (Number(n) >= MAX_PASS_PRODUCTS) return { ok: false, error: `A venue offers up to ${MAX_PASS_PRODUCTS} passes. Retire one first.` };
   const row = (await db
     .prepare(
-      `INSERT INTO pass_products (venue_id, name, sport, coach_id, kind, entries, entry_minutes, max_minutes, scope, price, valid_days, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO pass_products (venue_id, name, sport, coach_id, kind, entries, entry_minutes, max_minutes, scope, price, valid_days, created_by, sold_online)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
-    .get(venueId, name, sport, coachId, kind, input.entries, entryMinutes, longest, scope, roundMoney(input.price as number), input.validDays, adminId)) as { id: number };
+    .get(venueId, name, sport, coachId, kind, input.entries, entryMinutes, longest, scope, roundMoney(input.price as number), input.validDays, adminId, soldOnline)) as { id: number };
   return { ok: true, product: (await passProductAt(venueId, row.id))! };
 }
 

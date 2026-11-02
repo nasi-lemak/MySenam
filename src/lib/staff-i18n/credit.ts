@@ -416,6 +416,19 @@ const en = {
   "p8b.act.priceAdjusted": "Adjusted a booking's price, saying why",
   "r10a.cash.testTitle": "Test bookings, from before the venue went live",
   "r10a.cash.testNote": "Not added into the totals above, and shown so nothing taken is out of sight. If any of it was real money, keep that booking as real (on the go-live banner) and it counts in the totals.",
+  // pso: passes sold online (lib/pass-purchases.ts)
+  "pso.prod.soldOnline": "Also sold online",
+  "pso.prod.soldOnlineHint": "Customers buy it on the venue's page and pay through its payment account; the pass is issued once paid. At least {cur}1.",
+  "pso.prod.online": "sold online",
+  "pso.prod.sellOnline": "Sell online",
+  "pso.prod.stopOnline": "Stop selling online",
+  "pso.prod.onlineFailed": "Could not change whether it is sold online.",
+  "pso.list.boughtOnline": "Bought online · {gateway} {reference}",
+  "pso.cr.owedBack": "{amount} paid online is owed back: refund it under Refunds owed.",
+  "pso.opay.pass": "pass",
+  "pso.act.boughtOnline": "Bought a pass online",
+  "pso.act.online": "Offered a pass online",
+  "pso.act.offline": "Stopped offering a pass online",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -833,6 +846,19 @@ const ms: Record<keyof typeof en, string> = {
   "p8b.act.priceAdjusted": "Melaraskan harga tempahan, dengan sebab",
   "r10a.cash.testTitle": "Tempahan percubaan, sebelum pusat aktif",
   "r10a.cash.testNote": "Tidak ditambah ke dalam jumlah di atas, dan ditunjukkan supaya tiada wang yang diterima tersembunyi. Jika mana-mana daripadanya wang sebenar, simpan tempahan itu sebagai sebenar (pada sepanduk aktif) dan ia dikira dalam jumlah.",
+  // pso: passes sold online (lib/pass-purchases.ts)
+  "pso.prod.soldOnline": "Juga dijual dalam talian",
+  "pso.prod.soldOnlineHint": "Pelanggan membelinya di halaman pusat dan membayar melalui akaun pembayarannya; pas dikeluarkan sebaik sahaja dibayar. Sekurang-kurangnya {cur}1.",
+  "pso.prod.online": "dijual dalam talian",
+  "pso.prod.sellOnline": "Jual dalam talian",
+  "pso.prod.stopOnline": "Henti jual dalam talian",
+  "pso.prod.onlineFailed": "Tidak dapat menukar sama ada ia dijual dalam talian.",
+  "pso.list.boughtOnline": "Dibeli dalam talian · {gateway} {reference}",
+  "pso.cr.owedBack": "{amount} yang dibayar dalam talian perlu dikembalikan: bayar balik di bawah Bayaran balik terhutang.",
+  "pso.opay.pass": "pas",
+  "pso.act.boughtOnline": "Membeli pas dalam talian",
+  "pso.act.online": "Menawarkan pas dalam talian",
+  "pso.act.offline": "Berhenti menawarkan pas dalam talian",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1250,6 +1276,19 @@ const zh: Record<keyof typeof en, string> = {
   "p8b.act.priceAdjusted": "调整预订价格，并说明原因",
   "r10a.cash.testTitle": "测试预订（场馆上线前）",
   "r10a.cash.testNote": "未并入上方合计，仅作显示，以免已收款项被遗漏。若其中有真实款项，请将该预订保留为真实预订（在上线横幅上），它就会计入合计。",
+  // pso: passes sold online (lib/pass-purchases.ts)
+  "pso.prod.soldOnline": "同时在线出售",
+  "pso.prod.soldOnlineHint": "客户在场馆页面购买，并通过场馆的收款账户付款；付款后才发放次卡。最低 {cur}1。",
+  "pso.prod.online": "在线出售",
+  "pso.prod.sellOnline": "在线出售",
+  "pso.prod.stopOnline": "停止在线出售",
+  "pso.prod.onlineFailed": "无法更改是否在线出售。",
+  "pso.list.boughtOnline": "在线购买 · {gateway} {reference}",
+  "pso.cr.owedBack": "在线支付的 {amount} 需要退还：请在“待退款项”中办理退款。",
+  "pso.opay.pass": "次卡",
+  "pso.act.boughtOnline": "在线购买次卡",
+  "pso.act.online": "将次卡设为在线出售",
+  "pso.act.offline": "停止在线出售次卡",
 };
 
 const area = { en, ms, zh };

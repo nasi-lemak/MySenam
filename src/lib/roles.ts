@@ -83,8 +83,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/policy-overrides$/, methods: ["POST"] },
   // Changing a class's or a tournament's places and price after it is set up, as setting it up is (lib/class-changes.ts, lib/tournaments.ts).
   { path: /^\/api\/admin\/(classes|tournaments)\/\d+$/, methods: ["PATCH"] },
-  // The passes the counter sells and their prices are a manager's (lib/pass-products.ts); the desk sells from them.
-  { path: /^\/api\/admin\/pass-products$/, methods: ["POST", "DELETE"] },
+  // The passes the counter sells, their prices and whether they are sold online are a manager's (lib/pass-products.ts); the desk sells from them.
+  { path: /^\/api\/admin\/pass-products$/, methods: ["POST", "PATCH", "DELETE"] },
   // Changing a booking's price, or giving it free, with a reason (lib/price-adjustments.ts).
   { path: /^\/api\/admin\/bookings\/adjust-price$/, methods: ["POST"] },
   // Staff accounts and their invitations (lib/staff-accounts.ts): the owner, a business manager, or a branch manager for their own front desk.

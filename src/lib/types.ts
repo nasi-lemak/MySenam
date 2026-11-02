@@ -512,6 +512,8 @@ export interface Pass {
   expiresOn: string;
   status: PassStatus;
   createdAt: string;
+  /** Bought and paid online (lib/pass-purchases.ts): the gateway's name and the payment's reference there. */
+  boughtOnline?: { gateway: string; reference: string };
   /** Why the pass cannot be spent right now, if it cannot. */
   unusableReason?: string;
   /** The same, as a phrase a staff screen says in the staff language. */
