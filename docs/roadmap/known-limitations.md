@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B65, M16–M30 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B65, M16–M31 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -750,6 +750,16 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Passes sold online
+
+Paid through stand-ins for Stripe and Billplz only, until the gateways' own
+live checks pass ([pricing](../features/pricing.md#buying-a-pass-online)).
+
+- **Passes sold online:** two payment pages opened for the same pass at the
+  same instant can each be paid and each give a pass; the second is refunded
+  by voiding it with money back. At a private venue they are sold only to
+  people on its list; at a members-only venue a pass makes nobody a member.
+
 ### Money (M)
 
 None open.
@@ -919,6 +929,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | M28 | The sales journal subtracted the credit note of a cancelled booking paid with a pass without ever having counted it as a sale (the pass was), understating takings; such credit notes are left out | `tests/void-credit-notes.test.ts` |
 | M29 | A counter payment on a booking the venue cancelled with others (a closed day, an outage, a rain-out, its API key, a class called off) was credited at once with nobody named, and counted in that day's cash-up as cash given back that never left the till; now owed back and settled by a named person, the credit note and the payout in the cash-up of the day it is handed back | `tests/counter-owed.test.ts` (also on Postgres) |
 | M30 | Changing an operator's own activity answered 403 *not allowed* for every refusal, a name too long or a bad picture among them, so a manager was told they could not change what they could | 403 only for what is not theirs, 404 for not found, 400 for bad input | `tests/activity-pictures.test.ts` |
+| M31 | A chargeback lost on a membership bought online voided the membership but left its receipt uncredited: the credit was looked for under the payment, while the receipt is the membership's own | Credited on the membership's receipt for what went back, as a pass's is | `tests/membership-purchases.test.ts` |
 | B53 | Entries made at once could overfill a tournament, and a division's cap or a league join could race (two joins of one player hit a database error); entries are counted and taken under the tournament's (and competition's) lock, league joins under the league's | `tests/entry-races.test.ts` |
 | B54 | Two first splits of one booking at once failed with a database error, and a re-split while a friend was paying left a paid share at the old amount; splitting runs under the booking's lock and a re-split is refused while a share is paid or being paid | `tests/split-races.test.ts` |
 | B55 | The schedule kept no track of which answer it was waiting for: an answer for a day or venue left a moment before could arrive late and show under the one now chosen; a late answer is dropped | `tests/components/staff-place.test.tsx` |

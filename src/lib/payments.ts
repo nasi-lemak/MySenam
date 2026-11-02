@@ -2949,6 +2949,8 @@ async function takeBackWhatItBought(payment: PaymentRow, amount: number): Promis
     case "membership":
       if (payment.membership_id != null) {
         await db.prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(payment.membership_id);
+        // Its receipt is the membership's own, not the payment's: credited for what went back, as a pass's is (M31).
+        await creditReceipt(`membership:${payment.membership_id}`, "receipt.why.disputed", Number(payment.amount) > 0 ? Math.min(1, amount / Number(payment.amount)) : 1);
         // Revoked: the bookings from today on it no longer covers are flagged for staff, never cancelled (lib/membership-flags.ts).
         const { flagAfterMembershipLoss } = await import("./membership-flags");
         await flagAfterMembershipLoss(payment.membership_id, "revoked");

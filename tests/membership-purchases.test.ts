@@ -21,7 +21,7 @@ import { addManaged } from "../src/lib/managed-people";
 import { addMonths, createPlan, setPlanBenefits } from "../src/lib/membership-plans";
 import { changeCovers, purchaseTerms } from "../src/lib/membership-purchases";
 import { createAtVenue, participantHistory } from "../src/lib/participants";
-import { paymentByBill, renewalsFor, savePaymentSettings, settleBill, startMembershipPayment, stopRenewalOf } from "../src/lib/payments";
+import { paymentByBill, recordDispute, renewalsFor, savePaymentSettings, settleBill, startMembershipPayment, stopRenewalOf } from "../src/lib/payments";
 import { exportCustomerData } from "../src/lib/privacy";
 import { createResources } from "../src/lib/resources";
 import { activeMembership, createVenue, listMembershipsFor, listMembershipsForVenue, participantMembership } from "../src/lib/store";
@@ -239,6 +239,22 @@ describe("buying for a child the account looks after", () => {
 
     // Renewing opens near the end, said with the child's name.
     expect(await quote(parent, { planId: plans.individual, participantId: kid.id })).toMatchObject({ status: 409, body: { code: "MBO_TOO_EARLY", vars: { name: "Alya" } } });
+  });
+
+  it("a chargeback lost voids the membership and credits its receipt for what went back", async () => {
+    const parent = await adult("Disputer");
+    const bought = await buy(parent, { planId: plans.individual });
+    expect(bought.status).toBe(200);
+    await webhook(completed(bought.session!));
+    const [m] = await listMembershipsFor(parent.id);
+    const lost = await recordDispute("stripe", bought.session!, { disputeId: `dp_mem_${bought.session}`, paymentRef: `pi_for_${bought.session}`, amountMinor: 12000, reason: "fraudulent", status: "lost", dueBy: null, outcome: "lost" });
+    expect(lost).not.toBeNull();
+    expect((await listMembershipsFor(parent.id)).find((x) => x.id === m.id)?.status).toBe("void");
+    const docs = (await documentsForUser(parent.id)).filter((d) => d.kind === "credit_note" || d.lines[0]?.description.startsWith("Membership"));
+    expect(docs.map((d) => [d.kind, d.total]).sort()).toEqual([
+      ["credit_note", 120],
+      ["receipt", 120],
+    ]);
   });
 
   it("a junior plan is sold only for somebody looked after; a plan for the account only, only for the account", async () => {
