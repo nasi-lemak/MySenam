@@ -213,7 +213,7 @@ changes; 6 to 8 name what they wait for. As of 29 October 2026: no defect
 | [The terms](#languages) in English | 7 | Customers reading other languages | Translated after the lawyer's review |
 | [Staff screens](#languages): records written before migration 0120, and what people, providers and gateways wrote, stay as stored | 5 | Staff reading Malay or Chinese | Kept: data is shown as written |
 | [Benchmark](#booking-and-availability-b) run by hand; CI deferred | 5 | The owner | Re-run with each release ([release records](../development/testing.md#release-records)) |
-| [Ways some activities are sold](#activities): gym entry without a session, day passes, launch windows, range officers, heats | 7 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
+| [Ways some activities are sold](#activities): launch windows, range officers, heats | 5 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
 | [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities); [changing a lesson's coach has limits](#activities) | 5 / 6 | Families, clubs, coaching venues | Kept: deliberate restrictions with their reasons; the online parts wait on the gateways' live checks |
@@ -551,8 +551,7 @@ there):
 What the [activity catalogue](../features/activities.md) does not yet do:
 
 - **Basic and specialised activities lack a way they are commonly sold**:
-  gym entry on a membership without a booked session,
-  day passes for climbing and bouldering, launch and tide windows for water
+  launch and tide windows for water
   hire, range officers per archery session, cycling heats. Each is in the
   [support matrix](../features/activities.md#support-matrix) and the
   [roadmap](roadmap.md); operators see the note as they pick one (P2).
@@ -567,6 +566,17 @@ What the [activity catalogue](../features/activities.md) does not yet do:
   from this release: one that wants to keep selling by time sets the game
   minutes to 0
   ([booking](../features/booking.md#by-the-game-and-a-lane-given-on-arrival)).
+- **Entry with no set time** (accepted restrictions): self check-in admits
+  only the account holder (children at the desk); its page carries no
+  secret, so a signed-in customer could check in from elsewhere on their own
+  membership or pass; the desk finds people by phone number, not a scanned
+  code; a booking made for now is not refused for people already in on
+  entry, so the floor can briefly pass its places; the occupancy grid counts
+  entries as people and the report's utilisation leaves them out; a plan's
+  single activity is set through the route, not the screen; the self
+  check-in page shows times in the install's zone; a day pass is valid from
+  its first use, not a chosen date
+  ([entry](../features/venue-operations.md#entry-with-no-set-time)).
 - **An operator's own activity** is named in English unless they give the
   other languages, and is *basic* until someone reviews whether its
   workflow fits the models (P3).
