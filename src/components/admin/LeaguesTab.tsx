@@ -19,6 +19,7 @@ import { levelLabel } from "./TournamentsTab";
 import { PayMark } from "./CounterMethod";
 import { ManagerChangesNote, ManagerOnly, useStaffMay } from "./StaffMay";
 import { TeamLeaguesPanel } from "./TeamLeaguesPanel";
+import { LaddersPanel } from "./LaddersPanel";
 import { RatingsPanel } from "./RatingsPanel";
 
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -169,6 +170,7 @@ export function LeaguesTab({ venues }: { venues: ManagedVenue[] }) {
             <Create venue={venue} post={post} templates={templates} />
           </ManagerOnly>
           <TeamLeaguesPanel venue={venue} />
+          <LaddersPanel venue={venue} />
           <RatingsPanel venue={venue} />
         </>
       )}

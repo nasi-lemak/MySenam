@@ -35,6 +35,10 @@ export default async function LeaguesPage({ searchParams }: { searchParams: Prom
           <Link href="/team-leagues" className="text-teal-700 underline">
             {t("tml.title")}
           </Link>
+          {" · "}
+          <Link href="/ladders" className="text-teal-700 underline">
+            {t("ldp.title")}
+          </Link>
         </p>
       </div>
       {offered.length > 1 && (

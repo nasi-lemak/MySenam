@@ -45,8 +45,11 @@ import type { Refusal } from "./types";
  * name they gave), both for declared adults only. A team is listed once its captain publishes it.
  */
 
-export type SourceKind = "tournament" | "league" | "team_league";
-export const SOURCE_KINDS: SourceKind[] = ["tournament", "league", "team_league"];
+export type SourceKind = "tournament" | "league" | "team_league" | "ladder";
+export const SOURCE_KINDS: SourceKind[] = ["tournament", "league", "team_league", "ladder"];
+
+/** The table each kind of event is kept in. */
+const TABLE_OF: Record<SourceKind, string> = { tournament: "tournaments", league: "leagues", team_league: "team_leagues", ladder: "ladders" };
 export type SubjectKind = "user" | "participant" | "team";
 
 export type RatingRefusal = Refusal & { status?: number };
@@ -339,8 +342,64 @@ async function teamLeagueFacts(id: number): Promise<EventFacts | null> {
   return { ...base, facts };
 }
 
+/**
+ * A rated ladder's decided challenges (ADR 0033): a confirmed result is a played match, a forfeit or a walkover is a walkover
+ * (moves nothing); a challenge that was voided, cleared, cancelled, lapsed or declined is not a result. The ladder's ranks are not
+ * read: a rank is not a rating.
+ */
+async function ladderFacts(id: number): Promise<EventFacts | null> {
+  const db = getDb();
+  const l = (await db.prepare("SELECT id, venue_id, name, sport, team_size, rules, rated FROM ladders WHERE id = ?").get(id)) as
+    | { id: number; venue_id: number; name: string; sport: string; team_size: number; rules: string | null; rated: boolean }
+    | undefined;
+  if (!l) return null;
+  const base = { venueId: l.venue_id, sport: l.sport, name: l.name };
+  if (!l.rated) return { ...base, facts: [] };
+  const rules = readRules(l.rules);
+  const format: RatingFormat = l.team_size === 2 ? "doubles" : "singles";
+  const players = new Map(
+    ((await db.prepare("SELECT id, name, user_id, participant_id FROM ladder_players WHERE ladder_id = ?").all(id)) as { id: number; name: string; user_id: number | null; participant_id: number | null }[]).map((p) => [p.id, p])
+  );
+  const subject = (playerId: number): SubjectRef | null => {
+    const p = players.get(playerId);
+    if (!p) return null;
+    if (p.participant_id) return { kind: "participant", id: p.participant_id, label: "" };
+    return p.user_id ? { kind: "user", id: p.user_id, label: p.name } : null;
+  };
+  const matches = (await db
+    .prepare(
+      `SELECT id, challenger, challenged, winner, score, status, forfeit, resolved_on FROM ladder_challenges
+        WHERE ladder_id = ? AND status IN ('confirmed', 'walkover') AND winner IS NOT NULL ORDER BY id`
+    )
+    .all(id)) as { id: number; challenger: number; challenged: number; winner: number; score: string | null; status: "confirmed" | "walkover"; forfeit: boolean; resolved_on: string | null }[];
+  const facts: Fact[] = [];
+  for (const m of matches) {
+    const a = uniqueSubjects([subject(m.challenger)]);
+    const b = uniqueSubjects([subject(m.challenged)]);
+    if (a.length === 0 || b.length === 0) continue;
+    const outcome = m.winner === m.challenger ? 1 : 0;
+    const kind: ResultKind = m.status === "walkover" || m.forfeit ? "walkover" : "played";
+    const margin = rules.scoring.kind === "tally" && kind === "played" ? tallyMargin(m.score) : null;
+    facts.push({
+      format,
+      sourceMatch: m.id,
+      unitNo: 0,
+      resultRef: m.id,
+      playedOn: m.resolved_on && /^\d{4}-\d{2}-\d{2}$/.test(m.resolved_on) ? m.resolved_on : todayISO(),
+      playOrder: m.id,
+      outcome,
+      kind,
+      margin,
+      hash: hashOf({ format, outcome, kind, margin, r: [m.id, m.challenger, m.challenged] }),
+      a,
+      b,
+    });
+  }
+  return { ...base, facts };
+}
+
 async function factsOf(kind: SourceKind, id: number): Promise<EventFacts | null> {
-  return kind === "tournament" ? tournamentFacts(id) : kind === "league" ? leagueFacts(id) : teamLeagueFacts(id);
+  return kind === "tournament" ? tournamentFacts(id) : kind === "league" ? leagueFacts(id) : kind === "ladder" ? ladderFacts(id) : teamLeagueFacts(id);
 }
 
 /** A string that changes whenever anything the facts are read from does: what the scheduled catch-up compares. */
@@ -351,6 +410,10 @@ async function fingerprintOf(kind: SourceKind, id: number): Promise<string | nul
            COALESCE((SELECT md5(string_agg(m.id::text || ':' || m.status || ':' || COALESCE(m.winner, 0)::text || ':' || COALESCE(m.score, '') || ':' || COALESCE(m.entry_a, 0)::text || ':' || COALESCE(m.entry_b, 0)::text, ',' ORDER BY m.id)) FROM tournament_matches m WHERE m.tournament_id = t.id), '') || '|' ||
            COALESCE((SELECT md5(string_agg(e.id::text || ':' || COALESCE(e.out_reason, '') || ':' || COALESCE(e.out_stage, '') || ':' || COALESCE(e.team_id, 0)::text, ',' ORDER BY e.id)) FROM tournament_entries e WHERE e.tournament_id = t.id), '') AS fp
          FROM tournaments t WHERE t.id = ?`
+      : kind === "ladder"
+        ? `SELECT l.status || '|' || l.rated::text || '|' ||
+             COALESCE((SELECT md5(string_agg(c.id::text || ':' || c.status || ':' || COALESCE(c.winner, 0)::text || ':' || COALESCE(c.score, '') || ':' || c.version::text, ',' ORDER BY c.id)) FROM ladder_challenges c WHERE c.ladder_id = l.id AND c.status IN ('confirmed', 'walkover')), '') AS fp
+           FROM ladders l WHERE l.id = ?`
       : kind === "league"
         ? `SELECT l.status || '|' || l.rated::text || '|' ||
              COALESCE((SELECT md5(string_agg(m.id::text || ':' || m.status || ':' || COALESCE(m.winner, 0)::text || ':' || COALESCE(m.score, '') || ':' || m.version::text, ',' ORDER BY m.id)) FROM league_matches m JOIN league_seasons s ON s.id = m.season_id WHERE s.league_id = l.id), '') AS fp
@@ -468,7 +531,7 @@ export async function syncRatedEvent(kind: SourceKind, id: number): Promise<Sync
  */
 export async function ratedAfter(kind: SourceKind, id: number): Promise<void> {
   try {
-    const table = kind === "tournament" ? "tournaments" : kind === "league" ? "leagues" : "team_leagues";
+    const table = TABLE_OF[kind];
     const db = getDb();
     const row = (await db.prepare(`SELECT rated FROM ${table} WHERE id = ?`).get(id)) as { rated: boolean } | undefined;
     if (!row) return;
@@ -490,7 +553,7 @@ export async function ratedAfter(kind: SourceKind, id: number): Promise<void> {
 export async function ratingsCatchUp(): Promise<{ events: number; pools: number }> {
   const db = getDb();
   let events = 0;
-  for (const [kind, table] of [["tournament", "tournaments"], ["league", "leagues"], ["team_league", "team_leagues"]] as const) {
+  for (const [kind, table] of Object.entries(TABLE_OF) as [SourceKind, string][]) {
     const candidates = (await db
       .prepare(
         `SELECT x.id FROM ${table} x
@@ -652,6 +715,9 @@ const EVENT_SQL: Record<SourceKind, string> = {
              FROM leagues l WHERE l.venue_id = ? AND l.status = 'running' ORDER BY l.id DESC LIMIT 100`,
   team_league: `SELECT l.id, l.venue_id, l.name, l.sport, l.rated, (l.status = 'forming') AS can_change
                   FROM team_leagues l WHERE l.venue_id = ? AND l.status <> 'closed' ORDER BY l.id DESC LIMIT 100`,
+  // A ladder can be marked rated until its first result is in, as an event is before it starts.
+  ladder: `SELECT l.id, l.venue_id, l.name, l.sport, l.rated, NOT EXISTS (SELECT 1 FROM ladder_challenges c WHERE c.ladder_id = l.id AND c.status IN ('confirmed', 'walkover')) AS can_change
+             FROM ladders l WHERE l.venue_id = ? AND l.status = 'open' ORDER BY l.id DESC LIMIT 100`,
 };
 
 /** A venue's events that could be rated, for its manager. */
@@ -670,7 +736,7 @@ export async function venueRatedEvents(venueId: number): Promise<RatedEvent[]> {
 
 /** The venue an event belongs to, or null. */
 export async function eventVenue(kind: SourceKind, id: number): Promise<{ venueId: number; name: string } | null> {
-  const table = kind === "tournament" ? "tournaments" : kind === "league" ? "leagues" : "team_leagues";
+  const table = TABLE_OF[kind];
   const row = (await getDb().prepare(`SELECT venue_id, name FROM ${table} WHERE id = ?`).get(id)) as { venue_id: number; name: string } | undefined;
   return row ? { venueId: row.venue_id, name: row.name } : null;
 }
@@ -690,7 +756,7 @@ export async function setEventRated(kind: SourceKind, id: number, rated: boolean
   if (!event) return ratingRefusal("RT_NOT_FOUND", {}, 404);
   if (event.rated === rated) return { ok: true, value: { rated, name: info.name, venueId: info.venueId } };
   if (!event.canChange) return ratingRefusal("RT_STARTED");
-  const table = kind === "tournament" ? "tournaments" : kind === "league" ? "leagues" : "team_leagues";
+  const table = TABLE_OF[kind];
   await getDb().prepare(`UPDATE ${table} SET rated = ? WHERE id = ?`).run(rated, id);
   await syncRatedEvent(kind, id);
   return { ok: true, value: { rated, name: info.name, venueId: info.venueId } };

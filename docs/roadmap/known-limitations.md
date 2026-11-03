@@ -771,6 +771,20 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Swiss tournaments and ladders
+
+([Swiss](../features/tournaments.md#swiss-tournaments),
+[ladders](../features/tournaments.md#club-ladders).) Accepted restrictions: a
+Swiss division of a competition schedules each round into the court time free
+when it is paired, so a later round can fail to fit if another division used
+the time (the round is reported unpaired and the organiser decides); the Swiss
+pairing search is bounded at 400,000 steps and reports unpaired rather than
+looping; the Swiss tie-break order is changeable through the API only; no
+accelerated pairing, and no Swiss for performance events; a ladder challenge has
+no court time held by the app (it is arranged privately); a ladder cannot be
+restarted empty, and persistent teams cannot enter ladders; pairing and
+challenge messages go through the outbox (the Email row: unverified).
+
 ### Counted performances
 
 ([Counted performances](../features/tournaments.md#counted-performances).)

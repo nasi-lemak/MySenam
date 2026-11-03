@@ -65,6 +65,7 @@ export const SPECIALISED_MODULES: PlaybookModule[] = [
         step("gp.spec.tournaments.s1", { screen: screen("tournaments") }, c.go("tournaments", "tournaments")),
         step("gp.spec.tournaments.s2", undefined, c.go("tournaments", "tournamentRun")),
         step("gp.spec.tournaments.s5", undefined, c.go("tournaments", "tournamentDay")),
+        step("gp.spec.tournaments.s6", undefined, c.go("tournaments", "tournamentRun")),
         step("gp.spec.tournaments.s3", undefined, c.go("tournaments", "tournamentIssues")),
         step("gp.spec.tournaments.s4")
       ),

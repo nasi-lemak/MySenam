@@ -18,7 +18,8 @@ import type { LiveBoard, LiveFixture } from "@/lib/tournament-day";
  */
 
 function labelOf(t: T, f: { stage: LiveFixture["stage"]; groupNo: number | null; round: number; placement: 3 | null; rounds: number }): string {
-  if (f.stage === "group") return t("tour.group", { n: f.groupNo ?? 0 });
+  // `rounds` is -1 for a Swiss event: its matches are the rounds of its group stage.
+  if (f.stage === "group") return f.rounds < 0 ? t("swiss.ui.round", { n: f.round }) : t("tour.group", { n: f.groupNo ?? 0 });
   if (f.placement === 3) return t("tour.thirdPlace");
   if (f.round === f.rounds) return t("tour.final");
   if (f.round === f.rounds - 1) return t("tour.semis");
