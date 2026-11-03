@@ -771,6 +771,18 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Archiving past claims
+
+Off unless `CLAIMS_ARCHIVE_AFTER_DAYS` is set
+([database](../architecture/database.md#archiving-past-claims)). Accepted
+restrictions: a block can be placed over court time that has been archived
+without an overlap check (it affects no booking); the archive frees disk only
+after `VACUUM FULL` or a dump and restore; the index build in migration 0267
+locks writes to `claims` once, while it runs; the claim of a booking cancelled
+as its claims are split across two batches may keep `active` set in the archive
+(cosmetic: nothing reads it); measured once, on a development container, not at
+production size.
+
 ### Passes sold online
 
 Paid through stand-ins for Stripe and Billplz only, until the gateways' own
