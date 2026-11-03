@@ -471,6 +471,8 @@ export interface CustomerExport {
   tournaments: unknown[];
   /** Leagues joined, and each season's box, finish and fee. */
   leagues: unknown[];
+  /** Ladders joined: the place, its status, and the challenges it was in (lib/ladders.ts). */
+  ladders: unknown[];
   /** Teams it is on, or acts for a child who is: its place on each and what it declared for events' age ranges and categories (lib/teams.ts). */
   teams: unknown[];
   /** Ratings earned from results at rated events: where it stands at each venue, sport and format, and each result that moved it (lib/ratings.ts). */
@@ -658,6 +660,16 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
          LEFT JOIN league_places lp ON lp.player_id = p.id
          LEFT JOIN league_seasons s ON s.id = lp.season_id
         WHERE p.user_id = ? ORDER BY p.id, s.number`,
+      userId
+    ),
+    ladders: await all(
+      `SELECT l.name AS ladder, v.name AS venue, p.name AS playing_as, p.status, p.joined_at, r.rank AS rank_now,
+              (SELECT COUNT(*)::int FROM ladder_challenges c WHERE c.challenger = p.id OR c.challenged = p.id) AS challenges
+         FROM ladder_players p
+         JOIN ladders l ON l.id = p.ladder_id
+         JOIN venues v ON v.id = l.venue_id
+         LEFT JOIN ladder_ranks r ON r.player_id = p.id
+        WHERE p.user_id = ? ORDER BY p.id`,
       userId
     ),
     teams: await (await import("./teams")).teamsExport(userId),
@@ -1084,6 +1096,8 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
       .run(ANONYMOUS, userId);
     // Out of leagues too, and off their boxes and tables by name.
     await forgetLeaguePlayer(userId, ANONYMOUS);
+    // And off every ladder (lib/ladders.ts): out of it, their name in its places replaced.
+    await (await import("./ladders")).forgetLadderPlayer(userId, ANONYMOUS);
     // Off every team: the captaincy handed on or the team archived, the children they act for taken off, names kept on rosters anonymised.
     await (await import("./teams")).forgetTeamsOfUser(userId, ANONYMOUS);
     // Their place in the ratings ledger becomes "(removed)", standing at the rating it had then, and the pools they were in are replayed (lib/ratings.ts).

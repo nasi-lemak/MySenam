@@ -35,6 +35,7 @@ import { isCategory, isPartnerGender, type Category } from "./who";
 import { money } from "./region";
 import { groupResultsVoid, parseRules, readRules, type CompetitionRules, type OutReason, type OutStage } from "./tournament-rules";
 import { clockValue, englishOf, joinSaid, readStaffText, said, type StaffText, type StaffValue } from "./staff-text";
+import type { SwissDetail } from "./swiss";
 
 /**
  * Tournaments run by venues.
@@ -60,9 +61,10 @@ import { clockValue, englishOf, joinSaid, readStaffText, said, type StaffText, t
 /**
  * "knockout"; "groups" (round-robin groups, then a knockout); "round_robin"
  * (everybody plays everybody, the table is the result); "performance"
- * (heats, and a final, ranked by a time, distance or score).
+ * (heats, and a final, ranked by a time, distance or score); "swiss" (a fixed number of rounds, each paired from the standings
+ * the one before left: lib/swiss.ts, ADR 0033).
  */
-export type Format = "knockout" | "groups" | "round_robin" | "performance";
+export type Format = "knockout" | "groups" | "round_robin" | "performance" | "swiss";
 export type TournamentStatus = "open" | "closed" | "drawn" | "finished" | "cancelled";
 export type EntryStatus = "entered" | "waitlisted" | "withdrawn";
 /** Stages a match length can be set for: the knockout's last round and its third-place match are "final". */
@@ -248,6 +250,8 @@ export interface TournamentDetail extends Tournament {
   issues: ProgressionIssue[];
   /** A performance event's heats, final and ranking. */
   performance: PerformanceDetail | null;
+  /** A Swiss event's rounds, why each pairing was made, and its table (null for any other format). */
+  swiss: SwissDetail | null;
 }
 
 const T_SELECT = `
@@ -423,7 +427,8 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
   // them, flagged, and the next in the table goes through instead (B10).
   const out = new Map(entries.filter((e) => e.out).map((e) => [e.id, e.out!]));
   const voided = new Set([...out].filter(([, o]) => groupResultsVoid(t.rules, o.reason, o.stage)).map(([id]) => id));
-  const groups = [...new Set(matches.filter((m) => m.stage === "group").map((m) => m.groupNo!))].sort((a, b) => a - b).map((g) => {
+  // A Swiss event's matches are rows of the group stage, but its table is its own (lib/swiss.ts), not a group's.
+  const groups = (t.format === "swiss" ? [] : [...new Set(matches.filter((m) => m.stage === "group").map((m) => m.groupNo!))]).sort((a, b) => a - b).map((g) => {
     const inGroup = matches.filter((m) => m.stage === "group" && m.groupNo === g);
     const ids = [...new Set(inGroup.flatMap((m) => [m.a!, m.b!]))];
     const table = standings(
@@ -473,7 +478,8 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
     ...(opts.forStaff ? { reason: i.reason, resolutionReason: i.resolution_reason } : {}),
   }));
   const performance = t.format === "performance" ? await performanceOf(t, matches, out, voided) : null;
-  return { ...t, entries, matches, groups, corrections, issues, performance };
+  const swiss = t.format === "swiss" ? await (await import("./swiss")).swissOf(t, matches, entries, voided) : null;
+  return { ...t, entries, matches, groups, corrections, issues, performance, swiss };
 }
 
 interface EntryRow {
@@ -881,8 +887,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
     return { ok: false, error: "A division's draw is made: add divisions before any draw." };
   const sport = competition ? competition.hold.sport : input.sport;
   if (!(await isActivity(sport))) return { ok: false, error: "Unknown sport." };
-  if (!["knockout", "groups", "round_robin", "performance"].includes(input.format))
-    return { ok: false, error: "A knockout, groups then a knockout, a round robin, or a performance event." };
+  if (!["knockout", "groups", "round_robin", "performance", "swiss"].includes(input.format))
+    return { ok: false, error: "A knockout, groups then a knockout, a round robin, a Swiss event, or a performance event." };
   // The sport's own template, where it suits the format asked for; else the general one.
   const sportTemplate = templateFor(sport);
   const template = input.template ? templateByKey(input.template) : sportTemplate.formats.includes(input.format) ? sportTemplate : templateByKey(input.format === "performance" ? "best_attempt" : "custom");
@@ -892,6 +898,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
   const rules = parsedRules.rules;
   if (input.format === "performance" && !rules.performance) return { ok: false, error: "A performance event needs what is measured: choose a performance template." };
   if (input.format !== "performance" && rules.performance) return { ok: false, error: "That template is for a performance event." };
+  if (input.format !== "swiss" && rules.swiss) return { ok: false, error: "Swiss settings are for a Swiss event." };
+  if (input.format === "swiss") rules.swiss = rules.swiss ?? { rounds: null, byePoints: null, tiebreaks: null };
   const entryKind: EntryKind = input.entryKind ?? (input.teamSize === 2 ? "pair" : "player");
   if (!["player", "pair", "team"].includes(entryKind)) return { ok: false, error: "Players, pairs or teams." };
   if (input.format === "performance" && entryKind !== "player") return { ok: false, error: "A performance event takes players one by one." };
@@ -1539,6 +1547,7 @@ export function matchName(d: TournamentDetail, m: Match): string {
 
 /** A match's name ("Semi-final 2") as a phrase, for staff screens in the staff language. */
 export function matchNamePhrase(d: TournamentDetail, m: Match): StaffText {
+  if (m.stage === "group" && d.format === "swiss") return said("srv.round.swiss", { round: m.round, n: m.position });
   if (m.stage === "group") return said("srv.round.group", { n: String(m.groupNo) });
   if (m.placement === 3) return said("srv.round.third");
   const rounds = Math.max(...d.matches.filter((x) => x.stage === "knockout").map((x) => x.round));
@@ -1614,7 +1623,7 @@ export function changePhrases(before: TournamentDetail, after: TournamentDetail)
   for (const e of after.entries) {
     const was = before.entries.find((x) => x.id === e.id);
     if (e.out && !was?.out) {
-      const voidNow = after.groups.some((g) => g.table.some((s) => s.entryId === e.id && s.resultsVoid));
+      const voidNow = after.groups.some((g) => g.table.some((s) => s.entryId === e.id && s.resultsVoid)) || !!after.swiss?.standings.some((s) => s.entryId === e.id && s.resultsVoid);
       const why = said(e.out.stage ? `srv.tn.out.at.${e.out.stage}` : "srv.tn.out.at", { reason: said(`srv.tn.out.reason.${e.out.reason}`) });
       out.push(said(voidNow ? "srv.tn.out.void" : e.out.stage === "groups" ? "srv.tn.out.stand" : "srv.tn.out", { name: e.name, why }));
     }
@@ -1626,6 +1635,21 @@ export function changePhrases(before: TournamentDetail, after: TournamentDetail)
     if (was.a !== m.a || was.b !== m.b) out.push(said("srv.tn.change.sides", { match, sides: sidesOf(after, m.a, m.b), was: sidesOf(after, was.a, was.b) }));
     if (was.status !== m.status || was.winner !== m.winner || was.score !== m.score)
       out.push(said("srv.tn.change.result", { match, sides: sidesOf(after, m.a, m.b), outcome: outcome(m), was: outcome(was) }));
+  }
+  // A Swiss round paired again, or paired because a result or a leaver completed the one before: what was, and what is.
+  if (after.format === "swiss") {
+    const beforeIds = new Set(before.matches.map((x) => x.id));
+    const afterIds = new Set(after.matches.map((x) => x.id));
+    for (const m of before.matches)
+      if (!afterIds.has(m.id) && m.status !== "bye") out.push(said("srv.tn.swiss.unpaired", { match: matchNamePhrase(before, m), sides: sidesOf(before, m.a, m.b) }));
+    for (const m of after.matches) {
+      if (beforeIds.has(m.id)) continue;
+      out.push(
+        m.status === "bye"
+          ? said("srv.tn.swiss.bye", { match: matchNamePhrase(after, m), name: name(m.a) })
+          : said("srv.tn.swiss.paired", { match: matchNamePhrase(after, m), sides: sidesOf(after, m.a, m.b) })
+      );
+    }
   }
   for (const g of after.groups) {
     const wasG = before.groups.find((x) => x.groupNo === g.groupNo);
@@ -1782,7 +1806,7 @@ interface SiblingMatch {
   userIds: number[];
 }
 
-async function siblingMatches(competitionId: number, exceptTournamentId: number, own = false): Promise<SiblingMatch[]> {
+export async function siblingMatches(competitionId: number, exceptTournamentId: number, own = false): Promise<SiblingMatch[]> {
   // `own`: this division's matches instead, with who could play each.
   const which = own ? "d.id = ?" : "d.id <> ?";
   const rows = (await getDb()
@@ -1858,8 +1882,17 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
   const entries = (await db
     .prepare(`SELECT id, seed, entry_mark, ${PERSON_OF("tournament_entries")} AS user_id FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' ORDER BY seed NULLS LAST, id`)
     .all(tournamentId)) as { id: number; seed: number | null; entry_mark: number | string | null; user_id: number | null }[];
-  const minimum = t.format === "groups" ? 3 : 2;
+  const minimum = t.format === "groups" ? 3 : t.format === "swiss" ? 4 : 2;
   if (entries.length < minimum) return { ok: false, error: `At least ${minimum} entries are needed.` };
+  if (t.format === "swiss") {
+    // A Swiss event pairs one round at a time (lib/swiss.ts): its draw is the initial order and round 1.
+    const made = await (await import("./swiss")).drawSwiss(t, entries, random);
+    if (!made.ok) return made;
+    await releaseUnneeded(tournamentId);
+    const detail = (await tournamentDetail(tournamentId))!;
+    await tellFirstMatches(detail);
+    return { ok: true, value: detail };
+  }
   if (t.format === "round_robin" && entries.length > 16) return { ok: false, error: "A round robin is for 16 entries at most: make groups instead." };
   const ranked = [...entries.filter((e) => e.seed !== null), ...shuffle(entries.filter((e) => e.seed === null), random)].map((e) => e.id);
 
@@ -2125,6 +2158,11 @@ type ResultMode = "normal" | "replace" | "standings_only";
 
 async function recordResultOnce(matchId: number, input: ResultInput, mode: ResultMode): Promise<Result<TournamentDetail>> {
   const db = getDb();
+  // A Swiss event's results go in one at a time: the one that completes a round pairs the next, and two completing it at
+  // once would each see the other undecided and pair nothing (ADR 0033).
+  const owner = (await db.prepare("SELECT tournament_id FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number } | undefined;
+  if (owner && (await db.prepare("SELECT 1 FROM swiss_events WHERE tournament_id = ?").get(owner.tournament_id)) !== undefined)
+    await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(owner.tournament_id);
   const m = (await db.prepare("SELECT * FROM tournament_matches WHERE id = ?").get(matchId)) as
     | {
         id: number;
@@ -2137,11 +2175,17 @@ async function recordResultOnce(matchId: number, input: ResultInput, mode: Resul
         loser_next_match_id: number | null;
         loser_next_slot: "a" | "b" | null;
         status: string;
+        round: number;
       }
     | undefined;
   if (!m) return { ok: false, error: "Match not found." };
   const t = (await tournamentById(m.tournament_id))!;
   if (t.status !== "drawn" && t.status !== "finished") return { ok: false, error: "The draw is not made." };
+  // A Swiss result put right after a later round was paired is a correction: keep the pairings, or pair again (ADR 0033).
+  if (t.format === "swiss" && mode === "normal" && m.status !== "scheduled" && (await (await import("./swiss")).laterRoundPaired(t.id, m.round)))
+    throw new KnockoutUnderway(
+      "A later round is paired already. A manager can review what correcting this result would change: keeping the pairings and changing only the standings, or pairing the next round again where it has no results."
+    );
   if (m.stage === "heat" || m.stage === "final") return { ok: false, error: "A heat's results are each competitor's marks." };
   if (m.status === "bye") return { ok: false, error: "That is a bye." };
   if (m.entry_a === null || m.entry_b === null) return { ok: false, error: "Both sides are not known yet." };
@@ -2191,7 +2235,10 @@ async function recordResultOnce(matchId: number, input: ResultInput, mode: Resul
     const out = await takeOutOnce(loser, "retired");
     if (!out.ok) return out;
   }
-  if (mode === "replace") await replaceQualifiers(t.id);
+  if (mode === "replace" && t.format === "swiss") {
+    const again = await (await import("./swiss")).repairFrom(t.id, m.round);
+    if (!again.ok) throw new CorrectionBlocked(again.blockers);
+  } else if (mode === "replace") await replaceQualifiers(t.id);
   await afterChange(t.id, m.stage === "group" && mode === "normal");
   const after = (await tournamentDetail(t.id, { forStaff: true }))!;
   if (before && mode === "normal") {
@@ -2337,10 +2384,17 @@ export async function applyCorrection(
       const done = await recordResultOnce(matchId, input, confirm.mode);
       if (!done.ok) return done;
       const changes = changePhrases(before, done.value);
-      const touched = new Set(done.value.matches.filter((x) => {
-        const was = before.matches.find((y) => y.id === x.id)!;
-        return was.status !== x.status || was.winner !== x.winner || was.a !== x.a || was.b !== x.b || was.score !== x.score;
-      }).map((x) => x.id));
+      // Matches changed, and matches no longer there (a Swiss round paired again): what the record keeps as they were.
+      const nowIds = new Set(done.value.matches.map((x) => x.id));
+      const touched = new Set([
+        ...done.value.matches
+          .filter((x) => {
+            const was = before.matches.find((y) => y.id === x.id);
+            return !!was && (was.status !== x.status || was.winner !== x.winner || was.a !== x.a || was.b !== x.b || was.score !== x.score);
+          })
+          .map((x) => x.id),
+        ...before.matches.filter((y) => !nowIds.has(y.id)).map((y) => y.id),
+      ]);
       await getDb()
         .prepare(
           `INSERT INTO tournament_corrections (tournament_id, match_id, kind, reason, changes, change_phrases, before_state, admin_id, admin_name)
@@ -2964,7 +3018,7 @@ export async function resolveIssue(
 class IssueRefused extends Error {}
 
 /** A match decided, and its winner put into the match they go on to. */
-async function decide(
+export async function decide(
   matchId: number,
   winner: number | null,
   score: string | null,
@@ -3004,6 +3058,9 @@ async function decide(
 async function afterChange(tournamentId: number, groupsChanged: boolean): Promise<void> {
   if (groupsChanged) await fillKnockout(tournamentId);
   await resolveUncontested(tournamentId);
+  // A Swiss round is paired as soon as the one before it is decided (lib/swiss.ts).
+  if ((await getDb().prepare("SELECT 1 FROM swiss_events WHERE tournament_id = ?").get(tournamentId)) !== undefined)
+    await (await import("./swiss")).pairNextRound(tournamentId);
   await finishIfDone(tournamentId);
   // A walkover, a bye or the final may leave a court with nothing more to play.
   await releaseUnneeded(tournamentId);
@@ -3146,6 +3203,8 @@ async function resolveUncontested(tournamentId: number): Promise<void> {
 /** Every match decided: finished. */
 async function finishIfDone(tournamentId: number): Promise<void> {
   const db = getDb();
+  // A Swiss event is not over while a round is still to be paired.
+  if (!(await (await import("./swiss")).allRoundsPaired(tournamentId))) return;
   const left = (await db
     .prepare("SELECT COUNT(*)::int AS n FROM tournament_matches WHERE tournament_id = ? AND status = 'scheduled'")
     .get(tournamentId)) as { n: number };
@@ -3171,6 +3230,8 @@ export async function releaseUnneeded(tournamentId: number): Promise<number> {
   if (t?.competition) return releaseCompetitionTime(t.competition.id);
   // Before the draw nobody knows which time will be needed.
   if (!t || (t.status !== "drawn" && t.status !== "finished")) return 0;
+  // A Swiss event's later rounds are not paired yet, so nobody knows which time they will need.
+  if (t.format === "swiss" && !(await (await import("./swiss")).allRoundsPaired(tournamentId))) return 0;
   return releaseHeld(
     { tournamentId },
     "SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ?",
@@ -3193,6 +3254,7 @@ export async function releaseCompetitionTime(competitionId: number): Promise<num
   const db = getDb();
   const divisions = (await db.prepare("SELECT id, status FROM tournaments WHERE competition_id = ?").all(competitionId)) as { id: number; status: TournamentStatus }[];
   if (divisions.some((d) => d.status === "open" || d.status === "closed")) return 0;
+  if (await (await import("./swiss")).competitionHasUnpaired(competitionId)) return 0;
   const venue = (await db.prepare("SELECT venue_id FROM competitions WHERE id = ?").get(competitionId)) as { venue_id: number } | undefined;
   if (!venue) return 0;
   return releaseHeld(

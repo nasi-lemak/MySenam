@@ -77,6 +77,22 @@ export interface PerformanceRules {
   finalSize: number;
 }
 
+/**
+ * What a Swiss event breaks ties by after its points, in order (docs/architecture/decisions/0033-swiss-tournaments-and-club-ladders.md):
+ * Buchholz (the points of the opponents played), median Buchholz, or any of the competition rules' own ranking keys but the points.
+ */
+export type SwissTiebreak = "buchholz" | "median_buchholz" | Exclude<RankKey, "points">;
+export const SWISS_TIEBREAKS: SwissTiebreak[] = ["buchholz", "median_buchholz", "wins", "set_diff", "set_ratio", "point_diff", "point_ratio", "points_for", "head_to_head"];
+
+/** A Swiss event's settings. Null: the default (rounds ⌈log₂ n⌉ at the draw; a bye worth a win; Buchholz, median Buchholz, then the scoring's own keys). */
+export interface SwissRules {
+  rounds: number | null;
+  byePoints: number | null;
+  tiebreaks: SwissTiebreak[] | null;
+}
+
+export const DEFAULT_SWISS: SwissRules = { rounds: null, byePoints: null, tiebreaks: null };
+
 export interface CompetitionRules {
   /** Group results already played by somebody who withdrew or retired. */
   groupResultsOnWithdrawal: "stand" | "void";
@@ -87,6 +103,8 @@ export interface CompetitionRules {
   scoring: ScoringRules;
   /** Only for a performance event. */
   performance: PerformanceRules | null;
+  /** Only for a Swiss event (absent otherwise). */
+  swiss?: SwissRules | null;
 }
 
 /** How every table was ranked before scoring could be chosen: wins, sets, points, then who beat whom. */
@@ -174,6 +192,17 @@ function readPerformance(raw: unknown): PerformanceRules | null {
   };
 }
 
+function readSwiss(raw: unknown): SwissRules | null {
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw as Record<string, unknown>;
+  const tiebreaks = Array.isArray(s.tiebreaks) ? [...new Set(s.tiebreaks.filter((k) => SWISS_TIEBREAKS.includes(k as SwissTiebreak)) as SwissTiebreak[])] : [];
+  return {
+    rounds: int(s.rounds, 1, 127, 0) || null,
+    byePoints: Number.isInteger(s.byePoints) && (s.byePoints as number) >= 0 && (s.byePoints as number) <= 10 ? (s.byePoints as number) : null,
+    tiebreaks: tiebreaks.length > 0 ? tiebreaks : null,
+  };
+}
+
 export function readRules(raw: string | null | undefined): CompetitionRules {
   let given: Record<string, unknown> = {};
   try {
@@ -187,6 +216,7 @@ export function readRules(raw: string | null | undefined): CompetitionRules {
     refundBeforeDraw: given.refundBeforeDraw !== false,
     scoring: readScoring(given.scoring),
     performance: readPerformance(given.performance),
+    ...(readSwiss(given.swiss) ? { swiss: readSwiss(given.swiss) } : {}),
   };
 }
 
@@ -230,6 +260,21 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
     else if (typeof r.performance !== "object") return { ok: false, error: "A performance event's rules are a set of choices." };
     else performance = readPerformance({ ...(base.performance ?? DEFAULT_PERFORMANCE), ...(r.performance as object) });
   }
+  let swiss = base.swiss ?? null;
+  if (r.swiss !== undefined) {
+    if (r.swiss === null) swiss = null;
+    else if (typeof r.swiss !== "object") return { ok: false, error: "A Swiss event's settings are a set of choices." };
+    else {
+      const x = r.swiss as Record<string, unknown>;
+      if (x.rounds !== undefined && x.rounds !== null && (!Number.isInteger(x.rounds) || (x.rounds as number) < 1 || (x.rounds as number) > 127))
+        return { ok: false, error: "A Swiss event plays 1 or more rounds, or leave it to the default." };
+      if (x.byePoints !== undefined && x.byePoints !== null && (!Number.isInteger(x.byePoints) || (x.byePoints as number) < 0 || (x.byePoints as number) > 10))
+        return { ok: false, error: "A bye is worth 0 to 10 points, or leave it at the points for a win." };
+      if (x.tiebreaks !== undefined && x.tiebreaks !== null && (!Array.isArray(x.tiebreaks) || x.tiebreaks.length === 0 || x.tiebreaks.some((k) => !SWISS_TIEBREAKS.includes(k as SwissTiebreak))))
+        return { ok: false, error: `Break ties by some of: ${SWISS_TIEBREAKS.join(", ")}.` };
+      swiss = readSwiss({ ...(base.swiss ?? DEFAULT_SWISS), ...x });
+    }
+  }
   return {
     ok: true,
     rules: {
@@ -238,6 +283,7 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
       refundBeforeDraw: r.refundBeforeDraw === undefined ? base.refundBeforeDraw : r.refundBeforeDraw !== false,
       scoring,
       performance,
+      ...(swiss ? { swiss } : {}),
     },
   };
 }

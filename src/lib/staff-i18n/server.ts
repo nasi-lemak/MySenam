@@ -371,6 +371,13 @@ const en = {
   "srv.work.claimsArchive": "archiving past court time",
   "srv.alert.claimsBehind": "Past court time is not being archived fast enough",
   "srv.alert.claimsBehindDetail": "Court time that ended more than {days} days ago and is due to move to the archive has been waiting for three days or more; {waiting} records are due now. The archive runs on the scheduler: check that it is running and that the database has room.",
+  // Swiss tournaments (lib/swiss.ts, lib/tournaments.ts): a round's match names and what pairing again changes
+  "srv.round.swiss": "Round {round}, match {n}",
+  "srv.tn.block.swissPlayed": "A later round has results already (from round {round}, {n} played): a played match is never undone, so it cannot be paired again and the pairings stand.",
+  "srv.tn.block.swissRepair": "Round {round} could not be paired again: {why}",
+  "srv.tn.swiss.unpaired": "{match}, {sides}, is taken off: the round is paired again.",
+  "srv.tn.swiss.paired": "{match} is now {sides}.",
+  "srv.tn.swiss.bye": "{match}: {name} has the bye.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -739,6 +746,13 @@ const ms: Record<keyof typeof en, string> = {
   "srv.work.claimsArchive": "mengarkibkan masa gelanggang yang telah lepas",
   "srv.alert.claimsBehind": "Masa gelanggang yang telah lepas tidak diarkibkan dengan cukup pantas",
   "srv.alert.claimsBehindDetail": "Masa gelanggang yang tamat lebih daripada {days} hari lalu dan perlu dipindahkan ke arkib telah menunggu selama tiga hari atau lebih; {waiting} rekod perlu dipindahkan sekarang. Arkib berjalan pada penjadual: semak bahawa ia berjalan dan pangkalan data masih ada ruang.",
+  // Swiss tournaments (lib/swiss.ts, lib/tournaments.ts)
+  "srv.round.swiss": "Pusingan {round}, perlawanan {n}",
+  "srv.tn.block.swissPlayed": "Pusingan kemudian sudah ada keputusan (dari pusingan {round}, {n} dimainkan): perlawanan yang telah dimainkan tidak pernah dibatalkan, jadi ia tidak boleh dipasangkan semula dan pasangan kekal.",
+  "srv.tn.block.swissRepair": "Pusingan {round} tidak dapat dipasangkan semula: {why}",
+  "srv.tn.swiss.unpaired": "{match}, {sides}, dibatalkan: pusingan dipasangkan semula.",
+  "srv.tn.swiss.paired": "{match} kini {sides}.",
+  "srv.tn.swiss.bye": "{match}: {name} mendapat bye.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1107,6 +1121,13 @@ const zh: Record<keyof typeof en, string> = {
   "srv.work.claimsArchive": "归档已过去的场地时间",
   "srv.alert.claimsBehind": "已过去的场地时间归档速度不够",
   "srv.alert.claimsBehindDetail": "结束于 {days} 天前并应移入归档的场地时间已等待三天或更久；现有 {waiting} 条记录待移。归档由调度器运行：请检查它是否在运行，以及数据库是否还有空间。",
+  // Swiss tournaments (lib/swiss.ts, lib/tournaments.ts)
+  "srv.round.swiss": "第 {round} 轮，第 {n} 场",
+  "srv.tn.block.swissPlayed": "之后的轮次已有结果（从第 {round} 轮起已进行 {n} 场）：已进行的比赛不会被撤销，因此不能重新配对，现有配对保持不变。",
+  "srv.tn.block.swissRepair": "第 {round} 轮无法重新配对：{why}",
+  "srv.tn.swiss.unpaired": "{match}，{sides}，被取消：该轮重新配对。",
+  "srv.tn.swiss.paired": "{match} 现为 {sides}。",
+  "srv.tn.swiss.bye": "{match}：{name} 轮空。",
 };
 
 const area = { en, ms, zh };
