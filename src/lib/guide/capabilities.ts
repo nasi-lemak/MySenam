@@ -174,6 +174,8 @@ const AVAILABLE: Capability[] = [
   available("coaching", "programmes", { featureRow: "One-to-one coaching", configure: { tab: "classes" }, staffAction: "coaches" }),
   available("tournaments", "programmes", { featureRow: "Tournaments: setup and court time", configure: { tab: "tournaments" }, staffAction: "tournaments" }),
   available("leagues", "programmes", { featureRow: "Box leagues: setup and seasons", configure: { tab: "leagues" }, staffAction: "leagues" }),
+  available("team-leagues", "programmes", { featureRow: "Leagues of teams and fixture lists", configure: { tab: "leagues" }, staffAction: "teamLeagues" }),
+  available("teams", "programmes", { featureRow: "Teams that persist across events", requires: [] }),
   available("open-games", "programmes", { featureRow: "Open games: hosting", requires: [] }),
   available("matchmaking", "programmes", { featureRow: "Suggested games (matchmaking)", requires: [] }),
   available("equipment-hire", "programmes", { featureRow: "Equipment hire and deposits", configure: courts(), staffAction: "courts", models: ["hire"] }),

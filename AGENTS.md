@@ -29,7 +29,12 @@ which names the one authoritative document for each subject.
   staff's do. Box leagues check and rank results by the same rules
   (`scoreRefusal`, `standings`) through their own functions in
   `src/lib/leagues.ts`, since `recordResult` carries a tournament's
-  progression and corrections; neither has checks of its own.
+  progression and corrections; neither has checks of its own. Leagues of teams
+  do the same in `src/lib/team-leagues.ts` (a team match is made of games from
+  the sport's template, scored by `scoreRefusal`, ranked by `standings`). Teams
+  that persist (`src/lib/teams.ts`) are joined by both sides agreeing, by
+  declared adults, and a child only through a guardian's account; a child's name
+  is never public.
 - Matchmaking is built on open games ([ADR 0016](docs/architecture/decisions/0016-matchmaking-on-open-games.md)):
   one row per person per game, every change that takes or frees a place under
   the game's row lock, suggestions by published rules with their reasons shown,

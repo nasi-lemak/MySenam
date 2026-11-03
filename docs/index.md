@@ -42,7 +42,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | Prices to the minute, fees, peak bands, holidays, last-minute prices, concessions, promo codes, memberships, passes | [Pricing](features/pricing.md) |
 | Paying online, holds and deposits, stored credit and its ownership, gift vouchers, split costs, extras, counter sales, company accounts | [Payments and credit](features/payments-and-credit.md) |
 | Classes and terms, one-to-one coaching, women-only and men-only (for every programme) | [Programmes](features/programmes.md) |
-| Tournaments, competitions with divisions, competition rules and templates, results, corrections, box leagues | [Tournaments and leagues](features/tournaments.md) |
+| Tournaments, competitions with divisions, competition rules and templates, results, corrections, box leagues, teams that persist across events, leagues of teams and fixture lists | [Tournaments and leagues](features/tournaments.md) |
 | Open games, suggested games and players, invitations, private games, weekly games, community groups, blocking and reporting | [Open games and matchmaking](features/matchmaking.md) |
 | Check-in, unstaffed hours, equipment hire, notes, waivers, hire enquiries, booking alerts | [Venue operations](features/venue-operations.md) |
 | How MySenam fits a kind of venue (public), the adaptive setup journey, the personalised operating playbook, contextual help | [The venue guide](features/venue-guide.md) |

@@ -190,6 +190,8 @@ export interface VenueProfile {
     tournaments: number;
     leagues: number;
     openGames: number;
+    /** Leagues of teams (lib/team-leagues.ts), not called off. */
+    teamLeagues?: number;
   };
 
   guardians: {
@@ -330,7 +332,7 @@ export const hasCoaching = (p: VenueProfile): boolean => p.people.coaches > 0 ||
 
 export const hasMultipleBranches = (p: VenueProfile): boolean => p.branches.venues > 1;
 
-export const hasProgrammes = (p: VenueProfile): boolean => p.programmes.tournaments + p.programmes.leagues + p.programmes.openGames > 0;
+export const hasProgrammes = (p: VenueProfile): boolean => p.programmes.tournaments + p.programmes.leagues + p.programmes.openGames + (p.programmes.teamLeagues ?? 0) > 0;
 
 /** Whether an activity (by key) is among those offered. */
 export const offersActivity = (p: VenueProfile, key: string): boolean => p.activities.some((a) => a.key === key);

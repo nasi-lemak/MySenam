@@ -7,6 +7,7 @@ import approvals from "./approvals";
 import server from "./server";
 import bookings from "./bookings";
 import competitions from "./competitions";
+import teams from "./teams";
 import courts from "./courts";
 import credit from "./credit";
 import platform from "./platform";
@@ -36,7 +37,7 @@ import { sayWith, type StaffText } from "../staff-text";
  */
 export { STAFF_LOCALES, staffLocale, staffLocales, type StaffLocale };
 
-export const STAFF_AREAS = { common, approvals, server, bookings, competitions, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp };
+export const STAFF_AREAS = { common, approvals, server, bookings, competitions, teams, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp };
 
 const EN = {
   ...common.en,
@@ -44,6 +45,7 @@ const EN = {
   ...server.en,
   ...bookings.en,
   ...competitions.en,
+  ...teams.en,
   ...courts.en,
   ...credit.en,
   ...platform.en,
@@ -66,6 +68,7 @@ const merged = (l: "ms" | "zh"): Record<StaffPhrase, string> => ({
   ...server[l],
   ...bookings[l],
   ...competitions[l],
+  ...teams[l],
   ...courts[l],
   ...credit[l],
   ...platform[l],

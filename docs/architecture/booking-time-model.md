@@ -375,7 +375,7 @@ A pass is a session pass or a time pass (`passes.kind`, `passCost` in
 | Weekly bookings | One booking and its claims per week; a savepoint around each week turns a `23P01` into a skipped week when skipping is asked for |
 | Shared facilities | Place claims under the capacity trigger |
 | Classes | One claim per session on its court (every space, or every place); enrolments count against the class's own capacity |
-| Blocks, repeating blocks, rain-outs, tournament holds | A `blocks` row, any minutes, and its claims; re-blocking revises rather than stacks; a block made while a booking lands is retried around it |
+| Blocks, repeating blocks, rain-outs, tournament holds, a team league fixture's hold | A `blocks` row, any minutes, and its claims; re-blocking revises rather than stacks (a tournament's hold, owned by `tournament_id`, is left by a staff block over it; a team league's, owned by `team_league_id`, by an unblock too: a manager moves the fixture); a block made while a booking lands is retried around it |
 | Outages | Claims for whole business days, open-ended allowed |
 | Waiting lists | Entries keep the minutes wanted; an offer is a claim with `expires_at` |
 | Moving, rescheduling | The booking's claims released and claimed again in one transaction, so a booking may slide over its own old time |

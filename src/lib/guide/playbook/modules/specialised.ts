@@ -82,6 +82,31 @@ export const SPECIALISED_MODULES: PlaybookModule[] = [
     ],
   },
   {
+    // Leagues of teams (lib/team-leagues.ts): the manager's season, from the fixture list to moving a fixture.
+    id: "spec.teamLeagues",
+    section: "specialised",
+    roles: MANAGER,
+    applies: (p) => (p.programmes.teamLeagues ?? 0) > 0,
+    blocks: (c) => [
+      heading("gp.spec.teamleagues.h", "spec-team-leagues"),
+      para("gp.spec.teamleagues.text"),
+      steps(
+        step("gp.spec.teamleagues.s1", { screen: screen("leagues") }, c.go("leagues", "teamLeagues")),
+        step("gp.spec.teamleagues.s2", undefined, c.go("leagues", "teamLeagueRun")),
+        step("gp.spec.teamleagues.s3", undefined, c.go("leagues", "teamFixtureMove")),
+        step("gp.spec.teamleagues.s4")
+      ),
+      note("gp.spec.teamleagues.court"),
+    ],
+  },
+  {
+    id: "spec.teamLeaguesDesk",
+    section: "specialised",
+    roles: DESK,
+    applies: (p) => (p.programmes.teamLeagues ?? 0) > 0,
+    blocks: (c) => [heading("gp.spec.teamleaguesdesk.h", "spec-team-leagues"), steps(step("gp.spec.teamleaguesdesk.s1", { screen: screen("leagues") }, c.go("leagues"))), para("gp.spec.teamleaguesdesk.rest")],
+  },
+  {
     id: "spec.competitionsDesk",
     section: "specialised",
     roles: DESK,

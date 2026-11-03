@@ -471,6 +471,8 @@ export interface CustomerExport {
   tournaments: unknown[];
   /** Leagues joined, and each season's box, finish and fee. */
   leagues: unknown[];
+  /** Teams it is on, or acts for a child who is: its place on each and what it declared for events' age ranges and categories (lib/teams.ts). */
+  teams: unknown[];
   /** Receipts and credit notes issued to this account. */
   receipts: unknown[];
   /**
@@ -656,6 +658,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE p.user_id = ? ORDER BY p.id, s.number`,
       userId
     ),
+    teams: await (await import("./teams")).teamsExport(userId),
     receipts: await all(
       `SELECT r.kind, r.number, r.issued_at, r.total, r.lines, r.paid_via, r.customer_name, r.customer_phone, v.name AS venue
          FROM receipts r LEFT JOIN venues v ON v.id = r.venue_id
@@ -1078,6 +1081,8 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
       .run(ANONYMOUS, userId);
     // Out of leagues too, and off their boxes and tables by name.
     await forgetLeaguePlayer(userId, ANONYMOUS);
+    // Off every team: the captaincy handed on or the team archived, the children they act for taken off, names kept on rosters anonymised.
+    await (await import("./teams")).forgetTeamsOfUser(userId, ANONYMOUS);
     // Their applications to be approved for an activity: answers, documents and any slot held. A sign-off already given stays the venue's record.
     await (await import("./approvals")).eraseApprovals(userId);
     // Their relationships to participants go; one nobody else acts for goes too, a sign-off or induction in force taken back first.
