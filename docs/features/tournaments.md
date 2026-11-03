@@ -1,13 +1,16 @@
 # Tournaments and leagues
 
 Authoritative for tournaments (one event, or several divisions of a
-competition), the competition rules they are scored by, box leagues, teams
-that persist across events and the leagues of teams they play in, and the
-ratings and rankings built from their results.
+competition, knockouts, groups, round robins, [Swiss events](#swiss-tournaments)
+and performance events), the competition rules they are scored by, box leagues,
+[club ladders](#club-ladders), teams that persist across events and the leagues
+of teams they play in, and the ratings and rankings built from their results.
 Status: [feature status](../product/feature-status.md#tournaments-and-leagues).
 Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-corrections.md)
-(rules and corrections) and [ADR 0013](../architecture/decisions/0013-competition-framework.md)
-(one engine configured by data).
+(rules and corrections), [ADR 0013](../architecture/decisions/0013-competition-framework.md)
+(one engine configured by data) and
+[ADR 0033](../architecture/decisions/0033-swiss-tournaments-and-club-ladders.md)
+(Swiss and ladders).
 
 ## Scope and roles
 
@@ -67,7 +70,9 @@ rules, which start from the sport's template
 
 - **Format:** a straight knockout; round-robin groups (3 to 6) whose top one
   or two go through to a knockout; a **round robin** of everybody (up to 16),
-  whose table is the result; or a **performance event**: heats, then a final.
+  whose table is the result; a **[Swiss event](#swiss-tournaments)**, a fixed
+  number of rounds each paired from the standings; or a **performance event**:
+  heats, then a final.
 - **Who enters:** singles, doubles (a partner named), or **teams**: a team
   name and a roster of names, within the template's sizes (a futsal roster is
   5 to 14), or a [persistent team](#teams) the captain names, with the roster
@@ -544,9 +549,9 @@ own.
 
 The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
 
-- Formats beyond the four: no double elimination, Swiss, ladders or
-  consolation draws; a performance event has one final, with no semi-finals
-  or rounds of heats.
+- Formats beyond these: no double elimination or consolation draws; a
+  performance event has one final, with no semi-finals or rounds of heats.
+  [Swiss events](#swiss-tournaments) and [club ladders](#club-ladders) are built.
 - A tournament is one event: one sport, category, level and format. Several
   events sharing courts are the divisions of a competition (above).
 - The level is shown, not enforced. Ages, a guardian's agreement and a
@@ -1145,6 +1150,278 @@ entrant's group results stand or are void, and a void one is not counted here.
 - Provisional ratings are not ranked, and a venue has no ranking until somebody
   who opted in has played enough results.
 
+## Swiss tournaments
+
+A **Swiss** event (`src/lib/swiss.ts`; migration 0272;
+[ADR 0033](../architecture/decisions/0033-swiss-tournaments-and-club-ladders.md))
+plays a fixed number of rounds against opponents of about the same standing: each
+round is paired from the standings the round before left, nobody meets twice, and
+the table at the end ranks everybody, with no knockout. It suits a field too big
+for a round robin and too uneven for a draw by lot. It is a tournament like the
+others: configured by the sport's template, entered the same ways, scored by the
+same rules, with results entered only through `recordResult`.
+
+### Setting one up and the draw
+
+- **Format: Swiss** under *Set up a tournament* (staff; the template's scoring and
+  tables are the event's). It takes at least 4 entries. Its settings are in the
+  rules (`rules.swiss`): the **rounds** (blank: the default, below), the **points
+  for a bye** (blank: what a win is worth) and the order of **tie-breaks** (blank:
+  the default, below; set by the API, shown on the pages). The match length is the
+  group stage's.
+- **Rounds.** The default is ⌈log₂ n⌉ for n entries at the draw (4 entries 2, 8 → 3,
+  16 → 4, 32 → 5), at least 1. At most n − 1 for an even number, n for an odd one:
+  more could not be played without somebody meeting twice, and the draw says so.
+- **The draw** makes the *initial order*: staff seeds first in seed order (seeds
+  may be proposed from [ratings](#ratings-and-rankings) and confirmed), then
+  everybody else in an order drawn from a **recorded seed** (`swiss_events.seed`),
+  so the draw can be reproduced; nothing after it is random. It then pairs round 1
+  and gives each match a court and time. **All the rounds must be able to fit**
+  the time held (a round after the last one ends, with the same number of
+  matches): if they cannot, the draw is refused and changes nothing, saying how
+  many matches did not fit.
+- The **time held** stays held until the last round is paired, since nobody knows
+  yet which hours the later rounds need; each round then takes its court time from
+  what the tournament (or its competition) holds, after the previous round's last
+  match ends and after now, around other bookings and other divisions' matches.
+
+### How a round is paired
+
+Published, deterministic and shown on the page, with the reason for every pairing:
+
+1. Players still in are ordered by **points** (high first), then by the **initial
+   order**. A player who left is not paired.
+2. **Nobody meets the same opponent twice** (a pairing in a round that stands counts as
+   met even if it was never played, as when a round was closed with neither side coming;
+   a pairing taken off by a re-pair, below, does not), and **nobody has a second bye**.
+3. With an odd number, the **bye goes to the lowest-ranked player without one**
+   (the lowest points, then the last in the initial order), the first from the
+   bottom for whom everybody else can still be paired. A bye counts as a win's
+   points (or the event's value) and nothing else: no opponent, no difference.
+4. The best-ranked player not yet paired is paired with the first opponent they
+   have not met: the **lower half of their own score group** (the first of the
+   group with the first of its lower half, the Dutch method), then the rest of the
+   group, then the next group down, best first. A choice that leaves the others
+   with nobody to meet is undone and the next is tried; a player taken from a lower
+   group is a *float*, and the page says so.
+5. The player who has been first-named fewer times is first-named in each pair
+   (the *a* side, shown first), the better ranked where level.
+6. If no pairing exists without breaking rule 2 (it can happen after players leave),
+   the round is **not paired** and the page says why; nothing is ever paired
+   against the rules. The organiser can take out whoever cannot be paired, or **end
+   the event after the last round paired**.
+
+A round is paired **as soon as every match of the one before is decided** (a result,
+a walkover, a leaver's walkover), inside the change that decided the last one, and
+never twice: results of one event go in one at a time (the event's row is locked), so
+two completing a round at once pair the next once. Pairing never fails the result
+that caused it: if it cannot be done (no legal pairing, or the round does not fit),
+the round stays unpaired, the organiser sees why, and *Pair round n* tries again.
+Players with an account are emailed their pairing (or their bye) as soon as it is made.
+
+### Standings and tie-breaks
+
+The table is a pure function of the recorded results (`swissStandings`): **Swiss
+points**, then the event's **tie-breaks in order**, then the initial order, so
+nothing is left to chance and a table rebuilt from the results is the same.
+
+| Tie-break | Meaning |
+| --------- | ------- |
+| Buchholz | the sum of the Swiss points of the opponents actually played (a bye adds nothing) |
+| Median Buchholz | Buchholz without the highest and the lowest opponent's points, for a player with three opponents or more (else Buchholz) |
+| Wins, set difference, set ratio, point difference, point ratio, points scored, who beat whom | exactly as a table ranks by them ([results](#results)) |
+
+The default is Buchholz, median Buchholz, then the template's own ranking keys without
+the points (`defaultTiebreaks`). Table points are the template's (3-1-0 for goals, set
+points for volleyball, and so on), a walkover counts at the rules' walkover score, a
+drawn match (where the sport has them) is a point for each. Results of somebody out stand or
+are void by the event's [rules for leavers](#somebody-leaving) (the stage is *groups*),
+void results counting for nobody, opponents' Buchholz included.
+
+### Results, closing a round, ending early
+
+- Results are entered as for any match (staff, officials, players where the tournament
+  allows it); each is a normal group-stage result with the same checks.
+- **Closing a round** (a manager's, *Close round n* on the Swiss panel): when players did
+  not come, each match still to play is given a **walkover to the side that came**
+  (through `recordResult`, so the rules for walkovers decide the table) or marked **played
+  by neither** (no points and no result; the two count as having met). Every undecided
+  match must be answered; the next round is then paired.
+- **Ending early** (a manager's): the event ends after the last round paired, matches
+  still to play are played, and it finishes. It is also what happens by itself when fewer
+  than two players are left.
+
+### Somebody leaving
+
+Taken out as withdrawn, retired or disqualified by the usual preview and confirmation
+([somebody leaving](#somebody-leaving)): each match they have left is a walkover to the
+other side, **later rounds skip them**, what they played stands or is void by the event's
+rules, and the pairings already made stand. If the walkover decides the last match of a
+round, the next is paired, and the preview says so. A bye already given to somebody who
+then leaves stands.
+
+### Corrections: keep the pairings, or pair again
+
+A result changed **once a later round has been paired** is never made as a plain result: it
+is a *correction*, reviewed first and confirmed with a reason, a manager's, as a group
+result changed after a knockout has begun is
+([corrections](#corrections-after-the-knockout-has-begun)). The review offers:
+
+| | What it does | When |
+| - | ------------ | ---- |
+| **Keep the pairings** | The pairings made stay; only the standings change | Always |
+| **Pair the next round again** | The pairings of every later round are taken off the draw (kept in the correction's record) and the next round is paired again from the corrected standings under the same rules, its players told | Only while **no match of a later round has a result** (a result, a walkover or a retirement; a bye is not one), and only if the new pairing fits the court time: otherwise it is refused, with why, and nothing changes |
+
+A played match is never rewritten or deleted. A result changed while the next round is not
+paired yet, or in the last round, is an ordinary result: the table is always what the recorded
+results give. Each correction is kept in `tournament_corrections` and shown to the organiser
+and, as "a correction was made", to the public.
+
+### What people see, and the day
+
+- **The public page** shows the table with the tie-breaks that rank it, and every round
+  with its pairings, why each was made (the two's points, a float), results and byes, by the
+  names the page shows (a declared minor by first name and initial).
+- **Tournament day** works as for any group stage: the board, announcements, calls, rest,
+  the live page and officials' links show Swiss fixtures labelled *Round n*; a round's
+  fixtures appear as it is paired.
+- **Ratings:** every decided two-sided match counts as in a group (a walkover moves nothing, a
+  win by retirement half); a **bye is not a result and is not rated**; a correction replays
+  ([ratings](#ratings-and-rankings)).
+
+### What Swiss does not do
+
+- No accelerated pairings, no other pairing method, and the colours of a sport with sides are
+  only the first-named rule above.
+- The tie-break order is set through the API (`rules.swiss.tiebreaks`), not a screen.
+- Swiss for a performance event is not built; a Swiss division of a competition schedules
+  each round into the time free when it is paired, so a later round may not fit if another
+  division has taken the time meanwhile (it says so and the organiser decides).
+- The pairing search is bounded: with very many players after very many withdrawals it
+  could give up on a pairing that exists, and then reports the round as unpaired.
+
+## Club ladders
+
+A **ladder** (`src/lib/ladders.ts`; migration 0272;
+[ADR 0033](../architecture/decisions/0033-swiss-tournaments-and-club-ladders.md)) keeps a
+venue's players ranked 1 to n for a sport, season after season. A player challenges
+somebody a few places above, they arrange the match between them, one reports the score and
+the other confirms it, and the winner moves up by a published rule. Venues set it up from
+the *Leagues* tab (*Club ladders*); players find ladders at `/ladders`.
+
+### Who it is for
+
+- A ladder is **for adults** or **for juniors**. An adult ladder takes the account holder,
+  who ticks that they are 18 or over (declared, never verified), or somebody staff add at the
+  counter on the player's word; it takes **no participant** (no child). A junior ladder takes
+  **only participants a guardian enters**, who act for them: challenge, answer, report and are
+  told for them, and whose name is shown short everywhere (first name and initial); a stranger's
+  challenge never reaches a child, and no contact of a child is shown to anybody.
+- Entrants are **players or pairs** (a pair named by the player who joins), through the same
+  checks as a box league: the venue's rule on who it is for, and in a women's or men's ladder the
+  player and a pair's partner as declared. Persistent teams are not ladder entrants (they play in
+  [leagues of teams](#team-leagues)).
+- New players join **at the bottom**; staff may add somebody at the counter. A player rejoining
+  after leaving joins at the bottom.
+
+### Challenging
+
+A player may challenge a player ranked **within *k* places above** (*reach*), both on the ladder
+and not frozen, neither in another open challenge (one at a time, either side), and not the
+**same opponent within *d* days** of their last played or forfeited challenge together.
+The ladder shows each player who they may challenge and, for the others, why not. All the
+numbers are the ladder's settings, shown on its page and changed by a manager from now on:
+
+| Setting | Default | Range |
+| ------- | ------- | ----- |
+| Challenge up to this many places above | 3 | 1 to 10 |
+| Days the challenged has to answer | 3 | 1 to 14 |
+| Days to play an accepted challenge | 14 | 3 to 60 |
+| Days before the same two play again | 14 | 0 to 90 |
+| Days idle before dropping (0: never) | 30 | 0 to 365 |
+| Places dropped | 1 | 1 to 10 |
+| Longest freeze, days | 60 | 1 to 180 |
+| Declining a challenge | free | free, or a forfeit |
+
+**A challenge's life:** *pending*, the challenged to answer within the days given: they **accept**
+(optionally agreeing a day), **decline**, or **suggest a time**, which hands the answer to the
+challenger, who accepts it or withdraws; a challenger who does not answer lets it lapse, with no
+effect. **A challenged player who ignores a challenge forfeits** when the days are up: the scheduler
+records a walkover for the challenger, once, however often it runs. *Accepted:* the two **arrange the
+match privately** (the day suggested is shown; on an adult ladder each sees the other's number and
+WhatsApp link for this challenge only, never on a junior ladder) and play it within the days given, or
+it **lapses** with no effect on the ranks. Court time for a ladder challenge is **not held by the app**:
+players book a court as anybody does. *Reported:* either side says who won and the score, their own
+games first (checked by the ladder's scoring rules, `scoreRefusal`, and kept with the challenger's
+first); the other side **confirms** it, or **says it is wrong** and a manager decides; a result nobody
+answers in **3 days** stands. Only a **confirmed** result, a forfeit or a walkover moves ranks.
+An answer names the version of the challenge it saw: one that changed since is refused (code
+`LD_CHANGED`), so nobody answers a result they did not see. Everybody concerned is emailed in their
+language at each step (a guardian, for a child, opening with whose place it is).
+
+### The rank rule
+
+If the **challenger wins** and was ranked below the challenged, the challenger **takes the challenged's
+rank** and everybody from there down to just above the challenger's old rank **moves down one**. If the
+challenged wins, nothing changes. A forfeit by the challenged is a win for the challenger. A leaver
+closes the gap. An idle player **drops** *p* places and the players passed move up one.
+
+### Idle players, freezes
+
+- **Inactivity:** a player whose last *activity* (joining, a played or forfeit-won challenge, a thaw, a
+  drop) was the given number of days ago drops *p* places; the drop counts as activity, so the next is that
+  many days later. Not while frozen or in an open challenge. Declining or ignoring is not activity.
+- **Freezes** (a player's, or a manager's for them): until a day, at most the ladder's limit. A frozen
+  place cannot be challenged or challenge and does not drop; its open challenges are cancelled with no
+  effect and the other side told. The scheduler thaws it after its last day; it can be ended sooner.
+
+### The ledger, corrections and managers' overrides
+
+Every change to a rank is an **event** in an ordered ledger (`ladder_events`): a join, a carry into a
+season, a leave, a result, a drop, a freeze or thaw, a manager's move or removal. The ranks are the **pure
+replay** of the season's live events; the stored ranks (`ladder_ranks`) are a cache rewritten whole from
+the replay after every change, under the ladder's lock, and never updated from themselves. **A correction
+replaces the event in its place** (the old one voided with who and why, the new one in the same position),
+so every rank after it is the replay of the corrected ledger. A manager, with a reason of at least three
+characters that is kept and logged:
+
+- **decides or corrects a challenge's result** (winner and score, or a walkover; a dispute, or a mistake
+  found later), **strikes** it (it never counts) or **puts it back to be played**;
+- **moves** a player to a rank, or **takes** a player off the ladder;
+- **freezes or thaws** a place, changes the **settings**, marks the ladder **rated** (until its first
+  result), **ends the season** or **closes** the ladder.
+
+All of these are a manager's (`MANAGER_ONLY`); the front desk reads, and adds players at the counter.
+Each is in the activity log.
+
+### Seasons and the archive
+
+Ending a season cancels open challenges (with no effect, the sides told), **archives the final order** with
+the names as the ladder shows them, and starts the next season with everybody **carried over in that
+order**. Earlier seasons are read from the ladder's page; their ledgers are never changed.
+
+### Ratings
+
+A ladder marked rated feeds the [ratings ledger](#ratings-and-rankings) as a fourth source: a confirmed
+result is a played match, a forfeit or a walkover a walkover (it moves nothing); a result corrected or struck
+voids its row and writes the new one; nothing else is rated. A rank is not a rating and a rating is not a
+rank.
+
+### Privacy
+
+An adult ladder shows the names players gave; a junior ladder shows first name and initial. The data
+export lists the ladders a person joined; erasing an account takes the person off every ladder and replaces
+their name in its places, without moving anybody else beyond the gap closing. Ages and guardianship are
+declared, never verified, and no identity document is asked for.
+
+### What ladders do not do
+
+- No court time held for a challenge, and no tournament-style scheduling: players arrange and book it.
+- No persistent teams, no ladder across venues, and no empty restart of a season (the next season always
+  carries the order over).
+- A ladder's rank is the venue's own list; it is not shown on a player's profile and is not used to suggest
+  games.
+
 ## Related capabilities
 
 - **Court time** is held as ordinary blocks, so every booking path treats it
@@ -1184,6 +1461,8 @@ entrant's group results stand or are void, and a void one is not counted here.
 | Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | Tournament day: the next match announced, a court called, the wait, the live page | `src/lib/tournament-day.ts`, `src/app/api/admin/tournaments/[id]/day/route.ts`, `src/app/api/tournaments/[id]/live/route.ts`, `src/components/admin/TournamentDay.tsx`, `src/app/tournaments/[id]/live/page.tsx`, `db/migrations/0268_tournament_day.sql` | `tests/tournament-day.test.ts` (also against Postgres), `tests/components/tournament-day.test.tsx` |
 | Ratings from results: the rule, the ledger, replay, corrections, voids, walkovers, exclusions and restarts, rankings, seeding proposal, privacy | `src/lib/rating-math.ts`, `src/lib/ratings.ts`, `db/migrations/0270_ratings_from_results.sql`, `src/app/api/admin/ratings/route.ts`, `src/app/api/my/ratings/route.ts`, `src/app/api/venues/[id]/rankings/route.ts`, `src/app/ratings/page.tsx`, `src/app/venue/[id]/rankings/page.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/rating-math.test.ts`, `tests/ratings.test.ts` (PGlite and Postgres) |
+| Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
+| Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts` |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 
 Which parts are verified, and how, is in
@@ -1194,8 +1473,8 @@ Which parts are verified, and how, is in
 - Known issues (players moved by a refill not messaged, corrections that
   cannot replay) are in
   [known limitations](../roadmap/known-limitations.md#booking-and-availability-b).
-- More formats and ranking rules are roadmap rows, not commitments
-  ([roadmap](../roadmap/roadmap.md)). Ratings and rankings across events are
+- More formats (double elimination, consolation draws) and ranking rules are
+  roadmap rows, not commitments ([roadmap](../roadmap/roadmap.md)). Ratings and rankings across events are
   built ([below](#ratings-and-rankings)); a level that is enforced (a rating
   band checked at entry) is not.
 - Box-league results are checked and ranked by the same rules as a

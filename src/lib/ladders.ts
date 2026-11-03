@@ -1543,11 +1543,26 @@ async function ratingsAfter(ladderId: number): Promise<void> {
 
 // ------------------------------------------------------------ their own data
 
+/** The name of these places in the archived final orders of ended seasons replaced too, so an erased person is not left in the archive. */
+async function anonymiseArchive(playerIds: number[], anonymous: string): Promise<void> {
+  if (playerIds.length === 0) return;
+  const db = getDb();
+  const seasons = (await db
+    .prepare(`SELECT s.id, s.final_ranks FROM ladder_seasons s WHERE s.final_ranks IS NOT NULL AND s.ladder_id IN (SELECT ladder_id FROM ladder_players WHERE id IN (${playerIds.map(() => "?").join(",")}))`)
+    .all(...playerIds)) as { id: number; final_ranks: string }[];
+  for (const s of seasons) {
+    const ranks = JSON.parse(s.final_ranks) as { rank: number; playerId: number; name: string }[];
+    if (!ranks.some((r) => playerIds.includes(r.playerId))) continue;
+    await db.prepare("UPDATE ladder_seasons SET final_ranks = ? WHERE id = ?").run(JSON.stringify(ranks.map((r) => (playerIds.includes(r.playerId) ? { ...r, name: anonymous } : r))), s.id);
+  }
+}
+
 /** A person's erasure: out of every ladder, their name replaced in the ledger's places by a placeholder; nobody else moves up or down by it beyond the gap closing. */
 export async function forgetLadderPlayer(userId: number, anonymous: string): Promise<void> {
   const db = getDb();
   const rows = (await db.prepare("SELECT id FROM ladder_players WHERE user_id = ? AND participant_id IS NULL AND status = 'active'").all(userId)) as { id: number }[];
   for (const r of rows) await leave(r.id);
+  await anonymiseArchive(((await db.prepare("SELECT id FROM ladder_players WHERE user_id = ? AND participant_id IS NULL").all(userId)) as { id: number }[]).map((r) => r.id), anonymous);
   await db.prepare("UPDATE ladder_players SET user_id = NULL WHERE user_id = ? AND participant_id IS NOT NULL").run(userId);
   await db.prepare("UPDATE ladder_players SET name = ?, partner_name = NULL, user_id = NULL, contact_phone = NULL WHERE user_id = ?").run(anonymous, userId);
 }
@@ -1557,6 +1572,7 @@ export async function forgetLadderParticipant(participantId: number, anonymous: 
   const db = getDb();
   const rows = (await db.prepare("SELECT id FROM ladder_players WHERE participant_id = ? AND status = 'active'").all(participantId)) as { id: number }[];
   for (const r of rows) await leave(r.id);
+  await anonymiseArchive(((await db.prepare("SELECT id FROM ladder_players WHERE participant_id = ?").all(participantId)) as { id: number }[]).map((r) => r.id), anonymous);
   await db.prepare("UPDATE ladder_players SET name = ?, partner_name = NULL, user_id = NULL, contact_phone = NULL, participant_id = NULL WHERE participant_id = ?").run(anonymous, participantId);
 }
 

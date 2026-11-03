@@ -545,6 +545,48 @@ describe("corrections: stand, or pair again", () => {
   });
 });
 
+describe("replay equality under many corrections", () => {
+  it("after any number of corrections that keep the pairings, the table is the replay of the recorded results, the pairings made are untouched, and the event finishes", async () => {
+    const ev = await drawnSwiss({ rules: { swiss: { rounds: 3 } } }, 10, 4);
+    await playRound(ev.id, 1);
+    await playRound(ev.id, 2);
+    const paired = (await detail(ev.id)).matches.map((m) => [m.id, m.a, m.b].join(":")).sort();
+    let seed = 7;
+    const next = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let step = 0; step < 6; step++) {
+      const d = await detail(ev.id);
+      const decided = d.matches.filter((m) => m.round <= 2 && m.status === "done");
+      const target = decided[Math.floor(next() * decided.length)];
+      const flipped = { winner: target.winner === target.a ? target.b! : target.a!, score: target.winner === target.a ? "10-21, 12-21" : "21-10, 21-12" };
+      const p = await previewResult(target.id, flipped);
+      if (!p.ok) throw new Error(p.error);
+      const done = await applyCorrection(target.id, flipped, { mode: "standings_only", reason: `Correction number ${step}`, token: p.value.token }, manager);
+      expect(done.ok).toBe(true);
+      const after = await detail(ev.id);
+      const again = await replayTable(ev.id);
+      expect(after.swiss!.standings.map((l) => [l.entryId, l.points, l.buchholz, l.medianBuchholz, l.rank])).toEqual(again.map((l) => [l.entryId, l.points, l.buchholz, l.medianBuchholz, l.rank]));
+      expect(after.matches.filter((m) => m.round <= 3).map((m) => [m.id, m.a, m.b].join(":")).sort().slice(0, paired.length)).toEqual(paired);
+    }
+    const fin = await playAll(ev.id);
+    expect(fin.status).toBe("finished");
+    const kept = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM tournament_corrections WHERE tournament_id = ?").get(ev.id)) as { n: number };
+    expect(kept.n).toBe(6);
+  });
+
+  it("keeps a venue's template of a Swiss event, rules included", async () => {
+    const ev = await swiss({ rules: { swiss: { rounds: 2, byePoints: 0 } } }, 4);
+    const { saveVenueTemplate, venueTemplateById } = await import("../src/lib/competition-templates");
+    const saved = await saveVenueTemplate(ev.id, "Our Swiss", ownerId);
+    if (!saved.ok) throw new Error(saved.error);
+    const read = (await venueTemplateById(saved.value.id))!;
+    expect(read.format).toBe("swiss");
+    expect(read.rules.swiss).toEqual({ rounds: 2, byePoints: 0, tiebreaks: null });
+  });
+});
+
 describe("ending early, and a round that cannot be paired", () => {
   it("leaves the round unpaired with why when no legal pairing exists, and ends the event after the last round paired", async () => {
     // Four players, three rounds is the whole round robin; two leave after round 1 and the two left have met.

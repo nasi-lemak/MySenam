@@ -73,8 +73,10 @@
   Buchholz included.
 - **Pairing a round** (`src/lib/swiss.ts`, pure, shown to organisers and in the
   documents). Players still in, ordered by points (high first) then initial order.
-  1. **No rematches**: nobody meets anybody they have already been paired with
-     (a voided or never-played pairing counts as met). **No second bye.**
+  1. **No rematches**: nobody meets anybody they have already been paired with in
+     a round that stands (a pairing never played because the round was closed with
+     neither side coming counts as met; a pairing taken off by a re-pair, below,
+     does not, since the round is paired again). **No second bye.**
   2. If the number is odd, a bye is given to the **lowest-ranked player without
      one** (lowest points, then last in the initial order), the first of those from
      the bottom for whom everybody else can still be paired.
@@ -235,8 +237,8 @@
   and reported by the guardian's account for a participant, and told to them; a
   stranger's challenge never reaches a child. No contact of a child is shown to
   anybody. Ages are declared, never verified; no identity documents are collected.
-  A person's erasure puts `(removed)` in their place in the ledger without moving
-  anybody.
+  A person's erasure takes them off the ladder (the gap closes, nobody else's rank
+  changes otherwise) and replaces their name in its places by a placeholder.
 - **Not built:** court time held by the app for a challenge (the ladder's matches
   are arranged privately), persistent teams as ladder entrants, a challenge
   between pairs of different strength, a ladder across venues.

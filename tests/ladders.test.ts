@@ -473,6 +473,21 @@ describe("the ledger, corrections and a manager's overrides", () => {
   });
 });
 
+describe("erasure and the archive", () => {
+  it("replaces an erased person's name in the archived final orders of ended seasons too", async () => {
+    const { l, players } = await populated(3);
+    ok(await endSeason(l.id));
+    const before = (await ladderDetail(l.id, { season: 1 }))!.viewing!.finalRanks!.map((f) => f.name);
+    expect(before).toHaveLength(3);
+    await forgetLadderPlayer(players[1].user.id, "(removed)");
+    const after = (await ladderDetail(l.id, { season: 1 }))!.viewing!.finalRanks!.map((f) => f.name);
+    expect(after[1]).toBe("(removed)");
+    expect(after[0]).toBe(before[0]);
+    expect(JSON.stringify(await ladderDetail(l.id))).not.toContain(before[1]);
+    await expectReplayEquality(l.id);
+  });
+});
+
 describe("minors: a guardian acts, a stranger does not", () => {
   it("has the guardian challenge, answer and report for the child, never another adult, and shows no contact", async () => {
     const l = await ladder({ audience: "juniors" });
