@@ -435,7 +435,7 @@ describe("tokens", () => {
 
 describe("tools by authority", () => {
   it("lists what the grant's scopes and the person's current role reach", async () => {
-    const open = ["guide_business_types", "guide_fit", "search_venues", "venue_details", "venue_availability"];
+    const open = ["guide_business_types", "guide_fit", "search_venues", "venue_details", "venue_availability", "venue_rankings"];
     const reads = ["my_venue", "my_availability", "my_bookings", "my_booking", "my_setup_status", "my_playbook"];
     const config = ["save_setup_answers", "acknowledge_setup_step", "set_opening_hours", "set_court_rates", "add_courts", "set_peak_hours", "set_booking_rules", "set_cancellation_terms"];
     expect(await listTools((await signIn(managerCookie, venueA, ["venue:read"])).access_token)).toEqual([...open, ...reads]);

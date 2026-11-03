@@ -795,6 +795,37 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 4 November 2026, commit `f9438c2`
+
+The owner's request of 3 November 2026, the competition and matchmaking items
+of the roadmap: archiving past claims (migration 0267), tournament day, the next
+match announced and a court called when it is free (0268), teams that persist
+and leagues of teams with fixture lists (0269), and ratings from results,
+rankings across events and matchmaking on earned levels (0270, ADR 0031); M31
+and B66 recorded. Not a launch. Run on one cloud container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 115 passed |
+| Suite on PGlite | 413 files (3 Postgres-only skipped); 4656 passed, 1 failed, 12 skipped; the 1 corrected and passed (below) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 413 files; 4668 passed, 1 failed; the 1 corrected and passed (below) |
+| The new work inside both suites | Among them: `tests/claims-archive.test.ts` (bookings during a run, a locked row skipped), `tests/tournament-day.test.ts` (a call against a booking on the same minutes, never both), `tests/teams.test.ts`, `tests/team-leagues.test.ts` and `tests/fixture-plan.test.ts` (every pair meets, home and away balance), `tests/rating-math.test.ts`, `tests/ratings.test.ts` (a corrected result replays to the same ratings as a rebuilt ledger, interleaved results) and `tests/rating-matchmaking.test.ts` |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 20 files; 80 of 80 |
+| CI | Not run (deferred) |
+| Real services | None checked: team and tournament-day messages through the outbox only; the WhatsApp template `mysenam_tournament_day` is prepared, not submitted to Meta |
+
+The one failure on each engine was a test listing the signed-in MCP tools that
+had not taken the new public tool `venue_rankings`; it was corrected, and the
+file passed on both engines after the commit. There are no acceptance
+scenarios yet for teams, team leagues, tournament day or ratings: they are
+tested below the browser, and a scenario for each is a next step. Gaps: no live
+integration has passed its check; machine-assisted Malay, Chinese and Tamil
+await native review; the claims archive was measured on a development
+container, not at production size.
+
 #### 3 November 2026, commit `5b11351`
 
 The owner's request of 2 November 2026: multi-visit passes sold online
