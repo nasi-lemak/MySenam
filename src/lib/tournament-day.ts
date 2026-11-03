@@ -1,3 +1,4 @@
+import { isConflict } from "./claims";
 import { getDb, withTransaction } from "./db";
 import { formatMinute, minuteOfDay } from "./interval";
 import { accountLocale, baseUrl, enqueue, sentences, type Written } from "./outbox";
@@ -71,6 +72,9 @@ class DayRefused extends Error {
 }
 
 function refusal(err: unknown): { ok: false; error: string; code?: string; vars?: Record<string, string | number> } | null {
+  // A booking or a block that took the minutes between reading and holding them: the database refused the overlap. It was raised inside
+  // this change's own transaction, which cannot go on after it, so it is the change that is refused, undone whole (B70).
+  if (isConflict(err)) return { ok: false, error: "A booking or a block took that time just now: choose another court or time.", code: "TD_COURT_TAKEN" };
   return err instanceof DayRefused ? { ok: false, error: err.message, ...(err.code ? { code: err.code } : {}), ...(err.vars ? { vars: err.vars } : {}) } : null;
 }
 

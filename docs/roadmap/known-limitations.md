@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B69, M16–M31 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B70, M16–M31 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -1073,6 +1073,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B67 | In a performance event of marks, a heat correction once the final was filled looked like a change of the final's field (the ranking it compared against left out everyone already in the final): refused if the final had results, deleted and refilled otherwise, against the documented rule | The heats' own ranking is compared, so only a change of who would swim the final counts | `tests/counted-performances.test.ts` |
 | B68 | Replaying a knockout match left the opponent who had beaten the wrong competitor in the next match while their own match was replayed, so they were in two matches still to play | The places a replayed match fed that are still to play are emptied whoever they hold; nothing that was played changes | `tests/double-elimination.test.ts` and `tests/consolation.test.ts` (the replay tests) |
 | B69 | `recordResult` took no row lock on the tournament, so two results could interleave with a leaver or a fixture move | One change to a tournament's results and fixtures at a time, as moves and leavers already were | `tests/double-elimination.test.ts` (concurrent result and move, on Postgres) |
+| B70 | Calling a fixture, sending it to another court or moving it, while a booking took the same minutes, could end in the database's overlap error instead of a refusal: the change's own transaction cannot go on after it, so the retry meant for it never ran. Found by the full Postgres run, where it failed three times in four under load | The change is refused whole (*a booking or a block took that time just now*) and undone, for a call, a swap and a move | `tests/tournament-day.test.ts` (B70, the refusal made deterministic; the race itself, which no longer ends in an error) |
 
 ### Resolved limitations without a number
 

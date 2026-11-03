@@ -13,6 +13,7 @@ import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapA
 import { registerUser, type User } from "../src/lib/auth";
 import { counterEntrant, guardianEntrant, type Entrant } from "../src/lib/competition-entrants";
 import { getDb } from "../src/lib/db";
+import * as claims from "../src/lib/claims";
 import { instantOf } from "../src/lib/interval";
 import { addManaged } from "../src/lib/managed-people";
 import { addOfficial } from "../src/lib/match-reports";
@@ -417,6 +418,33 @@ describe("calling a fixture", () => {
       expect(bookedHere.n).toBe(1);
       expect(matchNow.courtId).toBe(final.courtId);
     }
+  });
+
+  it("is refused, not an error, when the database turns the hold down because a booking took the minutes first (B70)", async () => {
+    const { t, zone } = await drawn();
+    const semis = pairs(await detail(t.id));
+    at(t, zone, 9 * 60 + 40);
+    ok(await recordResult(semis[0].id, { winner: semis[0].a!, score: "21-10, 21-12" }));
+    ok(await recordResult(semis[1].id, { winner: semis[1].a!, score: "21-10, 21-12" }));
+    const final = pairs(await detail(t.id))[0];
+    const other = courts.find((c) => c !== final.courtId)!;
+    at(t, zone, 9 * 60 + 56);
+    // The overlap constraint's refusal, as a booking that committed in between makes it (code 23P01): the change owns its
+    // transaction, which cannot go on after it, so the whole change is the refusal.
+    const heldBefore = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM blocks WHERE court_id = ? AND tournament_id = ?").get(other, t.id)) as { n: number };
+    const spy = vi.spyOn(claims, "claim").mockRejectedValue(Object.assign(new Error("conflicting key value violates exclusion constraint"), { code: "23P01" }));
+    let refused;
+    try {
+      refused = await callFixture(final.id, manager, { courtId: other });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(refused).toMatchObject({ ok: false, code: "TD_COURT_TAKEN" });
+    const after = (await detail(t.id)).matches.find((m) => m.id === final.id)!;
+    expect(after.courtId).toBe(final.courtId);
+    // Nothing the hold began is left behind.
+    const heldAfter = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM blocks WHERE court_id = ? AND tournament_id = ?").get(other, t.id)) as { n: number };
+    expect(heldAfter.n).toBe(heldBefore.n);
   });
 
   it("is refused for a decided match, for sides not known yet, and for heats", async () => {

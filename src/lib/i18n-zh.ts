@@ -3589,6 +3589,7 @@ export const ZH: Record<Phrase, string> = {
   "err.TD_BUSY": "{name} 正在另一场比赛中。",
   "err.TD_LEFT": "{name} 已退出赛事。",
   "err.TD_COURT_BUSY": "{court} 上已叫了另一场比赛：须先结束或撤销。",
+  "err.TD_COURT_TAKEN": "刚刚有预订或封场占用了该时段：请换一个场地或时间。",
   "err.TD_MANAGER_MOVE": "比赛可在其预定场地、时间到时叫号。只有经理可以提前或改到其他场地。",
   "err.TD_MANAGER_ONLY": "无人到场时如何处理，只有经理可以决定。",
   "err.TD_WHO_ABSENT": "请指明哪一方没有到场。",

@@ -1,4 +1,5 @@
 import { isActivity } from "./activities";
+import { isConflict } from "./claims";
 import { getDb, isBusy, withTransaction } from "./db";
 import { receiptFee } from "./documents";
 import {
@@ -3217,6 +3218,8 @@ export async function moveMatch(matchId: number, to: MatchSlot & { minutes?: num
     return { ok: true, value: { detail: (await tournamentDetail(tournamentId, { forStaff: true }))!, change } };
   }).catch((err) => {
     if (err instanceof IssueRefused) return { ok: false as const, error: err.message };
+    // A booking or a block took the minutes between reading and holding them: the move is refused, undone whole (B70).
+    if (isConflict(err)) return { ok: false as const, error: "A booking or a block took that time just now: choose another court or time." };
     throw err;
   });
   if (!result.ok) return result;

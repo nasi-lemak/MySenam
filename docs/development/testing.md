@@ -795,6 +795,42 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 5 November 2026, commit `a86cab3`
+
+The owner's request of 4 November 2026, the rest of the competition framework:
+consolation draws and double elimination (migration 0271, ADR 0032), Swiss
+tournaments and club ladders (0272, ADR 0033), and counted performances,
+bouldering tops and zones (0273); B67 to B70 recorded. Each progression and
+correction rule was written down before the code. Not a launch. Run on one cloud
+container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 117 passed |
+| Suite on PGlite | 427 files (3 Postgres-only skipped); 4969 passed, 12 skipped |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 427 files; 4980 passed, 1 failed; the cause fixed and the file passed on both engines (below) |
+| The new work inside both suites | Among them: `tests/brackets-structure.test.ts`, `tests/double-elimination.test.ts` and `tests/consolation.test.ts` (every outcome of small fields, corrections at every depth, replay equal to a rebuilt state), `tests/swiss-math.test.ts` and `tests/swiss.test.ts` (pairing properties, stand or re-pair), `tests/ladder-math.test.ts` and `tests/ladders.test.ts` (ranks replayed from a ledger), `tests/counted-performances.test.ts` (hand-worked IFSC-style rankings) |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 20 files; 79 of 80; *Venue 1* (a venue signs up, sets up and takes its first booking) timed out waiting for the *Add courts* section; it passed alone against the same build and in the three earlier full runs, and its cause is not established |
+| CI | Not run (deferred) |
+| Real services | None checked |
+
+The Postgres failure was real: calling a tournament fixture, sending it to another
+court or moving it while a booking took the same minutes ended in the database's
+overlap error instead of a refusal (B70), three runs in four when the machine was
+loaded and almost never alone. The change owns its transaction, which cannot go on
+after that error, so the retry meant for it never ran. Each of the three is now
+refused whole; a test makes the refusal deterministic, fails without the fix, and
+the race itself passed ten times under load afterwards. That fix was made after the
+full run and checked on `tests/tournament-day.test.ts`, `tests/tournaments.test.ts`
+and `tests/double-elimination.test.ts` on both engines, not by a second full run.
+Gaps: no live integration has passed its check; machine-assisted Malay, Chinese
+and Tamil await native review; there are no browser scenarios yet for teams, team
+leagues, tournament day, ratings, Swiss, ladders, double elimination or counted
+performances.
+
 #### 4 November 2026, commit `f9438c2`
 
 The owner's request of 3 November 2026, the competition and matchmaking items
