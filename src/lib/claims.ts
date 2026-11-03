@@ -1,6 +1,7 @@
 import { getDb, withTransaction } from "./db";
 import type { Turnover } from "./booking-rules";
 import { LATEST_MINUTE, freeWithin, instantOf, merge, minuteOfDay, overlaps, rangeLiteral, type Span } from "./interval";
+import { READ_THROUGH_DAYS } from "./claims-archive";
 
 /**
  * Claims: everything that occupies a court's time, as exact intervals
@@ -259,11 +260,18 @@ async function tryTwice(insert: () => Promise<unknown>, courtId: number): Promis
   }
 }
 
-/** Let a source's time go: a cancelled booking, a lapsed offer, a removed block. */
+/**
+ * Let a source's time go: a cancelled booking, a lapsed offer, a removed block.
+ * One whose claims have all been archived (claims_archive: long over) has them
+ * let go there, so the archive says what the live table would; the number is
+ * of live claims. Only when nothing live was found is the archive touched, so
+ * a booking being cancelled for a day to come never reads it.
+ */
 export async function release(source: ClaimSource): Promise<number> {
-  const done = await getDb()
-    .prepare(`UPDATE claims SET active = false WHERE ${SOURCE_COLUMN[source.kind]} = ? AND active`)
-    .run(sourceId(source));
+  const db = getDb();
+  const done = await db.prepare(`UPDATE claims SET active = false WHERE ${SOURCE_COLUMN[source.kind]} = ? AND active`).run(sourceId(source));
+  if (done.changes === 0)
+    await db.prepare(`UPDATE claims_archive SET active = false WHERE ${SOURCE_COLUMN[source.kind]} = ? AND active`).run(sourceId(source));
   return done.changes;
 }
 
@@ -275,7 +283,10 @@ export async function releaseBooking(bookingId: number): Promise<void> {
 
 /** Remove a source's claims altogether, to claim again (a moved booking, a narrowed block). */
 export async function unclaim(source: ClaimSource): Promise<void> {
-  await getDb().prepare(`DELETE FROM claims WHERE ${SOURCE_COLUMN[source.kind]} = ?`).run(sourceId(source));
+  const db = getDb();
+  const done = await db.prepare(`DELETE FROM claims WHERE ${SOURCE_COLUMN[source.kind]} = ?`).run(sourceId(source));
+  // As for `release`: only a source with nothing live can have archived claims.
+  if (done.changes === 0) await db.prepare(`DELETE FROM claims_archive WHERE ${SOURCE_COLUMN[source.kind]} = ?`).run(sourceId(source));
 }
 
 /** Waiting-list offers, proposed moves and approval requests' holds past their time stop holding anything. */
@@ -352,6 +363,10 @@ export async function occupantsOn(
       `[${instantOf(date, -24 * 60, zoneOf(v)).toISOString()},${instantOf(date, LATEST_MINUTE + 24 * 60, zoneOf(v)).toISOString()})`,
     ])
   );
+  // A day long gone may hold claims that have been archived (lib/claims-archive.ts): read the live and the
+  // archived together. Anything nearer reads the live table alone, which is every claim that could be in it.
+  const longAgo = Math.min(...venues.map((v) => instantOf(date, -24 * 60, zoneOf(v)).getTime())) < Date.now() - READ_THROUGH_DAYS * 86_400_000;
+  const table = longAgo ? "claims_all" : "claims";
   const db = getDb();
   type Row = {
     for_court: number;
@@ -396,7 +411,7 @@ export async function occupantsOn(
              FROM unnest(?::int[], ?::tstzrange[]) AS x(court, win)
              JOIN court_spaces cs ON cs.court_id = x.court
              CROSS JOIN LATERAL (
-               SELECT * FROM claims c
+               SELECT * FROM ${table} c
                 WHERE c.space_id = cs.space_id AND COALESCE(upper(c.occupied), 'infinity'::timestamptz) > lower(x.win)
                   AND c.active AND c.space_id IS NOT NULL AND c.occupied && x.win
              ) c
@@ -411,7 +426,7 @@ export async function occupantsOn(
           `SELECT x.court AS for_court, ${cols}
              FROM unnest(?::int[], ?::tstzrange[]) AS x(court, win)
              CROSS JOIN LATERAL (
-               SELECT * FROM claims c
+               SELECT * FROM ${table} c
                 WHERE c.court_id = x.court AND COALESCE(upper(c.occupied), 'infinity'::timestamptz) > lower(x.win)
                   AND c.active AND c.space_id IS NULL AND c.occupied && x.win
              ) c

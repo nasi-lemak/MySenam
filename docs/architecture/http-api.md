@@ -575,7 +575,7 @@ the same list (`400`).
 | DELETE | `/api/admin/storefronts` | `?id=` |
 | POST | `/api/admin/strikes` | `{ venueId, phone }`: this number's strikes here stop counting |
 | POST | `/api/admin/suspensions` | `{ venueId \| businessId, action: "suspend" \| "lift", reason? }` — the platform owner taking a venue or a whole business off the marketplace, or putting it back |
-| GET | `/api/admin/system` | What has gone wrong lately, for the platform owner |
+| GET | `/api/admin/system` | What has gone wrong lately, for the platform owner: `{ alerts, scheduler, webhook, claimsArchive }`, `claimsArchive` being where the archive of past court time stands (`days` in force, 0 for off, `problem`, `ranAt`, `lastMoved`, `totalMoved`, `waiting` up to 1,000, `behind`, `failure`; [archiving past claims](database.md#archiving-past-claims)) |
 | GET | `/api/admin/integrity` | Do bookings and the court time they hold agree, now? The platform owner: every venue; a manager: their own venues only; front desk refused (`MANAGER_ONLY`) → `{ok, problems}` ([monitoring](../operations/monitoring.md)) |
 | GET | `/api/admin/activities` | `?venueId` → the activities that venue may offer, its own included; the platform owner may leave it out for the whole catalogue |
 | POST | `/api/admin/activities` | `{venueId, names: {en, ms?, zh?, ta?}, category, model, noun, icon?, aliases?, capacity?, perPlayer?, maxPlayers?}`: a venue's or business's own activity (managers; the platform owner adds to the catalogue); recorded. `icon` is a glyph name from the generic set, a built-in activity's or a category's, or a short emoji as before glyphs; none: the category's glyph; anything else 400 ([pictures](../features/activities.md#pictures)) |

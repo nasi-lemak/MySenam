@@ -360,10 +360,11 @@ async function readUse(
     ({ players, ...b }) => ({ ...b, places: (capacityOf.get(b.court_id) ?? 1) > 1 ? Math.max(1, Number(players ?? 1)) : 1 })
   );
 
+  // Over a past period these may have been archived (lib/claims-archive.ts): read live and archived together.
   const blocks = (await db
     .prepare(`
       SELECT DISTINCT COALESCE(cs.court_id, c.court_id) AS court_id, k.id, k.date, k.start_min, k.end_min, k.places
-        FROM blocks k JOIN claims c ON c.block_id = k.id
+        FROM blocks k JOIN claims_all c ON c.block_id = k.id
         LEFT JOIN court_spaces cs ON cs.space_id = c.space_id
        WHERE k.venue_id = ? AND k.date >= ? AND k.date <= ?
     `)
@@ -371,7 +372,7 @@ async function readUse(
   const outages = (await db
     .prepare(`
       SELECT DISTINCT COALESCE(cs.court_id, c.court_id) AS court_id, o.id, o.starts_on, o.ends_on
-        FROM court_outages o JOIN claims c ON c.outage_id = o.id
+        FROM court_outages o JOIN claims_all c ON c.outage_id = o.id
         LEFT JOIN court_spaces cs ON cs.space_id = c.space_id
        WHERE c.venue_id = ? AND o.starts_on <= ? AND (o.ends_on IS NULL OR o.ends_on >= ?)
     `)

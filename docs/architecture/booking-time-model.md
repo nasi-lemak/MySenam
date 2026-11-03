@@ -134,6 +134,12 @@ time, not of storing it.
   time and its separation) is what the board's cells, the staff schedule's
   buffers and a block's placement treat as held; `clearZones` is the time a
   facility turned over whole is closed to everybody.
+- **Past claims**: where the install sets `CLAIMS_ARCHIVE_AFTER_DAYS`, a claim
+  that ended more than that many days ago (30 at the least), held by something
+  finished or cancelled, is moved to `claims_archive`. `occupantsOn` reads
+  `claims` for a day within 25 days of today and `claims_all` (both tables)
+  for an older one; nothing that looks from now on can need the archive
+  ([archiving past claims](database.md#archiving-past-claims)).
 - **The staff schedule's list to the minute** (`getAdminSlots` in
   `src/lib/store.ts`) lists only what is in the day's own time: from where the
   evening before ran on past midnight (its closing, if after midnight) to

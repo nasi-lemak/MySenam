@@ -49,6 +49,8 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   `facility_gaps_work` on `facility_gaps`, migration 0131); triggers keep a claim's
   court, space and venue consistent and a court's own space in step with its
   capacity (migrations 0089 and 0090).
+- **Court time that is over is archived, not kept in `claims`** (off unless
+  `CLAIMS_ARCHIVE_AFTER_DAYS` is set): [below](#archiving-past-claims).
 - **Activities are a table.** Every column naming an activity (`sport`, kept
   under that name) has a foreign key to `activities(key)`; what a court offers
   is `court_activities`, and triggers keep its main activity among them and
@@ -76,6 +78,103 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   time zone from its pin, checking a conversion), a step in
   `src/lib/db-steps.ts` runs straight after that migration's SQL in the same
   transaction; if it throws, the migration is undone.
+
+## Archiving past claims
+
+`claims` has a row for every interval a court was ever held, and it cannot be
+partitioned by month: a partitioned table's exclusion constraint must include
+the partition key by equality, which a booking past midnight crosses
+([ADR 0004](decisions/0004-plain-postgres-not-timescaledb.md)). Court time
+that is over decides nothing, so a scheduled job moves it into
+`claims_archive` (migration 0267, `src/lib/claims-archive.ts`). It is **off
+unless the install sets `CLAIMS_ARCHIVE_AFTER_DAYS`** (90 is a good value:
+[configuration](../development/configuration.md)); an install that never sets
+it keeps every claim in `claims`, as before. It is an install setting, not a
+venue's: nothing changes for what a venue or customer can do.
+
+**The table.** `claims_archive` has the columns of `claims`, in their order,
+and one more, `archived_at`; the same checks; the same foreign keys with the
+same `ON DELETE CASCADE` (a booking's checked at commit, as every row pointing
+at a booking is, [booking concurrency](booking-concurrency.md#status-of-each-guarantee)).
+It has no exclusion constraint, no capacity or separation trigger and no gap
+rows: those are what make a live claim dear, and what an archived one has no
+use for. It is indexed by venue and date, by space and by court and the moment
+the time ends (the two reads the day's board makes), and by what each kind
+belongs to. `claims_all` is the two together, with the columns listed. A test
+(`tests/claims-archive.test.ts`) fails when a column is added to `claims`
+without being added to the archive and the view.
+
+**What moves.** A claim moves only when all of these hold; one condition
+counts what is due and moves it (`eligibleClaims`):
+
+- its `occupied` time has an end, and the end is more than the horizon ago
+  (30 days at the least: a smaller number is raised to 30, a number that is not
+  a whole one switches the archive off). An outage with no last day has no
+  end and never moves;
+- what holds it is finished or cancelled: a booking that is not held for
+  payment (confirmed, unpaid, with a hold still set), has no online payment
+  still pending from the last 30 days, no payment dispute not won, and is
+  not on an application under a legal, safety or dispute hold
+  ([retention](privacy.md#applications-to-be-approved-for-an-activity)); a class, block or outage that is over; a
+  waiting-list offer that was claimed, expired or cancelled; a proposed move
+  that is no longer pending; an approval application's slot once the
+  application is decided and no hold is in force;
+- no other transaction is changing the row (`FOR UPDATE SKIP LOCKED`): a run
+  never waits for a booking, and a booking never waits for a run.
+
+Nothing that can still affect availability is touched: a claim that ended
+before the horizon has no later claim that could overlap it, because a booking,
+a move or an outage refuses a start in the past (`SLOT_PAST`). A block may be
+placed over time that has gone; one over archived time is not checked against
+it, and changes no booking.
+
+**How.** The scheduler (every tick, on the instance that holds the lease)
+calls `archiveClaimsIfDue`. A run moves up to 20 batches of 500 claims, oldest
+first; each batch is one transaction that deletes the live rows and inserts
+the archive's in a single statement, so a claim is in exactly one table. A
+crash leaves the batch undone and nothing else: there is no state to resume
+from, because what has moved is no longer there to move, and running again at
+any time is safe. After a run that left nothing due, the next waits an hour;
+after one that stopped at its limit, the next tick carries on; after a failure,
+ten minutes. The deletes fire the triggers that remove the claim's gap rows.
+On Postgres the migration creates `idx_claims_ended` on `claims` (a write lock
+on the table while it builds; the upgrade does it once).
+
+**What reads the past.** Each reader either reads `claims_all` or stays on
+`claims`, because it never looks at time that old; the tests prove each.
+
+| Reader | Reads | Why |
+| ------ | ----- | --- |
+| `occupantsOn` (availability, search, the board and schedule for a day, moves, waiting lists) | `claims` for a day within 25 days of today; `claims_all` for an older one | Every claim that ends within the horizon is live, and the horizon is never less than 30 days, so nothing that could matter is missed; the schedule of a day long gone shows what it showed |
+| Utilisation and occupancy reports (`venueReport`, `utilisationByDay`, the occupancy grid) | Bookings from `bookings`; blocks and outages through `claims_all` | The period asked for may be as old as the venue |
+| Booking history, a customer's list, data export, erasure and anonymisation | `bookings` and their own tables, not claims | A claim holds no name, number or address; nothing in the archive is personal data |
+| Retention by purpose, erasure of an account, a venue's data | The foreign keys | Deleting a booking, waiting-list entry, class, block, outage, application, court or venue deletes its archived claims by the same cascade; a booking or other source let go after it was archived has its archived claim let go too (`release`, `unclaim`), so the archive says what the live table would |
+| Legal holds and disputes | The job itself | A held or disputed claim is never moved (above) |
+| Integrity check, scheduled daily and on request | Live claims, from yesterday on; and the archive for time that has not ended | A mismatch of a booking and its court time matters only from yesterday on; `claim_archived_early` finds archived time that could still matter (a hand-edited row, half a restore) |
+| Backup, restore drill | The whole database | `claims_archive` is in the dump or the PGlite copy; the drill counts it (a backup from before migration 0267 has none) |
+| Linking courts, outages, rain-outs, entries, tournament holds, repeated blocks, changing a court's capacity | `claims` | They look from now on |
+| The migration step of 0090 | `claims` | Runs once, before any archive exists |
+
+**Watching it.** A failed run raises the alert `scheduler:claims-archive-failed`,
+and due claims that have waited three days or more past the horizon (the
+job is not keeping up, or has stopped) raise `claims-archive-behind`; both
+appear on the owner's *System health* panel, by email and on the alert webhook
+([monitoring](../operations/monitoring.md)). `GET /api/admin/system` carries
+`claimsArchive`: the days in force (0 is off, and whether the setting was
+raised or refused), when it last ran, how many it moved, how many are due (to
+1,000), whether it is behind, and the last failure.
+
+**Measured**, once, on Postgres 16 in the development container (not a
+server): 300,000 bookings of one claim each over 100 courts, half of them
+more than 90 days old; a batch of 500 took a median of 41 ms (95th percentile
+59 ms, worst 74 ms over 100 batches); the next batch is found by an index scan
+of 500 rows; `occupantsOn` for a day today and for a day 400 days ago (through
+`claims_all`) read in the same time as before the move (about 50 ms for 20
+courts). That is one machine and one synthetic fill, not production. The
+table and its indexes shrink only when Postgres is vacuumed (`VACUUM FULL`
+returned 7 MB of 43 for 50,000 moved claims; plain vacuum reuses the space but
+does not return it), so the benefit is to scans, indexes and the working set
+rather than disk, until it is.
 
 ## Engines
 

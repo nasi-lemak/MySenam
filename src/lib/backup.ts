@@ -465,6 +465,8 @@ export async function restoreDrill(snapshot: string): Promise<DrillReport> {
           await copy.connect();
           try {
             for (const t of COUNTED) report.counts[t] = Number((await copy.query(`SELECT COUNT(*)::int AS n FROM ${t}`)).rows[0].n);
+            // Court time moved to the archive (migration 0267): a backup from before it has no such table.
+            if ((await copy.query("SELECT to_regclass('claims_archive')::text AS t")).rows[0].t) report.counts.claims_archive = Number((await copy.query("SELECT COUNT(*)::int AS n FROM claims_archive")).rows[0].n);
             credentials = (await copy.query("SELECT credentials FROM venue_payment_accounts")).rows.map((r: { credentials: string }) => r.credentials);
           } finally {
             await copy.end();
@@ -481,6 +483,8 @@ export async function restoreDrill(snapshot: string): Promise<DrillReport> {
       const copy = await PGlite.create({ loadDataDir: new Blob([fs.readFileSync(snapshot)]), extensions: { citext }, parsers: { [types.INT8]: (v: string) => Number(v) } });
       try {
         for (const t of COUNTED) report.counts[t] = Number((await copy.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM ${t}`)).rows[0].n);
+        if ((await copy.query<{ t: string | null }>("SELECT to_regclass('claims_archive')::text AS t")).rows[0].t)
+          report.counts.claims_archive = Number((await copy.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM claims_archive")).rows[0].n);
         credentials = (await copy.query<{ credentials: string }>("SELECT credentials FROM venue_payment_accounts")).rows.map((r) => r.credentials);
       } finally {
         await copy.close();

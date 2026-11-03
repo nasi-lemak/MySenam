@@ -11,6 +11,15 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   `onRequestError`), or one marked fixed comes back (see *Errors* below);
 - any of the **scheduled work** fails: sending messages, letting go of unpaid
   holds, invoices, overdue checks, league housekeeping, the backup;
+- **past court time cannot be archived** (only where `CLAIMS_ARCHIVE_AFTER_DAYS`
+  is set): `scheduler:claims-archive-failed` when a run fails (tried again ten
+  minutes later), and `claims-archive-behind` when court time due to move has
+  waited three days or more past the horizon, so the job has stopped or
+  cannot keep pace. Nothing is lost by either: the time stays where it was
+  and still keeps the court. Look at the database's room and load, and at
+  `claimsArchive` in the owner's system answer (`GET /api/admin/system`: days,
+  last run, moved, due, behind, last failure)
+  ([archiving past claims](../architecture/database.md#archiving-past-claims));
 - the **nightly backup** or its **off-site copy** fails;
 - **messages to customers stop going out**: five or more failed in an hour and
   none sent (one bad address is not news; a rejected SMTP login is).
@@ -18,7 +27,9 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   once a day from the scheduler): a live booking that holds no court time
   (anybody could book over it), one holding a different court or time from
   the one it says, a cancelled booking or class still holding its court or
-  coach, or a booking for an activity its court no longer offers. It looks
+  coach, a booking for an activity its court no longer offers, or court
+  time in the archive that has not ended (`claim_archived_early`: the archive
+  job cannot do that, so something went round it). It looks
   from yesterday on. Every write keeps the two together, so this finds
   nothing unless something went round the code (a hand-edited row, half a
   restore). `GET /api/admin/integrity` asks again now, after putting it

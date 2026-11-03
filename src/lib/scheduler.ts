@@ -187,6 +187,21 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Court time long over moves out of the table bookings are checked against, in bounded batches (lib/claims-archive.ts;
+    // off unless CLAIMS_ARCHIVE_AFTER_DAYS is set). The owners hear when it fails, and when it cannot keep up.
+    const archived = await (await import("./claims-archive")).archiveClaimsIfDue(now);
+    if (archived?.behind) {
+      const status = await (await import("./claims-archive")).claimsArchiveStatus(now);
+      await raiseAlert("claims-archive-behind", said("srv.alert.claimsBehind"), `${status.days} days; ${status.waiting} due`, [
+        said("srv.alert.claimsBehindDetail", { days: status.days, waiting: status.waiting }),
+      ]);
+    }
+  } catch (err) {
+    console.error("[mysenam] archiving past court time failed:", err);
+    await raiseAlert("scheduler:claims-archive-failed", failed("srv.work.claimsArchive"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Once a day: every live booking still holds its court, and nothing cancelled does.
     const problems = await checkIntegrityIfDue(now);
     if (problems && problems.length > 0)

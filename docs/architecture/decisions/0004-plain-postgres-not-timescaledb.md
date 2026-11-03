@@ -5,7 +5,7 @@
 - **Context:** whether bookings, messages and the ledger should move to a
   time-series database (TimescaleDB) as data grows, and what to do as it does.
 - **Decision:** keep everything in plain PostgreSQL. Grow with continuous
-  backups, then monthly partitioning of `booking_slots` if needed.
+  backups, then archive past claims if needed.
 - **Consequences:** development (PGlite) and production stay the same engine;
   unique constraints and foreign keys keep working across all time.
 - **Known limitations:** the size figures below are from one synthetic
@@ -38,9 +38,13 @@ What to do as it grows:
   than the old half-hour rows, but cannot be partitioned by month: a
   partitioned table's exclusion constraint must include the partition key by
   equality, which a booking past midnight would cross. Archive inactive and
-  past claims instead (they decide nothing once the time has gone). `bookings` cannot be partitioned the same way without
-  giving up a single unique index on booking codes, which customers look
-  bookings up by.
+  past claims instead (they decide nothing once the time has gone): built as
+  a scheduled job, off unless the install sets `CLAIMS_ARCHIVE_AFTER_DAYS`,
+  moving them to `claims_archive` in bounded batches (migration 0267;
+  [archiving past claims](../database.md#archiving-past-claims) says what
+  moves, what never does, and what reads the past). `bookings` cannot be
+  partitioned the same way without giving up a single unique index on booking
+  codes, which customers look bookings up by.
 - **Compression:** Postgres compresses only large values, and these rows are
   small, so there is little to gain inside the database. Compression happens
   in the backups, which `pg_dump` compresses roughly 5–10× on real data.

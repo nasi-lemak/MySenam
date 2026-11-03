@@ -591,7 +591,9 @@ npm run restore -- /path/to/mysenam-2026-09-26-030000.dump --drill
 restores the set somewhere it can do no harm — a database of its own on the
 Postgres server in `DATABASE_URL` (`mysenam_drill_<time>`, dropped
 afterwards), or a temporary PGlite copy — unpacks its photos into a temporary
-folder, counts venues, courts, users, bookings, claims, the credit ledger,
+folder, counts venues, courts, users, bookings, claims (and, where court time
+has been archived, the archived claims: [archiving past claims](../architecture/database.md#archiving-past-claims),
+which a backup holds with the rest of the database), the credit ledger,
 receipts, online payments and photos, compares the bookings and photos with
 the manifest, checks whether this install's secret opens the venues' payment
 keys, and prints how long it took. Nothing live is touched. Run it against a

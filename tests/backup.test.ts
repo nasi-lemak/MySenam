@@ -22,9 +22,11 @@ import {
   verifyBackupSet,
   type BackupManifest,
 } from "../src/lib/backup";
+import { archiveClaims } from "../src/lib/claims-archive";
 import { getDb } from "../src/lib/db";
 import { createBooking, listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
+import { moveBookingToDate } from "./helpers/bookings";
 
 // Clocks set by these tests stay ahead of the real one. PGlite's Postgres
 // reads the faked clock too: moved back behind a timer it has already set,
@@ -331,6 +333,10 @@ describe("a backup set: the database, its photos and a manifest of both", () => 
     const venue = (await listVenues())[0];
     const made = await createBooking({ courtId: venue.courts[0].id, date: addDays(todayISO(), 3), hours: [10], name: "Drill", phone: "0123000777" });
     if (!made.ok) throw new Error(made.error);
+    // Court time long over is in the archive (lib/claims-archive.ts); the backup holds it and the drill counts it.
+    await moveBookingToDate(made.booking.id, addDays(todayISO(), -200));
+    expect((await archiveClaims({ days: 90 })).moved).toBeGreaterThan(0);
+    const archived = ((await getDb().prepare("SELECT COUNT(*)::int AS n FROM claims_archive").get()) as { n: number }).n;
     const result = await taken();
     const live = await bookings();
 
@@ -338,6 +344,7 @@ describe("a backup set: the database, its photos and a manifest of both", () => 
     expect(report.problems).toEqual([]);
     expect(report.ok).toBe(true);
     expect(report.counts.bookings).toBe(result.bookings);
+    expect(report.counts.claims_archive).toBe(archived);
     expect(report.counts.venues).toBeGreaterThan(0);
     expect(report.photos).toBe(2);
     expect(report.ms).toBeGreaterThan(0);

@@ -221,8 +221,8 @@ describe("starting a branch from another's set-up", () => {
       if (allowed.has(table_name)) continue;
       const where = column_name === "venue_id" ? "venue_id = ?" : "court_id IN (SELECT id FROM courts WHERE venue_id = ?)";
       const { n } = (await getDb().prepare(`SELECT COUNT(*)::int AS n FROM ${table_name} WHERE ${where}`).get(copy)) as { n: number };
-      // The futsal booking made in the test above is the copy's own.
-      if (n > 0 && !["bookings", "claims", "facility_gaps"].includes(table_name)) copied.push(table_name);
+      // The futsal booking made in the test above is the copy's own (`claims_all` is `claims` and the archive together).
+      if (n > 0 && !["bookings", "claims", "claims_all", "facility_gaps"].includes(table_name)) copied.push(table_name);
     }
     expect(copied).toEqual([]);
     expect(((await getDb().prepare("SELECT COUNT(*)::int AS n FROM bookings b JOIN courts c ON c.id = b.court_id WHERE c.venue_id = ? AND b.name <> 'Futsal Team'").get(copy)) as { n: number }).n).toBe(0);

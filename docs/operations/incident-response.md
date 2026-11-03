@@ -121,7 +121,7 @@ treat them as personal data: they contain names, numbers and emails.
 ### Bookings that disagree, or a double booking
 
 - **Detected by** the daily integrity check (problems such as
-  `booking_unheld`, `booking_mistimed` and `claim_orphaned`), a venue, or two
+  `booking_unheld`, `booking_mistimed`, `claim_orphaned` and `claim_archived_early`), a venue, or two
   customers at one court.
 - **Contain:** if bookings are being written wrongly, suspend the affected
   venue's bookings (suspend the venue, [marketplace](../product/marketplace.md#running-the-marketplace))
@@ -132,7 +132,13 @@ treat them as personal data: they contain names, numbers and emails.
   The database refuses two bookings of the same court time
   ([booking concurrency](../architecture/booking-concurrency.md)), so a real
   double booking means something went round the code (a hand edit, half a
-  restore): find out what.
+  restore): find out what. For `claim_archived_early`, court time sits in
+  `claims_archive` that has not ended, so it no longer keeps anybody off the
+  court: put it back into `claims` (the columns of the `claims_all` view)
+  once nothing else holds that time, and stop the archive job
+  (`CLAIMS_ARCHIVE_AFTER_DAYS` unset) until you know why it was there; the
+  job itself only ever moves time that ended before its horizon
+  ([archiving past claims](../architecture/database.md#archiving-past-claims)).
 - **Tell** the customers affected, through the venue.
 
 ### Duplicate payments, or refunds that fail

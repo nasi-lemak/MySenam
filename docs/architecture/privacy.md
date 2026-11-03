@@ -169,6 +169,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
+| Court time held for a booking, class or block (ids, a court, minutes; no name, number or address) | with what it belongs to; where the install sets a horizon, moved to an archive once it is over ([archiving past claims](database.md#archiving-past-claims)) | deleted with what it belongs to; there is nothing in it to anonymise |
 | Names and numbers on receipts and credit notes, with every name inside their lines | 730 days after issue | anonymised; what was sold, the amounts and the tax kept ([below](#receipts-and-credit-notes)) |
 | E-invoice records: each document sent to LHDN as it was sent, the buyer details given for it, LHDN's reasons; a draft never sent | the install's statutory period from issue: 7 years by default, **provisional pending legal verification**; 5 to 20 years, under 7 only with a recorded review ([below](#e-invoice-records)) | a sent one cleared to a tombstone (number, kind, dates, total, the receipts it covered, LHDN's identifiers and its last state kept); a draft deleted |
 | Withdrawn out-of-hours access | 365 days | deleted |

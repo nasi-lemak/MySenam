@@ -365,6 +365,10 @@ const en = {
   // nbk (entry with no set time, lib/entries.ts)
   "srv.work.entries": "closing entries past their longest stay",
   "srv.ret.entries": "Entries without a booking (who came in, and when)",
+  // Archiving past claims (lib/claims-archive.ts, lib/scheduler.ts)
+  "srv.work.claimsArchive": "archiving past court time",
+  "srv.alert.claimsBehind": "Past court time is not being archived fast enough",
+  "srv.alert.claimsBehindDetail": "Court time that ended more than {days} days ago and is due to move to the archive has been waiting for three days or more; {waiting} records are due now. The archive runs on the scheduler: check that it is running and that the database has room.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -728,6 +732,9 @@ const ms: Record<keyof typeof en, string> = {
   // nbk (entry with no set time, lib/entries.ts)
   "srv.work.entries": "menutup kemasukan yang melebihi tempoh tinggal terlama",
   "srv.ret.entries": "Kemasukan tanpa tempahan (siapa masuk, dan bila)",
+  "srv.work.claimsArchive": "mengarkibkan masa gelanggang yang telah lepas",
+  "srv.alert.claimsBehind": "Masa gelanggang yang telah lepas tidak diarkibkan dengan cukup pantas",
+  "srv.alert.claimsBehindDetail": "Masa gelanggang yang tamat lebih daripada {days} hari lalu dan perlu dipindahkan ke arkib telah menunggu selama tiga hari atau lebih; {waiting} rekod perlu dipindahkan sekarang. Arkib berjalan pada penjadual: semak bahawa ia berjalan dan pangkalan data masih ada ruang.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1091,6 +1098,9 @@ const zh: Record<keyof typeof en, string> = {
   // nbk (entry with no set time, lib/entries.ts)
   "srv.work.entries": "关闭超过最长停留时间的入场",
   "srv.ret.entries": "无预订入场记录（谁入场及时间）",
+  "srv.work.claimsArchive": "归档已过去的场地时间",
+  "srv.alert.claimsBehind": "已过去的场地时间归档速度不够",
+  "srv.alert.claimsBehindDetail": "结束于 {days} 天前并应移入归档的场地时间已等待三天或更久；现有 {waiting} 条记录待移。归档由调度器运行：请检查它是否在运行，以及数据库是否还有空间。",
 };
 
 const area = { en, ms, zh };

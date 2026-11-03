@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { claimsArchivedTooSoon } from "./claims-archive";
 import { rangeLiteral } from "./interval";
 import { addDays, todayISO } from "./time";
 import { venueZoneOf } from "./zones";
@@ -28,6 +29,8 @@ export type IntegrityKind =
   | "class_unheld"
   /** A cancelled class still holds its court. */
   | "class_orphaned"
+  /** Court time moved to the archive that is not over (or has no end): the archive job cannot do this, so something else did, and the time no longer keeps anybody off the court (lib/claims-archive.ts). */
+  | "claim_archived_early"
   /** A refund sent to the gateway over an hour ago with no answer: asked again every few minutes, still unknown (lib/payments.ts). */
   | "refund_unanswered"
   /** Money owed back on a payment for over a week: nobody has refunded it. */
@@ -169,6 +172,15 @@ export async function checkIntegrity(venueIds: number[] | null = null): Promise<
     .all(from, ...claimArgs)) as { id: number; venue_id: number; title: string; date: string }[];
   for (const k of classOrphaned)
     problems.push({ kind: "class_orphaned", venueId: k.venue_id, classId: k.id, detail: `${k.title} on ${k.date} is cancelled but still holds its court` });
+
+  // Court time in the archive that could still matter: it no longer stops a booking being made over it.
+  for (const a of await claimsArchivedTooSoon(EACH, venueIds))
+    problems.push({
+      kind: "claim_archived_early",
+      venueId: a.venue_id,
+      ...(a.booking_id !== null ? { bookingId: a.booking_id } : {}),
+      detail: `Court time ${a.id} (${a.kind}) is in the archive but has not ended, or is more recent than the archive keeps`,
+    });
 
   // Money: a refund nobody knows the fate of, or one owed and not made. Not
   // inconsistencies, but what would otherwise be found only by a customer.

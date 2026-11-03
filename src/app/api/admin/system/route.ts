@@ -3,6 +3,7 @@ import { requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { clearAlert, recentAlerts, schedulerAlive } from "@/lib/alerts";
 import { schedulerEnabled } from "@/lib/scheduler";
 import { jsonObject } from "@/lib/api";
+import { claimsArchiveStatus } from "@/lib/claims-archive";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ export async function GET(req: NextRequest) {
     alerts: await recentAlerts(),
     scheduler: { enabled: schedulerEnabled(), alive: await schedulerAlive() },
     webhook: !!process.env.MYSENAM_ALERT_WEBHOOK,
+    // Moving past court time out of the live table: off (days 0), how far it has got, and whether it is keeping up.
+    claimsArchive: await claimsArchiveStatus(),
   });
 }
 

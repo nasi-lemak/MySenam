@@ -319,6 +319,8 @@ const en = {
   "p8c.act.leagueResultCleared": "Cleared a league result",
   "p8c.act.messageResent": "Sent a message again",
   "p8c.act.whatsappPack": "Ordered, gave or settled WhatsApp messages",
+  // Archiving past claims (lib/claims-archive.ts, lib/integrity.ts)
+  "ow5.int.kind.claim_archived_early": "Court time that has not ended was moved to the archive: it no longer keeps anybody off the court",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -636,6 +638,7 @@ const ms: Record<keyof typeof en, string> = {
   "p8c.act.leagueResultCleared": "Mengosongkan keputusan liga",
   "p8c.act.messageResent": "Menghantar semula mesej",
   "p8c.act.whatsappPack": "Memesan, memberi atau menyelesaikan mesej WhatsApp",
+  "ow5.int.kind.claim_archived_early": "Masa gelanggang yang belum tamat telah dipindahkan ke arkib: ia tidak lagi menghalang sesiapa daripada menempah gelanggang itu",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -953,6 +956,7 @@ const zh: Record<keyof typeof en, string> = {
   "p8c.act.leagueResultCleared": "清除联赛成绩",
   "p8c.act.messageResent": "重新发送消息",
   "p8c.act.whatsappPack": "订购、赠送或结清 WhatsApp 消息",
+  "ow5.int.kind.claim_archived_early": "尚未结束的场地时间被移入归档：它不再阻止他人预订该场地",
 };
 
 const area = { en, ms, zh };

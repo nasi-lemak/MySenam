@@ -93,6 +93,7 @@ export async function setCourtParts(
         // The whole no longer covers the part: its claims there go with the link.
         if (space !== undefined) {
           await db.prepare("DELETE FROM claims WHERE court_id = ? AND space_id = ?").run(wholeId, space);
+          await db.prepare("DELETE FROM claims_archive WHERE court_id = ? AND space_id = ?").run(wholeId, space);
           await db.prepare("DELETE FROM court_spaces WHERE court_id = ? AND space_id = ?").run(wholeId, space);
         }
         await db.prepare("DELETE FROM court_links WHERE whole_id = ? AND part_id = ?").run(wholeId, part);
