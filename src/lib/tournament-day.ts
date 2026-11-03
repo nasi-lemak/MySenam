@@ -1,7 +1,8 @@
 import { getDb, withTransaction } from "./db";
 import { formatMinute, minuteOfDay } from "./interval";
 import { accountLocale, baseUrl, enqueue, sentences, type Written } from "./outbox";
-import { translator, type Locale } from "./i18n";
+import { translator, type Locale, type Phrase } from "./i18n";
+import { matchLabel, roundsByBracket, type BracketKind } from "./brackets";
 import { siteName } from "./site";
 import { linkIn } from "./link-locale";
 import { whatsappFor } from "./whatsapp-credit";
@@ -95,7 +96,8 @@ interface Context {
   entries: Map<number, TournamentDetail["entries"][number]>;
   /** Entries' partners' declared dates of birth: a pair with a minor in it is shown short. */
   partnerBirth: Map<number, string | null>;
-  rounds: number;
+  /** How many rounds each bracket has, to name a round from the end of its own bracket. */
+  rounds: Map<BracketKind, number>;
 }
 
 async function context(tournamentId: number, now: Date = new Date()): Promise<Context | null> {
@@ -122,8 +124,8 @@ async function context(tournamentId: number, now: Date = new Date()): Promise<Co
     state,
     entries: new Map(d.entries.map((e) => [e.id, e])),
     partnerBirth: new Map(partners.map((p) => [p.id, p.partner_birth_date])),
-    // A knockout's rounds; -1 for a Swiss event, whose group-stage matches are its rounds (labelIn).
-    rounds: d.format === "swiss" ? -1 : Math.max(0, ...d.matches.filter((m) => m.stage === "knockout").map((m) => m.round)),
+    // Each bracket's rounds (a knockout's, a double elimination's); -1 for a Swiss event, whose group-stage matches are its rounds (matchLabel).
+    rounds: d.format === "swiss" ? new Map<BracketKind, number>([["main", -1]]) : roundsByBracket(d.matches.filter((m) => m.stage === "knockout")),
   };
 }
 
@@ -379,14 +381,10 @@ export async function setDaySettings(tournamentId: number, input: DaySettings): 
 
 // ------------------------------------------------------------ telling people
 
-/** "Group 2", "Final", "Semi-final" in a language, as the public page says them. */
-function labelIn(tr: ReturnType<typeof translator>, m: Pick<Match, "stage" | "groupNo" | "round" | "placement">, rounds: number): string {
-  if (m.stage === "group") return rounds < 0 ? tr("swiss.ui.round", { n: m.round }) : tr("tour.group", { n: m.groupNo ?? 0 });
-  if (m.placement === 3) return tr("tour.thirdPlace");
-  if (m.round === rounds) return tr("tour.final");
-  if (m.round === rounds - 1) return tr("tour.semis");
-  if (m.round === rounds - 2) return tr("tour.quarters");
-  return tr("tour.round", { n: m.round });
+/** "Group 2", "Final", "Semi-final", "Losers' round 2", "Grand final" in a language, as the public page says them. */
+function labelIn(tr: ReturnType<typeof translator>, m: Pick<Match, "stage" | "groupNo" | "round" | "placement" | "bracket">, rounds: Map<BracketKind, number>): string {
+  const label = matchLabel(m, rounds.get(m.bracket) ?? m.round);
+  return tr(label.key as Phrase, label.n === undefined ? undefined : { n: label.n });
 }
 
 /**
@@ -793,9 +791,12 @@ export interface LiveFixture {
   id: number;
   /** What it is, for the page to say in its own language. */
   stage: Match["stage"];
+  /** Which bracket; none reads as the ordinary knockout. */
+  bracket?: BracketKind;
   groupNo: number | null;
   round: number;
   placement: 3 | null;
+  /** How many rounds its own bracket has. */
   rounds: number;
   /** Names as the public sees them (short for a declared minor); null: still to be decided. */
   a: string | null;
@@ -813,7 +814,7 @@ export interface LiveBoard {
   status: Tournament["status"];
   today: string;
   courts: { id: number; name: string; now: LiveFixture | null; next: LiveFixture | null }[];
-  recent: { id: number; stage: Match["stage"]; groupNo: number | null; round: number; placement: 3 | null; rounds: number; a: string | null; b: string | null; winner: string | null; score: string | null; walkover: boolean }[];
+  recent: { id: number; stage: Match["stage"]; bracket?: BracketKind; groupNo: number | null; round: number; placement: 3 | null; rounds: number; a: string | null; b: string | null; winner: string | null; score: string | null; walkover: boolean }[];
 }
 
 /**
@@ -828,10 +829,11 @@ export async function liveBoard(tournamentId: number, now: Date = new Date()): P
   const fixture = (m: Match): LiveFixture => ({
     id: m.id,
     stage: m.stage,
+    bracket: m.bracket,
     groupNo: m.groupNo,
     round: m.round,
     placement: m.placement,
-    rounds: c.rounds,
+    rounds: c.rounds.get(m.bracket) ?? m.round,
     a: shownName(c, m.a),
     b: shownName(c, m.b),
     state: c.state.get(m.id)?.startedAt ? "playing" : c.state.get(m.id)?.calledAt ? "called" : "scheduled",
@@ -852,10 +854,11 @@ export async function liveBoard(tournamentId: number, now: Date = new Date()): P
     .map((m) => ({
       id: m.id,
       stage: m.stage,
+      bracket: m.bracket,
       groupNo: m.groupNo,
       round: m.round,
       placement: m.placement,
-      rounds: c.rounds,
+      rounds: c.rounds.get(m.bracket) ?? m.round,
       a: shownName(c, m.a),
       b: shownName(c, m.b),
       winner: shownName(c, m.winner),

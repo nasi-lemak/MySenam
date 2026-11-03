@@ -100,6 +100,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0030 Signing staff in from AI assistants with an authorization server inside the app](architecture/decisions/0030-oauth-sign-in-for-ai-assistants.md) ·
 [0031 Ratings are a deterministic function of a ledger of results, never learned](architecture/decisions/0031-ratings-from-a-ledger-of-results.md) ·
 [0033 Swiss tournaments and club ladders, specified before they were built](architecture/decisions/0033-swiss-tournaments-and-club-ladders.md)
+[0032 Consolation draws and double elimination, on the knockout graph](architecture/decisions/0032-consolation-draws-and-double-elimination.md)
 
 ## Integrations
 

@@ -3,16 +3,23 @@ import { getDb, isBusy, withTransaction } from "./db";
 import { receiptFee } from "./documents";
 import {
   bracketSize,
+  consolationDraw,
+  doubleElimination,
   firstRound,
   groupCount,
   intoGroups,
   knockoutFromGroups,
+  matchLabel,
+  placings,
   roundRobin,
+  roundsByBracket,
   scheduleTimed,
   scoreRefusal,
   shuffle,
   standings,
   startStep,
+  type BracketKind,
+  type PlannedMatch,
   type Standing,
   type Taken,
   type TimedMatch,
@@ -60,17 +67,23 @@ import type { SwissDetail } from "./swiss";
  */
 
 /**
- * "knockout"; "groups" (round-robin groups, then a knockout); "round_robin"
+ * "knockout" (with a consolation draw for its first-round losers if the rules
+ * say so); "groups" (round-robin groups, then a knockout); "round_robin"
  * (everybody plays everybody, the table is the result); "performance"
  * (heats, and a final, ranked by a time, distance or score); "swiss" (a fixed number of rounds, each paired from the standings
- * the one before left: lib/swiss.ts, ADR 0033).
+ * the one before left: lib/swiss.ts, ADR 0033); "double_elimination" (a winners' bracket, a losers' bracket and a grand
+ * final that may be played again, ADR 0032).
  */
-export type Format = "knockout" | "groups" | "round_robin" | "performance" | "swiss";
+export type Format = "knockout" | "groups" | "round_robin" | "performance" | "swiss" | "double_elimination";
 export type TournamentStatus = "open" | "closed" | "drawn" | "finished" | "cancelled";
 export type EntryStatus = "entered" | "waitlisted" | "withdrawn";
-/** Stages a match length can be set for: the knockout's last round and its third-place match are "final". */
-export type StageKey = "group" | "knockout" | "final" | "heat";
-export const STAGE_KEYS: StageKey[] = ["group", "knockout", "final", "heat"];
+/**
+ * Stages a match length can be set for: the knockout's last round and its third-place match are "final"
+ * (so is a double elimination's winners' final); "losers" is every match of the losers' bracket,
+ * "grand_final" and "reset" the grand final's two, "consolation" every match of a consolation draw.
+ */
+export type StageKey = "group" | "knockout" | "final" | "heat" | "losers" | "grand_final" | "reset" | "consolation";
+export const STAGE_KEYS: StageKey[] = ["group", "knockout", "final", "heat", "losers", "grand_final", "reset", "consolation"];
 
 export interface Tournament {
   id: number;
@@ -130,6 +143,8 @@ export interface Tournament {
   liveNames: "full" | "short";
   /** The venue marked it as rated: its results count towards players' ratings (lib/ratings.ts). */
   rated: boolean;
+  /** The order the draw was made in (entry ids, seeds first and then those drawn by lot), so it can be made again; null before the draw. */
+  drawOrder: number[] | null;
 }
 
 export interface Entry {
@@ -167,6 +182,8 @@ export type GroupStanding = Standing & { out: OutReason | null; resultsVoid: boo
 export interface Match {
   id: number;
   stage: "group" | "knockout" | "heat" | "final";
+  /** Which bracket a knockout match is in: the ordinary knockout ("main"), a double elimination's, or a consolation draw (ADR 0032). */
+  bracket: BracketKind;
   groupNo: number | null;
   round: number;
   position: number;
@@ -183,7 +200,7 @@ export interface Match {
   /** The match its winner goes on to, in a knockout, and which side of it. */
   next: number | null;
   nextSlot: "a" | "b" | null;
-  /** A semi-final's loser goes to the third-place match, on this side of it. */
+  /** Where its loser goes, on this side of it: a semi-final's to the third-place match, a winners' bracket's to the losers', a first-round loser's to the consolation draw. */
   loserNext: number | null;
   loserNextSlot: "a" | "b" | null;
   /** 3: the third-place match. */
@@ -260,6 +277,8 @@ export interface TournamentDetail extends Tournament {
   performance: PerformanceDetail | null;
   /** A Swiss event's rounds, why each pairing was made, and its table (null for any other format). */
   swiss: SwissDetail | null;
+  /** Where everybody finished, once a knockout or a double elimination is over (level entrants share a place); null before, and for other formats. */
+  placings: { entryId: number; place: number }[] | null;
 }
 
 const T_SELECT = `
@@ -316,6 +335,7 @@ interface TRow {
   announce_next: boolean | null;
   live_names: string | null;
   rated?: boolean | null;
+  draw_order?: string | null;
 }
 
 function toTournament(r: TRow): Tournament {
@@ -363,7 +383,18 @@ function toTournament(r: TRow): Tournament {
     announceNext: r.announce_next ?? true,
     liveNames: r.live_names === "short" ? "short" : "full",
     rated: r.rated === true,
+    drawOrder: readDrawOrder(r.draw_order),
   };
+}
+
+function readDrawOrder(text: string | null | undefined): number[] | null {
+  if (!text) return null;
+  try {
+    const raw = JSON.parse(text) as unknown;
+    return Array.isArray(raw) && raw.every((x) => Number.isInteger(x)) ? (raw as number[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 function readStageMinutes(text: string | null): Partial<Record<StageKey, number>> {
@@ -487,7 +518,9 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
   }));
   const performance = t.format === "performance" ? await performanceOf(t, matches, out, voided) : null;
   const swiss = t.format === "swiss" ? await (await import("./swiss")).swissOf(t, matches, entries, voided) : null;
-  return { ...t, entries, matches, groups, corrections, issues, performance, swiss };
+  // Where everybody finished, once a knockout or a double elimination is over (ADR 0032, F).
+  const finished = t.status === "finished" && (t.format === "knockout" || t.format === "double_elimination");
+  return { ...t, entries, matches, groups, corrections, issues, performance, swiss, placings: finished ? placings(matches.filter((m) => m.stage === "knockout")) : null };
 }
 
 interface EntryRow {
@@ -616,11 +649,14 @@ async function matchesOf(tournamentId: number, defaultMinutes: number): Promise<
   const rows = (await getDb()
     .prepare(
       `SELECT m.*, c.name AS court_name FROM tournament_matches m LEFT JOIN courts c ON c.id = m.court_id
-        WHERE m.tournament_id = ? ORDER BY m.stage = 'knockout', m.round, m.group_no, m.placement NULLS FIRST, m.position`
+        WHERE m.tournament_id = ?
+        ORDER BY m.stage = 'knockout', CASE m.bracket WHEN 'losers' THEN 1 WHEN 'grand' THEN 2 WHEN 'consolation' THEN 3 ELSE 0 END,
+                 m.round, m.group_no, m.placement NULLS FIRST, m.position`
     )
     .all(tournamentId)) as {
     id: number;
     stage: "group" | "knockout";
+    bracket: Exclude<BracketKind, "main"> | null;
     group_no: number | null;
     round: number;
     position: number;
@@ -644,6 +680,7 @@ async function matchesOf(tournamentId: number, defaultMinutes: number): Promise<
   return rows.map((r) => ({
     id: r.id,
     stage: r.stage,
+    bracket: r.bracket ?? "main",
     groupNo: r.group_no,
     round: r.round,
     position: r.position,
@@ -873,6 +910,12 @@ async function competitionHold(id: number): Promise<CompetitionHold | null> {
   };
 }
 
+/** Why a consolation draw is not for this format, or null (ADR 0032, S2): it is a straight knockout's. */
+function bracketRulesRefusal(format: Format, bracket: CompetitionRules["bracket"]): string | null {
+  if (bracket.consolation && format !== "knockout") return "A consolation draw is for a straight knockout: not groups then a knockout, nor a double elimination.";
+  return null;
+}
+
 /** Who may enter, from a form: a closing day, an age range, members only. */
 function checkEligibility(input: Pick<TournamentInput, "entriesCloseOn" | "ageMin" | "ageMax" | "membersOnly">, startsOn: string): Refused | null {
   if (input.entriesCloseOn !== undefined && input.entriesCloseOn !== null) {
@@ -914,8 +957,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
     return { ok: false, error: "A division's draw is made: add divisions before any draw." };
   const sport = competition ? competition.hold.sport : input.sport;
   if (!(await isActivity(sport))) return { ok: false, error: "Unknown sport." };
-  if (!["knockout", "groups", "round_robin", "performance", "swiss"].includes(input.format))
-    return { ok: false, error: "A knockout, groups then a knockout, a round robin, a Swiss event, or a performance event." };
+  if (!["knockout", "groups", "round_robin", "performance", "swiss", "double_elimination"].includes(input.format))
+    return { ok: false, error: "A knockout, groups then a knockout, a round robin, a Swiss event, a performance event, or a double elimination." };
   // The sport's own template, where it suits the format asked for; else the general one.
   const sportTemplate = templateFor(sport);
   const template = input.template ? templateByKey(input.template) : sportTemplate.formats.includes(input.format) ? sportTemplate : templateByKey(input.format === "performance" ? "best_attempt" : "custom");
@@ -927,6 +970,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (input.format !== "performance" && rules.performance) return { ok: false, error: "That template is for a performance event." };
   if (input.format !== "swiss" && rules.swiss) return { ok: false, error: "Swiss settings are for a Swiss event." };
   if (input.format === "swiss") rules.swiss = rules.swiss ?? { rounds: null, byePoints: null, tiebreaks: null };
+  const bracketRefused = bracketRulesRefusal(input.format, rules.bracket);
+  if (bracketRefused) return { ok: false, error: bracketRefused };
   const entryKind: EntryKind = input.entryKind ?? (input.teamSize === 2 ? "pair" : "player");
   if (!["player", "pair", "team"].includes(entryKind)) return { ok: false, error: "Players, pairs or teams." };
   if (input.format === "performance" && entryKind !== "player") return { ok: false, error: "A performance event takes players one by one." };
@@ -1412,6 +1457,8 @@ export async function setRules(tournamentId: number, input: unknown): Promise<Re
   const parsed = parseRules(input, t.rules);
   if (!parsed.ok) return parsed;
   if (t.format === "performance" ? !parsed.rules.performance : parsed.rules.performance) return { ok: false, error: "Those rules are for another kind of event." };
+  const bracketRefused = bracketRulesRefusal(t.format, parsed.rules.bracket);
+  if (bracketRefused) return { ok: false, error: bracketRefused };
   await getDb().prepare("UPDATE tournaments SET rules = ? WHERE id = ?").run(JSON.stringify(parsed.rules), tournamentId);
   return { ok: true, value: (await tournamentById(tournamentId))! };
 }
@@ -1496,7 +1543,8 @@ async function takeOutOnce(entryId: number, reason: OutReason, note?: string): P
   await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(row.tournament_id);
   const t = (await tournamentById(row.tournament_id))!;
   if (t.status === "finished" || t.status === "cancelled") return { ok: false, error: "That tournament is over." };
-  const stage: OutStage = t.status !== "drawn" ? "before_draw" : (await knockoutStarted(t.id)) || t.format === "knockout" ? "knockout" : "groups";
+  const stage: OutStage =
+    t.status !== "drawn" ? "before_draw" : (await knockoutStarted(t.id)) || t.format === "knockout" || t.format === "double_elimination" ? "knockout" : "groups";
 
   await db
     .prepare("UPDATE tournament_entries SET status = 'withdrawn', out_reason = ?, out_stage = ?, out_at = datetime('now'), out_note = ? WHERE id = ?")
@@ -1577,8 +1625,24 @@ export function matchName(d: TournamentDetail, m: Match): string {
 export function matchNamePhrase(d: TournamentDetail, m: Match): StaffText {
   if (m.stage === "group" && d.format === "swiss") return said("srv.round.swiss", { round: m.round, n: m.position });
   if (m.stage === "group") return said("srv.round.group", { n: String(m.groupNo) });
+  // A double elimination's or a consolation draw's matches are named by their bracket (ADR 0032).
+  if (m.bracket !== "main") {
+    const label = matchLabel(m, roundsByBracket(d.matches.filter((x) => x.stage === "knockout")).get(m.bracket) ?? m.round);
+    const phrases = {
+      "fm1.winnersRound": "srv.round.winnersRound",
+      "fm1.winnersFinal": "srv.round.winnersFinal",
+      "fm1.losersRound": "srv.round.losersRound",
+      "fm1.losersFinal": "srv.round.losersFinal",
+      "fm1.grandFinal": "srv.round.grandFinal",
+      "fm1.reset": "srv.round.reset",
+      "fm1.consolationRound": "srv.round.consolationRound",
+      "fm1.consolationFinal": "srv.round.consolationFinal",
+      "fm1.consolationThird": "srv.round.consolationThird",
+    } as const;
+    return said(phrases[label.key as keyof typeof phrases], { round: m.round, n: m.position });
+  }
   if (m.placement === 3) return said("srv.round.third");
-  const rounds = Math.max(...d.matches.filter((x) => x.stage === "knockout").map((x) => x.round));
+  const rounds = Math.max(...d.matches.filter((x) => x.stage === "knockout" && x.bracket === "main").map((x) => x.round));
   const from = rounds - m.round;
   return from === 0
     ? said("srv.round.final")
@@ -1757,13 +1821,42 @@ interface NewMatch {
   placement?: 3;
   loserNextKey?: string;
   loserNextSlot?: "a" | "b";
+  /** Which bracket it is in; none: the ordinary knockout. */
+  bracket?: BracketKind;
+  /** The grand final's second match (ADR 0032, E4). */
+  reset?: boolean;
 }
 
-/** Which stage length a match takes (Tournament.stageMinutes). */
-function stageKeyOf(m: Pick<NewMatch, "stage" | "round" | "placement">, lastRound: number): StageKey {
+/** A match the structures in lib/brackets.ts planned, as the draw stores it. */
+function newMatchOf(p: PlannedMatch): NewMatch {
+  return {
+    key: p.key,
+    stage: "knockout",
+    groupNo: null,
+    round: p.round,
+    position: p.position,
+    a: p.a,
+    b: p.b,
+    nextKey: p.nextKey,
+    nextSlot: p.nextSlot,
+    after: p.after,
+    bye: p.bye,
+    bracket: p.bracket,
+    ...(p.loserNextKey ? { loserNextKey: p.loserNextKey, loserNextSlot: p.loserNextSlot! } : {}),
+    ...(p.placement ? { placement: p.placement } : {}),
+    ...(p.reset ? { reset: true } : {}),
+  };
+}
+
+/** Which stage length a match takes (Tournament.stageMinutes); `rounds`: how many rounds each bracket has. */
+function stageKeyOf(m: Pick<NewMatch, "stage" | "round" | "placement" | "bracket">, rounds: Map<BracketKind, number>): StageKey {
   if (m.stage === "group") return "group";
   if (m.stage === "heat") return "heat";
-  if (m.stage === "final" || m.placement === 3 || m.round === lastRound) return "final";
+  const bracket = m.bracket ?? "main";
+  if (bracket === "losers") return "losers";
+  if (bracket === "grand") return m.round === 1 ? "grand_final" : "reset";
+  if (bracket === "consolation") return "consolation";
+  if (m.stage === "final" || m.placement === 3 || m.round === (rounds.get(bracket) ?? 0)) return "final";
   return "knockout";
 }
 
@@ -1878,19 +1971,32 @@ export async function siblingMatches(competitionId: number, exceptTournamentId: 
     .all(competitionId, exceptTournamentId)) as { tournament_id: number; user_id: number }[])
     entered.set(e.tournament_id, [...(entered.get(e.tournament_id) ?? []), e.user_id]);
   const known = (r: (typeof rows)[number]) => [r.user_a, r.user_b, ...(r.lane_users ?? []).map(Number)].filter((u): u is number => u !== null);
-  /** Who could still come to one side of a match: through the matches feeding it, else anybody in the division. */
-  const reach = (r: (typeof rows)[number], slot: "a" | "b", seen: Set<number>): number[] => {
+  /**
+   * Who could still come to one side of a match: through the matches feeding it, else anybody in the division. Worked out once per match
+   * (a double elimination's matches share most of what feeds them, so going path by path would be exponential).
+   */
+  const memo = new Map<number, number[]>();
+  const reach = (r: (typeof rows)[number], slot: "a" | "b"): number[] => {
     const feeders = rows.filter((f) => (f.next_match_id === r.id && f.next_slot === slot) || (f.loser_next_match_id === r.id && f.loser_next_slot === slot));
     if (feeders.length === 0) return entered.get(r.tournament_id) ?? [];
-    return feeders.flatMap((f) => (f.status !== "scheduled" || seen.has(f.id) ? [] : couldPlay(f, new Set([...seen, f.id]))));
+    return feeders.flatMap((f) => (f.status !== "scheduled" ? [] : couldPlay(f)));
   };
-  const couldPlay = (r: (typeof rows)[number], seen: Set<number>): number[] =>
-    r.stage === "group" || r.stage === "knockout"
-      ? [...known(r), ...(r.open_a ? reach(r, "a", seen) : []), ...(r.open_b ? reach(r, "b", seen) : [])]
-      : // A performance final filled only once the heats are in: anybody in the heats may swim it.
-        r.stage === "final" && known(r).length === 0
-        ? (entered.get(r.tournament_id) ?? [])
-        : known(r);
+  const couldPlay = (r: (typeof rows)[number]): number[] => {
+    const hit = memo.get(r.id);
+    if (hit) return hit;
+    // A route never leads back to the match it came from; were it to, the match reads as nobody on the way round.
+    memo.set(r.id, []);
+    const who =
+      r.stage === "group" || r.stage === "knockout"
+        ? [...known(r), ...(r.open_a ? reach(r, "a") : []), ...(r.open_b ? reach(r, "b") : [])]
+        : // A performance final filled only once the heats are in: anybody in the heats may swim it.
+          r.stage === "final" && known(r).length === 0
+          ? (entered.get(r.tournament_id) ?? [])
+          : known(r);
+    const unique = [...new Set(who)];
+    memo.set(r.id, unique);
+    return unique;
+  };
   return rows
     .filter((r) => r.status === "scheduled" && r.court_id !== null && r.date !== null && r.start_min !== null)
     .map((r) => ({
@@ -1899,7 +2005,7 @@ export async function siblingMatches(competitionId: number, exceptTournamentId: 
       date: r.date!,
       minute: r.start_min!,
       minutes: r.match_minutes,
-      userIds: [...new Set(couldPlay(r, new Set([r.id])))],
+      userIds: couldPlay(r),
     }));
 }
 
@@ -1910,7 +2016,7 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
   const entries = (await db
     .prepare(`SELECT id, seed, entry_mark, ${PERSON_OF("tournament_entries")} AS user_id FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' ORDER BY seed NULLS LAST, id`)
     .all(tournamentId)) as { id: number; seed: number | null; entry_mark: number | string | null; user_id: number | null }[];
-  const minimum = t.format === "groups" ? 3 : t.format === "swiss" ? 4 : 2;
+  const minimum = t.format === "groups" || t.format === "double_elimination" ? 3 : t.format === "swiss" ? 4 : 2;
   if (entries.length < minimum) return { ok: false, error: `At least ${minimum} entries are needed.` };
   if (t.format === "swiss") {
     // A Swiss event pairs one round at a time (lib/swiss.ts): its draw is the initial order and round 1.
@@ -1926,8 +2032,22 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
 
   const matches: NewMatch[] = [];
   if (t.format === "knockout") {
+    const size = bracketSize(ranked.length);
+    const pairs = firstRound(ranked);
     // A third-place match needs two semi-finals to come from.
-    matches.push(...knockout(bracketSize(ranked.length), firstRound(ranked), [], t.thirdPlace && ranked.length >= 4));
+    matches.push(...knockout(size, pairs, [], t.thirdPlace && ranked.length >= 4));
+    // A consolation draw for those who lose a first-round match that is played, where there is one to make (ADR 0032, C).
+    const consolation = t.rules.bracket.consolation ? consolationDraw(size, pairs, t.rules.bracket.consolationThirdPlace) : null;
+    if (consolation) {
+      matches.push(...consolation.matches.map(newMatchOf));
+      for (const [key, to] of consolation.losersTo) {
+        const from = matches.find((x) => x.key === key)!;
+        from.loserNextKey = to.key;
+        from.loserNextSlot = to.slot;
+      }
+    }
+  } else if (t.format === "double_elimination") {
+    matches.push(...doubleElimination(bracketSize(ranked.length), firstRound(ranked), t.rules.bracket.grandFinalReset).map(newMatchOf));
   } else if (t.format === "performance") {
     // Heats seeded by entry mark, the best in the last heat and the middle lanes; the unmarked drawn by lot before them.
     const rules = t.rules.performance!;
@@ -1994,17 +2114,18 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
   }
 
   // Byes go straight through, before scheduling.
-  for (const m of matches.filter((x) => x.stage === "knockout" && x.round === 1 && t.format === "knockout")) {
-    if ((m.a === null) !== (m.b === null)) {
-      m.bye = true;
-      const next = matches.find((x) => x.key === m.nextKey);
-      if (next) next[m.nextSlot!] = m.a ?? m.b;
-    }
+  for (const m of matches.filter((x) => x.stage === "knockout" && x.round === 1 && t.format === "knockout" && (x.bracket ?? "main") === "main")) {
+    if ((m.a === null) !== (m.b === null)) m.bye = true;
+  }
+  for (const m of matches.filter((x) => x.bye)) {
+    const next = matches.find((x) => x.key === m.nextKey);
+    if (next) next[m.nextSlot!] = m.a ?? m.b;
   }
   const byes = new Set(matches.filter((m) => m.bye).map((m) => m.key));
   // Each match's length: its stage's, else the tournament's.
-  const lastRound = Math.max(0, ...matches.filter((m) => m.stage === "knockout").map((m) => m.round));
-  const lengthOf = new Map(matches.map((m) => [m.key, minutesFor(t, stageKeyOf(m, lastRound))]));
+  const rounds = roundsByBracket(matches.filter((m) => m.stage === "knockout").map((m) => ({ bracket: m.bracket ?? "main", round: m.round })));
+  const lengthOf = new Map(matches.map((m) => [m.key, minutesFor(t, stageKeyOf(m, rounds))]));
+  const resets = new Set(matches.filter((m) => m.reset).map((m) => m.key));
   // A player is also known by their account, so a division does not put them on court while they play in another.
   const person = new Map(entries.filter((e) => e.user_id !== null).map((e) => [e.id, `u${e.user_id}`]));
   const sidesOf = (ids: (number | null)[]) => ids.flatMap((id) => (id === null ? [] : [`e${id}`, ...(person.has(id) ? [person.get(id)!] : [])]));
@@ -2045,13 +2166,21 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
   for (const o of siblings)
     for (const u of o.userIds) sideBusy.set(`u${u}`, [...(sideBusy.get(`u${u}`) ?? []), { date: o.date, start: o.minute, end: o.minute + o.minutes }]);
   const now = Date.now();
-  const scheduled = scheduleTimed(toPlay, windows, {
-    step: startStep([t.matchMinutes, ...toPlay.map((m) => m.minutes)]),
-    origin: t.startMin,
-    occupied: siblings.map((o) => ({ courtId: o.courtId, date: o.date, start: o.minute, end: o.minute + o.minutes })),
-    sideBusy,
-    allowed: (date, minute) => instantOf(date, minute, zone).getTime() > now,
-  });
+  const place = (list: TimedMatch[]) =>
+    scheduleTimed(list, windows, {
+      step: startStep([t.matchMinutes, ...list.map((m) => m.minutes)]),
+      origin: t.startMin,
+      occupied: siblings.map((o) => ({ courtId: o.courtId, date: o.date, start: o.minute, end: o.minute + o.minutes })),
+      sideBusy,
+      allowed: (date, minute) => instantOf(date, minute, zone).getTime() > now,
+    });
+  let scheduled = place(toPlay);
+  // A grand-final reset is played only if the losers' bracket's champion wins the grand final: where there is no room for it
+  // it is left without a court (a manager gives it one if it is needed), never a reason to refuse the draw.
+  if (!scheduled.ok && toPlay.some((m) => resets.has(m.key))) {
+    const retry = place(toPlay.filter((m) => !resets.has(m.key)));
+    if (retry.ok) scheduled = retry;
+  }
   if (!scheduled.ok)
     return {
       ok: false,
@@ -2060,15 +2189,18 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
 
   await db.transaction(async () => {
     const ids = new Map<string, number>();
+    // A route to a match made later (a losers' bracket's matches are made before some they feed), set once every match is.
+    const late: NewMatch[] = [];
     // Last round first, so each match can point at the one its winner goes to.
     for (const m of [...matches].sort((x, y) => (y.stage === "knockout" ? y.round : 0) - (x.stage === "knockout" ? x.round : 0))) {
       const at = scheduled.placed.get(m.key);
+      if ((m.nextKey && !ids.has(m.nextKey)) || (m.loserNextKey && !ids.has(m.loserNextKey))) late.push(m);
       const info = await db
         .prepare(
           `INSERT INTO tournament_matches (tournament_id, stage, group_no, round, position, entry_a, entry_b,
                                            next_match_id, next_slot, court_id, date, start_min, winner, status,
-                                           minutes, placement, loser_next_match_id, loser_next_slot)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                           minutes, placement, loser_next_match_id, loser_next_slot, bracket)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           tournamentId,
@@ -2088,7 +2220,8 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
           lengthOf.get(m.key)!,
           m.placement ?? null,
           m.loserNextKey ? ids.get(m.loserNextKey) ?? null : null,
-          m.loserNextSlot ?? null
+          m.loserNextSlot ?? null,
+          m.bracket && m.bracket !== "main" ? m.bracket : null
         );
       ids.set(m.key, info.lastInsertRowid as number);
       for (const l of m.lanes ?? [])
@@ -2096,7 +2229,11 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
           .prepare("INSERT INTO tournament_performances (tournament_id, match_id, entry_id, lane) VALUES (?, ?, ?, ?)")
           .run(tournamentId, info.lastInsertRowid as number, l.entryId, l.lane);
     }
-    await db.prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ?").run(tournamentId);
+    for (const m of late)
+      await db
+        .prepare("UPDATE tournament_matches SET next_match_id = ?, loser_next_match_id = ? WHERE id = ?")
+        .run(m.nextKey ? ids.get(m.nextKey) ?? null : null, m.loserNextKey ? ids.get(m.loserNextKey) ?? null : null, ids.get(m.key)!);
+    await db.prepare("UPDATE tournaments SET status = 'drawn', draw_order = ? WHERE id = ?").run(JSON.stringify(ranked), tournamentId);
   })();
 
   await releaseUnneeded(tournamentId);
@@ -2187,11 +2324,12 @@ type ResultMode = "normal" | "replace" | "standings_only";
 
 async function recordResultOnce(matchId: number, input: ResultInput, mode: ResultMode): Promise<Result<TournamentDetail>> {
   const db = getDb();
-  // A Swiss event's results go in one at a time: the one that completes a round pairs the next, and two completing it at
-  // once would each see the other undecided and pair nothing (ADR 0033).
   const owner = (await db.prepare("SELECT tournament_id FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number } | undefined;
-  if (owner && (await db.prepare("SELECT 1 FROM swiss_events WHERE tournament_id = ?").get(owner.tournament_id)) !== undefined)
-    await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(owner.tournament_id);
+  if (!owner) return { ok: false, error: "Match not found." };
+  // One change to a tournament's results and fixtures at a time, as moving a fixture and taking somebody out are (ADR 0032, T3).
+  await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(owner.tournament_id);
+  // A Swiss event's results in particular go in one at a time (ADR 0033): the one that completes a round pairs the next, and
+  // two completing it at once would each see the other undecided and pair nothing.
   const m = (await db.prepare("SELECT * FROM tournament_matches WHERE id = ?").get(matchId)) as
     | {
         id: number;
@@ -2736,19 +2874,36 @@ const played = (m: Match) => m.status === "done" || m.status === "walkover" || m
 
 /**
  * The matches a competitor is in from `fromId` on, in place of another:
- * that match, then each one they went on to by winning — the chain a
- * wrong advancement runs along. Ends at a match they lost, have not played,
- * or the final.
+ * that match, then each one they went on to by the route their result sent
+ * them — a winner by the winner's, a loser by the loser's (ADR 0032, R4) — the
+ * chain a wrong advancement runs along. Ends at a match they have not played,
+ * or have no route from (the final, a match whose loser is out).
  */
 function wrongChain(d: TournamentDetail, fromId: number, wrong: number): Match[] {
   const chain: Match[] = [];
   let m = d.matches.find((x) => x.id === fromId);
   while (m && (m.a === wrong || m.b === wrong) && !chain.includes(m)) {
     chain.push(m);
-    if (!(played(m) && m.winner === wrong && m.next !== null)) break;
-    m = d.matches.find((x) => x.id === m!.next);
+    if (!played(m) || m.winner === null) break;
+    const to = m.winner === wrong ? m.next : m.loserNext;
+    m = to === null ? undefined : d.matches.find((x) => x.id === to);
   }
   return chain;
+}
+
+/** Every match from which `id` can be reached along the routes: the ones a competitor goes through to get there. */
+function ancestorsOf(d: TournamentDetail, id: number): Set<number> {
+  const seen = new Set<number>();
+  const queue = [id];
+  while (queue.length > 0) {
+    const at = queue.pop()!;
+    for (const f of d.matches)
+      if ((f.next === at || f.loserNext === at) && !seen.has(f.id)) {
+        seen.add(f.id);
+        queue.push(f.id);
+      }
+  }
+  return seen;
 }
 
 function chainSentences(d: TournamentDetail, chain: Match[], wrong: number, right: number | null): ProgressionIssue["affected"] {
@@ -2779,6 +2934,13 @@ function findProgressionIssues(before: TournamentDetail, after: TournamentDetail
   if (!was || !now) return [];
   const found: FoundIssue[] = [];
   if (now.stage === "knockout") {
+    // A grand final corrected so that the winners' champion won it: a reset already played is not needed, and there is nobody to replay it for (R4).
+    if (now.bracket === "grand" && now.round === 1) {
+      const reset = after.matches.find((x) => x.bracket === "grand" && x.round === 2);
+      if (reset && played(reset) && was.winner !== null && now.winner !== null && now.winner !== was.winner && now.winner === now.a)
+        found.push({ fromMatchId: reset.id, wrong: was.winner, right: null, affected: chainSentences(after, [reset], was.winner, null) });
+      return found;
+    }
     if (was.winner !== null && now.winner !== was.winner && now.next !== null) {
       const chain = wrongChain(after, now.next, was.winner);
       if (chain.length > 0) found.push({ fromMatchId: now.next, wrong: was.winner, right: now.winner, affected: chainSentences(after, chain, was.winner, now.winner) });
@@ -2828,6 +2990,8 @@ async function stateToken(tournamentId: number, extra: unknown = null): Promise<
 
 export interface IssueReview {
   issue: ProgressionIssue;
+  /** The other issue the same correction opened, replayed with this one where each competitor is in the other's place (ADR 0032, R6). */
+  together: number | null;
   /** Replaying: the matches to replay and those needing a new court and time, or why it cannot be done here. */
   replay:
     | { possible: true; matches: { matchId: number; name: string; namePhrase: StaffText; needsSlot: boolean }[] }
@@ -2835,26 +2999,49 @@ export interface IssueReview {
   token: string;
 }
 
+/**
+ * The other issue the same correction opened, where each competitor is in the
+ * other's place (a winners' result corrected: one is wrongly on the winner's
+ * route, the other on the loser's): replayed together, since replaying one alone would
+ * put the right competitor in two places (ADR 0032, R6). Not for the main draw's third-place
+ * match, whose own rule is that the organiser lets it stand or arranges it by hand.
+ */
+function siblingIssue(d: TournamentDetail, issue: ProgressionIssue): ProgressionIssue | null {
+  const third = (id: number) => d.matches.some((m) => m.id === id && m.placement === 3 && m.bracket === "main");
+  if (issue.rightEntry === null || third(issue.fromMatchId)) return null;
+  return (
+    d.issues.find(
+      (o) => o.id !== issue.id && o.status === "open" && o.wrongEntry === issue.rightEntry && o.rightEntry === issue.wrongEntry && !third(o.fromMatchId)
+    ) ?? null
+  );
+}
+
 /** What replaying the wrong chain would do, or why it cannot be done safely here. */
 async function replayPlan(d: TournamentDetail, issue: ProgressionIssue): Promise<IssueReview["replay"]> {
   const name = (id: number | null) => entryName(d, id);
   const blockers: StaffText[] = [];
-  if (issue.rightEntry === null) blockers.push(said("srv.tn.replay.nobody"));
-  else {
-    if (d.entries.find((e) => e.id === issue.rightEntry)?.out) blockers.push(said("srv.tn.replay.left", { name: name(issue.rightEntry) }));
-    // Already in the knockout from where it went wrong on: they cannot be in two places in it.
-    const from = d.matches.find((m) => m.id === issue.fromMatchId);
-    const elsewhere = d.matches.find((m) => m.stage === "knockout" && m.round >= (from?.round ?? 1) && (m.a === issue.rightEntry || m.b === issue.rightEntry));
-    if (elsewhere) blockers.push(said("srv.tn.replay.already", { name: name(issue.rightEntry), match: matchNamePhrase(d, elsewhere) }));
+  const sibling = siblingIssue(d, issue);
+  const group = sibling ? [issue, sibling] : [issue];
+  const chains = group.map((i) => wrongChain(d, i.fromMatchId, i.wrongEntry));
+  const together = new Set(chains.flat().map((m) => m.id));
+  for (const [k, one] of group.entries()) {
+    if (one.rightEntry === null) {
+      blockers.push(said("srv.tn.replay.nobody"));
+      continue;
+    }
+    if (d.entries.find((e) => e.id === one.rightEntry)?.out) blockers.push(said("srv.tn.replay.left", { name: name(one.rightEntry) }));
+    // Already in a match they did not come through to get here: they cannot be in two places (the matches replayed together are being changed).
+    const before = ancestorsOf(d, one.fromMatchId);
+    const elsewhere = d.matches.find(
+      (m) => m.stage === "knockout" && !before.has(m.id) && (m.a === one.rightEntry || m.b === one.rightEntry) && !(group.length > 1 && together.has(m.id) && !chains[k].some((c) => c.id === m.id))
+    );
+    if (elsewhere) blockers.push(said("srv.tn.replay.already", { name: name(one.rightEntry), match: matchNamePhrase(d, elsewhere) }));
   }
-  if (d.entries.find((e) => e.id === issue.wrongEntry)?.out && blockers.length === 0) {
-    // Out since: their place is still the right one's; replaying is still possible.
-  }
-  const chain = wrongChain(d, issue.fromMatchId, issue.wrongEntry);
-  if (chain.length === 0) blockers.push(said("srv.tn.replay.changed"));
+  if (chains.some((c) => c.length === 0)) blockers.push(said("srv.tn.replay.changed"));
   if (blockers.length > 0) return { possible: false, blockers: blockers.map(englishOf), blockerPhrases: blockers };
   const zone = await tournamentZone(d.id);
   const now = Date.now();
+  const chain = [...new Map(chains.flat().map((m) => [m.id, m])).values()];
   return {
     possible: true,
     matches: chain.map((m) => ({
@@ -2873,7 +3060,7 @@ export async function reviewIssue(issueId: number): Promise<Result<IssueReview>>
   const d = (await tournamentDetail(row.tournament_id, { forStaff: true }))!;
   const issue = d.issues.find((i) => i.id === issueId)!;
   if (issue.status !== "open") return { ok: false, error: "That has been resolved." };
-  return { ok: true, value: { issue, replay: await replayPlan(d, issue), token: await stateToken(d.id, issueId) } };
+  return { ok: true, value: { issue, together: siblingIssue(d, issue)?.id ?? null, replay: await replayPlan(d, issue), token: await stateToken(d.id, issueId) } };
 }
 
 export interface MatchSlot {
@@ -3082,55 +3269,68 @@ export async function resolveIssue(
     const before = (await tournamentDetail(tournamentId, { forStaff: true }))!;
     const t = (await tournamentById(tournamentId))!;
     const issue = before.issues.find((i) => i.id === issueId)!;
+    const sibling = confirm.action === "replay" ? siblingIssue(before, issue) : null;
     const name = (id: number | null) => entryName(before, id);
     let changes: StaffText[];
-    let reset: Match[] = [];
+    const reset: Match[] = [];
     if (confirm.action === "stand") {
       changes = [said("srv.tn.stand", { wrong: name(issue.wrongEntry), right: name(issue.rightEntry) })];
     } else {
       const plan = await replayPlan(before, issue);
       if (!plan.possible) return { ok: false, error: `It cannot be replayed here: ${plan.blockers.join(" ")}`, code: "BLOCKED" };
-      const chain = wrongChain(before, issue.fromMatchId, issue.wrongEntry);
-      const ids = new Set(chain.map((m) => m.id));
+      // The chains replayed: this issue's and, where the same correction put each competitor in the other's place, its sibling's, together (ADR 0032, R6).
+      const chains = [issue, ...(sibling ? [sibling] : [])].map((one) => ({ one, chain: wrongChain(before, one.fromMatchId, one.wrongEntry) }));
+      const ids = new Set(chains.flatMap((c) => c.chain.map((m) => m.id)));
       changes = [];
-      let previousEnd: { date: string; minute: number } | null = null;
-      for (let i = 0; i < chain.length; i++) {
-        const m = chain[i];
-        const need = plan.matches.find((x) => x.matchId === m.id)!;
-        // Who plays it: the right competitor in the first; in each later one, whoever wins the replay before.
-        const feederSide = i === 0 ? (m.a === issue.wrongEntry ? "a" : "b") : chain[i - 1].nextSlot!;
-        const newSide = i === 0 ? issue.rightEntry : null;
-        await db
-          .prepare(`UPDATE tournament_matches SET entry_${feederSide} = ?, winner = NULL, score = NULL, status = 'scheduled', updated_at = datetime('now') WHERE id = ?`)
-          .run(newSide, m.id);
-        const slot = confirm.slots?.[String(m.id)];
-        if (need.needsSlot && !slot) throw new IssueRefused(`Give ${need.name} a court and a time for the replay.`);
-        if (slot) {
-          if (previousEnd && (slot.date < previousEnd.date || (slot.date === previousEnd.date && slot.startMin < previousEnd.minute)))
-            throw new IssueRefused(`${need.name} has to be after the match before it in the replay.`);
-          const fresh = { ...m, a: feederSide === "a" ? newSide : m.a, b: feederSide === "b" ? newSide : m.b };
-          const refused = await holdMatchSlot(t, fresh, slot, ids);
-          if (refused) throw new IssueRefused(`${need.name}: ${refused}`);
-          previousEnd = { date: slot.date, minute: slot.startMin + m.minutes };
-        } else if (m.date !== null && m.minute !== null) previousEnd = { date: m.date, minute: m.minute + m.minutes };
-        const at: Record<string, StaffValue> = slot ? { date: slot.date, time: clockValue(slot.startMin) } : {};
-        changes.push(
-          i === 0
-            ? said(slot ? "srv.tn.replay.firstAt" : "srv.tn.replay.first", { match: need.namePhrase, right: name(issue.rightEntry), wrong: name(issue.wrongEntry), ...at })
-            : said(slot ? "srv.tn.replay.nextAt" : "srv.tn.replay.next", { match: need.namePhrase, ...at })
-        );
+      const done = new Set<number>();
+      for (const { one, chain } of chains) {
+        let previousEnd: { date: string; minute: number } | null = null;
+        for (let i = 0; i < chain.length; i++) {
+          const m = chain[i];
+          const need = plan.matches.find((x) => x.matchId === m.id)!;
+          // Who plays it: the right competitor in the first; in each later one, whoever wins the replay before, by the route they took.
+          const feederSide = i === 0 ? (m.a === one.wrongEntry ? "a" : "b") : chain[i - 1].winner === one.wrongEntry ? chain[i - 1].nextSlot! : chain[i - 1].loserNextSlot!;
+          const newSide = i === 0 ? one.rightEntry : null;
+          await db
+            .prepare(`UPDATE tournament_matches SET entry_${feederSide} = ?, winner = NULL, score = NULL, status = 'scheduled', updated_at = datetime('now') WHERE id = ?`)
+            .run(newSide, m.id);
+          // A match both chains reach is given its time and named once.
+          if (done.has(m.id)) continue;
+          done.add(m.id);
+          reset.push(m);
+          const slot = confirm.slots?.[String(m.id)];
+          if (need.needsSlot && !slot) throw new IssueRefused(`Give ${need.name} a court and a time for the replay.`);
+          if (slot) {
+            if (previousEnd && (slot.date < previousEnd.date || (slot.date === previousEnd.date && slot.startMin < previousEnd.minute)))
+              throw new IssueRefused(`${need.name} has to be after the match before it in the replay.`);
+            const fresh = { ...m, a: feederSide === "a" ? newSide : m.a, b: feederSide === "b" ? newSide : m.b };
+            const refused = await holdMatchSlot(t, fresh, slot, ids);
+            if (refused) throw new IssueRefused(`${need.name}: ${refused}`);
+            previousEnd = { date: slot.date, minute: slot.startMin + m.minutes };
+          } else if (m.date !== null && m.minute !== null) previousEnd = { date: m.date, minute: m.minute + m.minutes };
+          const at: Record<string, StaffValue> = slot ? { date: slot.date, time: clockValue(slot.startMin) } : {};
+          changes.push(
+            i === 0
+              ? said(slot ? "srv.tn.replay.firstAt" : "srv.tn.replay.first", { match: need.namePhrase, right: name(one.rightEntry), wrong: name(one.wrongEntry), ...at })
+              : said(slot ? "srv.tn.replay.nextAt" : "srv.tn.replay.next", { match: need.namePhrase, ...at })
+          );
+        }
       }
-      // The last match the wrong competitor won sent them on: that place now waits for the replay's winner.
-      const last = chain[chain.length - 1];
-      if (played(last) && last.winner === issue.wrongEntry && last.next !== null && !ids.has(last.next)) {
-        const after = before.matches.find((x) => x.id === last.next);
-        if (after && after.status === "scheduled") await db.prepare(`UPDATE tournament_matches SET entry_${last.nextSlot} = NULL WHERE id = ?`).run(last.next);
-      }
-      reset = chain;
+      // What the replayed matches fed that is still to play waits for their results, whoever they sent there (the winner by the winner's route,
+      // the loser by the loser's): so nobody is in two matches still to play. What has been played stands.
+      for (const { chain } of chains)
+        for (const m of chain)
+          for (const route of [{ to: m.next, slot: m.nextSlot }, { to: m.loserNext, slot: m.loserNextSlot }]) {
+            const target = route.to === null ? undefined : before.matches.find((x) => x.id === route.to);
+            if (target && route.slot && (ids.has(target.id) || target.status === "scheduled"))
+              await db.prepare(`UPDATE tournament_matches SET entry_${route.slot} = NULL WHERE id = ?`).run(target.id);
+          }
+      if (before.format === "double_elimination") await settleReset(tournamentId);
     }
-    await db
-      .prepare("UPDATE tournament_issues SET status = ?, resolved_by = ?, resolution_reason = ?, resolved_at = datetime('now') WHERE id = ?")
-      .run(confirm.action === "stand" ? "stood" : "replayed", by.id, reason.slice(0, 1000), issueId);
+    for (const one of confirm.action === "replay" && sibling ? [issue, sibling] : [issue])
+      await db
+        .prepare("UPDATE tournament_issues SET status = ?, resolved_by = ?, resolution_reason = ?, resolved_at = datetime('now') WHERE id = ?")
+        .run(confirm.action === "stand" ? "stood" : "replayed", by.id, reason.slice(0, 1000), one.id);
     await db
       .prepare(
         `INSERT INTO tournament_corrections (tournament_id, match_id, kind, reason, changes, change_phrases, before_state, admin_id, admin_name)
@@ -3175,7 +3375,12 @@ export async function decide(
   goesOn = true
 ): Promise<void> {
   const db = getDb();
-  const m = (await db.prepare("SELECT next_match_id, next_slot, loser_next_match_id, loser_next_slot, entry_a, entry_b FROM tournament_matches WHERE id = ?").get(matchId)) as {
+  const m = (await db
+    .prepare("SELECT tournament_id, bracket, round, next_match_id, next_slot, loser_next_match_id, loser_next_slot, entry_a, entry_b FROM tournament_matches WHERE id = ?")
+    .get(matchId)) as {
+    tournament_id: number;
+    bracket: string | null;
+    round: number;
     next_match_id: number | null;
     next_slot: "a" | "b" | null;
     loser_next_match_id: number | null;
@@ -3199,6 +3404,45 @@ export async function decide(
   if (m.loser_next_match_id !== null && goesOn) {
     const loser = winner === null || status === "bye" ? null : winner === m.entry_a ? m.entry_b : m.entry_a;
     await db.prepare(`UPDATE tournament_matches SET entry_${m.loser_next_slot} = ? WHERE id = ?`).run(loser, m.loser_next_match_id);
+  }
+  // The grand final decided: its reset is needed or it is not (ADR 0032, P5).
+  if (goesOn && m.bracket === "grand" && m.round === 1) await settleReset(m.tournament_id);
+}
+
+/**
+ * A double elimination's grand-final reset, as the grand final stands (ADR 0032, E6 and P5): decided with
+ * the losers' bracket's champion winning, the reset is needed, with both of them in it and to play;
+ * decided with the winners' champion winning, it is not needed (a bye, nobody in it, no winner); the grand
+ * final not decided (a replay has reset it), the reset waits empty. It never touches a reset already
+ * played. A reset that is needed again keeps its court and time if they are still held, else has none.
+ */
+async function settleReset(tournamentId: number): Promise<void> {
+  const db = getDb();
+  const grand = (await db
+    .prepare("SELECT id, round, status, winner, entry_a, court_id, date, start_min, minutes FROM tournament_matches WHERE tournament_id = ? AND bracket = 'grand'")
+    .all(tournamentId)) as { id: number; round: number; status: string; winner: number | null; entry_a: number | null; court_id: number | null; date: string | null; start_min: number | null; minutes: number | null }[];
+  const final = grand.find((g) => g.round === 1);
+  const reset = grand.find((g) => g.round === 2);
+  if (!final || !reset || ["done", "walkover", "retired"].includes(reset.status)) return;
+  const decided = ["done", "walkover", "retired"].includes(final.status) && final.winner !== null;
+  // A grand final decided as a bye (one side only, or nobody) has nobody to play the reset against either.
+  if (final.status === "bye" || (decided && final.winner === final.entry_a)) {
+    await db
+      .prepare("UPDATE tournament_matches SET entry_a = NULL, entry_b = NULL, winner = NULL, score = NULL, status = 'bye', updated_at = datetime('now') WHERE id = ?")
+      .run(reset.id);
+    return;
+  }
+  if (!decided) await db.prepare("UPDATE tournament_matches SET entry_a = NULL, entry_b = NULL WHERE id = ?").run(reset.id);
+  if (reset.status === "bye") {
+    await db.prepare("UPDATE tournament_matches SET winner = NULL, score = NULL, status = 'scheduled', updated_at = datetime('now') WHERE id = ?").run(reset.id);
+    // Needed again: its time if it is still held, else it waits for a manager to give it a court (Move).
+    if (reset.court_id !== null && reset.date !== null && reset.start_min !== null) {
+      const t = (await tournamentById(tournamentId))!;
+      const d = (await tournamentDetail(tournamentId, { forStaff: true }))!;
+      const m = d.matches.find((x) => x.id === reset.id)!;
+      const refused = await holdMatchSlot(t, m, { courtId: reset.court_id, date: reset.date, startMin: reset.start_min }, new Set([reset.id]), true);
+      if (refused) await db.prepare("UPDATE tournament_matches SET court_id = NULL, date = NULL, start_min = NULL WHERE id = ?").run(reset.id);
+    }
   }
 }
 
@@ -3356,7 +3600,11 @@ async function finishIfDone(tournamentId: number): Promise<void> {
   const left = (await db
     .prepare("SELECT COUNT(*)::int AS n FROM tournament_matches WHERE tournament_id = ? AND status = 'scheduled'")
     .get(tournamentId)) as { n: number };
-  if (left.n > 0) return;
+  if (left.n > 0) {
+    // A correction can bring a match back (a grand-final reset needed again): a finished tournament is under way again.
+    await db.prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ? AND status = 'finished'").run(tournamentId);
+    return;
+  }
   // Progression a correction left wrong is resolved first: a tournament never finishes on it.
   if (await db.prepare("SELECT 1 FROM tournament_issues WHERE tournament_id = ? AND status = 'open'").get(tournamentId)) return;
   await db.prepare("UPDATE tournaments SET status = 'finished' WHERE id = ? AND status = 'drawn'").run(tournamentId);

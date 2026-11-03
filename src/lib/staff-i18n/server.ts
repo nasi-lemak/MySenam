@@ -393,6 +393,16 @@ const en = {
   "srv.tn.swiss.unpaired": "{match}, {sides}, is taken off: the round is paired again.",
   "srv.tn.swiss.paired": "{match} is now {sides}.",
   "srv.tn.swiss.bye": "{match}: {name} has the bye.",
+  // Consolation draws and double elimination: what a match in those brackets is called (lib/tournaments.ts, ADR 0032)
+  "srv.round.winnersRound": "Winners' round {round}, match {n}",
+  "srv.round.winnersFinal": "Winners' final",
+  "srv.round.losersRound": "Losers' round {round}, match {n}",
+  "srv.round.losersFinal": "Losers' final",
+  "srv.round.grandFinal": "Grand final",
+  "srv.round.reset": "Grand final reset",
+  "srv.round.consolationRound": "Consolation round {round}, match {n}",
+  "srv.round.consolationFinal": "Consolation final",
+  "srv.round.consolationThird": "Consolation third-place match",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -782,6 +792,15 @@ const ms: Record<keyof typeof en, string> = {
   "srv.tn.swiss.unpaired": "{match}, {sides}, dibatalkan: pusingan dipasangkan semula.",
   "srv.tn.swiss.paired": "{match} kini {sides}.",
   "srv.tn.swiss.bye": "{match}: {name} mendapat bye.",
+  "srv.round.winnersRound": "Pusingan pemenang {round}, perlawanan {n}",
+  "srv.round.winnersFinal": "Akhir pemenang",
+  "srv.round.losersRound": "Pusingan pihak kalah {round}, perlawanan {n}",
+  "srv.round.losersFinal": "Akhir pihak kalah",
+  "srv.round.grandFinal": "Akhir besar",
+  "srv.round.reset": "Akhir besar diulang",
+  "srv.round.consolationRound": "Pusingan saguhati {round}, perlawanan {n}",
+  "srv.round.consolationFinal": "Akhir saguhati",
+  "srv.round.consolationThird": "Perlawanan tempat ketiga saguhati",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1171,6 +1190,15 @@ const zh: Record<keyof typeof en, string> = {
   "srv.tn.swiss.unpaired": "{match}，{sides}，被取消：该轮重新配对。",
   "srv.tn.swiss.paired": "{match} 现为 {sides}。",
   "srv.tn.swiss.bye": "{match}：{name} 轮空。",
+  "srv.round.winnersRound": "胜者组第 {round} 轮第 {n} 场",
+  "srv.round.winnersFinal": "胜者组决赛",
+  "srv.round.losersRound": "败者组第 {round} 轮第 {n} 场",
+  "srv.round.losersFinal": "败者组决赛",
+  "srv.round.grandFinal": "总决赛",
+  "srv.round.reset": "总决赛重赛",
+  "srv.round.consolationRound": "安慰赛第 {round} 轮第 {n} 场",
+  "srv.round.consolationFinal": "安慰赛决赛",
+  "srv.round.consolationThird": "安慰赛季军赛",
 };
 
 const area = { en, ms, zh };

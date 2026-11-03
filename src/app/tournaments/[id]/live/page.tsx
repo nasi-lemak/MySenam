@@ -9,6 +9,8 @@ import { ActivityGlyph } from "@/components/Glyph";
 import { formatMinute } from "@/lib/interval";
 import type { T } from "@/lib/i18n";
 import type { LiveBoard, LiveFixture } from "@/lib/tournament-day";
+import { matchLabel, type BracketKind } from "@/lib/brackets";
+import type { Phrase } from "@/lib/i18n";
 
 /**
  * A tournament's live board for anybody, no sign-in: what is on each court,
@@ -17,14 +19,9 @@ import type { LiveBoard, LiveFixture } from "@/lib/tournament-day";
  * name and initial. Made to be read on a phone, or put on a screen.
  */
 
-function labelOf(t: T, f: { stage: LiveFixture["stage"]; groupNo: number | null; round: number; placement: 3 | null; rounds: number }): string {
-  // `rounds` is -1 for a Swiss event: its matches are the rounds of its group stage.
-  if (f.stage === "group") return f.rounds < 0 ? t("swiss.ui.round", { n: f.round }) : t("tour.group", { n: f.groupNo ?? 0 });
-  if (f.placement === 3) return t("tour.thirdPlace");
-  if (f.round === f.rounds) return t("tour.final");
-  if (f.round === f.rounds - 1) return t("tour.semis");
-  if (f.round === f.rounds - 2) return t("tour.quarters");
-  return t("tour.round", { n: f.round });
+function labelOf(t: T, f: { stage: LiveFixture["stage"]; bracket?: BracketKind; groupNo: number | null; round: number; placement: 3 | null; rounds: number }): string {
+  const label = matchLabel({ ...f, bracket: f.bracket ?? "main" }, f.rounds);
+  return t(label.key as Phrase, label.n === undefined ? undefined : { n: label.n });
 }
 
 export default function LiveTournamentPage() {

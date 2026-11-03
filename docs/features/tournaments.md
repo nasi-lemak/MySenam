@@ -9,6 +9,8 @@ Status: [feature status](../product/feature-status.md#tournaments-and-leagues).
 Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-corrections.md)
 (rules and corrections), [ADR 0013](../architecture/decisions/0013-competition-framework.md)
 (one engine configured by data) and
+[ADR 0032](../architecture/decisions/0032-consolation-draws-and-double-elimination.md)
+(consolation draws and double elimination, specified rule by rule) and
 [ADR 0033](../architecture/decisions/0033-swiss-tournaments-and-club-ladders.md)
 (Swiss and ladders).
 
@@ -69,12 +71,16 @@ rules, which start from the sport's template
   | Bouldering: tops, zones and attempts; club format; climbing by height | bouldering, climbing | A result is a set of counts, ranked by the rules ([counted performances](#counted-performances)) |
   | Your own | anything else | The general rules (as every tournament had before templates) |
 
-- **Format:** a straight knockout; round-robin groups (3 to 6) whose top one
+- **Format:** a straight knockout (with a **consolation draw** for its
+  first-round losers if chosen); round-robin groups (3 to 6) whose top one
   or two go through to a knockout; a **round robin** of everybody (up to 16),
-  whose table is the result; a **[Swiss event](#swiss-tournaments)**, a fixed
-  number of rounds each paired from the standings; or a **performance event**:
-  heats, then a final, ranked by a mark or, for bouldering and climbing, by
-  [counts](#counted-performances).
+  whose table is the result; a **double elimination** (a winners' bracket, a
+  losers' bracket and a grand final; see
+  [below](#consolation-draws-and-double-elimination)); a
+  **[Swiss event](#swiss-tournaments)**, a fixed number of rounds each paired
+  from the standings; or a **performance event**: heats, then a final, ranked by
+  a mark or, for bouldering and climbing, by [counts](#counted-performances). A
+  knockout may also have a consolation draw.
 - **Who enters:** singles, doubles (a partner named), or **teams**: a team
   name and a roster of names, within the template's sizes (a futsal roster is
   5 to 14), or a [persistent team](#teams) the captain names, with the roster
@@ -206,8 +212,9 @@ How long a match is given on court comes from the most specific of:
 
 1. **the fixture**, once an organiser moves it or gives it longer (below);
 2. **its stage**, under *Match lengths by stage*: group matches, knockout
-   rounds, the final (the knockout's last round and its third-place match),
-   heats;
+   rounds, the final (the knockout's last round and its third-place match,
+   and a double elimination's winners' final), heats, a double elimination's
+   losers' bracket, grand final and reset, and a consolation draw;
 3. **the tournament**, or the division of a competition;
 4. **the competition**.
 
@@ -239,6 +246,89 @@ same progression as every match:
   stand or arranges it by hand. A played match is never rewritten.
 - **Finishing.** The tournament finishes once the final and the third-place
   match are both decided.
+
+### Consolation draws and double elimination
+
+Two structures built on the same matches, results and corrections as the
+knockout ([ADR 0032](../architecture/decisions/0032-consolation-draws-and-double-elimination.md)
+numbers every rule below and names the tests that prove it). In both, a match
+has a *winner's route* and a *loser's route* to a place in another match; the
+knockout's third-place match already used the second. Seeds, byes and the draw
+by lot are the knockout's: byes go to the top seeds, the order the draw was
+made in (seeds first, then those drawn by lot) is recorded on the tournament,
+and a draw made again from it is the same draw.
+
+**A knockout with a consolation draw** (*Brackets* under the stage lengths,
+a rule of a straight knockout, off unless chosen; not for groups then a
+knockout, nor for a double elimination):
+
+- Those who lose a **first-round match that is played** go on to a smaller
+  knockout of their own. A bye is not a match: a player with a first-round bye
+  who loses their second match is out of the main draw and **not** in the
+  consolation draw (this is the first-round consolation; a feed-in that takes
+  every loser is not built).
+- It is made where the main draw has eight lines or more and at least two
+  first-round matches are played (from six entries); otherwise there is none
+  and the draw says nothing about it. With four lines the first round is the
+  semi-finals, whose losers have the third-place match.
+- Its lines are seeded by how close the first-round matches were: the loser
+  of the match between the closest seeds, expected to be the strongest, is
+  the top seed, and byes go to the top seeds as the knockout's do. Nobody
+  meets anybody they have played.
+- Its own **final**, and optionally a **consolation third-place match** (the
+  consolation semi-finals' losers, where there are two). The main draw keeps
+  its own third-place match.
+- Places: the main draw's first (champion, runner-up, third and fourth by the
+  third-place match or joint third, then each earlier round's losers
+  together), those who won a first-round match or had a bye above everybody who
+  lost one; then the consolation draw's own order after them.
+
+**A double elimination** (a format; three entries at least):
+
+- A **winners' bracket**, the knockout of everybody, and a **losers' bracket**
+  that every loser of the winners' bracket drops into: first-round losers
+  meet each other; each later winners' round's losers play the survivors of the
+  losers' bracket. Out of the event on a second loss. `n` entries give `n-1`
+  winners' matches, `n-2` losers' matches and the grand final: `2n-2`.
+- Losers drop in reversed into the first drop round and in order into the
+  next, alternating, so that nobody meets, in their first two losers' matches,
+  a player they have already played, wherever the byes fall. Later, where the
+  shape forces it, two players who have met may meet again.
+- The **grand final** is the winners' champion against the losers' champion.
+  With the **reset** on (the default), if the losers' champion wins it a
+  second match is played between the same two and its winner is champion; if
+  the winners' champion wins, the event is over and the reset is not needed
+  (a bye, nobody in it). With the reset off, the grand final decides.
+- Third place is the loser of the losers' final: the knockout's third-place
+  setting is not for it.
+
+**Progression** is the same for both: a result puts its winner and its loser
+into their routes in one change, a bye or a match nobody can win sends
+nobody, and a match nobody can contest is settled at once (a walkover to the
+other side against somebody who left, a bye against a place nobody will fill).
+Every new match is scheduled like the rest, after every match that feeds it on
+either route, for the length its stage gives it (*Match lengths by stage*
+gains the losers' bracket, the grand final, the reset and the consolation
+draw); the reset is placed with the rest and, where there is no room, left
+without a court rather than refusing the draw. A match is named by its
+bracket (*Losers' round 2, match 1*, *Grand final*, *Grand final reset*,
+*Consolation final*) on the board, the live page, the notices and the public
+page, which shows each bracket in a section of its own that scrolls across a
+phone.
+
+**When the tournament is over** the public page and the organiser's page list
+*Final places*: everybody who was in the draw has one, and level entrants
+share it (joint third, joint fifth). A double elimination's champion and
+runner-up come from the reset where it was played, else the grand final, then
+the losers' bracket's last round first. An entrant who left stands where the
+matches put them, flagged as out.
+
+**Corrections and leavers** work as for the knockout, with two routes and two
+chains: see [below](#corrections-after-the-knockout-has-begun) and
+[somebody leaving](#somebody-leaving). **Ratings** count every decided match
+between two entrants in any bracket
+([ratings](#ratings-and-rankings)); a bye, and a reset that is not needed, are
+not matches.
 
 ### Moving a fixture
 
@@ -359,8 +449,8 @@ through `recordResult`.
 ### The draw and the schedule
 
 Seeds staff set are kept apart and get the byes; everybody else is drawn by
-lot. Each group's runner-up is put in the other half of the knockout from
-its winner. A performance event's heats are seeded by entry mark: the best
+lot, and the order used is kept on the tournament. Each group's runner-up is
+put in the other half of the knockout from its winner. A performance event's heats are seeded by entry mark: the best
 in the last heat, laned from the middle out, those with no mark drawn by lot
 into the earlier heats, and no heat left with one competitor where that can
 be avoided. Every match or heat gets a court and a time within those held,
@@ -473,11 +563,33 @@ what they reviewed:
   by another of its matches, with neither side playing elsewhere, and a
   booking there is never moved (the replay is refused instead). What was
   played is kept in the record, never deleted, and everybody in the replays
-  is emailed when they play. Nothing after the replays is touched; if a
-  replay changes who goes on again, that is a correction of its own.
+  is emailed when they play. Nothing that was played after the replays is
+  touched, and the places they fed that are still to play wait empty for their
+  results; if a replay changes who goes on again, that is a correction of its own.
 - Replaying is refused where it cannot be safe — the right competitor has
   left, or is already elsewhere in the knockout — and the organiser lets the
   results stand or arranges it by hand.
+
+**A result in a double elimination or a consolation draw feeds two matches**
+(its winner's route and its loser's), so it is put right while *neither* has been
+played, and then it moves both competitors in one change (and the grand-final
+reset appears, or goes, with it; a finished tournament is under way again when a
+reset is needed again). Once either has been played it is refused as a plain
+result and offered as a record-only correction, with the same preview, reason
+and token. A record-only correction moves nobody, even where only one of the two
+matches fed has been played, and opens **an issue for each route** the wrong
+competitor is on (the winner's, and the loser's, which follows the competitor by
+the route their result sent them: a winner on, a loser to the loser's route),
+each listing every match they are in or have played. One grand final corrected so
+that the winners' champion won it, after the reset was played, opens one issue,
+the reset, with nobody to replay it for: it can be let stand. Replaying one
+issue replays **both** (in a double elimination or a consolation draw, where each
+competitor is in the other's place), each match at a court and time given, with
+the right competitor in each head of chain; replaying one alone is refused
+while the other route is let stand, since the right competitor would be in two
+matches. What the replayed matches fed that is still to play waits empty for
+their results (in the knockout too: a competitor who beat the wrong one is not
+left in the next match while their own match is replayed).
 
 Each correction and resolution is kept in `tournament_corrections` (with
 what it changed, in English and as phrases the staff screen says in the
@@ -515,6 +627,12 @@ reason:
   is known; a line nobody is left to fill is a bye, and a match with nobody
   left on either side sends nobody through; in a performance event their
   heats and final still to come are *did not start*;
+- in a double elimination or a consolation draw the same holds in each
+  bracket: a leaver sits in the place their route gave them until the other
+  side is known, then loses there by walkover, so each opponent gets a walkover
+  in turn (in both brackets for a leaver in the winners' bracket), and a leaver
+  in the losers' bracket or the consolation draw is out of the event; their
+  stage is recorded as *knockout*;
 - they never go through: the place goes to the next eligible entrant. If the
   groups are over and no knockout match has been played, the knockout is
   filled again without them; once one has, the knockout stands;
@@ -695,8 +813,10 @@ climbing; per-boulder timing and rotation of the groups through the boulders
 
 The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
 
-- Formats beyond these: no double elimination or consolation draws; a
-  performance event has one final, with no semi-finals or rounds of heats.
+- Formats beyond these: a consolation draw is for first-round losers of a
+  straight knockout only (not a feed-in that takes every loser, not after
+  groups), and a double elimination is not after groups either; a performance
+  event has one final, with no semi-finals or rounds of heats.
   [Swiss events](#swiss-tournaments) and [club ladders](#club-ladders) are built.
 - A tournament is one event: one sport, category, level and format. Several
   events sharing courts are the divisions of a competition (above).
@@ -1176,7 +1296,9 @@ what the rating expected, what happened and how far it moved.
   counted. In a league of teams each singles or doubles game counts for the
   people the captains picked to play it, so a game with no lineup counts only
   for the teams.
-- **Which results.** A tournament's group and knockout matches, a box league's
+- **Which results.** A tournament's group and knockout matches (every bracket of
+  a double elimination or consolation draw: winners', losers', grand final and
+  reset, consolation; a bye and a reset that is not needed are not matches), a box league's
   confirmed matches and walkovers, a league of teams' confirmed fixtures and
   forfeits (the teams' result, and each singles or doubles game). Not a
   performance event's heats or counts ([not rated](#counted-performances)), not a match not yet decided, not one a
@@ -1606,6 +1728,7 @@ declared, never verified, and no identity document is asked for.
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
 | Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | Tournament day: the next match announced, a court called, the wait, the live page | `src/lib/tournament-day.ts`, `src/app/api/admin/tournaments/[id]/day/route.ts`, `src/app/api/tournaments/[id]/live/route.ts`, `src/components/admin/TournamentDay.tsx`, `src/app/tournaments/[id]/live/page.tsx`, `db/migrations/0268_tournament_day.sql` | `tests/tournament-day.test.ts` (also against Postgres), `tests/components/tournament-day.test.tsx` |
+| Consolation draws and double elimination: the structures, progression through a whole event, the grand-final reset, corrections along two routes, leavers in each bracket, placings, court time, names | `src/lib/brackets.ts`, `src/lib/tournaments.ts`, `src/lib/tournament-rules.ts`, `src/lib/tournament-day.ts`, `src/app/tournaments/[id]/page.tsx`, `src/components/admin/TournamentsTab.tsx`, `db/migrations/0271_consolation_and_double_elimination.sql` | `tests/brackets-structure.test.ts`, `tests/double-elimination.test.ts` and `tests/consolation.test.ts` (PGlite and Postgres) |
 | Ratings from results: the rule, the ledger, replay, corrections, voids, walkovers, exclusions and restarts, rankings, seeding proposal, privacy | `src/lib/rating-math.ts`, `src/lib/ratings.ts`, `db/migrations/0270_ratings_from_results.sql`, `src/app/api/admin/ratings/route.ts`, `src/app/api/my/ratings/route.ts`, `src/app/api/venues/[id]/rankings/route.ts`, `src/app/ratings/page.tsx`, `src/app/venue/[id]/rankings/page.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/rating-math.test.ts`, `tests/ratings.test.ts` (PGlite and Postgres) |
 | Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
 | Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts` |
@@ -1619,8 +1742,8 @@ Which parts are verified, and how, is in
 - Known issues (players moved by a refill not messaged, corrections that
   cannot replay) are in
   [known limitations](../roadmap/known-limitations.md#booking-and-availability-b).
-- More formats (double elimination, consolation draws) and ranking rules are
-  roadmap rows, not commitments ([roadmap](../roadmap/roadmap.md)). Ratings and rankings across events are
+- More ranking rules and an enforced level are roadmap rows, not commitments
+  ([roadmap](../roadmap/roadmap.md)). Ratings and rankings across events are
   built ([below](#ratings-and-rankings)); a level that is enforced (a rating
   band checked at entry) is not.
 - Box-league results are checked and ranked by the same rules as a

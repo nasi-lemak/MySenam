@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B67, M16–M31 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B69, M16–M31 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -469,11 +469,14 @@ Also, in [tournaments](../features/tournaments.md):
   manager lets the results stand or replays them; a replay that changes who
   goes on again is a correction, and possibly an issue, of its own (by
   design). Replaying is refused where the right competitor has left or is
-  already elsewhere in the knockout (P3).
+  already elsewhere in the main draw's third-place match; in a double
+  elimination or a consolation draw both routes of one correction are replayed
+  together instead (P3, [ADR 0032](../architecture/decisions/0032-consolation-draws-and-double-elimination.md)).
 - Sport templates are common club practice, not federation regulations:
   an event run under a governing body's rules needs its rules checked and
-  set before the draw. Counts of tops and zones (bouldering) cannot be
-  expressed yet ([roadmap](roadmap.md)) (P3).
+  set before the draw. Counts of tops and zones (bouldering) are built
+  ([counted performances](../features/tournaments.md#counted-performances)),
+  without a semi-final round (P3).
 - Divisions of a competition are added before any draw, and keep a player
   apart only by account: a partner named in
   doubles, or a roster name, is not known to be the same person in two
@@ -771,6 +774,20 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Consolation draws and double elimination
+
+([Consolation draws and double elimination](../features/tournaments.md#consolation-draws-and-double-elimination),
+[ADR 0032](../architecture/decisions/0032-consolation-draws-and-double-elimination.md).)
+Accepted restrictions: a consolation draw is for first-round losers of a
+straight knockout (a bye holder who loses in round 2 is not in it, it is not
+offered after groups, and a feed-in that takes every loser is not built); a
+double elimination is not offered after groups; in a double elimination two
+players who have met may meet again after losers' round 2 where the shape forces
+it (the winners' round's loser against a survivor of a part of the losers'
+bracket that holds somebody they beat, the losers' final, the grand final); a
+grand-final reset needed again after its time was given back has no court until
+a manager gives it one with Move.
+
 ### Swiss tournaments and ladders
 
 ([Swiss](../features/tournaments.md#swiss-tournaments),
@@ -1054,6 +1071,8 @@ IDs are not reused. Each fix came with the test recommended above.
 | B65 | A cancellation review's time was shown as the stored UTC timestamp, a day early or late for a venue in Kuala Lumpur | Shown on the venue's own clock like other staff moments | `tests/components/guide-tab.test.tsx` |
 | B66 | Moving a tournament fixture onto a slot that straddled time just given back and time still held was refused (*not free for all of…*), because the check wanted one block spanning the whole slot | Blocks that run on into each other cover it; the check is still made under the court locks | `tests/tournament-day.test.ts` |
 | B67 | In a performance event of marks, a heat correction once the final was filled looked like a change of the final's field (the ranking it compared against left out everyone already in the final): refused if the final had results, deleted and refilled otherwise, against the documented rule | The heats' own ranking is compared, so only a change of who would swim the final counts | `tests/counted-performances.test.ts` |
+| B68 | Replaying a knockout match left the opponent who had beaten the wrong competitor in the next match while their own match was replayed, so they were in two matches still to play | The places a replayed match fed that are still to play are emptied whoever they hold; nothing that was played changes | `tests/double-elimination.test.ts` and `tests/consolation.test.ts` (the replay tests) |
+| B69 | `recordResult` took no row lock on the tournament, so two results could interleave with a leaver or a fixture move | One change to a tournament's results and fixtures at a time, as moves and leavers already were | `tests/double-elimination.test.ts` (concurrent result and move, on Postgres) |
 
 ### Resolved limitations without a number
 

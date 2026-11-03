@@ -13,6 +13,7 @@ import type { Phrase, T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
 
 import type { Entry, Match, PerformanceLine, TournamentDetail } from "@/lib/tournaments";
+import { matchLabel, roundsByBracket, type BracketKind } from "@/lib/brackets";
 import type { MatchReport } from "@/lib/match-reports";
 import { MatchResultForm } from "@/components/MatchResultForm";
 import { SwissStandings } from "@/components/SwissStandings";
@@ -90,11 +91,26 @@ export default function TournamentPage() {
           ? x.groups[0]?.table.find((r) => !r.out)?.entryId ?? null
           : x.format === "swiss"
             ? x.swiss?.standings.find((l) => l.rank === 1)?.entryId ?? null
+          : x.format === "double_elimination"
+            ? x.placings?.find((p) => p.place === 1)?.entryId ?? null
             : final?.winner ?? null;
   const champion = winnerId !== null ? names.get(winnerId) : null;
   const tally = x.rules.scoring.kind === "tally";
   const byPoints = x.rules.scoring.rankBy.includes("points");
-  const formatLabel = x.format === "groups" ? t("tour.groups") : x.format === "round_robin" ? t("tour.roundRobin") : x.format === "performance" ? t("tour.performance") : x.format === "swiss" ? t("tour.swiss") : t("tour.knockout");
+  const formatLabel =
+    x.format === "groups"
+      ? t("tour.groups")
+      : x.format === "round_robin"
+        ? t("tour.roundRobin")
+        : x.format === "performance"
+          ? t("tour.performance")
+          : x.format === "swiss"
+            ? t("tour.swiss")
+            : x.format === "double_elimination"
+              ? t("fm1.doubleElimination")
+              : x.rules.bracket?.consolation
+                ? t("fm1.knockoutConsolation")
+                : t("tour.knockout");
   // The side of a match this account answers for: its own entry, or one it made for somebody it acts for (never both).
   const ours = new Set([...(data.mine ? [data.mine.id] : []), ...(data.managed ?? []).map((e) => e.id)]);
   const ourSide = (m: Match): number | null => {
@@ -215,7 +231,20 @@ export default function TournamentPage() {
         </section>
       )}
 
-      {x.matches.some((m) => m.stage === "knockout") && <Bracket t={t} matches={x.matches.filter((m) => m.stage === "knockout")} names={names} />}
+      {x.matches.some((m) => m.stage === "knockout") && <Brackets t={t} matches={x.matches.filter((m) => m.stage === "knockout")} names={names} />}
+
+      {x.placings && !underReview && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="font-semibold">{t("fm1.placings")}</h2>
+          <ol className="mt-2 space-y-1 text-sm">
+            {[...new Set(x.placings.map((p) => p.place))].map((place) => (
+              <li key={place}>
+                <span className="font-semibold">{place}.</span> {x.placings!.filter((p) => p.place === place).map((p) => names.get(p.entryId)).join(", ")}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {x.matches.length > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -231,6 +260,9 @@ export default function TournamentPage() {
                     {m.date} {formatMinute(m.minute!, t.locale)}, {m.courtName}
                   </span>
                   <span className="flex-1">
+                    {m.bracket !== "main" && (
+                      <span className="mr-2 text-xs text-slate-500">{matchTitle(t, m, roundsByBracket(x.matches.filter((y) => y.stage === "knockout")).get(m.bracket) ?? m.round)}</span>
+                    )}
                     <Side id={m.a} m={m} names={names} t={t} /> v <Side id={m.b} m={m} names={names} t={t} />
                   </span>
                   <span className="text-slate-600">
@@ -546,22 +578,57 @@ function roundName(t: T, round: number, rounds: number): string {
   return t("tour.round", { n: round });
 }
 
-/** The knockout, a column a round. */
-function Bracket({ t, matches, names }: { t: T; matches: Match[]; names: Map<number, string> }) {
+/** What a match is called, from the end of its own bracket: "Semi-finals", "Losers' round 2", "Grand final". */
+function matchTitle(t: T, m: Pick<Match, "stage" | "groupNo" | "round" | "placement" | "bracket">, rounds: number): string {
+  const label = matchLabel(m, rounds);
+  return t(label.key as Phrase, label.n === undefined ? undefined : { n: label.n });
+}
+
+/** A knockout's brackets, each its own section a phone scrolls across: the knockout, or a double elimination's winners', losers' and grand final; and a consolation draw. */
+function Brackets({ t, matches, names }: { t: T; matches: Match[]; names: Map<number, string> }) {
+  const kinds: BracketKind[] = ["main", "winners", "losers", "grand", "consolation"];
+  return (
+    <>
+      {kinds
+        .filter((k) => matches.some((m) => m.bracket === k))
+        .map((k) => (
+          <Bracket key={k} t={t} kind={k} matches={matches.filter((m) => m.bracket === k)} names={names} grandFinalDecided={matches.some((m) => m.bracket === "grand" && m.round === 1 && m.status !== "scheduled")} />
+        ))}
+    </>
+  );
+}
+
+const BRACKET_TITLES: Record<BracketKind, Phrase> = {
+  main: "tour.knockoutTitle",
+  winners: "fm1.winnersTitle",
+  losers: "fm1.losersTitle",
+  grand: "fm1.grandTitle",
+  consolation: "fm1.consolationTitle",
+};
+
+/** One bracket, a column a round. */
+function Bracket({ t, kind, matches, names, grandFinalDecided }: { t: T; kind: BracketKind; matches: Match[]; names: Map<number, string>; grandFinalDecided: boolean }) {
   const rounds = Math.max(...matches.map((m) => m.round));
+  const rounded = [...new Set(matches.map((m) => m.round))].sort((a, b) => a - b);
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h2 className="font-semibold">{t("tour.knockoutTitle")}</h2>
+      <h2 className="font-semibold">{t(BRACKET_TITLES[kind])}</h2>
+      {kind === "consolation" && <p className="mt-1 text-xs text-slate-500">{t("fm1.consolationNote")}</p>}
       <div className="mt-3 flex gap-4 overflow-x-auto pb-2">
-        {Array.from({ length: rounds }, (_, i) => i + 1).map((round) => (
+        {rounded.map((round) => (
           <div key={round} className="flex min-w-[11rem] flex-col justify-around gap-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{roundName(t, round, rounds)}</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {kind === "main" ? roundName(t, round, rounds) : matchTitle(t, { stage: "knockout", groupNo: null, round, placement: null, bracket: kind }, rounds)}
+            </div>
             {matches
               .filter((m) => m.round === round)
               .sort((a, b) => (a.placement ?? 0) - (b.placement ?? 0) || a.position - b.position)
               .map((m) => (
                 <div key={m.id} className="rounded-lg border border-slate-200 text-sm">
-                  {m.placement === 3 && <div className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("tour.thirdPlace")}</div>}
+                  {m.placement === 3 && <div className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{kind === "consolation" ? t("fm1.consolationThird") : t("tour.thirdPlace")}</div>}
+                  {kind === "grand" && m.round === 2 && (
+                    <div className="px-2 pt-1 text-xs text-slate-500">{grandFinalDecided && m.status === "bye" ? t("fm1.resetNotNeeded") : t("fm1.resetNote")}</div>
+                  )}
                   {[m.a, m.b].map((side, i) => (
                     <div
                       key={i}

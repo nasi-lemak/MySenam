@@ -10,7 +10,8 @@ import { addDays } from "@/lib/time";
 import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
 import { type Sport } from "@/lib/types";
-import type { CorrectionPreview, IssueReview, Match, ResultInput, Tournament, TournamentDetail } from "@/lib/tournaments";
+import type { CorrectionPreview, IssueReview, Match, ResultInput, StageKey, Tournament, TournamentDetail } from "@/lib/tournaments";
+import { matchLabel, roundsByBracket, type BracketKind } from "@/lib/brackets";
 import { RANK_KEYS, type CompetitionRules, type OutReason, type RankKey } from "@/lib/tournament-rules";
 import type { CompetitionTemplate, VenueTemplate } from "@/lib/competition-templates";
 import type { Competition } from "@/lib/competitions";
@@ -242,7 +243,46 @@ const formatLabel = (t: StaffT, format: string): string =>
     round_robin: t("tn.format.roundRobin"),
     performance: t("tn.format.performance"),
     swiss: t("tn.format.swiss"),
+    double_elimination: t("fm1.format.doubleElimination"),
   })[format] ?? format;
+
+/** What a match in a bracket other than the ordinary knockout is called, from the end of its own bracket. */
+function bracketLabel(t: StaffT, m: Pick<Match, "stage" | "groupNo" | "round" | "placement" | "bracket">, rounds: Map<BracketKind, number>): string {
+  const label = matchLabel(m, rounds.get(m.bracket) ?? m.round);
+  const n = label.n ?? m.round;
+  switch (label.key) {
+    case "fm1.winnersRound":
+      return t("fm1.winnersRound", { n });
+    case "fm1.winnersFinal":
+      return t("fm1.winnersFinal");
+    case "fm1.losersRound":
+      return t("fm1.losersRound", { n });
+    case "fm1.losersFinal":
+      return t("fm1.losersFinal");
+    case "fm1.grandFinal":
+      return t("fm1.grandFinal");
+    case "fm1.reset":
+      return t("fm1.reset");
+    case "fm1.consolationRound":
+      return t("fm1.consolationRound", { n });
+    case "fm1.consolationFinal":
+      return t("fm1.consolationFinal");
+    default:
+      return t("fm1.consolationThird");
+  }
+}
+
+/** The stages a format has matches of, whose length can be set (ADR 0032, S4). */
+const stagesOf = (format: string, consolation: boolean): StageKey[] =>
+  format === "performance"
+    ? ["heat", "final"]
+    : format === "double_elimination"
+      ? ["knockout", "final", "losers", "grand_final", "reset"]
+      : format === "knockout"
+        ? ["knockout", "final", ...(consolation ? (["consolation"] as StageKey[]) : [])]
+        : format === "groups"
+          ? ["group", "knockout", "final"]
+          : ["group"];
 
 function Create({
   venue,
@@ -292,7 +332,7 @@ function Create({
     membersOnly: false,
     resultsBy: "staff",
     // Match lengths by stage (blank: the length above), and a third-place match.
-    stageMinutes: { group: "", knockout: "", final: "", heat: "" } as Record<"group" | "knockout" | "final" | "heat", string>,
+    stageMinutes: { group: "", knockout: "", final: "", heat: "", losers: "", grand_final: "", reset: "", consolation: "" } as Record<StageKey, string>,
     thirdPlace: false,
     // A Swiss event: its rounds (blank: the default for the number entered) and what a bye is worth (blank: a win's points).
     swissRounds: "",
@@ -337,10 +377,16 @@ function Create({
           matchMinutes: Number(f.matchMinutes),
           stageMinutes: Object.fromEntries(Object.entries(f.stageMinutes).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)])),
           thirdPlace: f.thirdPlace && (f.format === "knockout" || f.format === "groups"),
-          rules:
-            f.format === "swiss"
-              ? { ...f.rules, swiss: { rounds: f.swissRounds === "" ? null : Number(f.swissRounds), byePoints: f.swissByePoints === "" ? null : Number(f.swissByePoints), tiebreaks: null } }
-              : f.rules,
+          // A consolation draw is a straight knockout's; its third-place match needs it (ADR 0032, S2).
+          rules: {
+            ...f.rules,
+            bracket: {
+              ...f.rules.bracket,
+              consolation: f.format === "knockout" && f.rules.bracket.consolation,
+              consolationThirdPlace: f.format === "knockout" && f.rules.bracket.consolation && f.rules.bracket.consolationThirdPlace,
+            },
+            ...(f.format === "swiss" ? { swiss: { rounds: f.swissRounds === "" ? null : Number(f.swissRounds), byePoints: f.swissByePoints === "" ? null : Number(f.swissByePoints), tiebreaks: null } } : {}),
+          },
           courtIds: f.courtIds.length ? f.courtIds : courts.map((c) => c.id),
         });
         if (ok) setF({ ...f, name: "", description: "" });
@@ -612,9 +658,23 @@ function Create({
         <summary className="cursor-pointer text-sm font-medium text-slate-700">{f.format === "knockout" || f.format === "groups" ? t("tn.stageLengthsThird") : t("tn.stageLengths")}</summary>
         <p className="mt-2 text-xs text-slate-500">{t("tn.stageLengthsNote", { minutes: f.matchMinutes })}</p>
         <div className="mt-2 flex flex-wrap items-end gap-3">
-          {(f.format === "performance" ? (["heat", "final"] as const) : f.format === "knockout" ? (["knockout", "final"] as const) : f.format === "groups" ? (["group", "knockout", "final"] as const) : (["group"] as const)).map((k) => (
+          {stagesOf(f.format, f.rules.bracket.consolation).map((k) => (
             <label key={k} className={label}>
-              {k === "group" ? t("tn.stage.group") : k === "knockout" ? t("tn.stage.knockout") : k === "heat" ? t("tn.stage.heat") : t("tn.stage.final")}
+              {k === "group"
+                ? t("tn.stage.group")
+                : k === "knockout"
+                  ? t("tn.stage.knockout")
+                  : k === "heat"
+                    ? t("tn.stage.heat")
+                    : k === "losers"
+                      ? t("fm1.stage.losers")
+                      : k === "grand_final"
+                        ? t("fm1.stage.grandFinal")
+                        : k === "reset"
+                          ? t("fm1.stage.reset")
+                          : k === "consolation"
+                            ? t("fm1.stage.consolation")
+                            : t("tn.stage.final")}
               <input type="number" min={5} max={600} placeholder={f.matchMinutes} value={f.stageMinutes[k]} onChange={(e) => setF({ ...f, stageMinutes: { ...f.stageMinutes, [k]: e.target.value } })} className={`w-24 ${input}`} />
             </label>
           ))}
@@ -625,6 +685,7 @@ function Create({
             </label>
           )}
         </div>
+        <BracketFields format={f.format} rules={f.rules} onChange={(rules) => setF({ ...f, rules })} />
       </details>
       <details className="rounded-lg border border-slate-200 p-3">
         <summary className="cursor-pointer text-sm font-medium text-slate-700">{t("tn.scoring")}</summary>
@@ -835,6 +896,39 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
 }
 
 /** How the tournament treats somebody who leaves it (lib/tournament-rules.ts). */
+/** A knockout's consolation draw, or a double elimination's grand-final reset (ADR 0032, S1). */
+function BracketFields({ format, rules, onChange, disabled = false }: { format: string; rules: CompetitionRules; onChange: (r: CompetitionRules) => void; disabled?: boolean }) {
+  const t = useStaffT();
+  if (format !== "knockout" && format !== "double_elimination") return null;
+  const set = (patch: Partial<CompetitionRules["bracket"]>) => onChange({ ...rules, bracket: { ...rules.bracket, ...patch } });
+  return (
+    <fieldset className="mt-3 space-y-1 text-sm text-slate-600">
+      <legend className="text-xs font-medium text-slate-500">{t("fm1.brackets")}</legend>
+      {format === "knockout" && (
+        <>
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" disabled={disabled} checked={rules.bracket.consolation} onChange={(e) => set({ consolation: e.target.checked })} />
+            {t("fm1.consolation")}
+          </label>
+          <p className="text-xs text-slate-500">{t("fm1.consolationNote")}</p>
+          {rules.bracket.consolation && (
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" disabled={disabled} checked={rules.bracket.consolationThirdPlace} onChange={(e) => set({ consolationThirdPlace: e.target.checked })} />
+              {t("fm1.consolationThirdPlace")}
+            </label>
+          )}
+        </>
+      )}
+      {format === "double_elimination" && (
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" disabled={disabled} checked={rules.bracket.grandFinalReset} onChange={(e) => set({ grandFinalReset: e.target.checked })} />
+          {t("fm1.grandFinalReset")}
+        </label>
+      )}
+    </fieldset>
+  );
+}
+
 function RulesFields({ rules, onChange, disabled = false }: { rules: CompetitionRules; onChange: (r: CompetitionRules) => void; disabled?: boolean }) {
   const t = useStaffT();
   const label = "flex flex-col text-xs font-medium text-slate-500";
@@ -1259,6 +1353,7 @@ function Manage({
               onChange={(rules) => void post(base, { action: "rules", rules })}
             />
           </div>
+          <BracketFields format={tn.format} rules={tn.rules} disabled={tn.status !== "open" && tn.status !== "closed"} onChange={(rules) => void post(base, { action: "rules", rules })} />
           <details className="mt-3">
             <summary className="cursor-pointer text-xs font-medium text-slate-600">{tn.template ? t("tn.scoringFromTemplate", { template: tn.template }) : t("tn.scoring")}</summary>
             <ScoringFields rules={tn.rules} disabled={tn.status !== "open" && tn.status !== "closed"} onChange={(rules) => void post(base, { action: "rules", rules })} />
@@ -1455,9 +1550,22 @@ function Manage({
               .filter((m) => m.status !== "bye" && (m.stage === "group" || m.stage === "knockout"))
               .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || (a.minute ?? 0) - (b.minute ?? 0) || (a.courtId ?? 0) - (b.courtId ?? 0))
               .map((m) => (
-                <MatchRow key={m.id} m={m} names={names} venue={venue} rules={tn.rules} swiss={tn.format === "swiss"} save={(body) => result(m.id, body as ResultInput)} />
+                <MatchRow key={m.id} m={m} names={names} venue={venue} rules={tn.rules} swiss={tn.format === "swiss"} rounds={roundsByBracket(tn.matches.filter((x) => x.stage === "knockout"))} save={(body) => result(m.id, body as ResultInput)} />
               ))}
           </ul>
+        </section>
+      )}
+
+      {tn.placings && tn.issues.every((i) => i.status !== "open") && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="font-semibold">{t("fm1.placings")}</h3>
+          <ol className="mt-2 space-y-1 text-sm">
+            {[...new Set(tn.placings.map((p) => p.place))].map((place) => (
+              <li key={place}>
+                <span className="font-semibold">{place}.</span> {tn.placings!.filter((p) => p.place === place).map((p) => names.get(p.entryId) ?? "?").join(", ")}
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 
@@ -1613,6 +1721,7 @@ function MatchRow({
   venue,
   rules,
   swiss = false,
+  rounds,
   save,
 }: {
   m: Match;
@@ -1620,6 +1729,8 @@ function MatchRow({
   venue: ManagedVenue;
   rules: CompetitionRules;
   swiss?: boolean;
+  /** How many rounds each bracket has, to name a match in a double elimination or a consolation draw. */
+  rounds?: Map<BracketKind, number>;
   save: (body: object) => Promise<boolean>;
 }) {
   const t = useStaffT();
@@ -1629,7 +1740,16 @@ function MatchRow({
   const [score, setScore] = useState(m.score ?? "");
   const known = m.a !== null && m.b !== null;
   const side = (id: number | null) => (id === null ? t("tn.tbd") : names.get(id) ?? "?");
-  const label = m.stage === "group" && swiss ? t("sw.round", { n: m.round }) : m.stage === "group" ? t("tn.group", { n: m.groupNo ?? "" }) : m.placement === 3 ? t("tn.thirdPlaceMatch") : t("tn.knockoutRound", { n: m.round });
+  const label =
+    m.stage === "group"
+      ? swiss
+        ? t("sw.round", { n: m.round })
+        : t("tn.group", { n: m.groupNo ?? "" })
+      : m.bracket && m.bracket !== "main"
+        ? bracketLabel(t, m, rounds ?? new Map())
+        : m.placement === 3
+          ? t("tn.thirdPlaceMatch")
+          : t("tn.knockoutRound", { n: m.round });
   return (
     <li className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
       <span className="w-40 shrink-0 text-xs text-slate-500">
@@ -1758,6 +1878,7 @@ function IssuePanel({
         })}
       </h3>
       <p className="mt-1 text-xs text-slate-600">{t("tn.issue.note")}</p>
+      {review?.together != null && <p className="mt-1 text-xs font-medium text-slate-700">{t("fm1.issue.together")}</p>}
       <ul className="mt-2 list-disc pl-5">
         {issue.affected.map((a) => (
           <li key={a.matchId}>{t.say(a.phrase, a.text)}</li>

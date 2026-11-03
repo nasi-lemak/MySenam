@@ -124,6 +124,18 @@ export interface SwissRules {
 
 export const DEFAULT_SWISS: SwissRules = { rounds: null, byePoints: null, tiebreaks: null };
 
+/**
+ * How a knockout is drawn beyond its first elimination (ADR 0032): a consolation
+ * draw for first-round losers (a straight knockout only) with, if wanted, a
+ * third-place match of its own; and whether a double elimination's grand final
+ * is played again when the losers' bracket's champion wins it.
+ */
+export interface BracketRules {
+  consolation: boolean;
+  consolationThirdPlace: boolean;
+  grandFinalReset: boolean;
+}
+
 export interface CompetitionRules {
   /** Group results already played by somebody who withdrew or retired. */
   groupResultsOnWithdrawal: "stand" | "void";
@@ -136,6 +148,8 @@ export interface CompetitionRules {
   performance: PerformanceRules | null;
   /** Only for a Swiss event (absent otherwise). */
   swiss?: SwissRules | null;
+  /** A consolation draw, and a double elimination's grand-final reset. */
+  bracket: BracketRules;
 }
 
 /** How every table was ranked before scoring could be chosen: wins, sets, points, then who beat whom. */
@@ -152,6 +166,9 @@ export const DEFAULT_SCORING: ScoringRules = {
 
 export const DEFAULT_PERFORMANCE: PerformanceRules = { measure: "time", better: "lower", attempts: 1, aggregate: "best", heatSize: 8, finalSize: 8 };
 
+/** No consolation draw, and a double elimination's grand final played again where the losers' champion wins it. */
+export const DEFAULT_BRACKET: BracketRules = { consolation: false, consolationThirdPlace: false, grandFinalReset: true };
+
 /** What every tournament had before rules could be chosen, and what one starts with when its sport has no template. */
 export const DEFAULT_RULES: CompetitionRules = {
   groupResultsOnWithdrawal: "stand",
@@ -159,7 +176,14 @@ export const DEFAULT_RULES: CompetitionRules = {
   refundBeforeDraw: true,
   scoring: DEFAULT_SCORING,
   performance: null,
+  bracket: DEFAULT_BRACKET,
 };
+
+function readBracket(raw: unknown): BracketRules {
+  const b = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const consolation = b.consolation === true;
+  return { consolation, consolationThirdPlace: consolation && b.consolationThirdPlace === true, grandFinalReset: b.grandFinalReset !== false };
+}
 
 const int = (v: unknown, lo: number, hi: number, fallback: number) => (Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi ? (v as number) : fallback);
 
@@ -292,6 +316,7 @@ export function readRules(raw: string | null | undefined): CompetitionRules {
     scoring: readScoring(given.scoring),
     performance: readPerformance(given.performance),
     ...(readSwiss(given.swiss) ? { swiss: readSwiss(given.swiss) } : {}),
+    bracket: readBracket(given.bracket),
   };
 }
 
@@ -361,6 +386,15 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
       swiss = readSwiss({ ...(base.swiss ?? DEFAULT_SWISS), ...x });
     }
   }
+  let bracket = base.bracket;
+  if (r.bracket !== undefined) {
+    if (!r.bracket || typeof r.bracket !== "object" || Array.isArray(r.bracket)) return { ok: false, error: "A bracket's rules are a set of choices." };
+    const b = r.bracket as Record<string, unknown>;
+    for (const key of ["consolation", "consolationThirdPlace", "grandFinalReset"])
+      if (b[key] !== undefined && typeof b[key] !== "boolean") return { ok: false, error: "Say yes or no: a consolation draw, its third-place match, the grand final's reset." };
+    bracket = readBracket({ ...base.bracket, ...b });
+    if (b.consolationThirdPlace === true && !bracket.consolation) return { ok: false, error: "A consolation third-place match needs a consolation draw." };
+  }
   return {
     ok: true,
     rules: {
@@ -370,6 +404,7 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
       scoring,
       performance,
       ...(swiss ? { swiss } : {}),
+      bracket,
     },
   };
 }
