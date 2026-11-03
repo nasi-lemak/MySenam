@@ -120,6 +120,11 @@ export interface Tournament {
   membersOnly: boolean;
   /** Who enters results: staff (and officials), or the players, one side reporting and the other confirming. */
   resultsBy: "staff" | "players";
+  /** The day's settings (lib/tournament-day.ts): rest between a player's matches, how long a called fixture waits, whether entrants are told, how names show on the live page. */
+  minRestMinutes: number;
+  callWaitMinutes: number;
+  announceNext: boolean;
+  liveNames: "full" | "short";
 }
 
 export interface Entry {
@@ -292,6 +297,10 @@ interface TRow {
   results_by: "staff" | "players" | null;
   stage_minutes: string | null;
   third_place: number | null;
+  min_rest_minutes: number | null;
+  call_wait_minutes: number | null;
+  announce_next: boolean | null;
+  live_names: string | null;
 }
 
 function toTournament(r: TRow): Tournament {
@@ -334,6 +343,10 @@ function toTournament(r: TRow): Tournament {
     ageRange: r.age_min !== null || r.age_max !== null ? { min: r.age_min ?? null, max: r.age_max ?? null } : null,
     membersOnly: Boolean(r.members_only),
     resultsBy: r.results_by === "players" ? "players" : "staff",
+    minRestMinutes: r.min_rest_minutes ?? 0,
+    callWaitMinutes: r.call_wait_minutes ?? 10,
+    announceNext: r.announce_next ?? true,
+    liveNames: r.live_names === "short" ? "short" : "full",
   };
 }
 
@@ -669,7 +682,7 @@ export interface TournamentInput {
 }
 
 /** The time zone of the venue running a tournament. */
-async function tournamentZone(tournamentId: number): Promise<string> {
+export async function tournamentZone(tournamentId: number): Promise<string> {
   const row = (await getDb().prepare("SELECT venue_id FROM tournaments WHERE id = ?").get(tournamentId)) as { venue_id: number } | undefined;
   return (await venueHours(row?.venue_id ?? 0)).zone;
 }
@@ -1332,13 +1345,17 @@ export async function takeOut(
 ): Promise<Result<{ entry: Entry } & Changes>> {
   if (confirm && (await takeOutToken(entryId, reason)) !== confirm.token)
     return { ok: false, error: "The tournament has changed since you looked. Review it again.", code: "CHANGED" };
-  return withTransaction(async () => {
+  const out = await withTransaction(async () => {
     const before = await detailForEntry(entryId);
     const done = await takeOutOnce(entryId, reason, note);
     if (!done.ok) return done;
     const after = before ? (await tournamentDetail(before.id, { forStaff: true }))! : null;
-    return { ok: true, value: { entry: done.value, ...changesOf(before && after ? changePhrases(before, after) : []) } };
+    return { ok: true as const, value: { entry: done.value, ...changesOf(before && after ? changePhrases(before, after) : []) }, tournamentId: before?.id ?? null };
   });
+  if (!out.ok) return out;
+  // A match that is now a walkover frees its court: the next may be announced.
+  if (out.tournamentId !== null) await announceAfter(out.tournamentId);
+  return { ok: true, value: out.value };
 }
 
 /**
@@ -1451,12 +1468,12 @@ async function dryRun<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** A match, as an organiser names it. */
-function matchName(d: TournamentDetail, m: Match): string {
+export function matchName(d: TournamentDetail, m: Match): string {
   return englishOf(matchNamePhrase(d, m));
 }
 
 /** A match's name ("Semi-final 2") as a phrase, for staff screens in the staff language. */
-function matchNamePhrase(d: TournamentDetail, m: Match): StaffText {
+export function matchNamePhrase(d: TournamentDetail, m: Match): StaffText {
   if (m.stage === "group") return said("srv.round.group", { n: String(m.groupNo) });
   if (m.placement === 3) return said("srv.round.third");
   const rounds = Math.max(...d.matches.filter((x) => x.stage === "knockout").map((x) => x.round));
@@ -1976,12 +1993,25 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
  * correction an organiser previews and confirms instead (B9).
  */
 export async function recordResult(matchId: number, input: ResultInput): Promise<Result<TournamentDetail>> {
+  let done: Result<TournamentDetail>;
   try {
-    return await withTransaction(() => recordResultOnce(matchId, input, "normal"));
+    done = await withTransaction(() => recordResultOnce(matchId, input, "normal"));
   } catch (err) {
     // Caught outside the transaction, so the result goes with it.
     if (err instanceof KnockoutUnderway) return { ok: false, error: err.message, code: "KNOCKOUT_STARTED" };
     throw err;
+  }
+  // A court is free and a match is next: tell whose it is (once; lib/tournament-day.ts).
+  if (done.ok) await announceAfter(done.value.id);
+  return done;
+}
+
+/** After a result or somebody leaving: the day's announcements, which never fail the change that caused them. */
+async function announceAfter(tournamentId: number): Promise<void> {
+  try {
+    await (await import("./tournament-day")).announceNext(tournamentId);
+  } catch (err) {
+    console.error("[mysenam] announcing the next tournament match failed:", err);
   }
 }
 
@@ -2582,7 +2612,7 @@ export interface MatchSlot {
  * hold — a booking there is never moved (blockSlots holds around it, and the
  * slot is refused). Inside the caller's transaction.
  */
-async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignoring: Set<number>): Promise<string | null> {
+async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignoring: Set<number>, started = false): Promise<string | null> {
   const db = getDb();
   const end = slot.startMin + match.minutes;
   if (!isValidDateString(slot.date) || !Number.isInteger(slot.startMin)) return "Give the date and time.";
@@ -2591,7 +2621,8 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
     .get(slot.courtId, t.venueId, t.sport)) as { id: number; name: string } | undefined;
   if (!court) return "Choose one of this venue's courts for the sport.";
   const zone = await tournamentZone(t.id);
-  if (instantOf(slot.date, slot.startMin, zone).getTime() <= Date.now()) return `${slot.date} ${formatMinute(slot.startMin)} has gone by.`;
+  // A slot not yet begun; or, on the day (`started`), one not yet over: a late match's slot is still held, and two fixtures may exchange theirs.
+  if (instantOf(slot.date, started ? end : slot.startMin, zone).getTime() <= Date.now()) return `${slot.date} ${formatMinute(slot.startMin)} has gone by.`;
   // The venue's hours as set for that date (ADR 0027).
   const on = await venueHours(t.venueId, slot.date);
   if (on.closed || slot.startMin < on.openMin || end > on.closeMin) return `The venue is not open for all of ${formatMinute(slot.startMin)}–${formatMinute(end)} on ${slot.date}.`;
@@ -2615,12 +2646,20 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
   }
   const sides = [match.a, match.b].filter((x): x is number => x !== null);
   if (live.some((o) => sides.includes(o.entry_a ?? -1) || sides.includes(o.entry_b ?? -1))) return "One of the sides plays another match then.";
-  const covered = async () =>
-    !!(await db
+  // The whole slot is the tournament's: by one block, or by blocks that run on into each other (time held beside the time just given back).
+  const covered = async () => {
+    const held = (await db
       .prepare(
-        "SELECT 1 FROM blocks WHERE (tournament_id = ? OR (competition_id IS NOT NULL AND competition_id = ?)) AND court_id = ? AND date = ? AND start_min <= ? AND end_min >= ?"
+        "SELECT start_min, end_min FROM blocks WHERE (tournament_id = ? OR (competition_id IS NOT NULL AND competition_id = ?)) AND court_id = ? AND date = ? AND start_min < ? AND end_min > ? ORDER BY start_min"
       )
-      .get(t.id, t.competition?.id ?? null, slot.courtId, slot.date, slot.startMin, end));
+      .all(t.id, t.competition?.id ?? null, slot.courtId, slot.date, end, slot.startMin)) as { start_min: number; end_min: number }[];
+    let upTo = slot.startMin;
+    for (const b of held) {
+      if (b.start_min > upTo) break;
+      upTo = Math.max(upTo, b.end_min);
+    }
+    return upTo >= end;
+  };
   if (!(await covered())) {
     const held = await blockSlots(
       slot.courtId,
@@ -2636,6 +2675,45 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
     }
   }
   await db.prepare("UPDATE tournament_matches SET court_id = ?, date = ?, start_min = ?, updated_at = datetime('now') WHERE id = ?").run(slot.courtId, slot.date, slot.startMin, match.id);
+  return null;
+}
+
+/**
+ * Put a fixture still to play on a court at a time, as `moveMatch` does and
+ * the tournament day's calls do: after every match feeding it ends and before
+ * every match it feeds begins, then held like the rest of the tournament's
+ * time (`holdMatchSlot`), and given `minutes`. Null once done, or why not,
+ * with nothing changed. `ignoring`: fixtures about to move away themselves,
+ * which are not in the way. `started`: on the day, a slot that has begun but
+ * is not over is allowed (a late match's slot is still held). Inside the
+ * caller's transaction, under the tournament's row lock.
+ */
+export async function placeMatch(t: Tournament, d: TournamentDetail, m: Match, to: MatchSlot, minutes: number, ignoring: Set<number>, started = false): Promise<string | null> {
+  const db = getDb();
+  const start = { date: to.date, minute: to.startMin };
+  const end = { date: to.date, minute: to.startMin + minutes };
+  const before = (x: { date: string; minute: number }, y: { date: string; minute: number }) => x.date < y.date || (x.date === y.date && x.minute <= y.minute);
+  // What has to be over first, and what has to come after.
+  const firstRoundAfterGroups = m.stage === "knockout" && m.round === 1 && d.matches.some((x) => x.stage === "group");
+  const feeders = d.matches.filter(
+    (x) => x.next === m.id || x.loserNext === m.id || (firstRoundAfterGroups && x.stage === "group") || (m.stage === "final" && x.stage === "heat")
+  );
+  const fed = d.matches.filter(
+    (x) =>
+      x.id === m.next ||
+      x.id === m.loserNext ||
+      (m.stage === "group" && x.stage === "knockout" && x.round === 1) ||
+      (m.stage === "heat" && x.stage === "final")
+  );
+  for (const f of feeders)
+    if (!ignoring.has(f.id) && f.status === "scheduled" && f.date !== null && f.minute !== null && !before({ date: f.date, minute: f.minute + f.minutes }, start))
+      return `${matchName(d, m)} has to start after ${matchName(d, f)} ends (${f.date} ${formatMinute(f.minute + f.minutes)}).`;
+  for (const f of fed)
+    if (!ignoring.has(f.id) && f.status === "scheduled" && f.date !== null && f.minute !== null && !before(end, { date: f.date, minute: f.minute }))
+      return `${matchName(d, m)} has to end before ${matchName(d, f)} starts (${f.date} ${formatMinute(f.minute)}).`;
+  const refused = await holdMatchSlot(t, { ...m, minutes }, to, ignoring, started);
+  if (refused) return refused;
+  await db.prepare("UPDATE tournament_matches SET minutes = ?, updated_at = datetime('now') WHERE id = ?").run(minutes, m.id);
   return null;
 }
 
@@ -2662,30 +2740,11 @@ export async function moveMatch(matchId: number, to: MatchSlot & { minutes?: num
     if (m.status !== "scheduled") return { ok: false, error: "That match is decided: a result is corrected, not moved." };
     const minutes = to.minutes ?? m.minutes;
     if (!Number.isInteger(minutes) || minutes < 5 || minutes > 600) return { ok: false, error: "Give the match 5 minutes to 10 hours." };
-    const start = { date: to.date, minute: to.startMin };
-    const end = { date: to.date, minute: to.startMin + minutes };
-    const before = (x: { date: string; minute: number }, y: { date: string; minute: number }) => x.date < y.date || (x.date === y.date && x.minute <= y.minute);
-    // What has to be over first, and what has to come after.
-    const firstRoundAfterGroups = m.stage === "knockout" && m.round === 1 && d.matches.some((x) => x.stage === "group");
-    const feeders = d.matches.filter(
-      (x) => x.next === m.id || x.loserNext === m.id || (firstRoundAfterGroups && x.stage === "group") || (m.stage === "final" && x.stage === "heat")
-    );
-    const fed = d.matches.filter(
-      (x) =>
-        x.id === m.next ||
-        x.id === m.loserNext ||
-        (m.stage === "group" && x.stage === "knockout" && x.round === 1) ||
-        (m.stage === "heat" && x.stage === "final")
-    );
-    for (const f of feeders)
-      if (f.status === "scheduled" && f.date !== null && f.minute !== null && !before({ date: f.date, minute: f.minute + f.minutes }, start))
-        return { ok: false, error: `${matchName(d, m)} has to start after ${matchName(d, f)} ends (${f.date} ${formatMinute(f.minute + f.minutes)}).` };
-    for (const f of fed)
-      if (f.status === "scheduled" && f.date !== null && f.minute !== null && !before(end, { date: f.date, minute: f.minute }))
-        return { ok: false, error: `${matchName(d, m)} has to end before ${matchName(d, f)} starts (${f.date} ${formatMinute(f.minute)}).` };
-    const refused = await holdMatchSlot(t, { ...m, minutes }, to, new Set());
+    const called = (await db.prepare("SELECT called_at FROM tournament_matches WHERE id = ?").get(matchId)) as { called_at: unknown } | undefined;
+    if (called?.called_at) return { ok: false, error: "That match is called: release the call first, or swap it from the day board." };
+    const refused = await placeMatch(t, d, m, to, minutes, new Set());
+    // Thrown, so whatever the hold began is undone with it.
     if (refused) throw new IssueRefused(refused);
-    await db.prepare("UPDATE tournament_matches SET minutes = ?, updated_at = datetime('now') WHERE id = ?").run(minutes, matchId);
     const court = (await db.prepare("SELECT name FROM courts WHERE id = ?").get(to.courtId)) as { name: string };
     const change = `${matchName(d, m)} moved to ${to.date} ${formatMinute(to.startMin)}–${formatMinute(to.startMin + minutes)}, ${court.name}${
       m.date !== null && m.minute !== null ? ` (was ${m.date} ${formatMinute(m.minute)}–${formatMinute(m.minute + m.minutes)}, ${m.courtName ?? ""})` : ""
@@ -2847,9 +2906,10 @@ async function decide(
   };
   await db
     .prepare(
-      `UPDATE tournament_matches SET winner = ?, score = ?, status = ?, result_by = NULL, updated_at = datetime('now')${status === "bye" ? ", court_id = NULL, date = NULL, start_min = NULL" : ""} WHERE id = ?`
+      `UPDATE tournament_matches SET winner = ?, score = ?, status = ?, result_by = NULL, updated_at = datetime('now'),
+              called_at = NULL, call_due_at = NULL, started_at = NULL, decided_at = ?::timestamptz${status === "bye" ? ", court_id = NULL, date = NULL, start_min = NULL" : ""} WHERE id = ?`
     )
-    .run(winner, score, status, matchId);
+    .run(winner, score, status, new Date().toISOString(), matchId);
   // A result entered settles any report waiting on the match (lib/match-reports.ts).
   await db
     .prepare("UPDATE tournament_reports SET status = 'superseded', answered_at = datetime('now') WHERE match_id = ? AND status IN ('pending', 'disputed')")

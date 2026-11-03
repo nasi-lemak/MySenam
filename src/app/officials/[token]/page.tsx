@@ -10,6 +10,7 @@ import { formatMinute } from "@/lib/interval";
 import { scoreExample } from "@/lib/result-text";
 import type { Official } from "@/lib/match-reports";
 import type { TournamentDetail } from "@/lib/tournaments";
+import type { DayBoard, DayFixture } from "@/lib/tournament-day";
 
 /**
  * An official's page: the link the venue gave them is the key, no account
@@ -19,7 +20,7 @@ import type { TournamentDetail } from "@/lib/tournaments";
 export default function OfficialPage() {
   const t = useT();
   const { token } = useParams<{ token: string }>();
-  const [data, setData] = useState<{ official: Official; tournament: TournamentDetail } | null>(null);
+  const [data, setData] = useState<{ official: Official; tournament: TournamentDetail; day?: DayBoard | null } | null>(null);
   const [gone, setGone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -40,6 +41,16 @@ export default function OfficialPage() {
   const waiting = x.matches
     .filter((m) => m.status === "scheduled" && m.a !== null && m.b !== null && (m.stage === "group" || m.stage === "knockout"))
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || (a.minute ?? 0) - (b.minute ?? 0));
+  const fixtures = new Map<number, DayFixture>([...(data.day?.waiting ?? []), ...(data.day?.courts ?? []).flatMap((c) => (c.now ? [c.now] : []))].map((f) => [f.id, f]));
+  /** Call the players, mark the match started, or take the call back, where the match is held (bringing one forward is a manager's). */
+  async function day(matchId: number, action: "call" | "start" | "release") {
+    setError(null);
+    setNotice(null);
+    const res = await fetch(`/api/officials/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ matchId, action }) });
+    const out = await readJson(res);
+    if (!res.ok) return setError(translateError(t, out) || out.error);
+    setData((d) => (d ? { ...d, day: out.day } : d));
+  }
   return (
     <div className="space-y-4">
       <div>
@@ -62,6 +73,32 @@ export default function OfficialPage() {
               <div className="font-medium">
                 {names.get(m.a!)} v {names.get(m.b!)}
               </div>
+              {fixtures.get(m.id) && (
+                <div className="my-2 flex flex-wrap items-center gap-2">
+                  {fixtures.get(m.id)!.state === "waiting" ? (
+                    <button type="button" onClick={() => void day(m.id, "call")} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium">
+                      {t("dy1.official.call")}
+                    </button>
+                  ) : (
+                    <>
+                      <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${fixtures.get(m.id)!.state === "playing" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+                        {fixtures.get(m.id)!.state === "playing" ? t("dy1.live.playing") : t("dy1.live.called")}
+                      </span>
+                      {fixtures.get(m.id)!.state === "called" && (
+                        <>
+                          <span className="text-xs text-slate-600">{fixtures.get(m.id)!.overdue ? t("dy1.official.over") : t("dy1.official.timer", { n: fixtures.get(m.id)!.minutesLeft })}</span>
+                          <button type="button" onClick={() => void day(m.id, "start")} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium">
+                            {t("dy1.official.start")}
+                          </button>
+                        </>
+                      )}
+                      <button type="button" onClick={() => void day(m.id, "release")} className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium">
+                        {t("dy1.official.release")}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
               <MatchResultForm
                 t={t}
                 sides={{ a: { id: m.a!, name: names.get(m.a!) ?? "" }, b: { id: m.b!, name: names.get(m.b!) ?? "" } }}

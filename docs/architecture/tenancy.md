@@ -74,7 +74,9 @@ account make it; the dashboard keeps no list of its own
   how they combine, voiding a counter sale, opening, changing, invoicing and
   closing company accounts), *Tournaments* (setting up a tournament or a
   competition, a tournament's rules, letting a correction's knock-on stand or
-  replaying it, choosing a final's last places), *Leagues* (setting one up;
+  replaying it, choosing a final's last places, calling a match to its court,
+  deciding what happens when nobody comes and the day's settings: `tournamentDay`),
+  *Leagues* (setting one up;
   a forming season's start and the buttons to start, end or stop are not
   shown).
 - What only opens or closes a section stays usable, so the desk reads what is
@@ -89,7 +91,9 @@ account make it; the dashboard keeps no list of its own
   [test bookings](../product/marketplace.md#test-bookings-before-going-live)
   (the list still shows), and in a tournament closing entries, making the
   draw, changing its details, saving it as a template, calling it or a
-  competition off. Three a route refuses the desk by what is asked rather
+  competition off, and on the day the buttons to call a match, mark it started
+  or take the call back, the choices when nobody comes, and the day's settings
+  (the *Now and next* board itself is read by the desk). Three a route refuses the desk by what is asked rather
   than by address (moving a fixture, a correction once the knockout has moved
   on, disqualifying) follow the same answer as the draw (`tournamentRun`):
   the desk is not offered them, and a result the knockout has moved past

@@ -22,6 +22,7 @@ import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { LoadFailed } from "./place";
 import { CounterEntry } from "./CounterEntry";
 import { TournamentDetailsEditor } from "./TournamentDetailsEditor";
+import { TournamentDay } from "./TournamentDay";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
 import { PayMark } from "./CounterMethod";
@@ -1355,6 +1356,8 @@ function Manage({
           ))}
         </section>
       )}
+
+      {tn.status === "drawn" && tn.format !== "performance" && <TournamentDay tn={tn} />}
 
       {tn.matches.some((m) => m.stage === "group" || m.stage === "knockout") && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

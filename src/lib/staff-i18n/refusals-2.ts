@@ -811,4 +811,10 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "A day pass lets its holder in for a day with no booking. It does not pay for a booking.": { ms: "Pas harian membenarkan pemegangnya masuk selama sehari tanpa tempahan. Ia tidak membayar tempahan.", zh: "日票让持有人一天内无需预订入场，不能用来支付预订。" },
   "That resource takes no entries here.": { ms: "Sumber itu tidak menerima kemasukan di sini.", zh: "该资源在此不接受入场。" },
   "A phone number is required.": { ms: "Nombor telefon diperlukan.", zh: "需要电话号码。" },
+  // dy1: tournament day
+  "Rest is 0 to 240 minutes.": { ms: "Rehat ialah 0 hingga 240 minit.", zh: "休息时间为 0 到 240 分钟。" },
+  "A called match waits 1 to 60 minutes.": { ms: "Perlawanan yang dipanggil menunggu 1 hingga 60 minit.", zh: "已叫号的比赛等待 1 到 60 分钟。" },
+  "Say whether entrants are told.": { ms: "Nyatakan sama ada peserta dimaklumkan.", zh: "请说明是否通知参赛者。" },
+  "Names on the live page are full or short.": { ms: "Nama pada halaman langsung ialah penuh atau ringkas.", zh: "实时页面上的姓名为全名或简写。" },
+  "That match is called: release the call first, or swap it from the day board.": { ms: "Perlawanan itu sudah dipanggil: lepaskan panggilan dahulu, atau gantikannya dari papan hari.", zh: "该场比赛已叫号：请先撤销叫号，或在当日看板上换场。" },
 };

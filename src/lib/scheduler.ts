@@ -163,6 +163,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Tournament day: whose match is next on each court, told once (lib/tournament-day.ts).
+    await (await import("./tournament-day")).announceAll();
+  } catch (err) {
+    console.error("[mysenam] announcing the next tournament matches failed:", err);
+    await raiseAlert("scheduler:tournament-day-failed", failed("srv.work.tournamentDay"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Tournament reports nobody answered stand.
     await (await import("./match-reports")).standUnansweredReports();
   } catch (err) {

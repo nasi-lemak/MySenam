@@ -77,14 +77,20 @@ export type MessageKind =
   /** By email only: on a waiting list now, with the link to leave it (lib/notify.ts `notifyWaitlistJoined`). */
   | "waitlist_joined"
   /** By email only: a class somebody is enrolled in, or offered a place in, has a new name or instructor (lib/notify.ts `notifyClassChanged`). */
-  | "class_changed";
+  | "class_changed"
+  /**
+   * To a player entered in a tournament, on the day, by email and on WhatsApp where the venue has chosen it and the player has
+   * a number their account proved: their match is next on its court, or they are called to it (lib/tournament-day.ts). Once per
+   * fixture, side and call, so not held to the daily limit per recipient: a day's matches would reach it.
+   */
+  | "tournament_day";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
  * daily limit per recipient, which is there to keep the site from being used
  * to flood somebody else's phone. A busy venue takes more bookings than that.
  */
-const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert"];
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day"];
 
 export interface OutboxMessage {
   id: number;
