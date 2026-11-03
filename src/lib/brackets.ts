@@ -529,3 +529,321 @@ export function scheduleTimed(
   }
   return unplaced > 0 ? { ok: false, unplaced } : { ok: true, placed };
 }
+
+// ------------------------------------------------------------ structures: consolation draws and double elimination
+
+/**
+ * Which bracket a match is in. "main" is the ordinary knockout (stored as no
+ * bracket at all); "winners", "losers" and "grand" are a double elimination's;
+ * "consolation" is a knockout's first-round losers' draw (ADR 0032).
+ */
+export type BracketKind = "main" | "winners" | "losers" | "grand" | "consolation";
+
+/** Where one side of a match comes from: an entrant at the draw (null: nobody), the winner or the loser of a match, or nothing. */
+type Source = { entry: number | null } | { win: string } | { lose: string } | null;
+
+/** A match as the draw makes it, with the routes its winner and its loser take. */
+export interface PlannedMatch {
+  key: string;
+  bracket: BracketKind;
+  round: number;
+  position: number;
+  /** Known at the draw only in a first round (null with the other side known: a bye). */
+  a: number | null;
+  b: number | null;
+  nextKey: string | null;
+  nextSlot: "a" | "b" | null;
+  loserNextKey: string | null;
+  loserNextSlot: "a" | "b" | null;
+  /** Every match that must be over first, on either route. */
+  after: string[];
+  bye: boolean;
+  /** 3: a third-place match. */
+  placement?: 3;
+  /** The grand final's second match, played where the losers' bracket's champion won the first. */
+  reset?: boolean;
+}
+
+interface Node {
+  key: string;
+  bracket: BracketKind;
+  round: number;
+  position: number;
+  src: [Source, Source];
+  bye?: boolean;
+  placement?: 3;
+  reset?: boolean;
+}
+
+/**
+ * Wire nodes (each side of which says where it comes from) into matches with
+ * routes. A match with a source that never exists — the loser of a bye — is not
+ * made when its other source is real: that source is wired straight on to where
+ * the match's winner would have gone; with neither, it goes too (ADR 0032, D3).
+ * Sources outside `nodes` (a knockout's first-round matches, for a consolation
+ * draw) are returned as the routes their losers take. Nodes are in creation
+ * order, every source before the match it feeds.
+ */
+function wire(nodes: Node[]): { matches: PlannedMatch[]; losersTo: Map<string, { key: string; slot: "a" | "b" }> } {
+  const internal = new Set(nodes.map((n) => n.key));
+  const byes = new Set(nodes.filter((n) => n.bye).map((n) => n.key));
+  const removed = new Set<string>();
+  const alias = new Map<string, Source>();
+  const resolve = (s: Source): Source => {
+    if (!s || "entry" in s) return s;
+    if ("lose" in s) return byes.has(s.lose) || removed.has(s.lose) ? null : s;
+    return alias.has(s.win) ? alias.get(s.win)! : s;
+  };
+  const kept: { node: Node; src: [Source, Source] }[] = [];
+  for (const node of nodes) {
+    const src: [Source, Source] = [resolve(node.src[0]), resolve(node.src[1])];
+    if (node.bye) {
+      kept.push({ node, src });
+      continue;
+    }
+    const live = src.filter((s): s is Exclude<Source, null> => s !== null);
+    if (live.length === 2) kept.push({ node, src });
+    else {
+      removed.add(node.key);
+      alias.set(node.key, live[0] ?? null);
+    }
+  }
+  const out = new Map<string, PlannedMatch>();
+  const order: PlannedMatch[] = [];
+  const counter = new Map<string, number>();
+  for (const { node } of kept) {
+    const at = `${node.bracket}:${node.round}`;
+    // Positions are counted again from 1 among the matches made.
+    const position = (counter.get(at) ?? 0) + 1;
+    counter.set(at, position);
+    const m: PlannedMatch = {
+      key: node.key,
+      bracket: node.bracket,
+      round: node.round,
+      position,
+      a: null,
+      b: null,
+      nextKey: null,
+      nextSlot: null,
+      loserNextKey: null,
+      loserNextSlot: null,
+      after: [],
+      bye: Boolean(node.bye),
+      ...(node.placement ? { placement: node.placement } : {}),
+      ...(node.reset ? { reset: true } : {}),
+    };
+    out.set(node.key, m);
+    order.push(m);
+  }
+  const losersTo = new Map<string, { key: string; slot: "a" | "b" }>();
+  for (const { node, src } of kept) {
+    const m = out.get(node.key)!;
+    (["a", "b"] as const).forEach((slot, i) => {
+      const s = src[i];
+      if (!s) return;
+      if ("entry" in s) m[slot] = s.entry;
+      else if ("win" in s) {
+        const from = out.get(s.win)!;
+        from.nextKey = m.key;
+        from.nextSlot = slot;
+        m.after.push(s.win);
+      } else {
+        const from = internal.has(s.lose) ? out.get(s.lose)! : null;
+        if (from) {
+          from.loserNextKey = m.key;
+          from.loserNextSlot = slot;
+        } else losersTo.set(s.lose, { key: m.key, slot });
+        m.after.push(s.lose);
+      }
+    });
+  }
+  return { matches: order, losersTo };
+}
+
+/** The winners' bracket of a knockout of `size` lines: keys `w{round}-{position}`. */
+function winnersNodes(size: number, firstPairs: [number | null, number | null][]): Node[] {
+  const nodes: Node[] = [];
+  const rounds = Math.log2(size);
+  for (let r = 1; r <= rounds; r++)
+    for (let p = 1; p <= size / 2 ** r; p++) {
+      const pair = r === 1 ? firstPairs[p - 1] : null;
+      nodes.push({
+        key: `w${r}-${p}`,
+        bracket: "winners",
+        round: r,
+        position: p,
+        src: pair ? [{ entry: pair[0] }, { entry: pair[1] }] : [{ win: `w${r - 1}-${2 * p - 1}` }, { win: `w${r - 1}-${2 * p}` }],
+        ...(pair && (pair[0] === null) !== (pair[1] === null) ? { bye: true } : {}),
+      });
+    }
+  return nodes;
+}
+
+/**
+ * A double elimination of `size` lines (4 or more, a power of two), `firstPairs`
+ * the winners' first round as `firstRound` makes it, null a bye. Winners' bracket
+ * `w{r}-{p}`; losers' bracket `l{round}-{position}` of rounds 1 to 2k-2 (k the
+ * winners' rounds): round 1 pairs the first round's losers, each *drop* round
+ * 2r-2 has the survivor of the round before play the loser of winners' round r —
+ * those dropping in reversed where r is even, in order where it is odd, so a
+ * loser meets nobody they have played in their first losers' matches — and each
+ * consolidation round 2r-3 pairs the winners of a drop round. The winners'
+ * champion and the losers' champion meet in the grand final `gf`; with `reset`,
+ * `gf2` is the match played again between the same two if the losers' champion
+ * won it: the grand final's winner goes to its first side and its loser to its
+ * second (the same two whichever won), and it is *not needed* when the winners'
+ * champion wins (lib/tournaments.ts settles that).
+ */
+export function doubleElimination(size: number, firstPairs: [number | null, number | null][], reset: boolean): PlannedMatch[] {
+  const k = Math.log2(size);
+  const nodes = winnersNodes(size, firstPairs);
+  for (let i = 1; i <= size / 4; i++)
+    nodes.push({ key: `l1-${i}`, bracket: "losers", round: 1, position: i, src: [{ lose: `w1-${2 * i - 1}` }, { lose: `w1-${2 * i}` }] });
+  let previous = 1;
+  for (let r = 2; r <= k; r++) {
+    const m = size / 2 ** r;
+    if (r >= 3) {
+      const round = 2 * r - 3;
+      for (let p = 1; p <= m; p++)
+        nodes.push({ key: `l${round}-${p}`, bracket: "losers", round, position: p, src: [{ win: `l${previous}-${2 * p - 1}` }, { win: `l${previous}-${2 * p}` }] });
+      previous = round;
+    }
+    const drop = 2 * r - 2;
+    for (let p = 1; p <= m; p++)
+      nodes.push({ key: `l${drop}-${p}`, bracket: "losers", round: drop, position: p, src: [{ win: `l${previous}-${p}` }, { lose: `w${r}-${r % 2 === 0 ? m + 1 - p : p}` }] });
+    previous = drop;
+  }
+  nodes.push({ key: "gf", bracket: "grand", round: 1, position: 1, src: [{ win: `w${k}-1` }, { win: `l${2 * k - 2}-1` }] });
+  if (reset) nodes.push({ key: "gf2", bracket: "grand", round: 2, position: 1, src: [{ win: "gf" }, { lose: "gf" }], reset: true });
+  return wire(nodes).matches;
+}
+
+/**
+ * A first-round consolation draw for a knockout of `size` lines (8 or more,
+ * keys `k1-{p}` for its first round, as the knockout makes them): a knockout
+ * of the first-round matches' losers, keys `c{round}-{position}`, or null where
+ * there would be fewer than two first-round matches played. Its lines are seeded by
+ * how close the matches were — the closest, whose loser is expected to be the
+ * strongest, first — and byes go to the top lines. With `thirdPlace`, the
+ * consolation semi-finals' losers play for third (`c3p`), where both are matches
+ * played. `losersTo` is where each first-round loser goes (their match's key).
+ */
+export function consolationDraw(
+  size: number,
+  firstPairs: [number | null, number | null][],
+  thirdPlace: boolean
+): { matches: PlannedMatch[]; losersTo: Map<string, { key: string; slot: "a" | "b" }> } | null {
+  if (size < 8) return null;
+  const order = seedOrder(size);
+  const real = firstPairs
+    .map((pair, i) => ({ key: `k1-${i + 1}`, favourite: order[2 * i], real: pair[0] !== null && pair[1] !== null }))
+    .filter((x) => x.real)
+    .sort((x, y) => y.favourite - x.favourite);
+  if (real.length < 2) return null;
+  const lines = bracketSize(real.length);
+  const seeds = seedOrder(lines);
+  const rounds = Math.log2(lines);
+  const nodes: Node[] = [];
+  for (let i = 0; i < lines / 2; i++) {
+    const line = (seed: number): Source => (seed <= real.length ? { lose: real[seed - 1].key } : null);
+    nodes.push({ key: `c1-${i + 1}`, bracket: "consolation", round: 1, position: i + 1, src: [line(seeds[2 * i]), line(seeds[2 * i + 1])] });
+  }
+  for (let r = 2; r <= rounds; r++)
+    for (let p = 1; p <= lines / 2 ** r; p++)
+      nodes.push({ key: `c${r}-${p}`, bracket: "consolation", round: r, position: p, src: [{ win: `c${r - 1}-${2 * p - 1}` }, { win: `c${r - 1}-${2 * p}` }] });
+  if (thirdPlace && rounds >= 2)
+    nodes.push({ key: "c3p", bracket: "consolation", round: rounds, position: 2, placement: 3, src: [{ lose: `c${rounds - 1}-1` }, { lose: `c${rounds - 1}-2` }] });
+  return wire(nodes);
+}
+
+/** The most rounds any bracket's matches have: for naming a round from the end ("final", "semi-final"). */
+export function roundsByBracket(matches: { bracket: BracketKind; round: number }[]): Map<BracketKind, number> {
+  const rounds = new Map<BracketKind, number>();
+  for (const m of matches) rounds.set(m.bracket, Math.max(rounds.get(m.bracket) ?? 0, m.round));
+  return rounds;
+}
+
+/**
+ * What to call a match: a dictionary key and the number to say it with, so a
+ * screen can say it in its language. `rounds` is how many rounds its own bracket has.
+ */
+export function matchLabel(
+  m: { stage: string; groupNo: number | null; round: number; placement: 3 | null; bracket: BracketKind },
+  rounds: number
+): { key: string; n?: number } {
+  if (m.stage === "group") return { key: "tour.group", n: m.groupNo ?? 0 };
+  if (m.bracket === "winners") return m.round === rounds ? { key: "fm1.winnersFinal" } : { key: "fm1.winnersRound", n: m.round };
+  if (m.bracket === "losers") return m.round === rounds ? { key: "fm1.losersFinal" } : { key: "fm1.losersRound", n: m.round };
+  if (m.bracket === "grand") return m.round === 1 ? { key: "fm1.grandFinal" } : { key: "fm1.reset" };
+  if (m.bracket === "consolation") {
+    if (m.placement === 3) return { key: "fm1.consolationThird" };
+    return m.round === rounds ? { key: "fm1.consolationFinal" } : { key: "fm1.consolationRound", n: m.round };
+  }
+  if (m.placement === 3) return { key: "tour.thirdPlace" };
+  if (m.round === rounds) return { key: "tour.final" };
+  if (m.round === rounds - 1) return { key: "tour.semis" };
+  if (m.round === rounds - 2) return { key: "tour.quarters" };
+  return { key: "tour.round", n: m.round };
+}
+
+/** A match as `placings` reads it. */
+export interface PlacingMatch {
+  bracket: BracketKind;
+  round: number;
+  placement: 3 | null;
+  a: number | null;
+  b: number | null;
+  winner: number | null;
+  status: "scheduled" | "done" | "walkover" | "bye" | "retired";
+}
+
+const isPlayed = (m: PlacingMatch) => m.status === "done" || m.status === "walkover" || m.status === "retired";
+
+/**
+ * Where everybody finished, once a knockout or a double elimination is over
+ * (null while any match is still to play): one place each, level entrants
+ * sharing one (joint third, where there is no third-place match). Entrants are
+ * put in order of how late they were put out: the champion, the runner-up, the
+ * third-place match's two, then each earlier round's losers together, deepest
+ * first. With a consolation draw those who won a first-round match, or had a
+ * bye, come first, then the consolation draw's own order. In a double
+ * elimination: the champion and runner-up (from the reset where it was played),
+ * then those put out of the losers' bracket, the last round first. An entrant who
+ * left stands where the matches put them (ADR 0032, F).
+ */
+export function placings(matches: PlacingMatch[]): { entryId: number; place: number }[] | null {
+  if (matches.length === 0 || matches.some((m) => m.status === "scheduled")) return null;
+  const loserOf = (m: PlacingMatch | undefined): number | null => (m && isPlayed(m) && m.winner !== null ? (m.winner === m.a ? m.b : m.a) : null);
+  const winnerOf = (m: PlacingMatch | undefined): number | null => (m && isPlayed(m) ? m.winner : null);
+  const losersOfRound = (list: PlacingMatch[], round: number) => list.filter((m) => m.round === round && m.placement === null).map(loserOf);
+  const stages: (number | null)[][] = [];
+  const knockoutStages = (list: PlacingMatch[], lowest: number) => {
+    const rounds = Math.max(0, ...list.map((m) => m.round));
+    const final = list.find((m) => m.round === rounds && m.placement === null);
+    const third = list.find((m) => m.placement === 3);
+    stages.push([winnerOf(final)], [loserOf(final)]);
+    if (third) stages.push([winnerOf(third)], [loserOf(third)]);
+    for (let r = rounds - 1; r >= lowest; r--) stages.push(losersOfRound(list, r));
+  };
+  if (matches.some((m) => m.bracket === "grand")) {
+    const gf = matches.find((m) => m.bracket === "grand" && m.round === 1);
+    const reset = matches.find((m) => m.bracket === "grand" && m.round === 2);
+    const last = reset && isPlayed(reset) ? reset : gf;
+    stages.push([winnerOf(last)], [loserOf(last)]);
+    const losers = matches.filter((m) => m.bracket === "losers");
+    for (let r = Math.max(0, ...losers.map((m) => m.round)); r >= 1; r--) stages.push(losersOfRound(losers, r));
+  } else {
+    const main = matches.filter((m) => m.bracket === "main");
+    const consolation = matches.filter((m) => m.bracket === "consolation");
+    // Those who lost a first-round match played go to the consolation draw: they are placed after the main draw's.
+    knockoutStages(main, consolation.length > 0 ? 2 : 1);
+    if (consolation.length > 0) knockoutStages(consolation, 1);
+  }
+  const place = new Map<number, number>();
+  for (const stage of stages) {
+    const fresh = [...new Set(stage.filter((e): e is number => e !== null && !place.has(e)))];
+    const at = place.size + 1;
+    for (const e of fresh) place.set(e, at);
+  }
+  return [...place].map(([entryId, p]) => ({ entryId, place: p })).sort((x, y) => x.place - y.place || x.entryId - y.entryId);
+}

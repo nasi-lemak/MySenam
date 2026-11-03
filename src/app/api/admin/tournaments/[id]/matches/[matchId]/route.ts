@@ -17,11 +17,11 @@ import { noteResultBy } from "@/lib/match-reports";
 
 export const dynamic = "force-dynamic";
 
-/** Who is in the knockout's first round, line by line, for the activity log. */
+/** Who is in the knockout's first round (the main draw's: not a double elimination's or a consolation draw's), line by line, for the activity log. */
 function knockoutLines(d: TournamentDetail): string {
   const name = (id: number | null) => (id === null ? "bye" : d.entries.find((e) => e.id === id)?.name ?? `#${id}`);
   return d.matches
-    .filter((m) => m.stage === "knockout" && m.round === 1)
+    .filter((m) => m.stage === "knockout" && m.round === 1 && m.bracket === "main")
     .sort((a, b) => a.position - b.position)
     .map((m) => `${name(m.a)} v ${name(m.b)}`)
     .join("; ");
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     detail: `${d.name}, ${name(now.a)} v ${name(now.b)}: ${told(now)}${was.winner === null ? "" : ` (was: ${told(was)})`}`,
   });
   const [linesBefore, linesAfter] = [knockoutLines(before), knockoutLines(d)];
-  const filledBefore = before.matches.some((m) => m.stage === "knockout" && m.round === 1 && (m.a !== null || m.b !== null));
+  const filledBefore = before.matches.some((m) => m.stage === "knockout" && m.round === 1 && m.bracket === "main" && (m.a !== null || m.b !== null));
   if (filledBefore && linesBefore !== linesAfter)
     await logAction(found.admin, { venueId: d.venueId, action: "tournament.knockout_refilled", detail: `${d.name}: ${linesAfter} (was: ${linesBefore})` });
   return NextResponse.json({ tournament: d });

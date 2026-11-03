@@ -14,7 +14,7 @@ import { DEFAULT_RULES, readRules, type CompetitionRules, type PerformanceRules,
  * offered when it sets up the next (`saveVenueTemplate`).
  */
 
-export type CompetitionFormat = "knockout" | "groups" | "round_robin" | "performance";
+export type CompetitionFormat = "knockout" | "groups" | "round_robin" | "performance" | "double_elimination";
 export type EntryKind = "player" | "pair" | "team";
 /** A game within a team match: one player a side, a pair a side, or the whole team at once (lib/team-leagues.ts). */
 export type RubberKind = "singles" | "doubles" | "team";
@@ -42,7 +42,7 @@ export interface CompetitionTemplate {
 const sets = (bestOf: number, extra: Partial<ScoringRules> = {}): ScoringRules => ({ ...DEFAULT_RULES.scoring, kind: "sets", bestOf, ...extra });
 const tally = (extra: Partial<ScoringRules>): ScoringRules => ({ ...DEFAULT_RULES.scoring, kind: "tally", bestOf: 1, ...extra });
 const withRules = (scoring: ScoringRules, performance: PerformanceRules | null = null): CompetitionRules => ({ ...DEFAULT_RULES, scoring, performance });
-const HEAD_TO_HEAD: CompetitionFormat[] = ["knockout", "groups", "round_robin"];
+const HEAD_TO_HEAD: CompetitionFormat[] = ["knockout", "groups", "round_robin", "double_elimination"];
 
 export const TEMPLATES: CompetitionTemplate[] = [
   {

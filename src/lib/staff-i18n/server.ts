@@ -371,6 +371,16 @@ const en = {
   "srv.work.claimsArchive": "archiving past court time",
   "srv.alert.claimsBehind": "Past court time is not being archived fast enough",
   "srv.alert.claimsBehindDetail": "Court time that ended more than {days} days ago and is due to move to the archive has been waiting for three days or more; {waiting} records are due now. The archive runs on the scheduler: check that it is running and that the database has room.",
+  // Consolation draws and double elimination: what a match in those brackets is called (lib/tournaments.ts, ADR 0032)
+  "srv.round.winnersRound": "Winners' round {round}, match {n}",
+  "srv.round.winnersFinal": "Winners' final",
+  "srv.round.losersRound": "Losers' round {round}, match {n}",
+  "srv.round.losersFinal": "Losers' final",
+  "srv.round.grandFinal": "Grand final",
+  "srv.round.reset": "Grand final reset",
+  "srv.round.consolationRound": "Consolation round {round}, match {n}",
+  "srv.round.consolationFinal": "Consolation final",
+  "srv.round.consolationThird": "Consolation third-place match",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -739,6 +749,15 @@ const ms: Record<keyof typeof en, string> = {
   "srv.work.claimsArchive": "mengarkibkan masa gelanggang yang telah lepas",
   "srv.alert.claimsBehind": "Masa gelanggang yang telah lepas tidak diarkibkan dengan cukup pantas",
   "srv.alert.claimsBehindDetail": "Masa gelanggang yang tamat lebih daripada {days} hari lalu dan perlu dipindahkan ke arkib telah menunggu selama tiga hari atau lebih; {waiting} rekod perlu dipindahkan sekarang. Arkib berjalan pada penjadual: semak bahawa ia berjalan dan pangkalan data masih ada ruang.",
+  "srv.round.winnersRound": "Pusingan pemenang {round}, perlawanan {n}",
+  "srv.round.winnersFinal": "Akhir pemenang",
+  "srv.round.losersRound": "Pusingan pihak kalah {round}, perlawanan {n}",
+  "srv.round.losersFinal": "Akhir pihak kalah",
+  "srv.round.grandFinal": "Akhir besar",
+  "srv.round.reset": "Akhir besar diulang",
+  "srv.round.consolationRound": "Pusingan saguhati {round}, perlawanan {n}",
+  "srv.round.consolationFinal": "Akhir saguhati",
+  "srv.round.consolationThird": "Perlawanan tempat ketiga saguhati",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1107,6 +1126,15 @@ const zh: Record<keyof typeof en, string> = {
   "srv.work.claimsArchive": "归档已过去的场地时间",
   "srv.alert.claimsBehind": "已过去的场地时间归档速度不够",
   "srv.alert.claimsBehindDetail": "结束于 {days} 天前并应移入归档的场地时间已等待三天或更久；现有 {waiting} 条记录待移。归档由调度器运行：请检查它是否在运行，以及数据库是否还有空间。",
+  "srv.round.winnersRound": "胜者组第 {round} 轮第 {n} 场",
+  "srv.round.winnersFinal": "胜者组决赛",
+  "srv.round.losersRound": "败者组第 {round} 轮第 {n} 场",
+  "srv.round.losersFinal": "败者组决赛",
+  "srv.round.grandFinal": "总决赛",
+  "srv.round.reset": "总决赛重赛",
+  "srv.round.consolationRound": "安慰赛第 {round} 轮第 {n} 场",
+  "srv.round.consolationFinal": "安慰赛决赛",
+  "srv.round.consolationThird": "安慰赛季军赛",
 };
 
 const area = { en, ms, zh };

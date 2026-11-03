@@ -75,7 +75,7 @@ export default async function TournamentsPage({ searchParams }: { searchParams: 
                 )}
                 <span className="rounded-full bg-slate-100 px-2 py-0.5">{x.entryKind === "team" ? t("tour.teams") : x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")}</span>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5">
-                  {x.format === "groups" ? t("tour.groups") : x.format === "round_robin" ? t("tour.roundRobin") : x.format === "performance" ? t("tour.performance") : t("tour.knockout")}
+                  {x.format === "groups" ? t("tour.groups") : x.format === "round_robin" ? t("tour.roundRobin") : x.format === "performance" ? t("tour.performance") : x.format === "double_elimination" ? t("fm1.doubleElimination") : x.rules.bracket?.consolation ? t("fm1.knockoutConsolation") : t("tour.knockout")}
                 </span>
                 {x.level && <span className="rounded-full bg-slate-100 px-2 py-0.5">{t(`games.level.${x.level}`)}</span>}
                 <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">
