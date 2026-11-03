@@ -69,6 +69,8 @@ export const SPECIALISED_MODULES: PlaybookModule[] = [
         step("gp.spec.tournaments.s4")
       ),
       note("gp.spec.tournaments.calloff"),
+      // Bouldering tops and zones, climbing by height (lib/counted-performances.ts): a performance event ranked by counts.
+      note("gp.spec.tournaments.counted"),
     ],
   },
   {

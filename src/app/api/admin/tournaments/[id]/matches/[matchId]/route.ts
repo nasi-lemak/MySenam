@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import {
   applyCorrection,
   moveMatch,
+  previewPerformances,
   previewResult,
   recordPerformances,
   recordResult,
@@ -29,8 +30,11 @@ function knockoutLines(d: TournamentDetail): string {
 
 /**
  * `{ winner, score?, walkover?, retired?, outOfEvent? }` — a result (`winner: null` for a draw, where the rules
- * allow one), written to the activity log with the one it replaced; `{ performances: [{ entryId, attempts?, status?,
- * note? }] }` for a heat or a final.
+ * allow one), written to the activity log with the one it replaced; `{ performances: [{ entryId, attempts?, counts?,
+ * status?, note? }] }` for a heat or a final (`counts` for a counted event: `[{ unit, attempts, zone?, top? }]` for
+ * boulders, `[{ unit: 1, attempts, hold, plus? }]` for a height); with `preview: true` what it would change, and
+ * whether it changes who is in the final (`consequential`, with a `token`); a correction that does is made with
+ * `confirm: { token }` (409 `CONFIRM` without it, `CHANGED` when the tournament moved since).
  * With `preview: true`: what it would change, nothing changed. With `correction: { mode, reason, token }`: a
  * correction after the knockout has begun (a group result, or a knockout result whose next match is played),
  * confirmed against its preview (managers only). `{ move: { courtId, date, startMin, minutes? } }`: the fixture
@@ -72,11 +76,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         attempts: Array.isArray(p.attempts) ? p.attempts.map((a) => String(a ?? "")) : undefined,
         status: typeof p.status === "string" ? (p.status as PerformanceInput["status"]) : undefined,
         note: typeof p.note === "string" ? p.note : undefined,
+        counts: Array.isArray(p.counts) ? p.counts : undefined,
       })
     );
-    const done = await recordPerformances(match.id, lines);
-    if (!done.ok) return NextResponse.json({ error: done.error }, { status: 409 });
-    await logAction(found.admin, { venueId: done.value.venueId, action: "tournament.performances", detail: `${done.value.name}: results for ${lines.length} competitor(s)` });
+    if (body.preview === true) {
+      const preview = await previewPerformances(match.id, lines);
+      if (!preview.ok) return NextResponse.json({ error: preview.error }, { status: 409 });
+      return NextResponse.json({ preview: preview.value });
+    }
+    const confirm = body.confirm && typeof body.confirm === "object" && typeof (body.confirm as Record<string, unknown>).token === "string" ? { token: (body.confirm as { token: string }).token } : undefined;
+    const earlier = (await tournamentDetail(found.id, { forStaff: true }))!;
+    const done = await recordPerformances(match.id, lines, confirm);
+    if (!done.ok) return NextResponse.json({ error: done.error, code: done.code }, { status: 409 });
+    // What each line was and is, so a correction can be read back from the log.
+    const shown = (d: TournamentDetail, entryId: number) => (d.performance?.lines[match.id] ?? []).find((l) => l.entryId === entryId)?.shown ?? "-";
+    const said = lines.map((l) => `${done.value.entries.find((e) => e.id === l.entryId)?.name ?? `#${l.entryId}`}: ${shown(done.value, l.entryId)}${shown(earlier, l.entryId) === "-" ? "" : ` (was ${shown(earlier, l.entryId)})`}`);
+    await logAction(found.admin, {
+      venueId: done.value.venueId,
+      action: "tournament.performances",
+      detail: `${done.value.name}: results for ${lines.length} competitor(s)${said.length > 0 ? ` — ${said.join("; ").slice(0, 400)}` : ""}`,
+    });
     return NextResponse.json({ tournament: done.value });
   }
   const input: ResultInput = {

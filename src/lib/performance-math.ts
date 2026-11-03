@@ -1,3 +1,4 @@
+import { rankCounted, type CountedUnit, type Tally } from "./counted-performances";
 import type { PerformanceRules } from "./tournament-rules";
 
 /**
@@ -57,19 +58,25 @@ export interface Performer {
   status: "pending" | "ok" | "dns" | "dnf" | "dq";
   attempts: (number | null)[];
   result: number | null;
+  /** A counted event's record: a boulder's or the route's counts (lib/counted-performances.ts). */
+  counts?: CountedUnit[];
 }
 
 export interface Ranked extends Performer {
   /** 1 for the best; level results share a rank; null for no result (did not start, finish, or disqualified). */
   rank: number | null;
+  /** What a counted record adds up to. */
+  tally?: Tally;
 }
 
 /**
  * Rank by result, the better first. With "best", level results are split
  * by the next best attempt, and so on; still level, they share the rank.
- * Those with no result come last, unranked, in the order given.
+ * Those with no result come last, unranked, in the order given. A counted event ranks by its counts instead
+ * (`rankCounted`), and with `previous` (each competitor's placing in the round before), its countback rule.
  */
-export function rankPerformances(rows: Performer[], rules: Pick<PerformanceRules, "aggregate" | "better">): Ranked[] {
+export function rankPerformances(rows: Performer[], rules: Pick<PerformanceRules, "aggregate" | "better" | "counted">, previous?: Map<number, number | null>): Ranked[] {
+  if (rules.counted) return rankCounted(rows, rules.counted, previous);
   const sign = rules.better === "lower" ? 1 : -1;
   const sortedMarks = (p: Performer) =>
     p.attempts.filter((a): a is number => a !== null).sort((x, y) => sign * (x - y));

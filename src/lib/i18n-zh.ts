@@ -3962,6 +3962,23 @@ export const ZH: Record<Phrase, string> = {
   "match.reason.RATING_CLOSE": "您的评分 {mine}，对方 {theirs}：相差不超过 {within}",
   "gcap.ratings.title": "评分与排名",
   "gcap.ratings.blurb": "根据您标记为计入评分的赛事结果，按一条公开的规则计算评分：场馆对选择公开的球员的排名，以及每位球员自己的历史记录和原因。",
+  "ctp.group": "第{n}组",
+  "ctp.start": "出发顺序",
+  "ctp.tops": "完攀",
+  "ctp.zones": "半程点",
+  "ctp.attTop": "完攀尝试",
+  "ctp.attZone": "半程点尝试",
+  "ctp.height": "最高支点",
+  "ctp.attHeight": "尝试次数",
+  "ctp.field": "每条线路的完攀人数",
+  "ctp.boulder": "线路 {n}",
+  "ctp.fieldLine": "{n} 人中 {tops} 人完攀，{zones} 人到达半程点",
+  "ctp.countback": "决赛中各项计数均相同时，以分组赛中名次靠前者为先。",
+  "ctp.byLot": "分组和出发顺序均由抽签决定，因此无需填写报名成绩。",
+  "ctp.mail.group": "您在{t}第{heat}组，第{lane}位出发：{date} {time}，{court}。",
+  "gcap.counted-performances.title": "计数成绩：抱石完攀与半程点",
+  "gcap.counted-performances.blurb": "按计数排名的攀岩比赛：裁判为每条线路记录半程点、完攀及各自达成时的尝试次数，每轮按完攀数、半程点数、再按尝试次数少者排名（或由俱乐部选择只按完攀和半程点）。先资格赛，再决赛；也可按高度计成绩。不计入评分。",
+  "err.RT_PERFORMANCE": "成绩类赛事按成绩或计数给全体选手排名，并非两方之间的胜负，因此不计入评分。",
   "gcap.earned-levels.title": "按积累水平匹配",
   "gcap.earned-levels.blurb": "球员可以选择按比赛结果积累的水平而不是自己填写的水平来匹配；建议会显示数字，且没有选择加入的人不会被找到或排名。",
 };
@@ -4023,6 +4040,7 @@ export const CUSTOMER_ERRORS_ZH: Record<string, string> = {
   // Round 8 (D8b): closing an account that would get credit back; changing a split while a friend pays
   "Cancelling your upcoming bookings would put credit back into your account, and it would be lost with it. Cancel those bookings yourself first, spend the credit or ask the venue to refund it, and then close the account.":
     "取消您即将到来的预订会把储值退回您的账户，而这些储值会随账户一起消失。请先自行取消这些预订，用掉储值或请场馆退款，然后再关闭账户。",
+  "This event draws its groups by lot: there is no entry mark to give.": "本赛事通过抽签分组：无需填写报名成绩。",
   "A friend is paying their share now, so the split stays as it is until that payment is settled.":
     "有朋友正在支付其份额，因此在该付款完成之前，分摊方式保持不变。",
 };

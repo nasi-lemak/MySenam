@@ -19,6 +19,7 @@ import {
   type Window,
 } from "./brackets";
 import { aggregate, formatMark, parseMark, rankPerformances, seedHeats, type Ranked } from "./performance-math";
+import { fieldStats, formatTally, readUnits, startOrder, storedUnits, tallyOf, type CountedUnit, type Tally, type UnitStat } from "./counted-performances";
 import { templateByKey, templateFor, type EntryKind } from "./competition-templates";
 import { entrantCategoryRefusal, entrantParticipantId, entrantUserId, entrantVenueRefusal, declaredGender, membersOnlyEntrantRefusal, PERSON_OF, recordEntered, selfEntrant, type Entrant } from "./competition-entrants";
 import { refuse } from "./entitlements";
@@ -200,16 +201,23 @@ export interface PerformanceLine {
   status: "pending" | "ok" | "dns" | "dnf" | "dq";
   attempts: (number | null)[];
   result: number | null;
-  /** The result as people read it: 1:02.35, 7.42, 312. */
+  /** The result as people read it: 1:02.35, 7.42, 312; a counted event's as "2T 3Z 5 7". */
   shown: string | null;
   rank: number | null;
+  /** A counted event (lib/counted-performances.ts): the judge's record of each boulder or the route, and what it adds up to. */
+  counts?: CountedUnit[];
+  tally?: Tally;
 }
 
 /** Where a performance event stands: heats and final by match, and the overall ranking once there is one. */
 export interface PerformanceDetail {
   lines: Record<number, PerformanceLine[]>;
   /** Everybody, best first: the final's order, then the heats' for the rest; null rank for no result. */
-  ranking: { entryId: number; rank: number | null; result: number | null; shown: string | null; status: PerformanceLine["status"]; stage: "final" | "heat" }[];
+  ranking: { entryId: number; rank: number | null; result: number | null; shown: string | null; status: PerformanceLine["status"]; stage: "final" | "heat"; tally?: Tally }[];
+  /** The heats together, best first, whether or not a competitor has gone on to the final: what the final is filled from. */
+  heatRanking: { entryId: number; rank: number | null }[];
+  /** A counted event with boulders: for the heats together and for the final, how many of the field topped and reached the zone of each boulder. */
+  field?: { heat: UnitStat[]; final: UnitStat[] };
   /** Level for the last place in the final: the organiser chooses (makeFinal). */
   tieForFinal: number[] | null;
 }
@@ -532,47 +540,66 @@ function toEntry(e: EntryRow, forStaff: boolean): Entry {
  */
 async function performanceOf(t: Tournament, matches: Match[], out: Map<number, { reason: OutReason }>, voided: Set<number>): Promise<PerformanceDetail> {
   const rules = t.rules.performance!;
+  const counted = rules.counted ?? null;
   const rows = (await getDb()
-    .prepare("SELECT match_id, entry_id, lane, attempts, result, status FROM tournament_performances WHERE tournament_id = ? ORDER BY match_id, lane")
-    .all(t.id)) as { match_id: number; entry_id: number; lane: number; attempts: string | null; result: number | string | null; status: PerformanceLine["status"] }[];
+    .prepare("SELECT match_id, entry_id, lane, attempts, result, status, counts FROM tournament_performances WHERE tournament_id = ? ORDER BY match_id, lane")
+    .all(t.id)) as { match_id: number; entry_id: number; lane: number; attempts: string | null; result: number | string | null; status: PerformanceLine["status"]; counts: string | null }[];
   const asPerformer = (r: (typeof rows)[number]) => ({
     entryId: r.entry_id,
     status: voided.has(r.entry_id) && r.status === "ok" ? ("dq" as const) : r.status,
     attempts: r.attempts ? (JSON.parse(r.attempts) as (number | null)[]) : [],
     result: r.result === null ? null : Number(r.result),
+    counts: storedUnits(r.counts),
   });
-  const lines: Record<number, PerformanceLine[]> = {};
-  for (const m of matches.filter((x) => x.stage === "heat" || x.stage === "final")) {
-    const mine = rows.filter((r) => r.match_id === m.id);
-    const ranked = rankPerformances(mine.map(asPerformer), rules);
-    lines[m.id] = mine.map((r) => {
-      const k = ranked.find((x) => x.entryId === r.entry_id)!;
-      return { entryId: r.entry_id, lane: r.lane, status: k.status, attempts: k.attempts, result: k.result, shown: k.result === null ? null : formatMark(k.result, rules.measure), rank: k.rank };
-    });
-  }
   const heatIds = new Set(matches.filter((m) => m.stage === "heat").map((m) => m.id));
   const finalMatch = matches.find((m) => m.stage === "final") ?? null;
   const heatRanked = rankPerformances(rows.filter((r) => heatIds.has(r.match_id)).map(asPerformer), rules);
-  const finalRanked = finalMatch ? rankPerformances(rows.filter((r) => r.match_id === finalMatch.id).map(asPerformer), rules) : [];
+  // The countback rule: level in the final on every count, the better placing in the heats decides (lib/counted-performances.ts).
+  const heatPlace = new Map(heatRanked.map((r) => [r.entryId, r.rank]));
+  const finalRanked = finalMatch ? rankPerformances(rows.filter((r) => r.match_id === finalMatch.id).map(asPerformer), rules, heatPlace) : [];
+  const shownOf = (r: Ranked) => (counted ? (r.status === "ok" && r.tally ? formatTally(r.tally, counted) : null) : r.result === null ? null : formatMark(r.result, rules.measure));
+  const lines: Record<number, PerformanceLine[]> = {};
+  for (const m of matches.filter((x) => x.stage === "heat" || x.stage === "final")) {
+    const mine = rows.filter((r) => r.match_id === m.id);
+    const ranked = m.stage === "final" ? finalRanked : rankPerformances(mine.map(asPerformer), rules);
+    lines[m.id] = mine.map((r) => {
+      const k = ranked.find((x) => x.entryId === r.entry_id)!;
+      return {
+        entryId: r.entry_id,
+        lane: r.lane,
+        status: k.status,
+        attempts: k.attempts,
+        result: k.result,
+        shown: shownOf(k),
+        rank: k.rank,
+        ...(counted ? { counts: k.counts ?? [], tally: k.tally } : {}),
+      };
+    });
+  }
   const finalists = new Set(finalRanked.map((r) => r.entryId));
-  const show = (r: Ranked) => (r.result === null ? null : formatMark(r.result, rules.measure));
   const ranking: PerformanceDetail["ranking"] = [];
-  for (const r of finalRanked) ranking.push({ entryId: r.entryId, rank: r.rank, result: r.result, shown: show(r), status: r.status, stage: "final" });
+  for (const r of finalRanked) ranking.push({ entryId: r.entryId, rank: r.rank, result: r.result, shown: shownOf(r), status: r.status, stage: "final", ...(counted ? { tally: r.tally } : {}) });
   // After the finalists, the rest in heat order, ranked on from the final's size.
   const rest = heatRanked.filter((r) => !finalists.has(r.entryId));
   const offset = finalRanked.length;
   rest.forEach((r, i) => {
     const level = i > 0 && r.rank !== null && rest[i - 1].rank === r.rank;
     const rank = r.rank === null ? null : level ? ranking[ranking.length - 1].rank : offset + i + 1;
-    ranking.push({ entryId: r.entryId, rank, result: r.result, shown: show(r), status: r.status, stage: "heat" });
+    ranking.push({ entryId: r.entryId, rank, result: r.result, shown: shownOf(r), status: r.status, stage: "heat", ...(counted ? { tally: r.tally } : {}) });
   });
-  return { lines, ranking, tieForFinal: finalMatch && finalists.size === 0 ? cutTie(heatRanked, rules.finalSize, out) : null };
+  return {
+    lines,
+    ranking,
+    heatRanking: heatRanked.map((r) => ({ entryId: r.entryId, rank: r.rank })),
+    ...(counted ? { field: { heat: fieldStats(heatRanked, counted), final: fieldStats(finalRanked, counted) } } : {}),
+    tieForFinal: finalMatch && finalists.size === 0 ? cutTie(heatRanked, rules.finalSize, out, counted?.cutTies === "all") : null,
+  };
 }
 
-/** Those level for the last place in a final of `size`, if more are level than places are left; else null. */
-function cutTie(heatRanked: Ranked[], size: number, out: Map<number, unknown>): number[] | null {
+/** Those level for the last place in a final of `size`, if more are level than places are left; else null. Where all of them go through, nobody is left to choose. */
+function cutTie(heatRanked: Ranked[], size: number, out: Map<number, unknown>, allGoThrough = false): number[] | null {
   const eligible = heatRanked.filter((r) => r.rank !== null && !out.has(r.entryId));
-  if (eligible.length <= size || size === 0) return null;
+  if (eligible.length <= size || size === 0 || allGoThrough) return null;
   const last = eligible[size - 1].rank;
   const level = eligible.filter((r) => r.rank === last);
   const before = eligible.filter((r) => r.rank! < last!).length;
@@ -1263,6 +1290,7 @@ async function enterLocked(entrant: Entrant, tournamentId: number, input: EntryI
   }
   // A performance event: the entry mark seeds the heats, if given.
   let entryMark: number | null = null;
+  if (t.format === "performance" && input.entryMark?.trim() && t.rules.performance!.counted) return { ok: false, error: "This event draws its groups by lot: there is no entry mark to give." };
   if (t.format === "performance" && input.entryMark?.trim()) {
     const mark = parseMark(input.entryMark, t.rules.performance!.measure);
     if (mark === undefined || mark === null) return { ok: false, error: t.rules.performance!.measure === "time" ? "Give an entry time like 1:02.35, or leave it empty." : "Give your entry mark as a number, or leave it empty." };
@@ -1873,7 +1901,8 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
     const sign = rules.better === "lower" ? 1 : -1;
     const marked = entries.filter((e) => e.entry_mark !== null).sort((x, y) => sign * (Number(x.entry_mark) - Number(y.entry_mark)) || x.id - y.id);
     const order = [...marked, ...shuffle(entries.filter((e) => e.entry_mark === null), random)].map((e) => e.id);
-    const heats = seedHeats(order, rules.heatSize);
+    // A counted event's group has an order of start, 1, 2, 3, ..., drawn by lot (there are no entry marks): not lanes from the middle out.
+    const heats = seedHeats(order, rules.heatSize).map((h, i, all) => (rules.counted ? { ...h, lane: all.slice(0, i).filter((x) => x.heat === h.heat).length + 1 } : h));
     const heatCount = Math.max(...heats.map((h) => h.heat));
     for (let h = 1; h <= heatCount; h++)
       matches.push({
@@ -2392,6 +2421,11 @@ export interface PerformanceInput {
   /** "ok" (the default when attempts are given), or why there is no result: did not start, did not finish, disqualified. */
   status?: "ok" | "dns" | "dnf" | "dq";
   note?: string;
+  /**
+   * A counted event (bouldering, a height): each boulder's, or the route's, record — `{ unit, attempts, zone?, top? }` for a
+   * boulder, `{ unit: 1, attempts, hold, plus? }` for a height (lib/counted-performances.ts `readUnits`).
+   */
+  counts?: unknown[];
 }
 
 /**
@@ -2403,90 +2437,201 @@ export interface PerformanceInput {
  * organiser chooses (makeFinal). A heat put right after the final is filled
  * is refused if it would change who is in the final and the final has any
  * result; before then the final is filled again. All one change.
+ *
+ * A counted event (bouldering, a height) takes each competitor's `counts` instead of marks, through this same path, and
+ * ranks them by its rules (lib/counted-performances.ts). A correction that would change who is in a final already filled
+ * is previewed (`previewPerformances`) and made only as confirmed against that preview (`confirm`).
  */
-export async function recordPerformances(matchId: number, lines: PerformanceInput[]): Promise<Result<TournamentDetail>> {
-  return withTransaction(async (): Promise<Result<TournamentDetail>> => {
-    const db = getDb();
-    const m = (await db.prepare("SELECT id, tournament_id, stage FROM tournament_matches WHERE id = ?").get(matchId)) as
-      | { id: number; tournament_id: number; stage: string }
-      | undefined;
-    if (!m || (m.stage !== "heat" && m.stage !== "final")) return { ok: false, error: "That is not a heat or a final." };
-    const t = (await tournamentById(m.tournament_id))!;
-    if (t.status !== "drawn" && t.status !== "finished") return { ok: false, error: "The draw is not made." };
-    const rules = t.rules.performance!;
-    const inIt = new Set(
-      ((await db.prepare("SELECT entry_id FROM tournament_performances WHERE match_id = ?").all(matchId)) as { entry_id: number }[]).map((r) => r.entry_id)
-    );
-    if (inIt.size === 0) return { ok: false, error: "Nobody is in it yet." };
-    const before = m.stage === "heat" ? await finalists(t.id) : null;
-    for (const line of lines) {
-      if (!inIt.has(line.entryId)) return { ok: false, error: "Somebody given is not in it." };
-      const status = line.status ?? "ok";
-      if (!["ok", "dns", "dnf", "dq"].includes(status)) return { ok: false, error: "A result, or did not start, did not finish, disqualified." };
-      let attempts: (number | null)[] = [];
-      let result: number | null = null;
-      if (status === "ok") {
-        const given = (line.attempts ?? []).map((a) => String(a ?? "").trim()).filter((a) => a !== "");
-        if (given.length === 0) return { ok: false, error: "Give each competitor's mark, or say why there is none." };
-        if (given.length > rules.attempts) return { ok: false, error: `${rules.attempts} attempt${rules.attempts === 1 ? "" : "s"} each at most.` };
-        for (const a of given) {
-          const mark = parseMark(a, rules.measure);
-          if (mark === undefined) return { ok: false, error: rules.measure === "time" ? `"${a}" is not a time: write 1:02.35 or 62.35.` : `"${a}" is not a mark: write a number, or X for a foul.` };
-          attempts.push(mark);
-        }
-        result = rules.aggregate === "total" && attempts.length < rules.attempts ? null : aggregate(attempts, rules);
-        if (result === null)
-          return { ok: false, error: rules.aggregate === "total" ? `A total needs all ${rules.attempts} scores.` : "Every attempt is a foul: no result — say so with did not finish, or give a mark." };
-      } else attempts = [];
-      await db
-        .prepare("UPDATE tournament_performances SET attempts = ?, result = ?, status = ?, note = ?, updated_at = datetime('now') WHERE match_id = ? AND entry_id = ?")
-        .run(JSON.stringify(attempts), result, status, line.note?.trim().slice(0, 300) || null, matchId, line.entryId);
-    }
-    // Every line in: done.
-    const pending = (await db.prepare("SELECT COUNT(*)::int AS n FROM tournament_performances WHERE match_id = ? AND status = 'pending'").get(matchId)) as { n: number };
-    await db.prepare("UPDATE tournament_matches SET status = ?, updated_at = datetime('now') WHERE id = ?").run(pending.n === 0 ? "done" : "scheduled", matchId);
-    if (m.stage === "heat") {
-      const now = await finalists(t.id);
-      const final = (await db.prepare("SELECT id FROM tournament_matches WHERE tournament_id = ? AND stage = 'final'").get(t.id)) as { id: number } | undefined;
-      if (final && before && before.filled && now.wanted && now.wanted.join() !== before.current.join()) {
-        const started = (await db.prepare("SELECT 1 FROM tournament_performances WHERE match_id = ? AND status <> 'pending'").get(final.id)) as unknown;
-        if (started) throw new PerformanceRefused("The final has results: a heat correction that changes who was in it is not made. Correct the final's results, or arrange a re-swim by hand.");
-        await db.prepare("DELETE FROM tournament_performances WHERE match_id = ?").run(final.id);
-      }
-      await fillFinal(t.id, null);
-    }
-    await finishIfDone(t.id);
-    await releaseUnneeded(t.id);
-    return { ok: true, value: (await tournamentDetail(t.id, { forStaff: true }))! };
-  }).catch((err) => {
-    if (err instanceof PerformanceRefused) return { ok: false as const, error: err.message };
+export async function recordPerformances(matchId: number, lines: PerformanceInput[], confirm?: { token: string }): Promise<Result<TournamentDetail>> {
+  const tournament = (await getDb().prepare("SELECT tournament_id FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number } | undefined;
+  if (confirm && tournament && (await performanceToken(tournament.tournament_id, matchId, lines)) !== confirm.token)
+    return { ok: false, error: "The tournament has changed since you looked. Review it again.", code: "CHANGED" };
+  return withTransaction(() => recordPerformancesOnce(matchId, lines, confirm !== undefined)).catch((err) => {
+    if (err instanceof PerformanceRefused) return { ok: false as const, error: err.message, ...(err.code ? { code: err.code } : {}) };
     throw err;
   });
 }
 
-class PerformanceRefused extends Error {}
+async function recordPerformancesOnce(matchId: number, lines: PerformanceInput[], confirmed: boolean): Promise<Result<TournamentDetail>> {
+  const db = getDb();
+  const m = (await db.prepare("SELECT id, tournament_id, stage FROM tournament_matches WHERE id = ?").get(matchId)) as
+    | { id: number; tournament_id: number; stage: string }
+    | undefined;
+  if (!m || (m.stage !== "heat" && m.stage !== "final")) return { ok: false, error: "That is not a heat or a final." };
+  const t = (await tournamentById(m.tournament_id))!;
+  if (t.status !== "drawn" && t.status !== "finished") return { ok: false, error: "The draw is not made." };
+  const rules = t.rules.performance!;
+  const inIt = new Set(
+    ((await db.prepare("SELECT entry_id FROM tournament_performances WHERE match_id = ?").all(matchId)) as { entry_id: number }[]).map((r) => r.entry_id)
+  );
+  if (inIt.size === 0) return { ok: false, error: "Nobody is in it yet." };
+  const before = m.stage === "heat" ? await finalists(t.id) : null;
+  const writes: (string | number | null)[][] = [];
+  for (const line of lines) {
+    if (!inIt.has(line.entryId)) return { ok: false, error: "Somebody given is not in it." };
+    const status = line.status ?? "ok";
+    if (!["ok", "dns", "dnf", "dq"].includes(status)) return { ok: false, error: "A result, or did not start, did not finish, disqualified." };
+    let attempts: (number | null)[] = [];
+    let result: number | null = null;
+    let counts: CountedUnit[] | null = null;
+    if (line.counts !== undefined && !rules.counted) return { ok: false, error: "This event takes marks, not counts." };
+    if (rules.counted && (line.attempts ?? []).some((a) => String(a ?? "").trim() !== "")) return { ok: false, error: "This event takes a count for each boulder, not a mark." };
+    if (status === "ok" && rules.counted) {
+      const read = readUnits(line.counts, rules.counted);
+      if (!read.ok) return read;
+      counts = read.units;
+      const tally = tallyOf(counts);
+      result = rules.counted.kind === "height" ? tally.height : tally.tops;
+    } else if (status === "ok") {
+      const given = (line.attempts ?? []).map((a) => String(a ?? "").trim()).filter((a) => a !== "");
+      if (given.length === 0) return { ok: false, error: "Give each competitor's mark, or say why there is none." };
+      if (given.length > rules.attempts) return { ok: false, error: `${rules.attempts} attempt${rules.attempts === 1 ? "" : "s"} each at most.` };
+      for (const a of given) {
+        const mark = parseMark(a, rules.measure);
+        if (mark === undefined) return { ok: false, error: rules.measure === "time" ? `"${a}" is not a time: write 1:02.35 or 62.35.` : `"${a}" is not a mark: write a number, or X for a foul.` };
+        attempts.push(mark);
+      }
+      result = rules.aggregate === "total" && attempts.length < rules.attempts ? null : aggregate(attempts, rules);
+      if (result === null)
+        return { ok: false, error: rules.aggregate === "total" ? `A total needs all ${rules.attempts} scores.` : "Every attempt is a foul: no result — say so with did not finish, or give a mark." };
+    } else attempts = [];
+    writes.push([JSON.stringify(attempts), result, counts ? JSON.stringify(counts) : null, status, line.note?.trim().slice(0, 300) || null, matchId, line.entryId]);
+  }
+  // Every line read before any is written: one given wrongly leaves the rest as they were.
+  for (const w of writes)
+    await db
+      .prepare("UPDATE tournament_performances SET attempts = ?, result = ?, counts = ?, status = ?, note = ?, updated_at = datetime('now') WHERE match_id = ? AND entry_id = ?")
+      .run(...w);
+  // Every line in: done.
+  const pending = (await db.prepare("SELECT COUNT(*)::int AS n FROM tournament_performances WHERE match_id = ? AND status = 'pending'").get(matchId)) as { n: number };
+  await db.prepare("UPDATE tournament_matches SET status = ?, updated_at = datetime('now') WHERE id = ?").run(pending.n === 0 ? "done" : "scheduled", matchId);
+  if (m.stage === "heat") {
+    const now = await finalists(t.id);
+    const final = (await db.prepare("SELECT id FROM tournament_matches WHERE tournament_id = ? AND stage = 'final'").get(t.id)) as { id: number } | undefined;
+    // Who the heats send is not who is in it: or those level for the last place are no longer the ones the organiser chose from.
+    if (final && before && before.filled && (now.open || (now.wanted && now.wanted.join() !== before.current.join()))) {
+      const started = (await db.prepare("SELECT 1 FROM tournament_performances WHERE match_id = ? AND status <> 'pending'").get(final.id)) as unknown;
+      if (started) throw new PerformanceRefused("The final has results: a heat correction that changes who was in it is not made. Correct the final's results, or arrange a re-swim by hand.");
+      // A counted event's field is a judge's say-so: refilling a final somebody is waiting to start is confirmed against its preview.
+      if (rules.counted && !confirmed) throw new PerformanceRefused("This correction changes who is in the final. Preview it, and confirm it.", "CONFIRM");
+      await db.prepare("DELETE FROM tournament_performances WHERE match_id = ?").run(final.id);
+    }
+    await fillFinal(t.id, null);
+  }
+  await finishIfDone(t.id);
+  await releaseUnneeded(t.id);
+  return { ok: true, value: (await tournamentDetail(t.id, { forStaff: true }))! };
+}
 
-/** Who is in the final now, and who the heats send (null while a heat is still to finish, or a tie for the last place needs choosing). */
-async function finalists(tournamentId: number): Promise<{ filled: boolean; current: number[]; wanted: number[] | null }> {
+class PerformanceRefused extends Error {
+  readonly code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/** A fingerprint of a tournament's performance lines and the lines about to be recorded, for confirming against what was reviewed. */
+async function performanceToken(tournamentId: number, matchId: number, lines: PerformanceInput[]): Promise<string> {
+  const rows = await getDb()
+    .prepare("SELECT match_id, entry_id, lane, status, result, attempts, counts FROM tournament_performances WHERE tournament_id = ? ORDER BY match_id, entry_id")
+    .all(tournamentId);
+  const asked = lines.map((l) => [l.entryId, l.status ?? "ok", l.attempts ?? null, l.counts ?? null, l.note ?? null]);
+  const crypto = await import("crypto");
+  return crypto.createHash("sha256").update(JSON.stringify({ matchId, asked, rows })).digest("hex").slice(0, 32);
+}
+
+export interface PerformancePreview extends Changes {
+  /** The correction would change who is in a final already filled: it is made only as confirmed against this preview. */
+  consequential: boolean;
+  token: string;
+}
+
+/**
+ * What recording these lines would change, without changing anything: each line's result and placing in the heat or final,
+ * and whether the final's field changes (and so is filled again, its order of start made again); or why it is refused.
+ */
+export async function previewPerformances(matchId: number, lines: PerformanceInput[]): Promise<Result<PerformancePreview>> {
+  const m = (await getDb().prepare("SELECT tournament_id FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number } | undefined;
+  if (!m) return { ok: false, error: "Match not found." };
+  const token = await performanceToken(m.tournament_id, matchId, lines);
+  const preview = await dryRun(async (): Promise<Result<Changes & { consequential: boolean }>> => {
+    const before = (await tournamentDetail(m.tournament_id, { forStaff: true }))!;
+    try {
+      const done = await recordPerformancesOnce(matchId, lines, true);
+      if (!done.ok) return done;
+      const { phrases, consequential } = performanceChanges(before, done.value, matchId);
+      return { ok: true, value: { ...changesOf(phrases), consequential } };
+    } catch (err) {
+      if (err instanceof PerformanceRefused) return { ok: false, error: err.message };
+      throw err;
+    }
+  });
+  return preview.ok ? { ok: true, value: { ...preview.value, token } } : preview;
+}
+
+/** What a recording changed in one heat or final, and in who is in the final. */
+function performanceChanges(before: TournamentDetail, after: TournamentDetail, matchId: number): { phrases: StaffText[]; consequential: boolean } {
+  const phrases: StaffText[] = [];
+  const nothing = "-";
+  const was = before.performance!.lines[matchId] ?? [];
+  const now = after.performance!.lines[matchId] ?? [];
+  const word = (l: PerformanceLine | undefined) => (l ? (l.shown ?? (l.status === "pending" ? nothing : said(`srv.pf.status.${l.status}`))) : nothing);
+  for (const l of now) {
+    const prior = was.find((x) => x.entryId === l.entryId);
+    if (prior && (prior.shown !== l.shown || prior.status !== l.status)) phrases.push(said("srv.pf.line", { name: entryName(after, l.entryId), was: word(prior), now: word(l) }));
+  }
+  // Placings: among all the groups together for a group's correction (what the final is filled from), within the final for a final's.
+  const isHeat = after.matches.find((x) => x.id === matchId)?.stage === "heat";
+  const places = (d: TournamentDetail) => new Map((isHeat ? d.performance!.heatRanking : (d.performance!.lines[matchId] ?? [])).map((r) => [r.entryId, r.rank]));
+  const [placedBefore, placedNow] = [places(before), places(after)];
+  for (const [id, rank] of placedNow) {
+    if (placedBefore.has(id) && placedBefore.get(id) !== rank) phrases.push(said("srv.pf.place", { name: entryName(after, id), was: placedBefore.get(id) ?? nothing, now: rank ?? nothing }));
+  }
+  const finalOf = (d: TournamentDetail) => {
+    const f = d.matches.find((x) => x.stage === "final");
+    return f ? (d.performance!.lines[f.id] ?? []).map((l) => l.entryId).sort((a, b) => a - b) : [];
+  };
+  const [fromField, toField] = [finalOf(before), finalOf(after)];
+  const consequential = fromField.length > 0 && fromField.join() !== toField.join();
+  // Nobody left in it: those level for the last place are to be chosen between again.
+  if (consequential) phrases.push(said(toField.length === 0 ? "srv.pf.finalOpen" : "srv.pf.final", { now: namesAnd(after, toField), was: namesAnd(after, fromField) }));
+  return { phrases, consequential };
+}
+
+/**
+ * Who is in the final now, and who the heats send (null while a heat is still to finish, or a tie for the last place needs choosing: then
+ * `open`, the heats being in). An organiser's earlier choice among those level still stands while they are as level as they were.
+ */
+async function finalists(tournamentId: number): Promise<{ filled: boolean; current: number[]; wanted: number[] | null; open: boolean }> {
   const d = (await tournamentDetail(tournamentId, { forStaff: true }))!;
   const final = d.matches.find((m) => m.stage === "final");
   const current = final ? (d.performance!.lines[final.id] ?? []).map((l) => l.entryId).sort((a, b) => a - b) : [];
-  return { filled: current.length > 0, current, wanted: final ? wantedFinalists(d, null)?.sort((a, b) => a - b) ?? null : null };
+  const wanted = final ? wantedFinalists(d, null, current)?.sort((a, b) => a - b) ?? null : null;
+  return { filled: current.length > 0, current, wanted, open: !!final && wanted === null && !d.matches.some((m) => m.stage === "heat" && m.status === "scheduled") };
 }
 
-/** The heats' best, for the final, in ranking order; null until every heat is done, or while a tie for the last place is unchosen. */
-function wantedFinalists(d: TournamentDetail, chosen: number[] | null): number[] | null {
+/**
+ * The heats' best, for the final, in ranking order; null until every heat is done, or while a tie for the last place is unchosen.
+ * `keep`: who is in the final already, whose choice among those level stands if it is still a way through of the heats as they are.
+ */
+function wantedFinalists(d: TournamentDetail, chosen: number[] | null, keep: number[] | null = null): number[] | null {
   const rules = d.rules.performance!;
   if (d.matches.some((m) => m.stage === "heat" && m.status === "scheduled")) return null;
   const out = new Set(d.entries.filter((e) => e.out).map((e) => e.id));
-  const heatRanking = d.performance!.ranking.filter((r) => r.stage === "heat" && r.rank !== null && !out.has(r.entryId));
+  // The heats' own ranking, whether or not the final is filled already: `ranking` lists a finalist under the final.
+  const heatRanking = d.performance!.heatRanking.filter((r) => r.rank !== null && !out.has(r.entryId));
   if (heatRanking.length <= rules.finalSize) return heatRanking.map((r) => r.entryId);
   const lastRank = heatRanking[rules.finalSize - 1].rank;
   const sure = heatRanking.filter((r) => r.rank! < lastRank!).map((r) => r.entryId);
   const level = heatRanking.filter((r) => r.rank === lastRank).map((r) => r.entryId);
-  if (sure.length + level.length <= rules.finalSize) return [...sure, ...level];
-  if (!chosen) return null;
+  if (sure.length + level.length <= rules.finalSize || rules.counted?.cutTies === "all") return [...sure, ...level];
   const places = rules.finalSize - sure.length;
+  if (!chosen && keep) {
+    const kept = keep.filter((id) => level.includes(id));
+    return kept.length === places && sure.every((id) => keep.includes(id)) && keep.length === sure.length + kept.length ? [...sure, ...kept] : null;
+  }
+  if (!chosen) return null;
   if (chosen.length !== places || chosen.some((id) => !level.includes(id))) return null;
   return [...sure, ...chosen];
 }
@@ -2500,9 +2645,12 @@ async function fillFinal(tournamentId: number, chosen: number[] | null): Promise
   const wanted = wantedFinalists(d, chosen);
   if (!wanted || wanted.length === 0) return false;
   const { centreOutLanes } = await import("./performance-math");
-  const lanes = centreOutLanes(Math.max(d.rules.performance!.finalSize, wanted.length));
-  for (let i = 0; i < wanted.length; i++)
-    await db.prepare("INSERT INTO tournament_performances (tournament_id, match_id, entry_id, lane) VALUES (?, ?, ?, ?)").run(tournamentId, final.id, wanted[i], lanes[i]);
+  const counted = d.rules.performance!.counted;
+  // A counted final has an order of start, not lanes: the worst heat placing first and the best last, or as ranked (`finalStart`).
+  const lanes = counted ? wanted.map((_, i) => i + 1) : centreOutLanes(Math.max(d.rules.performance!.finalSize, wanted.length));
+  const order = counted ? startOrder(wanted, counted) : wanted;
+  for (let i = 0; i < order.length; i++)
+    await db.prepare("INSERT INTO tournament_performances (tournament_id, match_id, entry_id, lane) VALUES (?, ?, ?, ?)").run(tournamentId, final.id, order[i], lanes[i]);
   await db.prepare("UPDATE tournament_matches SET status = 'scheduled' WHERE id = ?").run(final.id);
   return true;
 }
@@ -3298,7 +3446,7 @@ async function tellFirstMatches(d: TournamentDetail): Promise<void> {
     const bye = d.matches.some((m) => m.status === "bye" && m.winner === r.id);
     const text: Written = (tr) =>
       heat
-        ? tr("mail.tour.draw.heat", { heat: heat.position, t: d.name, lane: lane ?? "", date: heat.date!, time: formatMinute(heat.minute!, tr.locale), court: heat.courtName ?? "" })
+        ? tr(d.rules.performance?.counted ? "ctp.mail.group" : "mail.tour.draw.heat", { heat: heat.position, t: d.name, lane: lane ?? "", date: heat.date!, time: formatMinute(heat.minute!, tr.locale), court: heat.courtName ?? "" })
         : first
           ? tr("mail.tour.draw.first", {
               t: d.name,

@@ -12,7 +12,7 @@ import { translateError } from "@/lib/i18n";
 import type { Phrase, T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
 
-import type { Entry, Match, TournamentDetail } from "@/lib/tournaments";
+import type { Entry, Match, PerformanceLine, TournamentDetail } from "@/lib/tournaments";
 import type { MatchReport } from "@/lib/match-reports";
 import { MatchResultForm } from "@/components/MatchResultForm";
 import { resultSentence, scoreExample } from "@/lib/result-text";
@@ -81,7 +81,10 @@ export default function TournamentPage() {
     x.status !== "finished" || underReview
       ? null
       : x.format === "performance"
-        ? x.performance?.ranking.find((r) => r.rank === 1)?.entryId ?? null
+        ? // Level counts share first place: a counted event names no single winner then.
+          x.rules.performance?.counted && (x.performance?.ranking.filter((r) => r.rank === 1).length ?? 0) > 1
+          ? null
+          : x.performance?.ranking.find((r) => r.rank === 1)?.entryId ?? null
         : x.format === "round_robin"
           ? x.groups[0]?.table.find((r) => !r.out)?.entryId ?? null
           : final?.winner ?? null;
@@ -333,6 +336,7 @@ function Performances({ t, x, names }: { t: T; x: TournamentDetail; names: Map<n
   const p = x.performance!;
   const status = (s: string) => (s === "dns" ? t("tour.dns") : s === "dnf" ? t("tour.dnf") : s === "dq" ? t("tour.dq") : t("tour.pending"));
   const units = x.matches.filter((m) => m.stage === "heat" || m.stage === "final").sort((a, b) => (a.stage === "final" ? 1 : 0) - (b.stage === "final" ? 1 : 0) || a.position - b.position);
+  if (x.rules.performance?.counted) return <CountedPerformances t={t} x={x} names={names} units={units} status={status} />;
   return (
     <section className="space-y-3">
       {p.ranking.some((r) => r.rank !== null) && (
@@ -388,6 +392,135 @@ function Performances({ t, x, names }: { t: T; x: TournamentDetail; names: Map<n
                   ))}
               </tbody>
             </table>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * A counted event (bouldering tops and zones, a height): the placings with what each competitor's counts add up to, and each
+ * group's and the final's climbers in their order of start, with how many of the field topped each boulder (lib/counted-performances.ts).
+ */
+function CountedPerformances({
+  t,
+  x,
+  names,
+  units,
+  status,
+}: {
+  t: T;
+  x: TournamentDetail;
+  names: Map<number, string>;
+  units: Match[];
+  status: (s: string) => string;
+}) {
+  const p = x.performance!;
+  const c = x.rules.performance!.counted!;
+  const columns = c.rankBy.map((k) => ({
+    key: k,
+    head: t(k === "tops" ? "ctp.tops" : k === "zones" ? "ctp.zones" : k === "attempts_top" ? "ctp.attTop" : k === "attempts_zone" ? "ctp.attZone" : k === "height" ? "ctp.height" : "ctp.attHeight"),
+    of: (s: NonNullable<PerformanceLine["tally"]>) =>
+      k === "tops" ? s.tops : k === "zones" ? s.zones : k === "attempts_top" ? s.attemptsTop : k === "attempts_zone" ? s.attemptsZone : k === "height" ? (Number.isInteger(s.height) ? String(s.height) : `${Math.floor(s.height)}+`) : s.attemptsHeight,
+  }));
+  const head = (first: string) => (
+    <thead className="text-xs text-slate-500">
+      <tr>
+        <th className="w-12 text-left font-medium">{first}</th>
+        <th className="text-left font-medium" />
+        {columns.map((col) => (
+          <th key={col.key} scope="col" className="px-1 text-right font-medium">
+            {col.head}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+  const counts = (tally: PerformanceLine["tally"], st: string) =>
+    tally && st === "ok" ? (
+      columns.map((col) => (
+        <td key={col.key} className="px-1 text-right tabular-nums">
+          {col.of(tally)}
+        </td>
+      ))
+    ) : (
+      <td colSpan={columns.length} className="text-right">
+        {status(st)}
+      </td>
+    );
+  const field = (round: "heat" | "final") => {
+    const rows = p.field?.[round] ?? [];
+    if (rows.length === 0 || rows.every((r) => r.climbers === 0)) return null;
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+        <h2 className="font-semibold">
+          {t("ctp.field")}
+          {round === "final" ? `: ${t("tour.final")}` : ""}
+        </h2>
+        <ul className="mt-1 space-y-0.5 text-slate-600">
+          {rows.map((r) => (
+            <li key={r.unit}>
+              <span className="font-medium">{t("ctp.boulder", { n: r.unit })}</span>: {t("ctp.fieldLine", { tops: r.tops, n: r.climbers, zones: r.zones })}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
+  return (
+    <section className="space-y-3">
+      {p.ranking.some((r) => r.rank !== null) && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="font-semibold">{t("tour.results")}</h2>
+          <div className="overflow-x-auto">
+            <table className="mt-2 w-full text-sm">
+              {head(t("tour.rank"))}
+              <tbody>
+                {p.ranking.map((r) => (
+                  <tr key={r.entryId} className={r.rank === null ? "text-slate-400" : ""}>
+                    <td>{r.rank ?? "—"}</td>
+                    <td className="pr-2">{names.get(r.entryId)}</td>
+                    {counts(r.tally, r.status)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {c.countback && <p className="mt-2 text-xs text-slate-500">{t("ctp.countback")}</p>}
+        </div>
+      )}
+      {c.kind === "boulders" && field("heat")}
+      {c.kind === "boulders" && field("final")}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {units.map((m) => (
+          <div key={m.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+            <h3 className="font-semibold">
+              {m.stage === "final" ? t("tour.final") : t("ctp.group", { n: m.position })}
+              <span className="ml-2 text-xs font-normal text-slate-500">
+                {m.date} {m.minute !== null && formatMinute(m.minute, t.locale)}, {m.courtName}
+              </span>
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="mt-1 w-full">
+                {head(t("ctp.start"))}
+                <tbody>
+                  {(p.lines[m.id] ?? [])
+                    .slice()
+                    .sort((a, b) => a.lane - b.lane)
+                    .map((l) => (
+                      <tr key={l.entryId}>
+                        <td>{l.lane}</td>
+                        <td className="pr-2">
+                          {names.get(l.entryId)}
+                          {l.rank !== null && <span className="ml-1 text-xs text-slate-400">({l.rank})</span>}
+                        </td>
+                        {counts(l.tally, l.status)}
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ))}
       </div>
@@ -712,7 +845,8 @@ function EnterBox({
           </label>
         </>
       )}
-      {x.format === "performance" && (
+      {x.format === "performance" && x.rules.performance?.counted && <p className="max-w-xs text-xs text-slate-500">{t("ctp.byLot")}</p>}
+      {x.format === "performance" && !x.rules.performance?.counted && (
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {label("tour.entryMark", "fin5.tour.entryMarkOf")}
           <input

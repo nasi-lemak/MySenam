@@ -63,11 +63,14 @@ rules, which start from the sport's template
   | Ranking round by ends | archery | Six ends each, added up |
   | Series of games | bowling | Three games each, added up |
   | Best of several attempts | distance or score events | Three attempts, the best counts, the next best breaks a tie, a foul is X |
+  | Bouldering: tops, zones and attempts; club format; climbing by height | bouldering, climbing | A result is a set of counts, ranked by the rules ([counted performances](#counted-performances)) |
   | Your own | anything else | The general rules (as every tournament had before templates) |
 
 - **Format:** a straight knockout; round-robin groups (3 to 6) whose top one
   or two go through to a knockout; a **round robin** of everybody (up to 16),
-  whose table is the result; or a **performance event**: heats, then a final.
+  whose table is the result; or a **performance event**: heats, then a final,
+  ranked by a mark or, for bouldering and climbing, by
+  [counts](#counted-performances).
 - **Who enters:** singles, doubles (a partner named), or **teams**: a team
   name and a roster of names, within the template's sizes (a futsal roster is
   5 to 14), or a [persistent team](#teams) the captain names, with the roster
@@ -422,8 +425,11 @@ lane.
   competitors are level for its last place, when the organiser decides it as
   their rules say (a swim-off) and chooses who goes through. A heat
   corrected after the final is filled refills it if the final has no results
-  yet, and is refused if it would change who swam a final that has. The
+  yet, and is refused if it would change who swam a final that has; one that
+  leaves its field as it was is made. The
   overall placings are the final's order, then everybody else by their heats.
+  A bouldering or climbing event enters counts instead of marks, and is ranked
+  by them ([counted performances](#counted-performances)).
 
 ### Corrections after the knockout has begun
 
@@ -540,6 +546,147 @@ draw's arithmetic is in `src/lib/brackets.ts` and
 `src/lib/performance-math.ts`, apart from the database, and tested on its
 own.
 
+### Counted performances
+
+A **counted performance** is a performance event whose result is a set of
+counts instead of one mark: **bouldering** (for each boulder, whether the zone
+hold and the top were reached, and on which attempt) or **climbing by height**
+(the highest hold reached). It is a template and rules, data the one engine
+reads, never a branch on the sport
+([ADR 0013](../architecture/decisions/0013-competition-framework.md);
+`src/lib/counted-performances.ts`, `src/lib/tournament-rules.ts`). The groups
+and final are the performance event's heats and final, and the results go in
+through the same path as any performance result (`recordPerformances`), not a
+second one.
+
+| Template | Offered for | What it is |
+| -------- | ----------- | ---------- |
+| Bouldering: tops, zones and attempts | bouldering | Qualification groups, then a final of the best six; four boulders a round; ranked by tops, zones, fewer attempts to top, fewer attempts to zone |
+| Bouldering, club format: tops, then zones | bouldering | One round of up to 40 climbers, five boulders; ranked by tops, then zones; no final unless set |
+| Climbing by height (a route) | climbing | One route; a final of the best eight; ranked by the higher hold, then fewer attempts; countback on |
+
+They are common competition practice, not any federation's regulations: an
+organiser running an event under one checks the template against its rules
+(the set-up screen says so), and changes what differs until the draw.
+
+**Rules** (a template's, each changeable until the draw, checked): the kind
+(`boulders`, or a `height`, which is one route); boulders in a round (1 to 40);
+**ranked by** (an ordered list from `tops`, `zones`, `attempts_top`,
+`attempts_zone` for boulders, or `height`, `attempts_height`; the set-up screen
+offers the full list and *tops then zones only*); climbers in each group (2 to
+40) and into the final (0: none); whether **countback** is on; whether the
+final **starts** with the worst placed (`reverse`, the default: the best
+climbs last) or the best; and what happens when climbers are level for the
+final's last place (`cutTies`, below).
+
+**The draw.** Everybody is drawn by lot into groups (there is no entry mark:
+an entry that gives one is refused), each group given a court and a time as a
+heat is, and each climber an order of start, 1, 2, 3 and so on, where a
+marks event has lanes. A group is the qualification: everybody climbs every
+boulder in the group's time. The final is filled by itself once every group is
+in.
+
+**What a judge enters.** For each competitor and each boulder they climbed:
+the attempts made, the attempt on which the **zone** was reached and the one on
+which the **top** was (each absent if not reached). Checked against how a climb
+goes: a boulder topped ends at the attempt that topped it; the zone is reached
+no later than the top, and a top with no zone marked reached it on the same
+attempt; nothing is reached on an attempt not made; no boulder is given twice;
+a boulder not entered was not climbed and counts for nothing. A competitor
+with no boulder at all did not start (or did not finish, or was disqualified:
+the same statuses as any performance event). A height is one record: the
+highest hold (0 to 200), a **+** for a partial hold, and the attempts. A save
+is all of it or none: one wrong line leaves the rest as they were. On a phone
+the staff screen shows a row for each competitor and, for each boulder, **+**
+for each attempt, **Z** at the attempt that reached the zone and **T** at the
+one that topped it, one boulder at a time if the screen is narrow. Front desk
+and managers enter, as for any performance event (an official's page has no
+performance events); every save is in the activity log with each line's counts
+and what they replaced. The counts are the judge's record as entered, never a
+verified measure.
+
+**What a round is ranked by.** From the counts, each time: *tops* (boulders
+topped), *zones* (boulders where the zone was reached, a top included),
+*attempts to top* (added up over the boulders topped) and *attempts to zone*
+(added up over the boulders where the zone was reached). Attempts on a boulder
+that reached nothing count for nothing. A height's *height* is the hold, half
+a hold more for a +, and its *attempts* are the attempts made. The round is
+ranked by the event's keys in order, more tops, zones and height first and
+fewer attempts first. Level on every key, climbers **share a place and the next
+is skipped** (1, 2, 2, 4), as performance events show ties; those with no
+result (not started, not finished, disqualified) follow, unranked.
+
+*Worked example.* Four boulders. A tops boulders 1 (attempt 2, zone on 1) and 2
+(attempt 1), reaches the zone on 3 (attempt 3), and tries 4 for three
+attempts for nothing: 2 tops, 3 zones, 3 attempts to top (2 + 1), 5 to zone
+(1 + 1 + 3), written **2T 3Z 3 5**. B has 2T 3Z 4 4 and C also 2T 3Z 4 4: A is
+ahead of both on attempts to top, B and C share the next place. In the club
+format (tops, then zones only) A, B and C all share one place.
+
+**Countback.** Off by default. Where on, climbers still level in the **final**
+on every key are split by their placing among all the groups together, the
+better first; level there too, they share. A count is never overridden: a
+better earlier placing does not lift somebody with fewer tops. The groups, which
+have nothing before them, have no countback: level climbers there share a place.
+(Federations' countback rules differ; the published rule here is the one
+above.)
+
+**Who goes through, and a tie at the cut.** The best `finalSize` by their
+placing in the groups together, those out or disqualified not counted. If more
+are level for the last place than there are places left, then by the rules'
+`cutTies`: **`choose`** (the default) leaves the final empty and the organiser
+chooses exactly as many of those level as there are places (a manager's, as in
+any performance event), or **`all`** takes all of those level, so the final is
+a little larger than set. The final's order of start is by the rules (`reverse`
+or best first), ties in placing by entry number.
+
+**Corrections.** A corrected count replaces the line, and everything
+derived from it (every tally, placing and who goes through) is worked out
+again from the counts in the same change, so the same counts give the same
+placings in whatever order they were entered (property-tested, and a corrected
+event is tested to equal the same results entered straight). A group
+correction that changes who is in a final already filled shows what it
+would change first (the line, the placings among the groups and the final's
+new field, in the staff language) and is made only as confirmed against that
+preview, refused if anything moved in between. If it leaves climbers level for
+the last place, the final is emptied for the organiser to choose again, an
+earlier choice standing while it is still a way through. A correction that
+would change who swam a final which already has results is refused, nothing
+changed (correct the final's own results, which re-rank it at once, or arrange a
+re-climb by hand). One that leaves the final's field as it was is made at once,
+for a marks event as for a counted one. A climber who leaves is *did not start*
+for what is left; their results stand or are void by the event's rules, a
+disqualified climber's void by default: kept on the record, unranked, and not
+put through.
+
+**Who sees what.** A staff member sees a round's lines with their counts and
+places, and for each boulder how many of the field topped it and reached its
+zone. The public page, which refreshes while the event is on, shows the
+placings with a column for each key, each group's and the final's climbers in
+their order of start with their counts, and how many topped each boulder
+(counts are not personal data beyond what performance events hold). A declared
+minor (a guardian's agreement, a participant a guardian manages, or a date of
+birth under 18 on the first day: the entrant's word) is named there by first
+name and the initial of the next, and everybody so where the tournament shows
+short names (`src/lib/public-names.ts`); the public API says the same. Juniors
+enter through a guardian's account as for any event. Counts belong to the
+entry: erasing a person anonymises the entry, the counts stay with it as any
+result does, and a person's export lists their entry. A winner is named only
+where first place is not shared.
+
+**Not rated.** A rating comes from decided matches with two sides
+([ADR 0031](../architecture/decisions/0031-ratings-from-a-ledger-of-results.md));
+a ranking of a field by counts has none, and is not turned into pairwise
+results. Marking a performance event rated is refused (`RT_PERFORMANCE`) and
+nothing in one reaches the ledger.
+
+**Not built.** A semi-final round (a counted event, like any performance event,
+has one final after its groups; a venue runs a semi-final as an event of its
+own); lead qualification over two routes, or a score by several measures
+combined; boulder bonus scoring where only the last attempt counts; speed
+climbing; per-boulder timing and rotation of the groups through the boulders
+(the group's time is one block of court time).
+
 ### What tournaments do not do
 
 The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
@@ -554,7 +701,6 @@ The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
   typed roster are names, not accounts (a named [team](#teams)'s members are
   accounts, or children on a guardian's, each declaring their own age and
   category).
-- Rules a template cannot express: counts of tops and zones (bouldering).
 - Seeds are set by staff, or by entry mark in a performance event; a manager
   can ask for seeds proposed from [ratings](#ratings-and-rankings) and confirm
   them. A table is an event's own; what carries from one event to the next is
@@ -1029,7 +1175,7 @@ what the rating expected, what happened and how far it moved.
 - **Which results.** A tournament's group and knockout matches, a box league's
   confirmed matches and walkovers, a league of teams' confirmed fixtures and
   forfeits (the teams' result, and each singles or doubles game). Not a
-  performance event's heats, not a match not yet decided, not one a
+  performance event's heats or counts ([not rated](#counted-performances)), not a match not yet decided, not one a
   tournament's own rules void (a disqualified entrant's group results, by
   default), not a called-off tournament's, not a struck or voided result.
 
@@ -1139,7 +1285,7 @@ entrant's group results stand or are void, and a void one is not counted here.
   uses their rating at that venue.
 - A doubles partner typed into an entry, a typed team and somebody entered at
   the counter are not rated; the people picked in a league of teams' lineups are.
-- Not a performance event's heats, and no rating from a casual open game.
+- Not a performance event's heats or counts (a field ranked by marks or counts has no two-sided result; marking one rated is refused), and no rating from a casual open game.
 - The constants are the install's, not the venue's, and are changed in the
   database (raising the version recomputes every pool); there is no screen.
 - Provisional ratings are not ranked, and a venue has no ranking until somebody
@@ -1173,6 +1319,7 @@ entrant's group results stand or are void, and a void one is not counted here.
 | Templates and rules | `src/lib/competition-templates.ts`, `src/lib/tournament-rules.ts` | `tests/competitions.test.ts` |
 | Competitions with divisions, who may enter | `src/lib/competitions.ts` | `tests/divisions.test.ts`, `tests/components/tournament-entry.test.tsx` |
 | Performance events | `src/lib/performance-math.ts` | `tests/competitions.test.ts` |
+| Counted performances: bouldering tops and zones, climbing by height | `src/lib/counted-performances.ts`, `src/lib/public-names.ts`, `src/lib/tournaments.ts` (`recordPerformances`, `previewPerformances`), `src/components/admin/CountedGrid.tsx`, `db/migrations/0273_counted_performances.sql` | `tests/counted-performances.test.ts` |
 | Results by players and officials | `src/lib/match-reports.ts` | `tests/match-reports.test.ts`, `tests/components/official-page.test.tsx` |
 | Box leagues | `src/lib/leagues.ts`, `src/lib/boxes.ts` | `tests/leagues.test.ts`, `tests/boxes.test.ts`, `tests/league-results-race.test.ts` (also against Postgres) |
 | Teams that persist: invitations, children through a guardian, what a captain and members may do, history, privacy | `src/lib/teams.ts`, `db/migrations/0269_teams_and_team_leagues.sql`, `src/app/teams`, `src/app/team-invitation` | `tests/teams.test.ts` (PGlite and Postgres), `tests/components/teams-ui.test.tsx` |

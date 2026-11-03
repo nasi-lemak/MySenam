@@ -175,6 +175,8 @@ const AVAILABLE: Capability[] = [
   available("tournaments", "programmes", { featureRow: "Tournaments: setup and court time", configure: { tab: "tournaments" }, staffAction: "tournaments" }),
   // The next match announced, a court called when it is free, a live page (lib/tournament-day.ts).
   available("tournament-day", "programmes", { featureRow: "Tournament day: the next match announced, a court called when it is free", configure: { tab: "tournaments" }, staffAction: "tournamentDay" }),
+  // Bouldering tops and zones, climbing by height: a performance event ranked by counts (lib/counted-performances.ts).
+  available("counted-performances", "programmes", { featureRow: "Performance events: heats and a final", configure: { tab: "tournaments" }, staffAction: "tournaments" }),
   available("leagues", "programmes", { featureRow: "Box leagues: setup and seasons", configure: { tab: "leagues" }, staffAction: "leagues" }),
   available("team-leagues", "programmes", { featureRow: "Leagues of teams and fixture lists", configure: { tab: "leagues" }, staffAction: "teamLeagues" }),
   available("teams", "programmes", { featureRow: "Teams that persist across events", requires: [] }),

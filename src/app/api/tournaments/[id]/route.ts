@@ -9,6 +9,7 @@ import { enter, enterAs, managedEntries, myEntry, tournamentById, tournamentDeta
 import { answerReport, openReports, reportResult } from "@/lib/match-reports";
 import { guardianEntrant, isEntrantRefusal } from "@/lib/competition-entrants";
 import { listManaged } from "@/lib/managed-people";
+import { namedForThePublic } from "@/lib/public-names";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const t = await visible(req, Number((await params).id));
   if (!t) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const user = await getSessionUser(req);
-  const detail = (await tournamentDetail(t.id))!;
+  // A counted event (bouldering) names a declared minor by first name and initial (lib/public-names.ts).
+  const detail = await namedForThePublic((await tournamentDetail(t.id))!);
   const mine = user ? await myEntry(user.id, t.id) : null;
   const managed = user ? await managedEntries(user.id, t.id) : [];
   const people = user ? (await listManaged(user.id)).map((p) => ({ id: p.id, name: p.displayName })) : [];

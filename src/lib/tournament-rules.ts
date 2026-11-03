@@ -63,8 +63,37 @@ export interface ScoringRules {
   walkover: string | null;
 }
 
+/**
+ * What a counted performance (lib/counted-performances.ts) can rank by. Bouldering counts tops (more is better), zones
+ * (more), attempts to top (fewer) and attempts to zone (fewer); climbing by height counts the highest hold (more) and
+ * the attempts (fewer).
+ */
+export type CountKey = "tops" | "zones" | "attempts_top" | "attempts_zone" | "height" | "attempts_height";
+export const COUNT_KEYS: Record<"boulders" | "height", CountKey[]> = {
+  boulders: ["tops", "zones", "attempts_top", "attempts_zone"],
+  height: ["height", "attempts_height"],
+};
+
+/** A competitor's result as a set of counts, ranked by the keys in order; the entry's id settles nothing: level counts share a place. */
+export interface CountedRules {
+  /** Bouldering: a top and a zone for each boulder. Height: the highest hold reached on one route. */
+  kind: "boulders" | "height";
+  /** Boulders in a round (1 to 40); a height event is one route. */
+  units: number;
+  /** What the round is ranked by, in order: all four for the full format, "tops" then "zones" for the simple club one. */
+  rankBy: CountKey[];
+  /** Level in the final on every key: the better placing in the heats decides, and only still-level competitors share a place. */
+  countback: boolean;
+  /** The final's order of start: the worst heat placing first and the best last ("reverse"), or the best first. */
+  finalStart: "reverse" | "ranking";
+  /** Level for the last place in the final: the organiser chooses who goes through ("choose"), or all of those level do ("all"). */
+  cutTies: "choose" | "all";
+}
+
+export const DEFAULT_COUNTED: CountedRules = { kind: "boulders", units: 4, rankBy: ["tops", "zones", "attempts_top", "attempts_zone"], countback: false, finalStart: "reverse", cutTies: "choose" };
+
 export interface PerformanceRules {
-  /** What is measured: a time (lower is better), a distance or a score. */
+  /** What is measured: a time (lower is better), a distance or a score. A counted event measures nothing: see `counted`. */
   measure: "time" | "distance" | "score";
   better: "lower" | "higher";
   /** Attempts (or ends, or games) each competitor has in a heat or final. */
@@ -75,6 +104,8 @@ export interface PerformanceRules {
   heatSize: number;
   /** How many go from the heats to a final; 0 ranks everybody on their heat results alone. */
   finalSize: number;
+  /** Counts instead of a mark: tops and zones, or a height (lib/counted-performances.ts). Absent for the marks above. */
+  counted?: CountedRules;
 }
 
 export interface CompetitionRules {
@@ -160,9 +191,53 @@ function readSetPoints(raw: unknown): ScoringRules["setPoints"] {
   return { winClear: p.winClear as number, winDecider: p.winDecider as number, loseDecider: p.loseDecider as number, loseClear: p.loseClear as number };
 }
 
+export function readCounted(raw: unknown): CountedRules | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  const kind = c.kind === "height" ? "height" : "boulders";
+  const allowed = COUNT_KEYS[kind];
+  const keys = Array.isArray(c.rankBy) ? [...new Set(c.rankBy.filter((k): k is CountKey => allowed.includes(k as CountKey)))] : [];
+  return {
+    kind,
+    units: kind === "height" ? 1 : int(c.units, 1, 40, DEFAULT_COUNTED.units),
+    rankBy: keys.length > 0 ? keys : kind === "height" ? ["height", "attempts_height"] : DEFAULT_COUNTED.rankBy,
+    countback: c.countback === true,
+    finalStart: c.finalStart === "ranking" ? "ranking" : "reverse",
+    cutTies: c.cutTies === "all" ? "all" : "choose",
+  };
+}
+
+/** Why counted rules cannot be used, or null. */
+export function countedRefusal(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return "Counted rules are a set of choices.";
+  const c = raw as Record<string, unknown>;
+  if (c.kind !== undefined && c.kind !== "boulders" && c.kind !== "height") return 'Counts are of "boulders" or a "height".';
+  const kind = c.kind === "height" ? "height" : "boulders";
+  if (c.units !== undefined && (!Number.isInteger(c.units) || (c.units as number) < 1 || (c.units as number) > 40)) return "A round has 1 to 40 boulders.";
+  if (kind === "height" && c.units !== undefined && c.units !== 1) return "A height event is one route.";
+  if (c.rankBy !== undefined && (!Array.isArray(c.rankBy) || c.rankBy.length === 0 || c.rankBy.some((k) => !COUNT_KEYS[kind].includes(k as CountKey)) || new Set(c.rankBy).size !== c.rankBy.length))
+    return `Rank by some of, once each: ${COUNT_KEYS[kind].join(", ")}.`;
+  if (c.countback !== undefined && typeof c.countback !== "boolean") return "Say whether the heats break a tie in the final.";
+  if (c.finalStart !== undefined && c.finalStart !== "reverse" && c.finalStart !== "ranking") return 'The final starts in "reverse" order of the heats, or in "ranking" order.';
+  if (c.cutTies !== undefined && c.cutTies !== "choose" && c.cutTies !== "all") return 'Competitors level for the last place in the final: "choose" who goes through, or "all" of them.';
+  return null;
+}
+
 function readPerformance(raw: unknown): PerformanceRules | null {
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Record<string, unknown>;
+  const counted = readCounted(p.counted);
+  // A counted event measures nothing and has no attempts to add: these are fixed, so nothing else reads them as a mark.
+  if (counted)
+    return {
+      measure: "score",
+      better: "higher",
+      attempts: 1,
+      aggregate: "best",
+      heatSize: int(p.heatSize, 2, 40, DEFAULT_PERFORMANCE.heatSize),
+      finalSize: int(p.finalSize, 0, 40, DEFAULT_PERFORMANCE.finalSize),
+      counted,
+    };
   const measure = p.measure === "distance" || p.measure === "score" ? p.measure : "time";
   return {
     measure,
@@ -228,7 +303,18 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
   if (r.performance !== undefined) {
     if (r.performance === null) performance = null;
     else if (typeof r.performance !== "object") return { ok: false, error: "A performance event's rules are a set of choices." };
-    else performance = readPerformance({ ...(base.performance ?? DEFAULT_PERFORMANCE), ...(r.performance as object) });
+    else {
+      const given = r.performance as Record<string, unknown>;
+      // Counted rules are laid over the template's one by one, and checked; null makes it an event of marks.
+      let counted: unknown = base.performance?.counted ?? null;
+      if (given.counted === null) counted = null;
+      else if (given.counted !== undefined) {
+        const why = countedRefusal(given.counted);
+        if (why) return { ok: false, error: why };
+        counted = { ...(base.performance?.counted ?? DEFAULT_COUNTED), ...(given.counted as object) };
+      }
+      performance = readPerformance({ ...(base.performance ?? DEFAULT_PERFORMANCE), ...given, counted });
+    }
   }
   return {
     ok: true,

@@ -682,6 +682,9 @@ export async function eventVenue(kind: SourceKind, id: number): Promise<{ venueI
 export async function setEventRated(kind: SourceKind, id: number, rated: boolean): Promise<RatingResult<{ rated: boolean; name: string; venueId: number }>> {
   const info = await eventVenue(kind, id);
   if (!info) return ratingRefusal("RT_NOT_FOUND", {}, 404);
+  // A performance event ranks a field by marks or counts: no result in it has two sides, so it is never rated (ADR 0031).
+  if (kind === "tournament" && (await getDb().prepare("SELECT 1 FROM tournaments WHERE id = ? AND format = 'performance'").get(id)))
+    return rated ? ratingRefusal("RT_PERFORMANCE") : { ok: true, value: { rated: false, name: info.name, venueId: info.venueId } };
   const events = await venueRatedEvents(info.venueId);
   const event = events.find((e) => e.kind === kind && e.id === id);
   if (!event) return ratingRefusal("RT_NOT_FOUND", {}, 404);

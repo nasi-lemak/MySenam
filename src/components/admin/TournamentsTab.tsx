@@ -21,6 +21,7 @@ import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { LoadFailed } from "./place";
 import { CounterEntry } from "./CounterEntry";
+import { CountedHeat, FieldCounts } from "./CountedGrid";
 import { TournamentDetailsEditor } from "./TournamentDetailsEditor";
 import { TournamentDay } from "./TournamentDay";
 import { sportLabel } from "@/lib/i18n";
@@ -871,6 +872,69 @@ function ScoringFields({ rules, onChange, disabled = false }: { rules: Competiti
   if (rules.performance) {
     const p = rules.performance;
     const setP = (patch: Partial<NonNullable<CompetitionRules["performance"]>>) => onChange({ ...rules, performance: { ...p, ...patch } });
+    if (p.counted) {
+      // Counted performances (bouldering tops and zones, a height): what the round is ranked by, and how the final is made (lib/counted-performances.ts).
+      const c = p.counted;
+      const setC = (patch: Partial<typeof c>) => setP({ counted: { ...c, ...patch } });
+      const presets: [string, string, typeof c.rankBy][] =
+        c.kind === "height"
+          ? [
+              ["height", t("tn.cp.rank.height"), ["height", "attempts_height"]],
+              ["heightOnly", t("tn.cp.rank.heightOnly"), ["height"]],
+            ]
+          : [
+              ["full", t("tn.cp.rank.full"), ["tops", "zones", "attempts_top", "attempts_zone"]],
+              ["simple", t("tn.cp.rank.simple"), ["tops", "zones"]],
+            ];
+      const preset = presets.find(([, , keys]) => keys.join() === c.rankBy.join())?.[0] ?? "custom";
+      return (
+        <div className="mt-2 flex flex-wrap items-end gap-3">
+          {c.kind === "boulders" && (
+            <label className={label}>
+              {t("tn.cp.units")}
+              <input disabled={disabled} type="number" min={1} max={40} value={c.units} onChange={(e) => setC({ units: Number(e.target.value) })} className={`w-20 ${input}`} />
+            </label>
+          )}
+          <label className={label}>
+            {t("tn.cp.rankBy")}
+            <select disabled={disabled} value={preset} onChange={(e) => setC({ rankBy: presets.find(([key]) => key === e.target.value)?.[2] ?? c.rankBy })} className={input}>
+              {presets.map(([key, text]) => (
+                <option key={key} value={key}>
+                  {text}
+                </option>
+              ))}
+              {preset === "custom" && <option value="custom">{t("tn.cp.rank.custom")}</option>}
+            </select>
+          </label>
+          <label className={label}>
+            {t("tn.cp.groupSize")}
+            <input disabled={disabled} type="number" min={2} max={40} value={p.heatSize} onChange={(e) => setP({ heatSize: Number(e.target.value) })} className={`w-20 ${input}`} />
+          </label>
+          <label className={label}>
+            {t("tn.sc.finalSize")}
+            <input disabled={disabled} type="number" min={0} max={40} value={p.finalSize} onChange={(e) => setP({ finalSize: Number(e.target.value) })} className={`w-20 ${input}`} />
+          </label>
+          <label className={label}>
+            {t("tn.cp.finalStart")}
+            <select disabled={disabled} value={c.finalStart} onChange={(e) => setC({ finalStart: e.target.value as typeof c.finalStart })} className={input}>
+              <option value="reverse">{t("tn.cp.start.reverse")}</option>
+              <option value="ranking">{t("tn.cp.start.ranking")}</option>
+            </select>
+          </label>
+          <label className={label}>
+            {t("tn.cp.cutTies")}
+            <select disabled={disabled} value={c.cutTies} onChange={(e) => setC({ cutTies: e.target.value as typeof c.cutTies })} className={input}>
+              <option value="choose">{t("tn.cp.ties.choose")}</option>
+              <option value="all">{t("tn.cp.ties.all")}</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <input type="checkbox" disabled={disabled} checked={c.countback} onChange={(e) => setC({ countback: e.target.checked })} />
+            {t("tn.cp.countback")}
+          </label>
+        </div>
+      );
+    }
     return (
       <div className="mt-2 flex flex-wrap items-end gap-3">
         <label className={label}>
@@ -1316,7 +1380,7 @@ function Manage({
             ageRange={tn.ageRange}
             startsOn={tn.startsOn}
             team={tn.entryKind === "team"}
-            mark={tn.format === "performance"}
+            mark={tn.format === "performance" && !tn.rules.performance?.counted}
             submit={(body) => post(`${base}/entries`, body)}
           />
         )}
@@ -1775,9 +1839,20 @@ function PerformancePanel({
           </ManagerOnly>
         </div>
       )}
-      {units.map((m) => (
-        <HeatEntry key={m.id} tn={tn} m={m} lines={p.lines[m.id] ?? []} names={names} attempts={rules.attempts} placeholder={rules.measure === "time" ? "1:02.35" : "7.42"} call={call} />
-      ))}
+      {units.map((m) =>
+        rules.counted ? (
+          // Keyed by who is in it too: a final is filled once the groups are in, after this has first shown.
+          <CountedHeat key={`${m.id}:${(p.lines[m.id] ?? []).map((l) => l.entryId).join(",")}`} tn={tn} m={m} lines={p.lines[m.id] ?? []} names={names} call={call} />
+        ) : (
+          <HeatEntry key={m.id} tn={tn} m={m} lines={p.lines[m.id] ?? []} names={names} attempts={rules.attempts} placeholder={rules.measure === "time" ? "1:02.35" : "7.42"} call={call} />
+        )
+      )}
+      {rules.counted && p.field && (
+        <>
+          <FieldCounts stats={p.field.heat} />
+          <FieldCounts stats={p.field.final} suffix={t("tn.perf.final")} />
+        </>
+      )}
     </section>
   );
 }

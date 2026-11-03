@@ -72,7 +72,10 @@
   - **Erasure** makes a person's place in the ledger `(removed)`, standing at the
     rating they had then, so nobody else's rating moves; the pools are replayed.
   - **Not built:** an enforced level (a rating band checked at entry), a rating
-    across venues, a rating from casual games.
+    across venues, a rating from casual games, a rating from a performance event
+    (a field ranked by marks or by counts has no two-sided result, and is not
+    turned into pairwise ones; marking one rated is refused,
+    [counted performances](../../features/tournaments.md#counted-performances)).
 - **Consequences:** a result's correction, void, strike or restore puts every
   rating right with no special case for each. A pool is replayed in full on each
   change, which is linear in the pool's ledger and not measured at marketplace
