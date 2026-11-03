@@ -48,6 +48,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/(leagues|tournaments)\/\d+$/, methods: ["POST"] },
   // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.
   { path: /^\/api\/admin\/tournaments\/\d+\/issues\/\d+$/, methods: ["POST"] },
+  // Calling a fixture to its court, deciding what happens when nobody comes, the day's settings: the organiser's; the desk checks in and enters results.
+  { path: /^\/api\/admin\/tournaments\/\d+\/day$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(memberships|passes|promos|vouchers|counter-sales)\/\d+\/void$/, methods: ["POST"] },
   { path: /^\/api\/admin\/memberships\/\d+\/extend$/, methods: ["POST"] },
   // Correcting a person entered wrongly on a membership, with a reason (lib/membership-purchases.ts correctCover).
@@ -205,6 +207,7 @@ export const STAFF_ACTIONS = {
   tournamentRun: "POST /api/admin/tournaments/1",
   tournamentChange: "PATCH /api/admin/tournaments/1",
   tournamentIssues: "POST /api/admin/tournaments/1/issues/1",
+  tournamentDay: "POST /api/admin/tournaments/1/day",
   competitions: "POST /api/admin/competitions",
   competitionCancel: "DELETE /api/admin/competitions/1",
   // Leagues: setting up, seasons and stopping. The desk runs players, payments and results.

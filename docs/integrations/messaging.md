@@ -53,6 +53,7 @@ happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
 | The day before, for a booking made more than a day ahead | Reminder | email; WhatsApp only on *everything* with *Day-before reminders on WhatsApp too* ticked |
 | A booking is paid later — online, or marked paid at the counter | Receipt | email only |
 | Tournaments, leagues and open games: entering, coming off a waiting list, a tournament's new name before its draw, the draw, a season starting, a call-off, a game's changes, the day before a game a player joined | The programme's own message (kind `programme`) | email only |
+| On a tournament's day: a side's match is the next on its court (within the hour, or late), and when a manager or official calls it to its court | **Next** and **Called** (kind `tournament_day`, template `mysenam_tournament_day`, prepared and not yet submitted to Meta in [WhatsApp templates](whatsapp-templates.md#mysenam_tournament_day)), once per fixture, side and call, to the account that holds the entry and in its language, never to somebody who left ([tournament day](../features/tournaments.md#tournament-day)) | email; WhatsApp only on *everything*, to a number the account proved |
 
 Programme emails are queued in the outbox, inside the change's own
 transaction where it has one (a withdrawal, a result, a season starting), so

@@ -246,10 +246,99 @@ not moved. Front desk staff cannot move fixtures.
 ### On the day
 
 - **Check-in:** staff mark each entrant arrived (*check in*), and can take it
-  back.
+  back. Calling a match needs both sides checked in ([tournament day](#tournament-day)).
 - **Eligibility checked:** for an event with an age range, staff can record
   that they saw proof of age at the venue (*age checked*): who checked and
   when, never the document or its number.
+
+### Tournament day
+
+From the draw to the last result, a manager runs the day from the *Now and
+next* board on the tournament's page (`src/lib/tournament-day.ts`; not for a
+performance event, whose heats have lanes rather than two sides). Nothing in
+it is a second scheduler or a second way to score: a fixture keeps the court
+and time the draw gave it, which the tournament holds already through its
+blocks (so the database refuses a booking over it), and a result goes in only
+through `recordResult`.
+
+- **The board.** Each court shows the fixture on it now (*called*, or
+  *playing* once marked started), the next fixture there, and a suggestion of
+  the ready fixture to put on it where it is free. Below, every fixture
+  between two known sides not yet called, ready or not, with what stops it:
+  somebody not checked in, resting, on court in another match, or out. Recent
+  results follow, and the day's settings. It refreshes every 15 seconds. Front
+  desk reads it, and checks entrants in and enters results as ever; the
+  buttons below are a manager's (`MANAGER_ONLY`, the `tournamentDay` action),
+  and an official's where said.
+- **The next match announced.** After every result or somebody leaving, and
+  every minute from the scheduler, the sides of each court's next fixture
+  (today's, between two known sides, starting within the hour or late already,
+  not yet called) are told once: *your match is next*, with the opponent, court
+  and time. By email always, and on WhatsApp where the venue has everything on
+  WhatsApp and the account has a number it proved (kind `tournament_day`, not
+  urgent news, so the venue pays as for other WhatsApp messages; the template
+  is prepared and not yet submitted to Meta). In the language of the account,
+  to the account that holds the entry (a guardian's, opening with whose it is,
+  for a participant); never to somebody who left or was disqualified, and to
+  nobody where no account holds the entry (entered at the counter). A declared
+  minor is named to others by first name and initial. Once per fixture and
+  side, however often it runs (`tournament_notices`, claimed before sending,
+  and the outbox's own dedupe key as a second guard); not held to the daily
+  limit of messages per recipient, since a day's matches would reach it.
+  Switchable per tournament (*Tell entrants…*); a tournament on another day,
+  or an hour or more away, announces nothing.
+- **Calling a fixture.** *Call* says the players are wanted at the court now.
+  Both sides must be checked in, not on court in another called match, and
+  rested (below), and the court must have nothing else called on it.
+  Where the fixture's held slot covers this minute, that is all it does.
+  Otherwise (a court freed early, a match the players are ready for ahead of
+  time) a manager brings it to its own court, or to another, from the next
+  minute: the same checks and hold as moving a fixture (`placeMatch`, which
+  *Move…* uses too), refused where a booking, a block or another match of the
+  tournament or its competition is in the way, or a side plays then; time the
+  court gave back is held again for it. A booking made at the same moment as
+  such a call and the call are never both: the database refuses the second.
+  An official calls only where the fixture is held and its time has come, and
+  can mark it started or take the call back; bringing one forward or sending
+  it to another court is a fixture move, which stays a manager's. Both sides
+  are told they are called, saying how long the court waits. A fixture that is
+  called cannot be moved by hand until its call is taken back.
+- **Rest.** *Rest between a player's matches* is a setting of each division
+  (a division is a tournament), in minutes from the result of a player's last
+  match played (a walkover is not played). Zero is none.
+- **When nobody comes.** A called fixture waits *how long a called match
+  waits* (default 10 minutes, a setting of the tournament) for its players;
+  marking it started ends the wait. After it, a manager decides: **wait**
+  another interval; **forfeit**, saying which side did not come (only once the
+  wait is over), an ordinary walkover recorded through `recordResult`, so the
+  tournament's rules for walkovers decide the table and the progression, and
+  optionally taking the absent side out of the event as withdrawn, under the
+  rules for somebody who leaves; or **swap**, which puts the next ready
+  fixture on the court (in this fixture's slot, held already) and this one in
+  its place or after it, refusing where nothing else is ready or the exchange
+  would overlap another match, and telling the sides moved. There is no alarm
+  when the wait ends: the board shows it, and an official's page says so.
+- **The public live page** at `/tournaments/:id/live` needs no sign-in and
+  refreshes every 15 seconds: each court's fixture now and next, and recent
+  results. A declared minor (a guardian's agreement, a participant a guardian
+  manages, a date of birth under 18 on the first day, the entrant's word) is
+  shown by first name and the initial of the next name; a tournament can
+  show everybody that way (*Names on the public live page*); a team by its
+  name. It carries nothing about check-in, calls, staff, guardians or
+  contacts. An event with no age range cannot detect minors, so it shows full
+  names unless set to short names, as its main public page does.
+- **Roles.** A manager calls, starts, releases, decides and sets the day up; an
+  official calls where it is held, starts and releases; front desk checks
+  players in and enters results and sees the board. Fixture moves, late
+  corrections and disqualification stay a manager's. Each is in the activity
+  log (`tournament.match_called`, `match_started`, `call_released`,
+  `no_show_decided`, `day_settings`), an official's under their name.
+- **Not here.** A division's board shows its own tournament's fixtures: a
+  match of another division on a shared court is refused where a call would
+  collide with it, but is not shown, and rest is counted within the division.
+  Heats are not called one by one. There is no push to staff when a wait ends.
+  The notice names a match in English where it names it by its position
+  (*Semi-final 1*); the rest is in the account's language.
 
 ### The draw and the schedule
 
@@ -462,8 +551,9 @@ The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
 - Emails go out on entering, coming off the waiting list, the draw, a moved
   fixture, a replay, a call-off, a knockout filled again (to those moved in
   or out, not to somebody who left), a report waiting for its answer, and to
-  the venue's staff on a disputed report; not on results, the next match, a
-  walkover or the finish. They are queued in the [outbox](../integrations/messaging.md),
+  the venue's staff on a disputed report; on the day, when a match is next and
+  when it is called ([tournament day](#tournament-day)); not on results or
+  the finish. They are queued in the [outbox](../integrations/messaging.md),
   so one that fails is retried.
 
 ## Who enters and how
@@ -629,6 +719,7 @@ The box arithmetic — sizes, who moves, the order for next season — is in
 | Who enters: a guardian for a participant, staff at the counter, members only by the entrant's own membership | `src/lib/competition-entrants.ts`, `src/components/admin/CounterEntry.tsx` | `tests/competition-entrants.test.ts`, `tests/components/competition-entrants.test.tsx` |
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
 | Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
+| Tournament day: the next match announced, a court called, the wait, the live page | `src/lib/tournament-day.ts`, `src/app/api/admin/tournaments/[id]/day/route.ts`, `src/app/api/tournaments/[id]/live/route.ts`, `src/components/admin/TournamentDay.tsx`, `src/app/tournaments/[id]/live/page.tsx`, `db/migrations/0268_tournament_day.sql` | `tests/tournament-day.test.ts` (also against Postgres), `tests/components/tournament-day.test.tsx` |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 
 Which parts are verified, and how, is in
@@ -639,8 +730,8 @@ Which parts are verified, and how, is in
 - Known issues (players moved by a refill not messaged, corrections that
   cannot replay) are in
   [known limitations](../roadmap/known-limitations.md#booking-and-availability-b).
-- More formats, ranking rules, ratings and an enforced level, and tournament
-  day announcements, are roadmap rows, not commitments
+- More formats, ranking rules, ratings and an enforced level, and rankings
+  across events, are roadmap rows, not commitments
   ([roadmap](../roadmap/roadmap.md)).
 - Box-league results are checked and ranked by the same rules as a
   tournament's (`scoreRefusal`, `standings`), and recorded by their own

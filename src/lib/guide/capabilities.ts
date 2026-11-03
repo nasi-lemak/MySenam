@@ -173,6 +173,8 @@ const AVAILABLE: Capability[] = [
   available("classes", "programmes", { featureRow: "Classes and terms", configure: { tab: "classes" }, staffAction: "classes", models: ["class"] }),
   available("coaching", "programmes", { featureRow: "One-to-one coaching", configure: { tab: "classes" }, staffAction: "coaches" }),
   available("tournaments", "programmes", { featureRow: "Tournaments: setup and court time", configure: { tab: "tournaments" }, staffAction: "tournaments" }),
+  // The next match announced, a court called when it is free, a live page (lib/tournament-day.ts).
+  available("tournament-day", "programmes", { featureRow: "Tournament day: the next match announced, a court called when it is free", configure: { tab: "tournaments" }, staffAction: "tournamentDay" }),
   available("leagues", "programmes", { featureRow: "Box leagues: setup and seasons", configure: { tab: "leagues" }, staffAction: "leagues" }),
   available("open-games", "programmes", { featureRow: "Open games: hosting", requires: [] }),
   available("matchmaking", "programmes", { featureRow: "Suggested games (matchmaking)", requires: [] }),

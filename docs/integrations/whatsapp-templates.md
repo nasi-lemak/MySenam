@@ -650,3 +650,53 @@ Tamil (`ta`) — {{1}} venue, {{2}} change, {{3}} link
 
 Taking one person off a booking (`ent.msg.withdrawn`) is told by email only,
 so it has no WhatsApp template.
+
+### `mysenam_tournament_day`
+
+**Status: prepared, not submitted to Meta** (3 November 2026). Until Meta
+approves it, a tournament-day message sent on WhatsApp fails and shows under
+delivery; the email, which is always sent, is unaffected
+([tournament day](../features/tournaments.md#tournament-day)).
+
+To a player entered in a tournament, at the number their account proved, when
+the venue has chosen everything on WhatsApp (and, on a marketplace, has credit
+left): their match is next on its court, or they are called to it. {{1}} is the
+tournament's name; {{2}} is one sentence in the template's language (phrases
+`dy1.line.next` and `dy1.line.called`), naming the match, the opponent, the
+court and the time, and opening with whose entry it is where a guardian is told
+for a participant. A declared minor's opponent is named by first name and
+initial; the live page's address is {{3}}. Not urgent news, so the venue pays
+for it like other WhatsApp messages (`URGENT_KINDS` is unchanged).
+
+Category **Utility**. Variables, with the sample values Meta asks for when it
+is submitted:
+
+| Variable | What it is | Sample |
+| -------- | ---------- | ------ |
+| {{1}} tournament | The tournament's name | `Club Open, November` |
+| {{2}} line | The sentence for this player | `Your match is next: Semi-final 1 against Lim T. on Badminton Court 1 at about 9:00 AM. Please be at the venue and checked in.` |
+| {{3}} link | The tournament's live page | `https://book.example.my/tournaments/12/live?lang=en` |
+
+English (`en`) — {{1}} tournament, {{2}} line, {{3}} link
+
+```text
+Tournament news: {{1}}. {{2}} The live board is at {{3}}. Ask at the desk if unsure.
+```
+
+Malay (`ms`) — {{1}} tournament, {{2}} line, {{3}} link
+
+```text
+Berita kejohanan: {{1}}. {{2}} Papan langsung ada di {{3}}. Tanya di kaunter jika tidak pasti.
+```
+
+Chinese (`zh_CN`) — {{1}} tournament, {{2}} line, {{3}} link
+
+```text
+赛事通知：{{1}}。{{2}} 实时看板见 {{3}}。如有疑问请到柜台询问。
+```
+
+Tamil (`ta`) — {{1}} tournament, {{2}} line, {{3}} link
+
+```text
+போட்டி செய்தி: {{1}}. {{2}} நேரடி அட்டவணை {{3}} இல் உள்ளது. உறுதியில்லையெனில் மேசையில் கேளுங்கள்.
+```

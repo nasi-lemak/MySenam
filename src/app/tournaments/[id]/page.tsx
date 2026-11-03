@@ -121,6 +121,13 @@ export default function TournamentPage() {
         {eligibilityLine(t, x) && <p className="mt-1 text-sm text-slate-600">{eligibilityLine(t, x)}</p>}
         {x.description && <p className="mt-3 whitespace-pre-line text-sm text-slate-700">{x.description}</p>}
         {champion && <p className="mt-3 text-lg font-bold text-teal-700">🏆 {t("tour.champion", { name: champion })}</p>}
+        {x.status === "drawn" && x.format !== "performance" && (
+          <p className="mt-2">
+            <Link href={`/tournaments/${x.id}/live`} className="text-sm font-medium text-teal-700 underline">
+              {t("dy1.live.link")}
+            </Link>
+          </p>
+        )}
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
