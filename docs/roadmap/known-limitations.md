@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B66, M16–M31 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B67, M16–M31 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -771,6 +771,19 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Counted performances
+
+([Counted performances](../features/tournaments.md#counted-performances).)
+Accepted restrictions: no semi-final round (the heats-then-final structure is
+the stage list); no lead over two routes, speed climbing, flash or bonus scoring,
+or per-boulder timing and rotation; judged from the staff dashboard only, since
+official pages carry no performance events; the counts are the judge's record,
+never verified; counted and marks performance events are never rated (a
+ranking of a field has no two-sided result: `RT_PERFORMANCE`); counts are not in
+a person's data export, and erasure anonymises the entry with its counts; only
+counted events shorten a declared minor's name on the main public page; the
+judge's grid has been checked in jsdom, not on a phone.
+
 ### Ratings and rankings
 
 ([Ratings and rankings](../features/tournaments.md#ratings-and-rankings),
@@ -1026,6 +1039,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B64 | The set-up journey's cancellation card showed an unfilled `{late}` where the sentence about what happens after the cutoff belonged (English, Malay and Chinese) | The phrase names the value the card passes (`{keep}`); the card is checked for any `{name}` left in its text | `tests/guide-setup-ui.test.tsx` |
 | B65 | A cancellation review's time was shown as the stored UTC timestamp, a day early or late for a venue in Kuala Lumpur | Shown on the venue's own clock like other staff moments | `tests/components/guide-tab.test.tsx` |
 | B66 | Moving a tournament fixture onto a slot that straddled time just given back and time still held was refused (*not free for all of…*), because the check wanted one block spanning the whole slot | Blocks that run on into each other cover it; the check is still made under the court locks | `tests/tournament-day.test.ts` |
+| B67 | In a performance event of marks, a heat correction once the final was filled looked like a change of the final's field (the ranking it compared against left out everyone already in the final): refused if the final had results, deleted and refilled otherwise, against the documented rule | The heats' own ranking is compared, so only a change of who would swim the final counts | `tests/counted-performances.test.ts` |
 
 ### Resolved limitations without a number
 
