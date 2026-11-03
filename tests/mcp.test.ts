@@ -190,7 +190,7 @@ describe("the protocol, through the route handler", () => {
 
   it("lists the public tools without a key, each saying what it returns, and the venue's with one, up to its scope", async () => {
     const open = await toolNames();
-    expect(open).toEqual(["guide_business_types", "guide_fit", "search_venues", "venue_details", "venue_availability"]);
+    expect(open).toEqual(["guide_business_types", "guide_fit", "search_venues", "venue_details", "venue_availability", "venue_rankings"]);
     const listed = (await rpc("tools/list")).body.result!.tools as { description: string; annotations: { readOnlyHint: boolean } }[];
     for (const t of listed) {
       expect(t.description.length).toBeGreaterThan(60);
@@ -204,7 +204,7 @@ describe("the protocol, through the route handler", () => {
 
   it("has the guide's tools only where the guide is, a marketplace", async () => {
     process.env.MYSENAM_MARKETPLACE = "off";
-    expect(await toolNames()).toEqual(["search_venues", "venue_details", "venue_availability"]);
+    expect(await toolNames()).toEqual(["search_venues", "venue_details", "venue_availability", "venue_rankings"]);
     expect((await rpc("tools/call", { name: "guide_fit", arguments: { businessTypes: ["swimming"] } })).body.error!.code).toBe(-32602);
   });
 });
@@ -265,7 +265,13 @@ describe("the public tools answer what the public pages and routes do", () => {
     for (const hidden of [draftVenueId, privateVenueId, 999999]) {
       expect(textOf(await tool("venue_details", { venueId: hidden }))).toBe("Venue not found.");
       expect(textOf(await tool("venue_availability", { venueId: hidden, date: day }))).toBe("Venue not found.");
+      // Nor are its rankings (the venue's own page rules decide, for somebody signed out).
+      expect(textOf(await tool("venue_rankings", { venueId: hidden }))).toBe("Venue not found.");
     }
+    // A venue with nothing rated has nothing to choose from; a sport and format with nobody listed is an empty ranking, never a refusal that tells anything.
+    expect(dataOf(await tool("venue_rankings", { venueId })).choices).toEqual({ pools: [], seasons: [] });
+    expect(dataOf(await tool("venue_rankings", { venueId, activity: "badminton", format: "singles" })).board.rows).toEqual([]);
+    expect((await tool("venue_rankings", { venueId, activity: "badminton", format: "triples" })).isError).toBe(true);
     const mine = dataOf(await tool("venue_availability", { venueId, date: day }));
     const route = await (await availabilityGet(new NextRequest(`http://localhost/api/availability?venueId=${venueId}&date=${day}`))).json();
     expect(mine.courts.map((c: { courtId: number }) => c.courtId)).toEqual(route.availability.map((a: { court: { id: number } }) => a.court.id));
@@ -292,7 +298,7 @@ describe("the venue's tools, with its API key", () => {
   });
 
   it("never signs anybody in by cookie: a manager's session alone gets the public tools only", async () => {
-    expect(await toolNames({ cookie: managerCookie })).toEqual(["guide_business_types", "guide_fit", "search_venues", "venue_details", "venue_availability"]);
+    expect(await toolNames({ cookie: managerCookie })).toEqual(["guide_business_types", "guide_fit", "search_venues", "venue_details", "venue_availability", "venue_rankings"]);
     const r = await tool("my_venue", {}, { cookie: managerCookie });
     expect(r.isError).toBe(true);
     expect(textOf(r)).toBe("my_venue needs the venue's API key: send Authorization: Bearer <key>.");

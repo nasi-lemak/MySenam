@@ -11,6 +11,8 @@ import { allows, playerGender, type Gender, type Who } from "./who";
 import { blockedInGame } from "./player-safety";
 import { dayPart, playerProfile, toProfile, type DayPart, type Intensity, type PlayerProfile, type ProfileRow } from "./player-profiles";
 import { gameById, gamesByIds, LEVELS, NO_SHOW_DAYS, MAX_NO_SHOWS, playerLevels, recentNoShows, type Level, type OpenGame } from "./games";
+import { earnedRatingsOf, gameFormat, gameReferenceRatings, poolEarned, ratingKey, ratingRulesNow } from "./ratings";
+import { levelOfRating, type RatingRules } from "./rating-math";
 import type { Sport } from "./types";
 
 /**
@@ -54,6 +56,8 @@ export const WEIGHTS = {
   withinBudget: 5,
   /** Only the waiting list is left. */
   waitlistOnly: -15,
+  /** Earned ratings within the install's band of each other (only for a player who chose to be matched on them). */
+  ratingClose: 15,
 } as const;
 
 /** How many candidates are read from the database for one ranking, at most. */
@@ -64,6 +68,9 @@ export type ReasonCode =
   | "SPORT_YOU_PLAY"
   | "LEVEL_EXACT"
   | "LEVEL_ADJACENT"
+  | "LEVEL_EARNED_EXACT"
+  | "LEVEL_EARNED_ADJACENT"
+  | "RATING_CLOSE"
   | "LEVEL_OPEN"
   | "NEAR"
   | "IN_YOUR_AREA"
@@ -97,7 +104,7 @@ export interface GameRecommendations {
   /** Set when nothing can be suggested at all, and why. */
   stopped?: "NO_SHOWS";
   /** What the ranking used, for the page to say. */
-  basis: { levels: Partial<Record<Sport, Level>>; hasPoint: boolean; area: string | null };
+  basis: { levels: Partial<Record<Sport, Level>>; hasPoint: boolean; area: string | null; levelBasis?: "declared" | "earned" | "either" };
 }
 
 const levelStep = (a: Level, b: Level) => Math.abs(LEVELS.indexOf(a) - LEVELS.indexOf(b));
@@ -134,6 +141,32 @@ function levelReason(mine: Level | undefined, wanted: Level | null): Reason | nu
 }
 
 /**
+ * The level a game asks, against the level an earned rating corresponds to (the install's published thresholds,
+ * `levelFrom` in the rating rules): the same steps and points as a declared level, said as earned, with the rating.
+ */
+function earnedLevelReason(rating: number, wanted: Level | null, rules: RatingRules): Reason | null {
+  if (wanted === null) return { code: "LEVEL_OPEN", points: WEIGHTS.levelOpen };
+  const step = levelStep(levelOfRating(rules, rating), wanted);
+  if (step === 0) return { code: "LEVEL_EARNED_EXACT", points: WEIGHTS.levelExact, vars: { level: wanted, rating } };
+  if (step === 1) return { code: "LEVEL_EARNED_ADJACENT", points: WEIGHTS.levelAdjacent, vars: { level: wanted, rating } };
+  return null;
+}
+
+/**
+ * Which level decides: the one the player declared (the default, so nothing changes for anybody who has not chosen), the one
+ * their rating earns where they have a non-provisional rating there, or whichever suits the game better. Without an
+ * earned rating for this venue, sport and format the declared level is used whatever they chose.
+ */
+function levelFor(basis: "declared" | "earned" | "either", declared: Reason | null | undefined, earnedRating: number | null, wanted: Level | null, rules: RatingRules): Reason | null | undefined {
+  if (basis === "declared" || earnedRating === null) return declared;
+  const earned = earnedLevelReason(earnedRating, wanted, rules);
+  if (basis === "earned") return earned;
+  if (earned === null) return declared;
+  if (!declared) return earned;
+  return earned.points > declared.points ? earned : declared;
+}
+
+/**
  * Open games that suit this player, best first. `venueIds` narrows to a
  * storefront's venues, as the games page does.
  */
@@ -142,8 +175,11 @@ export async function recommendGames(
   opts: { sport?: Sport; limit?: number; offset?: number; venueIds?: number[] } = {}
 ): Promise<GameRecommendations> {
   const [profile, levels, gender, noShows] = await Promise.all([playerProfile(userId), playerLevels(userId), playerGender(userId), recentNoShows(userId)]);
-  const basis = { levels, hasPoint: profile.near !== null, area: profile.area };
+  const basis = { levels, hasPoint: profile.near !== null, area: profile.area, levelBasis: profile.levelBasis };
   if (noShows >= MAX_NO_SHOWS) return { games: [], excluded: {}, considered: 0, stopped: "NO_SHOWS", basis };
+  // Only a player who chose to be matched on their earned level has it used (the default is the level they declared); their non-provisional ratings by venue, sport and format.
+  const earned = profile.levelBasis === "declared" ? null : await earnedRatingsOf(userId);
+  const ratingRules = earned ? (await ratingRulesNow()).rules : null;
 
   const today = todayISO();
   const clauses = [
@@ -157,7 +193,7 @@ export async function recommendGames(
     "NOT EXISTS (SELECT 1 FROM open_game_players p WHERE p.game_id = g.id AND p.user_id = ? AND p.status NOT IN ('left', 'expired'))",
   ];
   const params: (string | number)[] = [today, addDays(today, DAYS_AHEAD), userId, userId];
-  const sports = opts.sport ? [opts.sport] : (Object.keys(levels) as Sport[]);
+  const sports = opts.sport ? [opts.sport] : ([...new Set([...Object.keys(levels), ...[...(earned?.keys() ?? [])].map((k) => k.split("|")[1])])] as Sport[]);
   if (sports.length > 0) {
     clauses.push(`b.sport IN (${sports.map(() => "?").join(",")})`);
     params.push(...sports);
@@ -188,6 +224,11 @@ export async function recommendGames(
   const matches: (GameMatch & { km: number | null })[] = [];
   const upcoming = rows.filter((r) => !isPastSlot(r.date, hoursOf(r.start_min), venueZoneOf(r)));
   const games = new Map((await gamesByIds(upcoming.map((r) => r.id))).map((g) => [g.id, g]));
+  // What the people already in each game, who chose to show their rating, are rated: only for a player matched on earned levels.
+  const references =
+    earned && earned.size > 0
+      ? await gameReferenceRatings([...games.values()].map((g) => ({ id: g.id, venueId: g.venueId, sport: g.sport, spots: g.spots, hostId: g.hostId })))
+      : new Map<number, { rating: number; n: number }>();
   for (const r of upcoming) {
     const game = games.get(r.id);
     if (!game) continue;
@@ -218,7 +259,8 @@ export async function recommendGames(
       leaveOut("OVER_BUDGET");
       continue;
     }
-    const level = levelReason(levels[game.sport], game.level);
+    const mineEarned = earned?.get(ratingKey(game.venueId, game.sport, gameFormat(game.spots)))?.rating ?? null;
+    const level = levelFor(profile.levelBasis, levelReason(levels[game.sport], game.level), mineEarned, game.level, ratingRules ?? ({} as RatingRules));
     if (level === null) {
       leaveOut("LEVEL_GAP");
       continue;
@@ -231,8 +273,12 @@ export async function recommendGames(
     }
 
     // Preferences: each one met is points, and a reason.
-    if (levels[game.sport]) reasons.push({ code: "SPORT_YOU_PLAY", points: WEIGHTS.sport, vars: { sport: game.sport } });
+    if (levels[game.sport] || mineEarned !== null) reasons.push({ code: "SPORT_YOU_PLAY", points: WEIGHTS.sport, vars: { sport: game.sport } });
     if (level) reasons.push(level);
+    // Earned ratings beside each other: shown with both numbers and the band, never as a hidden score.
+    const theirs = references.get(game.id);
+    if (mineEarned !== null && theirs && ratingRules && Math.abs(mineEarned - theirs.rating) <= ratingRules.matchBand)
+      reasons.push({ code: "RATING_CLOSE", points: WEIGHTS.ratingClose, vars: { mine: mineEarned, theirs: theirs.rating, within: ratingRules.matchBand } });
     if (km !== null) reasons.push({ code: "NEAR", points: Math.round(WEIGHTS.distanceMax * (1 - km / profile.maxKm)), vars: { km: distanceBand(km) } });
     else if (profile.area && profile.area.toLowerCase() === game.area.toLowerCase())
       reasons.push({ code: "IN_YOUR_AREA", points: WEIGHTS.area, vars: { area: game.area } });
@@ -274,6 +320,8 @@ export interface PlayerSuggestion {
   level: Level;
   /** "within N km" of the venue, from the point they gave; null if they gave none. */
   withinKm: number | null;
+  /** Their earned rating, only if they chose to show it to the hosts and players matched with them and it is not provisional. */
+  rating?: number;
   score: number;
   reasons: Reason[];
 }
@@ -312,15 +360,29 @@ export async function recommendPlayers(
     user_id: number; name: string; gender: Gender | null; level: Level;
   })[];
 
+  // Earned ratings at this game's venue, sport and format (non-provisional only): a candidate who chose to be matched on theirs is held to the level it earns,
+  // and the host's own, if the host chose the same, sits beside a candidate's who chose to show theirs.
+  const format = gameFormat(game.spots);
+  const hostChose = (await playerProfile(hostId)).levelBasis !== "declared";
+  const [pool, ratingRules] = await Promise.all([poolEarned(game.venueId, game.sport, format), ratingRulesNow().then((x) => x.rules)]);
+  const hostRating = hostChose ? (pool.get(hostId) ?? null) : null;
+
   const suggestions: PlayerSuggestion[] = [];
   for (const r of rows) {
     const profile = toProfile(r as unknown as ProfileRow);
     if (!allows(game.who, r.gender)) continue;
     if (profile.maxShare !== null && game.share > profile.maxShare) continue;
-    const level = levelReason(r.level, game.level);
+    const candidateRating = pool.get(r.user_id) ?? null;
+    let level = levelFor(profile.levelBasis, levelReason(r.level, game.level), candidateRating, game.level, ratingRules);
     if (level === null) continue;
+    // The host is told only that the level suits: the number is shown separately, and only if the candidate chose to show it.
+    if (level && (level.code === "LEVEL_EARNED_EXACT" || level.code === "LEVEL_EARNED_ADJACENT"))
+      level = { code: level.code === "LEVEL_EARNED_EXACT" ? "LEVEL_EXACT" : "LEVEL_ADJACENT", points: level.points, vars: { level: game.level as string } };
     const reasons: Reason[] = [{ code: "SPORT_YOU_PLAY", points: WEIGHTS.sport, vars: { sport: game.sport } }];
     if (level) reasons.push(level);
+    const shown = profile.ratingShared && candidateRating !== null ? candidateRating : null;
+    if (shown !== null && hostRating !== null && Math.abs(shown - hostRating) <= ratingRules.matchBand)
+      reasons.push({ code: "RATING_CLOSE", points: WEIGHTS.ratingClose, vars: { mine: hostRating, theirs: shown, within: ratingRules.matchBand } });
     let withinKm: number | null = null;
     if (profile.near && venue.lat !== null && venue.lng !== null) {
       const km = distanceM(profile.near, { lat: Number(venue.lat), lng: Number(venue.lng) }) / 1000;
@@ -335,6 +397,7 @@ export async function recommendPlayers(
       name: r.name.trim().split(/\s+/)[0],
       level: r.level,
       withinKm,
+      ...(shown !== null ? { rating: shown } : {}),
       score: reasons.reduce((sum, x) => sum + x.points, 0),
       reasons,
     });

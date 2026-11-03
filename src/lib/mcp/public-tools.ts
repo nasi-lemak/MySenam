@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { GET as searchRoute } from "@/app/api/search/route";
 import { GET as availabilityRoute } from "@/app/api/availability/route";
+import { GET as rankingsRoute } from "@/app/api/venues/[id]/rankings/route";
+import { RATING_FORMATS } from "../rating-math";
 import { sportsOf } from "../court-activities";
 import { BUSINESS_TYPES } from "../guide/business-types";
 import type { Availability } from "../guide/capabilities";
@@ -310,4 +312,41 @@ const venueAvailability: McpTool = {
   },
 };
 
-export const PUBLIC_TOOLS: McpTool[] = [guideBusinessTypes, guideFit, searchVenues, venueDetails, venueAvailability];
+const venueRankings: McpTool = {
+  name: "venue_rankings",
+  title: "A venue's rankings",
+  description:
+    "Returns a live venue's public rankings for a sport and format as its rankings page shows them to somebody signed out: only people who chose to be listed, under the name they gave, and teams their captains published, once their rating is no longer provisional. Never a child, and nobody who did not opt in. Without a sport and format it says what there is to choose from. Optional season (a year).",
+  authority: "public",
+  inputSchema: {
+    type: "object",
+    properties: {
+      venueId: { type: "integer" },
+      activity: { type: "string", description: "The sport, as in search_venues." },
+      format: { type: "string", enum: [...RATING_FORMATS], description: "singles, doubles or team." },
+      season: { type: "integer", description: "A year; all time if left out." },
+    },
+    required: ["venueId"],
+    additionalProperties: false,
+  },
+  annotations: { ...READ_ONLY, title: "Venue rankings" },
+  async run(args, ctx) {
+    const venueId = reqInt(args, "venueId");
+    const q = new URLSearchParams();
+    const activity = optString(args, "activity", 60);
+    const format = optEnum(args, "format", RATING_FORMATS);
+    const season = optInt(args, "season", 2000, 2200);
+    if (activity) q.set("sport", activity);
+    if (format) q.set("format", format);
+    if (season) q.set("season", String(season));
+    const { status, body } = await askPublicRoute(ctx, (req) => rankingsRoute(req, { params: Promise.resolve({ id: String(venueId) }) }), `/api/venues/${venueId}/rankings?${q}`);
+    if (status !== 200) return refused(String(body.error ?? "Venue not found."));
+    const board = body.board as { rows: unknown[] } | undefined;
+    return answer(
+      board ? `${board.rows.length} ranked, as the venue's rankings page shows them: only people who chose to be listed and published teams.` : "What this venue's rankings have to choose from: call again with activity and format.",
+      body.board ? { board: body.board, page: `${ctx.origin}/venue/${venueId}/rankings` } : { choices: body.choices, page: `${ctx.origin}/venue/${venueId}/rankings` }
+    );
+  },
+};
+
+export const PUBLIC_TOOLS: McpTool[] = [guideBusinessTypes, guideFit, searchVenues, venueDetails, venueAvailability, venueRankings];

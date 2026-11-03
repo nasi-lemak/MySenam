@@ -99,6 +99,7 @@ export default function LeaguePage() {
           {t("leag.players", { n: x.players })}
         </p>
         {x.description && <p className="mt-3 whitespace-pre-line text-sm text-slate-700">{x.description}</p>}
+        {x.rated && <p className="mt-2 text-sm text-slate-600">{t("rt.ratedNote")}</p>}
         <p className="mt-3 text-sm text-slate-600">{t("leag.how")}</p>
       </div>
 

@@ -125,6 +125,8 @@ export interface Tournament {
   callWaitMinutes: number;
   announceNext: boolean;
   liveNames: "full" | "short";
+  /** The venue marked it as rated: its results count towards players' ratings (lib/ratings.ts). */
+  rated: boolean;
 }
 
 export interface Entry {
@@ -301,6 +303,7 @@ interface TRow {
   call_wait_minutes: number | null;
   announce_next: boolean | null;
   live_names: string | null;
+  rated?: boolean | null;
 }
 
 function toTournament(r: TRow): Tournament {
@@ -347,6 +350,7 @@ function toTournament(r: TRow): Tournament {
     callWaitMinutes: r.call_wait_minutes ?? 10,
     announceNext: r.announce_next ?? true,
     liveNames: r.live_names === "short" ? "short" : "full",
+    rated: r.rated === true,
   };
 }
 
@@ -1021,6 +1025,7 @@ export async function cancelTournament(id: number): Promise<Result> {
   for (const entryId of await entrants(id)) await tellEntry(entryId, t, (tr) => tr("mail.tour.calledOff.s", { t: t.name }), (tr) => tr("mail.tour.calledOff.b", { t: t.name, venue: t.venueName }));
   // A division: the competition's time it would have used goes back once nothing else needs it.
   if (t.competition) await releaseCompetitionTime(t.competition.id);
+  await ratingsAfter(id);
   return { ok: true, value: (await tournamentById(id))! };
 }
 
@@ -1411,7 +1416,10 @@ export async function takeOut(
   });
   if (!out.ok) return out;
   // A match that is now a walkover frees its court: the next may be announced.
-  if (out.tournamentId !== null) await announceAfter(out.tournamentId);
+  if (out.tournamentId !== null) {
+    await announceAfter(out.tournamentId);
+    await ratingsAfter(out.tournamentId);
+  }
   return { ok: true, value: out.value };
 }
 
@@ -2059,8 +2067,16 @@ export async function recordResult(matchId: number, input: ResultInput): Promise
     throw err;
   }
   // A court is free and a match is next: tell whose it is (once; lib/tournament-day.ts).
-  if (done.ok) await announceAfter(done.value.id);
+  if (done.ok) {
+    await announceAfter(done.value.id);
+    await ratingsAfter(done.value.id);
+  }
   return done;
+}
+
+/** After a result changes: read the event into the ratings if it is rated (lib/ratings.ts); never fails the change that caused it. */
+async function ratingsAfter(tournamentId: number): Promise<void> {
+  await (await import("./ratings")).ratedAfter("tournament", tournamentId);
 }
 
 /** After a result or somebody leaving: the day's announcements, which never fail the change that caused them. */
@@ -2316,7 +2332,7 @@ export async function applyCorrection(
   if ((await correctionToken(m.tournament_id, matchId, input)) !== confirm.token)
     return { ok: false, error: "The tournament has changed since you looked. Review the correction again.", code: "CHANGED" };
   try {
-    return await withTransaction(async () => {
+    const applied = await withTransaction(async (): Promise<Result<{ detail: TournamentDetail } & Changes>> => {
       const before = (await tournamentDetail(m.tournament_id, { forStaff: true }))!;
       const done = await recordResultOnce(matchId, input, confirm.mode);
       if (!done.ok) return done;
@@ -2358,6 +2374,9 @@ export async function applyCorrection(
       }
       return { ok: true, value: { detail: (await tournamentDetail(m.tournament_id, { forStaff: true }))!, ...changesOf(changes) } };
     });
+    // The corrected result goes into the ratings as it now stands.
+    if (applied.ok) await ratingsAfter(m.tournament_id);
+    return applied;
   } catch (err) {
     if (err instanceof CorrectionBlocked) return { ok: false, error: `It cannot be put into the knockout safely: ${err.blockers.map(englishOf).join(" ")}`, code: "BLOCKED" };
     throw err;
@@ -2922,6 +2941,7 @@ export async function resolveIssue(
     if (err instanceof IssueRefused) return { ok: false as const, error: err.message };
     throw err;
   });
+  if (result.ok) await ratingsAfter(tournamentId);
   if (result.ok && confirm.action === "replay") {
     // Everybody in the replays hears when they play.
     const d = result.value.detail;

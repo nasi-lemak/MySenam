@@ -26,6 +26,9 @@ export const INTENSITIES = ["casual", "competitive", "any"] as const;
 export type Intensity = (typeof INTENSITIES)[number];
 export const MATCH_NOTICES = ["none", "digest", "each"] as const;
 export type MatchNotice = (typeof MATCH_NOTICES)[number];
+/** Which level matching uses for the player: the one they declared (the default), the one their results earn, or either (lib/ratings.ts). */
+export const LEVEL_BASES = ["declared", "earned", "either"] as const;
+export type LevelBasis = (typeof LEVEL_BASES)[number];
 
 /** Which part of the day an hour falls in: before noon, before five, after. */
 export function dayPart(hour: number): DayPart {
@@ -47,6 +50,13 @@ export interface PlayerProfile {
   /** Declared 18 or over (true), under 18 (false), or not said (null). Not verified. */
   adult: boolean | null;
   notifyMatches: MatchNotice;
+  /** Which level matching uses (declared by default, so nothing changes for anybody who has not chosen). */
+  levelBasis: LevelBasis;
+  /** Hosts and players matched with them may see their earned rating as a number, once it is not provisional. Declared adults only. */
+  ratingShared: boolean;
+  /** Listed on venues' public rankings, under `rankName`. Declared adults only. */
+  rankPublicly: boolean;
+  rankName: string | null;
 }
 
 export const DEFAULT_PROFILE: PlayerProfile = {
@@ -61,6 +71,10 @@ export const DEFAULT_PROFILE: PlayerProfile = {
   invitable: false,
   adult: null,
   notifyMatches: "digest",
+  levelBasis: "declared",
+  ratingShared: false,
+  rankPublicly: false,
+  rankName: null,
 };
 
 export interface ProfileRow {
@@ -77,6 +91,10 @@ export interface ProfileRow {
   invitable: number;
   adult: number | null;
   notify_matches: MatchNotice;
+  level_basis?: LevelBasis | null;
+  rating_shared?: number | null;
+  rank_publicly?: number | null;
+  rank_name?: string | null;
 }
 
 export function toProfile(r: ProfileRow | undefined): PlayerProfile {
@@ -93,6 +111,10 @@ export function toProfile(r: ProfileRow | undefined): PlayerProfile {
     invitable: r.invitable === 1,
     adult: r.adult === null ? null : r.adult === 1,
     notifyMatches: r.notify_matches,
+    levelBasis: r.level_basis ?? "declared",
+    ratingShared: r.rating_shared === 1,
+    rankPublicly: r.rank_publicly === 1,
+    rankName: r.rank_name ?? null,
   };
 }
 
@@ -106,7 +128,7 @@ export async function declaredAdult(userId: number): Promise<boolean | null> {
   return row?.adult === undefined || row.adult === null ? null : row.adult === 1;
 }
 
-export type ProfileResult = { ok: true; profile: PlayerProfile } | { ok: false; error: string };
+export type ProfileResult = { ok: true; profile: PlayerProfile } | { ok: false; error: string; code?: string };
 
 /** Change some of a profile; what is not given stays as it was. */
 export async function saveProfile(userId: number, input: Partial<Record<keyof PlayerProfile, unknown>>): Promise<ProfileResult> {
@@ -161,18 +183,33 @@ export async function saveProfile(userId: number, input: Partial<Record<keyof Pl
     if (!(MATCH_NOTICES as readonly unknown[]).includes(input.notifyMatches)) return { ok: false, error: "Never, a daily digest, or each game." };
     next.notifyMatches = input.notifyMatches as MatchNotice;
   }
+  if ("levelBasis" in input) {
+    if (!(LEVEL_BASES as readonly unknown[]).includes(input.levelBasis)) return { ok: false, error: "Declared, earned or either.", code: "RT_BASIS" };
+    next.levelBasis = input.levelBasis as LevelBasis;
+  }
+  if ("ratingShared" in input) next.ratingShared = input.ratingShared === true;
+  if ("rankPublicly" in input) next.rankPublicly = input.rankPublicly === true;
+  if ("rankName" in input) {
+    if (input.rankName !== null && typeof input.rankName !== "string") return { ok: false, error: "Give the name to show on rankings.", code: "RT_NAME_NEEDED" };
+    next.rankName = typeof input.rankName === "string" ? input.rankName.trim().replace(/\s+/g, " ").slice(0, 40) || null : null;
+  }
   // Being found by strangers, or invited by anybody, is for adults who say so.
   if (next.adult !== true && (next.discoverable || next.invitable))
     return { ok: false, error: "Only players who say they are 18 or over can be found or invited by other players." };
+  // So is showing a rating to other people, or being listed on a public ranking.
+  if (next.adult !== true && (next.ratingShared || next.rankPublicly))
+    return { ok: false, error: "Only players who say they are 18 or over can show their rating to others or be listed on a ranking.", code: "RT_ADULTS_ONLY" };
+  if (next.rankPublicly && (next.rankName ?? "").length < 2) return { ok: false, error: "Give the name to show on rankings.", code: "RT_NAME_NEEDED" };
 
   await getDb()
     .prepare(
-      `INSERT INTO player_profiles (user_id, area, near_lat, near_lng, max_km, days, times, intensity, max_share, discoverable, invitable, adult, notify_matches)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO player_profiles (user_id, area, near_lat, near_lng, max_km, days, times, intensity, max_share, discoverable, invitable, adult, notify_matches, level_basis, rating_shared, rank_publicly, rank_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO UPDATE SET area = excluded.area, near_lat = excluded.near_lat, near_lng = excluded.near_lng,
          max_km = excluded.max_km, days = excluded.days, times = excluded.times, intensity = excluded.intensity,
          max_share = excluded.max_share, discoverable = excluded.discoverable, invitable = excluded.invitable,
-         adult = excluded.adult, notify_matches = excluded.notify_matches, updated_at = datetime('now')`
+         adult = excluded.adult, notify_matches = excluded.notify_matches, level_basis = excluded.level_basis, rating_shared = excluded.rating_shared,
+         rank_publicly = excluded.rank_publicly, rank_name = excluded.rank_name, updated_at = datetime('now')`
     )
     .run(
       userId,
@@ -187,7 +224,11 @@ export async function saveProfile(userId: number, input: Partial<Record<keyof Pl
       next.discoverable ? 1 : 0,
       next.invitable ? 1 : 0,
       next.adult === null ? null : next.adult ? 1 : 0,
-      next.notifyMatches
+      next.notifyMatches,
+      next.levelBasis,
+      next.ratingShared ? 1 : 0,
+      next.rankPublicly ? 1 : 0,
+      next.rankName
     );
   return { ok: true, profile: next };
 }

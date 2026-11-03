@@ -97,7 +97,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0027 Opening hours and rates from a date](architecture/decisions/0027-hours-and-rates-from-a-date.md) ·
 [0028 The venue guide as read models over the real configuration](architecture/decisions/0028-venue-guide-as-read-models-over-real-configuration.md) ·
 [0029 An MCP server over the existing functions](architecture/decisions/0029-mcp-server-over-existing-functions.md) ·
-[0030 Signing staff in from AI assistants with an authorization server inside the app](architecture/decisions/0030-oauth-sign-in-for-ai-assistants.md)
+[0030 Signing staff in from AI assistants with an authorization server inside the app](architecture/decisions/0030-oauth-sign-in-for-ai-assistants.md) ·
+[0031 Ratings are a deterministic function of a ledger of results, never learned](architecture/decisions/0031-ratings-from-a-ledger-of-results.md)
 
 ## Integrations
 

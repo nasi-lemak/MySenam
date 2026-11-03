@@ -178,6 +178,8 @@ const AVAILABLE: Capability[] = [
   available("leagues", "programmes", { featureRow: "Box leagues: setup and seasons", configure: { tab: "leagues" }, staffAction: "leagues" }),
   available("team-leagues", "programmes", { featureRow: "Leagues of teams and fixture lists", configure: { tab: "leagues" }, staffAction: "teamLeagues" }),
   available("teams", "programmes", { featureRow: "Teams that persist across events", requires: [] }),
+  available("ratings", "programmes", { featureRow: "Ratings from results and rankings across events", configure: { tab: "leagues" }, staffAction: "ratings" }),
+  available("earned-levels", "programmes", { featureRow: "Matchmaking on earned levels", requires: [] }),
   available("open-games", "programmes", { featureRow: "Open games: hosting", requires: [] }),
   available("matchmaking", "programmes", { featureRow: "Suggested games (matchmaking)", requires: [] }),
   available("equipment-hire", "programmes", { featureRow: "Equipment hire and deposits", configure: courts(), staffAction: "courts", models: ["hire"] }),

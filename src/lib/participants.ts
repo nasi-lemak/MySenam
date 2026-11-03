@@ -1006,6 +1006,7 @@ export async function eraseParticipant(id: number, why: string): Promise<void> {
     .run(ANONYMOUS, id);
   await (await import("./leagues")).forgetLeagueParticipant(id, ANONYMOUS);
   await (await import("./teams")).forgetTeamsOfParticipant(id, ANONYMOUS);
+  await (await import("./ratings")).forgetRatingsOfParticipant(id);
   await db.prepare("DELETE FROM participants WHERE id = ?").run(id);
 }
 
@@ -1096,6 +1097,7 @@ async function participantRecord(id: number): Promise<Record<string, unknown>> {
       )
       .all(id),
     teams: await (await import("./teams")).participantTeamsExport(id),
+    ratings: await (await import("./ratings")).participantRatingsExport(id),
   };
 }
 

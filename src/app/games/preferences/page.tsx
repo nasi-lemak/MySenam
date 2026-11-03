@@ -4,6 +4,7 @@ import { readJson } from "@/lib/read-response";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useT } from "@/components/Language";
+import { translateError } from "@/lib/i18n";
 import { NearPicker, type NearChoice } from "@/components/NearPicker";
 import type { DayPart, Intensity, MatchNotice, PlayerProfile } from "@/lib/player-profiles";
 
@@ -55,7 +56,7 @@ export default function PreferencesPage() {
     setNotice(null);
     const res = await fetch("/api/my/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
     const data = await readJson(res);
-    if (!res.ok) return setError(data.error);
+    if (!res.ok) return setError(translateError(t, data));
     setProfile(data.profile);
     setNotice(t("prefs.saved"));
   }
@@ -150,7 +151,7 @@ export default function PreferencesPage() {
                   type="radio"
                   name="adult"
                   checked={profile.adult === value}
-                  onChange={() => set(value === true ? { adult: true } : { adult: value, discoverable: false, invitable: false })}
+                  onChange={() => set(value === true ? { adult: true } : { adult: value, discoverable: false, invitable: false, ratingShared: false, rankPublicly: false })}
                 />
                 {t(`prefs.age.${key}`)}
               </label>
@@ -166,6 +167,39 @@ export default function PreferencesPage() {
           <input type="checkbox" name="invitable" disabled={profile.adult !== true} checked={profile.invitable} onChange={(e) => set({ invitable: e.target.checked })} />
           {t("prefs.invitable")}
         </label>
+        <fieldset className="space-y-2 rounded-lg border border-slate-200 p-3 text-sm">
+          <legend className="px-1 font-medium text-slate-700">{t("rt.pref.title")}</legend>
+          <label className="flex flex-col gap-1 text-slate-700">
+            {t("rt.pref.basis")}
+            <select value={profile.levelBasis} onChange={(e) => set({ levelBasis: e.target.value as PlayerProfile["levelBasis"] })} className={`max-w-md ${input}`} name="levelBasis">
+              {(["declared", "earned", "either"] as const).map((b) => (
+                <option key={b} value={b}>
+                  {t(`rt.pref.basis.${b}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs text-slate-500">{t("rt.pref.basisNote")}</p>
+          <label className={`flex items-start gap-2 ${profile.adult === true ? "text-slate-700" : "text-slate-400"}`}>
+            <input type="checkbox" name="ratingShared" disabled={profile.adult !== true} checked={profile.ratingShared} onChange={(e) => set({ ratingShared: e.target.checked })} />
+            {t("rt.pref.shared")}
+          </label>
+          <label className={`flex items-start gap-2 ${profile.adult === true ? "text-slate-700" : "text-slate-400"}`}>
+            <input type="checkbox" name="rankPublicly" disabled={profile.adult !== true} checked={profile.rankPublicly} onChange={(e) => set({ rankPublicly: e.target.checked })} />
+            {t("rt.pref.rank")}
+          </label>
+          {profile.rankPublicly && (
+            <label className="flex flex-col gap-1 text-slate-700">
+              {t("rt.pref.rankName")}
+              <input value={profile.rankName ?? ""} maxLength={40} onChange={(e) => set({ rankName: e.target.value || null })} className={`max-w-xs ${input}`} name="rankName" />
+            </label>
+          )}
+          <p>
+            <Link href="/ratings" className="text-teal-700 underline">
+              {t("rt.pref.link")}
+            </Link>
+          </p>
+        </fieldset>
         <label className="flex flex-col gap-1 text-sm text-slate-700">
           {t("prefs.notify")}
           <select value={profile.notifyMatches} onChange={(e) => set({ notifyMatches: e.target.value as MatchNotice })} className={`w-48 ${input}`} name="notifyMatches">

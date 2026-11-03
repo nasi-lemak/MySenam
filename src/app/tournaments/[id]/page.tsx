@@ -121,6 +121,7 @@ export default function TournamentPage() {
         {x.competition && <p className="mt-1 text-sm font-medium text-slate-700">{t("tour.division", { name: x.competition.name })}</p>}
         {eligibilityLine(t, x) && <p className="mt-1 text-sm text-slate-600">{eligibilityLine(t, x)}</p>}
         {x.description && <p className="mt-3 whitespace-pre-line text-sm text-slate-700">{x.description}</p>}
+        {x.rated && <p className="mt-2 text-sm text-slate-600">{t("rt.ratedNote")}</p>}
         {champion && <p className="mt-3 text-lg font-bold text-teal-700">🏆 {t("tour.champion", { name: champion })}</p>}
         {x.status === "drawn" && x.format !== "performance" && (
           <p className="mt-2">

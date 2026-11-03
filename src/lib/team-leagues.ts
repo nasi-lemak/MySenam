@@ -69,6 +69,8 @@ export interface TeamLeague {
   category: "open" | "women" | "men";
   ageRange: { min: number | null; max: number | null } | null;
   membersOnly: boolean;
+  /** The venue marked it as rated: its results count towards players' and teams' ratings (lib/ratings.ts). */
+  rated: boolean;
   level: Level | null;
   description: string | null;
   startsOn: string;
@@ -101,6 +103,7 @@ interface LeagueRow {
   age_min: number | null;
   age_max: number | null;
   members_only: boolean;
+  rated?: boolean | null;
   level: Level | null;
   description: string | null;
   starts_on: string;
@@ -164,6 +167,7 @@ async function toLeague(r: LeagueRow): Promise<TeamLeague> {
     category: r.category,
     ageRange: r.age_min !== null || r.age_max !== null ? { min: r.age_min, max: r.age_max } : null,
     membersOnly: r.members_only === true,
+    rated: r.rated === true,
     level: r.level,
     description: r.description,
     startsOn: r.starts_on,
@@ -372,6 +376,7 @@ export async function closeTeamLeague(leagueId: number): Promise<TeamResult<Team
     await db.prepare("UPDATE team_leagues SET status = 'closed' WHERE id = ?").run(leagueId);
     return days;
   });
+  await ratingsAfter(leagueId);
   for (const d of freed) await offerSlotPlace(d.court_id, d.date);
   return { ok: true, value: (await teamLeagueById(leagueId))! };
 }
@@ -569,6 +574,7 @@ export async function withdrawTeam(by: { userId: number } | { adminId: number | 
     return { ok: true, value: null };
   });
   if (!done.ok) return done;
+  await ratingsAfter((await leagueTeam(leagueTeamId))!.league_id);
   for (const d of freed) await offerSlotPlace(d.court_id, d.date);
   for (const t of told) await tellCaptainOf(t.other, (tr) => tr("tm.mail.forfeitWon.s", { team: t.mine }), (tr) => tr("tm.mail.forfeitWon.b", { team: t.mine }));
   return { ok: true, value: null };
@@ -1103,6 +1109,11 @@ async function settleLeague(leagueId: number): Promise<void> {
 
 const changed = () => teamRefusal("TL_CHANGED");
 
+/** After a result changes: read the league into the ratings if it is rated (lib/ratings.ts); never fails the change that caused it. */
+async function ratingsAfter(leagueId: number): Promise<void> {
+  await (await import("./ratings")).ratedAfter("team_league", leagueId);
+}
+
 /**
  * A captain saying how a fixture went: each game's score and winner, home side
  * first. They can put it right until the other captain answers. On the fixture's
@@ -1182,6 +1193,7 @@ async function answerReport(userId: number, fixtureId: number, to: "confirmed" |
 export async function confirmFixture(userId: number, fixtureId: number, expected: { version?: number } = {}): Promise<TeamResult<null>> {
   const done = await answerReport(userId, fixtureId, "confirmed", null, expected);
   if (!done.ok) return done;
+  await ratingsAfter(done.value.leagueId);
   const league = (await teamLeagueById(done.value.leagueId))!;
   await tellCaptainOf(done.value.reporter, (tr) => tr("tm.mail.confirmed.s", { team: done.value.mine }), (tr) => tr("tm.mail.confirmed.b", { team: done.value.mine, league: league.name }));
   return { ok: true, value: null };
@@ -1260,6 +1272,7 @@ export async function decideFixture(fixtureId: number, adminId: number, input: D
     throw err;
   });
   if (!done.ok) return done;
+  await ratingsAfter(done.value.leagueId);
   for (const d of freed) await offerSlotPlace(d.court_id, d.date);
   const f = (await fixtureRow(fixtureId))!;
   const league = (await teamLeagueById(done.value.leagueId))!;
@@ -1577,6 +1590,7 @@ export async function teamLeagueHousekeeping(): Promise<{ confirmed: number }> {
     });
     if (!ok) continue;
     confirmed++;
+    await ratingsAfter(ok.league_id);
     const league = (await teamLeagueById(ok.league_id))!;
     const names = await sidesOf(ok);
     const rubbers = await loadRubbers([ok.id]);

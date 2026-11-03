@@ -29,7 +29,13 @@ which names the one authoritative document for each subject.
   staff's do. Box leagues check and rank results by the same rules
   (`scoreRefusal`, `standings`) through their own functions in
   `src/lib/leagues.ts`, since `recordResult` carries a tournament's
-  progression and corrections; neither has checks of its own. Leagues of teams
+  progression and corrections; neither has checks of its own. Ratings
+  (`src/lib/ratings.ts`) are a consumer of those results, never a scoring
+  path: a rating is a pure function of the ledger of rated results, recomputed
+  from it, never updated in place and never learned
+  ([ADR 0031](docs/architecture/decisions/0031-ratings-from-a-ledger-of-results.md)).
+  A child's rating is for their guardian only; being rated makes nobody
+  findable. Leagues of teams
   do the same in `src/lib/team-leagues.ts` (a team match is made of games from
   the sport's template, scored by `scoreRefusal`, ranked by `standings`). Teams
   that persist (`src/lib/teams.ts`) are joined by both sides agreeing, by

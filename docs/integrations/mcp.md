@@ -96,6 +96,7 @@ their own code (`src/lib/mcp/public-tools.ts`):
 | `search_venues` | `{ activity \| words, date?, area \| near{lat,lng,km?}, from?, to?, minutes?, sort? }`: the public search (`/api/search`, its own handler): live, publicly listed venues, each result the cheapest free court with its start, end, price, how many others are free and what its rules ask first. An area or a point is always required: never the whole country. |
 | `venue_details` | `{ venueId }`: a live venue's page facts (name, area, address, phone, time zone, activities, hours by weekday, facilities, members only or not, the free-cancellation cutoff, rating, link). |
 | `venue_availability` | `{ venueId, date?, activity? }`: the venue's day as its page's grid shows it to somebody signed out (`/api/availability`, its own handler): each court's lengths, starts and columns with price and whether free, and a closure. |
+| `venue_rankings` | `{ venueId, activity?, format?, season? }`: the venue's [rankings](../features/tournaments.md#ratings-and-rankings) as its rankings page shows them to somebody signed out (`/api/venues/:id/rankings`, its own handler): only people who chose to be listed, under the name they gave, and published teams, once their rating is no longer provisional; never a child or anybody who did not opt in. Without `activity` and `format`, what there is to choose from. Read only: nothing here writes a rating. |
 
 A draft, a suspended venue and a private one are *Venue not found.*; a
 members-only venue answers as its public page does (`mayShowVenue` for nobody

@@ -166,6 +166,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Ratings: every rated event whose results differ from when it was last read is read again (lib/ratings.ts); safe to repeat.
+    await (await import("./ratings")).ratingsCatchUp();
+  } catch (err) {
+    console.error("[mysenam] reading results into the ratings failed:", err);
+    await raiseAlert("scheduler:ratings-failed", failed("srv.work.ratings"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Tournament day: whose match is next on each court, told once (lib/tournament-day.ts).
     await (await import("./tournament-day")).announceAll();
   } catch (err) {

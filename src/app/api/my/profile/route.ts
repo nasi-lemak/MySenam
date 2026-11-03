@@ -19,6 +19,6 @@ export async function PUT(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   const saved = await saveProfile(user.id, body);
-  if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 400 });
+  if (!saved.ok) return NextResponse.json({ error: saved.error, ...(saved.code ? { code: saved.code } : {}) }, { status: 400 });
   return NextResponse.json({ profile: saved.profile });
 }

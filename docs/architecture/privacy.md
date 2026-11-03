@@ -648,6 +648,45 @@ members; it holds no court and no money (`teams`, `team_members`,
 - **Nothing leaves the country:** no team data goes anywhere but the install's own
   database and backups ([backups held abroad](#backups-held-abroad)).
 
+### Ratings
+
+A [rating](../features/tournaments.md#ratings-and-rankings) is built from a
+ledger of results at events a venue marked as rated (`rated_results`,
+`rated_result_subjects`, `rating_subjects`, `rating_exclusions`,
+`rating_resets`; migration 0270).
+
+- **What is held:** for each decided match, who was on each side (an account, a
+  participant a guardian manages, or a team), the name as the event showed it, the
+  outcome and the rating before and after, and the pool's current rating, record and
+  provisional state. Nothing about a person that the event did not already record.
+  Ratings come from results, never from a declared age or a document.
+- **Who sees it:** the person, and a child's guardian; a team's members. Anybody
+  else only what the person chose, as declared adults only: a number shown to hosts and
+  players matched with them (`rating_shared`), or a place on a venue's public
+  ranking under the name they gave (`rank_publicly`, `rank_name`). A team is
+  listed once its captain publishes it. **A child's rating is never ranked,
+  never public and never used to suggest anybody to anybody**; on a child's
+  opponents' history the child is *a junior player*, with no rating shown. An
+  opponent's rating is shown to a player only if the opponent chose to show it.
+  Staff see ratings of their own venue only, a child as *(junior player)*.
+- **Not a way to find a stranger:** a rating makes nobody discoverable, invitable
+  or listed. The public API (`GET /api/venues/:id/rankings`) and the pages answer from
+  the same opt-in rules; nothing writes a rating but the ledger's replay.
+- **Export:** *Download my data* lists the ratings (venue, sport, format, rating,
+  record) and each result that moved them (`ratings`), a child's in the
+  guardian's export of the child's record; the declared-level and opt-in choices
+  are in the playing profile as before.
+- **Erasure:** an account's ratings go, and its place in every ledger row becomes
+  `(removed)`, standing at the rating it had then, so the people it played keep the
+  ratings those results gave them and every pool it was in is replayed
+  (`forgetRatingsOfUser`, `forgetRatingsOfParticipant`). A restart of its rating is
+  deleted with it.
+- **Retention:** the ledger is the competition results' own: kept as long as they
+  are. A voided row (a corrected result) is kept with it as the record of what was
+  counted.
+- **Nothing leaves the country:** ratings are computed and kept in the install's own
+  database and backups ([backups held abroad](#backups-held-abroad)).
+
 ## Where personal data is kept
 
 Four places are distinct, and none implies another: the **operating

@@ -52,6 +52,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/team-leagues\/\d+$/, methods: ["POST"] },
   { path: /^\/api\/admin\/team-leagues\/\d+\/fixtures\/\d+$/, methods: ["PATCH"] },
   { path: /^\/api\/admin\/team-leagues\/\d+\/teams\/\d+$/, methods: ["DELETE"] },
+  // Ratings from results (lib/ratings.ts): which events count, leaving a result out, restarting a rating and seeding a draw from ratings shape what people are ranked by.
+  { path: /^\/api\/admin\/ratings$/, methods: "all" },
   // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.
   { path: /^\/api\/admin\/tournaments\/\d+\/issues\/\d+$/, methods: ["POST"] },
   // Calling a fixture to its court, deciding what happens when nobody comes, the day's settings: the organiser's; the desk checks in and enters results.
@@ -224,6 +226,8 @@ export const STAFF_ACTIONS = {
   teamLeagueRun: "POST /api/admin/team-leagues/1",
   teamFixtureMove: "PATCH /api/admin/team-leagues/1/fixtures/1",
   teamLeagueRemove: "DELETE /api/admin/team-leagues/1/teams/1",
+  // Ratings from results: which events count, leaving a result out, restarting a rating, seeding a draw from ratings.
+  ratings: "POST /api/admin/ratings",
   // The venue guide's setup journey and discoveries (lib/guide); the playbook is every role's own.
   guideSetup: "POST /api/admin/guide/setup",
   // Screens the guide links to that a manager alone uses, named so a link can be held to what its reader may open.

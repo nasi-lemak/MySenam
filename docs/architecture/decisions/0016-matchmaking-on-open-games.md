@@ -41,5 +41,7 @@
 - **Consequences:** the existing money, refund and privacy rules apply to
   every new workflow unchanged. Ranking reads a bounded number of candidates
   (300 games, 500 players) and is not measured at marketplace size. Earned
-  ratings, messages between players and teams that persist across
-  tournaments are left to the [roadmap](../../roadmap/roadmap.md).
+  ratings and teams that persist across tournaments were left open here and are
+  since decided ([ADR 0031](0031-ratings-from-a-ledger-of-results.md); the
+  rules above bind them unchanged); messages between players are left to the
+  [roadmap](../../roadmap/roadmap.md).

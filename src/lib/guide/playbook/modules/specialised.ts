@@ -101,6 +101,19 @@ export const SPECIALISED_MODULES: PlaybookModule[] = [
     ],
   },
   {
+    // Ratings from results and rankings across events (lib/ratings.ts): which events count, and what a manager may correct.
+    id: "spec.ratings",
+    section: "specialised",
+    roles: MANAGER,
+    applies: (p) => p.programmes.tournaments + p.programmes.leagues + (p.programmes.teamLeagues ?? 0) > 0,
+    blocks: (c) => [
+      heading("gp.spec.ratings.h", "spec-ratings"),
+      para("gp.spec.ratings.text"),
+      steps(step("gp.spec.ratings.s1", { screen: screen("leagues") }, c.go("leagues", "ratings")), step("gp.spec.ratings.s2"), step("gp.spec.ratings.s3")),
+      note("gp.spec.ratings.private"),
+    ],
+  },
+  {
     id: "spec.teamLeaguesDesk",
     section: "specialised",
     roles: DESK,

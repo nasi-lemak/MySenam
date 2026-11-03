@@ -85,6 +85,8 @@ export interface League {
   /** How its matches are scored and its boxes ranked; the template they came from. */
   rules: CompetitionRules;
   template: string | null;
+  /** The venue marked it as rated: its results count towards players' ratings (lib/ratings.ts). */
+  rated: boolean;
 }
 
 export interface LeaguePlayer {
@@ -181,6 +183,7 @@ interface LRow {
   pay_online: boolean;
   rules: string | null;
   template: string | null;
+  rated?: boolean | null;
 }
 
 interface SRow {
@@ -223,6 +226,7 @@ async function toLeague(r: LRow): Promise<League> {
     payOnline: Boolean(r.pay_online),
     rules: readRules(r.rules),
     template: r.template,
+    rated: r.rated === true,
   };
 }
 
@@ -651,6 +655,7 @@ export async function leave(playerId: number): Promise<Result<LeaguePlayer>> {
       )
       .run(playerId, season.id, playerId, playerId);
   })();
+  await ratingsAfter(p.league_id);
   return { ok: true, value: (await playerById(playerId))! };
 }
 
@@ -871,8 +876,10 @@ export async function endSeason(leagueId: number, today = todayISO()): Promise<R
     return true;
   })();
   if (!changed) return { ok: false, error: "No season is being played." };
+  // Results nobody answered now stand, and disputes nobody settled do not count.
+  await ratingsAfter(leagueId);
 
-  const after = (await leagueDetail(leagueId, { season: season.number, forStaff: true }))!;
+  const after =(await leagueDetail(leagueId, { season: season.number, forStaff: true }))!;
   const next = (await currentSeason(leagueId)) ?? null;
   for (const place of after.places) {
     const p = after.people.find((x) => x.id === place.playerId);
@@ -1098,6 +1105,7 @@ async function answerReport(
 export async function confirmResult(userId: number, matchId: number, expected: { version?: number } = {}): Promise<Result<LeagueMatch>> {
   const done = await answerReport(userId, matchId, "confirmed", null, expected);
   if (!done.ok) return done;
+  await ratingsAfter(done.m.league_id);
   return { ok: true, value: (await matchesOf(done.m.season_id)).find((x) => x.id === matchId)! };
 }
 
@@ -1177,8 +1185,14 @@ export async function decideResult(
     return { ok: true, m, score };
   });
   if (!done.ok) return done;
+  await ratingsAfter(done.m.league_id);
   await tellDecision(done.m, input, done.score);
   return { ok: true, value: (await matchesOf(done.m.season_id)).find((x) => x.id === matchId)! };
+}
+
+/** After a result changes: read the league into the ratings if it is rated (lib/ratings.ts); never fails the change that caused it. */
+async function ratingsAfter(leagueId: number): Promise<void> {
+  await (await import("./ratings")).ratedAfter("league", leagueId);
 }
 
 /** Both sides of a match, told what the venue's staff decided about it (once each, where one account acts for both). */

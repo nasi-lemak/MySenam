@@ -237,7 +237,8 @@ with no learning:
    are shown without points.
 
 Levels and ages are what players say about themselves, and reasons say no
-more ("the level you gave"). Nothing ranks by gender, age, race or religion:
+more ("the level you gave"); a player who chooses [earned levels](#earned-levels)
+is told, in the same way, that the rating their results earned was used. Nothing ranks by gender, age, race or religion:
 the only rules on who plays are the host's own, and joining enforces the same
 ones.
 
@@ -256,6 +257,48 @@ could join it, with no block either way. The host sees a first name, a level,
 a distance band ("within 5 km") and the reasons; never a point, a phone
 number, an email or anything about their calendar. Inviting goes through
 MySenam.
+
+## Earned levels
+
+A player's **declared level** is what they say; an **earned rating** is built
+from the results of events a venue marks as rated, by one published rule
+([ratings and rankings](tournaments.md#ratings-and-rankings),
+[ADR 0031](../architecture/decisions/0031-ratings-from-a-ledger-of-results.md)).
+Matching may use the earned rating beside the declared level, and only as the
+player chooses (`src/lib/matchmaking.ts`, `src/lib/ratings.ts`):
+
+- **The player chooses which level the matcher uses** under *Preferences*:
+  **the one they declared (the default: nothing changes for anybody who has not
+  chosen)**, the one their results earn, or either (whichever suits the game
+  better). An earned rating is used only when it is **not provisional** (8 or more
+  counted results) and is the rating **at the venue of the game, in the game's
+  format** (two players singles, more doubles; pools are per venue). Where there
+  is none, the declared level is used whatever they chose.
+- **What a rating earns** is a level by published thresholds (beginner below 950,
+  intermediate from 950, advanced from 1100, competitive from 1250), then held to the
+  game's level by the same steps and points as a declared one: the same level 25,
+  one step 10, more than one step out of the question. The reason says so, with
+  the rating: *Your earned rating (1300) matches the level it asks*.
+- **Similar ratings** are a preference, not a gate: where the people in a game
+  (its host and those accepted) who chose to show their rating, and whose rating
+  is not provisional, average within the install's band (100) of the player's own, the
+  game scores 15 more with the reason *Your rating 1180, theirs 1215: within
+  100*. A host looking at the players suggested for a game sees the same beside a
+  player who chose to show theirs, if the host chose earned levels too, and the number
+  of a player who showed it. Nothing is a hidden score: the weights are published
+  (`WEIGHTS.ratingClose`), there are no learned weights, and ties break as ever.
+- **Showing a rating is the player's own choice** (adults only, declared:
+  `rating_shared`): hosts and players matched with them see the number, once it is not
+  provisional; otherwise nobody does, and a suggestion says only that the level
+  suits. A child's rating is for their guardian only and is never used for anyone
+  else, and nobody who is under 18, or has not said, can share one.
+- **An earned rating never finds or ranks a stranger.** Everything about who is
+  suggested, who may be invited, who may join, blocks, no-shows and adults-only is
+  unchanged: a rating adds a reason and a few points to somebody already allowed,
+  and nobody becomes discoverable, invitable or listed by having one. A public
+  ranking lists only people who opted in to it.
+- **Not built:** a level that is *enforced* on a game or division (a rating band
+  checked at entry). Declared levels stay shown, not enforced.
 
 ## Blocking and reporting
 
@@ -330,9 +373,10 @@ the scheduler works through players in the order they were last looked at,
 
 ## What is not here
 
-There is no messaging between players. Levels are self-declared; none is
-earned from results. These are proposals in the [roadmap](../roadmap/roadmap.md),
-not commitments. (A team that enters tournaments and leagues is a
+There is no messaging between players. Levels are self-declared unless a player
+chooses [earned levels](#earned-levels), built from rated events' results. A
+rating is never enforced as a level on a game. Messaging is a proposal in the
+[roadmap](../roadmap/roadmap.md), not a commitment. (A team that enters tournaments and leagues is a
 [team](tournaments.md#teams), not a group.)
 
 ## Related capabilities
@@ -357,6 +401,7 @@ not commitments. (A team that enters tournaments and leagues is a
 | Moving a game to another time | `src/lib/game-moves.ts`, `src/app/games/MoveGame.tsx`, `src/components/ChangeTime.tsx` | `tests/game-moves.test.ts` |
 | Suggested games and players | `src/lib/matchmaking.ts`, `src/app/games/Suggested.tsx` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
 | Playing profiles | `src/lib/player-profiles.ts` | `tests/matchmaking.test.ts` |
+| Earned levels: which level matching uses, similar ratings, what a host sees, who may share one | `src/lib/matchmaking.ts` (`levelFor`, `earnedLevelReason`), `src/lib/ratings.ts` (`earnedRatingsOf`, `gameReferenceRatings`, `poolEarned`), `src/lib/player-profiles.ts`, `src/app/games/preferences/page.tsx` | `tests/rating-matchmaking.test.ts`, `tests/ratings.test.ts` |
 | Blocking and reporting | `src/lib/player-safety.ts` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
 | Weekly games, groups, suggestion emails | `src/lib/game-series.ts`, `src/lib/groups.ts` | `tests/community.test.ts` |
 | Invitations by email to a game or a group | `src/lib/player-invitations.ts`, `src/app/player-invitation/page.tsx` | `tests/player-invitations.test.ts`, `tests/components/games-screens.test.tsx` |
@@ -373,6 +418,6 @@ Which parts are verified, and how, is in
   its booking, a game with players moves only as a proposal they answer or
   as the venue's change with a reason (decided 24 October 2026). How long a
   proposal holds the new time (a day at most) is fixed, not set by the venue.
-- Earned levels, messages between players and group news are proposals in
-  the [roadmap](../roadmap/roadmap.md). Persistent teams are built: see
-  [teams](tournaments.md#teams).
+- Messages between players and group news are proposals in the
+  [roadmap](../roadmap/roadmap.md). Persistent teams are built: see
+  [teams](tournaments.md#teams); earned levels are built ([above](#earned-levels)).

@@ -1,8 +1,9 @@
 # Tournaments and leagues
 
 Authoritative for tournaments (one event, or several divisions of a
-competition), the competition rules they are scored by, box leagues, and
-teams that persist across events and the leagues of teams they play in.
+competition), the competition rules they are scored by, box leagues, teams
+that persist across events and the leagues of teams they play in, and the
+ratings and rankings built from their results.
 Status: [feature status](../product/feature-status.md#tournaments-and-leagues).
 Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-corrections.md)
 (rules and corrections) and [ADR 0013](../architecture/decisions/0013-competition-framework.md)
@@ -14,8 +15,10 @@ Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-correcti
   may enter, entries and fees, the draw and schedule, results by staff,
   officials or players, corrections and progression issues, people leaving,
   the court time held; box leagues, season after season; [teams](#teams) that
-  persist across events and enter tournaments and leagues by name; and
-  [leagues of teams](#team-leagues) with fixture lists.
+  persist across events and enter tournaments and leagues by name;
+  [leagues of teams](#team-leagues) with fixture lists; and
+  [ratings and rankings](#ratings-and-rankings) built from the results of the
+  events a venue marks as rated.
 - **Not here:** booking courts ([booking](booking.md)); paying fees online
   ([payments and credit](payments-and-credit.md)); women's, men's and mixed
   events ([programmes](programmes.md#women-only-and-men-only)); open games,
@@ -552,8 +555,10 @@ The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
   accounts, or children on a guardian's, each declaring their own age and
   category).
 - Rules a template cannot express: counts of tops and zones (bouldering).
-- Seeds are set by staff, or by entry mark in a performance event; there is
-  no seeding by rating or ranking, and no ranking across tournaments.
+- Seeds are set by staff, or by entry mark in a performance event; a manager
+  can ask for seeds proposed from [ratings](#ratings-and-rankings) and confirm
+  them. A table is an event's own; what carries from one event to the next is
+  the rating, not the table.
 - A fixture is moved one at a time, not a whole round. Check-in is a mark:
   it changes nothing in the draw by itself.
 - Emails go out on entering, coming off the waiting list, the draw, a moved
@@ -689,8 +694,9 @@ only (teams play in [leagues of teams](#team-leagues), with fixed fixture dates;
 in a box league players arrange their matches and book courts themselves); the
 level is shown, not enforced; a doubles
 partner is a name, whose gender is declared, not checked; there is no
-ranking across seasons beyond the box a player carries into the next; and
-somebody added at the counter is not emailed (they have no account).
+table across seasons beyond the box a player carries into the next (a league
+a venue marks as rated feeds [ratings](#ratings-and-rankings), which do carry);
+and somebody added at the counter is not emailed (they have no account).
 
 The box arithmetic — sizes, who moves, the order for next season — is in
 `src/lib/boxes.ts`, apart from the database, and tested on its own.
@@ -978,15 +984,166 @@ named as for any entry. A league at a venue the viewer may not see is not found.
 ### What team leagues do not do
 
 - No entry fee or payments: nothing is sold or refunded.
-- One season: no promotion and relegation, no ranking across seasons, no
-  play-offs or knockout stage after the table, no seeding.
-- Games are recorded with their scores and winners; there are no per-player
-  statistics or ladders across leagues.
+- One season: no promotion and relegation, no table across seasons, no
+  play-offs or knockout stage after the table, no seeding. A league a venue
+  marks as rated feeds [ratings](#ratings-and-rankings) across events.
+- Games are recorded with their scores and winners; the only per-player
+  statistics across leagues are the [ratings](#ratings-and-rankings) a rated
+  league feeds.
 - A fixture holds one court for all its games in turn (the games' minutes added
   up), not a court per game; a manager moves a fixture's court or time one at
   a time, not a whole night.
 - Not verified: ages, categories and a guardian's agreement are what the
   member declared. The level is shown, not enforced.
+
+## Ratings and rankings
+
+A **rating** (`src/lib/ratings.ts`, `src/lib/rating-math.ts`; migration 0270;
+[ADR 0031](../architecture/decisions/0031-ratings-from-a-ledger-of-results.md))
+is built from the results of events a venue marks as rated, by one published
+rule. It carries a result from one event to the next, which a table never did.
+Nothing is learned and nothing is hidden: a player is shown, for every result,
+what the rating expected, what happened and how far it moved.
+
+### What counts
+
+- **Only events a manager marks as rated** (*Ratings and rankings* under the
+  dashboard's *Leagues* tab; `rated` on a tournament, a box league or a league
+  of teams, off by default). The choice is made before the event starts and is
+  fixed after: a tournament before its draw, a box league before its first
+  season starts, a league of teams while it is forming (`RT_STARTED`). The
+  event's page says its results count towards ratings, to anybody thinking of
+  entering. A casual open game is never rated: nothing records a result for it.
+- **Per venue, per sport and per format.** A *pool* is one venue, one sport and
+  one format: singles (a player entry), doubles (a pair), team (a persistent
+  [team](#teams), for a team entry in a tournament or the result of a team-league
+  fixture). A rating at one venue does not touch another's.
+- **Who is rated.** An account, a child a guardian manages (kept for the child
+  and their guardian only), a persistent team. A name typed into an entry is not
+  somebody the app can rate: a doubles partner is a name, so a pair counts as the
+  entrant alone; a typed team and somebody entered at the counter without an
+  account have nobody to rate, and a match with nobody to rate on a side is not
+  counted. In a league of teams each singles or doubles game counts for the
+  people the captains picked to play it, so a game with no lineup counts only
+  for the teams.
+- **Which results.** A tournament's group and knockout matches, a box league's
+  confirmed matches and walkovers, a league of teams' confirmed fixtures and
+  forfeits (the teams' result, and each singles or doubles game). Not a
+  performance event's heats, not a match not yet decided, not one a
+  tournament's own rules void (a disqualified entrant's group results, by
+  default), not a called-off tournament's, not a struck or voided result.
+
+### The rule
+
+Published constants (`DEFAULT_RATING_RULES`, kept as install data in
+`rating_rules`; no screen edits them):
+
+| | |
+| - | - |
+| Start | 1000 |
+| Chance of winning | `1 / (1 + 10^((other − own) / 400))`; a side's rating is the average of its members' |
+| Change | `K × weight × margin factor × (result − chance)`; result 1 for a win, ½ for a draw, 0 for a loss; each member moves by their own K |
+| K by results already counted | 40 for the first 10, 24 up to 30, then 16: newcomers settle faster |
+| Weight | 1 for a match played; **½ for a win by retirement** (the other side stopped part-way); **0 for a walkover**: a forfeit is not play, so it moves nothing and is not counted (the row stays in the ledger, to explain) |
+| Margin | Only where the sport's scoring is a tally of goals or points: nothing extra for a margin of one, then 10% more for each further goal, up to 40%. Never for sets |
+| Provisional | Until 8 counted results: shown as *provisional* and never ranked |
+| Level a rating earns | beginner below 950, intermediate from 950, advanced from 1100, competitive from 1250 (used by [matchmaking](matchmaking.md#earned-levels)) |
+
+Ratings are rounded to two decimals after every update, so a replay gives the
+same numbers on any machine. A walkover or a retirement is treated as the
+event's own rules treat it: the event decides whether a withdrawn or retired
+entrant's group results stand or are void, and a void one is not counted here.
+
+### The ledger is the source of truth
+
+- `rated_results` holds **one row per decided match** (a tournament match, a
+  box-league match, a team-league game, a team-league fixture), with both sides
+  (`rated_result_subjects`), the outcome, its kind (played, walkover, retired),
+  the margin where there is one, and the result row it records. Its facts are
+  never changed: a corrected result is a new row and the old one is **voided**
+  (`voided_at`, with why), so what was counted when is kept.
+- A rating is **a pure function of the ledger's live rows in a defined order**
+  (when it was played, then event, match and game: `orderKey`). Whenever a row
+  is added or voided, the whole pool is **replayed from the ledger** under the
+  pool's row lock (`recomputePool`), never updated from a previous rating, so
+  nothing drifts. A rating at any moment equals a replay from scratch, and a
+  ledger rebuilt from the results gives the same ratings (tested).
+- **Results still enter only through `recordResult` and the league functions.**
+  The ledger is a consumer: each of them calls `ratedAfter` once it has
+  committed (a result recorded, corrected, a progression issue resolved,
+  somebody taken out, a tournament called off; a box-league result confirmed,
+  decided, a season ended, a player leaving; a league-of-teams fixture
+  confirmed, decided, a team withdrawn, the league closed), and the scheduler's
+  catch-up (`ratingsCatchUp`) reads again any rated event whose results differ
+  from when it was last read. A correction, a void, a strike, a forfeit or a
+  restore therefore removes or replaces the affected rows and puts every rating
+  right. Reading is idempotent and race-safe: one live row per result (a unique
+  index), an event read one at a time, each pool recomputed under its own lock
+  in a fixed order; two deliveries, two servers or a missed call give the same
+  ledger.
+- **A manager can leave a result out** (with a reason, logged; the exclusion
+  belongs to the result and survives its correction; lifting it is logged too)
+  and **start a rating again** (with a reason, logged): the subject's earlier
+  results stay in the ledger and still count for the people who played them,
+  but their own rating and record begin again at the start.
+
+### Rankings
+
+- **A venue's ranking** per sport and format (`/venue/:id/rankings`,
+  `GET /api/venues/:id/rankings`): rating, results counted, record, recent
+  form, for one **season** (a calendar year: the rating after the year's last
+  result, the record in it) or all time. Where a venue allows it
+  (*List this venue's rankings beside the other branches of its business*), a
+  business-wide view lists each branch's pool side by side, not a merged rating.
+- **Public pages show only people who opted in** (off by default, declared
+  adults only, under the name they gave) **and teams their captain published**,
+  and only once the rating is no longer provisional. A child is never listed,
+  whatever they have done. Nobody is named because of a rating.
+- **A player sees their own** at `/ratings`: each rating by venue, sport and
+  format, whether it is provisional and what level it earns, the record, and for
+  each result what it was against (as the event showed them; a child is *a junior
+  player*), the chance the rating gave it, what happened and how far it moved
+  (K and any margin or retirement weight), and whether the venue left it out or
+  restarted the rating. An opponent's rating is shown only if they chose to show
+  it; otherwise the chance is given to the nearest ten per cent. A guardian sees a child's, and
+  a team's members its team's.
+- **Managers** see the venue's ratings, provisional ones too, the results in
+  the ledger and whether each counts, and the exclusions and restarts made.
+- **Seeding** a draw from ratings is a **proposal**: the entries with a
+  non-provisional rating, best first (a quarter of the field, two to eight),
+  confirmed by a manager against what they were shown, through the draw's own
+  seed input (`setEntry`); never over seeds staff already set, and refused once
+  drawn.
+
+### Roles, privacy, languages
+
+- Setting an event as rated, leaving a result out, starting a rating again,
+  seeding and the business board are a manager's (`MANAGER_ONLY`) and each is in
+  the activity log (`ratings.*`). Front desk sees none of it.
+- A player's export lists their ratings and each result that moved them
+  (children's in the guardian's export of the child's record); erasing an
+  account makes its place in the ledger *(removed)*, standing at the rating it
+  had then, so nobody else's rating moves, and every pool it was in is replayed
+  ([privacy](../architecture/privacy.md#ratings)). The ledger is kept as long as
+  the competition results it records are.
+- Staff text is in the staff dictionaries (English, Malay, Chinese), customer
+  text in the customer dictionaries (English, Malay, Chinese, Tamil); the other
+  languages await native review.
+
+### What ratings do not do
+
+- **Not an enforced level.** A rating band checked at entry is not built
+  (declared levels and the event's level stay as they were: shown, not enforced).
+- Ratings are per venue: there is no rating across venues, and a business-wide
+  board lists pools side by side. A player's earned level for a game at a venue
+  uses their rating at that venue.
+- A doubles partner typed into an entry, a typed team and somebody entered at
+  the counter are not rated; the people picked in a league of teams' lineups are.
+- Not a performance event's heats, and no rating from a casual open game.
+- The constants are the install's, not the venue's, and are changed in the
+  database (raising the version recomputes every pool); there is no screen.
+- Provisional ratings are not ranked, and a venue has no ranking until somebody
+  who opted in has played enough results.
 
 ## Related capabilities
 
@@ -1026,6 +1183,7 @@ named as for any entry. A league at a venue the viewer may not see is not found.
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
 | Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | Tournament day: the next match announced, a court called, the wait, the live page | `src/lib/tournament-day.ts`, `src/app/api/admin/tournaments/[id]/day/route.ts`, `src/app/api/tournaments/[id]/live/route.ts`, `src/components/admin/TournamentDay.tsx`, `src/app/tournaments/[id]/live/page.tsx`, `db/migrations/0268_tournament_day.sql` | `tests/tournament-day.test.ts` (also against Postgres), `tests/components/tournament-day.test.tsx` |
+| Ratings from results: the rule, the ledger, replay, corrections, voids, walkovers, exclusions and restarts, rankings, seeding proposal, privacy | `src/lib/rating-math.ts`, `src/lib/ratings.ts`, `db/migrations/0270_ratings_from_results.sql`, `src/app/api/admin/ratings/route.ts`, `src/app/api/my/ratings/route.ts`, `src/app/api/venues/[id]/rankings/route.ts`, `src/app/ratings/page.tsx`, `src/app/venue/[id]/rankings/page.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/rating-math.test.ts`, `tests/ratings.test.ts` (PGlite and Postgres) |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 
 Which parts are verified, and how, is in
@@ -1036,9 +1194,10 @@ Which parts are verified, and how, is in
 - Known issues (players moved by a refill not messaged, corrections that
   cannot replay) are in
   [known limitations](../roadmap/known-limitations.md#booking-and-availability-b).
-- More formats, ranking rules, ratings and an enforced level, and rankings
-  across events, are roadmap rows, not commitments
-  ([roadmap](../roadmap/roadmap.md)).
+- More formats and ranking rules are roadmap rows, not commitments
+  ([roadmap](../roadmap/roadmap.md)). Ratings and rankings across events are
+  built ([below](#ratings-and-rankings)); a level that is enforced (a rating
+  band checked at entry) is not.
 - Box-league results are checked and ranked by the same rules as a
   tournament's (`scoreRefusal`, `standings`), and recorded by their own
   functions in `src/lib/leagues.ts` (`reportResult`, `confirmResult`,
