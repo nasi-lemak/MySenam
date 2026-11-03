@@ -208,8 +208,8 @@ export type ChallengeStatus = "pending" | "accepted" | "reported" | "disputed" |
 const OPEN: ChallengeStatus[] = ["pending", "accepted", "reported", "disputed"];
 const OPEN_SQL = OPEN.map((s) => `'${s}'`).join(", ");
 
-/** A reported result stands if the other side says nothing for this long (as a league's does). */
-export const CONFIRM_DAYS = 3;
+import { CONFIRM_DAYS } from "./ladders-constants";
+export { CONFIRM_DAYS };
 
 export interface Ladder {
   id: number;

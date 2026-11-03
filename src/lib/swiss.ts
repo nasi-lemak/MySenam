@@ -3,7 +3,7 @@ import { scheduleTimed, standings, startStep, type Slot, type Standing, type Tak
 import { PERSON_OF } from "./competition-entrants";
 import { formatMinute, instantOf } from "./interval";
 import { said, type StaffText } from "./staff-text";
-import { groupResultsVoid, type CompetitionRules, type OutReason, type OutStage, type ScoringRules, type SwissTiebreak } from "./tournament-rules";
+import type { OutReason, OutStage, ScoringRules, SwissTiebreak } from "./tournament-rules";
 import {
   decide,
   minutesFor,
@@ -768,5 +768,3 @@ export async function repairFrom(tournamentId: number, round: number): Promise<{
 /** A round's matches with no court: for tests and the page, which show where a round could not be placed. */
 export const roundOf = (d: Pick<TournamentDetail, "matches">, round: number): Match[] => d.matches.filter((m) => m.stage === "group" && m.round === round);
 
-export { groupResultsVoid };
-export type { CompetitionRules };

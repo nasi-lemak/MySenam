@@ -52,7 +52,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 /**
  * `{ action: "close" | "draw" | "cancel" }`; `{ action: "rules", rules }` before the draw; `{ action: "final",
  * chosen }` — who takes the last places in a performance final where competitors are level; `{ action:
- * "save_template", name }` — keep its settings to start the next one from.
+ * "save_template", name }` — keep its settings to start the next one from. A Swiss event's rounds: `{ action: "swiss_pair" }`
+ * pairs the next round where it could not be paired by itself; `{ action: "swiss_close_round", round, resolutions: [{ matchId,
+ * winner }] }` closes the latest round, each match still to play given a walkover to `winner` or, with a null `winner`, played by
+ * nobody; `{ action: "swiss_end" }` ends it after the last round paired.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const found = await staffTournament(req, (await params).id);
@@ -67,6 +70,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const saved = await saveVenueTemplate(found.id, String(body.name ?? ""), found.admin.id);
     if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 400 });
     return NextResponse.json({ template: saved.value });
+  }
+  // A Swiss event's rounds (lib/swiss.ts): paired again where one could not be, closed with matches undecided, or ended early.
+  if (body.action === "swiss_pair" || body.action === "swiss_close_round" || body.action === "swiss_end") {
+    const swiss = await import("@/lib/swiss");
+    const resolutions = Array.isArray(body.resolutions)
+      ? (body.resolutions as Record<string, unknown>[]).map((r) => ({ matchId: Number(r.matchId), winner: r.winner === null || r.winner === undefined ? null : Number(r.winner) }))
+      : [];
+    const done =
+      body.action === "swiss_pair"
+        ? await (async () => {
+            const paired = await swiss.pairNextRound(found.id);
+            return paired.ok ? ({ ok: true as const, value: paired.paired }) : ({ ok: false as const, error: paired.error });
+          })()
+        : body.action === "swiss_close_round"
+          ? await swiss.closeRound(found.id, Number(body.round), resolutions)
+          : await swiss.endSwiss(found.id);
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: 409 });
+    const t = await tournamentDetail(found.id, { forStaff: true });
+    await logAction(found.admin, {
+      venueId: t?.venueId ?? null,
+      action: body.action === "swiss_pair" ? "tournament.swiss_paired" : body.action === "swiss_close_round" ? "tournament.swiss_round_closed" : "tournament.swiss_ended",
+      detail: `${t?.name ?? `Tournament ${found.id}`}${body.action === "swiss_close_round" ? `, round ${Number(body.round)}` : ""}`,
+    });
+    return NextResponse.json({ tournament: t });
   }
   const result =
     body.action === "final"

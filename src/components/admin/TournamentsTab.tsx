@@ -23,6 +23,7 @@ import { LoadFailed } from "./place";
 import { CounterEntry } from "./CounterEntry";
 import { TournamentDetailsEditor } from "./TournamentDetailsEditor";
 import { TournamentDay } from "./TournamentDay";
+import { SwissPanel } from "./SwissPanel";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
 import { PayMark } from "./CounterMethod";
@@ -239,6 +240,7 @@ const formatLabel = (t: StaffT, format: string): string =>
     groups: t("tn.format.groups"),
     round_robin: t("tn.format.roundRobin"),
     performance: t("tn.format.performance"),
+    swiss: t("tn.format.swiss"),
   })[format] ?? format;
 
 function Create({
@@ -291,6 +293,9 @@ function Create({
     // Match lengths by stage (blank: the length above), and a third-place match.
     stageMinutes: { group: "", knockout: "", final: "", heat: "" } as Record<"group" | "knockout" | "final" | "heat", string>,
     thirdPlace: false,
+    // A Swiss event: its rounds (blank: the default for the number entered) and what a bye is worth (blank: a win's points).
+    swissRounds: "",
+    swissByePoints: "",
   });
   const partOf = competitions.find((c) => String(c.id) === f.competitionId) ?? null;
   const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
@@ -331,6 +336,10 @@ function Create({
           matchMinutes: Number(f.matchMinutes),
           stageMinutes: Object.fromEntries(Object.entries(f.stageMinutes).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)])),
           thirdPlace: f.thirdPlace && (f.format === "knockout" || f.format === "groups"),
+          rules:
+            f.format === "swiss"
+              ? { ...f.rules, swiss: { rounds: f.swissRounds === "" ? null : Number(f.swissRounds), byePoints: f.swissByePoints === "" ? null : Number(f.swissByePoints), tiebreaks: null } }
+              : f.rules,
           courtIds: f.courtIds.length ? f.courtIds : courts.map((c) => c.id),
         });
         if (ok) setF({ ...f, name: "", description: "" });
@@ -478,6 +487,18 @@ function Create({
           {t("tn.maxEntries")}
           <input type="number" min={2} max={128} value={f.maxEntries} onChange={(e) => setF({ ...f, maxEntries: e.target.value })} className={`w-20 ${input}`} />
         </label>
+        {f.format === "swiss" && (
+          <>
+            <label className={label}>
+              {t("sw.setRounds")}
+              <input type="number" min={1} max={127} placeholder={t("sw.setRoundsDefault")} value={f.swissRounds} onChange={(e) => setF({ ...f, swissRounds: e.target.value })} className={`w-24 ${input}`} />
+            </label>
+            <label className={label}>
+              {t("sw.setByePoints")}
+              <input type="number" min={0} max={10} placeholder={t("sw.setByePointsDefault")} value={f.swissByePoints} onChange={(e) => setF({ ...f, swissByePoints: e.target.value })} className={`w-24 ${input}`} />
+            </label>
+          </>
+        )}
         {f.format === "groups" && (
           <>
             <label className={label}>
@@ -1203,6 +1224,7 @@ function Manage({
           fixing={fixing}
           names={names}
           knockout={tn.matches.find((m) => m.id === fixing.matchId)?.stage === "knockout"}
+          swiss={tn.format === "swiss"}
           onCancel={() => setFixing(null)}
           onApply={async (mode, reason) => {
             const done = await call(`${base}/matches/${fixing.matchId}`, { ...fixing.input, correction: { mode, reason, token: fixing.preview.token } });
@@ -1357,6 +1379,8 @@ function Manage({
         </section>
       )}
 
+      {tn.swiss && <SwissPanel tn={tn} names={names} base={base} call={call} />}
+
       {tn.status === "drawn" && tn.format !== "performance" && <TournamentDay tn={tn} />}
 
       {tn.matches.some((m) => m.stage === "group" || m.stage === "knockout") && (
@@ -1367,7 +1391,7 @@ function Manage({
               .filter((m) => m.status !== "bye" && (m.stage === "group" || m.stage === "knockout"))
               .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || (a.minute ?? 0) - (b.minute ?? 0) || (a.courtId ?? 0) - (b.courtId ?? 0))
               .map((m) => (
-                <MatchRow key={m.id} m={m} names={names} venue={venue} rules={tn.rules} save={(body) => result(m.id, body as ResultInput)} />
+                <MatchRow key={m.id} m={m} names={names} venue={venue} rules={tn.rules} swiss={tn.format === "swiss"} save={(body) => result(m.id, body as ResultInput)} />
               ))}
           </ul>
         </section>
@@ -1411,12 +1435,15 @@ function CorrectionPanel({
   fixing,
   names,
   knockout,
+  swiss = false,
   onCancel,
   onApply,
 }: {
   fixing: { matchId: number; input: ResultInput; preview: CorrectionPreview };
   names: Map<number, string>;
   knockout: boolean;
+  /** A Swiss result put right after a later round was paired: keep the pairings, or pair the next round again. */
+  swiss?: boolean;
   onCancel: () => void;
   onApply: (mode: "replace" | "standings_only", reason: string) => Promise<void>;
 }) {
@@ -1438,7 +1465,8 @@ function CorrectionPanel({
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <h4 className="font-semibold">{t("tn.putIntoKnockout")}</h4>
+          <h4 className="font-semibold">{swiss ? t("sw.corr.pairAgain") : t("tn.putIntoKnockout")}</h4>
+          {swiss && <p className="mt-1 text-xs text-slate-600">{t("sw.corr.pairAgainNote")}</p>}
           {preview.replace.possible ? (
             list(preview.replace.changes, preview.replace.changePhrases)
           ) : (
@@ -1449,9 +1477,9 @@ function CorrectionPanel({
           )}
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <h4 className="font-semibold">{knockout ? t("tn.recordOnlyTitle") : t("tn.groupTableOnly")}</h4>
+          <h4 className="font-semibold">{swiss ? t("sw.corr.stand") : knockout ? t("tn.recordOnlyTitle") : t("tn.groupTableOnly")}</h4>
           <p className="mt-1 text-xs text-slate-600">
-            {knockout ? t("tn.recordOnlyNote") : t("tn.groupOnlyNote")}
+            {swiss ? t("sw.corr.standNote") : knockout ? t("tn.recordOnlyNote") : t("tn.groupOnlyNote")}
           </p>
           {list(preview.standingsOnly.changes, preview.standingsOnly.changePhrases)}
         </div>
@@ -1463,20 +1491,20 @@ function CorrectionPanel({
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           disabled={!preview.replace.possible || reason.trim().length < 5}
-          onClick={() => window.confirm(t("tn.putConfirm")) && void onApply("replace", reason)}
+          onClick={() => window.confirm(swiss ? t("sw.corr.pairAgainConfirm") : t("tn.putConfirm")) && void onApply("replace", reason)}
           className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
         >
-          {t("tn.putIntoKnockout")}
+          {swiss ? t("sw.corr.pairAgain") : t("tn.putIntoKnockout")}
         </button>
         <button
           disabled={reason.trim().length < 5}
           onClick={() =>
-            window.confirm(knockout ? t("tn.recordOnlyConfirm") : t("tn.groupOnlyConfirm")) &&
+            window.confirm(swiss ? t("sw.corr.standConfirm") : knockout ? t("tn.recordOnlyConfirm") : t("tn.groupOnlyConfirm")) &&
             void onApply("standings_only", reason)
           }
           className="rounded-md border border-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-800 disabled:opacity-40"
         >
-          {knockout ? t("tn.recordOnly") : t("tn.groupTableOnly")}
+          {swiss ? t("sw.corr.stand") : knockout ? t("tn.recordOnly") : t("tn.groupTableOnly")}
         </button>
         <button onClick={onCancel} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs">
           {t("tn.leaveIt")}
@@ -1520,12 +1548,14 @@ function MatchRow({
   names,
   venue,
   rules,
+  swiss = false,
   save,
 }: {
   m: Match;
   names: Map<number, string>;
   venue: ManagedVenue;
   rules: CompetitionRules;
+  swiss?: boolean;
   save: (body: object) => Promise<boolean>;
 }) {
   const t = useStaffT();
@@ -1535,7 +1565,7 @@ function MatchRow({
   const [score, setScore] = useState(m.score ?? "");
   const known = m.a !== null && m.b !== null;
   const side = (id: number | null) => (id === null ? t("tn.tbd") : names.get(id) ?? "?");
-  const label = m.stage === "group" ? t("tn.group", { n: m.groupNo ?? "" }) : m.placement === 3 ? t("tn.thirdPlaceMatch") : t("tn.knockoutRound", { n: m.round });
+  const label = m.stage === "group" && swiss ? t("sw.round", { n: m.round }) : m.stage === "group" ? t("tn.group", { n: m.groupNo ?? "" }) : m.placement === 3 ? t("tn.thirdPlaceMatch") : t("tn.knockoutRound", { n: m.round });
   return (
     <li className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
       <span className="w-40 shrink-0 text-xs text-slate-500">

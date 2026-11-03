@@ -15,6 +15,7 @@ import { formatMinute } from "@/lib/interval";
 import type { Entry, Match, TournamentDetail } from "@/lib/tournaments";
 import type { MatchReport } from "@/lib/match-reports";
 import { MatchResultForm } from "@/components/MatchResultForm";
+import { SwissStandings } from "@/components/SwissStandings";
 import { resultSentence, scoreExample } from "@/lib/result-text";
 
 /**
@@ -84,11 +85,13 @@ export default function TournamentPage() {
         ? x.performance?.ranking.find((r) => r.rank === 1)?.entryId ?? null
         : x.format === "round_robin"
           ? x.groups[0]?.table.find((r) => !r.out)?.entryId ?? null
-          : final?.winner ?? null;
+          : x.format === "swiss"
+            ? x.swiss?.standings.find((l) => l.rank === 1)?.entryId ?? null
+            : final?.winner ?? null;
   const champion = winnerId !== null ? names.get(winnerId) : null;
   const tally = x.rules.scoring.kind === "tally";
   const byPoints = x.rules.scoring.rankBy.includes("points");
-  const formatLabel = x.format === "groups" ? t("tour.groups") : x.format === "round_robin" ? t("tour.roundRobin") : x.format === "performance" ? t("tour.performance") : t("tour.knockout");
+  const formatLabel = x.format === "groups" ? t("tour.groups") : x.format === "round_robin" ? t("tour.roundRobin") : x.format === "performance" ? t("tour.performance") : x.format === "swiss" ? t("tour.swiss") : t("tour.knockout");
   // The side of a match this account answers for: its own entry, or one it made for somebody it acts for (never both).
   const ours = new Set([...(data.mine ? [data.mine.id] : []), ...(data.managed ?? []).map((e) => e.id)]);
   const ourSide = (m: Match): number | null => {
@@ -156,6 +159,8 @@ export default function TournamentPage() {
 
       {x.performance && <Performances t={t} x={x} names={names} />}
 
+      {x.swiss && <SwissStandings t={t} x={x} names={names} />}
+
       {x.groups.length > 0 && (
         <section className="grid gap-3 sm:grid-cols-2">
           {x.groups.map((g) => (
@@ -219,6 +224,7 @@ export default function TournamentPage() {
               .map((m) => (
                 <li key={m.id} className="flex flex-wrap gap-x-3 py-1.5">
                   <span className="w-36 shrink-0 text-slate-500">
+                    {x.swiss && `${t("swiss.ui.round", { n: m.round })} · `}
                     {m.date} {formatMinute(m.minute!, t.locale)}, {m.courtName}
                   </span>
                   <span className="flex-1">

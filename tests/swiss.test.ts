@@ -8,11 +8,11 @@ vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => undefined }),
 }));
 
-import { createAdmin, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
+import { ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { registerUser, type User } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
 import { setEventRated } from "../src/lib/ratings";
-import { createBooking, listVenues } from "../src/lib/store";
+import { listVenues } from "../src/lib/store";
 import { closeRound, defaultRounds, endSwiss, metKey, pairNextRound, pairRound, swissStandings, type SwissResult } from "../src/lib/swiss";
 import { dayBoard } from "../src/lib/tournament-day";
 import { addDays, todayISO } from "../src/lib/time";

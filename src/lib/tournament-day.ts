@@ -122,7 +122,8 @@ async function context(tournamentId: number, now: Date = new Date()): Promise<Co
     state,
     entries: new Map(d.entries.map((e) => [e.id, e])),
     partnerBirth: new Map(partners.map((p) => [p.id, p.partner_birth_date])),
-    rounds: Math.max(0, ...d.matches.filter((m) => m.stage === "knockout").map((m) => m.round)),
+    // A knockout's rounds; -1 for a Swiss event, whose group-stage matches are its rounds (labelIn).
+    rounds: d.format === "swiss" ? -1 : Math.max(0, ...d.matches.filter((m) => m.stage === "knockout").map((m) => m.round)),
   };
 }
 
@@ -380,7 +381,7 @@ export async function setDaySettings(tournamentId: number, input: DaySettings): 
 
 /** "Group 2", "Final", "Semi-final" in a language, as the public page says them. */
 function labelIn(tr: ReturnType<typeof translator>, m: Pick<Match, "stage" | "groupNo" | "round" | "placement">, rounds: number): string {
-  if (m.stage === "group") return tr("tour.group", { n: m.groupNo ?? 0 });
+  if (m.stage === "group") return rounds < 0 ? tr("swiss.ui.round", { n: m.round }) : tr("tour.group", { n: m.groupNo ?? 0 });
   if (m.placement === 3) return tr("tour.thirdPlace");
   if (m.round === rounds) return tr("tour.final");
   if (m.round === rounds - 1) return tr("tour.semis");
