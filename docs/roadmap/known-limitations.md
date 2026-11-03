@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B65, M16–M31 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B66, M16–M31 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -771,6 +771,19 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Tournament day
+
+([Tournament day](../features/tournaments.md#tournament-day).) No alert reaches
+staff when a called fixture's wait ends: the board and the official's page show
+it. A division's board and rest count are its own: a call that would collide
+with another division's match is refused, but that match is not shown. Heats
+are not called. Notices name a match in English ("Semi-final 1"). An event with
+no age range cannot detect minors, so its live page shows full names unless set
+to short. **Open for the owner:** a tournament's main public page shows entry
+names in full, including declared minors; only the live page abbreviates them
+(rule 9: decide whether the main page should too, rather than have it changed
+silently).
+
 ### Archiving past claims
 
 Off unless `CLAIMS_ARCHIVE_AFTER_DAYS` is set
@@ -976,6 +989,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B63 | The front desk was shown the Tournaments and Leagues tabs' set-up forms and buttons, which the server refuses it (creating, calling off, the draw, rules, seasons, a correction's knock-on), and offered moving a fixture, a correction once the knockout had moved on and disqualifying, which the routes refuse it; now hidden, or shown read-only, the desk's own entries, check-in, payments, officials and results kept | `tests/components/desk-sees-what-it-may.test.tsx`, `tests/components/tournaments-tab.test.tsx` |
 | B64 | The set-up journey's cancellation card showed an unfilled `{late}` where the sentence about what happens after the cutoff belonged (English, Malay and Chinese) | The phrase names the value the card passes (`{keep}`); the card is checked for any `{name}` left in its text | `tests/guide-setup-ui.test.tsx` |
 | B65 | A cancellation review's time was shown as the stored UTC timestamp, a day early or late for a venue in Kuala Lumpur | Shown on the venue's own clock like other staff moments | `tests/components/guide-tab.test.tsx` |
+| B66 | Moving a tournament fixture onto a slot that straddled time just given back and time still held was refused (*not free for all of…*), because the check wanted one block spanning the whole slot | Blocks that run on into each other cover it; the check is still made under the court locks | `tests/tournament-day.test.ts` |
 
 ### Resolved limitations without a number
 
