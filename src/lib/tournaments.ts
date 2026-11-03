@@ -1089,6 +1089,12 @@ export interface EntryInput {
   guardianConsent?: boolean;
   /** An entrant with no account of their own (a participant, or at the counter): their gender as declared, where the event asks. */
   gender?: string;
+  /**
+   * A team event entered as a persistent team the captain leads (lib/teams.ts), with the roster picked from its members:
+   * checked per member by the event's rules, from what each declared. In place of `teamName`, `roster` and `rosterEligible`.
+   */
+  teamId?: number;
+  rosterMemberIds?: number[];
 }
 
 /** Enter a tournament as the account holder, for themself (`enterAs`). */
@@ -1137,13 +1143,46 @@ async function enterLocked(entrant: Entrant, tournamentId: number, input: EntryI
   const userId = entrantUserId(entrant);
   const participantId = entrantParticipantId(entrant);
   // The entrant's own membership, or a family one naming them; never a guardian's (ADR 0025).
-  if (t.membersOnly) {
+  // (A team named from the persistent teams is held to it member by member, not through its captain.)
+  if (t.membersOnly && input.teamId === undefined) {
     const notMember = await membersOnlyEntrantRefusal(t.venueId, entrant, today);
     if (notMember) return notMember;
   }
+  // A team named from the persistent teams: its captain, its sport, its members, each checked per member (lib/teams.ts).
+  let named: { teamId: number; teamName: string; members: { memberId: number; name: string; declaredMinor: boolean; guardianAgreedAt: string | null }[] } | null = null;
+  if (input.teamId !== undefined) {
+    if (t.entryKind !== "team") return refuse("TM_ENTRY_NOT_TEAM");
+    if (entrant.kind !== "self") return refuse("TM_ENTRY_SELF_ONLY");
+    const teams = await import("./teams");
+    const team = await teams.teamForEntry(entrant.userId, input.teamId, t.sport);
+    if (!team.ok) return team;
+    const picked = await teams.rosterRefusal(
+      team.value.id,
+      input.rosterMemberIds ?? [],
+      { venueId: t.venueId, name: t.name, sport: t.sport, category: t.category, ageRange: t.ageRange, startsOn: t.startsOn, membersOnly: t.membersOnly },
+      today,
+      { min: (t.roster ?? { min: 1, max: 40 }).min, max: (t.roster ?? { min: 1, max: 40 }).max }
+    );
+    if (!picked.ok) return picked;
+    if (await db.prepare("SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND status <> 'withdrawn' AND team_id = ?").get(tournamentId, team.value.id))
+      return refuse("TM_TEAM_ENTERED", { team: team.value.name });
+    // A person is on one roster of an event.
+    // The same person (an account, or a child) on another team's roster: by who they are, not the team's row for them.
+    const twice = (await db
+      .prepare(
+        `SELECT x.name FROM tournament_entry_members x
+           JOIN tournament_entries e ON e.id = x.entry_id
+           JOIN team_members m ON m.id = x.team_member_id
+           JOIN team_members p ON (m.user_id IS NOT NULL AND p.user_id = m.user_id) OR (m.participant_id IS NOT NULL AND p.participant_id = m.participant_id)
+          WHERE e.tournament_id = ? AND e.status <> 'withdrawn' AND p.id IN (${picked.value.map(() => "?").join(",") || "NULL"}) LIMIT 1`
+      )
+      .get(tournamentId, ...picked.value.map((p) => p.memberId))) as { name: string } | undefined;
+    if (twice) return refuse("TM_MEMBER_ENTERED", { name: twice.name });
+    named = { teamId: team.value.id, teamName: team.value.name, members: picked.value };
+  }
   let birthDate: string | null = null;
   let partnerBirthDate: string | null = null;
-  if (t.ageRange) {
+  if (t.ageRange && !named) {
     const mine = ageRefusal(input.birthDate, t, "Your");
     if (mine) return { ok: false, error: mine, code: "AGE_RANGE" };
     birthDate = input.birthDate!;
@@ -1159,7 +1198,8 @@ async function enterLocked(entrant: Entrant, tournamentId: number, input: EntryI
   const minor =
     (birthDate !== null && ageOn(birthDate, t.startsOn) < GUARDIAN_AGE) ||
     (partnerBirthDate !== null && ageOn(partnerBirthDate, t.startsOn) < GUARDIAN_AGE) ||
-    (t.entryKind === "team" && t.ageRange !== null && t.ageRange.max !== null && t.ageRange.max < GUARDIAN_AGE);
+    (!named && t.entryKind === "team" && t.ageRange !== null && t.ageRange.max !== null && t.ageRange.max < GUARDIAN_AGE);
+  // A named team's young players are on it through their guardians' agreement, recorded when they joined (lib/teams.ts).
   if (minor) {
     // A guardian entering somebody they manage is the one agreeing: their name unless they give another.
     guardianName = input.guardianName?.trim() || (entrant.kind === "participant" ? entrant.guardianName : "");
@@ -1182,7 +1222,7 @@ async function enterLocked(entrant: Entrant, tournamentId: number, input: EntryI
   }
   // A women's event takes women; mixed doubles, a woman and a man.
   const partnerGender = isPartnerGender(input.partnerGender) ? input.partnerGender : null;
-  const notFor = await entrantCategoryRefusal(entrant, t.category, t.teamSize === 2 ? { partnerGender } : null, input.gender);
+  const notFor = named ? null : await entrantCategoryRefusal(entrant, t.category, t.teamSize === 2 ? { partnerGender } : null, input.gender);
   if (notFor) return { ok: false, error: notFor.error, code: notFor.code, ...(notFor.vars ? { vars: notFor.vars } : {}) };
   const open = (await db
     .prepare(`SELECT (${OPEN_TO_CUSTOMERS}) AS open FROM venues v WHERE v.id = ?`)
@@ -1195,7 +1235,14 @@ async function enterLocked(entrant: Entrant, tournamentId: number, input: EntryI
   // A team: its name, and its roster of names (the one entering among them, as captain).
   let teamName = "";
   let roster: string[] | null = null;
-  if (t.entryKind === "team") {
+  if (named) {
+    teamName = named.teamName;
+    roster = named.members.map((m) => m.name);
+    const taken = (await db
+      .prepare("SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND status <> 'withdrawn' AND lower(team_name) = lower(?)")
+      .get(tournamentId, teamName)) as unknown;
+    if (taken) return { ok: false, error: "A team of that name has entered already." };
+  } else if (t.entryKind === "team") {
     teamName = input.teamName?.trim() ?? "";
     if (teamName.length < 2 || teamName.length > 60) return { ok: false, error: "Name your team." };
     const names = Array.isArray(input.roster) ? input.roster.map((n) => String(n ?? "").trim()).filter(Boolean) : [];
@@ -1254,6 +1301,16 @@ async function enterLocked(entrant: Entrant, tournamentId: number, input: EntryI
       entrant.kind === "counter" ? entrant.adminName : null,
       tournamentId
     );
+  if (named) {
+    const entryId = info.lastInsertRowid as number;
+    await db.prepare("UPDATE tournament_entries SET team_id = ? WHERE id = ?").run(named.teamId, entryId);
+    for (const m of named.members)
+      await db
+        .prepare("INSERT INTO tournament_entry_members (entry_id, team_member_id, name, declared_minor, guardian_agreed_at) VALUES (?, ?, ?, ?, ?)")
+        .run(entryId, m.memberId, m.name, m.declaredMinor, m.guardianAgreedAt);
+    // Everybody on the roster hears it (a child's guardian, naming the child): they should not learn it from the captain alone.
+    await (await import("./teams")).tellRoster(named.members.map((m) => m.memberId), t.name, t.venueId, `${baseUrl()}/tournaments/${t.id}`, "tournament");
+  }
   await recordEntered(entrant, t.venueId, "tournament.entered", t.name);
   if (userId !== null)
     await tellEntrant(

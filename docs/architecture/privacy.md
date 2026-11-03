@@ -71,7 +71,7 @@ each [suspension](../features/pricing.md#suspending-a-membership) of it with
 its dates and reasons, and memberships bought online as chosen and what
 became of each), places on
 venues' lists linked to it, games, the playing profile, people blocked, reports made and community
-groups, leagues, tournaments, receipts and credit notes, the e-invoices made
+groups, teams, leagues, tournaments, receipts and credit notes, the e-invoices made
 for its receipts with the buyer details given ([below](#e-invoice-records)), waiting-list places,
 gift vouchers used, applications to be approved for an activity (answers,
 declarations, history, the documents still held with who opened them, and
@@ -175,6 +175,8 @@ safety or dispute reason ([below](#holds)), and says so.
 | Withdrawn out-of-hours access | 365 days | deleted |
 | Withdrawn activity sign-offs | 365 days | deleted |
 | Names of who took each place on a booking | 730 days | removed, the booking kept |
+| A member who left a team or was taken off it (their place, what they declared, when) | 365 days after leaving | deleted; what they played stays in the events' records under the name it carried ([teams](#teams)) |
+| A team's invitations (keyed hashes of the link and the address) | 2 days after they run out | deleted |
 | A participant nobody acts for any more (every account's relationship ended or archived, no linked login), or one a venue added that nobody has used, once no application, sign-off or induction in force, or booking in the last 365 days or to come, rests on them | 365 days after the last relationship ended, or after the venue added them | deleted |
 | Documents sent with an application to be approved for an activity | the review window (30 days) after a refusal, withdrawal, lapse or the approval ending; at most 90 days after the decision (the install's periods: [below](#applications-to-be-approved-for-an-activity)) | deleted; what was seen stays on the sign-off it wrote |
 | What is left of a document the malware scan refused (the fact; its bytes were wiped at once) or a working scanner could not scan (its quarantined bytes) | 7 days after the scan settled (the install's quarantine period) | deleted; the application's history says a document was refused or could not be checked |
@@ -609,6 +611,42 @@ made for a participant follows the
 [application periods](#applications-to-be-approved-for-an-activity), its
 minimised form dropping the authority declaration; the participant is never
 deleted while one rests on them.
+
+### Teams
+
+A [team](../features/tournaments.md#teams) is a name, a sport, a captain and its
+members; it holds no court and no money (`teams`, `team_members`,
+`team_invitations`; migration 0269).
+
+- **What is held about a member:** that they are on the team (an account, or a
+  participant with the guardian's account that acts for them and when that
+  guardian agreed), their role and dates, and, only if they gave them, a date of
+  birth and woman or man, declared so an event's age range and category can be
+  checked: their word, never verified, shown to nobody (the roster shows only
+  whether it was given). No identity document and no contact detail but the
+  account's. A child's name (the family's name for them) is shown to the captain
+  and their own guardian only, else *a junior player*; the public sees at most
+  a published team's name and sport.
+- **Invitations** keep only keyed hashes (of the link and of the address); an
+  address is never looked up, so the answer is the same whoever holds it
+  ([no account enumeration](security.md#no-account-enumeration)).
+- **Events** a team enters keep the roster as it was, by name, in
+  `tournament_entry_members`, `team_league_roster` and `team_fixture_lineups`,
+  with for a young player that they were declared under 18 and when their
+  guardian agreed; these are the event's record and follow the event's retention.
+- **Export:** an account's places on teams (and the children it acts for) are in
+  *Download my data* (`teams`), a participant's in their record; nothing about
+  other people on the team.
+- **Erasure:** an account's erasure takes it off every team and off event rosters
+  not yet played; a captain's team goes to the longest-standing member with an
+  account of their own who is a declared adult, else it is archived and withdrawn
+  from its events; the children the account acted for come off; and its name, and
+  the name of an erased participant, on rosters and lineups kept for events becomes
+  `(removed)` (`forgetTeamsOfUser`, `forgetTeamsOfParticipant`).
+- **Retention:** a member who left or was taken off is deleted after 365 days,
+  an invitation 2 days after it ran out (`teamHousekeeping`, the scheduler).
+- **Nothing leaves the country:** no team data goes anywhere but the install's own
+  database and backups ([backups held abroad](#backups-held-abroad)).
 
 ## Where personal data is kept
 

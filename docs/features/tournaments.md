@@ -1,7 +1,8 @@
 # Tournaments and leagues
 
 Authoritative for tournaments (one event, or several divisions of a
-competition), the competition rules they are scored by, and box leagues.
+competition), the competition rules they are scored by, box leagues, and
+teams that persist across events and the leagues of teams they play in.
 Status: [feature status](../product/feature-status.md#tournaments-and-leagues).
 Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-corrections.md)
 (rules and corrections) and [ADR 0013](../architecture/decisions/0013-competition-framework.md)
@@ -12,11 +13,13 @@ Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-correcti
 - **In scope:** setting up a tournament or a competition with divisions, who
   may enter, entries and fees, the draw and schedule, results by staff,
   officials or players, corrections and progression issues, people leaving,
-  the court time held; and box leagues, season after season.
+  the court time held; box leagues, season after season; [teams](#teams) that
+  persist across events and enter tournaments and leagues by name; and
+  [leagues of teams](#team-leagues) with fixture lists.
 - **Not here:** booking courts ([booking](booking.md)); paying fees online
   ([payments and credit](payments-and-credit.md)); women's, men's and mixed
-  events ([programmes](programmes.md#women-only-and-men-only)); persistent
-  teams and matchmaking ([open games and matchmaking](matchmaking.md)).
+  events ([programmes](programmes.md#women-only-and-men-only)); open games,
+  suggestions and community groups ([open games and matchmaking](matchmaking.md)).
 - **Who does what:** a venue's managers set up, correct, disqualify and
   resolve; front-desk staff enter results, check entrants in, and enter
   players at the counter, and the dashboard shows them the rest read-only or
@@ -64,8 +67,11 @@ rules, which start from the sport's template
   whose table is the result; or a **performance event**: heats, then a final.
 - **Who enters:** singles, doubles (a partner named), or **teams**: a team
   name and a roster of names, within the template's sizes (a futsal roster is
-  5 to 14). The one entering is the captain. The public sees the team's name;
-  the roster only its staff and the captain.
+  5 to 14), or a [persistent team](#teams) the captain names, with the roster
+  picked from its members and each checked against the event's rules
+  ([entering as a team](#entering-a-tournament-as-a-team)). The one entering is
+  the captain. The public sees the team's name; the roster only its staff and
+  the captain.
 - Level, entry fee, most entries, days (up to two weeks), daily hours to the
   minute, how long each match or heat is given on court (below), and which
   courts.
@@ -542,7 +548,9 @@ The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
   events sharing courts are the divisions of a competition (above).
 - The level is shown, not enforced. Ages, a guardian's agreement and a
   team's roster are what the entrant declares; a doubles partner and a
-  roster are names, not accounts.
+  typed roster are names, not accounts (a named [team](#teams)'s members are
+  accounts, or children on a guardian's, each declaring their own age and
+  category).
 - Rules a template cannot express: counts of tops and zones (bouldering).
 - Seeds are set by staff, or by entry mark in a performance event; there is
   no seeding by rating or ranking, and no ranking across tournaments.
@@ -677,14 +685,308 @@ Venues run them from the dashboard's *Leagues* tab; players find them at
 - Staff can stop a league (`close`) or remove a player.
 
 **What leagues do not do**: they are box leagues of singles or doubles pairs
-only (no team leagues, no fixed fixture dates: players arrange their matches
-and book courts themselves); the level is shown, not enforced; a doubles
+only (teams play in [leagues of teams](#team-leagues), with fixed fixture dates;
+in a box league players arrange their matches and book courts themselves); the
+level is shown, not enforced; a doubles
 partner is a name, whose gender is declared, not checked; there is no
 ranking across seasons beyond the box a player carries into the next; and
 somebody added at the counter is not emailed (they have no account).
 
 The box arithmetic — sizes, who moves, the order for next season — is in
 `src/lib/boxes.ts`, apart from the database, and tested on its own.
+
+## Teams
+
+A **team** (`src/lib/teams.ts`, `/teams`; migration 0269) is a name your
+players share from event to event: a sport, a captain, and members who joined
+with their own accounts. It holds no court and no money. A tournament entry or
+a team league can **name a team**, and the roster for that event is picked from
+its members and checked member by member. Teams are not community groups
+([open games and matchmaking](matchmaking.md#community-groups)): a group is
+people who invite each other to games, a team is who plays for what name in an
+event. A team may carry a group's name and a venue as labels (`group_id`,
+`venue_id`); neither adds members.
+
+- **Who runs one.** A **captain**, who has to be a declared adult (a player who
+  said in their profile that they are 18 or over, the same self-declaration as
+  matchmaking: never verified). A captain runs at most five active teams, and a
+  team holds at most 40 people. The captain invites, takes members off, hands
+  the team to another member, enters events, picks lineups, publishes the team,
+  archives it.
+- **Joining is agreed on both sides.** Nobody is added. A captain invites by
+  **email** (a single-use link, valid 14 days, sent through the
+  [outbox](../integrations/messaging.md) in the captain's language; the address
+  is never looked up, so the reply and the work are the same whether or not an
+  account holds it, as for [groups](matchmaking.md#community-groups): only the
+  keyed hashes of the link and the address are kept) or by a **link** the
+  captain shares themselves (a message, WhatsApp: `Share on WhatsApp` opens a
+  message with the link, no number is looked up), shown once. Invitations count
+  toward the same thirty a day as invitations to games and groups. The invitee
+  signs in and accepts; only a declared adult, and nobody across a block, can
+  (ADR 0016): every invitation that cannot be used, for any reason, is refused in
+  the same words (`TM_INVITE_INVALID`). A captain may withdraw one not yet used.
+- **Children** never have an account here and are never invited. A child is a
+  [participant](../architecture/decisions/0023-participants-apart-from-accounts.md)
+  their guardian manages ([ADR 0022](../architecture/decisions/0022-children-managed-from-an-adults-account.md)):
+  a captain puts a child they manage themselves on the team (their own
+  agreement, as guardian), and anybody else's child is put on only by that
+  guardian accepting an invitation *for the child* (`participantId`), which
+  records the guardian's agreement (`agreed_at`) as the guardian declared it,
+  never verified. The guardian's account acts for the child on the team (leaves
+  for them, declares for them, is emailed with *This is about Aina.*). A
+  child's name is shown to the captain and their own guardian; to other members
+  and to anybody outside the team they are *a junior player*.
+- **What a member declares.** A date of birth and woman or man, only so an
+  event's age range and category can be checked; their word (a guardian's for a
+  child), never verified, shown to nobody (the roster shows only whether it was
+  given). No identity document is asked for or kept.
+- **What people see.** Members see the team and its roster (first names for
+  adults). Anybody else sees **only the name and sport, and only if the captain
+  publishes it**; a team not published is not found for anybody who is not on
+  it, and an archived team is no longer shown. An event a team is entered in
+  shows the name the captain entered it as on that event's page (the captain's
+  own act, as a typed team always did); its members are never on a public page.
+- **Leaving.** A member leaves (a guardian for a child) and the captain is
+  told. A member who leaves, or is taken off, comes off the rosters of events
+  not yet drawn and of leagues not over and out of lineups still to be played;
+  the captain is emailed if a roster is then too short. What was played stays
+  in the event's record under the name it carried. The captain does not leave:
+  they hand the team to a member with an account who has said they are an adult
+  (at once; the new captain is told), or archive it.
+- **Archiving** deletes nothing: nobody can join or be entered. It is refused
+  while the team is entered in a tournament or league still to be played
+  (`TM_ARCHIVE_ENTERED`: withdraw it first), and a captain can bring it back
+  while they have room for another.
+- **History.** A member (and the guardian of a child on it) reads what the team
+  entered and how each match went, tournaments and league fixtures, and nothing
+  about who else was in them but the opposing teams' names.
+
+### Entering a tournament as a team
+
+A team event takes either of two entries. The **typed team** is as it always
+was: the captain's team name and a roster of names, no accounts, unchanged. A
+**named team** is entered by its captain from their own account with `teamId`
+and `rosterMemberIds` (the team's members picked for this event; the entry form
+offers it to anybody who captains a team of the event's sport). It is checked
+by `enterAs` like any entry, plus, **for every person picked** (`rosterRefusal`):
+
+- the roster size the event asks, and only members of this team;
+- **age range:** the member's own declared date of birth must be given and put
+  them in the range on the first day (`TM_MEMBER_BIRTH`, `TM_MEMBER_AGE`); a
+  member who is under 18 on the first day must be a child on a guardian's
+  account (their agreement recorded when they joined; an account that says it is
+  under 18 is refused, `TM_MEMBER_MINOR_ACCOUNT`); the entry then needs no
+  guardian typed by the captain: the roster rows record that each young player
+  was declared under 18 and when their guardian agreed (`tournament_entry_members`);
+- **women's or men's:** the member's own account gender, or for a child the
+  guardian's declaration (`TM_MEMBER_GENDER`, `TM_MEMBER_WOMEN`, `TM_MEMBER_MEN`);
+- **members only:** each member's own membership, never the captain's or a
+  guardian's ([ADR 0025](../architecture/decisions/0025-benefits-and-privileges-by-scope.md));
+  and **a private or members' venue** the same as for any entry;
+- the **level is shown, not enforced**, as for every event.
+
+One person is on one roster of an event, by who they are and not by the team's
+row for them (`TM_MEMBER_ENTERED`), and a team enters once. Only a captain
+enters a team (`TM_ENTRY_CAPTAIN`), and a counter or a guardian's entry names no
+team. Everybody on the roster is emailed (a child's guardian, naming the child),
+so nobody learns from the captain alone. Withdrawing the entry, the draw,
+results and fees are the tournament's own ([tournaments](#tournaments)).
+
+### Teams and personal data
+
+The data export lists an account's places on teams (its role, status, dates,
+what it declared, and for a child it acts for whom and when it agreed), nothing
+about others on the team; a participant's own record lists theirs. Erasing an
+account takes it off every team: a captain's team goes to the longest-standing
+member with an account of their own who is a declared adult, or, with nobody to
+hand it to, is archived and withdrawn from the events it is entered in; the
+children the account acted for come off, and their names, and the account's, on
+rosters and lineups kept for events are replaced by `(removed)`. Erasing a
+participant's record does the same for them. A member who left or was taken off
+is forgotten from the team after 365 days, invitations 2 days after they run
+out (the scheduler, `teamHousekeeping`). Nothing leaves the country
+([privacy](../architecture/privacy.md#teams)).
+
+### What teams do not do
+
+- A team is a name and a roster, not an entry: no fee, no booking, no money.
+- Nobody is invited by looking up a phone number or an email: only the link or
+  address the captain types, answered the same whoever holds it. A group's
+  members are not added to a team by being in the group.
+- A minor with an account of their own cannot be on a team; a child is on one
+  through a guardian's account.
+- A member's declaration is their word: an age range and a category are checked
+  against it, not against a document, and the venue checks on the day if it
+  matters.
+- The level is not enforced. A team has one captain; there is no vice-captain
+  and no separate team-wide chat.
+
+## Team leagues
+
+A **league of teams** (`src/lib/team-leagues.ts`, `src/lib/fixtures.ts`,
+`/team-leagues`; migration 0269) is run by a venue for one season: teams enter,
+the manager sets the **match nights**, a **fixture generator** makes a single or
+double round robin on them, and each fixture is a **team match** made of
+games. It is a different league from a [box league](#box-leagues): there are no
+boxes and no season after season, and players do not arrange their own matches.
+Box leagues stay as they are.
+
+### Setting one up
+
+A manager (the front desk may not, `MANAGER_ONLY`) sets up, from *Leagues* in the
+dashboard (*Leagues of teams*): the sport, the template that scores it, the
+venue's courts it plays on, the season's first and last day, whether every team
+meets every other once or home and away, and who may enter (women's or men's,
+an age range counted on the first day, members only, level shown), the most
+teams and roster sizes, the minutes held on court for one game, and how many
+matches a court holds a night.
+
+- **A team match is made of games, from the sport's template, as data**
+  (`rubbers` on `src/lib/competition-templates.ts`; never a branch on the sport,
+  [ADR 0013](../architecture/decisions/0013-competition-framework.md)): badminton
+  singles, doubles, singles; table tennis and squash four singles and a doubles;
+  tennis and padel two singles and a doubles; a sport whose match is the whole
+  team (football, futsal, volleyball, basketball, anything else) has **one
+  match of the whole team**, scored as that template scores a match. A manager
+  may give other games (1 to 9, singles, doubles, or the one team match).
+- **Scoring** is the sport's template, with the competition rules' scoring laid
+  over it (`parseRules`): how a game is written ("21-15, 18-21, 21-10", "3-2"),
+  best of how many, whether a level tally is a draw. A match of several games
+  earns table points by the league's own table rules (3 for a win, 1 for a draw,
+  0 for a loss unless the manager sets others), ranked by points, then the
+  difference between games won and lost, then games won, then who beat whom (any
+  of the competition rules' ranking keys, in the order set); a one-match league
+  is ranked by the template's own points and keys, with the real scores
+  (goal difference and so on). Anything still level is settled by the order the
+  teams entered, and the page says so. No fee: nothing is sold.
+
+### Teams enter
+
+A captain enters a team (`enterTeam`) from the league's page with the roster
+picked from the team's members, a home court (one of the league's courts) if
+wanted and the dates the team cannot play. It is counted and written under the
+league's row lock: of captains entering for the last place at once, one is in.
+Each rostered member is held to the league's age range (by their own declared
+date of birth on the first day), category and members-only rule as in
+[a tournament entry](#entering-a-tournament-as-a-team); one person is on one
+team's roster of a league, and a captain captains one team of a league. The
+roster can be changed, and blackout dates given, until the league is over
+(blackouts given after the fixtures are made are shown to staff as clashes, for
+a manager to move). A team can withdraw; a manager can take one out.
+
+### The fixture list
+
+A manager gives the match nights (a date in the season, from today, with a start
+time; a weekday and a count fill them in) and makes the list (`generateFixtures`;
+`POST /api/admin/team-leagues/:id` `generate`). `src/lib/fixtures.ts` decides, apart
+from the database and tested on its own (`tests/fixture-plan.test.ts`):
+
+- **Who meets whom:** the circle method, every pair once (or home and away in
+  the return half), nobody twice in a round; with an odd number of teams one has a
+  bye each round, and the nights page names who is not playing.
+- **Home and away** alternate as the pairings allow: for a single round robin no
+  team is home more than once more than it is away, with the least breaks in
+  alternation a round robin can have (n − 2 over the season); a double one is
+  exactly even.
+- **Match nights:** each team plays at most once a night and never on a date it
+  gave as impossible; earlier rounds go on earlier nights (round *n* on night *n*
+  when there is room), a night holds at most as many matches as the league's
+  courts times the times a court is used; where blackouts leave some over, other
+  orders are tried deterministically before giving up. If the nights are too few
+  (`TL_NIGHTS_FEW`, with the number needed) or cannot be used given the dates
+  teams cannot play (`TL_NO_PLACEMENT`, naming a fixture), **nothing changes**.
+- **Courts:** the home team's own court where it is free then, else the first
+  free one, the night's first time first.
+
+Each fixture's court time is **held as blocks the league owns**
+(`blocks.team_league_id`, `team_fixture_id`; the same
+[claims](../architecture/booking-time-model.md) every booking path respects, so
+the database refuses a double booking): the games' minutes from the fixture's
+start, on its court. A fixture whose planned court or time is taken (a booking, a
+staff block, an outage) is tried on the night's other courts and times first; if
+nothing on the night is free the whole list is refused (`TL_NO_COURT`) and what was
+there before is as it was. A staff block or unblock over a fixture leaves the
+league's hold alone: a manager moves the fixture. The list can be made again
+until a lineup or a result is in (`TL_RESULTS_IN`); everybody on every roster is
+emailed their team's fixtures in their own language, a child's guardian naming the
+child.
+
+### Lineups
+
+For each fixture the captain of each side picks who plays each game from their
+**league roster** (`setLineup`): one player for a singles game, two different
+players for doubles, the squad for a whole-team match; nobody in more games of one
+match than the league allows (two); each player's eligibility is checked again
+(a member who left is out). Until a result is in; the people picked are emailed.
+A lineup is shown to the people on that side, to staff, and, once a result is
+reported, to the people on both sides; never publicly. A child is named in it only
+to staff, their own side's captain and their own guardian.
+
+### Results
+
+A result goes in one way: through the league's own functions
+(`reportFixture`, `confirmFixture`, `disputeFixture`, `decideFixture`), the same
+checks and rankings as a tournament's and a box league's (`scoreRefusal` and
+`standings` in `src/lib/brackets.ts`; [box leagues](#box-leagues) and
+[ADR 0013](../architecture/decisions/0013-competition-framework.md) are the
+model, and `AGENTS.md` names this module with them), never a parallel path.
+
+- **A captain reports** (from the fixture's date), each game's winner and
+  score, home side first, or a walkover; every score is checked by the sport's
+  rules and refused with the game's number (`TL_RUBBER_SCORE`). The other
+  captain is emailed and **confirms**, or **disputes** with a note, whereupon
+  the venue's staff are emailed (each in their own staff language) and decide.
+  A report nobody answers **stands after three days** (the scheduler,
+  `teamLeagueHousekeeping`), told to both. Only a captain of the fixture can
+  report; the reporting side can correct its report until the other answers.
+- **Every change to a fixture is made on its locked row and only as it was
+  seen:** it has a `version` that moves with every change by whatever path, and an
+  answer or a staff decision on a stale version is refused (`TL_CHANGED`: look
+  again).
+- **Staff decide** (the front desk may): enter the games' results (taken as
+  confirmed), give a **forfeit** (the other side is awarded every game, the
+  forfeiting team named; counted in the table as every game to the other side, at
+  the rules' walkover), **strike** it (it does not count), or **put it back to be
+  played** (its court time is held again, or refused if the court is no longer
+  free). Both captains are told what was decided. All are in the activity log.
+- **The table** counts confirmed results and forfeits; a team that withdrew keeps
+  what it played (for the others' tables too) and is listed last; every
+  unplayed fixture of a team that withdraws becomes a forfeit to the other side
+  (their court time goes back, the opposing captains are told).
+- A league is **finished** when every fixture is decided; **closing** it (a
+  manager) strikes what was still to play and gives all its court time back.
+
+### Moving a fixture
+
+Only a manager moves a fixture (the owner's decision; `PATCH
+/api/admin/team-leagues/:id/fixtures/:fixtureId`), one still to play: the new time
+is held (never over a booking) or nothing changes; it must not be in the past, on
+a date either team gave as impossible, nor with either team in another fixture
+then; the court is one of the league's. The old hold goes, both captains and the
+lineup are told, the move is logged with the old and new time, and held time
+no longer needed goes back to the waiting list. A decided fixture is corrected,
+not moved.
+
+### What people see
+
+Anybody sees the league, its teams **by name**, the fixtures (per night; per team
+with a filter), the results and the table: no player, no roster, no lineup and no
+dates a team cannot play. A member of an entered team also sees its roster and
+lineups; a captain also the dates the team gave; staff see everything, a child
+named as for any entry. A league at a venue the viewer may not see is not found.
+
+### What team leagues do not do
+
+- No entry fee or payments: nothing is sold or refunded.
+- One season: no promotion and relegation, no ranking across seasons, no
+  play-offs or knockout stage after the table, no seeding.
+- Games are recorded with their scores and winners; there are no per-player
+  statistics or ladders across leagues.
+- A fixture holds one court for all its games in turn (the games' minutes added
+  up), not a court per game; a manager moves a fixture's court or time one at
+  a time, not a whole night.
+- Not verified: ages, categories and a guardian's agreement are what the
+  member declared. The level is shown, not enforced.
 
 ## Related capabilities
 
@@ -716,6 +1018,10 @@ The box arithmetic — sizes, who moves, the order for next season — is in
 | Performance events | `src/lib/performance-math.ts` | `tests/competitions.test.ts` |
 | Results by players and officials | `src/lib/match-reports.ts` | `tests/match-reports.test.ts`, `tests/components/official-page.test.tsx` |
 | Box leagues | `src/lib/leagues.ts`, `src/lib/boxes.ts` | `tests/leagues.test.ts`, `tests/boxes.test.ts`, `tests/league-results-race.test.ts` (also against Postgres) |
+| Teams that persist: invitations, children through a guardian, what a captain and members may do, history, privacy | `src/lib/teams.ts`, `db/migrations/0269_teams_and_team_leagues.sql`, `src/app/teams`, `src/app/team-invitation` | `tests/teams.test.ts` (PGlite and Postgres), `tests/components/teams-ui.test.tsx` |
+| Entering a tournament as a team, a roster checked per member | `src/lib/teams.ts` (`rosterRefusal`), `src/lib/tournaments.ts` (`enterLocked`), `src/components/TeamEntry.tsx` | `tests/teams.test.ts`, `tests/tournaments.test.ts` (the typed team as before) |
+| Leagues of teams: setting up, entering, results, forfeits, moves, what the public sees | `src/lib/team-leagues.ts`, `src/app/team-leagues`, `src/components/admin/TeamLeaguesPanel.tsx` | `tests/team-leagues.test.ts` (PGlite and Postgres), `tests/components/teams-ui.test.tsx` |
+| The fixture generator: round robin, home and away, byes, match nights, blackouts, courts | `src/lib/fixtures.ts` | `tests/fixture-plan.test.ts` |
 | Who enters: a guardian for a participant, staff at the counter, members only by the entrant's own membership | `src/lib/competition-entrants.ts`, `src/components/admin/CounterEntry.tsx` | `tests/competition-entrants.test.ts`, `tests/components/competition-entrants.test.tsx` |
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
 | Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |

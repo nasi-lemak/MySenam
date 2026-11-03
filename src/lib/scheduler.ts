@@ -157,6 +157,9 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   try {
     // League results nobody answered, and seasons due to end or start.
     await leagueHousekeeping();
+    // Team leagues' unanswered fixture reports stand; teams' left members and old invitations are forgotten (lib/team-leagues.ts, lib/teams.ts).
+    await (await import("./team-leagues")).teamLeagueHousekeeping();
+    await (await import("./teams")).teamHousekeeping();
   } catch (err) {
     console.error("[mysenam] league housekeeping failed:", err);
     await raiseAlert("scheduler:league-housekeeping-failed", failed("srv.work.leagueHousekeeping"), err instanceof Error ? err.stack ?? err.message : String(err));

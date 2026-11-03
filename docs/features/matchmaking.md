@@ -294,8 +294,10 @@ the same time, and keeps the court bookings either way.
 
 A **group** (`src/lib/groups.ts`, `/games/groups`) is people who play
 together again and again: a doubles four, a futsal side, a Wednesday crowd.
-It holds no court and no money, and it is not a tournament entry: a team in a
-tournament is still entered as a tournament entry. What it does is let a
+It holds no court and no money, and it is not a tournament entry or a team:
+a [team](tournaments.md#teams) is who plays for a name in an event, and is joined
+the same way (both sides agreeing), but a group's members are not added to a team
+by being in the group. What a group does is let a
 member who hosts a game invite the whole group in one go, through the
 ordinary invitations, each member still saying yes or no; and being in a
 group with somebody is what lets you invite them to games.
@@ -328,10 +330,10 @@ the scheduler works through players in the order they were last looked at,
 
 ## What is not here
 
-There is no messaging between players, and no
-persistent team that enters tournaments: a tournament entry stays a
-tournament entry. Levels are self-declared; none is earned from results.
-These are proposals in the [roadmap](../roadmap/roadmap.md), not commitments.
+There is no messaging between players. Levels are self-declared; none is
+earned from results. These are proposals in the [roadmap](../roadmap/roadmap.md),
+not commitments. (A team that enters tournaments and leagues is a
+[team](tournaments.md#teams), not a group.)
 
 ## Related capabilities
 
@@ -371,5 +373,6 @@ Which parts are verified, and how, is in
   its booking, a game with players moves only as a proposal they answer or
   as the venue's change with a reason (decided 24 October 2026). How long a
   proposal holds the new time (a day at most) is fixed, not set by the venue.
-- Earned levels, messages between players, persistent teams
-  and group news are proposals in the [roadmap](../roadmap/roadmap.md).
+- Earned levels, messages between players and group news are proposals in
+  the [roadmap](../roadmap/roadmap.md). Persistent teams are built: see
+  [teams](tournaments.md#teams).

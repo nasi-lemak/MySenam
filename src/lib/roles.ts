@@ -46,6 +46,12 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/competitions(\/\d+)?$/, methods: ["POST", "DELETE"] },
   // Calling one off refunds every entry; drawing and seasons shape what people paid for.
   { path: /^\/api\/admin\/(leagues|tournaments)\/\d+$/, methods: ["POST"] },
+  // Leagues of teams (lib/team-leagues.ts): setting one up, making its fixture list, stopping it, moving a fixture and taking a team out are
+  // a manager's, as a tournament's draw and a league's seasons are; the desk enters results (POST on a fixture).
+  { path: /^\/api\/admin\/team-leagues$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/team-leagues\/\d+$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/team-leagues\/\d+\/fixtures\/\d+$/, methods: ["PATCH"] },
+  { path: /^\/api\/admin\/team-leagues\/\d+\/teams\/\d+$/, methods: ["DELETE"] },
   // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.
   { path: /^\/api\/admin\/tournaments\/\d+\/issues\/\d+$/, methods: ["POST"] },
   // Calling a fixture to its court, deciding what happens when nobody comes, the day's settings: the organiser's; the desk checks in and enters results.
@@ -213,6 +219,11 @@ export const STAFF_ACTIONS = {
   // Leagues: setting up, seasons and stopping. The desk runs players, payments and results.
   leagues: "POST /api/admin/leagues",
   leagueRun: "POST /api/admin/leagues/1",
+  // Leagues of teams: setting up, the fixture list and stopping, moving a fixture, taking a team out. The desk enters results.
+  teamLeagues: "POST /api/admin/team-leagues",
+  teamLeagueRun: "POST /api/admin/team-leagues/1",
+  teamFixtureMove: "PATCH /api/admin/team-leagues/1/fixtures/1",
+  teamLeagueRemove: "DELETE /api/admin/team-leagues/1/teams/1",
   // The venue guide's setup journey and discoveries (lib/guide); the playbook is every role's own.
   guideSetup: "POST /api/admin/guide/setup",
   // Screens the guide links to that a manager alone uses, named so a link can be held to what its reader may open.

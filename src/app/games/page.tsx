@@ -142,6 +142,9 @@ export default function GamesPage() {
           <Link href="/games/groups" className="text-teal-700 underline">
             {t("groups.title")}
           </Link>
+          <Link href="/teams" className="text-teal-700 underline">
+            {t("tm.ui.title")}
+          </Link>
           {signedIn && (
             <Link href="/games/preferences" className="text-teal-700 underline">
               {t("games.preferences")}

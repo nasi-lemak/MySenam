@@ -39,7 +39,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 /**
  * `{ action: "enter", partnerName?, partnerGender?, teamName?, roster?, entryMark? }` (a team's name and roster of
- * names; a performance event's entry time or mark); with `participantId`, somebody the account acts for is entered
+ * names, or `teamId` and `rosterMemberIds`: a persistent team its captain enters, the roster picked from its members;
+ * a performance event's entry time or mark); with `participantId`, somebody the account acts for is entered
  * (their declared `gender` where the event is women's, men's or mixed). `{ action: "withdraw", entryId? }` (before
  * the draw), or `{ action: "pay", entryId? }` — the account's own entry, or one it made for somebody it acts for.
  * Where players enter results: `{ action: "report", matchId, winner, score?, walkover? }` (`winner: null` for a draw),
@@ -98,6 +99,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       guardianName: typeof body.guardianName === "string" ? body.guardianName : undefined,
       guardianConsent: body.guardianConsent === true,
       gender: typeof body.gender === "string" ? body.gender : undefined,
+      // A team the account captains, with the roster picked from its members (lib/teams.ts).
+      teamId: Number.isInteger(body.teamId) ? (body.teamId as number) : undefined,
+      rosterMemberIds: Array.isArray(body.rosterMemberIds) ? (body.rosterMemberIds as number[]) : undefined,
     };
     const result = entrant ? await enterAs(entrant, t.id, input) : await enter(user, t.id, input);
     if (!result.ok)

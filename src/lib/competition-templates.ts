@@ -16,6 +16,8 @@ import { DEFAULT_RULES, readRules, type CompetitionRules, type PerformanceRules,
 
 export type CompetitionFormat = "knockout" | "groups" | "round_robin" | "performance";
 export type EntryKind = "player" | "pair" | "team";
+/** A game within a team match: one player a side, a pair a side, or the whole team at once (lib/team-leagues.ts). */
+export type RubberKind = "singles" | "doubles" | "team";
 
 export interface CompetitionTemplate {
   key: string;
@@ -27,6 +29,11 @@ export interface CompetitionTemplate {
   /** For teams: the roster's size, fewest and most. */
   roster: { min: number; max: number } | null;
   matchMinutes: number;
+  /**
+   * For a league of teams: the games a team match is made of, in order (badminton: singles, doubles, singles). Absent: one match of
+   * the whole team, scored as the template scores a match.
+   */
+  rubbers?: RubberKind[];
   /** What the set-up screen says about it. */
   note: string;
   rules: CompetitionRules;
@@ -46,6 +53,7 @@ export const TEMPLATES: CompetitionTemplate[] = [
     entryKinds: ["player", "pair"],
     roster: null,
     matchMinutes: 45,
+    rubbers: ["singles", "doubles", "singles"],
     note: "Scores as games, \"21-15, 18-21, 21-10\". Tables by wins, then game and point difference, then who beat whom.",
     rules: withRules(sets(3)),
   },
@@ -57,6 +65,7 @@ export const TEMPLATES: CompetitionTemplate[] = [
     entryKinds: ["player", "pair"],
     roster: null,
     matchMinutes: 40,
+    rubbers: ["singles", "singles", "doubles", "singles", "singles"],
     note: "Scores as games, \"11-7, 9-11, 11-5, 11-8\". Tables by wins, then game and point difference, then who beat whom.",
     rules: withRules(sets(5)),
   },
@@ -68,6 +77,7 @@ export const TEMPLATES: CompetitionTemplate[] = [
     entryKinds: ["player", "pair"],
     roster: null,
     matchMinutes: 90,
+    rubbers: ["singles", "singles", "doubles"],
     note: "Scores as sets of games, \"6-4, 3-6, 7-5\" (a tie-break set as 7-6). Tables by wins, then set and game difference, then who beat whom.",
     rules: withRules(sets(3)),
   },

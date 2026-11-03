@@ -358,6 +358,7 @@ export async function readVenueProfile(venueId: number, opts: { today?: string }
   p.programmes = {
     tournaments: await count("SELECT COUNT(*)::int AS n FROM tournaments WHERE venue_id = ? AND status <> 'cancelled'", venueId),
     leagues: await count("SELECT COUNT(*)::int AS n FROM leagues WHERE venue_id = ? AND status <> 'cancelled'", venueId),
+    teamLeagues: await count("SELECT COUNT(*)::int AS n FROM team_leagues WHERE venue_id = ? AND status <> 'closed'", venueId),
     openGames: await count("SELECT COUNT(*)::int AS n FROM open_games g JOIN bookings b ON b.id = g.booking_id JOIN courts c ON c.id = b.court_id WHERE c.venue_id = ?", venueId),
   };
   p.guardians = {

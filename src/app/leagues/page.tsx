@@ -31,6 +31,11 @@ export default async function LeaguesPage({ searchParams }: { searchParams: Prom
       <div>
         <h1 className="text-2xl font-bold">{t("leag.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">{t("leag.intro")}</p>
+        <p className="mt-2 text-sm">
+          <Link href="/team-leagues" className="text-teal-700 underline">
+            {t("tml.title")}
+          </Link>
+        </p>
       </div>
       {offered.length > 1 && (
         <nav className="flex flex-wrap gap-2">

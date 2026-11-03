@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/components/Language";
+import { TeamEntry } from "@/components/TeamEntry";
 import { translateError } from "@/lib/i18n";
 import type { Phrase, T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
@@ -603,6 +604,7 @@ function EnterBox({
   return (
     <>
     {held}
+    {x.entryKind === "team" && !forOther && !mine && <TeamEntry t={t} sport={x.sport} roster={x.roster} act={act} />}
     <form
       onSubmit={(e) => {
         e.preventDefault();

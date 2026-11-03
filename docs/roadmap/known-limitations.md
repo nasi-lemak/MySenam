@@ -771,6 +771,23 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Teams and team leagues
+
+([Teams](../features/tournaments.md#teams),
+[team leagues](../features/tournaments.md#team-leagues).) Accepted restrictions,
+not defects: a team league has no entry fee or payment; one season only, with
+no promotion, relegation, play-offs or seeding; a fixture holds one court for
+all its games in turn; ties beyond the ranking keys are settled by the order
+teams entered; a minor with an account of their own cannot be on a team (a
+child is on one through a guardian's account, and a guardian must be a
+declared adult); a team's level is shown, not enforced; the staff Tournaments
+screen does not list rosters; team retention and the three-day stand of an
+unanswered report run at every scheduler tick (idempotent), not once a day;
+invitations are by an address or link only, never by looking up a phone number
+or account, so nobody can be found by guessing. Team invitations and notices
+go through the outbox and were tested against the stand-in only (the Email row of
+[integrations awaiting live verification](#integrations-awaiting-live-verification-or-a-partner)).
+
 ### Tournament day
 
 ([Tournament day](../features/tournaments.md#tournament-day).) No alert reaches

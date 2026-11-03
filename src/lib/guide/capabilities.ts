@@ -176,6 +176,8 @@ const AVAILABLE: Capability[] = [
   // The next match announced, a court called when it is free, a live page (lib/tournament-day.ts).
   available("tournament-day", "programmes", { featureRow: "Tournament day: the next match announced, a court called when it is free", configure: { tab: "tournaments" }, staffAction: "tournamentDay" }),
   available("leagues", "programmes", { featureRow: "Box leagues: setup and seasons", configure: { tab: "leagues" }, staffAction: "leagues" }),
+  available("team-leagues", "programmes", { featureRow: "Leagues of teams and fixture lists", configure: { tab: "leagues" }, staffAction: "teamLeagues" }),
+  available("teams", "programmes", { featureRow: "Teams that persist across events", requires: [] }),
   available("open-games", "programmes", { featureRow: "Open games: hosting", requires: [] }),
   available("matchmaking", "programmes", { featureRow: "Suggested games (matchmaking)", requires: [] }),
   available("equipment-hire", "programmes", { featureRow: "Equipment hire and deposits", configure: courts(), staffAction: "courts", models: ["hire"] }),
