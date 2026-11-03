@@ -771,6 +771,25 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Ratings and rankings
+
+([Ratings and rankings](../features/tournaments.md#ratings-and-rankings),
+[earned levels](../features/matchmaking.md#earned-levels).) Accepted
+restrictions: ratings are per venue, sport and format, with no rating across
+venues (a business-wide board lists branches side by side); a doubles partner
+typed into an entry, a typed team and somebody entered at the counter without
+an account are not rated, and a match with nobody rateable on a side is not
+counted; team-league games count for people only when lineups were picked; an
+enforced level (a rating band checked at entry) is not built; the constants are
+changed in the database (raise `rating_rules.version` and every pool is
+recomputed), not from a screen, and their level thresholds are rough until
+there is real data; a pool is replayed in full on every change, linear in its
+ledger and not measured at marketplace size; a result entered wrongly and never
+corrected is rated as entered; casual open games are not rated, since nothing
+records a result for them; the Malay, Chinese and Tamil text is
+machine-assisted and awaits native review; run by hand on PGlite and a local
+Postgres, not in CI.
+
 ### Teams and team leagues
 
 ([Teams](../features/tournaments.md#teams),
