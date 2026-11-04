@@ -6,6 +6,8 @@ import {
   bracketSize,
   consolationDraw,
   doubleElimination,
+  feedInConsolation,
+  feedInPreview as feedInPreviewOf,
   firstRound,
   groupCount,
   intoGroups,
@@ -20,6 +22,7 @@ import {
   standings,
   startStep,
   type BracketKind,
+  type FeedInPreview,
   type PlannedMatch,
   type Standing,
   type Taken,
@@ -42,7 +45,7 @@ import { type CounterMethod, type Sport } from "./types";
 import type { Level } from "./games";
 import { isCategory, isPartnerGender, type Category } from "./who";
 import { money } from "./region";
-import { groupResultsVoid, parseRules, readRules, type CompetitionRules, type OutReason, type OutStage } from "./tournament-rules";
+import { groupResultsVoid, isFeedIn, parseRules, readRules, type CompetitionRules, type OutReason, type OutStage } from "./tournament-rules";
 import { clockValue, englishOf, joinSaid, readStaffText, said, type StaffText, type StaffValue } from "./staff-text";
 import type { SwissDetail } from "./swiss";
 
@@ -521,7 +524,7 @@ export async function tournamentDetail(id: number, opts: { forStaff?: boolean } 
   const swiss = t.format === "swiss" ? await (await import("./swiss")).swissOf(t, matches, entries, voided) : null;
   // Where everybody finished, once a knockout or a double elimination is over (ADR 0032, F).
   const finished = t.status === "finished" && (t.format === "knockout" || t.format === "double_elimination");
-  return { ...t, entries, matches, groups, corrections, issues, performance, swiss, placings: finished ? placings(matches.filter((m) => m.stage === "knockout")) : null };
+  return { ...t, entries, matches, groups, corrections, issues, performance, swiss, placings: finished ? placings(matches.filter((m) => m.stage === "knockout"), { feedIn: isFeedIn(t.rules.bracket) }) : null };
 }
 
 interface EntryRow {
@@ -754,6 +757,8 @@ export interface TournamentInput {
   membersOnly?: boolean;
   /** "players": one side reports each result and the other confirms it (lib/match-reports.ts). */
   resultsBy?: "staff" | "players";
+  /** The advanced feed-in consolation draw is saved only with this: its consequences were shown and confirmed (ADR 0034). */
+  confirmFeedIn?: boolean;
 }
 
 /** The time zone of the venue running a tournament. */
@@ -911,10 +916,52 @@ async function competitionHold(id: number): Promise<CompetitionHold | null> {
   };
 }
 
-/** Why a consolation draw is not for this format, or null (ADR 0032, S2): it is a straight knockout's. */
-function bracketRulesRefusal(format: Format, bracket: CompetitionRules["bracket"]): string | null {
+/**
+ * Why a consolation draw is not for this format, or null (ADR 0032, S2): it is a straight knockout's. A feed-in one sends the
+ * semi-finals' losers into the consolation draw itself, so it has no third-place match of the main draw's (ADR 0034, S2).
+ */
+function bracketRulesRefusal(format: Format, bracket: CompetitionRules["bracket"], thirdPlace = false): string | null {
   if (bracket.consolation && format !== "knockout") return "A consolation draw is for a straight knockout: not groups then a knockout, nor a double elimination.";
+  if (isFeedIn(bracket) && thirdPlace) return "A feed-in consolation draw takes the semi-finals' losers itself: leave out the knockout's third-place match.";
   return null;
+}
+
+/** The preview of a feed-in consolation draw for a tournament as it stands (ADR 0034, M): `entries` to ask about another number. */
+export function feedInPreview(
+  t: Pick<Tournament, "matchMinutes" | "stageMinutes" | "courtIds" | "startsOn" | "endsOn" | "startMin" | "endMin" | "maxEntries" | "entered">,
+  consolationThirdPlace: boolean,
+  entries?: number
+): FeedInPreview {
+  const days = Math.round((Date.parse(`${t.endsOn}T00:00:00Z`) - Date.parse(`${t.startsOn}T00:00:00Z`)) / 86_400_000) + 1;
+  return feedInPreviewOf(
+    { matchMinutes: t.matchMinutes, stageMinutes: t.stageMinutes, courts: t.courtIds.length, days, startMin: t.startMin, endMin: t.endMin, maxEntries: t.maxEntries, entered: t.entered },
+    consolationThirdPlace,
+    entries
+  );
+}
+
+/** Hours to one place of decimals, without a trailing zero: 6.5, 7. */
+const hoursText = (minutes: number) => String(Math.round((minutes / 60) * 10) / 10);
+
+/**
+ * The advanced feed-in format is saved only once its consequences were shown and confirmed (`confirmFeedIn`): the refusal says
+ * them (the matches it adds, the court hours, for how many entries), so an organiser or a client sees them first (ADR 0034, M).
+ */
+function feedInUnconfirmed(preview: FeedInPreview, confirmed: unknown): Result<never> | null {
+  if (confirmed === true) return null;
+  const c = preview.consequences;
+  if (!c)
+    return {
+      ok: false,
+      code: "FEED_IN_CONFIRM",
+      error: "A feed-in consolation draw is made from five entries: with fewer the draw is a plain knockout. Confirm the format to go on.",
+    };
+  return {
+    ok: false,
+    code: "FEED_IN_CONFIRM",
+    error: `A feed-in consolation draw adds ${c.consolationMatches} matches (${c.totalMatches} in all for ${preview.entries} entries) and about ${hoursText(c.consolationMinutes)} court hours. Confirm the format to go on.`,
+    vars: { entries: preview.entries, addedMatches: c.consolationMatches, totalMatches: c.totalMatches, addedMinutes: c.consolationMinutes, rounds: c.rounds, mostMatches: c.mostMatches },
+  };
 }
 
 /** Who may enter, from a form: a closing day, an age range, members only. */
@@ -972,7 +1019,7 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (input.format !== "performance" && rules.performance) return { ok: false, error: "That template is for a performance event." };
   if (input.format !== "swiss" && rules.swiss) return { ok: false, error: "Swiss settings are for a Swiss event." };
   if (input.format === "swiss") rules.swiss = rules.swiss ?? { rounds: null, byePoints: null, tiebreaks: null };
-  const bracketRefused = bracketRulesRefusal(input.format, rules.bracket);
+  const bracketRefused = bracketRulesRefusal(input.format, rules.bracket, input.thirdPlace === true);
   if (bracketRefused) return { ok: false, error: bracketRefused };
   const entryKind: EntryKind = input.entryKind ?? (input.teamSize === 2 ? "pair" : "player");
   if (!["player", "pair", "team"].includes(entryKind)) return { ok: false, error: "Players, pairs or teams." };
@@ -1007,6 +1054,26 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (!stageMinutes.ok) return stageMinutes;
   if (input.thirdPlace && input.format !== "knockout" && input.format !== "groups")
     return { ok: false, error: "A third-place match is for a knockout, or groups then a knockout." };
+  if (isFeedIn(rules.bracket)) {
+    const unconfirmed = feedInUnconfirmed(
+      feedInPreview(
+        {
+          matchMinutes: hold.matchMinutes,
+          stageMinutes: stageMinutes.value,
+          courtIds: hold.courtIds,
+          startsOn: hold.startsOn,
+          endsOn: hold.endsOn,
+          startMin: hold.startMin,
+          endMin: hold.endMin,
+          maxEntries: input.maxEntries,
+          entered: 0,
+        },
+        rules.bracket.consolationThirdPlace
+      ),
+      input.confirmFeedIn
+    );
+    if (unconfirmed) return unconfirmed;
+  }
   if (!competition) {
     const before = await holdInTheWay(hold);
     if (before) return before;
@@ -1451,7 +1518,7 @@ export async function managedEntries(userId: number, tournamentId: number): Prom
  * Its rules, changed before the draw (after it, results already depend on
  * them). Null for the defaults.
  */
-export async function setRules(tournamentId: number, input: unknown): Promise<Result> {
+export async function setRules(tournamentId: number, input: unknown, opts: { confirmFeedIn?: boolean } = {}): Promise<Result> {
   const t = await tournamentById(tournamentId);
   if (!t) return { ok: false, error: "Tournament not found." };
   if (t.status !== "open" && t.status !== "closed") return { ok: false, error: "The draw is made: its rules stand as they were." };
@@ -1459,8 +1526,13 @@ export async function setRules(tournamentId: number, input: unknown): Promise<Re
   const parsed = parseRules(input, t.rules);
   if (!parsed.ok) return parsed;
   if (t.format === "performance" ? !parsed.rules.performance : parsed.rules.performance) return { ok: false, error: "Those rules are for another kind of event." };
-  const bracketRefused = bracketRulesRefusal(t.format, parsed.rules.bracket);
+  const bracketRefused = bracketRulesRefusal(t.format, parsed.rules.bracket, t.thirdPlace);
   if (bracketRefused) return { ok: false, error: bracketRefused };
+  // Choosing the feed-in format (it was not chosen before, or its third-place match changes the count) is confirmed against its consequences.
+  if (isFeedIn(parsed.rules.bracket) && (!isFeedIn(t.rules.bracket) || parsed.rules.bracket.consolationThirdPlace !== t.rules.bracket.consolationThirdPlace)) {
+    const unconfirmed = feedInUnconfirmed(feedInPreview(t, parsed.rules.bracket.consolationThirdPlace), opts.confirmFeedIn);
+    if (unconfirmed) return unconfirmed;
+  }
   await getDb().prepare("UPDATE tournaments SET rules = ? WHERE id = ?").run(JSON.stringify(parsed.rules), tournamentId);
   return { ok: true, value: (await tournamentById(tournamentId))! };
 }
@@ -2038,8 +2110,13 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
     const pairs = firstRound(ranked);
     // A third-place match needs two semi-finals to come from.
     matches.push(...knockout(size, pairs, [], t.thirdPlace && ranked.length >= 4));
-    // A consolation draw for those who lose a first-round match that is played, where there is one to make (ADR 0032, C).
-    const consolation = t.rules.bracket.consolation ? consolationDraw(size, pairs, t.rules.bracket.consolationThirdPlace) : null;
+    // A consolation draw for those who lose a first-round match that is played, where there is one to make (ADR 0032, C); or, in the
+    // advanced feed-in format, for every loser of the main draw but its runner-up (ADR 0034).
+    const consolation = !t.rules.bracket.consolation
+      ? null
+      : isFeedIn(t.rules.bracket)
+        ? feedInConsolation(size, pairs, t.rules.bracket.consolationThirdPlace)
+        : consolationDraw(size, pairs, t.rules.bracket.consolationThirdPlace);
     if (consolation) {
       matches.push(...consolation.matches.map(newMatchOf));
       for (const [key, to] of consolation.losersTo) {

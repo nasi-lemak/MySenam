@@ -780,7 +780,8 @@ the pages and the venue API. Its limits:
 [ADR 0032](../architecture/decisions/0032-consolation-draws-and-double-elimination.md).)
 Accepted restrictions: a consolation draw is for first-round losers of a
 straight knockout (a bye holder who loses in round 2 is not in it, it is not
-offered after groups, and a feed-in that takes every loser is not built); a
+offered after groups; the optional
+[feed-in mode](../architecture/decisions/0034-feed-in-consolation-draws.md) takes every loser but the runner-up, from five entries, without the knockout's third-place match, and its places say how late somebody was put out); a
 double elimination is not offered after groups; in a double elimination two
 players who have met may meet again after losers' round 2 where the shape forces
 it (the winners' round's loser against a survivor of a part of the losers'

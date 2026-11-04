@@ -4217,6 +4217,7 @@ export const TA: Record<Phrase, string> = {
   "err.PN1_SCOPE": "ஒரு போட்டியை, அல்லது ஒரு மையத்திலுள்ள எல்லாப் பதிவுகளையும் தேர்ந்தெடுங்கள்.",
   "err.PN1_CONFIRM": "எது பொதுவில் ஆகும் என்பதை நீங்கள் புரிந்துகொள்கிறீர்கள் என்பதைக் குறிக்கப் பெட்டியில் குறியிடுங்கள்.",
   "err.PN1_NOT_FOUND": "அந்த அனுமதி கிடைக்கவில்லை.",
+  "fi1.consolationNote": "முதன்மை சுற்றில் தோற்றவர்கள் (இறுதிப் போட்டியைத் தவிர) இங்கே தொடர்ந்து ஆடுவார்கள்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

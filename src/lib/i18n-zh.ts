@@ -4214,6 +4214,7 @@ export const ZH: Record<Phrase, string> = {
   "err.PN1_SCOPE": "请选择一项赛事，或某一场馆的全部参赛。",
   "err.PN1_CONFIRM": "请勾选方框，表示您明白哪些内容会公开。",
   "err.PN1_NOT_FOUND": "找不到该授权。",
+  "fi1.consolationNote": "主签表中落败的选手（决赛除外）会在这里继续比赛。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

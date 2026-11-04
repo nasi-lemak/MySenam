@@ -231,7 +231,7 @@ export default function TournamentPage() {
         </section>
       )}
 
-      {x.matches.some((m) => m.stage === "knockout") && <Brackets t={t} matches={x.matches.filter((m) => m.stage === "knockout")} names={names} />}
+      {x.matches.some((m) => m.stage === "knockout") && <Brackets t={t} matches={x.matches.filter((m) => m.stage === "knockout")} names={names} feedIn={x.rules.bracket?.consolationMode === "feed_in"} />}
 
       {x.placings && !underReview && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -585,14 +585,14 @@ function matchTitle(t: T, m: Pick<Match, "stage" | "groupNo" | "round" | "placem
 }
 
 /** A knockout's brackets, each its own section a phone scrolls across: the knockout, or a double elimination's winners', losers' and grand final; and a consolation draw. */
-function Brackets({ t, matches, names }: { t: T; matches: Match[]; names: Map<number, string> }) {
+function Brackets({ t, matches, names, feedIn = false }: { t: T; matches: Match[]; names: Map<number, string>; feedIn?: boolean }) {
   const kinds: BracketKind[] = ["main", "winners", "losers", "grand", "consolation"];
   return (
     <>
       {kinds
         .filter((k) => matches.some((m) => m.bracket === k))
         .map((k) => (
-          <Bracket key={k} t={t} kind={k} matches={matches.filter((m) => m.bracket === k)} names={names} grandFinalDecided={matches.some((m) => m.bracket === "grand" && m.round === 1 && m.status !== "scheduled")} />
+          <Bracket key={k} t={t} kind={k} matches={matches.filter((m) => m.bracket === k)} names={names} feedIn={feedIn} grandFinalDecided={matches.some((m) => m.bracket === "grand" && m.round === 1 && m.status !== "scheduled")} />
         ))}
     </>
   );
@@ -607,13 +607,13 @@ const BRACKET_TITLES: Record<BracketKind, Phrase> = {
 };
 
 /** One bracket, a column a round. */
-function Bracket({ t, kind, matches, names, grandFinalDecided }: { t: T; kind: BracketKind; matches: Match[]; names: Map<number, string>; grandFinalDecided: boolean }) {
+function Bracket({ t, kind, matches, names, grandFinalDecided, feedIn = false }: { t: T; kind: BracketKind; matches: Match[]; names: Map<number, string>; grandFinalDecided: boolean; feedIn?: boolean }) {
   const rounds = Math.max(...matches.map((m) => m.round));
   const rounded = [...new Set(matches.map((m) => m.round))].sort((a, b) => a - b);
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="font-semibold">{t(BRACKET_TITLES[kind])}</h2>
-      {kind === "consolation" && <p className="mt-1 text-xs text-slate-500">{t("fm1.consolationNote")}</p>}
+      {kind === "consolation" && <p className="mt-1 text-xs text-slate-500">{t(feedIn ? "fi1.consolationNote" : "fm1.consolationNote")}</p>}
       <div className="mt-3 flex gap-4 overflow-x-auto pb-2">
         {rounded.map((round) => (
           <div key={round} className="flex min-w-[11rem] flex-col justify-around gap-3">

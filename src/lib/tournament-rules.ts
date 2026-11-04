@@ -134,7 +134,19 @@ export interface BracketRules {
   consolation: boolean;
   consolationThirdPlace: boolean;
   grandFinalReset: boolean;
+  /**
+   * What a consolation draw takes (ADR 0034): "first_round", the losers of the first round (what `consolation` has always meant,
+   * and what is meant where this is absent), or the advanced "feed_in", every loser of the main draw but its runner-up. Stored
+   * only for "feed_in", so what was stored before reads as it did.
+   */
+  consolationMode?: ConsolationMode;
 }
+
+export type ConsolationMode = "first_round" | "feed_in";
+export const CONSOLATION_MODES: ConsolationMode[] = ["first_round", "feed_in"];
+
+/** Is this a feed-in consolation draw (an advanced format: every loser of the main draw but its runner-up plays on)? */
+export const isFeedIn = (b: Pick<BracketRules, "consolation" | "consolationMode">) => b.consolation && b.consolationMode === "feed_in";
 
 export interface CompetitionRules {
   /** Group results already played by somebody who withdrew or retired. */
@@ -182,7 +194,12 @@ export const DEFAULT_RULES: CompetitionRules = {
 function readBracket(raw: unknown): BracketRules {
   const b = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const consolation = b.consolation === true;
-  return { consolation, consolationThirdPlace: consolation && b.consolationThirdPlace === true, grandFinalReset: b.grandFinalReset !== false };
+  return {
+    consolation,
+    consolationThirdPlace: consolation && b.consolationThirdPlace === true,
+    grandFinalReset: b.grandFinalReset !== false,
+    ...(consolation && b.consolationMode === "feed_in" ? { consolationMode: "feed_in" as const } : {}),
+  };
 }
 
 const int = (v: unknown, lo: number, hi: number, fallback: number) => (Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi ? (v as number) : fallback);
@@ -392,8 +409,14 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
     const b = r.bracket as Record<string, unknown>;
     for (const key of ["consolation", "consolationThirdPlace", "grandFinalReset"])
       if (b[key] !== undefined && typeof b[key] !== "boolean") return { ok: false, error: "Say yes or no: a consolation draw, its third-place match, the grand final's reset." };
-    bracket = readBracket({ ...base.bracket, ...b });
+    if (b.consolationMode !== undefined && !CONSOLATION_MODES.includes(b.consolationMode as ConsolationMode))
+      return { ok: false, error: "A consolation draw takes the losers of the first round (first_round) or every loser but the runner-up (feed_in)." };
+    // Choosing the first round again takes the advanced choice away (it is stored only where it is feed-in).
+    const laid: Record<string, unknown> = { ...base.bracket, ...b };
+    if (b.consolationMode === "first_round") delete laid.consolationMode;
+    bracket = readBracket(laid);
     if (b.consolationThirdPlace === true && !bracket.consolation) return { ok: false, error: "A consolation third-place match needs a consolation draw." };
+    if (b.consolationMode === "feed_in" && !bracket.consolation) return { ok: false, error: "A feed-in consolation draw needs a consolation draw." };
   }
   return {
     ok: true,

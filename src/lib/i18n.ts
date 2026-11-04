@@ -4380,6 +4380,7 @@ const EN = {
   "err.PN1_SCOPE": "Choose one event, or every entry at one venue.",
   "err.PN1_CONFIRM": "Tick the box to say that you understand what becomes public.",
   "err.PN1_NOT_FOUND": "That authorisation was not found.",
+  "fi1.consolationNote": "Players who lose in the main draw, except in the final, play on here.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -8706,6 +8707,7 @@ const MS: Record<Phrase, string> = {
   "err.PN1_SCOPE": "Pilih satu acara, atau setiap penyertaan di satu venue.",
   "err.PN1_CONFIRM": "Tandakan kotak untuk menyatakan anda faham apa yang menjadi awam.",
   "err.PN1_NOT_FOUND": "Kebenaran itu tidak ditemui.",
+  "fi1.consolationNote": "Pemain yang kalah dalam undian utama, kecuali di perlawanan akhir, terus bermain di sini.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
