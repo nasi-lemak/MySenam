@@ -26,7 +26,7 @@ import { saveProfile } from "../src/lib/player-profiles";
 import { eraseCustomer, exportCustomerData } from "../src/lib/privacy";
 import { authorise, publicNamesFor, withdrawConsent } from "../src/lib/public-name-consents";
 import { authorisedParticipants, namedForThePublic, publicName, shortName } from "../src/lib/public-names";
-import { setEventRated, venueBoard } from "../src/lib/ratings";
+import { setEventRated, setRankingPolicy, venueBoard } from "../src/lib/ratings";
 import { createCourt, listVenues } from "../src/lib/store";
 import { liveBoard } from "../src/lib/tournament-day";
 import { addDays, todayISO } from "../src/lib/time";
@@ -320,6 +320,8 @@ describe("rankings, the public API and the assistants' tools never list a child"
     const board = JSON.stringify(await venueBoard(venueId, "badminton", "singles"));
     expect(board).not.toContain(KID_SURNAME);
     expect(board).not.toContain("Aina");
+    // Public rankings are off until a manager publishes them (ADR 0035): published, so the scan below has something to scan.
+    await setRankingPolicy(venueId, { publicRankings: true }, "test");
     const res = await rankingsGet(get(`/api/venues/${venueId}/rankings?sport=badminton&format=singles`), idParams(venueId));
     expect(res.status).toBe(200);
     const route = await json(res);
