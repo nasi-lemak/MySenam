@@ -909,7 +909,7 @@ rounds and asks for corrections, and nothing else (`src/lib/official-performance
   or releases nothing, has no other action and sees no other event; the page says so and until which day.
   A cancelled event ends the link at once, a withdrawn link stays withdrawn, and a link that had run out
   before the event finished does not come back. The manager reviews a request after the finish exactly
-  as before (preview, then apply against its token, or decline); applying it is a privileged correction
+  as before, from the finished event's page on the dashboard, which then shows only the requests (preview, then apply against its token, or decline); applying it is a privileged correction
   as the dashboard's own save is (`recordPerformances`: the ranking and placings follow, the event stays
   finished, and nothing is rated, because a counted event has no two-sided result). A match official's
   link (not climbing) ends with the tournament, as before. The event keeps no finish stamp: the day it

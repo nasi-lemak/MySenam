@@ -381,6 +381,27 @@ second with its reason). Only a fixture dated today can be reported, so each
 league's first match night is today. All but *Teams 2* read the emails from the
 server's log and are skipped against a deployment; the helpers are in
 `tests/uat/teams-support.ts`.
+*Climbing A* (`tests/uat/climbing.uat.ts`; [counted performances](../features/tournaments.md#counted-performances) and
+[officials](../features/tournaments.md#officials-and-counted-results)): a manager's bouldering event (the counted template) drawn into two groups with a
+junior entered by her guardian; an official's link opened on a phone, no account, taps the judge's grid (+, Z, T, one boulder at a time), overwrites a
+line (kept on the page and in the log), and is refused another event's round, a finished round's counts, any other action and every dashboard route;
+the manager puts one of two climbers level for the final's last place into the final; the official enters the final; the public page (a phone) shows
+tops, zones, attempts and each boulder's tops, the junior as *Aina L.*; the official sends a correction request that the manager previews and applies
+against its token (the desk refused by the server), then, after the event has finished, another (refused when it would change who was in the final,
+and declined with a reason the official sees) while counts are refused (`OFC_EVENT_FINISHED`). The link's ending after seven days needs the clock moved,
+so day 8 is covered below the browser (`tests/official-climbing.test.ts`). *Ladders A* and *B* (`tests/uat/ladders.uat.ts`;
+[club ladders](../features/tournaments.md#club-ladders)): a ladder set up on the dashboard and joined on phones; a challenge accepted holds no court
+(the booking page and the availability still offer it), is booked on the ordinary page and the booking's code added, the booking cancelled and both
+players emailed; reported, confirmed, ranks moved; in every state (pending, accepted, with a booking, reported, declined) the public page and its API show
+no challenge; a freeze; a manager's move refused without a reason and kept with one (the desk refused); and a junior ladder entered by guardians shows
+short names and no contact. *Rankings A* and *Names D* (`tests/uat/rankings.uat.ts`; [ratings and rankings](../features/tournaments.md#ratings-and-rankings),
+[minors' names](../architecture/privacy.md#minors-names-on-public-pages)): a tournament and a box league marked rated before they start and played through
+the pages; the public rankings a 404 until published, then only declared adults who chose to be listed (a child, and a player who did not choose, never),
+the provisional section apart and without ranks, the venue's number (3 to 30) re-classing players without changing a rating, a player's own page with each
+result explained, a result left out and the rating replayed, the ledger downloaded, the desk shown nothing, and unpublishing; and a guardian authorising a
+child's full name for one event after the wording, the public page then showing it, and withdrawing it (a manager and another account cannot). The
+authorisation's ending with the event needs the clock moved and is covered in `tests/public-names.test.ts`. They sign people up from the server's log as
+the others do, and *Ladders A* reads the cancellation emails only where that log can be read; their shared steps (and browserless people, since closing many browser contexts is slow) are in `tests/uat/uatc-support.ts`.
 
 Last run: see the newest [release record](#release-records); 14 of 14, before
 scenario H was added, against a staging deployment

@@ -2782,7 +2782,7 @@ async function recordPerformancesOnce(matchId: number, lines: PerformanceInput[]
     // Who the heats send is not who is in it: or those level for the last place are no longer the ones the organiser chose from.
     if (final && before && before.filled && (now.open || (now.wanted && now.wanted.join() !== before.current.join()))) {
       const started = (await db.prepare("SELECT 1 FROM tournament_performances WHERE match_id = ? AND status <> 'pending'").get(final.id)) as unknown;
-      if (started) throw new PerformanceRefused("The final has results: a heat correction that changes who was in it is not made. Correct the final's results, or arrange a re-swim by hand.");
+      if (started) throw new PerformanceRefused("The final has results: a heat correction that changes who was in it is not made. Correct the final's results, or arrange a re-" + (rules.counted ? "climb" : "swim") + " by hand.");
       // A counted event's field is a judge's say-so: refilling a final somebody is waiting to start is confirmed against its preview.
       if (rules.counted && !confirmed) throw new PerformanceRefused("This correction changes who is in the final. Preview it, and confirm it.", "CONFIRM");
       await db.prepare("DELETE FROM tournament_performances WHERE match_id = ?").run(final.id);

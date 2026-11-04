@@ -671,7 +671,7 @@ describe("a correction to a counted round", () => {
     expect(now.status).toBe("finished");
     // One that would change who swam the final is refused (the final has results), with nothing changed.
     const would = [{ entryId: ids[0], counts: sent(topsAll) }];
-    expect(await recordPerformances(heatOf(0).id, would)).toMatchObject({ ok: false, error: expect.stringMatching(/The final has results/) });
+    expect(await recordPerformances(heatOf(0).id, would)).toMatchObject({ ok: false, error: expect.stringMatching(/The final has results.*arrange a re-climb by hand/) });
     expect(await previewPerformances(heatOf(0).id, would)).toMatchObject({ ok: false, error: expect.stringMatching(/The final has results/) });
     expect(rankOf(await detail(t.id), ids[0]).rank).toBe(4);
     // The final's own results are corrected freely, and re-rank the final.

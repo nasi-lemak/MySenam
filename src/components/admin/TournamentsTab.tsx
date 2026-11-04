@@ -851,6 +851,16 @@ function ResultsByPeople({ tn, onTournament }: { tn: TournamentDetail; onTournam
         ? t("tn.report.draw", { score: r.score ?? "" })
         : t("tn.report.won", { name: names.get(r.winner) ?? "", score: r.score ?? "" });
   const live = state.officials.filter((o) => !o.revokedAt);
+  // A finished event: only its officials' correction requests, to review (a link is no longer given, and nobody reports a result).
+  if (tn.status === "finished") {
+    if (state.corrections.length === 0) return null;
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+        <h3 className="font-semibold">{t("tn.resultsFromPeople")}</h3>
+        <CorrectionRequests tn={tn} requests={state.corrections} base={base} reload={load} onTournament={onTournament} />
+      </section>
+    );
+  }
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
       <h3 className="font-semibold">{t("tn.resultsFromPeople")}</h3>
@@ -1474,7 +1484,8 @@ function Manage({
         />
       )}
 
-      {(tn.format !== "performance" || tn.rules.performance?.counted) && tn.status !== "cancelled" && tn.status !== "finished" && <ResultsByPeople tn={tn} onTournament={replace} />}
+      {/* A finished climbing event still shows the correction requests its officials send in the days after (docs/features/tournaments.md#officials-and-counted-results): to review them, nothing else. */}
+      {(tn.format !== "performance" || tn.rules.performance?.counted) && tn.status !== "cancelled" && (tn.status !== "finished" || tn.rules.performance?.counted) && <ResultsByPeople tn={tn} onTournament={replace} />}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
         <h3 className="font-semibold">{t("tn.leaveRules")}</h3>
