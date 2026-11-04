@@ -376,7 +376,7 @@ export async function updateTeam(userId: number, teamId: number, input: TeamInpu
 // ------------------------------------------------------------ telling people
 
 /** An email to the account behind a member: a child's goes to the guardian, saying whose it is. */
-async function tellMember(m: MemberRow, venueId: number | null, subject: Written, body: Written, link: string): Promise<void> {
+async function tellMember(m: MemberRow, venueId: number | null, subject: Written, body: Written, link: string, decision = false): Promise<void> {
   const to = m.participant_id !== null ? m.acting_user_id : m.user_id;
   if (to === null) return;
   const forName = m.participant_id !== null ? m.participant_name : null;
@@ -386,6 +386,7 @@ async function tellMember(m: MemberRow, venueId: number | null, subject: Written
     subject,
     body: (tr) => sentences(tr, forName && tr("tm.mail.for", { name: forName }), body(tr)),
     link,
+    decision,
   });
 }
 
@@ -962,9 +963,9 @@ export async function tellRoster(memberIds: number[], event: string, venueId: nu
 }
 
 /** Tell the account behind a member something about an event, in their language (a child's guardian, naming the child). */
-export async function tellMemberById(memberId: number, venueId: number | null, subject: Written, body: Written, link: string): Promise<void> {
+export async function tellMemberById(memberId: number, venueId: number | null, subject: Written, body: Written, link: string, decision = false): Promise<void> {
   const m = await memberRow(memberId);
-  if (m) await tellMember(m, venueId, subject, body, link);
+  if (m) await tellMember(m, venueId, subject, body, link, decision);
 }
 
 // ------------------------------------------------------------ history

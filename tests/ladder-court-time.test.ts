@@ -106,7 +106,7 @@ const holds = async () => ({
   bookings: await count("SELECT COUNT(*)::int AS n FROM bookings"),
 });
 const attachments = async (challengeId: number) => (await getDb().prepare("SELECT * FROM ladder_challenge_bookings WHERE challenge_id = ? ORDER BY id").all(challengeId)) as { booking_id: number; dropped_at: string | null; dropped_reason: string | null }[];
-const mail = async (to: string) => (await getDb().prepare("SELECT subject, body FROM messages WHERE kind = 'programme' AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
+const mail = async (to: string) => (await getDb().prepare("SELECT subject, body FROM messages WHERE kind IN ('programme', 'team_decision') AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
 
 describe("no court time is held for a challenge", () => {
   it("creating, proposing a time, accepting, withdrawing, reporting, confirming and deciding write no claim, block or booking", async () => {

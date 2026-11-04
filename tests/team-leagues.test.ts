@@ -134,7 +134,7 @@ async function made(size: number, over: Partial<TeamLeagueInput> = {}, count = 8
 
 const detail = async (id: number, opts: Parameters<typeof teamLeagueDetail>[1] = { forStaff: true }) => (await teamLeagueDetail(id, opts))!;
 const mail = async (to: string) =>
-  (await getDb().prepare("SELECT subject, body FROM messages WHERE kind = 'programme' AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
+  (await getDb().prepare("SELECT subject, body FROM messages WHERE kind IN ('programme', 'team_decision') AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
 
 /** A result for each game: the home side winning every one by default. */
 const games = (count: number, winner: "home" | "away" = "home", score = "21-10, 21-12") =>

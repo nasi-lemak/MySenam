@@ -633,8 +633,10 @@ published in full only on a guardian's authorisation. One rule decides it, `src/
   for a list of people with no event). An event with no age range that a child entered by themselves, with no guardian recorded, cannot
   be told from an adult: the app does not guess ages and asks for no identity document.
 - **Public functions take the public audience; staff functions do not call the rule.** The organiser's tabs, check-in, the official's
-  page, the guardian's own pages and emails to a guardian about their own child keep the full name. Staff on a junior ladder see what
-  the ladder shows (first name and initial), as before.
+  page, the guardian's own pages and emails to a guardian about their own child keep the full name. On a junior ladder the venue's staff see
+  the names as entered (two juniors can share a first name and initial, and staff must tell them apart), and a guardian's own place card
+  shows their child's name as entered with every other player short; the public and other families see the rule's first name and initial
+  (`ladderDetail` with `forStaff`, `myPlaces`).
 
 Where the rule is applied (each with its test in `tests/public-names.test.ts` unless named):
 
@@ -644,7 +646,7 @@ Where the rule is applied (each with its test in `tests/public-names.test.ts` un
 | The live page and `GET /api/tournaments/:id/live` | The same (`liveBoard`; `tests/tournament-day.test.ts`) |
 | Notices to the other family (a draw's first match, a Swiss round, *your match is next*) | The opponent by the rule |
 | A box league's public page and `GET /api/leagues/:id`; box-mates' contact list and the season-start notice | Players by the rule; staff and the guardian's own place in full |
-| A ladder's public page and `GET /api/ladders/:id` (ranks and confirmed results only: no challenge in any state is public, [club ladders](../features/tournaments.md#club-ladders)); a player's own challenges and notices | A junior ladder's players by the rule, an adult ladder's as given; a season's final order is stored short and never with an authorised full name |
+| A ladder's public page and `GET /api/ladders/:id` (ranks and confirmed results only: no challenge in any state is public, [club ladders](../features/tournaments.md#club-ladders)); a player's own challenges and notices | A junior ladder's players by the rule, an adult ladder's as given (staff and the child's own guardian see the child's name as entered, [names of minors](../features/tournaments.md#names-of-minors-on-public-pages)); a season's final order is stored short and never with an authorised full name |
 | A league of teams (`/team-leagues`) | Team names only: no roster or lineup is public, a child is named only to staff, their own side's captain and their own guardian (`tests/team-leagues.test.ts`) |
 | Rankings (`/venue/:id/rankings`, `GET /api/venues/:id/rankings`, the `venue_rankings` tool) | No child by any route, whatever the guardian chose: only adults who opted in, and published teams |
 | `/api/v1` and the assistants' public tools | No competition data at all (a test fails if a public tool or `/api/v1` route is added that names an entrant) |

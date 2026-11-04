@@ -83,14 +83,20 @@ export type MessageKind =
    * a number their account proved: their match is next on its court, or they are called to it (lib/tournament-day.ts). Once per
    * fixture, side and call, so not held to the daily limit per recipient: a day's matches would reach it.
    */
-  | "tournament_day";
+  | "tournament_day"
+  /**
+   * By email only, to a captain, a lineup player or their guardian: what was decided in a team league (a result confirmed, a forfeit
+   * requested or decided, a lineup named; lib/team-leagues.ts). It is the venue's decision about somebody's match, and one written
+   * off for a busy day's limit is a team that never learns it, so it is not held to the daily limit per recipient.
+   */
+  | "team_decision";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
  * daily limit per recipient, which is there to keep the site from being used
  * to flood somebody else's phone. A busy venue takes more bookings than that.
  */
-const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day"];
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day", "team_decision"];
 
 export interface OutboxMessage {
   id: number;
@@ -741,7 +747,7 @@ export async function accountLocale(userId: number): Promise<Locale> {
  * An email to a player about a game, tournament, league or group, written in
  * the language their account last used (users.locale), the greeting too.
  */
-export async function emailPlayer(input: { venueId: number | null; userId: number; subject: Written; body: Written; link: string; dedupeKey?: string }): Promise<void> {
+export async function emailPlayer(input: { venueId: number | null; userId: number; subject: Written; body: Written; link: string; dedupeKey?: string; decision?: boolean }): Promise<void> {
   const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(input.userId)) as { name: string; email: string } | undefined;
   if (!user) return;
   const { siteName } = await import("./site");
@@ -750,7 +756,7 @@ export async function emailPlayer(input: { venueId: number | null; userId: numbe
   const text = `${t("mail.hi", { name: user.name.split(/\s+/)[0] })}\n\n${input.body(t)}\n\n${linkIn(input.link, locale)}\n\n${siteName()}`;
   await enqueue({
     venueId: input.venueId,
-    kind: "programme",
+    kind: input.decision ? "team_decision" : "programme",
     channel: "email",
     recipient: user.email,
     locale,

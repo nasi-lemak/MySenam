@@ -2032,7 +2032,9 @@ A walkover moves the ranks like any result but is not listed as a public result,
 not turn up.
 
 An adult ladder shows the names players gave; a junior ladder shows first name and initial, unless a guardian has
-[authorised the full name](#names-of-minors-on-public-pages) for the season. A season's final order is stored short and never
+[authorised the full name](#names-of-minors-on-public-pages) for the season. The venue's staff see a junior ladder's names as
+entered in the dashboard (two juniors can share a first name and initial), and a guardian's place card names their own child as
+entered, never anybody else's child; a notice to a player names the other player by the rule. A season's final order is stored short and never
 keeps an authorised full name. The data
 export lists the ladders a person joined; erasing an account takes the person off every ladder and replaces
 their name in its places, without moving anybody else beyond the gap closing. Ages and guardianship are

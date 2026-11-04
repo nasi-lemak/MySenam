@@ -565,7 +565,8 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
   const db = getDb();
   const seasonRows = (await db.prepare("SELECT * FROM ladder_seasons WHERE ladder_id = ? ORDER BY number DESC").all(id)) as SeasonRow[];
   const people = await playersOf(id);
-  const names = new Map([...people].map(([pid, p]) => [pid, p.shown]));
+  // The venue's staff run the ladder from the names players gave (two juniors can share a first name and initial); the public is shown by the rule.
+  const names = new Map([...people].map(([pid, p]) => [pid, opts.forStaff ? p.name : p.shown]));
   const seasons: SeasonView[] = seasonRows.map((s) => ({
     id: s.id,
     number: s.number,
@@ -595,7 +596,7 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
           : {}),
       };
     });
-  } else if (viewing?.finalRanks) rows = viewing.finalRanks.map((f) => ({ playerId: f.playerId, rank: f.rank, name: f.name, frozenUntil: null, ...(opts.forStaff ? { inChallenge: false } : {}) }));
+  } else if (viewing?.finalRanks) rows = viewing.finalRanks.map((f) => ({ playerId: f.playerId, rank: f.rank, name: (opts.forStaff ? people.get(f.playerId)?.name : undefined) ?? f.name, frozenUntil: null, ...(opts.forStaff ? { inChallenge: false } : {}) }));
   if (viewing) {
     // What the public is shown of the matches is the confirmed results and nothing else. Every challenge is staff's, and a player's own are `myPlaces`.
     const decided = (await db
@@ -953,6 +954,9 @@ async function placeOf(ladder: Ladder, playerId: number): Promise<MyPlace> {
   const season = ladder.season!;
   const people = await playersOf(ladder.id);
   const names = new Map([...people].map(([id, p]) => [id, p.shown]));
+  // Their own place, or their child's, is shown by the name it was entered under; everybody else by the rule.
+  const own = people.get(playerId);
+  if (own) names.set(playerId, own.name);
   const ranks = await ranksOf(season.id);
   const me = ranks.find((r) => r.playerId === playerId) ?? null;
   const challenges = (await db.prepare("SELECT * FROM ladder_challenges WHERE season_id = ? AND (challenger = ? OR challenged = ?) ORDER BY id DESC LIMIT 50").all(season.id, playerId, playerId)) as ChallengeRow[];

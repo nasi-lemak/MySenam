@@ -55,6 +55,10 @@ happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
 | Tournaments, leagues and open games: entering, coming off a waiting list, a tournament's new name before its draw, the draw, a season starting, a call-off, a game's changes, the day before a game a player joined | The programme's own message (kind `programme`) | email only |
 | On a tournament's day: a side's match is the next on its court (within the hour, or late), and when a manager or official calls it to its court | **Next** and **Called** (kind `tournament_day`, template `mysenam_tournament_day`, prepared and not yet submitted to Meta in [WhatsApp templates](whatsapp-templates.md#mysenam_tournament_day)), once per fixture, side and call, to the account that holds the entry and in its language, never to somebody who left ([tournament day](../features/tournaments.md#tournament-day)) | email; WhatsApp only on *everything*, to a number the account proved |
 
+What a **team league** decides (a result confirmed, a forfeit requested or decided, a lineup named; kind `team_decision`, email only, to a captain, a
+lineup player or a child's guardian) is **not held to the daily limit per recipient**, for the reason a staff alert is not: it is the venue's decision about
+a team's match, and one written off on a busy day is a team that never learns it. Every other programme email is held to it.
+
 Programme emails are queued in the outbox, inside the change's own
 transaction where it has one (a withdrawal, a result, a season starting), so
 one whose email fails is retried like any other. Each is written in the

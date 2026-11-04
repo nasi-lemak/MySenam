@@ -776,14 +776,14 @@ the pages and the venue API. Its limits:
 
 ### Browser scenarios and notices
 
-Observed by the browser scenarios of 4 November 2026, not changed. **For the owner:**
-team and league notices (a result confirmed, a forfeit decided) count towards the
-daily cap of eight programme messages per person (`MESSAGES_PER_RECIPIENT_PER_DAY`),
-so on a busy day a captain's decision email can be written off and never sent,
-which only the venue's staff can see in Messages; and on a junior ladder the
-dashboard, a guardian's own place card and the other guardian's list show short
-names, where `tournaments.md` says staff and the child's own guardian keep the full
-name (the documents disagree). Smaller: the day board's error banner after a
+Observed by the browser scenarios of 4 November 2026. Two things they showed were decided by the owner and
+changed (below): team-league notices are not held to the daily cap of eight messages per person
+(`MESSAGES_PER_RECIPIENT_PER_DAY`), and on a junior ladder the venue's staff and a child's own guardian see the
+child's name as entered while other families see first name and initial. Two more were decided to stay as they
+are: a walkover is not listed on a public ladder (it would say who declined or did not turn up; the ranks move
+as for any result), and the seven days of an official's link after a climbing event run from the last save to
+its rounds, so a correction a manager applies starts them again, with no finish timestamp, which keeps the official
+able to see an applied correction's effect and ask for another. Smaller: the day board's error banner after a
 refused action is cleared by its 15-second refresh, so it can go before it is read;
 a Swiss tournament's recorded seed is shown on no screen; the acceptance server
 has no scheduler and its outbox sends 25 messages a run, so what earlier scenarios

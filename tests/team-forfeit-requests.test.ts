@@ -102,7 +102,7 @@ async function made(size: number, over: Partial<TeamLeagueInput> = {}, count = 8
 
 const detail = async (id: number) => (await teamLeagueDetail(id, { forStaff: true }))!;
 const asViewer = async (id: number, viewerId: number) => (await teamLeagueDetail(id, { viewerId }))!;
-const mail = async (to: string) => (await getDb().prepare("SELECT subject, body FROM messages WHERE kind = 'programme' AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
+const mail = async (to: string) => (await getDb().prepare("SELECT subject, body FROM messages WHERE kind IN ('programme', 'team_decision') AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
 const staffMail = async (to: string) => ((await getDb().prepare("SELECT params AS vars FROM messages WHERE kind = 'staff_alert' AND recipient = ? ORDER BY id").all(to)) as { vars: string }[]).map((m) => m.vars);
 const games = (count: number, winner: "home" | "away" = "home", score = "21-10, 21-12") =>
   Array.from({ length: count }, () => ({ winner, score: winner === "home" ? score : score.replace(/(\d+)-(\d+)/g, "$2-$1") }));

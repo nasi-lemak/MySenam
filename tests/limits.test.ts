@@ -211,6 +211,16 @@ describe("messages to one recipient", () => {
     expect(statuses.slice(0, MESSAGES_PER_RECIPIENT_PER_DAY).every((s) => s === "queued")).toBe(true);
     expect(statuses.at(-1)).toBe("abandoned");
   });
+
+  it("do not stop what a team league decided: a captain on a busy day still hears of a forfeit or a result", async () => {
+    const recipient = "captain-busy@example.test";
+    for (let i = 0; i < MESSAGES_PER_RECIPIENT_PER_DAY; i++)
+      await enqueue({ venueId: venueA, kind: "programme", channel: "email", recipient, subject: "msg.programmeSubject", body: "msg.programmeBody", vars: { subject: `S${i}`, text: `T${i}` } });
+    const programme = await enqueue({ venueId: venueA, kind: "programme", channel: "email", recipient, subject: "msg.programmeSubject", body: "msg.programmeBody", vars: { subject: "late", text: "late" } });
+    expect(programme.status).toBe("abandoned");
+    const decided = await enqueue({ venueId: venueA, kind: "team_decision", channel: "email", recipient, subject: "msg.programmeSubject", body: "msg.programmeBody", vars: { subject: "Forfeit decided", text: "decided" } });
+    expect(decided.status).toBe("queued");
+  });
 });
 
 describe("the order venues are listed in", () => {

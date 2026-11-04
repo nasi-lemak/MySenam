@@ -932,7 +932,8 @@ export async function setLineup(userId: number, fixtureId: number, picks: unknow
       league.venueId,
       (tr) => tr("tm.mail.lineup.s", { league: league.name }),
       (tr) => tr("tm.mail.lineup.b", { league: league.name, a: names.home, b: names.away, when }),
-      `${baseUrl()}/team-leagues/${league.id}`
+      `${baseUrl()}/team-leagues/${league.id}`,
+      true
     );
   return { ok: true, value: null };
 }
@@ -1321,7 +1322,7 @@ export async function tellCaptainOf(leagueTeamId: number, subject: Written, body
   const lt = await leagueTeam(leagueTeamId);
   if (!lt?.captain_user_id) return;
   const league = (await teamLeagueById(lt.league_id))!;
-  await emailPlayer({ venueId: league.venueId, userId: lt.captain_user_id, subject, body, link: `${baseUrl()}/team-leagues/${lt.league_id}` });
+  await emailPlayer({ venueId: league.venueId, userId: lt.captain_user_id, subject, body, link: `${baseUrl()}/team-leagues/${lt.league_id}`, decision: true });
 }
 
 /** Everybody on a team's roster in a league (the captain among them; a child's guardian, naming the child). */
@@ -1330,7 +1331,7 @@ async function tellLeagueTeam(leagueTeamId: number, subject: Written, body: Writ
   if (!lt) return;
   const league = (await teamLeagueById(lt.league_id))!;
   const rows = (await getDb().prepare("SELECT team_member_id FROM team_league_roster WHERE league_team_id = ? AND team_member_id IS NOT NULL").all(leagueTeamId)) as { team_member_id: number }[];
-  for (const r of rows) await tellMemberById(r.team_member_id, league.venueId, subject, body, link);
+  for (const r of rows) await tellMemberById(r.team_member_id, league.venueId, subject, body, link, true);
 }
 
 /** The captain, and whoever is in the lineup (if one is set; else the whole roster is not troubled). */
@@ -1343,7 +1344,7 @@ async function tellLeagueTeamCaptainAndLineup(f: FixtureRow, leagueTeamId: numbe
   const captainMember = lt?.captain_user_id
     ? ((await getDb().prepare("SELECT id FROM team_members WHERE team_id = ? AND user_id = ? AND status = 'member'").get(lt.team_id ?? 0, lt.captain_user_id)) as { id: number } | undefined)
     : undefined;
-  for (const r of rows) if (r.team_member_id !== captainMember?.id) await tellMemberById(r.team_member_id, league.venueId, subject, body, `${baseUrl()}/team-leagues/${f.league_id}`);
+  for (const r of rows) if (r.team_member_id !== captainMember?.id) await tellMemberById(r.team_member_id, league.venueId, subject, body, `${baseUrl()}/team-leagues/${f.league_id}`, true);
 }
 
 // ------------------------------------------------------------ what people see

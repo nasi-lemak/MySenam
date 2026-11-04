@@ -9,7 +9,7 @@ import { addChild, apiOwner, apiStaff, canReadEmails, emailed, openTab, people, 
  * three adults join on their phones; one challenges within reach; the challenged accepts and no court is held (the venue's booking page still shows
  * it free); they book through the ordinary booking page and add the booking's code to the challenge; the booking cancelled drops from it with a notice;
  * the result is reported and confirmed and the ranks move; and through all of it the public ladder page shows the ranks and the confirmed results and
- * never a challenge in any state. A junior ladder is entered by guardians and shows short names. A freeze, and a manager's override with a reason.
+ * never a challenge in any state. A junior ladder is entered by guardians and shows other families' children short. A freeze, and a manager's override with a reason.
  */
 
 /** What a challenge says about itself on a player's page, in every state: none of it may be on the public one. */
@@ -267,7 +267,7 @@ describe("ladders", () => {
     });
   });
 
-  scenario("Ladders B: a junior ladder is entered by guardians and shows short names, and never a child's contact", async (s) => {
+  scenario("Ladders B: a junior ladder is entered by guardians and shows other families' children short, staff and their own guardian the name as entered, and never a child's contact", async (s) => {
     const owner = await apiOwner();
     const club = await site(owner, "Junior Raket Club", "badminton", 2);
     const ladderName = `Junior Ladder ${Date.now().toString(36)}`;
@@ -288,8 +288,8 @@ describe("ladders", () => {
         await page.goto(`${url}/ladders/${ladderId}`);
         await page.getByLabel("Who is joining").selectOption({ label: child });
         await page.getByRole("button", { name: "Join at the bottom" }).click();
-        // Even on her own page a child is first name and initial.
-        await page.getByText(`${child.split(" ")[0]} ${child.split(" ")[1][0]}.: you are ranked ${i + 1}`).waitFor();
+        // On her own page the guardian's child is named as entered; every other child is first name and initial.
+        await page.getByText(`${child}: you are ranked ${i + 1}`).waitFor();
         expect(await fitsScreen(page)).toBeLessThanOrEqual(0);
       });
     }
@@ -303,9 +303,10 @@ describe("ladders", () => {
       expect(JSON.stringify(api.body)).not.toMatch(/Aina Lim|Bala Raj/);
     });
 
-    await s.step(Father, "challenges the child above, whom he sees only as Aina L.; the mother sees only Bala R.", async () => {
+    await s.step(Father, "challenges the child above, whom he sees only as Aina L.; the mother sees only Bala R., and each sees their own child in full", async () => {
       const page = Father.page;
       await page.reload();
+      await page.getByText("Bala Raj: you are ranked 2").waitFor();
       const row = page.locator("li").filter({ hasText: "Aina L." }).filter({ has: page.getByRole("button", { name: "Challenge", exact: true }) });
       await row.getByRole("button", { name: "Challenge", exact: true }).click();
       await page.getByText(/You challenged Aina L\./).waitFor();
@@ -324,15 +325,15 @@ describe("ladders", () => {
       await publicLadder(visitor, ladderId);
     });
 
-    await s.step(manager, "on the dashboard the ladder lists the children as the public does, first name and initial, with each in the challenge (the ladder keeps no full name of a child)", async () => {
+    await s.step(manager, "on the dashboard the ladder lists the children by the names entered, as staff run it, with each in the challenge; the public page still shows first name and initial", async () => {
       const page = manager.page;
       await page.reload();
       await openTab(page, "Leagues", null);
       await page.locator("summary", { hasText: /^Club ladders$/ }).click();
       await page.locator("li").filter({ hasText: ladderName }).getByRole("button", { name: "Open", exact: true }).click();
-      await page.locator("tr").filter({ hasText: "Aina L." }).filter({ hasText: "in a challenge" }).waitFor();
-      await page.locator("tr").filter({ hasText: "Bala R." }).filter({ hasText: "in a challenge" }).waitFor();
-      expect(await page.locator("body").innerText()).not.toMatch(/Aina Lim|Bala Raj/);
+      await page.locator("tr").filter({ hasText: "Aina Lim" }).filter({ hasText: "in a challenge" }).waitFor();
+      await page.locator("tr").filter({ hasText: "Bala Raj" }).filter({ hasText: "in a challenge" }).waitFor();
+      expect(await publicLadder(visitor, ladderId).then((x) => x.text)).not.toMatch(/Aina Lim|Bala Raj/);
     });
   });
 });

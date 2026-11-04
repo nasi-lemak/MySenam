@@ -348,8 +348,11 @@ describe("ladders", () => {
     const text = await publicLadder(made.value.id);
     expect(text).toContain(KID_SHORT);
     expect(text).not.toContain(KID_SURNAME);
-    expect(JSON.stringify(await ladderDetail(made.value.id, { forStaff: true }))).not.toContain(KID_SURNAME);
-    expect(await myPlaces(f.guardian.id, made.value.id)).toHaveLength(1);
+    // The venue's staff run the ladder by the names given, and the child's own guardian sees their child's name; the public does not.
+    expect(JSON.stringify(await ladderDetail(made.value.id, { forStaff: true }))).toContain(KID_FULL);
+    const mine = await myPlaces(f.guardian.id, made.value.id);
+    expect(mine).toHaveLength(1);
+    expect(mine[0].name).toBe(KID_FULL);
   });
 });
 

@@ -96,7 +96,7 @@ async function joinTeam(t: Team, captain: User, who: User, input: { participantI
 
 const memberId = async (t: Team, viewer: User, name: string) => (await teamView(t.id, viewer.id))!.roster!.find((m) => m.name === name)!.id;
 const mail = async (to: string) =>
-  (await getDb().prepare("SELECT subject, body FROM messages WHERE kind = 'programme' AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
+  (await getDb().prepare("SELECT subject, body FROM messages WHERE kind IN ('programme', 'team_decision') AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
 
 async function tournament(over: Partial<TournamentInput> = {}) {
   const day = addDays(today, dayOffset++);
