@@ -1866,13 +1866,25 @@ export async function forgetRatingsOfParticipant(participantId: number): Promise
 /** The format a game of this many places is played in: two players singles, more doubles. */
 export const gameFormat = (spots: number): RatingFormat => (spots + 1 <= 2 ? "singles" : "doubles");
 
+/**
+ * How many counted results a rating needs before matching may use it: the venue's `rank_after`, but never fewer than the install's
+ * default (`rating_rules`, 8). A venue that raises its number raises it for matching too; one that lowers it ranks players sooner
+ * (rankings, a player's own page and seeding proposals use the venue's number as it is) but matching still trusts no rating on fewer
+ * results than the default. The one rule behind `earnedRatingsOf`, `gameReferenceRatings` and `poolEarned`
+ * (docs/features/matchmaking.md#earned-levels).
+ */
+export const matchingThreshold = (venueRankAfter: number | null | undefined, installDefault: number): number => Math.max(venueRankAfter ?? installDefault, installDefault);
+
 /** An account's non-provisional ratings by venue, sport and format: what the matcher may use when the player chose earned levels. */
 export async function earnedRatingsOf(userId: number): Promise<Map<string, { rating: number; games: number }>> {
   const { rules } = await ratingRulesNow();
+  // The floor in SQL; each venue's own number applied by `matchingThreshold`.
   const rows = (await getDb()
-    .prepare("SELECT rs.venue_id, rs.sport, rs.format, rs.rating, rs.games FROM rating_subjects rs LEFT JOIN venue_rating_settings vs ON vs.venue_id = rs.venue_id WHERE rs.subject_kind = 'user' AND rs.subject_id = ? AND rs.games >= COALESCE(vs.rank_after, ?)")
-    .all(userId, rules.provisionalGames)) as { venue_id: number; sport: string; format: RatingFormat; rating: string; games: number }[];
-  return new Map(rows.map((r) => [`${r.venue_id}|${r.sport}|${r.format}`, { rating: Math.round(Number(r.rating)), games: r.games }]));
+    .prepare("SELECT rs.venue_id, rs.sport, rs.format, rs.rating, rs.games, vs.rank_after FROM rating_subjects rs LEFT JOIN venue_rating_settings vs ON vs.venue_id = rs.venue_id WHERE rs.subject_kind = 'user' AND rs.subject_id = ? AND rs.games >= ?")
+    .all(userId, rules.provisionalGames)) as { venue_id: number; sport: string; format: RatingFormat; rating: string; games: number; rank_after: number | null }[];
+  return new Map(
+    rows.filter((r) => r.games >= matchingThreshold(r.rank_after, rules.provisionalGames)).map((r) => [`${r.venue_id}|${r.sport}|${r.format}`, { rating: Math.round(Number(r.rating)), games: r.games }])
+  );
 }
 
 export const ratingKey = (venueId: number, sport: string, format: RatingFormat) => `${venueId}|${sport}|${format}`;
@@ -1891,17 +1903,17 @@ export async function gameReferenceRatings(games: { id: number; venueId: number;
     if (these.length === 0) continue;
     const rows = (await db
       .prepare(
-        `SELECT g.id AS game_id, rs.rating FROM open_games g JOIN bookings b ON b.id = g.booking_id JOIN courts c ON c.id = b.court_id
+        `SELECT g.id AS game_id, rs.rating, rs.games, vs.rank_after FROM open_games g JOIN bookings b ON b.id = g.booking_id JOIN courts c ON c.id = b.court_id
            JOIN rating_subjects rs ON rs.venue_id = c.venue_id AND rs.sport = b.sport AND rs.format = ? AND rs.subject_kind = 'user'
            LEFT JOIN venue_rating_settings vs ON vs.venue_id = rs.venue_id
            JOIN player_profiles pp ON pp.user_id = rs.subject_id AND pp.rating_shared = 1 AND pp.adult = 1
           WHERE g.id IN (${these.map(() => "?").join(",")})
-            AND rs.games >= COALESCE(vs.rank_after, ?)
+            AND rs.games >= ?
             AND (rs.subject_id = g.host_id OR EXISTS (SELECT 1 FROM open_game_players p WHERE p.game_id = g.id AND p.user_id = rs.subject_id AND p.status = 'accepted'))`
       )
-      .all(format, ...these.map((g) => g.id), rules.provisionalGames)) as { game_id: number; rating: string }[];
+      .all(format, ...these.map((g) => g.id), rules.provisionalGames)) as { game_id: number; rating: string; games: number; rank_after: number | null }[];
     const sums = new Map<number, number[]>();
-    for (const r of rows) sums.set(r.game_id, [...(sums.get(r.game_id) ?? []), Number(r.rating)]);
+    for (const r of rows.filter((x) => x.games >= matchingThreshold(x.rank_after, rules.provisionalGames))) sums.set(r.game_id, [...(sums.get(r.game_id) ?? []), Number(r.rating)]);
     for (const [gameId, list] of sums) out.set(gameId, { rating: Math.round(list.reduce((a, b) => a + b, 0) / list.length), n: list.length });
   }
   return out;
@@ -1909,10 +1921,11 @@ export async function gameReferenceRatings(games: { id: number; venueId: number;
 
 /** Everybody's non-provisional rating in one pool, by account: what a host's suggested players are held against. */
 export async function poolEarned(venueId: number, sport: string, format: RatingFormat): Promise<Map<number, number>> {
-  // Provisional is the venue's own number of counted results (its ranking policy).
-  const rules = await rulesForVenue(venueId);
+  // The venue's number of counted results (its ranking policy), never below the install's default (`matchingThreshold`).
+  const { rules } = await ratingRulesNow();
+  const own = (await getDb().prepare("SELECT rank_after FROM venue_rating_settings WHERE venue_id = ?").get(venueId)) as { rank_after: number | null } | undefined;
   const rows = (await getDb()
     .prepare("SELECT subject_id, rating FROM rating_subjects WHERE venue_id = ? AND sport = ? AND format = ? AND subject_kind = 'user' AND games >= ?")
-    .all(venueId, sport, format, rules.provisionalGames)) as { subject_id: number; rating: string }[];
+    .all(venueId, sport, format, matchingThreshold(own?.rank_after, rules.provisionalGames))) as { subject_id: number; rating: string }[];
   return new Map(rows.map((r) => [r.subject_id, Math.round(Number(r.rating))]));
 }

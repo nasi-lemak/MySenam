@@ -270,8 +270,15 @@ player chooses (`src/lib/matchmaking.ts`, `src/lib/ratings.ts`):
 - **The player chooses which level the matcher uses** under *Preferences*:
   **the one they declared (the default: nothing changes for anybody who has not
   chosen)**, the one their results earn, or either (whichever suits the game
-  better). An earned rating is used only when it is **not provisional** (the venue's
-  number of counted results, 8 unless its manager chose another: [policy](tournaments.md#a-venues-ranking-policy)) and is the rating **at the venue of the game, in the game's
+  better). An earned rating is used only when it is **not provisional for matching**:
+  built on at least the venue's number of counted results
+  ([policy](tournaments.md#a-venues-ranking-policy)) **and never on fewer than the
+  install's default, 8**. The number matching uses is `max(venue's rank_after, 8)`
+  (`matchingThreshold` in `src/lib/ratings.ts`, the one helper behind
+  `earnedRatingsOf`, `gameReferenceRatings` and `poolEarned`): a venue that raises its
+  number above 8 raises it for matching too; a venue that lowers it (down to 3) ranks
+  players sooner, but matching still needs 8 results and uses the declared level until
+  then. It is the rating **at the venue of the game, in the game's
   format** (two players singles, more doubles; pools are per venue). Where there
   is none, the declared level is used whatever they chose.
 - **What a rating earns** is a level by published thresholds (beginner below 950,
@@ -401,7 +408,7 @@ rating is never enforced as a level on a game. Messaging is a proposal in the
 | Moving a game to another time | `src/lib/game-moves.ts`, `src/app/games/MoveGame.tsx`, `src/components/ChangeTime.tsx` | `tests/game-moves.test.ts` |
 | Suggested games and players | `src/lib/matchmaking.ts`, `src/app/games/Suggested.tsx` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
 | Playing profiles | `src/lib/player-profiles.ts` | `tests/matchmaking.test.ts` |
-| Earned levels: which level matching uses, similar ratings, what a host sees, who may share one | `src/lib/matchmaking.ts` (`levelFor`, `earnedLevelReason`), `src/lib/ratings.ts` (`earnedRatingsOf`, `gameReferenceRatings`, `poolEarned`), `src/lib/player-profiles.ts`, `src/app/games/preferences/page.tsx` | `tests/rating-matchmaking.test.ts`, `tests/ratings.test.ts` |
+| Earned levels: which level matching uses, similar ratings, what a host sees, who may share one | `src/lib/matchmaking.ts` (`levelFor`, `earnedLevelReason`), `src/lib/ratings.ts` (`matchingThreshold`, `earnedRatingsOf`, `gameReferenceRatings`, `poolEarned`), `src/lib/player-profiles.ts`, `src/app/games/preferences/page.tsx` | `tests/rating-matchmaking.test.ts`, `tests/ratings.test.ts` |
 | Blocking and reporting | `src/lib/player-safety.ts` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
 | Weekly games, groups, suggestion emails | `src/lib/game-series.ts`, `src/lib/groups.ts` | `tests/community.test.ts` |
 | Invitations by email to a game or a group | `src/lib/player-invitations.ts`, `src/app/player-invitation/page.tsx` | `tests/player-invitations.test.ts`, `tests/components/games-screens.test.tsx` |

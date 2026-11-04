@@ -7,6 +7,7 @@ import { getDb } from "../src/lib/db";
 import { askToJoin, openGame, setPlayerLevel } from "../src/lib/games";
 import { recommendGames, recommendPlayers, WEIGHTS } from "../src/lib/matchmaking";
 import { saveProfile } from "../src/lib/player-profiles";
+import { currentStanding, earnedRatingsOf, gameReferenceRatings, matchingThreshold, poolEarned, rankingPolicy, setRankingPolicy } from "../src/lib/ratings";
 import { createBooking, createVenue, listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import type { Sport } from "../src/lib/types";
@@ -213,5 +214,77 @@ describe("players suggested to a host", () => {
     const teen = await adult("beginner");
     expect(await saveProfile(teen.id, { adult: false })).toMatchObject({ ok: true });
     expect(await saveProfile(teen.id, { ratingShared: true })).toMatchObject({ ok: false, code: "RT_ADULTS_ONLY" });
+  });
+});
+
+describe("matching never trusts a rating on fewer results than the install's default", () => {
+  /** What matching says about a player rated on `games` results in a venue whose number is `rankAfter`: earned, or still provisional. */
+  async function matched(rankAfter: number | null, games: number) {
+    const set = await setRankingPolicy(venueId, { rankAfter }, "Mira Manager");
+    if (!set.ok) throw new Error(set.error);
+    const me = await adult("beginner", { levelBasis: "earned", ratingShared: true });
+    await rate(me.id, 1300, { games });
+    const host = await adult("intermediate");
+    const beginners = await game(host, { level: "beginner" });
+    const pros = await game(host, { level: "competitive" });
+    const ids = (await recommendGames(me.id, { limit: 50 })).games.map((g) => g.id);
+    const mine = await game(me, { level: "advanced" });
+    return {
+      me,
+      // Earned: the game suited to the rating is suggested and the declared one is not; provisional: the declared level is used.
+      earned: ids.includes(pros.id) && !ids.includes(beginners.id),
+      declared: ids.includes(beginners.id) && !ids.includes(pros.id),
+      inEarnedRatings: earnedRatingsOf(me.id).then((m) => m.has(`${venueId}|${sport}|doubles`)),
+      inPool: poolEarned(venueId, sport, "doubles").then((m) => m.has(me.id)),
+      inGameRef: gameReferenceRatings([{ id: mine.id, venueId, sport, spots: 2, hostId: me.id }]).then((m) => m.has(mine.id)),
+    };
+  }
+
+  it("is the venue's number, never below the default: a venue at 3 still treats a 5-result player as provisional, and the declared level is used", async () => {
+    try {
+      const r = await matched(3, 5);
+      expect(r.declared).toBe(true);
+      expect(await r.inEarnedRatings).toBe(false);
+      expect(await r.inPool).toBe(false);
+      expect(await r.inGameRef).toBe(false);
+      // Rankings, the player's own page and seeding use the venue's number as it is: ranked on three.
+      expect((await rankingPolicy(venueId)).rankAfter).toBe(3);
+      expect(await currentStanding(venueId, sport, "doubles", "user", r.me.id)).toMatchObject({ games: 5, provisional: false });
+      // Even three results at that venue are not enough, and the default number of them are.
+      const eight = await matched(3, 8);
+      expect(eight.earned).toBe(true);
+      expect(await eight.inEarnedRatings).toBe(true);
+      expect(await eight.inPool).toBe(true);
+      expect(await eight.inGameRef).toBe(true);
+    } finally {
+      await setRankingPolicy(venueId, { rankAfter: null }, "Mira Manager");
+    }
+  });
+
+  it("is the venue's number where it is higher: a venue at 12 treats a 10-result player as provisional for matching, and trusts 12", async () => {
+    try {
+      const ten = await matched(12, 10);
+      expect(ten.declared).toBe(true);
+      expect(await ten.inEarnedRatings).toBe(false);
+      expect(await ten.inPool).toBe(false);
+      expect(await ten.inGameRef).toBe(false);
+      const twelve = await matched(12, 12);
+      expect(twelve.earned).toBe(true);
+      expect(await twelve.inEarnedRatings).toBe(true);
+      expect(await twelve.inPool).toBe(true);
+      expect(await twelve.inGameRef).toBe(true);
+    } finally {
+      await setRankingPolicy(venueId, { rankAfter: null }, "Mira Manager");
+    }
+  });
+
+  it("is the default 8 where the venue chose nothing, and the helper is max(venue, default)", async () => {
+    const seven = await matched(null, 7);
+    expect(seven.declared).toBe(true);
+    expect(await seven.inPool).toBe(false);
+    const eight = await matched(null, 8);
+    expect(eight.earned).toBe(true);
+    expect(await eight.inEarnedRatings).toBe(true);
+    expect([matchingThreshold(null, 8), matchingThreshold(undefined, 8), matchingThreshold(3, 8), matchingThreshold(8, 8), matchingThreshold(12, 8), matchingThreshold(30, 8)]).toEqual([8, 8, 8, 8, 12, 30]);
   });
 });

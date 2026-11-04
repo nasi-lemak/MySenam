@@ -8,7 +8,7 @@ import { GUARDIAN_AGE, ageOn, type TournamentDetail } from "./tournaments";
  * page, box leagues, ladders, counted events and the notices that name an entrant to another family
  * (docs/architecture/privacy.md#minors-names-on-public-pages).
  *
- * A **declared minor** is shown by first name and the initial of the next word ("Aina L."), each of a pair by the same rule, so a
+ * A **declared minor** is shown by first name and the initial of the next word that is not a particle ("Aina L."), each of a pair by the same rule, so a
  * partner's full name never stands beside a child's short one (a pair is often family); where there is no second word, the first
  * name alone. Declared, never verified: a guardian's agreement recorded at entry, a participant a guardian manages
  * (ADR 0022/0023), or a date of birth under 18 on the event's first day (today, for a list of people with no event). A team is
@@ -20,13 +20,31 @@ import { GUARDIAN_AGE, ageOn, type TournamentDetail } from "./tournaments";
  * file); a staff function never calls it.
  */
 
-/** Their first name and the initial of the next word: "Aina L.", for each of a pair. */
+/**
+ * Patronymic and name particles that are not a name of their own (Malay, Indonesian, Arabic, Tamil/Indian, Welsh, Dutch, German, Spanish
+ * and French usage), compared lower-case and with dots removed, so "Binti", "bt.", "A/L", "a.l." and "S/O" all match. Install
+ * constants, not settings: the list is data, and a particle missing from it only means a minor's short name shows that word's initial.
+ */
+export const NAME_PARTICLES: ReadonlySet<string> = new Set([
+  "bin", "binti", "binte", "bte", "bt", "b", "ibni", "anak", "a/l", "a/p", "al", "ap", "el", "van", "der", "den", "de", "von", "s/o", "d/o",
+]);
+
+const isParticle = (word: string): boolean => NAME_PARTICLES.has(word.toLowerCase().replace(/\./g, ""));
+
+/**
+ * Their first name and the initial of the first word after it that is not a particle: "Aina Lee" is "Aina L.", "Aina Binti Lim"
+ * "Aina L.", "Muthu a/l Kumar" "Muthu K.", "Siti Nur bt Ahmad" "Siti N.". The first word is always kept, even if it is itself a
+ * particle ("Van Nguyen" is "Van N."); a name of one word, or of a first name and particles only, is the first name alone. For each of
+ * a pair. The app cannot know the order a name is written in (a Chinese name may be surname first: "Tan Wei Ming" is "Tan W."), so
+ * the order is as typed; a name typed with no space is shown as it is.
+ */
 export function shortName(name: string): string {
   return name
     .split(" / ")
     .map((part) => {
       const words = part.trim().split(/\s+/).filter(Boolean);
-      return words.length < 2 ? (words[0] ?? "") : `${words[0]} ${[...words[1]][0].toUpperCase()}.`;
+      const next = words.slice(1).find((w) => !isParticle(w));
+      return next === undefined ? (words[0] ?? "") : `${words[0]} ${[...next][0].toUpperCase()}.`;
     })
     .join(" / ");
 }

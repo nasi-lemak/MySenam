@@ -825,13 +825,13 @@ describe("juniors, guardians and what the public sees", () => {
     expect(rankOf(done, kidEntry.id).rank).toBe(1);
     // The public page: the child short, the adult as entered; the counts and places are there for both.
     const pub = await namedForThePublic((await tournamentDetail(t.id))!);
-    expect(pub.entries.find((e) => e.id === kidEntry.id)!.name).toBe("Aina B.");
+    expect(pub.entries.find((e) => e.id === kidEntry.id)!.name).toBe("Aina L.");
     expect(pub.entries.find((e) => e.id === adultEntry.id)!.name).toBe(adultEntry.name);
     expect(pub.performance!.ranking[0]).toMatchObject({ entryId: kidEntry.id, rank: 1 });
     // The route says the same, and carries the child's full name nowhere.
     const res = await publicRoute.GET(new NextRequest(`http://localhost/api/tournaments/${t.id}`), { params: Promise.resolve({ id: String(t.id) }) });
     const text = JSON.stringify(await res.json());
-    expect(text).toContain("Aina B.");
+    expect(text).toContain("Aina L.");
     expect(text).not.toContain("Aina Binti Lim");
     // A tournament that shows everybody short does so for adults too.
     await getDb().prepare("UPDATE tournaments SET live_names = 'short' WHERE id = ?").run(t.id);

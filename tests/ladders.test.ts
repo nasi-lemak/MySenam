@@ -178,7 +178,7 @@ describe("joining", () => {
     if (!kid.ok) throw new Error("kid");
     ok(await joinAs((await guardianEntrant(mum, kid.person.id)) as Entrant, juniors.id));
     const view = (await ladderDetail(juniors.id))!;
-    expect(view.rows[0].name).toBe("Aina B.");
+    expect(view.rows[0].name).toBe("Aina L.");
     expect(JSON.stringify(view)).not.toContain("Binti Lim");
     expect(JSON.stringify(view)).not.toContain("0138");
   });
@@ -502,7 +502,7 @@ describe("minors: a guardian acts, a stranger does not", () => {
     expect(await challenge(stranger.id, l.id, a.playerId, b.playerId)).toMatchObject({ ok: false, code: "LD_NOT_YOURS" });
     // The younger on rank 2 (Ben) is challenged by Aina's guardian? Aina is rank 1: Ben challenges up.
     const made = ok(await challenge(dad.id, l.id, b.playerId, a.playerId));
-    expect(made).toMatchObject({ challengerName: "Ben T.", challengedName: "Aina B." });
+    expect(made).toMatchObject({ challengerName: "Ben T.", challengedName: "Aina L." });
     expect(await answer(stranger.id, made.id, { accept: true })).toMatchObject({ ok: false });
     ok(await answer(mum.id, made.id, { accept: true }));
     const place = (await myPlaces(dad.id, l.id))[0];
@@ -513,7 +513,7 @@ describe("minors: a guardian acts, a stranger does not", () => {
     expect(told.some((m) => m.body.includes("Aina Binti Lim"))).toBe(true);
     ok(await report(dad.id, made.id, { winner: b.playerId, score: "21-10, 21-12" }));
     ok(await confirm(mum.id, made.id));
-    expect((await ladderDetail(l.id))!.rows.map((r) => r.name)).toEqual(["Ben T.", "Aina B."]);
+    expect((await ladderDetail(l.id))!.rows.map((r) => r.name)).toEqual(["Ben T.", "Aina L."]);
     // A guardian whose two children play each other answers for neither.
     const sibling = await addManaged(mum.id, { displayName: "Chloe Binti Lim", relationship: "parent", authority: true }, mum.name);
     if (!sibling.ok) throw new Error("sibling");

@@ -1646,9 +1646,12 @@ Under *Ratings and rankings* in the dashboard's *Leagues* tab, a manager sets
   touched** (tested against a replay from scratch, with the number changing between
   corrections). It is a venue's number, not an event's: a rating belongs to a pool
   that many events feed. A player's own page, the manager's panel, seeding
-  proposals and the level [matchmaking](matchmaking.md#earned-levels) may use all
-  use the same number for that venue. Lowering it to 3 ranks players on three
-  results; the page says what a rating is.
+  proposals use that number for that venue. **Matching is the exception, upward
+  only:** the level [matchmaking](matchmaking.md#earned-levels) may use needs
+  `max(this number, 8)` counted results (`matchingThreshold`), so a venue that raises
+  it raises it for matching too, and one that lowers it to 3 ranks players on three
+  results while matching still trusts no rating on fewer than the install's default.
+  The page says what a rating is.
 
 The private views (a player's own ratings, a guardian's, a team's members', the
 manager's panel and ledger) never depend on any of these. Turning public rankings

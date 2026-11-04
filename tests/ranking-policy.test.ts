@@ -336,17 +336,25 @@ describe("the provisional section and the number of counted results before a pla
     expect((await myRatings(p7.id)).who[0].pools[0]).toMatchObject({ provisional: true, rankAfter: 8 });
   });
 
-  it("uses the same threshold for matching on an earned level: only the right venue's number, only the right pool", async () => {
+  it("uses the venue's number for matching on an earned level only upward: the install's default is the floor, per venue and per pool", async () => {
     const other = await venue("Second Arena");
     await play(other, U(p7), fillers, 7);
     await recomputePool(other, "badminton", "singles");
     // At the default 8 neither pool of p7's (7 results each) is earned.
     expect([...(await earnedRatingsOf(p7.id)).keys()]).toEqual([]);
     expect((await poolEarned(V, "badminton", "singles")).has(p7.id)).toBe(false);
-    // The first venue lowers its number: its pool is earned for p7, the second venue's still is not.
+    // The first venue lowers its number to 7: p7 is ranked there, but matching never trusts a rating on fewer than the default's 8.
     await setRankingPolicy(V, { rankAfter: 7 }, "Mira Manager");
-    expect([...(await earnedRatingsOf(p7.id)).keys()]).toEqual([`${V}|badminton|singles`]);
-    expect((await poolEarned(V, "badminton", "singles")).has(p7.id)).toBe(true);
+    expect(await currentStanding(V, "badminton", "singles", "user", p7.id)).toMatchObject({ provisional: false });
+    expect([...(await earnedRatingsOf(p7.id)).keys()]).toEqual([]);
+    expect((await poolEarned(V, "badminton", "singles")).has(p7.id)).toBe(false);
+    expect((await poolEarned(V, "badminton", "singles")).has(p8.id)).toBe(true);
+    // The first venue raises its number to 9: matching follows it upward, for that venue's pool only.
+    await setRankingPolicy(V, { rankAfter: 9 }, "Mira Manager");
+    expect((await poolEarned(V, "badminton", "singles")).has(p8.id)).toBe(false);
+    expect((await poolEarned(V, "badminton", "singles")).has(p9.id)).toBe(true);
+    expect([...(await earnedRatingsOf(p8.id)).keys()]).toEqual([]);
+    expect([...(await earnedRatingsOf(p9.id)).keys()]).toEqual([`${V}|badminton|singles`]);
     expect((await poolEarned(other, "badminton", "singles")).has(p7.id)).toBe(false);
     await setRankingPolicy(V, { rankAfter: null }, "Mira Manager");
   });

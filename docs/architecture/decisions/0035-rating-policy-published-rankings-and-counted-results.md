@@ -37,8 +37,10 @@
     competition or per format, because a rating belongs to a pool (venue, sport,
     format) that many events feed: a threshold per event would give one player two
     classes in one pool. It applies equally to the player's own page, the manager's
-    panel, seeding proposals and matching on an earned level ("not provisional" has
-    one meaning at a venue). The rating maths constants stay install data.
+    panel and seeding proposals ("not provisional" has one meaning at a venue). **Matching on an earned level
+    uses `max(rank_after, install default)`** (owner's decision, 5 November 2026; `matchingThreshold` in
+    `src/lib/ratings.ts`): the venue's number can raise the bar for matching but never lower it below 8, so a
+    rating on three results is never trusted to place a stranger in a game. The rating maths constants stay install data.
   - **A separate section for the not-yet-ranked, if the venue chooses it**
     (`show_provisional`, needs public rankings on, default off): "Provisional: fewer
     than N rated results; these ratings may move a lot". A different block, no rank,
@@ -80,8 +82,8 @@
 - **Consequences:** a venue that wants public rankings does one deliberate thing and
   can undo it. Venues that had a ranking page lose it until they publish (a visible
   change, stated in the documentation). Lowering the
-  number to 3 ranks players on three results and makes matching on an earned level
-  use ratings that thin: the manager chooses that and the pages say what it means.
+  number to 3 ranks players on three results; matching on an earned level still needs the install's 8
+  (the floor above), so the manager's choice cannot thin what matching trusts.
   A replay is still linear in a pool's ledger. A result that stays wrong in its own
   event stays wrong in the ratings: correct it there. A per-competition threshold and
   an enforced level remain unbuilt.

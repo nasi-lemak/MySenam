@@ -130,6 +130,63 @@ async function playedKnockout(over: Partial<TournamentInput> = {}) {
 }
 
 describe("the one rule", () => {
+  it("takes the initial of the first word that is not a particle, and keeps the order as typed", () => {
+    const table: [string, string][] = [
+      // Malay and Indonesian patronymics and their abbreviations, with or without dots, in any case.
+      ["Aina Binti Lim", "Aina L."],
+      ["Aina binti Lim", "Aina L."],
+      ["Ahmad bin Ismail", "Ahmad I."],
+      ["Ahmad B. Ismail", "Ahmad I."],
+      ["Ahmad B Ismail", "Ahmad I."],
+      ["Siti Nur bt Ahmad", "Siti N."],
+      ["Siti Nur Bt. Ahmad", "Siti N."],
+      ["Farid Ibni Hasan", "Farid H."],
+      ["Jaya anak Ujang", "Jaya U."],
+      // Tamil and Indian forms.
+      ["Muthu a/l Kumar", "Muthu K."],
+      ["Muthu A/L Kumar", "Muthu K."],
+      ["Muthu a.l. Kumar", "Muthu K."],
+      ["Devi A/P Raju", "Devi R."],
+      ["Priya d/o Raman", "Priya R."],
+      ["Arun S/O Pillai", "Arun P."],
+      ["Arun Kumar Pillai", "Arun K."],
+      // Arabic, Dutch, German, French, Spanish.
+      ["Omar al Hakim", "Omar H."],
+      ["Omar El Sayed", "Omar S."],
+      ["Jan van der Berg", "Jan B."],
+      ["Anna von Trapp", "Anna T."],
+      ["Luc de Villiers", "Luc V."],
+      // Only a first name, or a first name and particles: the first name alone.
+      ["Aina", "Aina"],
+      ["Aina Binti", "Aina"],
+      ["Muthu a/l", "Muthu"],
+      ["", ""],
+      // The first word is always kept, even when it is a particle or a surname-sized word.
+      ["Van Nguyen", "Van N."],
+      ["Al Amin", "Al A."],
+      // A word that merely starts like a particle is a name: "Binsar", "Anaka", "Delia", "Vance".
+      ["Aina Binsar", "Aina B."],
+      ["Aina Anaka", "Aina A."],
+      ["Aina Delia", "Aina D."],
+      ["Aina Vance", "Aina V."],
+      // Western names.
+      ["Aina Lee", "Aina L."],
+      ["Mary Jane Smith", "Mary J."],
+      ["john ronald reuel tolkien", "john R."],
+      // Chinese: the order is as typed (the app cannot know it); given names of two characters or two words, surname first or last.
+      ["Wei Ming Tan", "Wei M."],
+      ["Tan Wei Ming", "Tan W."],
+      ["Tan Weiming", "Tan W."],
+      ["Lee Chong Wei", "Lee C."],
+      ["伟明 李", "伟明 李."],
+      ["李伟明", "李伟明"],
+      // Each of a pair.
+      ["Aina Binti Lim / Muthu a/l Kumar", "Aina L. / Muthu K."],
+      ["Ben Tan / Siti Nur bt Ahmad", "Ben T. / Siti N."],
+    ];
+    for (const [name, short] of table) expect(shortName(name), name).toBe(short);
+  });
+
   it("shortens a declared minor and each of a pair, leaves an adult and a team alone, and gives one word its first name only", () => {
     expect(shortName("Aina Lee")).toBe("Aina L.");
     expect(shortName("Aina Lee / Ben Tan")).toBe("Aina L. / Ben T.");

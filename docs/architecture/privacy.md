@@ -618,8 +618,13 @@ deleted while one rests on them.
 The owner's decision (4 November 2026): a child's name is abbreviated by default, consistently, wherever the public can see it, and
 published in full only on a guardian's authorisation. One rule decides it, `src/lib/public-names.ts` (`publicName`):
 
-- **A declared minor** is shown by first name and the initial of the next word ("Aina L."); where there is no second word, the first name
-  alone. Each of a pair is shown by the same rule, and a pair with a declared minor in it is shown short **whole**: a partner is often
+- **A declared minor** is shown by first name and the initial of the first word after it that is not a particle ("Aina L."); where there
+  is no such word, the first name alone. The particles skipped are `bin`, `binti`, `binte`, `bte`, `bt`, `b`, `ibni`, `anak`, `a/l`,
+  `a/p`, `s/o`, `d/o`, `al`, `ap`, `el`, `van`, `der`, `den`, `de` and `von`, in any case and with or without dots (`NAME_PARTICLES` in
+  `src/lib/public-names.ts`): "Aina Binti Lim" is "Aina L.", "Muthu a/l Kumar" is "Muthu K.", "Siti Nur bt Ahmad" is "Siti N.". The first
+  word is always kept. The limit: the app cannot know the order a name is written in, so it keeps the order as typed ("Tan Wei Ming" is
+  "Tan W.", "Wei Ming Tan" is "Wei M."), and a name typed with no space (for instance in Chinese characters) is shown as it is; a particle
+  not in the list shows its own initial. Each of a pair is shown by the same rule, and a pair with a declared minor in it is shown short **whole**: a partner is often
   family, and an adult's surname beside a child's short name could give it away. A team is shown by its team name and its members
   never. An adult is shown as entered. A tournament set to short names (*Names on the public live page*) shows everybody short on
   its public page and live page, whatever a guardian has allowed.

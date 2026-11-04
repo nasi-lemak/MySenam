@@ -271,7 +271,7 @@ describe("the next match is announced", () => {
     const opponentId = kidMatch.a === kidEntry.value.id ? kidMatch.b! : kidMatch.a!;
     const opponent = others.find((o) => o.entryId === opponentId)!;
     const toOpponent = sent.find((m) => m.recipient === opponent.user.email && m.dedupe_key!.includes(`:${kidMatch.id}:`))!;
-    expect(toOpponent.body).toContain("Aina B.");
+    expect(toOpponent.body).toContain("Aina L.");
     expect(toOpponent.body).not.toContain("Aina Binti Lim");
   });
 
@@ -581,7 +581,7 @@ describe("the public live page", () => {
     const board = (await liveBoard(t0.id))!;
     const text = JSON.stringify(board);
     // Declared minors: first name and an initial.
-    expect(text).toContain("Aina B.");
+    expect(text).toContain("Aina D.");
     for (const f of field) expect(text).not.toContain(f.user.name);
     // No staff names, check-in, calls, guardians, contacts, emails, ids of entries.
     for (const secret of ["Musa Manager", "Puan Guardian", "checkedIn", "calledBy", "guardian", "phone", "@cup.test", "dueAt", "blockers", "userId", "entryId"]) expect(text, secret).not.toContain(secret);
