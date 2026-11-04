@@ -782,9 +782,10 @@ court time](../features/tournaments.md#club-ladders).) The owner's decisions of 
 November 2026. Team leagues have no officials, so only captains and staff can
 request a forfeit; a forfeit request can be opened only while the fixture is
 still to be played; a whole fixture entered as a walkover is treated as a forfeit
-for who may enter it; an official's link ends when the climbing event finishes, so
-a count in the final found wrong after its last line is entered is corrected by
-the organiser from the dashboard; the last line of the last group fills the final
+for who may enter it; an official's link works for seven days after the climbing event finishes, for
+results and correction requests only (the finish day is the last save to the
+event's rounds, so a manager's applied correction restarts the seven days; there
+is no finish timestamp); the last line of the last group fills the final
 by itself (as the dashboard save already does), while making the final from a
 qualification round and a tie at the cut stay the organiser's; the messages go
 through the outbox (the Email row: unverified).
@@ -796,8 +797,9 @@ through the outbox (the Email row: unverified).
 owner's decisions of 4 November 2026. Every venue that had a public rankings page
 before migration 0275 has it off until its manager publishes it; the number of
 counted results before a player is ranked is a venue's (3 to 30, 8 by default),
-not a competition's, and a venue that lowers it lowers the bar for earned-level
-matching too; published pages are not indexed and not in the sitemap; the
+not a competition's, and earned-level matching never trusts a rating on fewer results than the install
+default of 8, so a venue that lowers its number does not lower that bar and one
+that raises it does; published pages are not indexed and not in the sitemap; the
 provisional section is not on the business-wide board. A minor entered with no age
 range and no recorded guardian is shown as the entrant typed the name (ages are
 declared, never verified); authorising a child's full name needs a guardian

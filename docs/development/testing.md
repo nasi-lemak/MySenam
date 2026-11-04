@@ -835,6 +835,20 @@ the authorisation wording for publishing a child's name awaits the owner's lawye
 there are no browser scenarios yet for teams, team leagues, tournament day,
 ratings, Swiss, ladders, the new formats or the officials' climbing entry.
 
+**Follow-ups of 6 November 2026** (commit after `dab7e4a`): four small changes the
+owner approved, checked by targeted suites only, not a second full run: a climbing
+official's link works seven days after the event finishes for results and
+correction requests only; earned-level matching never trusts a rating on fewer
+results than the install default of eight; the public ladder shows ranks and
+confirmed results, never a challenge; the surname initial skips name particles.
+Run: `tests/ladder-public.test.ts`, `tests/ladders.test.ts`,
+`tests/official-climbing.test.ts`, `tests/rating-matchmaking.test.ts`,
+`tests/ranking-policy.test.ts`, `tests/public-names.test.ts`,
+`tests/tournament-day.test.ts`, `tests/counted-performances.test.ts` on PGlite
+(15 files, 245 tests) and the eight on Postgres, serially (151 tests); all passed.
+Four existing expectations changed because the decisions make them wrong: the
+particle examples ("Aina B." is now "Aina L.") and one matching threshold test.
+
 #### 5 November 2026, commit `a86cab3`
 
 The owner's request of 4 November 2026, the rest of the competition framework:
