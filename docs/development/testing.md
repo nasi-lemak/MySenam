@@ -795,6 +795,46 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 6 November 2026, commit `c6ef1a9`
+
+The owner's decisions of 4 November 2026 on names, rankings, forfeits, climbing
+officials and ladders, and the optional feed-in consolation draw: minors' names
+abbreviated on every public surface with a guardian's authorisation of the full
+name (migration 0274); public rankings published by a manager's choice, a venue's
+threshold and a separate provisional section (0275, ADR 0035); team-league
+forfeits confirmed by a manager, officials entering climbing counts for their own
+event, ladders that hold no court time (0276); the advanced feed-in consolation
+draw (no migration, ADR 0034); B71 recorded. Not a launch. Run on one cloud
+container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 119 passed |
+| Suite on PGlite | 440 files (3 Postgres-only skipped); 5183 passed, 12 skipped |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 440 files; 5194 passed, 1 failed; a race in the test, corrected (below) |
+| The new work inside both suites | Among them: `tests/public-names.test.ts` (every public surface scanned for a child's surname), `tests/ranking-policy.test.ts` and `tests/rating-eligibility.test.ts` (the switch on every surface, every row of the table of which results count, replay equal after amendment), `tests/team-forfeit-requests.test.ts`, `tests/official-climbing.test.ts` (a link tried against every staff route), `tests/ladder-court-time.test.ts` (no claim or block through a challenge's whole life), `tests/feed-in-structure.test.ts` and `tests/feed-in-consolation.test.ts` (exhaustive small fields, replay from scratch) |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 20 files; 79 of 80; *Guide F* failed on a race in the scenario (below) |
+| CI | Not run (deferred) |
+| Real services | None checked |
+
+Both failures were races in tests, not in the app. *Guide F* counted the link *Open
+this in the guide* in the "?" dialog before the dialog had read its topic, so it
+counted none; it now waits for the link, before it checks what else is there, and
+passes alone against the same build. *The application form comes from the guide's
+own address* in `tests/guide-public-handoff.test.tsx` read the new venue's guide as
+soon as the application was stored, before the account was opened and the venue
+made; the printed rows showed an application with no venue yet. It now waits for
+the venue and passed five times in five on Postgres and on PGlite. Neither
+correction was followed by a second full run: the scenario file and the test file
+were run alone, on the same build for the scenario. Gaps: no live integration has
+passed its check; machine-assisted Malay, Chinese and Tamil await native review;
+the authorisation wording for publishing a child's name awaits the owner's lawyer;
+there are no browser scenarios yet for teams, team leagues, tournament day,
+ratings, Swiss, ladders, the new formats or the officials' climbing entry.
+
 #### 5 November 2026, commit `a86cab3`
 
 The owner's request of 4 November 2026, the rest of the competition framework:

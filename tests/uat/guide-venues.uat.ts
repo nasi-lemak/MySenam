@@ -414,6 +414,8 @@ describe("the venue guide for established venues, branches and roles", () => {
       const dialog = desk.page.getByRole("dialog", { name: "How do passes work?" });
       await dialog.waitFor();
       expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+      // The topic is read when the dialog opens: the link is there once it has been, so what follows is checked against the loaded text.
+      await dialog.getByRole("link", { name: "Open this in the guide" }).waitFor();
       // The desk is told a manager changes it, and has no button to a screen it cannot use.
       for (const forbidden of ["Open Courts & rates", "Open Reports", "Open Venue details"]) expect(await dialog.getByRole("button", { name: forbidden }).count(), forbidden).toBe(0);
       expect(await dialog.getByRole("link", { name: "Open this in the guide" }).count()).toBe(1);

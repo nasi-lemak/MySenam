@@ -94,7 +94,7 @@ describe("the application form", () => {
     // Nothing personal rides in it, and nothing else of the guide's.
     expect(Object.keys(bodies[0].fit as object).sort()).toEqual(["activities", "types", "v"]);
     // The route accepted it, the application kept it, and the venue's guide starts from it.
-    await waitFor(async () => expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM venue_applications WHERE email = 'handoff@guide.my'").get() as { n: number }).n).toBe(1), SLOW);
+    await waitFor(async () => expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM venue_applications WHERE email = 'handoff@guide.my' AND venue_id IS NOT NULL").get() as { n: number }).n).toBe(1), SLOW);
     const row = (await getDb().prepare("SELECT venue_id, fit FROM venue_applications WHERE email = 'handoff@guide.my'").get()) as { venue_id: number; fit: string };
     expect(JSON.parse(row.fit)).toEqual({ v: 1, types: ["swimming", "coaching-academy"], activities: ["swimming"] });
     expect((await readGuide(row.venue_id)).answers).toEqual({ v: 1, types: ["swimming", "coaching-academy"], activities: ["swimming"] });
@@ -108,9 +108,11 @@ describe("the application form", () => {
     await submitForm("roundtrip@guide.my", "Round Trip Climbing");
     await waitFor(() => expect(bodies.length).toBe(1), SLOW);
     expect(bodies[0].fit).toEqual({ v: 1, types: ["climbing-and-bouldering"], activities: ["bouldering"] });
-    await waitFor(async () => expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM venue_applications WHERE email = 'roundtrip@guide.my'").get() as { n: number }).n).toBe(1), SLOW);
+    // The application is stored first and the account opened (the venue made, its guide started) just after: wait for the venue.
+    await waitFor(async () => expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM venue_applications WHERE email = 'roundtrip@guide.my' AND venue_id IS NOT NULL").get() as { n: number }).n).toBe(1), SLOW);
     const row = (await getDb().prepare("SELECT venue_id FROM venue_applications WHERE email = 'roundtrip@guide.my'").get()) as { venue_id: number };
-    expect((await readGuide(row.venue_id)).answers).toMatchObject({ types: ["climbing-and-bouldering"], activities: ["bouldering"] });
+    // The venue's guide is started from the choice just after the application is stored: wait for it, as a slow machine shows.
+    await waitFor(async () => expect((await readGuide(row.venue_id)).answers).toMatchObject({ types: ["climbing-and-bouldering"], activities: ["bouldering"] }), SLOW);
   });
 
   it("leaves the choice out when the visitor asks, and sends none at all when the address has none", async () => {
