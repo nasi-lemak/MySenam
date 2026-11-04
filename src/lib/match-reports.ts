@@ -5,7 +5,7 @@ import { sentences } from "./outbox";
 import { tellVenueStaffEach } from "./owner-alerts";
 import { recordResult, tellEntry, tournamentById, tournamentDetail, type Result, type ResultInput, type TournamentDetail } from "./tournaments";
 import { venueHours } from "./store";
-import { isValidDateString, todayISO } from "./time";
+import { addDays, isValidDateString, localDateOf, todayISO } from "./time";
 
 /**
  * Results entered by the people on court, not only the venue's staff.
@@ -25,8 +25,18 @@ import { isValidDateString, todayISO } from "./time";
  * official's name (on the match and in the activity log). Only the SHA-256
  * of the link's secret is kept. For a climbing (counted performance) event the
  * link enters the counts of the event's open rounds and asks for corrections
- * to finished ones (lib/official-performances.ts).
+ * to finished ones (lib/official-performances.ts), and after the event has
+ * finished keeps working for `OFFICIAL_AFTER_FINISH_DAYS` days for one thing:
+ * seeing the results and asking for a correction (`officialByToken`).
  */
+
+/**
+ * How many days after a climbing (counted performance) event finishes its official's link keeps working, for viewing the results and
+ * for correction requests only (docs/features/tournaments.md#officials-and-counted-results). An install constant, not a setting. The
+ * day it finished is the day of the last save to the event's rounds, in the venue's time (the event keeps no finish stamp: a correction
+ * a manager applies is a save, and starts the days again).
+ */
+export const OFFICIAL_AFTER_FINISH_DAYS = 7;
 
 export interface MatchReport {
   id: number;
@@ -310,19 +320,49 @@ export async function revokeOfficial(tournamentId: number, officialId: number): 
   return done.changes > 0;
 }
 
-/** Whose link this is, while it works and the tournament runs. */
-export async function officialByToken(token: string): Promise<{ official: Official; tournamentId: number; venueId: number } | null> {
+/** Whose link this is: `phase` "running" while the tournament runs, "finished" in the days after a climbing event has finished. */
+export interface OfficialLink {
+  official: Official;
+  tournamentId: number;
+  venueId: number;
+  phase: "running" | "finished";
+  /** For a finished event, the last day the link works (a correction request and the results only); else null. */
+  until: string | null;
+}
+
+/**
+ * Whose link this is, while it works and the tournament runs. With `afterFinish`, also the link of a climbing (counted performance)
+ * event that has finished, for `OFFICIAL_AFTER_FINISH_DAYS` more days (`phase: "finished"`, `until`): only the callers that offer
+ * what a finished event's link may do (see its results, ask for a correction) pass it; every other caller gets no link once the event
+ * has finished, as before. A cancelled event and a withdrawn link end it at once, and a link that had run out before the event
+ * finished does not come back.
+ */
+export async function officialByToken(token: string, opts: { afterFinish?: boolean } = {}): Promise<OfficialLink | null> {
   if (!token || token.length > 100) return null;
   const row = (await getDb()
     .prepare(
-      `SELECT o.id, o.name, o.created_at, o.revoked_at, o.expires_on, o.tournament_id, t.venue_id FROM tournament_officials o JOIN tournaments t ON t.id = o.tournament_id
-        WHERE o.token_hash = ? AND o.revoked_at IS NULL AND t.status IN ('open', 'closed', 'drawn')`
+      `SELECT o.id, o.name, o.created_at, o.revoked_at, o.expires_on, o.tournament_id, t.venue_id, t.status FROM tournament_officials o JOIN tournaments t ON t.id = o.tournament_id
+        WHERE o.token_hash = ? AND o.revoked_at IS NULL AND t.status IN ('open', 'closed', 'drawn'${opts.afterFinish ? ", 'finished'" : ""})`
     )
-    .get(hash(token))) as { id: number; name: string; created_at: string; revoked_at: null; expires_on: string | null; tournament_id: number; venue_id: number } | undefined;
+    .get(hash(token))) as { id: number; name: string; created_at: string; revoked_at: null; expires_on: string | null; tournament_id: number; venue_id: number; status: string } | undefined;
   if (!row) return null;
-  // Past its last day, in the venue's time: it no longer works.
-  if (row.expires_on && todayISO((await venueHours(row.venue_id)).zone) > row.expires_on) return null;
-  return { official: { id: row.id, name: row.name, createdAt: row.created_at, revokedAt: null, expiresOn: row.expires_on }, tournamentId: row.tournament_id, venueId: row.venue_id };
+  const zone = (await venueHours(row.venue_id)).zone;
+  const today = todayISO(zone);
+  const official: Official = { id: row.id, name: row.name, createdAt: row.created_at, revokedAt: null, expiresOn: row.expires_on };
+  if (row.status !== "finished") {
+    // Past its last day, in the venue's time: it no longer works.
+    if (row.expires_on && today > row.expires_on) return null;
+    return { official, tournamentId: row.tournament_id, venueId: row.venue_id, phase: "running", until: null };
+  }
+  // A finished event: only a climbing (counted) event's link carries on, and only for the days given.
+  const t = await tournamentById(row.tournament_id);
+  if (!t || t.format !== "performance" || !t.rules.performance?.counted) return null;
+  const last = (await getDb().prepare("SELECT MAX(updated_at) AS at FROM tournament_matches WHERE tournament_id = ?").get(row.tournament_id)) as { at: string | null };
+  const finishedOn = last.at ? localDateOf(last.at, zone) : t.endsOn;
+  if (row.expires_on && row.expires_on < finishedOn) return null;
+  const until = addDays(finishedOn, OFFICIAL_AFTER_FINISH_DAYS);
+  if (today > until) return null;
+  return { official, tournamentId: row.tournament_id, venueId: row.venue_id, phase: "finished", until };
 }
 
 /** An official enters a result: as staff would, recorded with their name and in the activity log. */

@@ -294,7 +294,7 @@ describe("the life of a challenge", () => {
     expect((await ladderHousekeeping()).confirmed).toBe(0);
     await getDb().prepare("UPDATE ladder_challenges SET reported_at = datetime('now', '-4 days') WHERE id = ?").run(c.id);
     expect((await ladderHousekeeping()).confirmed).toBe(1);
-    expect((await ladderDetail(second.l.id))!.challenges[0].status).toBe("confirmed");
+    expect((await ladderDetail(second.l.id, { forStaff: true }))!.challenges![0].status).toBe("confirmed");
     expect(await ids(second.l.id)).toEqual([second.players[0].id, s3.id, s2.id]);
     expect((await ladderHousekeeping()).confirmed).toBe(0);
     await expectReplayEquality(second.l.id);
@@ -397,7 +397,7 @@ describe("freezes", () => {
     expect(await freeze(p3.user.id, p3.id, todayISO())).toMatchObject({ ok: false, code: "LD_FREEZE_DATE" });
     expect(await freeze(p4.user.id, p3.id, addDays(todayISO(), 10))).toMatchObject({ ok: false, code: "LD_NOT_YOURS" });
     ok(await freeze(p3.user.id, p3.id, addDays(todayISO(), 10)));
-    expect((await ladderDetail(l.id))!.challenges.find((c) => c.id === open.id)!.status).toBe("cancelled");
+    expect((await ladderDetail(l.id, { forStaff: true }))!.challenges!.find((c) => c.id === open.id)!.status).toBe("cancelled");
     expect((await mails("A challenge ended")).some((m) => m.body.includes("frozen"))).toBe(true);
     expect(await challenge(p4.user.id, l.id, p4.id, p3.id)).toMatchObject({ ok: false, code: "LD_FROZEN_THEM" });
     expect(await challenge(p3.user.id, l.id, p3.id, p2.id)).toMatchObject({ ok: false, code: "LD_FROZEN_ME" });
@@ -441,7 +441,7 @@ describe("the ledger, corrections and a manager's overrides", () => {
     // Voiding it removes its effect; clearing puts the match back to be played; both replay.
     ok(await decide(first.id, manager, { void: true }, "Not a ladder match"));
     await expectReplayEquality(l.id);
-    expect((await ladderDetail(l.id))!.challenges.find((c) => c.id === first.id)!.status).toBe("void");
+    expect((await ladderDetail(l.id, { forStaff: true }))!.challenges!.find((c) => c.id === first.id)!.status).toBe("void");
     expect(await decide(first.id, manager, { clear: true }, "")).toMatchObject({ ok: false, code: "LD_REASON" });
     expect((await mails("The venue decided")).length).toBeGreaterThan(0);
   });
@@ -459,7 +459,7 @@ describe("the ledger, corrections and a manager's overrides", () => {
     // A leaver's open challenge is cancelled with no effect.
     const c = ok(await challenge(players[3].user.id, l.id, players[3].id, players[2].id));
     ok(await leave(players[3].id));
-    expect((await ladderDetail(l.id))!.challenges.find((x) => x.id === c.id)!.status).toBe("cancelled");
+    expect((await ladderDetail(l.id, { forStaff: true }))!.challenges!.find((x) => x.id === c.id)!.status).toBe("cancelled");
     await expectReplayEquality(l.id);
   });
 
@@ -532,10 +532,10 @@ describe("seasons and the archive", () => {
     expect(after.season!.number).toBe(2);
     const detail = (await ladderDetail(l.id))!;
     expect(detail.seasons.map((s) => [s.number, s.endedOn !== null])).toEqual([[2, false], [1, true]]);
-    const last = (await ladderDetail(l.id, { season: 1 }))!;
+    const last = (await ladderDetail(l.id, { season: 1, forStaff: true }))!;
     expect(last.viewing!.finalRanks!.map((f) => f.playerId)).toEqual([players[0].id, players[1].id, players[3].id, players[2].id]);
     expect(last.rows.map((r) => r.playerId)).toEqual(last.viewing!.finalRanks!.map((f) => f.playerId));
-    expect(last.challenges.find((c) => c.id === open.id)!.status).toBe("cancelled");
+    expect(last.challenges!.find((c) => c.id === open.id)!.status).toBe("cancelled");
     // The new season starts from that order, with a clean ledger, and nobody is idle.
     expect(await ids(l.id)).toEqual([players[0].id, players[1].id, players[3].id, players[2].id]);
     await expectReplayEquality(l.id);

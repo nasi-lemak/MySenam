@@ -4146,7 +4146,7 @@ export const TA: Record<Phrase, string> = {
   "ldp.disputeNote": "உண்மையில் நடந்தது",
   "ldp.disputed": "இதை இடம் தீர்மானித்துக்கொண்டிருக்கிறது.",
   "ldp.history": "உங்கள் ஆட்டங்கள்",
-  "ldp.recent": "சமீபத்திய சவால்கள்",
+  "ldp.recent": "முடிவுகள்",
   "ldp.resultLine": "{a} எதிர் {b}: {winner} {score} என வென்றார்",
   "ldp.forfeitLine": "{a} எதிர் {b}: தோல்வியால் தீர்மானிக்கப்பட்டது, {winner} வென்றார்",
   "ldp.cs.pending": "பதிலுக்காகக் காத்திருக்கிறது",
@@ -4330,6 +4330,8 @@ export const TA: Record<Phrase, string> = {
   "err.LD_BK_VENUE": "அந்த முன்பதிவு வேறு இடத்தில் உள்ளது. இந்த ஏணியின் இடத்தில் முன்பதிவு செய்யுங்கள்.",
   "err.LD_BK_SPORT": "அது இந்த ஏணியின் விளையாட்டுக்கான கோர்ட் முன்பதிவு அல்ல.",
   "err.LD_BK_TAKEN": "அந்த முன்பதிவு ஏற்கெனவே வேறொரு சவாலில் சேர்க்கப்பட்டுள்ளது.",
+  "ldp.publicResult": "{winner} {score} என {loser} ஐ வென்றார்",
+  "ofc1.of.afterFinish": "இந்தப் போட்டி முடிந்துவிட்டது. {date} வரை இந்த இணைப்பு முடிவுகளைக் காட்டும், திருத்தம் கோரவும் அனுமதிக்கும்; அதை ஏற்பாட்டாளர் தீர்மானிப்பார். எண்ணிக்கைகளை இனி இங்கே உள்ளிட முடியாது.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

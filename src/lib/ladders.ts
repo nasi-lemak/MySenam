@@ -239,7 +239,8 @@ export interface LadderRowView {
   /** As shown: the name given, or first name and initial on a junior ladder. */
   name: string;
   frozenUntil: string | null;
-  inChallenge: boolean;
+  /** Whether the place is in an open challenge. Only for staff: nobody else is told who is in one (a player sees their own in `MyPlace`). */
+  inChallenge?: boolean;
   /** Only for staff. */
   userId?: number | null;
   participantId?: number | null;
@@ -284,11 +285,29 @@ export interface SeasonView {
   finalRanks: { rank: number; playerId: number; name: string }[] | null;
 }
 
+/**
+ * A decided result as the public sees it: who won, against whom, and the score with the winner's games first. Never who challenged
+ * whom, when it was proposed or played, or anything about a challenge that did not end in a confirmed result.
+ */
+export interface LadderResultView {
+  /** The day it was decided. */
+  on: string | null;
+  winnerName: string;
+  loserName: string;
+  score: string | null;
+}
+
 export interface LadderDetail extends Ladder {
   seasons: SeasonView[];
   viewing: SeasonView | null;
   rows: LadderRowView[];
-  challenges: ChallengeView[];
+  /**
+   * The confirmed results of the season viewed, newest first: all the public is shown of the matches (docs/features/tournaments.md#club-ladders).
+   * A challenge that is open or ended any other way (declined, lapsed, cancelled, a walkover, struck) is not a result.
+   */
+  results: LadderResultView[];
+  /** Only for staff: every challenge of the season, in every state. A player's own are `MyPlace.open` and `history`. */
+  challenges?: ChallengeView[];
   /** Only for staff: the ledger of the season, newest last. */
   events?: { id: number; ord: number; kind: EventKind; playerId: number; otherId: number | null; on: string; data: EventData; voided: boolean; voidedReason: string | null; replaces: number | null }[];
 }
@@ -557,6 +576,7 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
   const viewing = (opts.season !== undefined ? seasons.find((s) => s.number === opts.season) : undefined) ?? seasons.find((s) => s.endedOn === null) ?? seasons[0] ?? null;
   let rows: LadderRowView[] = [];
   let challenges: ChallengeView[] = [];
+  let results: LadderResultView[] = [];
   let events: LadderDetail["events"];
   if (viewing && viewing.endedOn === null) {
     const ranks = await ranksOf(viewing.id);
@@ -570,17 +590,27 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
         rank: r.rank,
         name: names.get(r.playerId) ?? "",
         frozenUntil: r.frozenUntil,
-        inChallenge: open.has(r.playerId),
         ...(opts.forStaff
-          ? { userId: p.user_id, participantId: p.participant_id, atCounter: p.entered_by_name ? { by: p.entered_by_name, phone: p.contact_phone } : null, activeOn: r.activeOn }
+          ? { inChallenge: open.has(r.playerId), userId: p.user_id, participantId: p.participant_id, atCounter: p.entered_by_name ? { by: p.entered_by_name, phone: p.contact_phone } : null, activeOn: r.activeOn }
           : {}),
       };
     });
-  } else if (viewing?.finalRanks) rows = viewing.finalRanks.map((f) => ({ playerId: f.playerId, rank: f.rank, name: f.name, frozenUntil: null, inChallenge: false }));
+  } else if (viewing?.finalRanks) rows = viewing.finalRanks.map((f) => ({ playerId: f.playerId, rank: f.rank, name: f.name, frozenUntil: null, ...(opts.forStaff ? { inChallenge: false } : {}) }));
   if (viewing) {
-    const cs = (await db.prepare("SELECT * FROM ladder_challenges WHERE season_id = ? ORDER BY id DESC LIMIT 200").all(viewing.id)) as ChallengeRow[];
-    challenges = cs.map((c) => toChallenge(c, names, opts.forStaff === true));
-    if (opts.forStaff)
+    // What the public is shown of the matches is the confirmed results and nothing else. Every challenge is staff's, and a player's own are `myPlaces`.
+    const decided = (await db
+      .prepare("SELECT * FROM ladder_challenges WHERE season_id = ? AND status = 'confirmed' AND winner IS NOT NULL ORDER BY resolved_on DESC, id DESC LIMIT 100")
+      .all(viewing.id)) as ChallengeRow[];
+    results = decided.map((c) => ({
+      on: c.resolved_on,
+      winnerName: names.get(c.winner!) ?? "",
+      loserName: names.get(c.winner === c.challenger ? c.challenged : c.challenger) ?? "",
+      // Stored with the challenger's games first.
+      score: c.score === null ? null : c.winner === c.challenger ? c.score : flipScore(c.score),
+    }));
+    if (opts.forStaff) {
+      const cs = (await db.prepare("SELECT * FROM ladder_challenges WHERE season_id = ? ORDER BY id DESC LIMIT 200").all(viewing.id)) as ChallengeRow[];
+      challenges = cs.map((c) => toChallenge(c, names, true));
       events = ((await db.prepare("SELECT * FROM ladder_events WHERE season_id = ? ORDER BY ord, id").all(viewing.id)) as EventRow[]).map((e) => ({
         id: e.id,
         ord: e.ord,
@@ -593,8 +623,9 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
         voidedReason: e.voided_reason,
         replaces: e.replaces,
       }));
+    }
   }
-  return { ...ladder, seasons, viewing, rows, challenges, ...(events ? { events } : {}) };
+  return { ...ladder, seasons, viewing, rows, results, ...(opts.forStaff ? { challenges } : {}), ...(events ? { events } : {}) };
 }
 
 // ------------------------------------------------------------ setting one up

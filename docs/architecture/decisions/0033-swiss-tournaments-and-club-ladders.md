@@ -232,8 +232,17 @@
   walkover (moves nothing), nothing else is rated; a corrected or voided result
   voids its row and writes the new one, and the pool is replayed, by the existing
   ledger. The ladder's ranks are not a rating and a rating is not a rank.
+- **Challenges are not public** (owner's decision, 5 November 2026). The public
+  page and `GET /api/ladders/:id` show the ranks, who is on the ladder and the
+  season's **confirmed results** (winner, other side, score with the winner's
+  games first, day); never a challenge that is open or ended any other way
+  (a walkover included: it would say who declined or did not turn up), who
+  challenged whom, a proposed time, a dispute note, which places are in a
+  challenge or an attached booking. A player sees their own, staff see all.
+  `ladderDetail` is public by default and gives staff's fields only with
+  `forStaff`.
 - **Privacy and minors.** An adult ladder shows the names players gave; a junior
-  ladder shows first name and the initial of the next. A challenge is made, answered
+  ladder shows first name and the initial of the next word that is not a particle. A challenge is made, answered
   and reported by the guardian's account for a participant, and told to them; a
   stranger's challenge never reaches a child. No contact of a child is shown to
   anybody. Ages are declared, never verified; no identity documents are collected.

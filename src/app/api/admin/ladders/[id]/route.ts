@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!done.ok) return ladderResponse(done);
     await log(body.action === "close" ? "ladder.closed" : "ladder.season_ended", `season ${before.season?.number ?? ""}`);
   } else if (body.action === "decide") {
-    const challenge = before.challenges.find((c) => c.id === Number(body.challengeId));
+    const challenge = (before.challenges ?? []).find((c) => c.id === Number(body.challengeId));
     if (!challenge) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const decision: Decision =
       body.void === true ? { void: true } : body.clear === true ? { clear: true } : { winner: Number(body.winner), score: typeof body.score === "string" ? body.score : undefined, walkover: body.walkover === true };

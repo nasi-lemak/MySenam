@@ -543,7 +543,9 @@ lane.
     still to be decided. A result already in is corrected by the organiser,
     who sees what a correction changes.
   - **Expiry.** It works until the tournament's last day, or an earlier day
-    the organiser gives, and when the tournament ends.
+    the organiser gives, and when the tournament ends (a climbing event's link
+    carries on for seven days after it finishes, for the results and correction
+    requests only: [officials and counted results](#officials-and-counted-results)).
   - **Revocation.** Staff withdraw a link at any time, and it stops at once.
   - **Strength.** The link carries 192 random bits; only their SHA-256 is
     kept, so it is shown once. Its page is rate-limited.
@@ -897,10 +899,22 @@ rounds and asks for corrections, and nothing else (`src/lib/official-performance
   previous counts (`tournament.performances`), and as one row per line in `tournament_official_marks`
   (the counts as entered and as they were); the official's page lists their own recent entries and their
   requests. A request, its application and its decline are logged (`tournament.correction_*`).
-- **Expiry.** As any official's link: until the event's last day or an earlier day the organiser gave,
-  withdrawn at once on request, and **when the event ends** (finishing the final ends it, so the link no
-  longer works after the last line of the final is in: a count in the final found wrong then is the
-  organiser's to correct from the dashboard).
+- **Expiry.** As any official's link while the event runs: until the event's last day or an earlier day
+  the organiser gave, and withdrawn at once on request. **When the event finishes** (finishing the final
+  finishes it) the link of a climbing event does not end: for **7 days** (`OFFICIAL_AFTER_FINISH_DAYS`
+  in `src/lib/match-reports.ts`, an install constant) it still works for **two things only**: seeing the
+  event's results, and sending or withdrawing a **correction request** (the reason and the intended counts,
+  checked by the dry-run preview as before; `requestCorrection`, `withdrawCorrection`). It enters and
+  overwrites no count (`OFC_EVENT_FINISHED`, a preview included), enters no match result, calls, starts
+  or releases nothing, has no other action and sees no other event; the page says so and until which day.
+  A cancelled event ends the link at once, a withdrawn link stays withdrawn, and a link that had run out
+  before the event finished does not come back. The manager reviews a request after the finish exactly
+  as before (preview, then apply against its token, or decline); applying it is a privileged correction
+  as the dashboard's own save is (`recordPerformances`: the ranking and placings follow, the event stays
+  finished, and nothing is rated, because a counted event has no two-sided result). A match official's
+  link (not climbing) ends with the tournament, as before. The event keeps no finish stamp: the day it
+  finished is the day of the last save to its rounds, in the venue's time, so a correction a manager
+  applies starts the seven days again (the official can then see its effect and ask for another).
 
 **Not rated.** A rating comes from decided matches with two sides
 ([ADR 0031](../architecture/decisions/0031-ratings-from-a-ledger-of-results.md));
@@ -2004,6 +2018,19 @@ rank.
 
 ### Privacy
 
+**Challenges are not public.** The public (`/ladders/[id]`, `GET /api/ladders/:id` signed out or in) is shown the
+ranks, who is on the ladder (frozen places with the day they thaw) and the season's **confirmed results**
+(`results`: the day it was decided, the winner, the other side and the score with the winner's games first, newest
+first). It is never shown a challenge that is pending, accepted, reported, disputed, declined, cancelled, lapsed,
+struck or decided as a walkover, who challenged whom while it was open, a proposed or agreed time, a dispute note, which
+places are in a challenge, or a booking attached to a challenge; a result does not say which side challenged. The
+`/ladders` list shows no count of challenges and the sitemap lists no ladder. A player sees their own challenges
+(`mine`: those of their places and of the people they act for, with the other side's number on an adult ladder once
+accepted), and a venue's managers and front desk see every challenge, dispute note and the ledger in the dashboard
+(`ladderDetail` with `forStaff`); the public view is the default of `ladderDetail`, never a field removed afterwards.
+A walkover moves the ranks like any result but is not listed as a public result, because it would say who declined or did
+not turn up.
+
 An adult ladder shows the names players gave; a junior ladder shows first name and initial, unless a guardian has
 [authorised the full name](#names-of-minors-on-public-pages) for the season. A season's final order is stored short and never
 keeps an authorised full name. The data
@@ -2066,7 +2093,7 @@ declared, never verified, and no identity document is asked for.
 | Ratings from results: the rule, the ledger, replay, corrections, voids, walkovers, exclusions and restarts, rankings, seeding proposal, privacy | `src/lib/rating-math.ts`, `src/lib/ratings.ts`, `db/migrations/0270_ratings_from_results.sql`, `src/app/api/admin/ratings/route.ts`, `src/app/api/my/ratings/route.ts`, `src/app/api/venues/[id]/rankings/route.ts`, `src/app/ratings/page.tsx`, `src/app/venue/[id]/rankings/page.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/rating-math.test.ts`, `tests/ratings.test.ts` (PGlite and Postgres) |
 | Rating policy: rankings published by choice (404 while off, on the page, API, MCP tool, venue link and sitemap), a venue's number of counted results before a player is ranked, the separate provisional section, which results count (the treatment table, run row by row), replay equality after amendments and policy changes, determinism, pool separation, the audit log and the ledger CSV | `src/lib/rating-eligibility.ts`, `src/lib/ratings.ts` (`rankingPolicy`, `setRankingPolicy`, `ledgerCsv`), `db/migrations/0275_ranking_policy.sql`, `src/app/venue/[id]/rankings/layout.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/ranking-policy.test.ts`, `tests/rating-eligibility.test.ts` (PGlite), `tests/components/ranking-policy-ui.test.tsx`, `tests/mcp.test.ts` (the tool) |
 | Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
-| Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts` |
+| Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts`, `tests/ladder-public.test.ts` (what the public is and is not shown) |
 | A ladder challenge holds no court time; the ordinary booking it may carry (attach, drop on cancellation) | `src/lib/ladders.ts` (`attachBooking`, `detachBooking`, `ladderBookingCancelled`), `src/lib/store.ts` (the hook), `src/app/api/ladders/[id]/challenges/[challengeId]/route.ts`, `src/app/ladders/[id]/page.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/ladder-court-time.test.ts` |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 

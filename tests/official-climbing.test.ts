@@ -456,3 +456,160 @@ describe("what the link cannot do", () => {
     expect(lineOf(now, h.id, inRound(d, h.id)[0]).status).toBe("pending");
   });
 });
+
+/** Play every group, then the final, so the event is finished (as every round decided finishes it); the finalists' ids in the final. */
+async function finishedWall(extra: string[] = []) {
+  const w = await wall(8);
+  // Links are made while the event runs: a finished one takes none.
+  const a = await official(w.t.id);
+  const more = await Promise.all(extra.map((name) => official(w.t.id, name)));
+  const played = await playGroups(w.d, w.ids);
+  const final = finalOf(played);
+  const finalists = inRound(played, final.id);
+  ok(await recordPerformances(final.id, finalists.map((id, i) => ({ entryId: id, counts: sent([U(1, i + 1, i + 1, i + 1), U(2, 2, 1), U(3, 3)]) }))));
+  const now = await detail(w.t.id);
+  expect(now.status).toBe("finished");
+  return { ...w, now, final, finalists, a, more };
+}
+
+/** Make the event finish `days` days ago: the last save to its rounds is then that old. */
+const finishedDaysAgo = (tournamentId: number, days: number) =>
+  getDb().prepare("UPDATE tournament_matches SET updated_at = to_char(now() at time zone 'utc' - ?::interval, 'YYYY-MM-DD HH24:MI:SS') WHERE tournament_id = ?").run(`${days} days`, tournamentId);
+
+describe("after the event has finished", () => {
+  it("keeps the link for seven days: alive on day 6 and on the last day, dead on day 8", async () => {
+    const { t, a, more } = await finishedWall(["Withdrawn Early", "Ran Out"]);
+    for (const days of [0, 1, 6, 7]) {
+      await finishedDaysAgo(t.id, days);
+      const seen = await get(a.token);
+      expect(seen.status, `${days} days after`).toBe(200);
+      const body = await seen.json();
+      expect(body).toMatchObject({ tournament: { id: t.id, status: "finished" }, link: { phase: "finished", until: addDays(todayISO(), 7 - days) } });
+      expect(await officialByToken(a.token, { afterFinish: true })).toMatchObject({ phase: "finished" });
+    }
+    await finishedDaysAgo(t.id, 8);
+    expect((await get(a.token)).status).toBe(404);
+    expect(await officialByToken(a.token, { afterFinish: true })).toBeNull();
+    expect((await post(a.token, { action: "correction_request", matchId: 1, reason: "Too late now", performances: [] })).status).toBe(409);
+    // Everything else that asks who the official is gets no link once the event has finished, as before.
+    await finishedDaysAgo(t.id, 2);
+    expect(await officialByToken(a.token)).toBeNull();
+    expect(await officialPerformances(a.token, 1, [], {})).toMatchObject({ ok: false, code: "OFC_EVENT_FINISHED" });
+    // A link that was withdrawn, or had run out before the event finished, does not come back.
+    const [withdrawn, lapsed] = more;
+    expect(await revokeOfficial(t.id, withdrawn.id)).toBe(true);
+    expect((await get(withdrawn.token)).status).toBe(404);
+    await getDb().prepare("UPDATE tournament_officials SET expires_on = ? WHERE id = ?").run(addDays(todayISO(), -5), lapsed.id);
+    expect((await get(lapsed.token)).status).toBe(404);
+  });
+
+  it("allows the results to be seen and a correction request to be sent or withdrawn, and refuses everything else", async () => {
+    const { t, ids, now, final, finalists, a } = await finishedWall();
+    const other = await wall(4);
+    const h0 = heats(now).find((h) => inRound(now, h.id).includes(ids[0]))!;
+    const better = [{ entryId: finalists[2], counts: sent([U(1, 1, 1, 1), U(2, 1, 1, 1), U(3, 1, 1, 1)]) }];
+    const before = JSON.stringify(now.performance);
+    const logsBefore = ((await getDb().prepare("SELECT COUNT(*)::int AS n FROM staff_actions").get()) as { n: number }).n;
+
+    // The two things allowed. Seeing the event: its results, every round locked, the official's requests.
+    const seen = await (await get(a.token)).json();
+    expect(seen.tournament.performance.ranking.length).toBeGreaterThan(0);
+    expect(seen.performance.rounds.every((r: { lock: string | null }) => r.lock !== null)).toBe(true);
+    // A group's correction that would change who is in the final, now it has results, is refused when it is asked for, as the dashboard's would be.
+    const heatAsk = await post(a.token, { action: "correction_request", matchId: h0.id, reason: "Judge miscounted boulder 3.", performances: [{ entryId: ids[0], counts: sent([U(1, 1, 1, 1), U(2, 1, 1, 1), U(3, 1, 1, 1)]) }] });
+    expect(heatAsk.status).toBe(409);
+    expect((await heatAsk.json()).error).toMatch(/The final has results/);
+    const made = await post(a.token, { action: "correction_request", matchId: final.id, reason: "Judge miscounted boulder 3: it was topped first go.", performances: better });
+    expect(made.status).toBe(200);
+    const { request } = await made.json();
+    expect(request).toMatchObject({ status: "open", officialName: "Judge Jamal", matchId: final.id });
+    expect((await post(a.token, { action: "correction_withdraw", requestId: request.id })).status).toBe(200);
+    expect((await post(a.token, { action: "correction_request", matchId: final.id, reason: "The final's first count was off.", performances: [{ entryId: finalists[0], counts: sent([U(1, 1, 1, 1)]) }] })).status).toBe(200);
+
+    // A table of what is refused (status, code), each leaving the event as it was.
+    const lineFor = [{ entryId: ids[0], counts: sent([U(1, 1, 1, 1)]) }];
+    const table: [string, unknown, number, string | null][] = [
+      ["entering counts", { matchId: h0.id, performances: lineFor }, 409, "OFC_EVENT_FINISHED"],
+      ["entering the final's counts", { matchId: final.id, performances: [{ entryId: finalists[0], counts: sent([U(1, 1, 1, 1)]) }] }, 409, "OFC_EVENT_FINISHED"],
+      ["previewing a save", { matchId: h0.id, performances: lineFor, preview: true }, 409, "OFC_EVENT_FINISHED"],
+      ["confirming a save", { matchId: h0.id, performances: lineFor, confirm: { token: "x" } }, 409, "OFC_EVENT_FINISHED"],
+      ["a match result", { matchId: h0.id, winner: ids[0], score: "21-5, 21-5" }, 409, null],
+      ["calling", { matchId: h0.id, action: "call" }, 409, null],
+      ["starting", { matchId: h0.id, action: "start" }, 409, null],
+      ["releasing a call", { matchId: h0.id, action: "release" }, 409, null],
+      ["another event's round, asking for a correction", { action: "correction_request", matchId: heats(other.d)[0].id, reason: "Not mine to ask", performances: [{ entryId: inRound(other.d, heats(other.d)[0].id)[0], counts: sent([U(1, 1, 1, 1)]) }] }, 409, "OFC_NOT_HERE"],
+      ["a request nobody made", { action: "correction_withdraw", requestId: 999999 }, 409, "OFC_REQ_GONE"],
+      ["drawing", { action: "draw", matchId: h0.id }, 400, null],
+      ["making the final", { action: "final", chosen: [ids[0]], matchId: h0.id }, 400, null],
+      ["calling the event off", { action: "cancel", matchId: h0.id }, 400, null],
+      ["changing the rules", { action: "rules", matchId: h0.id }, 400, null],
+      ["taking somebody out", { action: "take_out", matchId: h0.id }, 400, null],
+    ];
+    for (const [what, body, status, code] of table) {
+      const res = await post(a.token, body);
+      expect(res.status, what).toBe(status);
+      if (code) expect(await res.json(), what).toMatchObject({ code });
+    }
+    // Nothing was written by any of them: not a count, and nothing in the log beyond the two requests.
+    expect(JSON.stringify((await detail(t.id)).performance)).toBe(before);
+    const logsAfter = ((await getDb().prepare("SELECT COUNT(*)::int AS n FROM staff_actions").get()) as { n: number }).n;
+    expect(logsAfter - logsBefore).toBe(2);
+    expect(((await getDb().prepare("SELECT COUNT(*)::int AS n FROM tournament_official_marks WHERE official_id = ?").get(a.id)) as { n: number }).n).toBe(0);
+    // It is this event's link and no other's.
+    expect((await (await get(a.token)).json()).tournament.id).toBe(t.id);
+    // A cancelled event ends the link at once, inside its seven days.
+    await getDb().prepare("UPDATE tournaments SET status = 'cancelled' WHERE id = ?").run(t.id);
+    expect((await get(a.token)).status).toBe(404);
+    expect((await post(a.token, { action: "correction_request", matchId: h0.id, reason: "Cancelled now", performances: better })).status).toBe(409);
+  });
+
+  it("is a correction a manager applies as for any finished event: previewed, applied against its token, the event staying finished and nothing rated", async () => {
+    const { t, now, final, finalists, a } = await finishedWall();
+    await finishedDaysAgo(t.id, 6);
+    const better = [{ entryId: finalists[2], counts: sent([U(1, 1, 1, 1), U(2, 1, 1, 1), U(3, 1, 1, 1)]) }];
+    const req = ok(await requestCorrection(a.token, final.id, "Judge miscounted the last climber: all three topped first go.", better));
+    const admin = { id: ownerId, name: "Owner" };
+    const ratedRows = async () => ((await getDb().prepare("SELECT COUNT(*)::int AS n FROM rated_results WHERE source_kind = 'tournament' AND source_id = ?").get(t.id)) as { n: number }).n;
+    expect(await ratedRows()).toBe(0);
+    expect((await detail(t.id)).rated).toBe(false);
+    const wasShown = lineOf(now, final.id, finalists[2]).shown;
+    const preview = ok(await previewCorrectionRequest(t.id, req.id));
+    expect(preview.changes.join(" ")).toContain(`${wasShown} becomes 3T 3Z 3 3`);
+    expect(lineOf(await detail(t.id), final.id, finalists[2]).shown).toBe(wasShown);
+    // Without the preview's token it is not made; with it, it is, days after the event finished.
+    expect(await applyCorrectionRequest(t.id, req.id, admin, undefined)).toMatchObject({ ok: false, code: "OFC_NEEDS_PREVIEW" });
+    const applied = ok(await applyCorrectionRequest(t.id, req.id, admin, preview.token));
+    expect(lineOf(applied, final.id, finalists[2])).toMatchObject({ shown: "3T 3Z 3 3" });
+    expect((await listCorrectionRequests(t.id))[0]).toMatchObject({ status: "applied", decidedBy: "Owner" });
+    // The ranking follows the counts, as for the dashboard's own correction; the final's field and the status are kept.
+    const after = await detail(t.id);
+    expect(after.status).toBe("finished");
+    expect(inRound(after, final.id).sort()).toEqual([...finalists].sort());
+    const rankOf = (d: TournamentDetail, id: number) => d.performance!.ranking.find((r) => r.entryId === id)!;
+    expect(rankOf(after, finalists[2]).rank!).toBeLessThan(rankOf(now, finalists[2]).rank!);
+    // Nothing is rated: a counted event has no two-sided result, and the correction wrote no row of the ledger.
+    expect(await ratedRows()).toBe(0);
+    expect((await listActivity([t.venueId])).find((x) => x.action === "tournament.correction_applied")).toMatchObject({ adminName: "Owner" });
+    // The apply is a save to the event's rounds, so the seven days start again: the official can see it and ask for another.
+    expect(await officialByToken(a.token, { afterFinish: true })).toMatchObject({ phase: "finished", until: addDays(todayISO(), 7) });
+    // A request declined on the last day is read by the official on the last day.
+    await finishedDaysAgo(t.id, 7);
+    const second = ok(await requestCorrection(a.token, final.id, "The first count was off too.", [{ entryId: finalists[0], counts: sent([U(1, 1, 1, 1)]) }]));
+    ok(await declineCorrectionRequest(t.id, second.id, admin, "The video shows a fall."));
+    expect((await (await get(a.token)).json()).performance.requests[0]).toMatchObject({ status: "declined", decisionNote: "The video shows a fall." });
+  });
+
+  it("is for a climbing event only: a match official's link still ends when the tournament does", async () => {
+    const where = await venueWith("badminton");
+    const day = addDays(todayISO(), dayOffset++);
+    const made = ok(
+      await createTournament({ ...where, name: `Match Cup ${dayOffset}`, sport: "badminton", format: "knockout", teamSize: 1, level: null, entryFee: 0, maxEntries: 8, startsOn: day, endsOn: day, startHour: 9, endHour: 17 } as TournamentInput, ownerId)
+    );
+    const a = await official(made.id, "Match Referee");
+    expect(await officialByToken(a.token, { afterFinish: true })).toMatchObject({ phase: "running" });
+    await getDb().prepare("UPDATE tournaments SET status = 'finished' WHERE id = ?").run(made.id);
+    expect(await officialByToken(a.token, { afterFinish: true })).toBeNull();
+    expect(await officialByToken(a.token)).toBeNull();
+    expect((await get(a.token)).status).toBe(404);
+  });
+});

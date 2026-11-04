@@ -22,7 +22,7 @@ const minutes = (value: string): number | undefined => {
 const clock = (m: number | null) => (m === null ? "" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
 
 /**
- * One club ladder, for anybody: the ranks, the recent challenges, and an archive of earlier seasons. Signed in, a player joins, freezes
+ * One club ladder, for anybody: the ranks, the decided results (never a challenge that is open or ended any other way), and an archive of earlier seasons. Signed in, a player joins, freezes
  * their place or leaves; sees who they may challenge and why not, challenges, answers, reports a result and confirms the other side's
  * (docs/features/tournaments.md#club-ladders). A guardian does it all for the child they entered.
  */
@@ -61,7 +61,6 @@ export default function LadderPage() {
   const x = data.ladder;
   const viewing = x.viewing;
   const current = viewing !== null && viewing.endedOn === null;
-  const names = new Map(x.rows.map((r) => [r.playerId, r.name]));
   const joinable = [...(data.mine.some((p) => p.participantId === null) ? [] : [{ id: "", name: t("ldp.myself") }]), ...(x.audience === "juniors" ? data.people.filter((p) => !data.mine.some((m) => m.participantId === p.id)).map((p) => ({ id: String(p.id), name: p.name })) : [])];
   const mineIds = new Set(data.mine.map((p) => p.playerId));
 
@@ -119,20 +118,19 @@ export default function LadderPage() {
               <span className="w-8 text-slate-500">{r.rank}</span>
               <span className="flex-1">{r.name}</span>
               {r.frozenUntil && <span className="text-xs text-slate-500">{t("ldp.frozenShort", { date: r.frozenUntil })}</span>}
-              {r.inChallenge && <span className="text-xs text-amber-700">{t("ldp.inChallenge")}</span>}
             </li>
           ))}
         </ol>
       </section>
 
-      {x.challenges.length > 0 && (
+      {x.results.length > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-semibold">{t("ldp.recent")}</h2>
           <ul className="mt-2 divide-y divide-slate-100 text-sm">
-            {x.challenges.slice(0, 30).map((c) => (
-              <li key={c.id} className="py-1.5">
-                <span className="text-xs text-slate-500">{c.resolvedOn ?? c.createdOn} · </span>
-                {summary(t, c, names)}
+            {x.results.slice(0, 30).map((r, i) => (
+              <li key={i} className="py-1.5">
+                {r.on && <span className="text-xs text-slate-500">{r.on} · </span>}
+                {t("ldp.publicResult", { winner: r.winnerName, loser: r.loserName, score: r.score ?? "" }).trim()}
               </li>
             ))}
           </ul>
@@ -160,7 +158,7 @@ export default function LadderPage() {
   );
 }
 
-/** A challenge in a line: who, how it ended. */
+/** A player's own challenge in a line: who, how it ended (the public is shown decided results only, `LadderDetail.results`). */
 function summary(t: T, c: ChallengeView, names: Map<number, string>): string {
   const a = c.challengerName || names.get(c.challenger) || "";
   const b = c.challengedName || names.get(c.challenged) || "";

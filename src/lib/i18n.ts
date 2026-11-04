@@ -4309,7 +4309,7 @@ const EN = {
   "ldp.disputeNote": "What really happened",
   "ldp.disputed": "The venue is deciding this one.",
   "ldp.history": "Your matches",
-  "ldp.recent": "Recent challenges",
+  "ldp.recent": "Results",
   "ldp.resultLine": "{a} v {b}: {winner} won {score}",
   "ldp.forfeitLine": "{a} v {b}: decided by a forfeit, {winner} won",
   "ldp.cs.pending": "waiting for an answer",
@@ -4493,6 +4493,8 @@ const EN = {
   "err.LD_BK_VENUE": "That booking is at another venue. Book at this ladder's venue.",
   "err.LD_BK_SPORT": "That is not a court booking for this ladder's sport.",
   "err.LD_BK_TAKEN": "That booking is already added to another challenge.",
+  "ldp.publicResult": "{winner} beat {loser} {score}",
+  "ofc1.of.afterFinish": "This event has finished. Until {date} this link still shows the results and lets you ask for a correction, which the organiser decides. Counts can no longer be entered here.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -8749,7 +8751,7 @@ const MS: Record<Phrase, string> = {
   "ldp.disputeNote": "Apa yang sebenarnya berlaku",
   "ldp.disputed": "Tempat ini sedang membuat keputusan mengenainya.",
   "ldp.history": "Perlawanan anda",
-  "ldp.recent": "Cabaran terkini",
+  "ldp.recent": "Keputusan",
   "ldp.resultLine": "{a} lawan {b}: {winner} menang {score}",
   "ldp.forfeitLine": "{a} lawan {b}: diputuskan secara hilang, {winner} menang",
   "ldp.cs.pending": "menunggu jawapan",
@@ -8932,6 +8934,8 @@ const MS: Record<Phrase, string> = {
   "err.LD_BK_VENUE": "Tempahan itu di venue lain. Tempah di venue tangga ini.",
   "err.LD_BK_SPORT": "Itu bukan tempahan gelanggang untuk sukan tangga ini.",
   "err.LD_BK_TAKEN": "Tempahan itu sudah ditambah pada cabaran lain.",
+  "ldp.publicResult": "{winner} menewaskan {loser} {score}",
+  "ofc1.of.afterFinish": "Acara ini telah tamat. Sehingga {date} pautan ini masih menunjukkan keputusan dan membolehkan anda meminta pembetulan, yang diputuskan oleh penganjur. Kiraan tidak lagi boleh dimasukkan di sini.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

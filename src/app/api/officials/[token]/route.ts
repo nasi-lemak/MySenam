@@ -13,11 +13,18 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const limited = await rateLimit(req, "official");
   if (limited) return limited;
-  const who = await officialByToken((await params).token);
+  // Also the days after a climbing event has finished: its results and a correction request, and nothing else (`link.phase`).
+  const who = await officialByToken((await params).token, { afterFinish: true });
   if (!who) return NextResponse.json({ error: "This link no longer works. Ask the venue for a new one." }, { status: 404 });
   // A climbing event: which rounds are open, the official's recent entries and their correction requests.
   const performance = await officialPerformanceView((await params).token);
-  return NextResponse.json({ official: who.official, tournament: await tournamentDetail(who.tournamentId), day: await dayBoard(who.tournamentId), ...(performance ? { performance } : {}) });
+  return NextResponse.json({
+    official: who.official,
+    link: { phase: who.phase, until: who.until },
+    tournament: await tournamentDetail(who.tournamentId),
+    day: await dayBoard(who.tournamentId),
+    ...(performance ? { performance } : {}),
+  });
 }
 
 /**
@@ -29,6 +36,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
  * boulders, `[{ unit: 1, attempts, hold, plus? }]` for a height), with `preview: true` what it would change, nothing changed; a finalised round
  * (409 `OFC_ROUND_FINAL`) is changed by `{ action: "correction_request", matchId, reason, performances }`, which a manager reviews, and
  * `{ action: "correction_withdraw", requestId }` takes one back. A link works for its own event only; for anything else it is refused.
+ * For `OFFICIAL_AFTER_FINISH_DAYS` days after a climbing event has finished the link still shows the results (GET, `link.phase: "finished"`)
+ * and takes `correction_request` and `correction_withdraw`; entering counts is then 409 `OFC_EVENT_FINISHED`, and a result, a call, start or
+ * release is refused as for any link of a finished event.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const limited = await rateLimit(req, "official");

@@ -4143,7 +4143,7 @@ export const ZH: Record<Phrase, string> = {
   "ldp.disputeNote": "实际情况",
   "ldp.disputed": "场馆正在裁定此结果。",
   "ldp.history": "您的比赛",
-  "ldp.recent": "近期挑战",
+  "ldp.recent": "比赛结果",
   "ldp.resultLine": "{a} 对 {b}：{winner} 以 {score} 获胜",
   "ldp.forfeitLine": "{a} 对 {b}：因弃权判定，{winner} 获胜",
   "ldp.cs.pending": "等待答复",
@@ -4326,6 +4326,8 @@ export const ZH: Record<Phrase, string> = {
   "err.LD_BK_VENUE": "该预订在另一个场馆。请在此天梯所在的场馆预订。",
   "err.LD_BK_SPORT": "那不是此天梯所属运动的场地预订。",
   "err.LD_BK_TAKEN": "该预订已添加到另一个挑战。",
+  "ldp.publicResult": "{winner} 以 {score} 击败 {loser}",
+  "ofc1.of.afterFinish": "本赛事已结束。在 {date} 之前，此链接仍可查看成绩并申请更正，由主办方决定；已无法在此录入计数。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

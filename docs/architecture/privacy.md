@@ -644,7 +644,7 @@ Where the rule is applied (each with its test in `tests/public-names.test.ts` un
 | The live page and `GET /api/tournaments/:id/live` | The same (`liveBoard`; `tests/tournament-day.test.ts`) |
 | Notices to the other family (a draw's first match, a Swiss round, *your match is next*) | The opponent by the rule |
 | A box league's public page and `GET /api/leagues/:id`; box-mates' contact list and the season-start notice | Players by the rule; staff and the guardian's own place in full |
-| A ladder's public page and `GET /api/ladders/:id`, its challenges and notices | A junior ladder's players by the rule, an adult ladder's as given; a season's final order is stored short and never with an authorised full name |
+| A ladder's public page and `GET /api/ladders/:id` (ranks and confirmed results only: no challenge in any state is public, [club ladders](../features/tournaments.md#club-ladders)); a player's own challenges and notices | A junior ladder's players by the rule, an adult ladder's as given; a season's final order is stored short and never with an authorised full name |
 | A league of teams (`/team-leagues`) | Team names only: no roster or lineup is public, a child is named only to staff, their own side's captain and their own guardian (`tests/team-leagues.test.ts`) |
 | Rankings (`/venue/:id/rankings`, `GET /api/venues/:id/rankings`, the `venue_rankings` tool) | No child by any route, whatever the guardian chose: only adults who opted in, and published teams |
 | `/api/v1` and the assistants' public tools | No competition data at all (a test fails if a public tool or `/api/v1` route is added that names an entrant) |

@@ -22,7 +22,7 @@ import type { DayBoard, DayFixture } from "@/lib/tournament-day";
 export default function OfficialPage() {
   const t = useT();
   const { token } = useParams<{ token: string }>();
-  const [data, setData] = useState<{ official: Official; tournament: TournamentDetail; day?: DayBoard | null; performance?: OfficialPerformanceView } | null>(null);
+  const [data, setData] = useState<{ official: Official; link?: { phase: "running" | "finished"; until: string | null }; tournament: TournamentDetail; day?: DayBoard | null; performance?: OfficialPerformanceView } | null>(null);
   const [gone, setGone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -68,6 +68,7 @@ export default function OfficialPage() {
           t={t}
           token={token}
           data={{ official: data.official, tournament: data.tournament, performance: data.performance }}
+          finishedUntil={data.link?.phase === "finished" ? (data.link.until ?? "") : null}
           patch={(p) => setData((d) => (d ? { ...d, ...(p.tournament ? { tournament: p.tournament } : {}), ...(p.performance ? { performance: p.performance } : {}) } : d))}
           setError={setError}
           setNotice={setNotice}
@@ -149,6 +150,7 @@ function ClimbingRounds({
   t,
   token,
   data,
+  finishedUntil,
   patch,
   setError,
   setNotice,
@@ -156,6 +158,8 @@ function ClimbingRounds({
   t: ReturnType<typeof useT>;
   token: string;
   data: { official: Official; tournament: TournamentDetail; performance: OfficialPerformanceView };
+  /** The event has finished: the last day this link works, for its results and correction requests only. */
+  finishedUntil: string | null;
   patch: (p: { tournament?: TournamentDetail; performance?: OfficialPerformanceView }) => void;
   setError: (e: string | null) => void;
   setNotice: (n: string | null) => void;
@@ -180,7 +184,7 @@ function ClimbingRounds({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">{t("ofc1.of.intro")}</p>
+      <p className="text-sm text-slate-600">{finishedUntil !== null ? t("ofc1.of.afterFinish", { date: finishedUntil }) : t("ofc1.of.intro")}</p>
       {rounds.length === 0 && <p className="text-sm text-slate-500">{t("official.none")}</p>}
       {rounds.map((m) => {
         const lines = x.performance?.lines[m.id] ?? [];

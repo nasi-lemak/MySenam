@@ -31,6 +31,12 @@ import {
  * intended counts, checked as a save would be) that a manager reviews through the existing correction flow, a preview of
  * what it changes and an apply made only against that preview's token. Making the final from a tie (`makeFinal`) and ending
  * the event stay the organiser's.
+ *
+ * **After the event has finished** the link keeps working for `OFFICIAL_AFTER_FINISH_DAYS` days (lib/match-reports.ts) for two things only:
+ * seeing the event's results and sending or withdrawing a correction request. Entering counts (`OFC_EVENT_FINISHED`), a match result, a
+ * call, any other action and any other event stay refused, a cancelled event ends the link at once, and a manager applies a request to a
+ * finished event as any correction (the dashboard's save, `recordPerformances`, which reopens nothing and rates nothing: counted events are
+ * not rated).
  */
 
 export const REQUEST_REASON_MAX = 300;
@@ -66,15 +72,18 @@ interface Who {
   official: { id: number; name: string };
   tournamentId: number;
   venueId: number;
+  /** "finished": the event is over and the link is for its results and correction requests only (`OFFICIAL_AFTER_FINISH_DAYS`). */
+  phase: "running" | "finished";
+  until: string | null;
 }
 
-/** The official, if their link works and is for a performance event; else the refusal. */
+/** The official, if their link works and is for a performance event (also for the days after it has finished); else the refusal. */
 async function performanceOfficial(token: string): Promise<{ ok: true; who: Who } | Refusal> {
-  const who = await officialByToken(token);
+  const who = await officialByToken(token, { afterFinish: true });
   if (!who) return refuse("OFC_LINK", "This link no longer works. Ask the venue for a new one.");
   const t = await tournamentById(who.tournamentId);
   if (!t || t.format !== "performance" || !t.rules.performance?.counted) return refuse("OFC_NOT_PERF", "This link is not for a climbing event's counts.");
-  return { ok: true, who: { official: { id: who.official.id, name: who.official.name }, tournamentId: who.tournamentId, venueId: who.venueId } };
+  return { ok: true, who: { official: { id: who.official.id, name: who.official.name }, tournamentId: who.tournamentId, venueId: who.venueId, phase: who.phase, until: who.until } };
 }
 
 async function roundIn(who: Who, matchId: number): Promise<{ ok: true; stage: string } | Refusal> {
@@ -123,6 +132,8 @@ export async function officialPerformances(
   const found = await performanceOfficial(token);
   if (!found.ok) return found;
   const { who } = found;
+  // Once the event has finished the link shows the results and takes a correction request: no count is entered or overwritten, a preview included.
+  if (who.phase === "finished") return refuse("OFC_EVENT_FINISHED", "This event has finished: you can still see its results and ask for a correction.");
   const round = await roundIn(who, matchId);
   if (!round.ok) return round;
   const lines = readLines(given);

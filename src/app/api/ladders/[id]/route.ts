@@ -18,7 +18,7 @@ async function visible(req: NextRequest, id: number) {
 }
 
 /**
- * The ladder for anybody: the ranks, the challenges and their results (`?season=` for an earlier season, whose final order is
+ * The ladder for anybody: the ranks and the confirmed results, never a challenge (`?season=` for an earlier season, whose final order is
  * kept); names as the ladder shows them (a junior ladder's by first name and initial). Signed in: your places on it (`mine`,
  * each with who you may challenge now and why not, your open challenges, and your history) and the people you act for (`people`,
  * to enter one on a junior ladder).

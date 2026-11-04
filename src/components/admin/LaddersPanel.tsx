@@ -400,11 +400,11 @@ function Manage({ t, l, send, close, reload }: { t: StaffT; l: LadderDetail; sen
 
       <section>
         <h4 className="font-semibold">{t("lds.challenges")}</h4>
-        {l.challenges.length === 0 ? (
+        {(l.challenges ?? []).length === 0 ? (
           <p className="text-sm text-slate-500">{t("lds.noChallenges")}</p>
         ) : (
           <ul className="mt-1 divide-y divide-slate-100 text-sm">
-            {l.challenges.map((c) => (
+            {(l.challenges ?? []).map((c) => (
               <Challenge key={c.id} t={t} c={c} names={names} editable={manages && current && l.status === "open"} reason={reason} act={act} reload={reload} />
             ))}
           </ul>
