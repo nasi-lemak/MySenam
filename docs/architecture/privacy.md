@@ -653,7 +653,7 @@ members; it holds no court and no money (`teams`, `team_members`,
 A [rating](../features/tournaments.md#ratings-and-rankings) is built from a
 ledger of results at events a venue marked as rated (`rated_results`,
 `rated_result_subjects`, `rating_subjects`, `rating_exclusions`,
-`rating_resets`; migration 0270).
+`rating_resets`; migration 0270; the venue's choices in `venue_rating_settings` and `rating_policy_log`, migration 0275).
 
 - **What is held:** for each decided match, who was on each side (an account, a
   participant a guardian manages, or a team), the name as the event showed it, the
@@ -672,6 +672,14 @@ ledger of results at events a venue marked as rated (`rated_results`,
 - **Not a way to find a stranger:** a rating makes nobody discoverable, invitable
   or listed. The public API (`GET /api/venues/:id/rankings`) and the pages answer from
   the same opt-in rules; nothing writes a rating but the ledger's replay.
+- **A venue publishes its rankings; nobody is published for it.** Public rankings are
+  off until the venue's manager turns them on, answer 404 while off, are not in the
+  sitemap and are not indexed. The separate section for players not ranked yet (also
+  the manager's choice) names the same people the ranking may name and nobody else:
+  never a child, never somebody who did not opt in. `rating_policy_log` keeps who changed
+  the policy or marked an event rated, as the staff member's name, with the install's
+  activity log; a manager's ledger download (logged) shows names as the event showed
+  them and a child as *(junior player)*.
 - **Export:** *Download my data* lists the ratings (venue, sport, format, rating,
   record) and each result that moved them (`ratings`), a child's in the
   guardian's export of the child's record; the declared-level and opt-in choices

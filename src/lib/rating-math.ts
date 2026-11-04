@@ -266,5 +266,9 @@ export function replay(rowsIn: ReplayRow[], rules: RatingRules, resets: Map<stri
   return { subjects, rows: out };
 }
 
+/** The fewest and the most counted results a venue may choose before its players are ranked (`rank_after`, its ranking policy). */
+export const RANK_AFTER_MIN = 3;
+export const RANK_AFTER_MAX = 30;
+
 /** A rating is provisional until it has `provisionalGames` counted results; provisional ratings are never ranked. */
 export const isProvisional = (rules: RatingRules, games: number): boolean => games < rules.provisionalGames;

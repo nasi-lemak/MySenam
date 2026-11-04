@@ -316,7 +316,7 @@ const venueRankings: McpTool = {
   name: "venue_rankings",
   title: "A venue's rankings",
   description:
-    "Returns a live venue's public rankings for a sport and format as its rankings page shows them to somebody signed out: only people who chose to be listed, under the name they gave, and teams their captains published, once their rating is no longer provisional. Never a child, and nobody who did not opt in. Without a sport and format it says what there is to choose from. Optional season (a year).",
+    "Returns a live venue's public rankings for a sport and format as its rankings page shows them to somebody signed out, but only where the venue's manager has published them (a venue that has not says so, and has nothing to list): only people who chose to be listed, under the name they gave, and teams their captains published, once they have the venue's number of rated results. Where the venue chose to show them, players with fewer results come apart in `provisional`, unranked and in no order, as ratings that may move a lot. A rating is an estimate from the results counted, not exact. Never a child, and nobody who did not opt in. Without a sport and format it says what there is to choose from. Optional season (a year).",
   authority: "public",
   inputSchema: {
     type: "object",
@@ -343,7 +343,7 @@ const venueRankings: McpTool = {
     if (status !== 200) return refused(String(body.error ?? "Venue not found."));
     const board = body.board as { rows: unknown[] } | undefined;
     return answer(
-      board ? `${board.rows.length} ranked, as the venue's rankings page shows them: only people who chose to be listed and published teams.` : "What this venue's rankings have to choose from: call again with activity and format.",
+      board ? `${board.rows.length} ranked, as the venue's rankings page shows them: only people who chose to be listed and published teams. Ratings are estimates from the results counted.` : "What this venue's rankings have to choose from: call again with activity and format.",
       body.board ? { board: body.board, page: `${ctx.origin}/venue/${venueId}/rankings` } : { choices: body.choices, page: `${ctx.origin}/venue/${venueId}/rankings` }
     );
   },

@@ -31,6 +31,7 @@ import {
   resetSubject,
   setBusinessBoard,
   setEventRated,
+  setRankingPolicy,
   staffRatings,
   syncRatedEvent,
   venueBoard,
@@ -610,7 +611,10 @@ describe("what each reader may see", () => {
     const cookie = `${SESSION_COOKIE}=${(await createSession(other.id)).token}`;
     const res = await myRatingsRoute.GET(new NextRequest(`http://localhost/api/my/ratings?venueId=${venueId}&sport=badminton&format=singles&participantId=${kid}`, { headers: { cookie } }));
     expect(res.status).toBe(404);
+    // Published (rankings are public only once the venue's manager says so), the API still shows nothing of them.
+    expect(await setRankingPolicy(venueId, { publicRankings: true }, "Test manager")).toMatchObject({ ok: true });
     const pub = await publicRankings.GET(new NextRequest(`http://localhost/api/venues/${venueId}/rankings?sport=badminton&format=singles`), { params: Promise.resolve({ id: String(venueId) }) });
+    expect(pub.status).toBe(200);
     expect(JSON.stringify(await pub.json())).not.toContain("Aina");
   });
 

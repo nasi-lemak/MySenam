@@ -36,8 +36,8 @@
     data** (`rating_rules`): start 1000; chance of winning
     `1 / (1 + 10^((other − own) / 400))`; change `K × weight × margin × (result −
     chance)`; K 40, 24, 16 by results already counted; a side is the average of its
-    members (doubles, a lineup); provisional until 8 counted results and never
-    ranked until then. A **walkover moves nothing** and is not counted (a
+    members (doubles, a lineup); provisional until 8 counted results (a venue may choose 3 to 30:
+    ADR 0035) and never ranked until then. A **walkover moves nothing** and is not counted (a
     forfeit is not play), a **win by retirement counts half**, and an event's own
     rules for a withdrawn or disqualified entrant's group results decide whether
     they are counted at all. A margin of victory counts only where the sport's
@@ -54,7 +54,8 @@
     only), persistent teams. A name typed into an entry (a doubles partner, a
     typed roster, a counter entry without an account) is not somebody the app can
     rate and is not pretended to be.
-  - **Visibility is opt-in and adult-only.** A player sees their own rating and
+  - **Visibility is opt-in and adult-only,** and a venue's public rankings are
+    published only when its manager turns them on (ADR 0035). A player sees their own rating and
     every result that moved it with the reason; others only what the player chose
     (a number to matched hosts and players; a place on a public ranking under the
     name they gave); a team once published. A child is never ranked, public or

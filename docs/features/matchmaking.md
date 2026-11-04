@@ -270,8 +270,8 @@ player chooses (`src/lib/matchmaking.ts`, `src/lib/ratings.ts`):
 - **The player chooses which level the matcher uses** under *Preferences*:
   **the one they declared (the default: nothing changes for anybody who has not
   chosen)**, the one their results earn, or either (whichever suits the game
-  better). An earned rating is used only when it is **not provisional** (8 or more
-  counted results) and is the rating **at the venue of the game, in the game's
+  better). An earned rating is used only when it is **not provisional** (the venue's
+  number of counted results, 8 unless its manager chose another: [policy](tournaments.md#a-venues-ranking-policy)) and is the rating **at the venue of the game, in the game's
   format** (two players singles, more doubles; pools are per venue). Where there
   is none, the declared level is used whatever they chose.
 - **What a rating earns** is a level by published thresholds (beginner below 950,

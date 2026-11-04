@@ -61,7 +61,7 @@ function Pool({ t, pool, who, rules }: { t: T; pool: MyPool; who: Who; rules: Ru
       </div>
       <div className="text-slate-600">
         {pool.provisional
-          ? t("rt.provisional", { n: Math.max(0, rules.provisionalGames - pool.games) })
+          ? t("rt.provisional", { n: Math.max(0, (pool.rankAfter ?? rules.provisionalGames) - pool.games) })
           : pool.earns && t("rt.earns", { level: t(`games.level.${pool.earns}`) })}{" "}
         · {t("rt.record", { w: pool.wins, d: pool.draws, l: pool.losses })}
         {pool.form.length > 0 && (
@@ -105,6 +105,7 @@ export default function RatingsPage() {
       <div>
         <h1 className="text-2xl font-bold">{t("rt.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">{t("rt.intro", { start: rules.start, n: rules.provisionalGames })}</p>
+        <p className="mt-1 text-sm text-slate-600">{t("rk1.note", { n: rules.provisionalGames })} {t("rk1.venueSets", { n: rules.provisionalGames })}</p>
         <p className="mt-1 text-sm">
           <Link href="/games/preferences" className="text-teal-700 underline">
             {t("rt.preferences")}

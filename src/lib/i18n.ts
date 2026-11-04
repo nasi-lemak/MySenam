@@ -4128,7 +4128,7 @@ const EN = {
   "match.reason.LEVEL_EARNED_ADJACENT": "Your earned rating ({rating}) is one step from the level it asks",
   "match.reason.RATING_CLOSE": "Your rating {mine}, theirs {theirs}: within {within}",
   "gcap.ratings.title": "Ratings and rankings",
-  "gcap.ratings.blurb": "Ratings worked out from the results of events you mark as rated, by one published rule: a venue's rankings of the players who chose to be listed, and each player's own history with the reasons.",
+  "gcap.ratings.blurb": "Ratings worked out from the results of events you mark as rated, by one published rule: a venue's rankings of the players who chose to be listed, published only when you choose, and each player's own history with the reasons.",
   "ctp.group": "Group {n}",
   "ctp.start": "Start",
   "ctp.tops": "Tops",
@@ -4349,6 +4349,14 @@ const EN = {
   "fm1.knockoutConsolation": "Knockout with a consolation draw",
   "fm1.placings": "Final places",
   "fm1.consolationNote": "Players who lose their first match play on here.",
+  "err.RT_RANK_AFTER": "Choose a whole number of counted results from {min} to {max}.",
+  "err.RT_PROVISIONAL_NEEDS_PUBLIC": "Public rankings have to be on before players who are not ranked yet can be shown.",
+  "rk1.note": "A rating is an estimate worked out from the results counted. With few results it can move a lot, and {n} results do not make it exact.",
+  "rk1.venueSets": "Each venue chooses how many counted results a player needs to be ranked there (the usual number is {n}).",
+  "rk1.provisional.title": "Provisional: fewer than {n} rated results; these ratings may move a lot",
+  "rk1.provisional.intro":
+    "These players and teams are not ranked. They have fewer than {n} rated results here, so their ratings are rough estimates. They are listed by name, not in order, and only because they chose to be listed.",
+  "rk1.provisional.caption": "Provisional ratings (not ranked)",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -8424,7 +8432,7 @@ const MS: Record<Phrase, string> = {
   "match.reason.LEVEL_EARNED_ADJACENT": "Penarafan anda yang diperoleh ({rating}) satu langkah daripada tahap yang diminta",
   "match.reason.RATING_CLOSE": "Penarafan anda {mine}, penarafan mereka {theirs}: dalam lingkungan {within}",
   "gcap.ratings.title": "Penarafan dan kedudukan",
-  "gcap.ratings.blurb": "Penarafan dikira daripada keputusan acara yang anda tandakan sebagai bertarafan, mengikut satu peraturan yang diterbitkan: kedudukan pusat bagi pemain yang memilih untuk disenaraikan, dan sejarah setiap pemain sendiri berserta sebabnya.",
+  "gcap.ratings.blurb": "Penarafan dikira daripada keputusan acara yang anda tandakan sebagai bertarafan, mengikut satu peraturan yang diterbitkan: kedudukan pusat bagi pemain yang memilih untuk disenaraikan, diterbitkan hanya apabila anda memilih, dan sejarah setiap pemain sendiri berserta sebabnya.",
   "ctp.group": "Kumpulan {n}",
   "ctp.start": "Mula",
   "ctp.tops": "Top",
@@ -8644,6 +8652,14 @@ const MS: Record<Phrase, string> = {
   "fm1.knockoutConsolation": "Kalah mati dengan undian saguhati",
   "fm1.placings": "Kedudukan akhir",
   "fm1.consolationNote": "Pemain yang kalah perlawanan pertama terus bermain di sini.",
+  "err.RT_RANK_AFTER": "Pilih nombor bulat keputusan dikira antara {min} dengan {max}.",
+  "err.RT_PROVISIONAL_NEEDS_PUBLIC": "Kedudukan awam mesti dihidupkan sebelum pemain yang belum disenaraikan boleh dipaparkan.",
+  "rk1.note": "Penarafan ialah anggaran yang dikira daripada keputusan yang dikira. Dengan sedikit keputusan ia boleh berubah banyak, dan {n} keputusan tidak menjadikannya tepat.",
+  "rk1.venueSets": "Setiap pusat memilih bilangan keputusan dikira yang diperlukan seseorang pemain untuk disenaraikan di situ (bilangan lazim ialah {n}).",
+  "rk1.provisional.title": "Sementara: kurang daripada {n} keputusan bertarafan; penarafan ini boleh berubah banyak",
+  "rk1.provisional.intro":
+    "Pemain dan pasukan ini tidak disenaraikan dalam kedudukan. Mereka mempunyai kurang daripada {n} keputusan bertarafan di sini, jadi penarafan mereka hanyalah anggaran kasar. Mereka disenaraikan mengikut nama, bukan mengikut susunan, dan hanya kerana mereka memilih untuk disenaraikan.",
+  "rk1.provisional.caption": "Penarafan sementara (tidak disenaraikan dalam kedudukan)",
 };
 
 /** Exported so a test can hold the two languages against each other. */
