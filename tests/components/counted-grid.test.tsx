@@ -84,10 +84,14 @@ const cup = {
 };
 
 let preview: Record<string, unknown>;
+let current: typeof cup = cup;
+let requests: unknown[] = [];
 const posts: { url: string; body: Record<string, unknown> }[] = [];
 
 beforeEach(() => {
   posts.length = 0;
+  current = cup;
+  requests = [];
   preview = { consequential: false, token: "tok", changes: [] };
   vi.stubGlobal(
     "fetch",
@@ -97,8 +101,8 @@ beforeEach(() => {
         posts.push({ url, body });
         return { ok: true, json: async () => (body.preview ? { preview } : { tournament: cup }) };
       }
-      if (url.startsWith("/api/admin/tournaments?")) return { ok: true, json: async () => ({ tournaments: [cup], competitions: [], templates: TEMPLATES, venueTemplates: [] }) };
-      return { ok: true, json: async () => ({ tournament: cup }) };
+      if (url.startsWith("/api/admin/tournaments?")) return { ok: true, json: async () => ({ tournaments: [current], competitions: [], templates: TEMPLATES, venueTemplates: [] }) };
+      return { ok: true, json: async () => ({ tournament: current, correctionRequests: requests, reports: [], officials: [] }) };
     })
   );
   vi.stubGlobal("confirm", () => true);
@@ -207,5 +211,27 @@ describe("a counted event's rules", () => {
     expect(screen.getByLabelText("Level in the final: the better placing in the groups decides")).toBeTruthy();
     expect(screen.getByLabelText("The final starts with")).toBeTruthy();
     expect(screen.getByLabelText("Level for the last place in the final")).toBeTruthy();
+  });
+});
+
+describe("a finished climbing event", () => {
+  const asked = { id: 4, matchId: 50, officialName: "Judge Jamal", reason: "Aina's boulder 1 was topped", lines: [], status: "open", createdAt: "2026-11-20T10:00:00Z", decidedBy: null, decidedAt: null, decisionNote: null };
+
+  it("still shows the correction requests its officials send in the days after, to preview, apply or decline, and nothing else of the officials' panel", async () => {
+    current = { ...cup, status: "finished" };
+    requests = [asked];
+    await open();
+    expect(screen.getByText("Results from the players and officials")).toBeTruthy();
+    expect(screen.getByText(/Judge Jamal asks to correct Group 1: Aina's boulder 1 was topped/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview what it changes" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Decline…" })).toBeTruthy();
+    // No link is given for a finished event.
+    expect(screen.queryByRole("button", { name: "Give an official a link" })).toBeNull();
+  });
+
+  it("shows no officials' panel when nobody has asked for a correction", async () => {
+    current = { ...cup, status: "finished" };
+    await open();
+    expect(screen.queryByText("Results from the players and officials")).toBeNull();
   });
 });
