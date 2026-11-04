@@ -776,7 +776,7 @@ the pages and the venue API. Its limits:
 
 ### Browser scenarios and notices
 
-Observed by the browser scenarios of 6 November 2026, not changed. **For the owner:**
+Observed by the browser scenarios of 4 November 2026, not changed. **For the owner:**
 team and league notices (a result confirmed, a forfeit decided) count towards the
 daily cap of eight programme messages per person (`MESSAGES_PER_RECIPIENT_PER_DAY`),
 so on a busy day a captain's decision email can be written off and never sent,
