@@ -41,16 +41,47 @@ function rowOf(l: PerformanceLine): Row {
 
 const button = "inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border px-2 text-sm font-semibold";
 
-export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetail; m: Match; lines: PerformanceLine[]; names: Map<number, string>; call: Call }) {
-  const t = useStaffT();
+/** The words a grid needs, by a short name: the dashboard maps them to its dictionaries, an official's page to the customer dictionary's (`ofc1.cg.*`). */
+export type GridKey =
+  | "final" | "group" | "filledLater" | "units" | "all" | "legend" | "start" | "holdHint" | "ok" | "sub" | "add" | "markZone" | "markTop"
+  | "boulder" | "hold" | "plus" | "tries" | "triesHint" | "status" | "dns" | "dnf" | "dq" | "save" | "resultsIn" | "toCome";
+
+const STAFF_KEYS = {
+  final: "tn.perf.final", group: "tn.cp.group", filledLater: "tn.perf.filledLater", units: "tn.cp.units", all: "tn.cp.all", legend: "tn.cp.legend",
+  start: "tn.cp.start", holdHint: "tn.cp.holdHint", ok: "tn.perf.ok", sub: "tn.cp.sub", add: "tn.cp.add", markZone: "tn.cp.markZone", markTop: "tn.cp.markTop",
+  boulder: "tn.cp.boulder", hold: "tn.cp.hold", plus: "tn.cp.plus", tries: "tn.cp.tries", triesHint: "tn.cp.triesHint", status: "tn.perf.status",
+  dns: "tn.perf.dns", dnf: "tn.perf.dnf", dq: "tn.out.disqualified", save: "tn.perf.save", resultsIn: "tn.perf.resultsIn", toCome: "tn.perf.toCome",
+} as const satisfies Record<GridKey, string>;
+
+export function CountedGridCore({
+  tn,
+  m,
+  lines,
+  names,
+  t,
+  locale,
+  onSave,
+  saveLabel,
+}: {
+  tn: Pick<TournamentDetail, "rules">;
+  m: Match;
+  lines: PerformanceLine[];
+  names: Map<number, string>;
+  /** The words of the grid, in the reader's own language (the dashboard's dictionaries, or an official's page's). */
+  t: (key: GridKey, vars?: Record<string, string | number>) => string;
+  locale: string;
+  /** Called with the lines to save; the grid shows itself busy until it answers. */
+  onSave: (performances: { entryId: number; status: string; counts?: object[] }[]) => Promise<void>;
+  saveLabel?: string;
+}) {
   const rules = tn.rules.performance!.counted!;
-  const unitName = m.stage === "final" ? t("tn.perf.final") : t("tn.cp.group", { n: m.position });
+  const unitName = m.stage === "final" ? t("final") : t("group", { n: m.position });
   const [rows, setRows] = useState<Record<number, Row>>(() => Object.fromEntries(lines.map((l) => [l.entryId, rowOf(l)])));
   const [view, setView] = useState<number | "all">("all");
   const [busy, setBusy] = useState(false);
 
   if (lines.length === 0)
-    return <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500">{t("tn.perf.filledLater", { unit: unitName })}</div>;
+    return <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500">{t("filledLater", { unit: unitName })}</div>;
 
   const units = Array.from({ length: rules.units }, (_, i) => i + 1);
   const shownUnits = view === "all" ? units : [view];
@@ -85,14 +116,7 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
   async function save() {
     setBusy(true);
     try {
-      const url = `/api/admin/tournaments/${tn.id}/matches/${m.id}`;
-      const performances = body();
-      // What it would change first: a correction that changes who is in the final is confirmed against this.
-      const preview = await call(url, { performances, preview: true });
-      if (!preview.ok) return;
-      const p = preview.data.preview as { consequential: boolean; token: string; changes: string[]; changePhrases?: StaffText[] };
-      if (p.consequential && !window.confirm(t("tn.cp.confirmField", { changes: p.changes.map((c, i) => t.say(p.changePhrases?.[i], c)).join("\n") }))) return;
-      await call(url, { performances, ...(p.consequential ? { confirm: { token: p.token } } : {}) });
+      await onSave(body());
     } finally {
       setBusy(false);
     }
@@ -100,7 +124,7 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
 
   const keyHeader = (unit: number) => (
     <th key={unit} scope="col" className="px-1 text-left text-xs font-medium text-slate-500">
-      {t("tn.cp.boulder", { n: unit })}
+      {t("boulder", { n: unit })}
     </th>
   );
 
@@ -109,30 +133,30 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
       <h3 className="font-semibold">
         {unitName}{" "}
         <span className="text-xs font-normal text-slate-500">
-          {m.date} {m.minute !== null && formatMinute(m.minute, t.locale)} · {m.courtName} · {m.status === "done" ? t("tn.perf.resultsIn") : t("tn.perf.toCome")}
+          {m.date} {m.minute !== null && formatMinute(m.minute, locale)} · {m.courtName} · {m.status === "done" ? t("resultsIn") : t("toCome")}
         </span>
       </h3>
       {rules.kind === "boulders" && (
-        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={t("tn.cp.units")}>
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={t("units")}>
           {(["all", ...units] as const).map((v) => (
             <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} className={`${button} ${view === v ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white text-slate-700"}`}>
-              {v === "all" ? t("tn.cp.all") : v}
+              {v === "all" ? t("all") : v}
             </button>
           ))}
         </div>
       )}
-      {rules.kind === "boulders" && <p className="mt-1 text-xs text-slate-500">{t("tn.cp.legend")}</p>}
+      {rules.kind === "boulders" && <p className="mt-1 text-xs text-slate-500">{t("legend")}</p>}
       <div className="mt-2 overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr>
               <th scope="col" className="w-10 text-left text-xs font-medium text-slate-500">
-                {t("tn.cp.start")}
+                {t("start")}
               </th>
               <th />
-              {rules.kind === "boulders" ? shownUnits.map(keyHeader) : <th scope="col" className="px-1 text-left text-xs font-medium text-slate-500">{t("tn.cp.holdHint")}</th>}
+              {rules.kind === "boulders" ? shownUnits.map(keyHeader) : <th scope="col" className="px-1 text-left text-xs font-medium text-slate-500">{t("holdHint")}</th>}
               <th scope="col" className="sr-only">
-                {t("tn.perf.ok")}
+                {t("ok")}
               </th>
               <th />
             </tr>
@@ -159,7 +183,7 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
                             <div className="flex items-center gap-1">
                               <button
                                 type="button"
-                                aria-label={t("tn.cp.sub", { name, n: unit })}
+                                aria-label={t("sub", { name, n: unit })}
                                 disabled={off || c.a <= Math.max(c.z ?? 0, c.t ?? 0)}
                                 onClick={() => change(l.entryId, unit, (x) => ({ ...x, a: x.a - 1 }))}
                                 className={`${button} border-slate-300 bg-white disabled:opacity-40`}
@@ -169,7 +193,7 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
                               <span className="w-6 text-center tabular-nums">{c.a}</span>
                               <button
                                 type="button"
-                                aria-label={t("tn.cp.add", { name, n: unit })}
+                                aria-label={t("add", { name, n: unit })}
                                 disabled={off || c.t !== null || c.a >= MAX}
                                 onClick={() => change(l.entryId, unit, (x) => ({ ...x, a: x.a + 1 }))}
                                 className={`${button} border-slate-300 bg-white disabled:opacity-40`}
@@ -178,7 +202,7 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
                               </button>
                               <button
                                 type="button"
-                                aria-label={t("tn.cp.markZone", { name, n: unit })}
+                                aria-label={t("markZone", { name, n: unit })}
                                 aria-pressed={c.z !== null}
                                 disabled={off || c.t !== null}
                                 onClick={() => change(l.entryId, unit, (x) => (x.z !== null ? { ...x, z: null } : { ...x, a: Math.max(x.a, 1), z: Math.max(x.a, 1) }))}
@@ -188,7 +212,7 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
                               </button>
                               <button
                                 type="button"
-                                aria-label={t("tn.cp.markTop", { name, n: unit })}
+                                aria-label={t("markTop", { name, n: unit })}
                                 aria-pressed={c.t !== null}
                                 disabled={off}
                                 onClick={() =>
@@ -213,23 +237,23 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
                             type="number"
                             min={0}
                             max={200}
-                            aria-label={t("tn.cp.hold", { name })}
+                            aria-label={t("hold", { name })}
                             disabled={r?.status !== "ok"}
                             value={cellOf(l.entryId, 1).hold}
                             onChange={(e) => change(l.entryId, 1, (x) => ({ ...x, hold: e.target.value, a: Math.max(x.a, 1) }))}
                             className="w-16 rounded border border-slate-300 px-1 py-1 text-sm"
                           />
                           <label className="inline-flex items-center gap-1 text-sm">
-                            <input type="checkbox" aria-label={t("tn.cp.plus", { name })} disabled={r?.status !== "ok"} checked={cellOf(l.entryId, 1).plus} onChange={(e) => change(l.entryId, 1, (x) => ({ ...x, plus: e.target.checked, a: Math.max(x.a, 1) }))} />+
+                            <input type="checkbox" aria-label={t("plus", { name })} disabled={r?.status !== "ok"} checked={cellOf(l.entryId, 1).plus} onChange={(e) => change(l.entryId, 1, (x) => ({ ...x, plus: e.target.checked, a: Math.max(x.a, 1) }))} />+
                           </label>
                           <input
                             type="number"
                             min={0}
                             max={MAX}
-                            aria-label={t("tn.cp.tries", { name })}
+                            aria-label={t("tries", { name })}
                             disabled={r?.status !== "ok"}
                             value={cellOf(l.entryId, 1).a || ""}
-                            placeholder={t("tn.cp.triesHint")}
+                            placeholder={t("triesHint")}
                             onChange={(e) => change(l.entryId, 1, (x) => ({ ...x, a: Math.min(MAX, Math.max(0, Math.floor(Number(e.target.value) || 0))) }))}
                             className="w-16 rounded border border-slate-300 px-1 py-1 text-sm"
                           />
@@ -241,15 +265,15 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
                     </td>
                     <td>
                       <select
-                        aria-label={t("tn.perf.status", { name })}
+                        aria-label={t("status", { name })}
                         value={r?.status ?? "ok"}
                         onChange={(e) => setStatus(l.entryId, e.target.value as PerformanceLine["status"])}
                         className="rounded border border-slate-300 px-1 py-1 text-xs"
                       >
-                        <option value="ok">{t("tn.perf.ok")}</option>
-                        <option value="dns">{t("tn.perf.dns")}</option>
-                        <option value="dnf">{t("tn.perf.dnf")}</option>
-                        <option value="dq">{t("tn.out.disqualified")}</option>
+                        <option value="ok">{t("ok")}</option>
+                        <option value="dns">{t("dns")}</option>
+                        <option value="dnf">{t("dnf")}</option>
+                        <option value="dq">{t("dq")}</option>
                       </select>
                     </td>
                   </tr>
@@ -259,9 +283,34 @@ export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetai
         </table>
       </div>
       <button type="button" disabled={busy} onClick={() => void save()} className="mt-2 min-h-9 rounded-md bg-teal-600 px-4 py-1 text-xs font-semibold text-white disabled:opacity-60">
-        {t("tn.perf.save")}
+        {saveLabel ?? t("save")}
       </button>
     </div>
+  );
+}
+
+/** The dashboard's grid: the dictionaries' words, and a save that previews a correction changing who is in the final and makes it only as confirmed. */
+export function CountedHeat({ tn, m, lines, names, call }: { tn: TournamentDetail; m: Match; lines: PerformanceLine[]; names: Map<number, string>; call: Call }) {
+  const st = useStaffT();
+  const t = (key: GridKey, vars?: Record<string, string | number>) => st(STAFF_KEYS[key], vars);
+  return (
+    <CountedGridCore
+      tn={tn}
+      m={m}
+      lines={lines}
+      names={names}
+      t={t}
+      locale={st.locale}
+      onSave={async (performances) => {
+        const url = `/api/admin/tournaments/${tn.id}/matches/${m.id}`;
+        // What it would change first: a correction that changes who is in the final is confirmed against this.
+        const preview = await call(url, { performances, preview: true });
+        if (!preview.ok) return;
+        const p = preview.data.preview as { consequential: boolean; token: string; changes: string[]; changePhrases?: StaffText[] };
+        if (p.consequential && !window.confirm(st("tn.cp.confirmField", { changes: p.changes.map((c, i) => st.say(p.changePhrases?.[i], c)).join("\n") }))) return;
+        await call(url, { performances, ...(p.consequential ? { confirm: { token: p.token } } : {}) });
+      }}
+    />
   );
 }
 

@@ -23,6 +23,8 @@ import { useStaffClock, useStaffT } from "./StaffLanguage";
 import { LoadFailed } from "./place";
 import { CounterEntry } from "./CounterEntry";
 import { CountedHeat, FieldCounts } from "./CountedGrid";
+import { CorrectionRequests } from "./CorrectionRequests";
+import type { CorrectionRequest } from "@/lib/official-performances";
 import { TournamentDetailsEditor } from "./TournamentDetailsEditor";
 import { TournamentDay } from "./TournamentDay";
 import { SwissPanel } from "./SwissPanel";
@@ -794,9 +796,9 @@ function CreateCompetition({ venue, post }: { venue: ManagedVenue; post: (url: s
  * or dispute (staff settle it by entering the result below), and officials'
  * links to enter results, each shown once when made.
  */
-function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
+function ResultsByPeople({ tn, onTournament }: { tn: TournamentDetail; onTournament?: (d: TournamentDetail) => void }) {
   const t = useStaffT();
-  const [state, setState] = useState<{ reports: MatchReport[]; officials: Official[] }>({ reports: [], officials: [] });
+  const [state, setState] = useState<{ reports: MatchReport[]; officials: Official[]; corrections: CorrectionRequest[] }>({ reports: [], officials: [], corrections: [] });
   const [link, setLink] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -805,7 +807,7 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
     const res = await fetch(base, { cache: "no-store" });
     if (res.ok) {
       const data = await readJson(res);
-      setState({ reports: data.reports ?? [], officials: data.officials ?? [] });
+      setState({ reports: data.reports ?? [], officials: data.officials ?? [], corrections: data.correctionRequests ?? [] });
     }
   }, [base]);
   useEffect(() => {
@@ -849,7 +851,7 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
         </div>
       )}
       <div className="mt-3">
-        <p className="text-slate-600">{t("tn.officialsIntro")}</p>
+        <p className="text-slate-600">{t(tn.format === "performance" ? "ofs1.of.intro" : "tn.officialsIntro")}</p>
         <ul className="mt-1 space-y-1">
           {live.map((o) => (
             <li key={o.id} className="flex items-center gap-2">
@@ -890,6 +892,7 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
             {t("tn.sendLink")} <span className="font-mono text-xs">{link}</span>
           </p>
         )}
+        {tn.format === "performance" && <CorrectionRequests tn={tn} requests={state.corrections} base={base} reload={load} onTournament={onTournament} />}
       </div>
     </section>
   );
@@ -1337,7 +1340,7 @@ function Manage({
         />
       )}
 
-      {tn.format !== "performance" && tn.status !== "cancelled" && tn.status !== "finished" && <ResultsByPeople tn={tn} />}
+      {(tn.format !== "performance" || tn.rules.performance?.counted) && tn.status !== "cancelled" && tn.status !== "finished" && <ResultsByPeople tn={tn} onTournament={replace} />}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
         <h3 className="font-semibold">{t("tn.leaveRules")}</h3>

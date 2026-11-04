@@ -782,6 +782,8 @@ export async function officialDay(
   if (!who) return { ok: false, error: "This link no longer works. Ask the venue for a new one." };
   const row = (await getDb().prepare("SELECT 1 FROM tournament_matches WHERE id = ? AND tournament_id = ?").get(matchId, who.tournamentId)) as unknown;
   if (!row) return { ok: false, error: "That match is not in this tournament." };
+  // A climbing event's official enters counts only (lib/official-performances.ts): no calling, starting or releasing.
+  if ((await tournamentById(who.tournamentId))?.format === "performance") return { ok: false, error: "This link is for a climbing event's counts only.", code: "OFC_PERF_ONLY" };
   const actor: Actor = { id: null, name: who.official.name, role: "official" };
   const done = action === "call" ? await callFixture(matchId, actor, {}, now) : action === "start" ? await startFixture(matchId, actor, now) : await releaseCall(matchId, actor, now);
   if (!done.ok) return done;

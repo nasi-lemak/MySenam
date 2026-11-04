@@ -417,6 +417,7 @@ function FixtureRow({
         <ReportForm t={t} league={league} f={f} post={post} />
       )}
       {captainHere && f.mine && f.status === "reported" && f.reportedBy !== f.mine.leagueTeamId && <AnswerForm t={t} f={f} post={post} />}
+      {captainHere && f.mine && <ForfeitAsk t={t} f={f} post={post} />}
     </li>
   );
 }
@@ -528,6 +529,85 @@ function ReportForm({ t, league, f, post }: { t: T; league: TeamLeagueDetail; f:
       ))}
       <button className={small}>{t("tml.sendReport")}</button>
     </form>
+  );
+}
+
+const FORFEIT_REASONS = ["no_show", "short_handed", "told_us", "other"] as const;
+
+/**
+ * A captain asks the venue's manager to call a forfeit (lib/team-forfeits.ts): a request changes nothing until a manager confirms it, and
+ * this shows where each request stands. Only while the fixture is still to be played; one open request each.
+ */
+function ForfeitAsk({ t, f, post }: { t: T; f: FixtureView; post: (b: object) => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [team, setTeam] = useState(String(f.home.id));
+  const [reason, setReason] = useState<(typeof FORFEIT_REASONS)[number]>("no_show");
+  const [note, setNote] = useState("");
+  const requests = f.forfeitRequests ?? [];
+  const mineOpen = requests.find((r) => r.mine && r.status === "open");
+  const state = (r: NonNullable<FixtureView["forfeitRequests"]>[number]) =>
+    r.status === "open"
+      ? t("ofc1.fr.open", { by: r.by, team: r.forfeitTeam.name })
+      : r.status === "declined"
+        ? t("ofc1.fr.declined", { team: r.forfeitTeam.name, why: r.decisionNote ?? "" })
+        : t(`ofc1.fr.${r.status}`, { team: r.forfeitTeam.name });
+  return (
+    <div className="mt-2 space-y-2 text-xs">
+      {requests.length > 0 && (
+        <ul className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2" aria-label={t("ofc1.fr.title")}>
+          {requests.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center gap-2">
+              <span>{state(r)}</span>
+              {r.mine && r.status === "open" && (
+                <button className={small} onClick={() => void post({ action: "forfeit_withdraw", requestId: r.id })}>
+                  {t("ofc1.fr.withdraw")}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {f.status === "scheduled" && !mineOpen && (
+        <>
+          <button className="text-teal-700 underline" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {t("ofc1.fr.title")}
+          </button>
+          {open && (
+            <form
+              className="space-y-2 rounded-lg border border-slate-200 p-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void post({ action: "forfeit_request", fixtureId: f.id, forfeitTeam: Number(team), reason, note }).then((ok) => ok && (setOpen(false), setNote("")));
+              }}
+            >
+              <p className="text-slate-600">{t("ofc1.fr.help")}</p>
+              <label className="flex flex-col text-slate-500">
+                {t("ofc1.fr.team")}
+                <select value={team} onChange={(e) => setTeam(e.target.value)} className={input}>
+                  <option value={f.home.id}>{f.home.name}</option>
+                  <option value={f.away.id}>{f.away.name}</option>
+                </select>
+              </label>
+              <label className="flex flex-col text-slate-500">
+                {t("ofc1.fr.reason")}
+                <select value={reason} onChange={(e) => setReason(e.target.value as typeof reason)} className={input}>
+                  {FORFEIT_REASONS.map((r) => (
+                    <option key={r} value={r}>
+                      {t(`ofc1.fr.reason.${r}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col text-slate-500">
+                {t("ofc1.fr.note")}
+                <textarea rows={2} maxLength={300} required={reason === "other"} value={note} onChange={(e) => setNote(e.target.value)} className={input} />
+              </label>
+              <button className={small}>{t("ofc1.fr.send")}</button>
+            </form>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

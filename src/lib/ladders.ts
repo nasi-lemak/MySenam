@@ -302,9 +302,11 @@ export interface MyPlace {
   frozenUntil: string | null;
   /** Players above, within reach, and why not for those who cannot be challenged now. */
   targets: { playerId: number; name: string; rank: number; not: NotAllowed | null }[];
-  /** Open challenges involving the place, with the other side's contact once accepted (adult ladders only). */
-  open: (ChallengeView & { contact: { name: string; phone: string; whatsapp: string } | null })[];
-  history: ChallengeView[];
+  /** Open challenges involving the place, with the other side's contact once accepted (adult ladders only), and the ordinary booking attached to it, if one is. */
+  open: (ChallengeView & { contact: { name: string; phone: string; whatsapp: string } | null; booking: ChallengeBooking | null })[];
+  history: (ChallengeView & { booking: ChallengeBooking | null })[];
+  /** Where a challenge's players book a court: the venue's own booking page for the sport, as anybody does (no court is held for a challenge). */
+  bookingPage: string;
 }
 
 // ------------------------------------------------------------ reading
@@ -923,7 +925,7 @@ async function placeOf(ladder: Ladder, playerId: number): Promise<MyPlace> {
         .filter((r) => r.rank < me.rank && me.rank - r.rank <= ladder.settings.reach)
         .map((r) => ({ playerId: r.playerId, name: names.get(r.playerId) ?? "", rank: r.rank, not: mayChallenge(ranks, ladder.settings, playerId, r.playerId, { today, busy, lastTogether: together, names }) }))
     : [];
-  const open = [];
+  const open: MyPlace["open"] = [];
   for (const c of challenges.filter((x) => OPEN.includes(x.status))) {
     const otherId = c.challenger === playerId ? c.challenged : c.challenger;
     const other = people.get(otherId);
@@ -933,8 +935,11 @@ async function placeOf(ladder: Ladder, playerId: number): Promise<MyPlace> {
       const phone = ((await db.prepare("SELECT COALESCE(u.phone, ?) AS phone FROM (SELECT 1) x LEFT JOIN users u ON u.id = ?").get(other.contact_phone, other.user_id)) as { phone: string | null }).phone;
       if (phone) contact = { name: names.get(otherId) ?? "", phone, whatsapp: toWhatsAppNumber(phone) };
     }
-    open.push({ ...toChallenge(c, names, false), contact });
+    open.push({ ...toChallenge(c, names, false), contact, booking: null });
   }
+  // The ordinary booking each challenge carries, if its players attached one (`attachBooking`); nothing about it is held by the ladder.
+  const carried = await liveBookings(challenges.map((c) => c.id));
+  for (const o of open) o.booking = carried.get(o.id) ?? null;
   return {
     playerId,
     name: names.get(playerId) ?? "",
@@ -943,7 +948,8 @@ async function placeOf(ladder: Ladder, playerId: number): Promise<MyPlace> {
     frozenUntil: me?.frozenUntil ?? null,
     targets,
     open,
-    history: challenges.filter((x) => !OPEN.includes(x.status)).slice(0, 20).map((c) => toChallenge(c, names, false)),
+    history: challenges.filter((x) => !OPEN.includes(x.status)).slice(0, 20).map((c) => ({ ...toChallenge(c, names, false), booking: carried.get(c.id) ?? null })),
+    bookingPage: `/venue/${ladder.venueId}?sport=${ladder.sport}`,
   };
 }
 
@@ -1457,6 +1463,8 @@ export async function endSeason(ladderId: number, opts: { close?: boolean } = {}
  */
 export async function ladderHousekeeping(): Promise<{ confirmed: number; forfeited: number; lapsed: number; thawed: number; dropped: number }> {
   const db = getDb();
+  // A booking cancelled by a path that did not say so: the attachment goes, the players are told (idempotent).
+  await dropCancelledBookings();
   const total = { confirmed: 0, forfeited: 0, lapsed: 0, thawed: 0, dropped: 0 };
   const ladders = (await db.prepare("SELECT id FROM ladders WHERE status = 'open' ORDER BY id").all()) as { id: number }[];
   for (const l of ladders) {
@@ -1516,6 +1524,113 @@ export async function ladderHousekeeping(): Promise<{ confirmed: number; forfeit
 async function daysAgo(days: number): Promise<string> {
   const row = (await getDb().prepare(`SELECT datetime('now', '-${Math.trunc(days)} days') AS t`).get()) as { t: string };
   return row.t;
+}
+
+// ------------------------------------------------------------ the booking a challenge carries
+
+/**
+ * A ladder challenge holds no court time: creating, accepting, proposing a time, reporting or withdrawing writes no block, claim or
+ * booking (tests/ladder-court-time.test.ts counts them). Once the two have agreed a time they book as anybody does, through the
+ * venue's own booking page with all its availability, pricing, payment and eligibility checks; only a confirmed booking reserves the
+ * court. Either player may then **attach that booking's code** to the challenge so both see it ("Court booked: Court 2, 19:00"). Attaching
+ * changes nothing about the booking (no hold, no price, no new path); if the booking is cancelled the attachment is dropped and both are told.
+ */
+export interface ChallengeBooking {
+  code: string;
+  court: string;
+  date: string;
+  startMin: number;
+  endMin: number;
+}
+
+async function liveBookings(challengeIds: number[]): Promise<Map<number, ChallengeBooking>> {
+  const out = new Map<number, ChallengeBooking>();
+  if (challengeIds.length === 0) return out;
+  const rows = (await getDb()
+    .prepare(
+      `SELECT x.challenge_id, b.code, c.name AS court, b.date, b.start_min, b.end_min
+         FROM ladder_challenge_bookings x JOIN bookings b ON b.id = x.booking_id JOIN courts c ON c.id = b.court_id
+        WHERE x.dropped_at IS NULL AND b.status = 'confirmed' AND x.challenge_id IN (${challengeIds.map(() => "?").join(",")})`
+    )
+    .all(...challengeIds)) as { challenge_id: number; code: string; court: string; date: string; start_min: number; end_min: number }[];
+  for (const r of rows) out.set(r.challenge_id, { code: r.code, court: r.court, date: r.date, startMin: r.start_min, endMin: r.end_min });
+  return out;
+}
+
+/**
+ * Either of the two players adds the booking they made (or the other made) to an accepted challenge: by its code, which must be a confirmed
+ * booking of this ladder's venue and sport, today or later, made through the account of one of the two players, and not on another
+ * challenge. A code that is nobody's of these two is answered as not found, whatever else is true of it. The booking's row is locked while
+ * it is read, so a cancellation cannot slip between the look and the attachment.
+ */
+export async function attachBooking(userId: number, challengeId: number, code: unknown): Promise<LadderResult<ChallengeBooking>> {
+  const found = await challengeFor(userId, challengeId);
+  if (!found) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+  const typed = typeof code === "string" ? code.trim().toUpperCase() : "";
+  if (typed.length < 3 || typed.length > 40) return ladderRefusal("LD_BK_NOT_FOUND", {}, 404);
+  return withLadder(found.ch.ladder_id, async (ladder, season) => {
+    const db = getDb();
+    const ch = await lockedChallenge(challengeId);
+    if (!ch || ch.season_id !== season.id) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+    if (ch.status !== "accepted") return ladderRefusal("LD_BK_NOT_OPEN");
+    if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE challenge_id = ? AND dropped_at IS NULL").get(ch.id)) return ladderRefusal("LD_BK_HAVE");
+    const b = (await db
+      .prepare(
+        `SELECT b.id, b.user_id, b.status, b.date, b.sport, b.class_id, b.code, b.start_min, b.end_min, c.name AS court, c.venue_id
+           FROM bookings b JOIN courts c ON c.id = b.court_id WHERE UPPER(b.code) = ? FOR UPDATE OF b`
+      )
+      .get(typed)) as { id: number; user_id: number | null; status: string; date: string; sport: string; class_id: number | null; code: string; start_min: number; end_min: number; court: string; venue_id: number } | undefined;
+    const accounts = (await db.prepare("SELECT user_id FROM ladder_players WHERE id IN (?, ?)").all(ch.challenger, ch.challenged)) as { user_id: number | null }[];
+    if (!b || b.user_id === null || !accounts.some((a) => a.user_id === b.user_id)) return ladderRefusal("LD_BK_NOT_FOUND", {}, 404);
+    if (b.status !== "confirmed" || b.date < (await venueToday(ladder.venueId))) return ladderRefusal("LD_BK_STATE");
+    if (b.venue_id !== ladder.venueId) return ladderRefusal("LD_BK_VENUE");
+    if (b.sport !== ladder.sport || b.class_id !== null) return ladderRefusal("LD_BK_SPORT");
+    if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE booking_id = ? AND dropped_at IS NULL").get(b.id)) return ladderRefusal("LD_BK_TAKEN");
+    await db.prepare("INSERT INTO ladder_challenge_bookings (challenge_id, booking_id, attached_by) VALUES (?, ?, ?)").run(ch.id, b.id, found.myId);
+    const other = found.myId === ch.challenger ? ch.challenged : ch.challenger;
+    const people = await playersOf(ladder.id);
+    const me = shown(ladder, people.get(found.myId)?.name ?? "");
+    const what = { court: b.court, date: b.date, time: fmtMin(b.start_min) };
+    await tellPlayer(other, ladder, (tr) => tr("ofc1.lb.mail.attached.s", { l: ladder.name }), (tr) => tr("ofc1.lb.mail.attached.b", { l: ladder.name, a: me, ...what }));
+    return { ok: true, value: { code: b.code, court: b.court, date: b.date, startMin: b.start_min, endMin: b.end_min } };
+  });
+}
+
+/** Either player takes the booking off the challenge. The booking itself is untouched. */
+export async function detachBooking(userId: number, challengeId: number): Promise<LadderResult<null>> {
+  const found = await challengeFor(userId, challengeId);
+  if (!found) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+  return withLadder(found.ch.ladder_id, async () => {
+    const done = await getDb()
+      .prepare("UPDATE ladder_challenge_bookings SET dropped_at = datetime('now'), dropped_reason = 'removed' WHERE challenge_id = ? AND dropped_at IS NULL")
+      .run(challengeId);
+    if (done.changes !== 1) return ladderRefusal("LD_BK_NONE");
+    return { ok: true, value: null };
+  });
+}
+
+/**
+ * The booking under a challenge was cancelled: the attachment is dropped, once, and both players told that the challenge stands and a court is to
+ * be booked again. Called where a booking is cancelled (lib/store.ts) and by the scheduler for any path that did not; running it again changes nothing.
+ */
+export async function ladderBookingCancelled(bookingId: number): Promise<void> {
+  const dropped = (await getDb()
+    .prepare("UPDATE ladder_challenge_bookings SET dropped_at = datetime('now'), dropped_reason = 'cancelled' WHERE booking_id = ? AND dropped_at IS NULL RETURNING challenge_id")
+    .all(bookingId)) as { challenge_id: number }[];
+  for (const d of dropped) {
+    const ch = (await getDb().prepare("SELECT * FROM ladder_challenges WHERE id = ?").get(d.challenge_id)) as ChallengeRow | undefined;
+    const ladder = ch ? await ladderById(ch.ladder_id) : null;
+    if (!ch || !ladder) continue;
+    for (const id of [ch.challenger, ch.challenged])
+      await tellPlayer(id, ladder, (tr) => tr("ofc1.lb.mail.dropped.s", { l: ladder.name }), (tr) => tr("ofc1.lb.mail.dropped.b", { l: ladder.name }));
+  }
+}
+
+async function dropCancelledBookings(): Promise<void> {
+  const rows = (await getDb()
+    .prepare("SELECT DISTINCT x.booking_id FROM ladder_challenge_bookings x JOIN bookings b ON b.id = x.booking_id WHERE x.dropped_at IS NULL AND b.status <> 'confirmed'")
+    .all()) as { booking_id: number }[];
+  for (const r of rows) await ladderBookingCancelled(r.booking_id);
 }
 
 // ------------------------------------------------------------ telling people

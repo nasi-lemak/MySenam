@@ -3,7 +3,7 @@ import { readJsonObject } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { ladderResponse } from "@/lib/ladder-access";
-import { answer, confirm, dispute, report, withdraw } from "@/lib/ladders";
+import { answer, attachBooking, confirm, detachBooking, dispute, report, withdraw } from "@/lib/ladders";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,11 @@ export const dynamic = "force-dynamic";
  * `{ action: "accept", onDate?, minute?, version? }`, `{ action: "decline", version? }`,
  * `{ action: "propose", onDate, minute?, version? }` (a time, which hands the answer to the other side),
  * `{ action: "withdraw", version? }` (the challenger, before it is played), `{ action: "report", winner, score, version? }` (their games
- * first), `{ action: "confirm", version }` and `{ action: "dispute", note, version }`.
+ * first), `{ action: "confirm", version }` and `{ action: "dispute", note, version }`. A challenge holds no court time: once a time is
+ * agreed the players book through the venue's ordinary booking page, and either adds that booking to an accepted challenge with
+ * `{ action: "attach_booking", code }` (a confirmed booking of this ladder's venue and sport, today or later, made through the account of one of
+ * the two players, not on another challenge; refusals `LD_BK_*`) and takes it off with `{ action: "detach_booking" }`. Attaching changes nothing
+ * about the booking; if it is cancelled the attachment is dropped and both are told.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; challengeId: string }> }) {
   const user = await getSessionUser(req);
@@ -30,6 +34,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // An answer is to the challenge the player saw, so it names it.
   if ((body.action === "confirm" || body.action === "dispute") && version === undefined)
     return NextResponse.json({ error: "Say which result you are answering: version is needed." }, { status: 400 });
+  // No court is held for a challenge: the players book as anybody does, then add that booking's code to it (lib/ladders.ts `attachBooking`).
+  if (body.action === "attach_booking") {
+    const done = await attachBooking(user.id, found.id, body.code);
+    return done.ok ? NextResponse.json({ booking: done.value }) : ladderResponse(done);
+  }
+  if (body.action === "detach_booking") {
+    const done = await detachBooking(user.id, found.id);
+    return done.ok ? NextResponse.json({ ok: true }) : ladderResponse(done);
+  }
   const when = { onDate: typeof body.onDate === "string" ? body.onDate : undefined, minute: body.minute === undefined || body.minute === null ? undefined : Number(body.minute) };
   const result =
     body.action === "accept"

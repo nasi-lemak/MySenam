@@ -5,6 +5,7 @@ import { tickOutbox } from "@/lib/notify";
 import { saveVenueTemplate } from "@/lib/competition-templates";
 import { staffTournament } from "@/lib/tournament-access";
 import { listOfficials, openReports } from "@/lib/match-reports";
+import { listCorrectionRequests } from "@/lib/official-performances";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // Results players reported and are waiting on, or dispute; and the officials' links.
     reports: await openReports(found.id),
     officials: await listOfficials(found.id),
+    // What officials of a climbing event asked to have corrected, for a manager to review.
+    correctionRequests: await listCorrectionRequests(found.id),
   });
 }
 

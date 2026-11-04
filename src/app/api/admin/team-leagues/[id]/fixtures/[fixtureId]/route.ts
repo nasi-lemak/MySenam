@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
 import { readJsonObject, refusal } from "@/lib/api";
 import { getDb } from "@/lib/db";
+import { deskRefusal } from "@/lib/roles";
 import { staffTeamLeague } from "@/lib/team-league-access";
-import { decideFixture, moveFixture, teamLeagueDetail, type DecideInput } from "@/lib/team-leagues";
+import { decideFixture, isWholeFixtureWalkover, moveFixture, teamLeagueDetail, type DecideInput } from "@/lib/team-leagues";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,8 @@ const version = (b: Record<string, unknown>) => (Number.isInteger(b.version) ? {
 
 /**
  * Staff decide a fixture (the front desk may): `{ rubbers: [{ winner, score?, walkover? }] }` its games' results, taken as
- * confirmed; `{ forfeitBy: leagueTeamId }` a forfeit, the other side awarded every game; `{ void: true }` strikes it;
+ * confirmed; `{ forfeitBy: leagueTeamId }` a forfeit, the other side awarded every game (a manager's: the desk is refused, as it is
+ * at `.../forfeit`, and asks for one at `.../forfeit-requests`); `{ void: true }` strikes it;
  * `{ clear: true }` puts it back to be played. `version`: the fixture as staff saw it; refused as changed if a captain reported
  * or answered since. Both captains are emailed.
  */
@@ -32,6 +34,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const input: DecideInput | null =
     body.void === true ? { void: true } : body.clear === true ? { clear: true } : Number.isInteger(body.forfeitBy) ? { forfeitBy: body.forfeitBy as number } : Array.isArray(body.rubbers) ? { rubbers: body.rubbers } : null;
   if (!input) return NextResponse.json({ error: "Give the games' results, a forfeit, void or clear." }, { status: 400 });
+  // A forfeit changes the table and what follows: a manager's, whichever address it is sent to (lib/roles.ts).
+  if ("forfeitBy" in input || ("rubbers" in input && isWholeFixtureWalkover(input.rubbers))) {
+    const denied = deskRefusal(found.admin.role, "POST", `/api/admin/team-leagues/${found.id}/fixtures/${fixture.id}/forfeit`);
+    if (denied) return denied;
+  }
   const done = await decideFixture(fixture.id, found.admin.id, input, version(body));
   if (!done.ok) return refusal(done, done.status ?? 409);
   const detail = await teamLeagueDetail(found.id, { forStaff: true });
