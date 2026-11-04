@@ -544,6 +544,14 @@ relationship to a participant the venue knows, with a reason
 (`PATCH /api/admin/participants/[id]`). No other account can see or act on
 them, and every change is in the participant's history.
 
+**Names on public pages.** Wherever the public can see a competition (a tournament's draw and results, the live page, a league's boxes,
+a junior ladder, a notice to another family) a child is shown by first name and the initial of the next name. Under each person they
+manage the guardian finds *Names on public pages*: with a plain explanation, they may allow the full name for one event (a tournament,
+or a league's or ladder's season) or for all the child's entries at one venue for 12 months, by ticking a box and pressing a button, and
+withdraw it at any time (the next page load shows the short name). Only a guardian who manages the child now can; a venue's staff
+cannot, and entering never implies it. It is recorded as declared with the wording seen, in the child's history and the venue's activity
+log ([minors' names on public pages](../architecture/privacy.md#minors-names-on-public-pages)).
+
 **Applying.** The application form asks *who is this application for*: the
 adult, or one of their people. For a person, the adult declares that they
 have the authority to apply for them and agrees to it on their behalf; the

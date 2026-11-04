@@ -10,6 +10,7 @@ import { isPartnerGender, isWho, type Who } from "./who";
 import { categoryOfWho, declaredGender, entrantCategoryRefusal, entrantParticipantId, entrantUserId, entrantVenueRefusal, recordEntered, selfEntrant, type Entrant } from "./competition-entrants";
 import { refuse } from "./entitlements";
 import { ACTS_FOR } from "./participants";
+import { authorisedParticipants, publicName } from "./public-names";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
 import { tellVenueStaffEach } from "./owner-alerts";
@@ -230,6 +231,17 @@ async function toLeague(r: LRow): Promise<League> {
   };
 }
 
+/**
+ * The names the public sees for a league's players (lib/public-names.ts): a person a guardian manages by first name and the initial
+ * of the next, unless the guardian has authorised the full name for this league's season. Staff and the guardian's own `managed`
+ * places keep the full names; everything public, and a notice to another family, goes through here.
+ */
+async function publicLeagueNames(league: { id: number; venueId: number }, rows: { id: number; name: string; participant_id: number | null }[]): Promise<Map<number, string>> {
+  const authorised = await authorisedParticipants({ kind: "league", id: league.id, venueId: league.venueId }, rows.map((r) => r.participant_id));
+  const on = todayISO();
+  return new Map(rows.map((r) => [r.id, publicName({ name: r.name, participantId: r.participant_id }, { on, authorised })]));
+}
+
 export async function leagueById(id: number): Promise<League | null> {
   const row = (await getDb().prepare(`${L_SELECT} WHERE l.id = ?`).get(id)) as LRow | undefined;
   return row ? await toLeague(row) : null;
@@ -310,6 +322,10 @@ export async function leagueDetail(id: number, opts: { season?: number; forStaff
   }));
 
   const placed = new Set(places.map((p) => p.playerId));
+  // The public sees a child by first name and initial, unless their guardian authorised the full name (lib/public-names.ts); staff see them in full.
+  const shownNames = opts.forStaff
+    ? new Map<number, string>()
+    : await publicLeagueNames(league, (await db.prepare("SELECT id, name, participant_id FROM league_players WHERE league_id = ?").all(id)) as { id: number; name: string; participant_id: number | null }[]);
   const people = (
     (await db
       .prepare(
@@ -333,7 +349,7 @@ export async function leagueDetail(id: number, opts: { season?: number; forStaff
     .filter((p) => p.status === "active" || placed.has(p.id))
     .map((p) => ({
       id: p.id,
-      name: p.name,
+      name: opts.forStaff ? p.name : shownNames.get(p.id) ?? p.name,
       status: p.status,
       level: p.level,
       ...(opts.forStaff
@@ -690,14 +706,16 @@ async function placeOf(leagueId: number, p: { id: number; name: string }): Promi
   // participant's is their guardian's number; one added at the counter, the number given there.
   const contacts = (await db
     .prepare(
-      `SELECT p.id, p.name, COALESCE(u.phone, p.contact_phone) AS phone FROM league_places lp
+      `SELECT p.id, p.name, p.participant_id, COALESCE(u.phone, p.contact_phone) AS phone FROM league_places lp
          JOIN league_players p ON p.id = lp.player_id
          LEFT JOIN users u ON u.id = p.user_id
         WHERE lp.season_id = ? AND lp.box_no = ? AND lp.player_id <> ? AND lp.withdrawn_at IS NULL
           AND COALESCE(u.phone, p.contact_phone) IS NOT NULL
         ORDER BY p.name`
     )
-    .all(season.id, place.box_no, p.id)) as { id: number; name: string; phone: string }[];
+    .all(season.id, place.box_no, p.id)) as { id: number; name: string; participant_id: number | null; phone: string }[];
+  // Box-mates are other families: a child among them is named as the public sees them.
+  const boxNames = await publicLeagueNames((await leagueById(leagueId))!, contacts);
   return {
     playerId: p.id,
     name: p.name,
@@ -710,7 +728,7 @@ async function placeOf(leagueId: number, p: { id: number; name: string }): Promi
       paid: place.paid_at !== null,
       withdrawn: place.withdrawn_at !== null,
     },
-    contacts: contacts.map((c) => ({ playerId: c.id, name: c.name, phone: c.phone, whatsapp: toWhatsAppNumber(c.phone) })),
+    contacts: contacts.map((c) => ({ playerId: c.id, name: boxNames.get(c.id) ?? c.name, phone: c.phone, whatsapp: toWhatsAppNumber(c.phone) })),
   };
 }
 
@@ -816,7 +834,8 @@ export async function startSeason(leagueId: number, opts: { startsOn?: string; e
     await db.prepare("UPDATE league_players SET start_box = NULL WHERE league_id = ?").run(leagueId);
   })();
 
-  const names = new Map(players.map((p) => [p.id, p.name]));
+  // The others in a box are other families: a child among them is named as the public sees them (lib/public-names.ts).
+  const names = await publicLeagueNames(league, players);
   for (const [i, box] of boxes.entries())
     for (const id of box) {
       const p = players.find((x) => x.id === id)!;

@@ -966,7 +966,8 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (!template) return { ok: false, error: "Unknown template." };
   const parsedRules = parseRules(input.rules ?? null, template.rules);
   if (!parsedRules.ok) return parsedRules;
-  const rules = parsedRules.rules;
+  // A copy: with no rules given the template's own come back, and a Swiss event's settings must not be written into the template for every later event.
+  const rules = { ...parsedRules.rules };
   if (input.format === "performance" && !rules.performance) return { ok: false, error: "A performance event needs what is measured: choose a performance template." };
   if (input.format !== "performance" && rules.performance) return { ok: false, error: "That template is for a performance event." };
   if (input.format !== "swiss" && rules.swiss) return { ok: false, error: "Swiss settings are for a Swiss event." };
@@ -3746,7 +3747,8 @@ export async function tellEntry(entryId: number, t: Tournament, subject: Written
 
 async function tellFirstMatches(d: TournamentDetail): Promise<void> {
   const db = getDb();
-  const names = new Map(d.entries.map((e) => [e.id, e.name]));
+  // An opponent is named to another family as the public sees them: a declared minor by first name and initial (lib/public-names.ts).
+  const names = new Map((await (await import("./public-names")).namedForThePublic(d, { everybody: false })).entries.map((e) => [e.id, e.name]));
   const rows = (await db
     .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND status = 'entered' AND user_id IS NOT NULL")
     .all(d.id)) as { id: number }[];

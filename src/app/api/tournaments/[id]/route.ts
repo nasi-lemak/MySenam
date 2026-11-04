@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const t = await visible(req, Number((await params).id));
   if (!t) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const user = await getSessionUser(req);
-  // A counted event (bouldering) names a declared minor by first name and initial (lib/public-names.ts).
+  // Every entry named as the public sees it: a declared minor by first name and initial, unless a guardian has authorised the full name (lib/public-names.ts).
   const detail = await namedForThePublic((await tournamentDetail(t.id))!);
   const mine = user ? await myEntry(user.id, t.id) : null;
   const managed = user ? await managedEntries(user.id, t.id) : [];

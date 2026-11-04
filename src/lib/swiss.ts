@@ -653,7 +653,8 @@ export async function afterSwissChange(tournamentId: number): Promise<void> {
 
 /** Everybody in the round, told who they play and when, or that they have the bye (in their language, to the account that holds the entry). */
 async function tellRound(d: TournamentDetail, round: number): Promise<void> {
-  const names = new Map(d.entries.map((e) => [e.id, e.name]));
+  // An opponent is named to another family as the public sees them: a declared minor by first name and initial (lib/public-names.ts).
+  const names = new Map((await (await import("./public-names")).namedForThePublic(d, { everybody: false })).entries.map((e) => [e.id, e.name]));
   const mine = d.matches.filter((m) => m.stage === "group" && m.round === round);
   for (const m of mine) {
     if (m.status === "bye" && m.a !== null) {

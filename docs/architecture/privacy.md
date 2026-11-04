@@ -72,7 +72,8 @@ its dates and reasons, and memberships bought online as chosen and what
 became of each), places on
 venues' lists linked to it, games, the playing profile, people blocked, reports made and community
 groups, teams, leagues, tournaments, receipts and credit notes, the e-invoices made
-for its receipts with the buyer details given ([below](#e-invoice-records)), waiting-list places,
+for its receipts with the buyer details given ([below](#e-invoice-records)), each authorisation it gave for a child's full name on public pages
+([below](#minors-names-on-public-pages)), waiting-list places,
 gift vouchers used, applications to be approved for an activity (answers,
 declarations, history, the documents still held with who opened them, and
 what is kept of those already deleted), and the messages still
@@ -612,6 +613,62 @@ made for a participant follows the
 minimised form dropping the authority declaration; the participant is never
 deleted while one rests on them.
 
+### Minors' names on public pages
+
+The owner's decision (4 November 2026): a child's name is abbreviated by default, consistently, wherever the public can see it, and
+published in full only on a guardian's authorisation. One rule decides it, `src/lib/public-names.ts` (`publicName`):
+
+- **A declared minor** is shown by first name and the initial of the next word ("Aina L."); where there is no second word, the first name
+  alone. Each of a pair is shown by the same rule, and a pair with a declared minor in it is shown short **whole**: a partner is often
+  family, and an adult's surname beside a child's short name could give it away. A team is shown by its team name and its members
+  never. An adult is shown as entered. A tournament set to short names (*Names on the public live page*) shows everybody short on
+  its public page and live page, whatever a guardian has allowed.
+- **Declared, never verified.** A minor is one with a guardian's agreement recorded at entry, a participant a guardian manages
+  ([ADR 0022](decisions/0022-children-managed-from-an-adults-account.md)), or a date of birth under 18 on the event's first day (today,
+  for a list of people with no event). An event with no age range that a child entered by themselves, with no guardian recorded, cannot
+  be told from an adult: the app does not guess ages and asks for no identity document.
+- **Public functions take the public audience; staff functions do not call the rule.** The organiser's tabs, check-in, the official's
+  page, the guardian's own pages and emails to a guardian about their own child keep the full name. Staff on a junior ladder see what
+  the ladder shows (first name and initial), as before.
+
+Where the rule is applied (each with its test in `tests/public-names.test.ts` unless named):
+
+| Surface | What it shows |
+| --- | --- |
+| A tournament's public page and `GET /api/tournaments/:id`, in every format (knockout, groups, round robin, double elimination, Swiss, performance and counted events) | Every entry by the rule (`namedForThePublic`); the guardian's own `managed` entries in full |
+| The live page and `GET /api/tournaments/:id/live` | The same (`liveBoard`; `tests/tournament-day.test.ts`) |
+| Notices to the other family (a draw's first match, a Swiss round, *your match is next*) | The opponent by the rule |
+| A box league's public page and `GET /api/leagues/:id`; box-mates' contact list and the season-start notice | Players by the rule; staff and the guardian's own place in full |
+| A ladder's public page and `GET /api/ladders/:id`, its challenges and notices | A junior ladder's players by the rule, an adult ladder's as given; a season's final order is stored short and never with an authorised full name |
+| A league of teams (`/team-leagues`) | Team names only: no roster or lineup is public, a child is named only to staff, their own side's captain and their own guardian (`tests/team-leagues.test.ts`) |
+| Rankings (`/venue/:id/rankings`, `GET /api/venues/:id/rankings`, the `venue_rankings` tool) | No child by any route, whatever the guardian chose: only adults who opted in, and published teams |
+| `/api/v1` and the assistants' public tools | No competition data at all (a test fails if a public tool or `/api/v1` route is added that names an entrant) |
+| Page titles, Open Graph and Twitter text, structured data, sitemap, share links, posters and QR codes | None of these names an entrant: a test fails if a competition page adds metadata or a share link without going through the rule |
+
+An authorised exception is the one thing that can show a child's full name:
+
+- **Who:** an account that manages the participant now (a live, unpaused, unarchived guardianship). Never the participant's own login,
+  never staff or a manager (no staff route gives it), never a venue ticking a box on a guardian's behalf, never implied by entering.
+- **Scope, per child:** *this event* (a tournament; a league's or a ladder's current season) or *all the child's competitive entries at one
+  venue*, for **12 months**. It ends by itself with the event (the last day) or the season, after its twelve months, or when the guardian
+  stops managing the child; and it applies to nothing else.
+- **Recorded as declared:** who, when, the scope, and the wording the guardian saw in the language they saw it
+  (`public_name_consents`, migration 0274; `src/lib/public-name-consents.ts`). The box must be ticked and the button pressed: the
+  server refuses without `confirm: true`.
+- **Withdrawn at once** by any guardian who manages the child, from the same page. The public pages read the table live on every request
+  and cache nothing across requests (they are rendered per request), so a withdrawal is in force on the next one.
+- **Logged** in the child's history (`public_name.authorised`, `public_name.withdrawn`) and in the venue's staff activity log
+  (`participant.public_name_authorised`, `participant.public_name_withdrawn`); in the guardian's data export (`publicNameAuthorisations`, with
+  the wording and whether it is in force); erased with the guardian's account (the child is shown short again at once), and with the child.
+- **Where it is** on the guardian's own page for each child (*Names on public pages* under [people an adult manages](#people-an-adult-manages)),
+  in English, Malay, Chinese and Tamil, with a plain explanation of what becomes public and that it can be withdrawn.
+- **Not possible:** a minor with only a guardian's name recorded at entry and no participant (a teenager entering with their own account)
+  has no managing account to give it: they are always shown short.
+
+This code does not decide whether publishing a child's name is lawful, with or without a guardian's agreement, in any country: the wording of
+the authorisation and of the privacy notice's paragraph on it awaits the owner's lawyer's review
+([open questions](#open-questions-for-professional-review-retention-and-documents)).
+
 ### Teams
 
 A [team](../features/tournaments.md#teams) is a name, a sport, a captain and its
@@ -898,6 +955,12 @@ each country an install serves (and, for the documents, the venue's adviser):
 5. Whether recording a minor's guardian's name and declaration, as declared
    and never verified, is enough consent for each country, and for which
    ages.
+6. Whether a guardian's authorisation of a child's full name on public pages
+   ([above](#minors-names-on-public-pages)), recorded as declared, with the
+   wording shown in four languages and valid for one event or for twelve months
+   at one venue, is valid consent in each country, whether twelve months is
+   proportionate, and what the privacy notice and the authorisation's wording
+   must say. The wording is the code's draft, not a lawyer's.
 6. Whether the legal, safety, dispute and incident bases for a hold, and who
    may place one for how long, match each country's rules on retaining data
    for legal claims.

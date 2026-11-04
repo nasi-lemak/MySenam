@@ -952,6 +952,8 @@ export async function eraseGuardian(userId: number): Promise<void> {
   const db = getDb();
   const mine = (await db.prepare("SELECT DISTINCT participant_id AS id FROM participant_guardians WHERE user_id = ?").all(userId)) as { id: number }[];
   const linked = (await db.prepare("SELECT id FROM participants WHERE linked_user_id = ?").all(userId)) as { id: number }[];
+  // What they authorised on public pages goes with them: the children are shown short again at once (lib/public-name-consents.ts).
+  await (await import("./public-name-consents")).eraseConsentsOf(userId);
   await db.prepare("DELETE FROM participant_guardians WHERE user_id = ?").run(userId);
   await db.prepare("UPDATE participant_invites SET cancelled_at = now() WHERE created_by_user_id = ? AND used_at IS NULL AND cancelled_at IS NULL").run(userId);
   // A request they started and nobody has accepted lapses; one they accepted goes with their account (ON DELETE CASCADE).

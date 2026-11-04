@@ -6,6 +6,7 @@ import type { ManagedPerson, Relationship } from "@/lib/managed-people";
 import type { AccountRequests } from "@/lib/guardian-requests";
 import { hasPhrase, type Phrase, type T } from "@/lib/i18n";
 import { useT } from "@/components/Language";
+import PublicNamesPanel from "@/components/PublicNames";
 import { intlTag } from "@/lib/region";
 
 const RELATIONSHIPS: Relationship[] = ["parent", "guardian", "other"];
@@ -287,6 +288,9 @@ export default function ManagedPeople() {
                 {t("ptc.end")}
               </button>
             </span>
+            <div className="basis-full">
+              <PublicNamesPanel person={p} />
+            </div>
           </li>
         ))}
       </ul>

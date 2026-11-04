@@ -3,6 +3,7 @@ import { RETENTION } from "@/lib/privacy";
 import { retentionPolicy, type RetentionPolicy, type ScopeKey } from "@/lib/retention-policy";
 import { serverT } from "@/lib/locale";
 import { siteName } from "@/lib/site";
+import { BROAD_MONTHS } from "@/lib/public-name-consents";
 import type { Phrase, T } from "@/lib/i18n";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -126,6 +127,9 @@ export default async function PrivacyPage() {
           </li>
           <li>
             <strong>{t("privacy.seeNoneLead")}</strong> {t("privacy.seeNoneBody")}
+          </li>
+          <li>
+            <strong>{t("pn1.privacyLead")}</strong> {t("pn1.privacyBody", { months: BROAD_MONTHS, site: siteName() })}
           </li>
         </ul>
       </section>

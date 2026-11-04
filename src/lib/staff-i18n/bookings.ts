@@ -836,6 +836,8 @@ const en = {
   "nbk.occ.entries_other": "{n} entries",
   "nbk.act.admitted": "Let somebody in without a booking",
   "nbk.act.checkedOut": "Checked somebody out (entry without booking)",
+  "pn1.act.authorised": "A guardian allowed a child's full name on public pages",
+  "pn1.act.withdrawn": "A guardian withdrew the permission to show a child's full name on public pages",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1654,6 +1656,8 @@ const ms: Record<keyof typeof en, string> = {
   "nbk.occ.entries_other": "{n} kemasukan",
   "nbk.act.admitted": "Membenarkan seseorang masuk tanpa tempahan",
   "nbk.act.checkedOut": "Mendaftar keluar seseorang (kemasukan tanpa tempahan)",
+  "pn1.act.authorised": "Penjaga membenarkan nama penuh seorang kanak-kanak di halaman awam",
+  "pn1.act.withdrawn": "Penjaga menarik balik kebenaran memaparkan nama penuh seorang kanak-kanak di halaman awam",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2472,6 +2476,8 @@ const zh: Record<keyof typeof en, string> = {
   "nbk.occ.entries_other": "入场 {n} 人",
   "nbk.act.admitted": "准许某人无预订入场",
   "nbk.act.checkedOut": "为某人签退（无预订入场）",
+  "pn1.act.authorised": "监护人允许在公开页面显示儿童的全名",
+  "pn1.act.withdrawn": "监护人撤回了在公开页面显示儿童全名的许可",
 };
 
 const area = { en, ms, zh };

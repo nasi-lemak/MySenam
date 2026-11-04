@@ -431,8 +431,10 @@ through `recordResult`.
   shown by first name and the initial of the next name; a tournament can
   show everybody that way (*Names on the public live page*); a team by its
   name. It carries nothing about check-in, calls, staff, guardians or
-  contacts. An event with no age range cannot detect minors, so it shows full
-  names unless set to short names, as its main public page does.
+  contacts. An event with no age range cannot detect a minor who entered
+  with no guardian recorded, so it shows that entrant in full unless set to
+  short names, as its main public page does: both by the one rule
+  ([names of minors on public pages](#names-of-minors-on-public-pages)).
 - **Roles.** A manager calls, starts, releases, decides and sets the day up; an
   official calls where it is held, starts and releases; front desk checks
   players in and enters results and sees the board. Fixture moves, late
@@ -790,7 +792,7 @@ their order of start with their counts, and how many topped each boulder
 minor (a guardian's agreement, a participant a guardian manages, or a date of
 birth under 18 on the first day: the entrant's word) is named there by first
 name and the initial of the next, and everybody so where the tournament shows
-short names (`src/lib/public-names.ts`); the public API says the same. Juniors
+short names (`src/lib/public-names.ts`), as every public page of every format does; the public API says the same. Juniors
 enter through a guardian's account as for any event. Counts belong to the
 entry: erasing a person anonymises the entry, the counts stay with it as any
 result does, and a person's export lists their entry. A winner is named only
@@ -808,6 +810,23 @@ own); lead qualification over two routes, or a score by several measures
 combined; boulder bonus scoring where only the last attempt counts; speed
 climbing; per-boulder timing and rotation of the groups through the boulders
 (the group's time is one block of court time).
+
+### Names of minors on public pages
+
+A child is shown on every public page, public API payload and notice to another family by **first name and the initial of the next
+name** ("Aina L."), by one rule (`src/lib/public-names.ts`; the authoritative statement, with the surfaces it covers, is
+[privacy](../architecture/privacy.md#minors-names-on-public-pages)). It covers a tournament's page and API in every format, the live
+page, the draw and Swiss-round notices to opponents, a box league's page, box-mates' contacts and start notice, and a junior ladder;
+a team is shown by its team name; rankings never list a child. A declared minor is a guardian's agreement recorded at entry, a
+participant a guardian manages, or a date of birth under 18 on the first day: the entrant's word, never verified. A pair with a
+declared minor in it is shown short whole. Staff, the official's page, check-in and the guardian's own pages keep the full name.
+
+The one exception is the guardian's: from the page for each child they manage (*Names on public pages*, in English, Malay, Chinese
+and Tamil) they may allow the full name for **one event** (a tournament, or a league's or ladder's season) or for **all the child's
+entries at one venue for 12 months**, by ticking a box and pressing a button. It is recorded as declared with the wording seen, can be
+withdrawn at once (the next request shows the short name), ends with the event or season, and is logged in the child's history and
+the venue's activity log. A manager or a venue cannot give it. An organiser's *short names for everybody* setting wins over it. The
+wording awaits the owner's lawyer's review.
 
 ### What tournaments do not do
 
@@ -1249,7 +1268,7 @@ Anybody sees the league, its teams **by name**, the fixtures (per night; per tea
 with a filter), the results and the table: no player, no roster, no lineup and no
 dates a team cannot play. A member of an entered team also sees its roster and
 lineups; a captain also the dates the team gave; staff see everything, a child
-named as for any entry. A league at a venue the viewer may not see is not found.
+named as for any entry (to anybody else, never: no public team-league payload carries a player's name). A league at a venue the viewer may not see is not found.
 
 ### What team leagues do not do
 
@@ -1548,7 +1567,7 @@ and, as "a correction was made", to the public.
 
 - **The public page** shows the table with the tie-breaks that rank it, and every round
   with its pairings, why each was made (the two's points, a float), results and byes, by the
-  names the page shows (a declared minor by first name and initial).
+  names the page shows (a declared minor by first name and initial; a round's notice to the other family names them so too).
 - **Tournament day** works as for any group stage: the board, announcements, calls, rest,
   the live page and officials' links show Swiss fixtures labelled *Round n*; a round's
   fixtures appear as it is paired.
@@ -1676,7 +1695,9 @@ rank.
 
 ### Privacy
 
-An adult ladder shows the names players gave; a junior ladder shows first name and initial. The data
+An adult ladder shows the names players gave; a junior ladder shows first name and initial, unless a guardian has
+[authorised the full name](#names-of-minors-on-public-pages) for the season. A season's final order is stored short and never
+keeps an authorised full name. The data
 export lists the ladders a person joined; erasing an account takes the person off every ladder and replaces
 their name in its places, without moving anybody else beyond the gap closing. Ages and guardianship are
 declared, never verified, and no identity document is asked for.
@@ -1718,6 +1739,7 @@ declared, never verified, and no identity document is asked for.
 | Competitions with divisions, who may enter | `src/lib/competitions.ts` | `tests/divisions.test.ts`, `tests/components/tournament-entry.test.tsx` |
 | Performance events | `src/lib/performance-math.ts` | `tests/competitions.test.ts` |
 | Counted performances: bouldering tops and zones, climbing by height | `src/lib/counted-performances.ts`, `src/lib/public-names.ts`, `src/lib/tournaments.ts` (`recordPerformances`, `previewPerformances`), `src/components/admin/CountedGrid.tsx`, `db/migrations/0273_counted_performances.sql` | `tests/counted-performances.test.ts` |
+| Names of minors on public pages: the one rule, a guardian's authorisation of the full name, the guardian's page | `src/lib/public-names.ts`, `src/lib/public-name-consents.ts`, `src/app/api/my/people/public-name/route.ts`, `src/components/PublicNames.tsx`, `db/migrations/0274_public_name_consents.sql` | `tests/public-names.test.ts` (PGlite and Postgres), `tests/components/public-names.test.tsx` |
 | Results by players and officials | `src/lib/match-reports.ts` | `tests/match-reports.test.ts`, `tests/components/official-page.test.tsx` |
 | Box leagues | `src/lib/leagues.ts`, `src/lib/boxes.ts` | `tests/leagues.test.ts`, `tests/boxes.test.ts`, `tests/league-results-race.test.ts` (also against Postgres) |
 | Teams that persist: invitations, children through a guardian, what a captain and members may do, history, privacy | `src/lib/teams.ts`, `db/migrations/0269_teams_and_team_leagues.sql`, `src/app/teams`, `src/app/team-invitation` | `tests/teams.test.ts` (PGlite and Postgres), `tests/components/teams-ui.test.tsx` |

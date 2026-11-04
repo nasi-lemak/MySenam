@@ -509,6 +509,8 @@ export interface CustomerExport {
    * inductions, places on bookings, waivers agreed for them).
    */
   managedPeople: unknown[];
+  /** Each authorisation this account gave for a child's full name on public pages: the child, the scope, the wording seen and when (lib/public-name-consents.ts). */
+  publicNameAuthorisations: unknown[];
   /** Relationships to participants this account ended, or that were revoked: the relationship alone. */
   guardianshipsEnded: unknown[];
   /** Where this account is a participant's own login: that participant's record, which is theirs. */
@@ -744,6 +746,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       account.email
     ),
     approvals: await (await import("./approvals")).approvalsExport(userId),
+    publicNameAuthorisations: await (await import("./public-name-consents")).consentsExport(userId),
     ...(await (async () => {
       const people = await participantsExport(userId);
       return {

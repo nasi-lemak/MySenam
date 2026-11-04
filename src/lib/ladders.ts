@@ -9,7 +9,7 @@ import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
 import { baseUrl, emailPlayer, sentences, type Written } from "./outbox";
 import { ACTS_FOR, participantEvent } from "./participants";
 import { venueHours } from "./store";
-import { shortName } from "./tournament-day";
+import { authorisedParticipants, publicName, shortName } from "./public-names";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { parseRules, readRules, type CompetitionRules } from "./tournament-rules";
 import { isPartnerGender, isWho, type Who } from "./who";
@@ -429,11 +429,19 @@ interface PlayerRow {
   contact_phone: string | null;
   entered_by_name: string | null;
   status: "active" | "left";
+  /** The name as the ladder shows it: short on a junior ladder unless the child's guardian authorised the full name for this season (lib/public-names.ts). */
+  shown: string;
 }
 
 async function playersOf(ladderId: number): Promise<Map<number, PlayerRow>> {
-  const rows = (await getDb().prepare("SELECT id, ladder_id, user_id, name, participant_id, contact_phone, entered_by_name, status FROM ladder_players WHERE ladder_id = ?").all(ladderId)) as PlayerRow[];
-  return new Map(rows.map((r) => [r.id, r]));
+  const db = getDb();
+  const rows = (await db.prepare("SELECT id, ladder_id, user_id, name, participant_id, contact_phone, entered_by_name, status FROM ladder_players WHERE ladder_id = ?").all(ladderId)) as Omit<PlayerRow, "shown">[];
+  const ladder = (await db.prepare("SELECT venue_id, audience FROM ladders WHERE id = ?").get(ladderId)) as { venue_id: number; audience: "adults" | "juniors" } | undefined;
+  const juniors = ladder?.audience === "juniors";
+  const authorised = juniors && ladder ? await authorisedParticipants({ kind: "ladder", id: ladderId, venueId: ladder.venue_id }, rows.map((r) => r.participant_id)) : new Set<number>();
+  const on = todayISO();
+  // Every player on a junior ladder is a declared minor; an adult ladder's are shown as given (the one rule, lib/public-names.ts).
+  return new Map(rows.map((r) => [r.id, { ...r, shown: publicName({ name: r.name, guardian: juniors, participantId: r.participant_id }, { on, authorised }) }]));
 }
 
 /** A name as the ladder shows it: as given on an adult ladder, first name and the initial of the next on a junior one. */
@@ -536,7 +544,7 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
   const db = getDb();
   const seasonRows = (await db.prepare("SELECT * FROM ladder_seasons WHERE ladder_id = ? ORDER BY number DESC").all(id)) as SeasonRow[];
   const people = await playersOf(id);
-  const names = new Map([...people].map(([pid, p]) => [pid, shown(ladder, p.name)]));
+  const names = new Map([...people].map(([pid, p]) => [pid, p.shown]));
   const seasons: SeasonView[] = seasonRows.map((s) => ({
     id: s.id,
     number: s.number,
@@ -911,7 +919,7 @@ async function placeOf(ladder: Ladder, playerId: number): Promise<MyPlace> {
   const db = getDb();
   const season = ladder.season!;
   const people = await playersOf(ladder.id);
-  const names = new Map([...people].map(([id, p]) => [id, shown(ladder, p.name)]));
+  const names = new Map([...people].map(([id, p]) => [id, p.shown]));
   const ranks = await ranksOf(season.id);
   const me = ranks.find((r) => r.playerId === playerId) ?? null;
   const challenges = (await db.prepare("SELECT * FROM ladder_challenges WHERE season_id = ? AND (challenger = ? OR challenged = ?) ORDER BY id DESC LIMIT 50").all(season.id, playerId, playerId)) as ChallengeRow[];
@@ -995,7 +1003,7 @@ async function cancelOpenFor(ladder: Ladder, season: SeasonRow, playerId: number
     await db.prepare("UPDATE ladder_challenges SET status = 'cancelled', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, c.id);
     const other = c.challenger === playerId ? c.challenged : c.challenger;
     const people = await playersOf(ladder.id);
-    const me = shown(ladder, people.get(playerId)?.name ?? "");
+    const me = (people.get(playerId)?.shown ?? "");
     await tellPlayer(
       other,
       ladder,
@@ -1034,7 +1042,7 @@ export async function challenge(userId: number, ladderId: number, mine: number, 
     const mineNow = people.get(mine);
     if (!mineNow || mineNow.status !== "active") return ladderRefusal("LD_NOT_ON", {}, 404);
     const ranks = await ranksOf(season.id);
-    const names = new Map([...people].map(([id, p]) => [id, shown(ladder, p.name)]));
+    const names = new Map([...people].map(([id, p]) => [id, p.shown]));
     const not = mayChallenge(ranks, ladder.settings, mine, target, { today, busy: await busyPlayers(season.id), lastTogether: await lastTogether(season.id), names });
     if (not) return ladderRefusal(not.code, not.vars ?? {});
     const when = proposal(input, today);
@@ -1095,7 +1103,7 @@ async function lockedChallenge(challengeId: number): Promise<ChallengeRow | unde
 async function viewOf(ladder: Ladder, challengeId: number): Promise<ChallengeView> {
   const people = await playersOf(ladder.id);
   const row = (await getDb().prepare("SELECT * FROM ladder_challenges WHERE id = ?").get(challengeId)) as ChallengeRow;
-  return toChallenge(row, new Map([...people].map(([id, p]) => [id, shown(ladder, p.name)])), false);
+  return toChallenge(row, new Map([...people].map(([id, p]) => [id, p.shown])), false);
 }
 
 export type Answer =
@@ -1122,7 +1130,7 @@ export async function answer(userId: number, challengeId: number, input: Answer,
     const today = await venueToday(ladder.venueId);
     const people = await playersOf(ladder.id);
     const other = mineId === ch.challenger ? ch.challenged : ch.challenger;
-    const me = shown(ladder, people.get(mineId)?.name ?? "");
+    const me = (people.get(mineId)?.shown ?? "");
     if ("decline" in input) {
       // The challenger cannot decline their own challenge: they withdraw it (`withdraw`).
       if (mineId === ch.challenger) return ladderRefusal("LD_NOT_AWAITING");
@@ -1186,7 +1194,7 @@ export async function withdraw(userId: number, challengeId: number, expected: { 
     if (ch.status !== "pending" && ch.status !== "accepted") return ladderRefusal("LD_NOT_AWAITING");
     await getDb().prepare("UPDATE ladder_challenges SET status = 'cancelled', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(await venueToday(ladder.venueId), ch.id);
     const people = await playersOf(ladder.id);
-    await tellEnd(ladder, ch.challenged, shown(ladder, people.get(ch.challenger)?.name ?? ""), "withdrawn");
+    await tellEnd(ladder, ch.challenged, (people.get(ch.challenger)?.shown ?? ""), "withdrawn");
     return { ok: true, value: await viewOf(ladder, ch.id) };
   });
 }
@@ -1217,8 +1225,8 @@ async function settleAndTell(ladder: Ladder, season: SeasonRow, challengeId: num
     const rank = ranks.find((r) => r.playerId === id)?.rank;
     if (rank === undefined) continue;
     const people = await playersOf(ladder.id);
-    const a = shown(ladder, people.get(ch.challenger)?.name ?? "");
-    const b = shown(ladder, people.get(ch.challenged)?.name ?? "");
+    const a = (people.get(ch.challenger)?.shown ?? "");
+    const b = (people.get(ch.challenged)?.shown ?? "");
     const winner = ch.winner === ch.challenger ? a : b;
     await tellPlayer(
       id,
@@ -1265,7 +1273,7 @@ export async function report(userId: number, challengeId: number, input: { winne
       )
       .run(input.winner, score, mine, ch.id);
     const people = await playersOf(ladder.id);
-    const me = shown(ladder, people.get(mine)?.name ?? "");
+    const me = (people.get(mine)?.shown ?? "");
     const other = mine === ch.challenger ? ch.challenged : ch.challenger;
     await tellPlayer(
       other,
@@ -1433,7 +1441,7 @@ export async function endSeason(ladderId: number, opts: { close?: boolean } = {}
     const open = (await db.prepare(`SELECT * FROM ladder_challenges WHERE season_id = ? AND status IN (${OPEN_SQL})`).all(season.id)) as ChallengeRow[];
     for (const c of open) {
       await db.prepare("UPDATE ladder_challenges SET status = 'cancelled', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, c.id);
-      for (const id of [c.challenger, c.challenged]) await tellEnd(ladder, id, shown(ladder, people.get(id === c.challenger ? c.challenged : c.challenger)?.name ?? ""), "season");
+      for (const id of [c.challenger, c.challenged]) await tellEnd(ladder, id, (people.get(id === c.challenger ? c.challenged : c.challenger)?.shown ?? ""), "season");
     }
     const finalRanks = ranks.map((r) => ({ rank: r.rank, playerId: r.playerId, name: shown(ladder, people.get(r.playerId)?.name ?? "") }));
     await db.prepare("UPDATE ladder_seasons SET ended_on = ?, final_ranks = ? WHERE id = ?").run(today, JSON.stringify(finalRanks), season.id);
@@ -1472,16 +1480,16 @@ export async function ladderHousekeeping(): Promise<{ confirmed: number; forfeit
         } else if (c.status === "pending" && c.respond_by !== null && today > c.respond_by) {
           if (c.awaiting === "challenged") {
             await decideForfeit(ladder, season, c, true, today, { reason: "ignored", by: "" });
-            await tellEnd(ladder, c.challenger, shown(ladder, people.get(c.challenged)?.name ?? ""), "ignored");
+            await tellEnd(ladder, c.challenger, (people.get(c.challenged)?.shown ?? ""), "ignored");
             out.forfeited++;
           } else {
             await db.prepare("UPDATE ladder_challenges SET status = 'lapsed', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, c.id);
-            await tellEnd(ladder, c.challenged, shown(ladder, people.get(c.challenger)?.name ?? ""), "lapsed");
+            await tellEnd(ladder, c.challenged, (people.get(c.challenger)?.shown ?? ""), "lapsed");
             out.lapsed++;
           }
         } else if (c.status === "accepted" && c.play_by !== null && today > c.play_by) {
           await db.prepare("UPDATE ladder_challenges SET status = 'lapsed', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, c.id);
-          for (const id of [c.challenger, c.challenged]) await tellEnd(ladder, id, shown(ladder, people.get(id === c.challenger ? c.challenged : c.challenger)?.name ?? ""), "notPlayed");
+          for (const id of [c.challenger, c.challenged]) await tellEnd(ladder, id, (people.get(id === c.challenger ? c.challenged : c.challenger)?.shown ?? ""), "notPlayed");
           out.lapsed++;
         }
       }

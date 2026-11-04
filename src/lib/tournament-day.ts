@@ -9,9 +9,8 @@ import { linkIn } from "./link-locale";
 import { whatsappFor } from "./whatsapp-credit";
 import { addDays, todayISO } from "./time";
 import { noteResultBy } from "./match-reports";
+import { authorisedParticipants, publicName } from "./public-names";
 import {
-  GUARDIAN_AGE,
-  ageOn,
   matchName,
   matchNamePhrase,
   placeMatch,
@@ -23,13 +22,15 @@ import {
   tournamentById,
   tournamentDetail,
   tournamentZone,
-  type Entry,
   type Match,
   type Result,
   type Tournament,
   type TournamentDetail,
 } from "./tournaments";
 import type { StaffText } from "./staff-text";
+
+// The short form of a name is `lib/public-names.ts`'s; it is exported from here too, as it always was.
+export { shortName } from "./public-names";
 
 /**
  * Tournament day: the next match announced, a court called when it is free.
@@ -100,6 +101,8 @@ interface Context {
   entries: Map<number, TournamentDetail["entries"][number]>;
   /** Entries' partners' declared dates of birth: a pair with a minor in it is shown short. */
   partnerBirth: Map<number, string | null>;
+  /** Participants whose guardian has authorised their full name for this event, now (lib/public-names.ts). */
+  authorised: Set<number>;
   /** How many rounds each bracket has, to name a round from the end of its own bracket. */
   rounds: Map<BracketKind, number>;
 }
@@ -128,41 +131,21 @@ async function context(tournamentId: number, now: Date = new Date()): Promise<Co
     state,
     entries: new Map(d.entries.map((e) => [e.id, e])),
     partnerBirth: new Map(partners.map((p) => [p.id, p.partner_birth_date])),
+    authorised: await authorisedParticipants({ kind: "tournament", id: t.id, venueId: t.venueId }, d.entries.map((e) => e.participantId)),
     // Each bracket's rounds (a knockout's, a double elimination's); -1 for a Swiss event, whose group-stage matches are its rounds (matchLabel).
     rounds: d.format === "swiss" ? new Map<BracketKind, number>([["main", -1]]) : roundsByBracket(d.matches.filter((m) => m.stage === "knockout")),
   };
 }
 
-/** Their first name and the initial of the next word: "Aina L.", for each of a pair. */
-export function shortName(name: string): string {
-  return name
-    .split(" / ")
-    .map((part) => {
-      const words = part.trim().split(/\s+/).filter(Boolean);
-      return words.length < 2 ? (words[0] ?? "") : `${words[0]} ${[...words[1]][0].toUpperCase()}.`;
-    })
-    .join(" / ");
-}
-
-/**
- * Whether the entry is, as declared, a minor: a guardian's agreement, a
- * participant a guardian manages, or a date of birth under 18 on the first
- * day (the entrant's word, never verified). A team is shown by its name.
- */
-function declaredMinor(c: Context, e: Entry): boolean {
-  if (c.t.entryKind === "team") return false;
-  if (e.guardian || e.participantId) return true;
-  const young = (born: string | null | undefined) => !!born && ageOn(born, c.t.startsOn) < GUARDIAN_AGE;
-  return young(e.declaredBirthDate) || young(c.partnerBirth.get(e.id));
-}
-
-/** A name as another family or the public sees it: short for a declared minor, and for everybody where the tournament says so. */
+/** A name as another family or the public sees it: by the one rule (lib/public-names.ts), and short for everybody where the tournament says so. */
 function shownName(c: Context, entryId: number | null, everybodyShort = c.t.liveNames === "short"): string | null {
   if (entryId === null) return null;
   const e = c.entries.get(entryId);
   if (!e) return null;
-  if (c.t.entryKind === "team") return e.name;
-  return everybodyShort || declaredMinor(c, e) ? shortName(e.name) : e.name;
+  return publicName(
+    { name: e.name, team: c.t.entryKind === "team", guardian: !!e.guardian, participantId: e.participantId ?? null, birthDate: e.declaredBirthDate ?? null, partnerBirthDate: c.partnerBirth.get(e.id) ?? null },
+    { on: c.t.startsOn, everybodyShort, authorised: c.authorised }
+  );
 }
 
 export type Blocker = { code: "notHere" | "resting" | "busy" | "left"; entryId: number; name: string; until?: string };
