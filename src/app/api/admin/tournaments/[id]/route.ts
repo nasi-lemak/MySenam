@@ -50,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 /**
- * `{ action: "close" | "draw" | "cancel" }`; `{ action: "rules", rules }` before the draw; `{ action: "final",
+ * `{ action: "close" | "draw" | "cancel" }`; `{ action: "rules", rules, confirmFeedIn? }` before the draw (choosing the feed-in consolation draw needs `confirmFeedIn: true`, else 409 `FEED_IN_CONFIRM`); `{ action: "final",
  * chosen }` — who takes the last places in a performance final where competitors are level; `{ action:
  * "save_template", name }` — keep its settings to start the next one from. A Swiss event's rounds: `{ action: "swiss_pair" }`
  * pairs the next round where it could not be paired by itself; `{ action: "swiss_close_round", round, resolutions: [{ matchId,
@@ -105,10 +105,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         : body.action === "cancel"
           ? await cancelTournament(found.id)
           : body.action === "rules"
-            ? await setRules(found.id, body.rules)
+            ? await setRules(found.id, body.rules, { confirmFeedIn: body.confirmFeedIn === true })
             : null;
   if (!result) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return NextResponse.json({ error: result.error, ...(result.code ? { code: result.code, vars: result.vars } : {}) }, { status: 409 });
   const t = await tournamentDetail(found.id, { forStaff: true });
   await logAction(found.admin, {
     venueId: t?.venueId ?? null,

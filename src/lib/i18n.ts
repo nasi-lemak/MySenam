@@ -4349,6 +4349,7 @@ const EN = {
   "fm1.knockoutConsolation": "Knockout with a consolation draw",
   "fm1.placings": "Final places",
   "fm1.consolationNote": "Players who lose their first match play on here.",
+  "fi1.consolationNote": "Players who lose in the main draw, except in the final, play on here.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -8644,6 +8645,7 @@ const MS: Record<Phrase, string> = {
   "fm1.knockoutConsolation": "Kalah mati dengan undian saguhati",
   "fm1.placings": "Kedudukan akhir",
   "fm1.consolationNote": "Pemain yang kalah perlawanan pertama terus bermain di sini.",
+  "fi1.consolationNote": "Pemain yang kalah dalam undian utama, kecuali di perlawanan akhir, terus bermain di sini.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

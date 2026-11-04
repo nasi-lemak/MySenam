@@ -11,8 +11,8 @@ import { formatMinute } from "@/lib/interval";
 import { ClockField } from "@/components/ClockField";
 import { type Sport } from "@/lib/types";
 import type { CorrectionPreview, IssueReview, Match, ResultInput, StageKey, Tournament, TournamentDetail } from "@/lib/tournaments";
-import { matchLabel, roundsByBracket, type BracketKind } from "@/lib/brackets";
-import { RANK_KEYS, type CompetitionRules, type OutReason, type RankKey } from "@/lib/tournament-rules";
+import { feedInPreview, matchLabel, roundsByBracket, type BracketKind, type FeedInPreview } from "@/lib/brackets";
+import { isFeedIn, RANK_KEYS, type CompetitionRules, type OutReason, type RankKey } from "@/lib/tournament-rules";
 import type { CompetitionTemplate, VenueTemplate } from "@/lib/competition-templates";
 import type { Competition } from "@/lib/competitions";
 import type { MatchReport, Official } from "@/lib/match-reports";
@@ -334,6 +334,8 @@ function Create({
     // Match lengths by stage (blank: the length above), and a third-place match.
     stageMinutes: { group: "", knockout: "", final: "", heat: "", losers: "", grand_final: "", reset: "", consolation: "" } as Record<StageKey, string>,
     thirdPlace: false,
+    // The advanced feed-in consolation draw is saved once its consequences were shown and confirmed (ADR 0034).
+    confirmFeedIn: false,
     // A Swiss event: its rounds (blank: the default for the number entered) and what a bye is worth (blank: a win's points).
     swissRounds: "",
     swissByePoints: "",
@@ -376,7 +378,9 @@ function Create({
           advance: Number(f.advance),
           matchMinutes: Number(f.matchMinutes),
           stageMinutes: Object.fromEntries(Object.entries(f.stageMinutes).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)])),
-          thirdPlace: f.thirdPlace && (f.format === "knockout" || f.format === "groups"),
+          // A feed-in consolation draw takes the semi-finals' losers itself: the knockout has no third-place match then (ADR 0034, S2).
+          thirdPlace: f.thirdPlace && (f.format === "knockout" || f.format === "groups") && !(f.format === "knockout" && isFeedIn(f.rules.bracket)),
+          confirmFeedIn: f.format === "knockout" && isFeedIn(f.rules.bracket) && f.confirmFeedIn,
           // A consolation draw is a straight knockout's; its third-place match needs it (ADR 0032, S2).
           rules: {
             ...f.rules,
@@ -384,6 +388,7 @@ function Create({
               ...f.rules.bracket,
               consolation: f.format === "knockout" && f.rules.bracket.consolation,
               consolationThirdPlace: f.format === "knockout" && f.rules.bracket.consolation && f.rules.bracket.consolationThirdPlace,
+              consolationMode: f.format === "knockout" && isFeedIn(f.rules.bracket) ? "feed_in" : "first_round",
             },
             ...(f.format === "swiss" ? { swiss: { rounds: f.swissRounds === "" ? null : Number(f.swissRounds), byePoints: f.swissByePoints === "" ? null : Number(f.swissByePoints), tiebreaks: null } } : {}),
           },
@@ -680,12 +685,37 @@ function Create({
           ))}
           {(f.format === "knockout" || f.format === "groups") && (
             <label className="flex items-center gap-1.5 text-sm text-slate-600">
-              <input type="checkbox" checked={f.thirdPlace} onChange={(e) => setF({ ...f, thirdPlace: e.target.checked })} />
+              <input type="checkbox" disabled={f.format === "knockout" && isFeedIn(f.rules.bracket)} checked={f.thirdPlace && !(f.format === "knockout" && isFeedIn(f.rules.bracket))} onChange={(e) => setF({ ...f, thirdPlace: e.target.checked })} />
               {t("tn.thirdPlace")}
             </label>
           )}
         </div>
-        <BracketFields format={f.format} rules={f.rules} onChange={(rules) => setF({ ...f, rules })} />
+        <BracketFields
+          format={f.format}
+          rules={f.rules}
+          onChange={(rules) => setF({ ...f, rules, confirmFeedIn: false })}
+          feedIn={{
+            // For up to the most it takes: nobody has entered yet.
+            preview: (third) =>
+              feedInPreview(
+                {
+                  matchMinutes: Number(f.matchMinutes) || 60,
+                  stageMinutes: Object.fromEntries(Object.entries(f.stageMinutes).filter(([, v]) => v !== "").map(([key, v]) => [key, Number(v)])),
+                  courts: (f.courtIds.length || courts.length) || 1,
+                  days: daysBetween(f.startsOn, f.endsOn || f.startsOn),
+                  startMin: f.startMin,
+                  endMin: f.endMin,
+                  maxEntries: Number(f.maxEntries) || 2,
+                  entered: 0,
+                },
+                third
+              ),
+            ask: false,
+            confirmed: f.confirmFeedIn,
+            setConfirmed: (confirmFeedIn) => setF({ ...f, confirmFeedIn }),
+            max: true,
+          }}
+        />
       </details>
       <details className="rounded-lg border border-slate-200 p-3">
         <summary className="cursor-pointer text-sm font-medium text-slate-700">{t("tn.scoring")}</summary>
@@ -896,26 +926,130 @@ function ResultsByPeople({ tn }: { tn: TournamentDetail }) {
 }
 
 /** How the tournament treats somebody who leaves it (lib/tournament-rules.ts). */
-/** A knockout's consolation draw, or a double elimination's grand-final reset (ADR 0032, S1). */
-function BracketFields({ format, rules, onChange, disabled = false }: { format: string; rules: CompetitionRules; onChange: (r: CompetitionRules) => void; disabled?: boolean }) {
+/** What the advanced feed-in consolation draw is set up to add, and how it is confirmed (ADR 0034, M): the preview for a third-place choice, and whether a change is asked about first. */
+interface FeedInAsk {
+  preview: (consolationThirdPlace: boolean) => FeedInPreview;
+  /** Ask before saving (a change to a tournament that exists); else the form's own confirmation box is used. */
+  ask: boolean;
+  confirmed: boolean;
+  setConfirmed: (confirmed: boolean) => void;
+  /** The numbers are for the most the tournament takes, as nobody has entered yet. */
+  max: boolean;
+}
+
+const hoursOf = (minutes: number) => String(Math.round((minutes / 60) * 10) / 10);
+
+/** The days from one date to another, both counted. */
+const daysBetween = (from: string, to: string) => Math.max(1, Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1) || 1;
+
+/** What a feed-in consolation draw adds: the matches, court hours, rounds and the most one entrant plays, and whether the held time would hold them. */
+function FeedInBox({ preview, max }: { preview: FeedInPreview; max: boolean }) {
   const t = useStaffT();
+  const c = preview.consequences;
+  return (
+    <div className="mt-1 space-y-0.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-slate-700" role="group" aria-label={t("fi1.boxLabel")}>
+      <p className="font-medium">{max ? t("fi1.boxTitleMax", { entries: preview.entries }) : t("fi1.boxTitle", { entries: preview.entries })}</p>
+      {c ? (
+        <>
+          <p>{t("fi1.main", { n: c.mainMatches })}</p>
+          <p>{t("fi1.consolation", { n: c.consolationMatches })}</p>
+          <p>{t("fi1.total", { n: c.totalMatches })}</p>
+          <p className="font-medium">{t("fi1.adds", { n: c.consolationMatches, hours: hoursOf(c.consolationMinutes) })}</p>
+          <p>{t("fi1.rounds", { n: c.rounds, main: c.mainRounds })}</p>
+          <p>{t("fi1.most", { n: c.mostMatches })}</p>
+          <p>{preview.fitsHeld ? t("fi1.heldFits", { held: hoursOf(preview.heldMinutes), need: hoursOf(preview.needMinutes) }) : t("fi1.heldShort", { held: hoursOf(preview.heldMinutes), need: hoursOf(preview.needMinutes) })}</p>
+        </>
+      ) : (
+        <p>{t("fi1.fewer")}</p>
+      )}
+    </div>
+  );
+}
+
+/** A knockout's consolation draw, or a double elimination's grand-final reset (ADR 0032, S1). */
+function BracketFields({
+  format,
+  rules,
+  onChange,
+  disabled = false,
+  feedIn,
+}: {
+  format: string;
+  rules: CompetitionRules;
+  onChange: (r: CompetitionRules, confirmedFeedIn?: boolean) => void;
+  disabled?: boolean;
+  feedIn?: FeedInAsk;
+}) {
+  const t = useStaffT();
+  // A change to the feed-in format waits here, with its consequences shown, until it is confirmed.
+  const [pending, setPending] = useState<Partial<CompetitionRules["bracket"]> | null>(null);
   if (format !== "knockout" && format !== "double_elimination") return null;
   const set = (patch: Partial<CompetitionRules["bracket"]>) => onChange({ ...rules, bracket: { ...rules.bracket, ...patch } });
+  const on = isFeedIn(rules.bracket);
+  /** A change to the feed-in choice or its third-place match changes how many matches there are: asked about first, where the tournament exists. */
+  const change = (patch: Partial<CompetitionRules["bracket"]>) => {
+    const next = { ...rules.bracket, ...patch };
+    if (feedIn?.ask && isFeedIn(next) && (!on || next.consolationThirdPlace !== rules.bracket.consolationThirdPlace)) setPending(patch);
+    else {
+      setPending(null);
+      set(patch);
+    }
+  };
+  const shown = pending ? { ...rules.bracket, ...pending } : rules.bracket;
   return (
     <fieldset className="mt-3 space-y-1 text-sm text-slate-600">
       <legend className="text-xs font-medium text-slate-500">{t("fm1.brackets")}</legend>
       {format === "knockout" && (
         <>
           <label className="flex items-center gap-1.5">
-            <input type="checkbox" disabled={disabled} checked={rules.bracket.consolation} onChange={(e) => set({ consolation: e.target.checked })} />
+            <input type="checkbox" disabled={disabled} checked={rules.bracket.consolation} onChange={(e) => change(e.target.checked ? { consolation: true } : { consolation: false, consolationThirdPlace: false, consolationMode: "first_round" })} />
             {t("fm1.consolation")}
           </label>
           <p className="text-xs text-slate-500">{t("fm1.consolationNote")}</p>
           {rules.bracket.consolation && (
             <label className="flex items-center gap-1.5">
-              <input type="checkbox" disabled={disabled} checked={rules.bracket.consolationThirdPlace} onChange={(e) => set({ consolationThirdPlace: e.target.checked })} />
+              <input type="checkbox" disabled={disabled} checked={rules.bracket.consolationThirdPlace} onChange={(e) => change({ consolationThirdPlace: e.target.checked })} />
               {t("fm1.consolationThirdPlace")}
             </label>
+          )}
+          {rules.bracket.consolation && (
+            <div className="ml-5 border-l-2 border-amber-300 pl-3">
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" disabled={disabled} checked={on} onChange={(e) => change({ consolationMode: e.target.checked ? "feed_in" : "first_round" })} />
+                {t("fi1.feedIn")}
+              </label>
+              <p className="text-xs text-slate-500">{t("fi1.feedInNote")}</p>
+              {feedIn && (on || pending) && !disabled && <FeedInBox preview={feedIn.preview(shown.consolationThirdPlace)} max={feedIn.max} />}
+              {feedIn && on && !feedIn.ask && !disabled && (
+                <label className="mt-1 flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                  <input type="checkbox" required checked={feedIn.confirmed} onChange={(e) => feedIn.setConfirmed(e.target.checked)} />
+                  {(() => {
+                    const c = feedIn.preview(rules.bracket.consolationThirdPlace).consequences;
+                    return c ? t("fi1.confirm", { n: c.consolationMatches, hours: hoursOf(c.consolationMinutes) }) : t("fi1.confirmFewer");
+                  })()}
+                </label>
+              )}
+              {feedIn && pending && (
+                <div className="mt-1 flex gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
+                    onClick={() => {
+                      onChange({ ...rules, bracket: { ...rules.bracket, ...pending } }, true);
+                      setPending(null);
+                    }}
+                  >
+                    {(() => {
+                      const c = feedIn.preview(shown.consolationThirdPlace).consequences;
+                      return c ? t("fi1.confirmButton", { n: c.consolationMatches, hours: hoursOf(c.consolationMinutes) }) : t("fi1.confirmFewer");
+                    })()}
+                  </button>
+                  <button type="button" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600" onClick={() => setPending(null)}>
+                    {t("fi1.keepAsIs")}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </>
       )}
@@ -1353,7 +1487,19 @@ function Manage({
               onChange={(rules) => void post(base, { action: "rules", rules })}
             />
           </div>
-          <BracketFields format={tn.format} rules={tn.rules} disabled={tn.status !== "open" && tn.status !== "closed"} onChange={(rules) => void post(base, { action: "rules", rules })} />
+          <BracketFields
+            format={tn.format}
+            rules={tn.rules}
+            disabled={tn.status !== "open" && tn.status !== "closed"}
+            onChange={(rules, confirmFeedIn) => void post(base, { action: "rules", rules, ...(confirmFeedIn ? { confirmFeedIn: true } : {}) })}
+            feedIn={{
+              preview: (third) => feedInPreview({ matchMinutes: tn.matchMinutes, stageMinutes: tn.stageMinutes, courts: tn.courtIds.length, days: daysBetween(tn.startsOn, tn.endsOn), startMin: tn.startMin, endMin: tn.endMin, maxEntries: tn.maxEntries, entered: tn.entered }, third),
+              ask: true,
+              confirmed: false,
+              setConfirmed: () => {},
+              max: tn.entered < 5,
+            }}
+          />
           <details className="mt-3">
             <summary className="cursor-pointer text-xs font-medium text-slate-600">{tn.template ? t("tn.scoringFromTemplate", { template: tn.template }) : t("tn.scoring")}</summary>
             <ScoringFields rules={tn.rules} disabled={tn.status !== "open" && tn.status !== "closed"} onChange={(rules) => void post(base, { action: "rules", rules })} />

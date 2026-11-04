@@ -94,8 +94,8 @@
 
 - **C1. Who is in it.** Those who lose a first-round match that is played: a bye is not
   a match, so a player with a first-round bye who loses their second match is out of
-  the draw and not in the consolation. (This is the *first-round* consolation; a
-  *feed-in* that takes every loser is not built.) Byes go to the top seeds, so for a
+  the draw and not in the consolation. (This is the *first-round* consolation; the
+  advanced *feed-in* that takes every loser is [ADR 0034](0034-feed-in-consolation-draws.md).) Byes go to the top seeds, so for a
   straight power-of-two field every player is in it on their first loss.
 - **C2. When it exists.** Only where the main draw has a size of 8 or more (with 4
   the first round is the semi-finals, whose losers have the third-place match to play)
@@ -301,9 +301,10 @@ and the loser's.
 
 ### N. Not built, and why
 
-- A consolation draw after groups, or double elimination after groups, and a *feed-in*
-  consolation (every loser of the first two rounds): each is a different wiring of the same
-  graph, not built until asked for. A losers' bracket of three, where a player may be put out
+- A consolation draw after groups, or double elimination after groups: each is a different
+  wiring of the same graph, not built until asked for. (A *feed-in* consolation, for every
+  loser but the runner-up, was asked for later and is built as an advanced option:
+  [ADR 0034](0034-feed-in-consolation-draws.md).) A losers' bracket of three, where a player may be put out
   with no second loss, is not a format here.
 - A reset that is *optional* in the middle of an event: it is a setting of the tournament,
   fixed at the draw.

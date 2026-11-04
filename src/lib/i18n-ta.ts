@@ -4186,6 +4186,7 @@ export const TA: Record<Phrase, string> = {
   "fm1.knockoutConsolation": "ஆறுதல் சுற்றுடன் கூடிய வெளியேற்றப் போட்டி",
   "fm1.placings": "இறுதி இடங்கள்",
   "fm1.consolationNote": "முதல் ஆட்டத்தில் தோற்றவர்கள் இங்கே தொடர்ந்து ஆடுவார்கள்.",
+  "fi1.consolationNote": "முதன்மை சுற்றில் தோற்றவர்கள் (இறுதிப் போட்டியைத் தவிர) இங்கே தொடர்ந்து ஆடுவார்கள்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

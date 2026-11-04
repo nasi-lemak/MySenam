@@ -4183,6 +4183,7 @@ export const ZH: Record<Phrase, string> = {
   "fm1.knockoutConsolation": "带安慰赛的淘汰赛",
   "fm1.placings": "最终名次",
   "fm1.consolationNote": "首场落败的选手在这里继续比赛。",
+  "fi1.consolationNote": "主签表中落败的选手（决赛除外）会在这里继续比赛。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

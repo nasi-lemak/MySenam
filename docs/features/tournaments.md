@@ -72,7 +72,9 @@ rules, which start from the sport's template
   | Your own | anything else | The general rules (as every tournament had before templates) |
 
 - **Format:** a straight knockout (with a **consolation draw** for its
-  first-round losers if chosen); round-robin groups (3 to 6) whose top one
+  first-round losers if chosen, or the advanced
+  [feed-in consolation draw](#the-advanced-feed-in-consolation-draw) for every
+  loser but the runner-up); round-robin groups (3 to 6) whose top one
   or two go through to a knockout; a **round robin** of everybody (up to 16),
   whose table is the result; a **double elimination** (a winners' bracket, a
   losers' bracket and a grand final; see
@@ -265,8 +267,8 @@ knockout, nor for a double elimination):
 - Those who lose a **first-round match that is played** go on to a smaller
   knockout of their own. A bye is not a match: a player with a first-round bye
   who loses their second match is out of the main draw and **not** in the
-  consolation draw (this is the first-round consolation; a feed-in that takes
-  every loser is not built).
+  consolation draw (this is the first-round consolation; the advanced
+  [feed-in](#the-advanced-feed-in-consolation-draw) takes every loser).
 - It is made where the main draw has eight lines or more and at least two
   first-round matches are played (from six entries); otherwise there is none
   and the draw says nothing about it. With four lines the first round is the
@@ -329,6 +331,57 @@ chains: see [below](#corrections-after-the-knockout-has-begun) and
 between two entrants in any bracket
 ([ratings](#ratings-and-rankings)); a bye, and a reset that is not needed, are
 not matches.
+
+### The advanced feed-in consolation draw
+
+An **optional, advanced** way to run a knockout's consolation draw, off unless
+chosen and never the default ([ADR 0034](../architecture/decisions/0034-feed-in-consolation-draws.md)
+numbers every rule and names the tests). The ordinary consolation draw takes the
+first round's losers only; this one takes **every loser of the main draw but the
+runner-up**, so every entrant plays at least two matches.
+
+- **Setting it up.** *Brackets* under the stage lengths: tick the consolation draw
+  and then *Advanced: feed-in consolation*. It is for a straight knockout only,
+  refused with the knockout's own third-place match (the semi-finals' losers play on
+  in the consolation draw instead), and a rule of the tournament
+  (`rules.bracket.consolationMode: "feed_in"`; `"first_round"`, or nothing, is what
+  `consolation` has always meant). It is changed until the draw, never after.
+- **What it costs is shown first.** Choosing it shows, for the entries the
+  tournament has (or the most it takes while fewer than five have entered): the main
+  draw's matches (`n - 1`), the consolation draw's (`n - 3`, one more with its
+  third-place match), the whole (`2n - 4`), the court hours it adds at the
+  tournament's match lengths, how many rounds one after the other it needs (about
+  twice the knockout's), the most matches one entrant can play, and whether the court
+  time held would hold them. The choice is saved only after *Confirm: this adds 13
+  matches and about 6.5 court hours* (a checkbox on the setup form, a button on the
+  tournament's page); changing its third-place match asks again. The server asks too:
+  a request without `confirmFeedIn: true` is refused with the same numbers.
+  `GET /api/admin/tournaments/:id/feed-in-preview` gives them to a client.
+- **The shape.** The consolation draw is a losers' bracket fed from each main round:
+  the first round's losers play each other; each later main round's losers drop in
+  against the survivors of the round before (reversed on every second round, so
+  nobody meets a player they have played in the consolation's first two rounds,
+  wherever the byes fall); the **consolation final** is between the winners of the
+  semi-finals' losers' round. A bye is no loser, so a field that is not a power of two
+  has no match with an empty side. From five entries; with fewer it is a plain
+  knockout, and the form says so.
+- **Places.** The main draw places its champion and runner-up; the consolation
+  draw's champion is **third**, its runner-up **fourth**, then (with its third-place
+  match, between the last drop round's two losers) **fifth** and **sixth**, then the
+  rest by the consolation round they were put out in, level within a round. A place
+  says how late somebody was put out, not how strong they are.
+- **Court time.** Every match is placed by the same scheduler, after every match that
+  feeds it, the main draw first, so the consolation draw takes only the time the main
+  draw leaves. **If the held time cannot hold every match, the draw is refused with an
+  explanation and nothing is changed**, as for every format. A player is never in a
+  main match and a consolation match at once, and in a competition nobody is on court
+  in two divisions at once.
+- **Everything else is as for any consolation draw**: results, walkovers against a
+  leaver, corrections with an issue for each route, stand or replay both together,
+  tournament day, the live page, ratings (every decided match between two entrants),
+  names (*Consolation round 2, match 3*, *Consolation final*), and the public page's
+  *Consolation draw* section, which says everybody who lost in the main draw but the
+  final plays on there.
 
 ### Moving a fixture
 
@@ -813,8 +866,8 @@ climbing; per-boulder timing and rotation of the groups through the boulders
 
 The [roadmap](../roadmap/roadmap.md) has what is planned or proposed.
 
-- Formats beyond these: a consolation draw is for first-round losers of a
-  straight knockout only (not a feed-in that takes every loser, not after
+- Formats beyond these: a consolation draw is for a straight knockout only
+  (first-round losers, or the advanced feed-in for every loser; not after
   groups), and a double elimination is not after groups either; a performance
   event has one final, with no semi-finals or rounds of heats.
   [Swiss events](#swiss-tournaments) and [club ladders](#club-ladders) are built.
@@ -1729,6 +1782,7 @@ declared, never verified, and no identity document is asked for.
 | Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | Tournament day: the next match announced, a court called, the wait, the live page | `src/lib/tournament-day.ts`, `src/app/api/admin/tournaments/[id]/day/route.ts`, `src/app/api/tournaments/[id]/live/route.ts`, `src/components/admin/TournamentDay.tsx`, `src/app/tournaments/[id]/live/page.tsx`, `db/migrations/0268_tournament_day.sql` | `tests/tournament-day.test.ts` (also against Postgres), `tests/components/tournament-day.test.tsx` |
 | Consolation draws and double elimination: the structures, progression through a whole event, the grand-final reset, corrections along two routes, leavers in each bracket, placings, court time, names | `src/lib/brackets.ts`, `src/lib/tournaments.ts`, `src/lib/tournament-rules.ts`, `src/lib/tournament-day.ts`, `src/app/tournaments/[id]/page.tsx`, `src/components/admin/TournamentsTab.tsx`, `db/migrations/0271_consolation_and_double_elimination.sql` | `tests/brackets-structure.test.ts`, `tests/double-elimination.test.ts` and `tests/consolation.test.ts` (PGlite and Postgres) |
+| The advanced feed-in consolation draw: the structure by size, the counts, the consequences shown and confirmed, the draw and its refusal when the time cannot hold it, progression through whole events, leavers, corrections and replay equality, places, ratings, tournament day, the setup screens | `src/lib/brackets.ts` (`feedInConsolation`, `feedInConsequences`, `feedInPreview`, `placings`), `src/lib/tournaments.ts` (`makeDraw`, `setRules`, `feedInPreview`), `src/lib/tournament-rules.ts` (`consolationMode`), `src/app/api/admin/tournaments/[id]/feed-in-preview/route.ts`, `src/components/admin/TournamentsTab.tsx` | `tests/feed-in-structure.test.ts`, `tests/feed-in-consolation.test.ts` (PGlite and Postgres), `tests/components/feed-in-ui.test.tsx` |
 | Ratings from results: the rule, the ledger, replay, corrections, voids, walkovers, exclusions and restarts, rankings, seeding proposal, privacy | `src/lib/rating-math.ts`, `src/lib/ratings.ts`, `db/migrations/0270_ratings_from_results.sql`, `src/app/api/admin/ratings/route.ts`, `src/app/api/my/ratings/route.ts`, `src/app/api/venues/[id]/rankings/route.ts`, `src/app/ratings/page.tsx`, `src/app/venue/[id]/rankings/page.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/rating-math.test.ts`, `tests/ratings.test.ts` (PGlite and Postgres) |
 | Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
 | Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts` |

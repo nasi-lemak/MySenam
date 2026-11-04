@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
  * A new tournament, holding its courts at once. `template` (a sport template's key) and `rules` (laid over it)
  * set its scoring and how it treats somebody who leaves; `entryKind` "team" with `roster: { min, max }` makes it a
  * team event. `competitionId` makes it a division of that competition, in its days, hours and courts. Who may
- * enter: `entriesCloseOn`, `ageMin`, `ageMax`, `membersOnly`.
+ * enter: `entriesCloseOn`, `ageMin`, `ageMax`, `membersOnly`. The advanced feed-in consolation draw (`rules.bracket.consolationMode`) is saved
+ * only with `confirmFeedIn: true`: without it the answer is 400, code `FEED_IN_CONFIRM`, saying how many matches it adds (ADR 0034).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -83,10 +84,11 @@ export async function POST(req: NextRequest) {
       resultsBy: b.resultsBy === "players" ? "players" : "staff",
       stageMinutes: b.stageMinutes && typeof b.stageMinutes === "object" ? (b.stageMinutes as Partial<Record<StageKey, number>>) : null,
       thirdPlace: b.thirdPlace === true,
+      confirmFeedIn: b.confirmFeedIn === true,
     },
     admin.id
   );
-  if (!result.ok) return NextResponse.json({ error: result.error, clashes: result.clashes }, { status: 400 });
+  if (!result.ok) return NextResponse.json({ error: result.error, clashes: result.clashes, ...(result.code ? { code: result.code, vars: result.vars } : {}) }, { status: 400 });
   const made = result.value;
   await logAction(admin, {
     venueId,

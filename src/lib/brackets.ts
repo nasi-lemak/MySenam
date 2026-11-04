@@ -756,6 +756,176 @@ export function consolationDraw(
   return wire(nodes);
 }
 
+/**
+ * A feed-in consolation draw for a knockout of `size` lines (8 or more, keys `k{round}-{position}` as the knockout makes
+ * them; ADR 0034): the loser of every match of the main draw's rounds 1 to k-1 (k its rounds) plays on, the runner-up
+ * alone does not. It is the losers' bracket of `doubleElimination` without the winners' final's loser and the grand
+ * final: round 1 pairs the first round's losers, each drop round 2r-2 has the survivor of the round before play the loser of
+ * the main draw's round r (reversed where r is even, as in ADR 0032 E3), each consolidation round 2r-3 pairs the winners of
+ * a drop round, and the last, round 2k-3 (the *consolation final*), pairs the winners of the drop round of the semi-finals'
+ * losers. Sources that never exist (the loser of a bye) are compressed away as everywhere (D3). With `thirdPlace`, the
+ * losers of the last drop round's two matches play `c3p`, where both are matches played. `losersTo` is where each main
+ * match's loser goes (their match's key).
+ */
+export function feedInConsolation(
+  size: number,
+  firstPairs: [number | null, number | null][],
+  thirdPlace: boolean
+): { matches: PlannedMatch[]; losersTo: Map<string, { key: string; slot: "a" | "b" }> } | null {
+  if (size < 8) return null;
+  const k = Math.log2(size);
+  // The loser of a bye is nobody.
+  const loserOf = (round: number, position: number): Source => {
+    if (round === 1) {
+      const pair = firstPairs[position - 1];
+      if ((pair[0] === null) !== (pair[1] === null) || (pair[0] === null && pair[1] === null)) return null;
+    }
+    return { lose: `k${round}-${position}` };
+  };
+  const nodes: Node[] = [];
+  const node = (round: number, position: number, src: [Source, Source], extra: Partial<Node> = {}) =>
+    nodes.push({ key: `c${round}-${position}`, bracket: "consolation", round, position, src, ...extra });
+  for (let i = 1; i <= size / 4; i++) node(1, i, [loserOf(1, 2 * i - 1), loserOf(1, 2 * i)]);
+  let previous = 1;
+  for (let r = 2; r <= k - 1; r++) {
+    const m = size / 2 ** r;
+    if (r >= 3) {
+      const round = 2 * r - 3;
+      for (let p = 1; p <= m; p++) node(round, p, [{ win: `c${previous}-${2 * p - 1}` }, { win: `c${previous}-${2 * p}` }]);
+      previous = round;
+    }
+    const drop = 2 * r - 2;
+    for (let p = 1; p <= m; p++) node(drop, p, [{ win: `c${previous}-${p}` }, loserOf(r, r % 2 === 0 ? m + 1 - p : p)]);
+    previous = drop;
+  }
+  const last = 2 * k - 3;
+  node(last, 1, [{ win: `c${previous}-1` }, { win: `c${previous}-2` }]);
+  if (thirdPlace) node(last, 2, [{ lose: `c${previous}-1` }, { lose: `c${previous}-2` }], { placement: 3 });
+  return wire(nodes);
+}
+
+/** What a feed-in consolation draw adds to a knockout of `entries`, worked out from the structure it is built as (ADR 0034, M). */
+export interface FeedInConsequences {
+  entries: number;
+  /** The main draw's matches played, n - 1. */
+  mainMatches: number;
+  /** The consolation draw's, its third-place match included. */
+  consolationMatches: number;
+  totalMatches: number;
+  /** Minutes on court: the main draw's (its final at the final's length), the consolation draw's, and the whole. */
+  mainMinutes: number;
+  consolationMinutes: number;
+  totalMinutes: number;
+  /** Rounds in the main draw alone, and the most matches one after the other in the whole event (the longest chain of matches that must follow each other). */
+  mainRounds: number;
+  rounds: number;
+  /** The most matches any one entrant can play (win the main draw's rounds, or drop and win every consolation match). */
+  mostMatches: number;
+  /** Entrants who are in the consolation draw at some point: everybody who loses a match of the main draw but its final. */
+  consolationEntrants: number;
+}
+
+/**
+ * The consequences of a feed-in consolation draw for `entries` (null where there is none to make: fewer than five entries, a
+ * main draw below eight lines). `minutes` are the lengths of the main draw's matches, its final and a consolation match.
+ */
+export function feedInConsequences(entries: number, thirdPlace: boolean, minutes: { knockout: number; final: number; consolation: number }): FeedInConsequences | null {
+  if (!Number.isInteger(entries) || entries < 2) return null;
+  const size = bracketSize(entries);
+  const pairs = firstRound(Array.from({ length: entries }, (_, i) => i + 1));
+  const plan = feedInConsolation(size, pairs, thirdPlace);
+  if (!plan) return null;
+  const k = Math.log2(size);
+  // The main draw as the knockout makes it: byes are not matches.
+  interface M { after: string[]; next: string | null; loserNext: string | null; bye: boolean; minutes: number }
+  const all = new Map<string, M>();
+  for (let r = 1; r <= k; r++)
+    for (let p = 1; p <= size / 2 ** r; p++) {
+      const pair = r === 1 ? pairs[p - 1] : null;
+      const key = `k${r}-${p}`;
+      all.set(key, {
+        after: r === 1 ? [] : [`k${r - 1}-${2 * p - 1}`, `k${r - 1}-${2 * p}`],
+        next: r < k ? `k${r + 1}-${Math.ceil(p / 2)}` : null,
+        loserNext: plan.losersTo.get(key)?.key ?? null,
+        bye: pair !== null && (pair[0] === null) !== (pair[1] === null),
+        minutes: r === k ? minutes.final : minutes.knockout,
+      });
+    }
+  for (const m of plan.matches)
+    all.set(m.key, { after: m.after, next: m.nextKey, loserNext: m.loserNextKey, bye: false, minutes: minutes.consolation });
+  const depth = new Map<string, number>();
+  const depthOf = (key: string): number => {
+    if (depth.has(key)) return depth.get(key)!;
+    const m = all.get(key)!;
+    const d = m.bye ? 0 : 1 + Math.max(0, ...m.after.map(depthOf));
+    depth.set(key, d);
+    return d;
+  };
+  const most = new Map<string, number>();
+  const mostFrom = (key: string | null): number => {
+    if (key === null) return 0;
+    if (most.has(key)) return most.get(key)!;
+    const m = all.get(key)!;
+    const n = (m.bye ? 0 : 1) + Math.max(mostFrom(m.next), mostFrom(m.loserNext));
+    most.set(key, n);
+    return n;
+  };
+  const real = [...all].filter(([, m]) => !m.bye);
+  const main = real.filter(([key]) => key.startsWith("k"));
+  const mainMinutes = main.reduce((s, [, m]) => s + m.minutes, 0);
+  const consolationMinutes = plan.matches.length * minutes.consolation;
+  const firstRoundKeys = [...all.keys()].filter((key) => key.startsWith("k1-"));
+  return {
+    entries,
+    mainMatches: main.length,
+    consolationMatches: plan.matches.length,
+    totalMatches: main.length + plan.matches.length,
+    mainMinutes,
+    consolationMinutes,
+    totalMinutes: mainMinutes + consolationMinutes,
+    mainRounds: k,
+    rounds: Math.max(...[...all.keys()].map(depthOf)),
+    mostMatches: Math.max(...firstRoundKeys.map((key) => mostFrom(key))),
+    consolationEntrants: plan.losersTo.size,
+  };
+}
+
+/** What an organiser has set, as the preview of a feed-in consolation draw reads it (lib/tournaments.ts `feedInPreview`). */
+export interface FeedInSetup {
+  matchMinutes: number;
+  /** Match length by stage, over `matchMinutes`. */
+  stageMinutes: Partial<Record<string, number>>;
+  courts: number;
+  days: number;
+  /** The time each day, in minutes of the day. */
+  startMin: number;
+  endMin: number;
+  /** The most it takes, and those entered. */
+  maxEntries: number;
+  entered: number;
+}
+
+/** What a feed-in consolation draw would add for a tournament's entries, and whether the time it holds could hold it (ADR 0034, M). */
+export interface FeedInPreview {
+  /** The entries counted: those entered, or the most it takes while fewer than five have entered. */
+  entries: number;
+  /** Null where there is no consolation draw to make (fewer than five entries). */
+  consequences: FeedInConsequences | null;
+  /** Court time held in all (courts x hours each day x days), in minutes, and what the whole event needs of it: an estimate, since the draw itself fits every match and refuses, changing nothing, if one does not fit. */
+  heldMinutes: number;
+  needMinutes: number;
+  fitsHeld: boolean;
+}
+
+export function feedInPreview(setup: FeedInSetup, consolationThirdPlace: boolean, entries?: number): FeedInPreview {
+  const counted = entries ?? (setup.entered >= 5 ? setup.entered : setup.maxEntries);
+  const length = (stage: string) => setup.stageMinutes[stage] ?? setup.matchMinutes;
+  const consequences = feedInConsequences(counted, consolationThirdPlace, { knockout: length("knockout"), final: length("final"), consolation: length("consolation") });
+  const heldMinutes = setup.courts * (setup.endMin - setup.startMin) * Math.max(1, setup.days);
+  const needMinutes = consequences?.totalMinutes ?? 0;
+  return { entries: counted, consequences, heldMinutes, needMinutes, fitsHeld: needMinutes <= heldMinutes };
+}
+
 /** The most rounds any bracket's matches have: for naming a round from the end ("final", "semi-final"). */
 export function roundsByBracket(matches: { bracket: BracketKind; round: number }[]): Map<BracketKind, number> {
   const rounds = new Map<BracketKind, number>();
@@ -807,12 +977,13 @@ const isPlayed = (m: PlacingMatch) => m.status === "done" || m.status === "walko
  * put in order of how late they were put out: the champion, the runner-up, the
  * third-place match's two, then each earlier round's losers together, deepest
  * first. With a consolation draw those who won a first-round match, or had a
- * bye, come first, then the consolation draw's own order. In a double
+ * bye, come first, then the consolation draw's own order (with a feed-in consolation draw: the champion and the runner-up, then the
+ * consolation draw's own order, its champion third). In a double
  * elimination: the champion and runner-up (from the reset where it was played),
  * then those put out of the losers' bracket, the last round first. An entrant who
  * left stands where the matches put them (ADR 0032, F).
  */
-export function placings(matches: PlacingMatch[]): { entryId: number; place: number }[] | null {
+export function placings(matches: PlacingMatch[], opts: { feedIn?: boolean } = {}): { entryId: number; place: number }[] | null {
   if (matches.length === 0 || matches.some((m) => m.status === "scheduled")) return null;
   const loserOf = (m: PlacingMatch | undefined): number | null => (m && isPlayed(m) && m.winner !== null ? (m.winner === m.a ? m.b : m.a) : null);
   const winnerOf = (m: PlacingMatch | undefined): number | null => (m && isPlayed(m) ? m.winner : null);
@@ -837,7 +1008,8 @@ export function placings(matches: PlacingMatch[]): { entryId: number; place: num
     const main = matches.filter((m) => m.bracket === "main");
     const consolation = matches.filter((m) => m.bracket === "consolation");
     // Those who lost a first-round match played go to the consolation draw: they are placed after the main draw's.
-    knockoutStages(main, consolation.length > 0 ? 2 : 1);
+    // A feed-in consolation draw takes every loser but the runner-up: the main draw places only its final's two (ADR 0034, F).
+    knockoutStages(main, consolation.length > 0 ? (opts.feedIn ? Math.max(0, ...main.map((m) => m.round)) : 2) : 1);
     if (consolation.length > 0) knockoutStages(consolation, 1);
   }
   const place = new Map<number, number>();
