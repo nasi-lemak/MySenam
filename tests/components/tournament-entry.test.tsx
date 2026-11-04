@@ -142,3 +142,21 @@ describe("players entering their own results", () => {
     expect(posts.at(-1)).toEqual({ action: "dispute", matchId: 40, note: "I won the first game" });
   });
 });
+
+describe("an entry the server refuses", () => {
+  it("says why in an alert, so a screen reader announces it (found by the Teams 3 acceptance scenario)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: { method?: string }) =>
+        init?.method === "POST"
+          ? { ok: false, status: 409, json: async () => ({ error: "Dara Tester is 76 on 2026-12-05: this is for ages 18 to 40." }) }
+          : { ok: true, json: async () => ({ tournament: { ...division, competition: null, ageRange: null, membersOnly: false, entriesCloseOn: null, teamSize: 1, entryKind: "player" }, mine: null, signedIn: true }) }
+      )
+    );
+    render(<TournamentPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: /Enter/ }));
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toBe("Dara Tester is 76 on 2026-12-05: this is for ages 18 to 40.");
+  });
+});

@@ -349,6 +349,39 @@ and not Billplz). The venue is signed up on the real form, so *A*, *B*, *C*, *E*
 *H* and *I* are skipped against a deployment that is not a marketplace; *D*, *F*
 and *G* use venues the owner made. Shared steps are in `tests/uat/guide-support.ts`.
 
+Teams and leagues of teams ([teams](../features/tournaments.md#teams),
+[team leagues](../features/tournaments.md#team-leagues)) have six scenarios. `tests/uat/teams.uat.ts`
+has *Teams 1* (a captain starts a team on the page, brings people in by a shared
+link and by an email read from the server's log, and the same words refuse an
+account that has said it is under 18, one across a block, another account on the
+emailed link and a link already used; a child goes on only through a guardian,
+the captain's own or another's by that guardian accepting, and is "a junior
+player" to every other member and to the public; the team is 404 until the
+captain publishes it and then shows its name only; captaincy is handed over and a
+member leaves, each told by email), *Teams 2* (starting a team and inviting by
+email with the keyboard alone: focus order, labels, a too-short name held back,
+the answer announced) and *Teams 3* (a captain enters a tournament as the team,
+a member outside the age range refused by name and range, one who has not said a
+date of birth refused and then saying it on their own phone, the typed team and
+roster still working beside it, no member on the public page).
+`tests/uat/team-leagues.uat.ts` has *Team league 1* (a manager sets a season up
+on the dashboard from the badminton template, three captains on phones enter,
+one with a date it cannot play and one with a home court, the fixture list is
+made home and away with a bye each night, the club's own booking page shows each
+fixture's court taken and the manager's move taking the old hour back, lineups
+shown to each side only until a result is in, a result reported by one captain and
+confirmed by the other, the table and the public page naming teams and no player,
+and the front desk shown no move or forfeit button and refused by the server),
+*Team league 2* (a reported result disputed and decided by the front desk, staff
+and captains emailed) and *Team league 3* (a forfeit requested, nothing changing
+in the table, the fixtures or the court's time; the front desk seeing the request
+and refused every way to confirm it; the manager confirming it, with the table,
+the fixture, the released court time and both captains' emails, and declining a
+second with its reason). Only a fixture dated today can be reported, so each
+league's first match night is today. All but *Teams 2* read the emails from the
+server's log and are skipped against a deployment; the helpers are in
+`tests/uat/teams-support.ts`.
+
 Last run: see the newest [release record](#release-records); 14 of 14, before
 scenario H was added, against a staging deployment
 on Postgres 16 with seeded data. Not driven from

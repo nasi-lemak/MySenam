@@ -132,7 +132,7 @@ export default function TeamLeaguePage() {
       {x.standings.length > 0 && (
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-semibold">{t("tml.table")}</h2>
-          <table className="mt-2 w-full text-sm">
+          <table className="mt-2 w-full text-sm [&_td]:px-1.5 [&_th]:px-1.5">
             <thead>
               <tr className="text-left text-xs text-slate-500">
                 <th scope="col" className="pr-2">
