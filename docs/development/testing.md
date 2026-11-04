@@ -402,6 +402,60 @@ result explained, a result left out and the rating replayed, the ledger download
 child's full name for one event after the wording, the public page then showing it, and withdrawing it (a manager and another account cannot). The
 authorisation's ending with the event needs the clock moved and is covered in `tests/public-names.test.ts`. They sign people up from the server's log as
 the others do, and *Ladders A* reads the cancellation emails only where that log can be read; their shared steps (and browserless people, since closing many browser contexts is slow) are in `tests/uat/uatc-support.ts`.
+The tournament formats ([tournaments](../features/tournaments.md)) have three
+scenarios in `tests/uat/formats.uat.ts`, each with a venue of its own, its
+manager as the organiser on the dashboard, players on their phones, and the
+public page: *Formats A* a double elimination set up on the form (the losers'
+bracket, grand final and reset lengths; the reset on), six entries, a first-round
+loss that drops a player into the losers' bracket and shows him on his phone
+where he plays next, the public bracket page fitting the screen with each
+bracket scrolling inside its own section, a first-round result corrected after
+the winners' route has moved on (refused as a plain result, reviewed, kept on the
+record only, an issue for each of the two routes) and both routes replayed
+together at a court and time given, the reset appearing only once the losers'
+champion has won the grand final, and the final places listing everybody; *Formats
+B* a knockout with a consolation draw (the first-round losers' own final, nobody
+with a bye in it), then the advanced feed-in option, whose consequences (main and
+consolation matches, court hours, the held time) are shown first and which is saved only
+after *Confirm* (the form will not send without the tick, the server answers
+`FEED_IN_CONFIRM` without it), a draw the held time cannot hold refused with its
+reason and nothing changed, and a whole event of eight played with everybody placed;
+*Formats C* a Swiss event of five (the recorded seed, round 2 paired by itself with no
+rematch and the bye to the lowest-ranked player without one, the standings ranked by
+points and the published tie-breaks on a phone, a first-round correction that offers
+*Pair the next round again* or *Keep the pairings* while round 2 has no result and
+refuses the first once it has one, a round closed with a match neither side came to,
+round 3 paired with nobody meeting twice, and the final table). The seed is recorded
+but not shown on any screen, so it is read through the API. Shared steps are in
+`tests/uat/formats-support.ts`. The scenarios run several minutes each on a busy
+machine (a file-level `vi.setConfig` lengthens the timeout; the evidence's traces
+take a long time to write).
+
+`tests/uat/tournament-day.uat.ts` has *Day 1*, tournament day as an organiser,
+the front desk, players, a customer and the public meet it. A tournament has to
+start after today, so its day can never be today on the acceptance server, and a
+browser cannot move a server's clock: the scenario runs on a second server of its
+own (`tests/uat/day-support.ts`, the same build and in-memory database, skipped
+against a deployment) into which `tests/uat/day-clock.mjs` is loaded to move that
+one process's clock. It makes and draws the tournament for tomorrow with the real
+clock (a child entered by her guardian, seeded so that she plays in the second slot),
+then sets the clock twelve minutes before the first match; everything after runs at
+the real speed. The customer's booking page shows the held hour as unavailable and
+a booking over it is refused, before and after fixtures are brought forward; the front
+desk reads the board, checks players in, and has no button (and is refused by the
+server, `MANAGER_ONLY`) to call or to decide; the manager calls the first slot's
+fixtures ahead of their time, the desk enters a result, the next fixtures are
+announced once to each side (read from the server's output after the venue's messages
+are opened, which runs the outbox, since the scheduler is off): the child's notice to
+her guardian opens *This entry is for Aina Binti Lim.* and her opponent is told
+*Aina L.*, never the full name; the manager calls the child's fixture to the court the
+result freed; the one-minute wait for players runs out in real time (the desk sees it
+and has no buttons); the manager swaps in the next ready match, waits again, and gives
+a match to the player who came (a walkover, nobody taken out); the public live page on
+a phone shows courts, next and recent results with the child as *Aina L.* and picks
+the walkover up by itself; and nobody is told twice. The day's own clock is a
+stand-in for the real one and proves nothing about a deployed scheduler (a minute
+announcement by the scheduler is covered by `tests/tournament-day.test.ts`).
 
 Last run: see the newest [release record](#release-records); 14 of 14, before
 scenario H was added, against a staging deployment

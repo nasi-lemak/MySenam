@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B71, M16–M31 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B75, M16–M31 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -774,6 +774,28 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Browser scenarios and notices
+
+Observed by the browser scenarios of 6 November 2026, not changed. **For the owner:**
+team and league notices (a result confirmed, a forfeit decided) count towards the
+daily cap of eight programme messages per person (`MESSAGES_PER_RECIPIENT_PER_DAY`),
+so on a busy day a captain's decision email can be written off and never sent,
+which only the venue's staff can see in Messages; and on a junior ladder the
+dashboard, a guardian's own place card and the other guardian's list show short
+names, where `tournaments.md` says staff and the child's own guardian keep the full
+name (the documents disagree). Smaller: the day board's error banner after a
+refused action is cleared by its 15-second refresh, so it can go before it is read;
+a Swiss tournament's recorded seed is shown on no screen; the acceptance server
+has no scheduler and its outbox sends 25 messages a run, so a scenario that
+queues many starves later ones unless it drains its venue's queue first
+(`drainOutbox` in `tests/uat/formats-support.ts`); the tournament-day scenario
+moves the clock of a second server with a stand-in and proves nothing about a
+deployed scheduler; the seven-day link expiry, a guardian's authorisation ending
+with an event, a report that stands after three days and a forfeit request that
+expires after fourteen need the clock and are tested below the browser; and
+a swap during a day's first round is refused where the swapped match feeds a
+next-round fixture scheduled right after it.
+
 ### Forfeits, officials and ladders
 
 ([Team league forfeits](../features/tournaments.md#team-leagues), [officials and
@@ -1111,6 +1133,10 @@ IDs are not reused. Each fix came with the test recommended above.
 | B69 | `recordResult` took no row lock on the tournament, so two results could interleave with a leaver or a fixture move | One change to a tournament's results and fixtures at a time, as moves and leavers already were | `tests/double-elimination.test.ts` (concurrent result and move, on Postgres) |
 | B70 | Calling a fixture, sending it to another court or moving it, while a booking took the same minutes, could end in the database's overlap error instead of a refusal: the change's own transaction cannot go on after it, so the retry meant for it never ran. Found by the full Postgres run, where it failed three times in four under load | The change is refused whole (*a booking or a block took that time just now*) and undone, for a call, a swap and a move | `tests/tournament-day.test.ts` (B70, the refusal made deterministic; the race itself, which no longer ends in an error) |
 | B71 | Creating a Swiss tournament with no explicit rules wrote its Swiss settings into the shared template's rules object, so every later non-Swiss tournament made from that template in the same process was refused with *Swiss settings are for a Swiss event* until restart | `createTournament` works on a copy of the parsed rules | `tests/public-names.test.ts` (creating events) |
+| B72 | On the tournament page a refusal to enter (for example *this is for ages 18 to 40*) was shown in a plain block, so a screen reader would not announce it | It is an alert | `tests/components/tournament-entry.test.tsx` and the browser scenario *Teams 3* |
+| B73 | The public team-league table had no cell spacing, so on a phone its columns ran together ("11 002 1") | The cells are spaced | `tests/uat/team-leagues.uat.ts` (seen in the phone screenshot; no unit test, the fault is visual) |
+| B74 | A finished climbing event's dashboard page hid the officials' correction requests, so a manager could not preview, apply or decline one sent in the seven days after the finish | A finished counted event shows the requests, and only them | `tests/components/counted-grid.test.tsx` and the browser scenario *Climbing A* |
+| B75 | Refusing a heat correction that would change a climbing final with results said *arrange a re-swim by hand* | It says *re-climb* for counted events | `tests/counted-performances.test.ts` |
 
 ### Resolved limitations without a number
 
