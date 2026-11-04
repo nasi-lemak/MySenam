@@ -903,7 +903,43 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
-#### 6 November 2026, commit `c6ef1a9`
+#### 4 November 2026, commit `89bc4b7`
+
+The browser scenarios for teams and team leagues (`tests/uat/teams.uat.ts`,
+`tests/uat/team-leagues.uat.ts`), the tournament formats and tournament day
+(`tests/uat/formats.uat.ts`, `tests/uat/tournament-day.uat.ts`) and climbing,
+ladders, rankings and children's names (`tests/uat/climbing.uat.ts`,
+`tests/uat/ladders.uat.ts`, `tests/uat/rankings.uat.ts`): fifteen scenarios, which
+found and fixed four defects in the app (B72 to B75, in the
+[register](../roadmap/known-limitations.md)). Not a launch. Run on one cloud
+container, Node 22.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 119 passed |
+| Suite on PGlite | 438 files; 5199 passed |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 441 files; 5211 passed |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 27 files; 93 of 95 passed (the two failures below) |
+| CI | Not run (deferred) |
+| Real services | None checked |
+
+Both failures were in the harness and the scenarios, not the app. *Rankings A*
+looked in the ledger for "Aida Tester v Bala Tester", but the ledger lists a
+round-robin pair in either order and the full run had it as "Bala Tester v Aida
+Tester"; it now accepts either. *Booking 1* did not get its sign-up email within
+twenty seconds: the acceptance server has no scheduler and sends 25 queued messages
+a run, and the climbing scenarios before it had queued hundreds (the email is in
+`server.log`, sent late). The sign-up step now asks the app to work through its
+outbox while it waits. No second full run followed: `climbing`, `rankings` and
+`booking` files were run together against the same build (7 of 7 scenarios passed).
+Gaps: the tournament-day scenario moves a second server's clock with a stand-in and
+proves nothing about a deployed scheduler; no live integration has passed its
+check; the decisions awaiting the owner are in the known limitations.
+
+#### 4 November 2026, commit `c6ef1a9`
 
 The owner's decisions of 4 November 2026 on names, rankings, forfeits, climbing
 officials and ladders, and the optional feed-in consolation draw: minors' names
@@ -943,7 +979,7 @@ the authorisation wording for publishing a child's name awaits the owner's lawye
 there are no browser scenarios yet for teams, team leagues, tournament day,
 ratings, Swiss, ladders, the new formats or the officials' climbing entry.
 
-**Follow-ups of 6 November 2026** (commit after `dab7e4a`): four small changes the
+**Follow-ups of 4 November 2026** (commit after `dab7e4a`): four small changes the
 owner approved, checked by targeted suites only, not a second full run: a climbing
 official's link works seven days after the event finishes for results and
 correction requests only; earned-level matching never trusts a rating on fewer

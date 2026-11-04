@@ -786,9 +786,11 @@ names, where `tournaments.md` says staff and the child's own guardian keep the f
 name (the documents disagree). Smaller: the day board's error banner after a
 refused action is cleared by its 15-second refresh, so it can go before it is read;
 a Swiss tournament's recorded seed is shown on no screen; the acceptance server
-has no scheduler and its outbox sends 25 messages a run, so a scenario that
-queues many starves later ones unless it drains its venue's queue first
-(`drainOutbox` in `tests/uat/formats-support.ts`); the tournament-day scenario
+has no scheduler and its outbox sends 25 messages a run, so what earlier scenarios
+leave queued stands ahead of a later sign-up email (the full run on `89bc4b7` failed
+*Booking 1* that way); the sign-up step now asks the app to work through its outbox
+while it waits (`nudgeOutbox` in `tests/uat/harness.ts`), and a scenario that queues
+many drains its venue's queue first (`drainOutbox` in `tests/uat/formats-support.ts`); the tournament-day scenario
 moves the clock of a second server with a stand-in and proves nothing about a
 deployed scheduler; the seven-day link expiry, a guardian's authorisation ending
 with an event, a report that stands after three days and a forfeit request that

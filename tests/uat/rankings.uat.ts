@@ -291,7 +291,7 @@ describe("ratings and rankings", () => {
     await s.step(manager, "leaves Aida's win over Bala out of the ratings, with a reason: the rating is replayed and the result is marked as left out", async () => {
       const page = manager.page;
       aidaBefore = (await poolText()).match(/Aida Tester (\d{3,4}(?:\.\d+)?)/)![1];
-      const result = page.locator("li").filter({ hasText: "Aida Tester v Bala Tester" }).filter({ has: page.getByRole("button", { name: "Leave out" }) }).first();
+      const result = page.locator("li").filter({ hasText: /Aida Tester v Bala Tester|Bala Tester v Aida Tester/ }).filter({ has: page.getByRole("button", { name: "Leave out" }) }).first();
       await result.getByRole("button", { name: "Leave out" }).click();
       await page.getByLabel("Why leave this result out of the ratings?").fill("Scoresheet disputed by both players");
       await page.getByRole("button", { name: "Leave it out" }).click();

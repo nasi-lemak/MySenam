@@ -198,11 +198,29 @@ export async function signUp(a: Actor, opts: { profile?: Record<string, unknown>
   return a;
 }
 
+/**
+ * Ask the app to work through its outbox, as the platform owner's messages page does when opened.
+ * The acceptance server has no scheduler and sends the oldest 25 queued messages a run, so what earlier
+ * scenarios left queued (hundreds of notices, in a full run) stands ahead of a new sign-up email. Best
+ * effort: against a deployment without these credentials it does nothing.
+ */
+async function nudgeOutbox(): Promise<void> {
+  try {
+    const login = await fetch(`${url}/api/admin/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", Origin: url }, body: JSON.stringify(OWNER) });
+    if (login.status !== 200) return;
+    const cookie = login.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    await fetch(`${url}/api/admin/messages?platform=1`, { headers: { cookie } });
+  } catch {
+    // Nothing to nudge; the wait below simply continues.
+  }
+}
+
 /** The token in the sign-up link emailed to this actor's address, once it has gone out. */
 async function signUpToken(a: Actor, timeout = 20_000): Promise<string> {
   if (!a.serverOutput && !serverLog) throw new Error("Signing up needs the server's output to read the emailed link from (E2E_SERVER_LOG, or UAT_SIGNUP_LOG against a deployment).");
   const output = a.serverOutput ?? (() => (serverLog && fs.existsSync(serverLog) ? fs.readFileSync(serverLog, "utf8") : ""));
   const deadline = Date.now() + timeout;
+  let nudged = 0;
   for (;;) {
     const token = output()
       .split("[outbox] ")
@@ -212,6 +230,10 @@ async function signUpToken(a: Actor, timeout = 20_000): Promise<string> {
       .at(-1);
     if (token) return token;
     if (Date.now() > deadline) throw new Error(`No sign-up link was emailed to ${a.email}`);
+    if (Date.now() - (deadline - timeout) > 2_000 * (nudged + 1)) {
+      nudged++;
+      await nudgeOutbox();
+    }
     await new Promise((r) => setTimeout(r, 200));
   }
 }
