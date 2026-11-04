@@ -247,7 +247,7 @@ decided, and 45 of the round 8 audit's 50 findings (the other five are
 (counter payouts, change alerts, booking links, the cash-up, leaving a waiting
 list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
-under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B70, M16–M31 and
+under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B71, M16–M31 and
 S12–S34, found and fixed in the same work) and
 [resolved without a number](#resolved-limitations-without-a-number) (124
 rows). Others were narrowed rather than closed (staffed hours, phone
@@ -774,6 +774,24 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Published rankings and public names
+
+([Ratings and rankings](../features/tournaments.md#ratings-and-rankings),
+[minors' names](../architecture/privacy.md#minors-names-on-public-pages).) The
+owner's decisions of 4 November 2026. Every venue that had a public rankings page
+before migration 0275 has it off until its manager publishes it; the number of
+counted results before a player is ranked is a venue's (3 to 30, 8 by default),
+not a competition's, and a venue that lowers it lowers the bar for earned-level
+matching too; published pages are not indexed and not in the sitemap; the
+provisional section is not on the business-wide board. A minor entered with no age
+range and no recorded guardian is shown as the entrant typed the name (ages are
+declared, never verified); authorising a child's full name needs a guardian
+account that manages them, so a teenager entering alone is always shown short; a
+pair with a declared minor in it is shown short whole, so it cannot be authorised;
+a name with a particle ("Aina Binti Lim") shortens to "Aina B."; public ladder
+challenges and results are public, with names by the rule; the authorisation's
+wording and the privacy notice paragraph await the owner's lawyer.
+
 ### Consolation draws and double elimination
 
 ([Consolation draws and double elimination](../features/tournaments.md#consolation-draws-and-double-elimination),
@@ -1075,6 +1093,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B68 | Replaying a knockout match left the opponent who had beaten the wrong competitor in the next match while their own match was replayed, so they were in two matches still to play | The places a replayed match fed that are still to play are emptied whoever they hold; nothing that was played changes | `tests/double-elimination.test.ts` and `tests/consolation.test.ts` (the replay tests) |
 | B69 | `recordResult` took no row lock on the tournament, so two results could interleave with a leaver or a fixture move | One change to a tournament's results and fixtures at a time, as moves and leavers already were | `tests/double-elimination.test.ts` (concurrent result and move, on Postgres) |
 | B70 | Calling a fixture, sending it to another court or moving it, while a booking took the same minutes, could end in the database's overlap error instead of a refusal: the change's own transaction cannot go on after it, so the retry meant for it never ran. Found by the full Postgres run, where it failed three times in four under load | The change is refused whole (*a booking or a block took that time just now*) and undone, for a call, a swap and a move | `tests/tournament-day.test.ts` (B70, the refusal made deterministic; the race itself, which no longer ends in an error) |
+| B71 | Creating a Swiss tournament with no explicit rules wrote its Swiss settings into the shared template's rules object, so every later non-Swiss tournament made from that template in the same process was refused with *Swiss settings are for a Swiss event* until restart | `createTournament` works on a copy of the parsed rules | `tests/public-names.test.ts` (creating events) |
 
 ### Resolved limitations without a number
 

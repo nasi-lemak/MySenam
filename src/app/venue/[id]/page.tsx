@@ -33,7 +33,7 @@ import { coachChoice } from "@/lib/lesson-coaches";
 import { sportLabel } from "@/lib/i18n";
 import { intlTag, money, shortDate } from "@/lib/region";
 import { venueContact } from "@/lib/venue-contact";
-import { boardChoices } from "@/lib/ratings";
+import { rankingsPublished } from "@/lib/ratings";
 import JoinMembership, { type Dependant, type FamilyMembership, type JoinStanding } from "@/components/JoinMembership";
 import BuyPass, { type PassStanding } from "@/components/BuyPass";
 import { EntryPanel } from "@/components/EntryPanel";
@@ -128,8 +128,8 @@ export default async function VenuePage({
   const lessonSports = [...new Set(coaches.flatMap((c) => c.sports))];
   // Gift vouchers sold online, where credit bought here stays here (lib/vouchers.ts).
   const gifts = online && onlineTopUpsAllowed() && access.access !== "private";
-  // Rankings, once anything at the venue has been rated (lib/ratings.ts): a page of people who chose to be listed.
-  const hasRankings = (await boardChoices(venue.id)).pools.length > 0;
+  // Rankings, once the venue's manager has published them and anything has been rated (lib/ratings.ts): a page of people who chose to be listed.
+  const hasRankings = await rankingsPublished(venue.id);
   let standing: JoinStanding = { kind: "signIn" };
   if (plans.length > 0 && viewer.userId !== null) {
     const terms = await joinTerms(viewer.userId, plans[0].id);

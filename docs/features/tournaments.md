@@ -1340,12 +1340,20 @@ named as for any entry (to anybody else, never: no public team-league payload ca
 
 ## Ratings and rankings
 
-A **rating** (`src/lib/ratings.ts`, `src/lib/rating-math.ts`; migration 0270;
-[ADR 0031](../architecture/decisions/0031-ratings-from-a-ledger-of-results.md))
+A **rating** (`src/lib/ratings.ts`, `src/lib/rating-math.ts`,
+`src/lib/rating-eligibility.ts`; migrations 0270 and 0275;
+[ADR 0031](../architecture/decisions/0031-ratings-from-a-ledger-of-results.md),
+amended by [ADR 0035](../architecture/decisions/0035-rating-policy-published-rankings-and-counted-results.md))
 is built from the results of events a venue marks as rated, by one published
 rule. It carries a result from one event to the next, which a table never did.
 Nothing is learned and nothing is hidden: a player is shown, for every result,
 what the rating expected, what happened and how far it moved.
+
+**A rating is an estimate from the results counted.** With few results it can
+move a lot, and the number of results that makes a player *ranked* (8 unless
+the venue chooses otherwise) is a convention, not a measure: **eight results do
+not make a rating exact.** Every public and player screen says so, and nothing
+calls a rating a true level or a skill.
 
 ### What counts
 
@@ -1368,14 +1376,15 @@ what the rating expected, what happened and how far it moved.
   counted. In a league of teams each singles or doubles game counts for the
   people the captains picked to play it, so a game with no lineup counts only
   for the teams.
-- **Which results.** A tournament's group and knockout matches (every bracket of
-  a double elimination or consolation draw: winners', losers', grand final and
-  reset, consolation; a bye and a reset that is not needed are not matches), a box league's
-  confirmed matches and walkovers, a league of teams' confirmed fixtures and
-  forfeits (the teams' result, and each singles or doubles game). Not a
-  performance event's heats or counts ([not rated](#counted-performances)), not a match not yet decided, not one a
-  tournament's own rules void (a disqualified entrant's group results, by
-  default), not a called-off tournament's, not a struck or voided result.
+- **Which results.** Decided and confirmed ones, by the table in
+  [which results count](#which-results-count): a tournament's group and knockout
+  matches (every bracket of a double elimination or consolation draw: winners',
+  losers', grand final and reset, consolation; Swiss rounds; a bye and a reset
+  that is not needed are not matches), a box league's confirmed matches and
+  walkovers, a league of teams' confirmed fixtures and forfeits (the teams'
+  result, and each singles or doubles game), a ladder's confirmed challenges and
+  forfeits. Not a performance event's heats or counts
+  ([not rated](#counted-performances)).
 
 ### The rule
 
@@ -1390,13 +1399,60 @@ Published constants (`DEFAULT_RATING_RULES`, kept as install data in
 | K by results already counted | 40 for the first 10, 24 up to 30, then 16: newcomers settle faster |
 | Weight | 1 for a match played; **½ for a win by retirement** (the other side stopped part-way); **0 for a walkover**: a forfeit is not play, so it moves nothing and is not counted (the row stays in the ledger, to explain) |
 | Margin | Only where the sport's scoring is a tally of goals or points: nothing extra for a margin of one, then 10% more for each further goal, up to 40%. Never for sets |
-| Provisional | Until 8 counted results: shown as *provisional* and never ranked |
+| Provisional | Until the venue's number of counted results (8 by default; a venue chooses 3 to 30, [below](#a-venues-ranking-policy)): shown as *provisional* and never ranked. A classification only: it changes no rating |
 | Level a rating earns | beginner below 950, intermediate from 950, advanced from 1100, competitive from 1250 (used by [matchmaking](matchmaking.md#earned-levels)) |
 
 Ratings are rounded to two decimals after every update, so a replay gives the
 same numbers on any machine. A walkover or a retirement is treated as the
 event's own rules treat it: the event decides whether a withdrawn or retired
 entrant's group results stand or are void, and a void one is not counted here.
+
+### Which results count
+
+A result is **counted** when it is **decided and confirmed**, in an event a
+manager marked as rated. `src/lib/rating-eligibility.ts` holds the table in code
+(`TREATMENT`, `DECIDED_STATUS`, `UNDECIDED_STATUS`) and
+`tests/rating-eligibility.test.ts` runs every row of it against a real event, so
+this table, the code and the ledger cannot disagree. *Ledger row* is whether the
+result is written down (a row that moves nothing still explains itself);
+*counted* is whether it moves ratings and counts towards the number that ranks a
+player.
+
+| Situation | Ledger row | Moves ratings | Counted as a result |
+| --------- | ---------- | ------------- | ------------------- |
+| Played to a result, a win or a loss | yes | fully (weight 1) | yes |
+| A draw, where the sport's rules allow one (a group match scored in goals; a game or fixture of a league of teams) | yes | fully, a result of one half | yes |
+| A win by **retirement** (one side stopped part-way) | yes (*retired*) | half (weight ½) | yes |
+| A **walkover** or no-show given to the other side | yes (*walkover*) | no (weight 0) | no |
+| A **forfeit** (a league of teams' fixture; a ladder challenge nobody answered) | yes, as a walkover | no | no |
+| **Abandoned, unplayed or incomplete**: nothing was decided | no | | |
+| A **bye** | no | | |
+| **Unconfirmed**: a player reported it and the other side has not answered | no: it is not a result yet; it is recorded when the other side confirms, or when it stands after 24 hours | | |
+| **Disputed**: staff are deciding | no: recorded when they decide | | |
+| **Voided or struck** by staff, or the event called off | no: its row is voided and the pool replayed | | |
+| A disqualified or withdrawn entrant's **group results the event's own rules void** (a disqualified entrant's, by default) | no | | |
+| **Invalid**: a score the sport's own scoring rules refuse (it says the other side won, or is not a score), no score on a match played, a level score where the rules allow no draw, a side against itself | no | | |
+| **Nobody to rate** on a side: a name typed into an entry, somebody entered at the counter with no account | no | | |
+| **Left out by a manager**, with a reason | the row stays | no | no |
+
+The same table holds in every format; what differs is only which results there
+are:
+
+| Format | Results read |
+| ------ | ------------ |
+| Singles, doubles (a pair is the entrant alone: a typed partner is not rated) | each decided match |
+| Team entries and the games of a team match | a named team's match; in a league of teams each singles and doubles game for the people picked, and the teams' result |
+| Knockout, double elimination, consolation, third place | each decided match of every bracket; a bye and an unneeded reset are none; a knockout always has a winner, so a level score is invalid; a leaver's matches are walkovers to the other side |
+| Round robin and group stages | each decided match; a draw only where the rules allow it; a leaver's or a disqualified entrant's group results as the event's own rules say |
+| Swiss | each decided match of each round (they are group matches); a bye is none |
+| Ladders | a confirmed challenge is played; an unanswered one or a walkover is a walkover; declined, cancelled, lapsed and voided are none; a rank is not a rating |
+| Box leagues | confirmed matches and walkovers; reported, disputed and voided are none; no draws, no retirements |
+
+Every status a result row can have in the four result tables is classified as
+decided or not in one place, and a test fails on a status nobody classified. There
+is no cross-source duplicate guard because none can arise: a result row belongs to
+one event of one kind, and the ledger's unique index is on that row (event, match,
+game). Counter entries and typed names are never rated, as built.
 
 ### The ledger is the source of truth
 
@@ -1433,8 +1489,9 @@ entrant's group results stand or are void, and a void one is not counted here.
 
 ### Rankings
 
-- **A venue's ranking** per sport and format (`/venue/:id/rankings`,
-  `GET /api/venues/:id/rankings`): rating, results counted, record, recent
+- **A venue's ranking, once its manager has published it,** per sport and format
+  (`/venue/:id/rankings`, `GET /api/venues/:id/rankings`; [policy](#a-venues-ranking-policy)):
+  rating, results counted, record, recent
   form, for one **season** (a calendar year: the rating after the year's last
   result, the record in it) or all time. Where a venue allows it
   (*List this venue's rankings beside the other branches of its business*), a
@@ -1442,7 +1499,9 @@ entrant's group results stand or are void, and a void one is not counted here.
 - **Public pages show only people who opted in** (off by default, declared
   adults only, under the name they gave) **and teams their captain published**,
   and only once the rating is no longer provisional. A child is never listed,
-  whatever they have done. Nobody is named because of a rating.
+  whatever they have done. Nobody is named because of a rating. Where the venue
+  chose it, people who opted in but are not ranked yet appear in a separate
+  section, never in the ranking.
 - **A player sees their own** at `/ratings`: each rating by venue, sport and
   format, whether it is provisional and what level it earns, the record, and for
   each result what it was against (as the event showed them; a child is *a junior
@@ -1452,18 +1511,75 @@ entrant's group results stand or are void, and a void one is not counted here.
   it; otherwise the chance is given to the nearest ten per cent. A guardian sees a child's, and
   a team's members its team's.
 - **Managers** see the venue's ratings, provisional ones too, the results in
-  the ledger and whether each counts, and the exclusions and restarts made.
+  the ledger and whether each counts, and the exclusions and restarts made,
+  whether or not the venue's rankings are public.
 - **Seeding** a draw from ratings is a **proposal**: the entries with a
   non-provisional rating, best first (a quarter of the field, two to eight),
   confirmed by a manager against what they were shown, through the draw's own
   seed input (`setEntry`); never over seeds staff already set, and refused once
   drawn.
 
+### A venue's ranking policy
+
+Under *Ratings and rankings* in the dashboard's *Leagues* tab, a manager sets
+(migration 0275, `venue_rating_settings`; [ADR 0035](../architecture/decisions/0035-rating-policy-published-rankings-and-counted-results.md)):
+
+- **Publish this venue's rankings** (`public_rankings`, **off by default**). A
+  ranking is never published because one rated result exists. Off, the rankings
+  page and `GET /api/venues/:id/rankings` answer **404** (not an empty page), the
+  venue page does not link to them, the MCP tool `venue_rankings` says the venue
+  has not published rankings, and the sitemap never lists them (a published page
+  is not indexed either: the people on it chose to be on a ranking, not to be found
+  by a search engine). **Every venue that existed before this setting has it off:
+  its public ranking page and API stop answering until its manager publishes them.**
+  A manager whose venue has rated results and has not published is told so in the
+  panel. On a business-wide board a branch is listed only if it allows the
+  business board *and* has published its own.
+- **Show players who are not ranked yet, in a separate section**
+  (`show_provisional`, off by default, needs the above). Titled "Provisional:
+  fewer than N rated results; these ratings may move a lot", in a block of its
+  own: no rank numbers, no medals, not in order of rating (listed by name). The same
+  people the ranking may name; never a child. Not on a business-wide board.
+- **Counted results before a player is ranked** (`rank_after`, 3 to 30; empty is
+  the install's default, 8). **It changes who is shown as ranked and who as
+  provisional, here and in public, and nothing else: no rating and no ledger row is
+  touched** (tested against a replay from scratch, with the number changing between
+  corrections). It is a venue's number, not an event's: a rating belongs to a pool
+  that many events feed. A player's own page, the manager's panel, seeding
+  proposals and the level [matchmaking](matchmaking.md#earned-levels) may use all
+  use the same number for that venue. Lowering it to 3 ranks players on three
+  results; the page says what a rating is.
+
+The private views (a player's own ratings, a guardian's, a team's members', the
+manager's panel and ledger) never depend on any of these. Turning public rankings
+off turns the provisional section off with it. The rating maths constants (the
+start, K, weights, margin) stay install data in `rating_rules`.
+
+### Auditing ratings
+
+- **Every rating change is explainable from the ledger:** each result carries the
+  ratings before and after, K, the chance given and the weight, and a rating equals
+  a replay of the live ledger from scratch after any correction, strike, restore or
+  change of the number that ranks players; the same ledger gives the same ratings in
+  any order of its rows (both tested).
+- **Who changed what:** every change to the policy, every event marked rated or
+  not, and the business-wide listing is a line in `rating_policy_log` (who, when,
+  from, to) and in the activity log (`ratings.public_rankings`,
+  `ratings.show_provisional`, `ratings.rank_after`, `ratings.event_rated`,
+  `ratings.event_unrated`), shown in the panel.
+- **A manager can download the ledger** (*Download the ledger (CSV)*,
+  `GET /api/admin/ratings?venueId=&export=ledger`, one pool with `&sport=&format=`;
+  logged as `ratings.ledger_exported`): every result, a line for each person or
+  team on it, in replay order, with the rating before and after, what it moved,
+  whether it counted and why not, and rows later replaced or struck marked as such
+  without ratings. A child is *(junior player)*, as in the panel.
+
 ### Roles, privacy, languages
 
-- Setting an event as rated, leaving a result out, starting a rating again,
-  seeding and the business board are a manager's (`MANAGER_ONLY`) and each is in
-  the activity log (`ratings.*`). Front desk sees none of it.
+- Setting an event as rated, publishing rankings and the policy, leaving a result
+  out, starting a rating again, seeding, the business board and the ledger download
+  are a manager's (`MANAGER_ONLY`) and each is in the activity log (`ratings.*`).
+  Front desk sees none of it.
 - A player's export lists their ratings and each result that moved them
   (children's in the guardian's export of the child's record); erasing an
   account makes its place in the ledger *(removed)*, standing at the rating it
@@ -1486,8 +1602,11 @@ entrant's group results stand or are void, and a void one is not counted here.
 - Not a performance event's heats or counts (a field ranked by marks or counts has no two-sided result; marking one rated is refused), and no rating from a casual open game.
 - The constants are the install's, not the venue's, and are changed in the
   database (raising the version recomputes every pool); there is no screen.
-- Provisional ratings are not ranked, and a venue has no ranking until somebody
-  who opted in has played enough results.
+- Provisional ratings are not ranked, and a venue has no ranking until its manager
+  has published it and somebody who opted in has played enough results.
+- The number that ranks a player is a venue's, not a competition's or a format's.
+- A rating is an estimate: the number of results that ranks a player does not make
+  it exact, and no screen says it does.
 
 ## Swiss tournaments
 
@@ -1806,6 +1925,7 @@ declared, never verified, and no identity document is asked for.
 | Consolation draws and double elimination: the structures, progression through a whole event, the grand-final reset, corrections along two routes, leavers in each bracket, placings, court time, names | `src/lib/brackets.ts`, `src/lib/tournaments.ts`, `src/lib/tournament-rules.ts`, `src/lib/tournament-day.ts`, `src/app/tournaments/[id]/page.tsx`, `src/components/admin/TournamentsTab.tsx`, `db/migrations/0271_consolation_and_double_elimination.sql` | `tests/brackets-structure.test.ts`, `tests/double-elimination.test.ts` and `tests/consolation.test.ts` (PGlite and Postgres) |
 | The advanced feed-in consolation draw: the structure by size, the counts, the consequences shown and confirmed, the draw and its refusal when the time cannot hold it, progression through whole events, leavers, corrections and replay equality, places, ratings, tournament day, the setup screens | `src/lib/brackets.ts` (`feedInConsolation`, `feedInConsequences`, `feedInPreview`, `placings`), `src/lib/tournaments.ts` (`makeDraw`, `setRules`, `feedInPreview`), `src/lib/tournament-rules.ts` (`consolationMode`), `src/app/api/admin/tournaments/[id]/feed-in-preview/route.ts`, `src/components/admin/TournamentsTab.tsx` | `tests/feed-in-structure.test.ts`, `tests/feed-in-consolation.test.ts` (PGlite and Postgres), `tests/components/feed-in-ui.test.tsx` |
 | Ratings from results: the rule, the ledger, replay, corrections, voids, walkovers, exclusions and restarts, rankings, seeding proposal, privacy | `src/lib/rating-math.ts`, `src/lib/ratings.ts`, `db/migrations/0270_ratings_from_results.sql`, `src/app/api/admin/ratings/route.ts`, `src/app/api/my/ratings/route.ts`, `src/app/api/venues/[id]/rankings/route.ts`, `src/app/ratings/page.tsx`, `src/app/venue/[id]/rankings/page.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/rating-math.test.ts`, `tests/ratings.test.ts` (PGlite and Postgres) |
+| Rating policy: rankings published by choice (404 while off, on the page, API, MCP tool, venue link and sitemap), a venue's number of counted results before a player is ranked, the separate provisional section, which results count (the treatment table, run row by row), replay equality after amendments and policy changes, determinism, pool separation, the audit log and the ledger CSV | `src/lib/rating-eligibility.ts`, `src/lib/ratings.ts` (`rankingPolicy`, `setRankingPolicy`, `ledgerCsv`), `db/migrations/0275_ranking_policy.sql`, `src/app/venue/[id]/rankings/layout.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/ranking-policy.test.ts`, `tests/rating-eligibility.test.ts` (PGlite), `tests/components/ranking-policy-ui.test.tsx`, `tests/mcp.test.ts` (the tool) |
 | Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
 | Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts` |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |

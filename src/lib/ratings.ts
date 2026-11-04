@@ -3,6 +3,8 @@ import { aside, getDb, mustRethrow, withTransaction } from "./db";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { groupResultsVoid, readRules, type CompetitionRules } from "./tournament-rules";
 import {
+  RANK_AFTER_MAX,
+  RANK_AFTER_MIN,
   isProvisional,
   levelOfRating,
   orderKey,
@@ -15,6 +17,8 @@ import {
   type ReplayRow,
   type ResultKind,
 } from "./rating-math";
+import { toCsv } from "./export";
+import { DECIDED_STATUS, invalidResult, sqlList } from "./rating-eligibility";
 import { ACTS_FOR } from "./participants";
 import { todayISO } from "./time";
 import type { Refusal } from "./types";
@@ -67,6 +71,116 @@ export async function ratingRulesNow(): Promise<{ version: number; rules: Rating
   return { version: row?.version ?? 1, rules: readRatingRules(row?.rules) };
 }
 
+// ------------------------------------------------------------ a venue's ranking policy
+
+export { RANK_AFTER_MIN, RANK_AFTER_MAX };
+
+/**
+ * What a venue's manager has chosen about its rankings (migration 0275; ADR 0034). Public rankings are **off** until a manager
+ * switches them on; players with fewer than `rankAfter` counted results are provisional and, if the manager chose it, shown in a
+ * separate section, never ranked. Private rankings (a player's own, a guardian's, the manager's panel) never depend on any of it.
+ */
+export interface RankingPolicy {
+  venueId: number;
+  publicRankings: boolean;
+  showProvisional: boolean;
+  /** Counted results before a player is ranked: the venue's choice, else the install's. */
+  rankAfter: number;
+  /** The install's default, which `rankAfter` is when the venue has not chosen. */
+  installDefault: number;
+  /** True when the venue chose its own number. */
+  custom: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+export async function rankingPolicy(venueId: number): Promise<RankingPolicy> {
+  const row = (await getDb()
+    .prepare("SELECT public_rankings, show_provisional, rank_after, updated_at, updated_by FROM venue_rating_settings WHERE venue_id = ?")
+    .get(venueId)) as { public_rankings: boolean; show_provisional: boolean; rank_after: number | null; updated_at: string | null; updated_by: string | null } | undefined;
+  const { rules } = await ratingRulesNow();
+  return {
+    venueId,
+    publicRankings: row?.public_rankings === true,
+    // The provisional section exists only inside public rankings.
+    showProvisional: row?.public_rankings === true && row?.show_provisional === true,
+    rankAfter: row?.rank_after ?? rules.provisionalGames,
+    installDefault: rules.provisionalGames,
+    custom: row?.rank_after != null,
+    updatedAt: row?.updated_at ?? null,
+    updatedBy: row?.updated_by ?? null,
+  };
+}
+
+/** The rules as one venue applies them: the install's constants, and the venue's number of counted results before a player is ranked. */
+export async function rulesForVenue(venueId: number): Promise<RatingRules> {
+  const { rules } = await ratingRulesNow();
+  const row = (await getDb().prepare("SELECT rank_after FROM venue_rating_settings WHERE venue_id = ?").get(venueId)) as { rank_after: number | null } | undefined;
+  return row?.rank_after != null ? { ...rules, provisionalGames: row.rank_after } : rules;
+}
+
+/** Append a line to the policy log: who changed what, from what, to what, when. */
+export async function logRatingChange(venueId: number, kind: "public_rankings" | "show_provisional" | "rank_after" | "event_rated" | "business_board", subject: string | null, oldValue: string | null, newValue: string, by: string): Promise<void> {
+  await getDb().prepare("INSERT INTO rating_policy_log (venue_id, kind, subject, old_value, new_value, by_name) VALUES (?, ?, ?, ?, ?, ?)").run(venueId, kind, subject, oldValue, newValue, by);
+}
+
+export interface PolicyLogLine {
+  kind: string;
+  subject: string | null;
+  from: string | null;
+  to: string;
+  by: string;
+  at: string;
+}
+
+export async function ratingPolicyLog(venueId: number, limit = 50): Promise<PolicyLogLine[]> {
+  const rows = (await getDb()
+    .prepare("SELECT kind, subject, old_value, new_value, by_name, created_at FROM rating_policy_log WHERE venue_id = ? ORDER BY id DESC LIMIT ?")
+    .all(venueId, Math.min(Math.max(limit, 1), 500))) as { kind: string; subject: string | null; old_value: string | null; new_value: string; by_name: string; created_at: string }[];
+  return rows.map((r) => ({ kind: r.kind, subject: r.subject, from: r.old_value, to: r.new_value, by: r.by_name, at: r.created_at }));
+}
+
+export interface PolicyChange {
+  publicRankings?: boolean;
+  showProvisional?: boolean;
+  /** An integer from RANK_AFTER_MIN to RANK_AFTER_MAX; null goes back to the install's default. */
+  rankAfter?: number | null;
+}
+
+/**
+ * A manager's change to the venue's ranking policy, each part logged with who and when (`rating_policy_log`). Turning public rankings
+ * off also turns the provisional section off (it exists only inside them); the provisional section cannot be switched on while they are
+ * off. Changing `rankAfter` re-classes who is ranked and who is provisional and nothing else: no ledger row and no rating is touched.
+ */
+export async function setRankingPolicy(venueId: number, change: PolicyChange, by: string): Promise<RatingResult<{ policy: RankingPolicy; changed: string[] }>> {
+  if (change.rankAfter !== undefined && change.rankAfter !== null && !(Number.isInteger(change.rankAfter) && change.rankAfter >= RANK_AFTER_MIN && change.rankAfter <= RANK_AFTER_MAX))
+    return ratingRefusal("RT_RANK_AFTER", { min: RANK_AFTER_MIN, max: RANK_AFTER_MAX }, 400);
+  return withTransaction(async () => {
+    const db = getDb();
+    await db.prepare("INSERT INTO venue_rating_settings (venue_id) VALUES (?) ON CONFLICT DO NOTHING").run(venueId);
+    const cur = (await db
+      .prepare("SELECT public_rankings, show_provisional, rank_after FROM venue_rating_settings WHERE venue_id = ? FOR UPDATE")
+      .get(venueId)) as { public_rankings: boolean; show_provisional: boolean; rank_after: number | null };
+    const publicRankings = change.publicRankings ?? cur.public_rankings;
+    if (change.showProvisional === true && !publicRankings) return ratingRefusal("RT_PROVISIONAL_NEEDS_PUBLIC");
+    const showProvisional = publicRankings ? (change.showProvisional ?? cur.show_provisional) : false;
+    const rankAfter = change.rankAfter === undefined ? cur.rank_after : change.rankAfter;
+    const changed: string[] = [];
+    const note = async (kind: "public_rankings" | "show_provisional" | "rank_after", before: string | null, after: string) => {
+      changed.push(kind);
+      await logRatingChange(venueId, kind, null, before, after, by);
+    };
+    if (publicRankings !== cur.public_rankings) await note("public_rankings", cur.public_rankings ? "on" : "off", publicRankings ? "on" : "off");
+    if (showProvisional !== cur.show_provisional) await note("show_provisional", cur.show_provisional ? "on" : "off", showProvisional ? "on" : "off");
+    if (rankAfter !== cur.rank_after) await note("rank_after", cur.rank_after === null ? "default" : String(cur.rank_after), rankAfter === null ? "default" : String(rankAfter));
+    if (changed.length > 0)
+      await db
+        .prepare("UPDATE venue_rating_settings SET public_rankings = ?, show_provisional = ?, rank_after = ?, updated_at = datetime('now'), updated_by = ? WHERE venue_id = ?")
+        .run(publicRankings, showProvisional, rankAfter, by, venueId);
+    return { ok: true as const, value: { policy: await rankingPolicy(venueId), changed } };
+  });
+}
+
 // ------------------------------------------------------------ the facts of an event
 
 interface SubjectRef {
@@ -111,6 +225,9 @@ function uniqueSubjects(list: (SubjectRef | null)[]): SubjectRef[] {
   return out;
 }
 
+/** Is somebody on both sides: a match against oneself is not a result. */
+const overlaps = (a: SubjectRef[], b: SubjectRef[]): boolean => a.some((x) => b.some((y) => y.kind === x.kind && y.id === x.id));
+
 /** The goals or points a decisive tally was won by ("3-2" is 1), or null where the score is not a tally. */
 export function tallyMargin(score: string | null): number | null {
   const m = /^\s*(\d{1,3})\s*-\s*(\d{1,3})/.exec(score ?? "");
@@ -149,7 +266,7 @@ async function tournamentFacts(id: number): Promise<EventFacts | null> {
   const matches = (await db
     .prepare(
       `SELECT id, stage, entry_a, entry_b, winner, score, status, date, start_min FROM tournament_matches
-        WHERE tournament_id = ? AND stage IN ('group', 'knockout') AND status IN ('done', 'walkover', 'retired') AND entry_a IS NOT NULL AND entry_b IS NOT NULL ORDER BY id`
+        WHERE tournament_id = ? AND stage IN ('group', 'knockout') AND status IN (${sqlList(DECIDED_STATUS.tournament)}) AND entry_a IS NOT NULL AND entry_b IS NOT NULL ORDER BY id`
     )
     .all(id)) as { id: number; stage: string; entry_a: number; entry_b: number; winner: number | null; score: string | null; status: "done" | "walkover" | "retired"; date: string | null; start_min: number | null }[];
   const facts: Fact[] = [];
@@ -168,6 +285,8 @@ async function tournamentFacts(id: number): Promise<EventFacts | null> {
     const outcome = m.winner === m.entry_a ? 1 : m.winner === m.entry_b ? 0 : m.status === "done" && m.winner === null ? 0.5 : null;
     if (outcome === null) continue;
     const kind: ResultKind = m.status === "done" ? "played" : m.status;
+    // A result that cannot be one (a side against itself, a score its scoring rules refuse, a draw where none is allowed) is not counted.
+    if (invalidResult({ kind, outcome, score: m.score, scoring: rules.scoring, drawsAllowed: rules.scoring.kind === "tally" && rules.scoring.draws && m.stage === "group", sidesOverlap: overlaps(a, b) })) continue;
     const margin = rules.scoring.kind === "tally" && kind === "played" ? tallyMargin(m.score) : null;
     facts.push({
       format,
@@ -210,7 +329,7 @@ async function leagueFacts(id: number): Promise<EventFacts | null> {
     .prepare(
       `SELECT m.id, m.player_a, m.player_b, m.winner, m.score, m.status, m.reported_at, m.updated_at
          FROM league_matches m JOIN league_seasons s ON s.id = m.season_id
-        WHERE s.league_id = ? AND m.status IN ('confirmed', 'walkover') ORDER BY m.id`
+        WHERE s.league_id = ? AND m.status IN (${sqlList(DECIDED_STATUS.league)}) ORDER BY m.id`
     )
     .all(id)) as { id: number; player_a: number; player_b: number; winner: number | null; score: string | null; status: "confirmed" | "walkover"; reported_at: string | null; updated_at: string | null }[];
   const facts: Fact[] = [];
@@ -221,6 +340,7 @@ async function leagueFacts(id: number): Promise<EventFacts | null> {
     if (m.winner !== m.player_a && m.winner !== m.player_b) continue;
     const outcome = m.winner === m.player_a ? 1 : 0;
     const kind: ResultKind = m.status === "walkover" ? "walkover" : "played";
+    if (invalidResult({ kind, outcome, score: m.score, scoring: rules.scoring, drawsAllowed: false, sidesOverlap: overlaps(a, b) })) continue;
     const margin = rules.scoring.kind === "tally" && kind === "played" ? tallyMargin(m.score) : null;
     const day = (m.reported_at ?? m.updated_at ?? "").slice(0, 10);
     facts.push({
@@ -254,7 +374,7 @@ async function teamLeagueFacts(id: number): Promise<EventFacts | null> {
     .prepare(
       `SELECT f.id, f.status, f.date, f.start_min, ht.team_id AS home_team_id, ht.name AS home_name, aw.team_id AS away_team_id, aw.name AS away_name
          FROM team_fixtures f JOIN team_league_teams ht ON ht.id = f.home_team JOIN team_league_teams aw ON aw.id = f.away_team
-        WHERE f.league_id = ? AND f.status IN ('confirmed', 'forfeit') ORDER BY f.id`
+        WHERE f.league_id = ? AND f.status IN (${sqlList(DECIDED_STATUS.team_league)}) ORDER BY f.id`
     )
     .all(id)) as { id: number; status: "confirmed" | "forfeit"; date: string; start_min: number; home_team_id: number | null; home_name: string; away_team_id: number | null; away_name: string }[];
   if (fixtures.length === 0) return { ...base, facts: [] };
@@ -278,8 +398,20 @@ async function teamLeagueFacts(id: number): Promise<EventFacts | null> {
     const mine = rubbers.filter((r) => r.fixture_id === f.id);
     const playedRubbers = mine.filter((r) => r.played);
     const forfeit = f.status === "forfeit";
+    // A game whose result cannot stand (a score its scoring rules refuse, a level one where draws are not allowed) is not counted, and
+    // a fixture's own result is not read from games that do not add up.
+    const gameValid = (r: { score: string | null; winner: "home" | "away" | null; walkover: boolean }) =>
+      !invalidResult({
+        kind: r.walkover || forfeit ? "walkover" : "played",
+        outcome: r.winner === "home" ? 1 : r.winner === "away" ? 0 : 0.5,
+        score: r.score,
+        scoring: rules.scoring,
+        drawsAllowed: rules.scoring.kind === "tally" && rules.scoring.draws,
+        sidesOverlap: false,
+      });
+    const allValid = playedRubbers.every(gameValid);
     // The teams' result: games won each; the whole-team match's own score gives a margin where it is a tally.
-    if (f.home_team_id && f.away_team_id && f.home_team_id !== f.away_team_id && playedRubbers.length > 0) {
+    if (allValid && f.home_team_id && f.away_team_id && f.home_team_id !== f.away_team_id && playedRubbers.length > 0) {
       const home = playedRubbers.filter((r) => r.winner === "home").length;
       const away = playedRubbers.filter((r) => r.winner === "away").length;
       const outcome = home > away ? 1 : away > home ? 0 : 0.5;
@@ -320,6 +452,7 @@ async function teamLeagueFacts(id: number): Promise<EventFacts | null> {
       const home = side("home");
       const away = side("away");
       if (home.subjects.length === 0 || away.subjects.length === 0) continue;
+      if (!gameValid(r) || overlaps(home.subjects, away.subjects)) continue;
       const outcome = r.winner === "home" ? 1 : r.winner === "away" ? 0 : 0.5;
       const kind: ResultKind = r.walkover || forfeit ? "walkover" : "played";
       const margin = !r.walkover && !forfeit && rules.scoring.kind === "tally" ? tallyMargin(r.score) : null;
@@ -369,7 +502,7 @@ async function ladderFacts(id: number): Promise<EventFacts | null> {
   const matches = (await db
     .prepare(
       `SELECT id, challenger, challenged, winner, score, status, forfeit, resolved_on FROM ladder_challenges
-        WHERE ladder_id = ? AND status IN ('confirmed', 'walkover') AND winner IS NOT NULL ORDER BY id`
+        WHERE ladder_id = ? AND status IN (${sqlList(DECIDED_STATUS.ladder)}) AND winner IS NOT NULL ORDER BY id`
     )
     .all(id)) as { id: number; challenger: number; challenged: number; winner: number; score: string | null; status: "confirmed" | "walkover"; forfeit: boolean; resolved_on: string | null }[];
   const facts: Fact[] = [];
@@ -379,6 +512,7 @@ async function ladderFacts(id: number): Promise<EventFacts | null> {
     if (a.length === 0 || b.length === 0) continue;
     const outcome = m.winner === m.challenger ? 1 : 0;
     const kind: ResultKind = m.status === "walkover" || m.forfeit ? "walkover" : "played";
+    if (invalidResult({ kind, outcome, score: m.score, scoring: rules.scoring, drawsAllowed: false, sidesOverlap: overlaps(a, b) })) continue;
     const margin = rules.scoring.kind === "tally" && kind === "played" ? tallyMargin(m.score) : null;
     facts.push({
       format,
@@ -745,7 +879,7 @@ export async function eventVenue(kind: SourceKind, id: number): Promise<{ venueI
  * Mark an event as rated, or not (a manager's, before it starts). Its results already in then enter the ledger; the ledger is the
  * same as if it had been rated from the start.
  */
-export async function setEventRated(kind: SourceKind, id: number, rated: boolean): Promise<RatingResult<{ rated: boolean; name: string; venueId: number }>> {
+export async function setEventRated(kind: SourceKind, id: number, rated: boolean, by?: string): Promise<RatingResult<{ rated: boolean; name: string; venueId: number }>> {
   const info = await eventVenue(kind, id);
   if (!info) return ratingRefusal("RT_NOT_FOUND", {}, 404);
   // A performance event ranks a field by marks or counts: no result in it has two sides, so it is never rated (ADR 0031).
@@ -759,6 +893,8 @@ export async function setEventRated(kind: SourceKind, id: number, rated: boolean
   const table = TABLE_OF[kind];
   await getDb().prepare(`UPDATE ${table} SET rated = ? WHERE id = ?`).run(rated, id);
   await syncRatedEvent(kind, id);
+  // Who marked it, and when (the policy log; the dashboard passes the staff member's name).
+  if (by) await logRatingChange(info.venueId, "event_rated", `${kind} ${id}: ${info.name}`, rated ? "not rated" : "rated", rated ? "rated" : "not rated", by);
   return { ok: true, value: { rated, name: info.name, venueId: info.venueId } };
 }
 
@@ -894,7 +1030,8 @@ interface FoldRow {
  * a caller that ranks leaves them out.
  */
 export async function poolStandings(venueId: number, sport: string, format: RatingFormat, opts: { season?: number; rules?: RatingRules } = {}): Promise<Standing[]> {
-  const rules = opts.rules ?? (await ratingRulesNow()).rules;
+  // Provisional or not is the venue's number of counted results (its ranking policy), never changing a rating.
+  const rules = opts.rules ?? (await rulesForVenue(venueId));
   const season = opts.season !== undefined ? [`${opts.season}-01-01`, `${opts.season}-12-31`] : null;
   const rows = (await getDb()
     .prepare(
@@ -951,7 +1088,7 @@ export async function currentStanding(venueId: number, sport: string, format: Ra
     .prepare("SELECT rating, games FROM rating_subjects WHERE venue_id = ? AND sport = ? AND format = ? AND subject_kind = ? AND subject_id = ?")
     .get(venueId, sport, format, kind, id)) as { rating: string; games: number } | undefined;
   if (!row) return null;
-  const { rules } = await ratingRulesNow();
+  const rules = await rulesForVenue(venueId);
   return { rating: Number(row.rating), games: row.games, provisional: isProvisional(rules, row.games) };
 }
 
@@ -971,6 +1108,19 @@ export interface BoardRow {
   venue?: string;
 }
 
+/**
+ * A player or team with fewer counted results than the venue ranks after, shown (only if the venue's manager chose to) apart from the
+ * ranking: no rank, no order of merit (they are listed by name), and said to be a rating that may move a lot. The same people as the
+ * ranking may be named: declared adults who chose to be listed, and published teams; never a child.
+ */
+export interface ProvisionalRow {
+  kind: "person" | "team";
+  name: string;
+  rating: number;
+  /** Counted results so far. */
+  games: number;
+}
+
 export interface Board {
   venueId: number;
   venueName: string;
@@ -979,6 +1129,15 @@ export interface Board {
   /** A year, or "all". */
   season: string;
   rows: BoardRow[];
+  /** Counted results before somebody is ranked at this venue (its ranking policy). */
+  rankAfter?: number;
+  /** The separate provisional section: empty unless the venue chose to show it (and never on a business-wide board). */
+  provisional?: ProvisionalRow[];
+}
+
+/** Is there a public rankings page to link to: the venue's manager has published them, and something has been counted. */
+export async function rankingsPublished(venueId: number): Promise<boolean> {
+  return (await rankingPolicy(venueId)).publicRankings && (await boardChoices(venueId)).pools.length > 0;
 }
 
 /** The pools of a venue that have anything counted, and the years results fall in. */
@@ -993,7 +1152,7 @@ export async function boardChoices(venueId: number): Promise<{ pools: { sport: s
 
 /**
  * Who a public ranking may show, and by what name: a declared adult who chose to be listed, under the name they gave; a team its
- * captain published. Nobody else: not a child, not a person who has not said yes, not a provisional rating.
+ * captain published. Nobody else: not a child, not a person who has not said yes.
  */
 async function publicNames(people: number[], teams: number[]): Promise<{ people: Map<number, string>; teams: Map<number, string> }> {
   const db = getDb();
@@ -1010,34 +1169,58 @@ async function publicNames(people: number[], teams: number[]): Promise<{ people:
   return { people: p, teams: t };
 }
 
-async function boardOf(venueId: number, venueName: string, sport: string, format: RatingFormat, season: number | undefined, rules: RatingRules): Promise<BoardRow[]> {
-  const all = (await poolStandings(venueId, sport, format, { season, rules })).filter((s) => !s.provisional && s.kind !== "participant");
+/**
+ * One venue's pool as the public may see it: the ranked list (not provisional, listed by choice) and the provisional ones apart. Whether
+ * a player is provisional is the venue's `rank_after` (ranking policy), applied to the same counted results, so changing it moves people
+ * between the two without touching a rating.
+ */
+async function boardOf(venueId: number, venueName: string, sport: string, format: RatingFormat, season: number | undefined): Promise<{ rows: BoardRow[]; provisional: ProvisionalRow[] }> {
+  const everyone = (await poolStandings(venueId, sport, format, { season })).filter((s) => s.kind !== "participant");
   const names = await publicNames(
-    all.filter((s) => s.kind === "user").map((s) => s.id),
-    all.filter((s) => s.kind === "team").map((s) => s.id)
+    everyone.filter((s) => s.kind === "user").map((s) => s.id),
+    everyone.filter((s) => s.kind === "team").map((s) => s.id)
   );
   const rows: Omit<BoardRow, "rank">[] = [];
-  for (const s of all) {
+  const provisional: ProvisionalRow[] = [];
+  for (const s of everyone) {
     const name = s.kind === "user" ? names.people.get(s.id) : names.teams.get(s.id);
     if (!name) continue;
-    rows.push({ kind: s.kind === "team" ? "team" : "person", name, rating: Math.round(s.rating), games: s.games, wins: s.wins, draws: s.draws, losses: s.losses, form: s.form, venue: venueName });
+    if (s.provisional) provisional.push({ kind: s.kind === "team" ? "team" : "person", name, rating: Math.round(s.rating), games: s.games });
+    else rows.push({ kind: s.kind === "team" ? "team" : "person", name, rating: Math.round(s.rating), games: s.games, wins: s.wins, draws: s.draws, losses: s.losses, form: s.form, venue: venueName });
   }
   rows.sort((x, y) => y.rating - x.rating || y.games - x.games || x.name.localeCompare(y.name));
-  return rows.map((r, i) => ({ ...r, rank: i + 1 }));
+  // Not ranked, so not in an order of merit: by name.
+  provisional.sort((x, y) => x.name.localeCompare(y.name) || x.games - y.games);
+  return { rows: rows.map((r, i) => ({ ...r, rank: i + 1 })), provisional };
 }
 
-/** A venue's public ranking for a sport and format: only people who chose to be listed, and published teams, non-provisional. */
+/**
+ * A venue's ranking for a sport and format: only people who chose to be listed, and published teams, non-provisional; with the provisional
+ * ones in their own list where the venue's policy shows them. This is the data: whether it may be published at all is the venue's
+ * `public_rankings` switch (`rankingPolicy`), which every public surface checks before it calls this.
+ */
 export async function venueBoard(venueId: number, sport: string, format: RatingFormat, opts: { season?: number } = {}): Promise<Board | null> {
   const venue = (await getDb().prepare("SELECT name FROM venues WHERE id = ?").get(venueId)) as { name: string } | undefined;
   if (!venue) return null;
-  const { rules } = await ratingRulesNow();
-  const rows = (await boardOf(venueId, venue.name, sport, format, opts.season, rules)).map(({ venue: _v, ...r }) => r);
-  return { venueId, venueName: venue.name, sport, format, season: opts.season === undefined ? "all" : String(opts.season), rows };
+  const policy = await rankingPolicy(venueId);
+  const board = await boardOf(venueId, venue.name, sport, format, opts.season);
+  return {
+    venueId,
+    venueName: venue.name,
+    sport,
+    format,
+    season: opts.season === undefined ? "all" : String(opts.season),
+    rows: board.rows.map(({ venue: _v, ...r }) => r),
+    rankAfter: policy.rankAfter,
+    provisional: policy.showProvisional ? board.provisional : [],
+  };
 }
 
 /**
  * The branches of a venue's business side by side, for the branches that allow it (and only if this venue does): each branch's
- * own pool, not a merged rating, as the pools are per venue. Null where the venue is on its own or has not allowed it.
+ * own pool, not a merged rating, as the pools are per venue. A branch is listed only if it allows it **and** has switched its own
+ * public rankings on: another venue's manager never publishes this venue's players. No provisional section here. Null where the venue
+ * is on its own or has not allowed it.
  */
 export async function businessBoard(venueId: number, sport: string, format: RatingFormat, opts: { season?: number } = {}): Promise<Board | null> {
   const db = getDb();
@@ -1046,16 +1229,19 @@ export async function businessBoard(venueId: number, sport: string, format: Rati
     | undefined;
   if (!own || own.business_id === null || !own.allowed) return null;
   const branches = (await db
-    .prepare("SELECT v.id, v.name FROM venues v JOIN venue_rating_settings s ON s.venue_id = v.id WHERE v.business_id = ? AND s.business_board = true ORDER BY v.id")
+    .prepare("SELECT v.id, v.name FROM venues v JOIN venue_rating_settings s ON s.venue_id = v.id WHERE v.business_id = ? AND s.business_board = true AND s.public_rankings = true ORDER BY v.id")
     .all(own.business_id)) as { id: number; name: string }[];
-  const { rules } = await ratingRulesNow();
   const rows: BoardRow[] = [];
-  for (const b of branches) rows.push(...(await boardOf(b.id, b.name, sport, format, opts.season, rules)));
+  for (const b of branches) rows.push(...(await boardOf(b.id, b.name, sport, format, opts.season)).rows);
   rows.sort((x, y) => y.rating - x.rating || y.games - x.games || x.name.localeCompare(y.name));
-  return { venueId, venueName: own.name, sport, format, season: opts.season === undefined ? "all" : String(opts.season), rows: rows.map((r, i) => ({ ...r, rank: i + 1 })) };
+  return { venueId, venueName: own.name, sport, format, season: opts.season === undefined ? "all" : String(opts.season), rows: rows.map((r, i) => ({ ...r, rank: i + 1 })), provisional: [] };
 }
 
-export async function setBusinessBoard(venueId: number, allowed: boolean): Promise<void> {
+export async function setBusinessBoard(venueId: number, allowed: boolean, by?: string): Promise<void> {
+  if (by) {
+    const before = await businessBoardAllowed(venueId);
+    if (before !== allowed) await logRatingChange(venueId, "business_board", null, before ? "listed" : "not listed", allowed ? "listed" : "not listed", by);
+  }
   await getDb()
     .prepare(
       `INSERT INTO venue_rating_settings (venue_id, business_board) VALUES (?, ?)
@@ -1082,6 +1268,8 @@ export interface MyPool {
   draws: number;
   losses: number;
   provisional: boolean;
+  /** Counted results before this venue ranks anybody (its ranking policy): what "provisional" means here. */
+  rankAfter?: number;
   /** The declared level this rating earns, shown only once it is not provisional. */
   earns: Level | null;
   form: ("W" | "D" | "L")[];
@@ -1104,9 +1292,12 @@ async function poolsOf(kind: SubjectKind, id: number, rules: RatingRules): Promi
     .all(kind, id)) as { venue_id: number; venue_name: string; sport: string; format: RatingFormat }[];
   const out: MyPool[] = [];
   for (const r of rows) {
-    const st = (await poolStandings(r.venue_id, r.sport, r.format, { rules })).find((s) => s.kind === kind && s.id === id);
+    // Provisional is each venue's own number of counted results (its ranking policy); a player's private view is never switched off.
+    const venueRules = await rulesForVenue(r.venue_id);
+    const st = (await poolStandings(r.venue_id, r.sport, r.format, { rules: venueRules })).find((s) => s.kind === kind && s.id === id);
     if (!st) continue;
     out.push({
+      rankAfter: venueRules.provisionalGames,
       venueId: r.venue_id,
       venueName: r.venue_name,
       sport: r.sport,
@@ -1304,6 +1495,12 @@ export interface StaffRatings {
   events: RatedEvent[];
   businessBoard: boolean;
   inBusiness: boolean;
+  /** The venue's ranking policy: whether its rankings are public, the provisional section, and counted results before a player is ranked. */
+  policy?: RankingPolicy;
+  /** The venue has live rated results, so a manager who has not published its rankings is told they are not public. */
+  hasRated?: boolean;
+  /** Who changed the policy, marked an event rated, and when (newest first). */
+  policyLog?: PolicyLogLine[];
   pools: {
     sport: string;
     format: RatingFormat;
@@ -1334,7 +1531,8 @@ function staffLabel(kind: string, label: string): string {
 
 export async function staffRatings(venueId: number): Promise<StaffRatings> {
   const db = getDb();
-  const { rules } = await ratingRulesNow();
+  // A manager sees every rating, provisional ones too, whether or not the venue's rankings are public.
+  const rules = await rulesForVenue(venueId);
   const venue = (await db.prepare("SELECT business_id FROM venues WHERE id = ?").get(venueId)) as { business_id: number | null } | undefined;
   const subjects = (await db
     .prepare("SELECT sport, format, subject_kind, subject_id, rating, games, wins, draws, losses FROM rating_subjects WHERE venue_id = ? ORDER BY sport, format, rating DESC, subject_id")
@@ -1407,6 +1605,9 @@ export async function staffRatings(venueId: number): Promise<StaffRatings> {
     events: await venueRatedEvents(venueId),
     businessBoard: await businessBoardAllowed(venueId),
     inBusiness: venue?.business_id != null,
+    policy: await rankingPolicy(venueId),
+    hasRated: !!(await db.prepare("SELECT 1 AS x FROM rated_results WHERE venue_id = ? AND voided_at IS NULL AND weight > 0 LIMIT 1").get(venueId)),
+    policyLog: await ratingPolicyLog(venueId, 20),
     pools: [...pools.values()],
     results: rows.map((r) => ({
       sourceKind: r.source_kind,
@@ -1425,6 +1626,115 @@ export async function staffRatings(venueId: number): Promise<StaffRatings> {
     })),
     resets: resets.map((r) => ({ sport: r.sport, format: r.format, subject: labels.get(`${r.subject_kind}:${r.subject_id}`) ?? "", reason: r.reason, by: r.by_name, at: r.created_at })),
   };
+}
+
+// ------------------------------------------------------------ the ledger as a spreadsheet, for a manager
+
+/**
+ * A venue's ledger as a CSV for its manager (`GET /api/admin/ratings?venueId=&export=ledger`), for audit: every result in the ledger, one
+ * line for each person or team on it, in the order the ratings are replayed, with the rating before and after, what it moved and why it
+ * counted or did not; results later replaced by a correction or struck are there too, marked, with the reason, and without ratings (the
+ * ratings are those of the live rows). A pool (`sport` and `format`) or all the venue's. Names are as the event showed them; a child is
+ * "(junior player)", as in the manager's panel.
+ */
+export async function ledgerCsv(venueId: number, pool: { sport?: string; format?: RatingFormat } = {}): Promise<string> {
+  const db = getDb();
+  const where = ["r.venue_id = ?"];
+  const args: (string | number)[] = [venueId];
+  if (pool.sport) {
+    where.push("r.sport = ?");
+    args.push(pool.sport);
+  }
+  if (pool.format) {
+    where.push("r.format = ?");
+    args.push(pool.format);
+  }
+  const results = (await db
+    .prepare(
+      `SELECT r.id, r.sport, r.format, r.source_kind, r.source_id, r.source_match, r.unit_no, r.event_name, r.played_on, r.play_order, r.outcome, r.kind, r.margin, r.weight, r.expected_a,
+              r.voided_at, r.voided_reason, r.created_at,
+              EXISTS (SELECT 1 FROM rating_exclusions x WHERE x.lifted_at IS NULL AND x.source_kind = r.source_kind AND x.source_id = r.source_id AND x.source_match = r.source_match AND x.unit_no = r.unit_no) AS excluded
+         FROM rated_results r WHERE ${where.join(" AND ")} ORDER BY r.id LIMIT 50000`
+    )
+    .all(...args)) as {
+    id: number;
+    sport: string;
+    format: string;
+    source_kind: string;
+    source_id: number;
+    source_match: number;
+    unit_no: number;
+    event_name: string;
+    played_on: string;
+    play_order: number;
+    outcome: string;
+    kind: ResultKind;
+    margin: number | null;
+    weight: string | null;
+    expected_a: string | null;
+    voided_at: string | null;
+    voided_reason: string | null;
+    created_at: string;
+    excluded: boolean;
+  }[];
+  const subjects = new Map<number, { id: number; side: "a" | "b"; subject_kind: string; subject_id: number | null; label: string; rating_before: string | null; rating_after: string | null; k: string | null }[]>();
+  if (results.length > 0)
+    for (const s of (await db
+      .prepare(
+        `SELECT s.id, s.result_id, s.side, s.subject_kind, s.subject_id, s.label, s.rating_before, s.rating_after, s.k FROM rated_result_subjects s JOIN rated_results r ON r.id = s.result_id
+          WHERE ${where.join(" AND ")} ORDER BY s.id`
+      )
+      .all(...args)) as { id: number; result_id: number; side: "a" | "b"; subject_kind: string; subject_id: number | null; label: string; rating_before: string | null; rating_after: string | null; k: string | null }[])
+      subjects.set(s.result_id, [...(subjects.get(s.result_id) ?? []), s]);
+  const ordered = results
+    .map((r) => ({ r, order: orderKey({ playedOn: r.played_on, playOrder: r.play_order, sourceKind: r.source_kind, sourceId: r.source_id, sourceMatch: r.source_match, unitNo: r.unit_no }) }))
+    .sort((x, y) => (x.order < y.order ? -1 : x.order > y.order ? 1 : x.r.id - y.r.id));
+  const num = (v: string | null) => (v === null ? null : Number(v));
+  const lines: unknown[][] = [];
+  for (const { r } of ordered) {
+    const live = r.voided_at === null;
+    const weight = num(r.weight);
+    const counted = live && !r.excluded && (weight ?? 0) > 0;
+    const why = !live ? `replaced or struck: ${r.voided_reason ?? ""}` : r.excluded ? "left out by a manager" : r.kind === "walkover" ? "walkover: moves nothing" : weight === 0 ? "weight 0" : "";
+    const expA = num(r.expected_a);
+    for (const s of subjects.get(r.id) ?? []) {
+      const removed = s.subject_kind === "removed";
+      const own = s.side === "a" ? Number(r.outcome) : 1 - Number(r.outcome);
+      const before = live && !r.excluded ? num(s.rating_before) : null;
+      const after = live && !r.excluded ? num(s.rating_after) : null;
+      const chance = live && !r.excluded && expA !== null ? Math.round((s.side === "a" ? expA : 1 - expA) * 100) : null;
+      lines.push([
+        r.id,
+        r.played_on,
+        r.sport,
+        r.format,
+        r.event_name,
+        r.source_kind,
+        r.source_match,
+        r.unit_no || "",
+        s.side === "a" ? "first side" : "second side",
+        removed ? "(removed)" : staffLabel(s.subject_kind, s.label),
+        removed ? "" : `${s.subject_kind}:${s.subject_id}`,
+        own === 1 ? "win" : own === 0 ? "loss" : "draw",
+        r.kind === "retired" ? "retirement" : r.kind,
+        r.margin ?? "",
+        counted ? "yes" : "no",
+        why,
+        weight ?? "",
+        before ?? "",
+        after ?? "",
+        before !== null && after !== null ? Math.round((after - before) * 100) / 100 : "",
+        live && !r.excluded ? (num(s.k) ?? "") : "",
+        chance ?? "",
+        live ? "live" : "voided",
+        r.created_at,
+      ]);
+    }
+  }
+  return toCsv(
+    ["Result", "Played on", "Sport", "Format", "Event", "Event type", "Match", "Game", "Side", "Player or team", "Subject", "Result for them", "How decided", "Margin", "Counted", "Why not counted", "Weight", "Rating before", "Rating after", "Change", "K", "Chance given (%)", "Ledger row", "Entered in the ledger"],
+    lines
+  );
 }
 
 // ------------------------------------------------------------ seeding a draw from ratings
@@ -1560,7 +1870,7 @@ export const gameFormat = (spots: number): RatingFormat => (spots + 1 <= 2 ? "si
 export async function earnedRatingsOf(userId: number): Promise<Map<string, { rating: number; games: number }>> {
   const { rules } = await ratingRulesNow();
   const rows = (await getDb()
-    .prepare("SELECT venue_id, sport, format, rating, games FROM rating_subjects WHERE subject_kind = 'user' AND subject_id = ? AND games >= ?")
+    .prepare("SELECT rs.venue_id, rs.sport, rs.format, rs.rating, rs.games FROM rating_subjects rs LEFT JOIN venue_rating_settings vs ON vs.venue_id = rs.venue_id WHERE rs.subject_kind = 'user' AND rs.subject_id = ? AND rs.games >= COALESCE(vs.rank_after, ?)")
     .all(userId, rules.provisionalGames)) as { venue_id: number; sport: string; format: RatingFormat; rating: string; games: number }[];
   return new Map(rows.map((r) => [`${r.venue_id}|${r.sport}|${r.format}`, { rating: Math.round(Number(r.rating)), games: r.games }]));
 }
@@ -1582,12 +1892,14 @@ export async function gameReferenceRatings(games: { id: number; venueId: number;
     const rows = (await db
       .prepare(
         `SELECT g.id AS game_id, rs.rating FROM open_games g JOIN bookings b ON b.id = g.booking_id JOIN courts c ON c.id = b.court_id
-           JOIN rating_subjects rs ON rs.venue_id = c.venue_id AND rs.sport = b.sport AND rs.format = ? AND rs.subject_kind = 'user' AND rs.games >= ?
+           JOIN rating_subjects rs ON rs.venue_id = c.venue_id AND rs.sport = b.sport AND rs.format = ? AND rs.subject_kind = 'user'
+           LEFT JOIN venue_rating_settings vs ON vs.venue_id = rs.venue_id
            JOIN player_profiles pp ON pp.user_id = rs.subject_id AND pp.rating_shared = 1 AND pp.adult = 1
           WHERE g.id IN (${these.map(() => "?").join(",")})
+            AND rs.games >= COALESCE(vs.rank_after, ?)
             AND (rs.subject_id = g.host_id OR EXISTS (SELECT 1 FROM open_game_players p WHERE p.game_id = g.id AND p.user_id = rs.subject_id AND p.status = 'accepted'))`
       )
-      .all(format, rules.provisionalGames, ...these.map((g) => g.id))) as { game_id: number; rating: string }[];
+      .all(format, ...these.map((g) => g.id), rules.provisionalGames)) as { game_id: number; rating: string }[];
     const sums = new Map<number, number[]>();
     for (const r of rows) sums.set(r.game_id, [...(sums.get(r.game_id) ?? []), Number(r.rating)]);
     for (const [gameId, list] of sums) out.set(gameId, { rating: Math.round(list.reduce((a, b) => a + b, 0) / list.length), n: list.length });
@@ -1597,7 +1909,8 @@ export async function gameReferenceRatings(games: { id: number; venueId: number;
 
 /** Everybody's non-provisional rating in one pool, by account: what a host's suggested players are held against. */
 export async function poolEarned(venueId: number, sport: string, format: RatingFormat): Promise<Map<number, number>> {
-  const { rules } = await ratingRulesNow();
+  // Provisional is the venue's own number of counted results (its ranking policy).
+  const rules = await rulesForVenue(venueId);
   const rows = (await getDb()
     .prepare("SELECT subject_id, rating FROM rating_subjects WHERE venue_id = ? AND sport = ? AND format = ? AND subject_kind = 'user' AND games >= ?")
     .all(venueId, sport, format, rules.provisionalGames)) as { subject_id: number; rating: string }[];

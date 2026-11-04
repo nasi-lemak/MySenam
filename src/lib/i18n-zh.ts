@@ -3962,7 +3962,7 @@ export const ZH: Record<Phrase, string> = {
   "match.reason.LEVEL_EARNED_ADJACENT": "您的积累评分（{rating}）与比赛要求的水平相差一级",
   "match.reason.RATING_CLOSE": "您的评分 {mine}，对方 {theirs}：相差不超过 {within}",
   "gcap.ratings.title": "评分与排名",
-  "gcap.ratings.blurb": "根据您标记为计入评分的赛事结果，按一条公开的规则计算评分：场馆对选择公开的球员的排名，以及每位球员自己的历史记录和原因。",
+  "gcap.ratings.blurb": "根据您标记为计入评分的赛事结果，按一条公开的规则计算评分：场馆对选择公开的球员的排名（仅在您选择公开时发布），以及每位球员自己的历史记录和原因。",
   "ctp.group": "第{n}组",
   "ctp.start": "出发顺序",
   "ctp.tops": "完攀",
@@ -4215,6 +4215,13 @@ export const ZH: Record<Phrase, string> = {
   "err.PN1_CONFIRM": "请勾选方框，表示您明白哪些内容会公开。",
   "err.PN1_NOT_FOUND": "找不到该授权。",
   "fi1.consolationNote": "主签表中落败的选手（决赛除外）会在这里继续比赛。",
+  "err.RT_RANK_AFTER": "请选择 {min} 至 {max} 之间的整数，作为已计入的结果数。",
+  "err.RT_PROVISIONAL_NEEDS_PUBLIC": "须先开启公开排名，才能显示尚未入榜的球员。",
+  "rk1.note": "评分是根据已计入结果得出的估计。结果较少时可能大幅变动，{n} 个结果也不代表精确。",
+  "rk1.venueSets": "每个场馆自行决定球员需要多少个已计入的结果才能入榜（通常为 {n} 个）。",
+  "rk1.provisional.title": "暂定：已计入评分的结果少于 {n} 个；这些评分可能大幅变动",
+  "rk1.provisional.intro": "这些球员和队伍未入榜。他们在此的已计入评分结果少于 {n} 个，因此评分只是粗略的估计。名单按姓名排列，不分先后，且仅因他们选择公开而列出。",
+  "rk1.provisional.caption": "暂定评分（未入榜）",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

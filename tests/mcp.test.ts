@@ -22,6 +22,7 @@ import { applyAddress } from "../src/lib/guide/public/select";
 import { fitView } from "../src/lib/guide/public/view";
 import { translator } from "../src/lib/i18n";
 import { LATEST_PROTOCOL } from "../src/lib/mcp/protocol";
+import { setRankingPolicy } from "../src/lib/ratings";
 import { resetRateLimits } from "../src/lib/rate-limit";
 import { createBooking, createCourt, createVenue, findBookingByCode } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -268,6 +269,10 @@ describe("the public tools answer what the public pages and routes do", () => {
       // Nor are its rankings (the venue's own page rules decide, for somebody signed out).
       expect(textOf(await tool("venue_rankings", { venueId: hidden }))).toBe("Venue not found.");
     }
+    // Rankings are published only when the venue's manager switches them on: until then the tool says they are not published, and lists nothing.
+    expect(textOf(await tool("venue_rankings", { venueId }))).toBe("This venue has not published rankings.");
+    expect((await tool("venue_rankings", { venueId, activity: "badminton", format: "singles" })).isError).toBe(true);
+    expect((await setRankingPolicy(venueId, { publicRankings: true }, "Manager")).ok).toBe(true);
     // A venue with nothing rated has nothing to choose from; a sport and format with nobody listed is an empty ranking, never a refusal that tells anything.
     expect(dataOf(await tool("venue_rankings", { venueId })).choices).toEqual({ pools: [], seasons: [] });
     expect(dataOf(await tool("venue_rankings", { venueId, activity: "badminton", format: "singles" })).board.rows).toEqual([]);

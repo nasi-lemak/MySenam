@@ -3,6 +3,7 @@
 import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import { sportLabel } from "@/lib/i18n";
+import { RANK_AFTER_MAX, RANK_AFTER_MIN } from "@/lib/rating-math";
 import type { SeedProposal, SourceKind, StaffRatings } from "@/lib/ratings";
 import { LoadFailed } from "./place";
 import type { ManagedVenue } from "./shared";
@@ -12,6 +13,24 @@ import { useStaffT } from "./StaffLanguage";
 const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
 const small = "rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:border-teal-500";
 const primary = "rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700";
+
+/** What the policy log's stored words and kinds are called on screen. */
+const POLICY_VALUE = {
+  on: "rts.pol.val.on",
+  off: "rts.pol.val.off",
+  default: "rts.pol.val.default",
+  rated: "rts.pol.val.rated",
+  "not rated": "rts.pol.val.not_rated",
+  listed: "rts.pol.val.listed",
+  "not listed": "rts.pol.val.not_listed",
+} as const;
+const POLICY_KIND = {
+  public_rankings: "rts.pol.kind.public_rankings",
+  show_provisional: "rts.pol.kind.show_provisional",
+  rank_after: "rts.pol.kind.rank_after",
+  event_rated: "rts.pol.kind.event_rated",
+  business_board: "rts.pol.kind.business_board",
+} as const;
 
 type Pending = { kind: "exclude"; key: string } | { kind: "lift"; id: number } | { kind: "reset"; key: string } | null;
 
@@ -42,6 +61,11 @@ function RatingsBody({ venue }: { venue: ManagedVenue }) {
   const [pending, setPending] = useState<Pending>(null);
   const [reason, setReason] = useState("");
   const [seeds, setSeeds] = useState<{ id: number; name: string; proposal: SeedProposal } | null>(null);
+  const [rankAfter, setRankAfter] = useState("");
+  const savedRankAfter = data?.policy?.rankAfter;
+  useEffect(() => {
+    if (savedRankAfter !== undefined) setRankAfter(String(savedRankAfter));
+  }, [savedRankAfter]);
 
   const load = useCallback(async () => {
     try {
@@ -101,6 +125,11 @@ function RatingsBody({ venue }: { venue: ManagedVenue }) {
     </div>
   );
   const sportName = (s: string) => (t.locale === "en" ? s : sportLabel(t.customer, s));
+  const policy = data.policy;
+  const policyWord = (v: string | null) => (v === null ? "" : v in POLICY_VALUE ? t(POLICY_VALUE[v as keyof typeof POLICY_VALUE]) : v);
+  async function savePolicy(body: Record<string, unknown>) {
+    if (await post({ action: "policy", ...body })) setNotice(t("rts.pol.saved"));
+  }
 
   return (
     <div className="mt-3 space-y-5 text-sm">
@@ -111,6 +140,70 @@ function RatingsBody({ venue }: { venue: ManagedVenue }) {
         </div>
       )}
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700">{notice}</div>}
+
+      {policy && (
+        <section className="space-y-2 rounded-lg border border-slate-200 p-3" aria-labelledby="rts-pol-title">
+          <h3 id="rts-pol-title" className="font-semibold">
+            {t("rts.pol.title")}
+          </h3>
+          {!policy.publicRankings && data.hasRated && (
+            <p role="status" className="rounded-md bg-amber-50 px-2 py-1 text-amber-800">
+              {t("rts.pol.prompt")}
+            </p>
+          )}
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" name="publicRankings" checked={policy.publicRankings} onChange={(ev) => void savePolicy({ publicRankings: ev.target.checked })} />
+            {t("rts.pol.public")}
+          </label>
+          <p className="text-xs text-slate-500">{t("rts.pol.publicNote")}</p>
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" name="showProvisional" checked={policy.showProvisional} disabled={!policy.publicRankings} onChange={(ev) => void savePolicy({ showProvisional: ev.target.checked })} />
+            {t("rts.pol.provisional")}
+          </label>
+          <p className="text-xs text-slate-500">{t("rts.pol.provisionalNote")}</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("rts.pol.rankAfter")}
+              <input type="number" name="rankAfter" min={RANK_AFTER_MIN} max={RANK_AFTER_MAX} step={1} value={rankAfter} onChange={(e) => setRankAfter(e.target.value)} className={`w-24 ${input}`} />
+            </label>
+            <button type="button" className={primary} disabled={rankAfter === "" || Number(rankAfter) === policy.rankAfter} onClick={() => void savePolicy({ rankAfter: Number(rankAfter) })}>
+              {t("rts.pol.save")}
+            </button>
+            {policy.custom && (
+              <button type="button" className={small} onClick={() => void savePolicy({ rankAfter: null })}>
+                {t("rts.pol.useDefault")}
+              </button>
+            )}
+            <span className="w-full text-xs text-slate-500">{t("rts.pol.rankAfterHint", { min: RANK_AFTER_MIN, max: RANK_AFTER_MAX, n: policy.installDefault })}</span>
+          </div>
+          <p className="text-xs text-slate-500">{t("rts.pol.rankAfterNote", { n: policy.rankAfter })}</p>
+          <p className="text-xs text-slate-500">{t("rts.pol.estimate")}</p>
+          <p>
+            <a className="text-teal-700 underline" href={`/api/admin/ratings?venueId=${venue.id}&export=ledger`} download>
+              {t("rts.pol.export")}
+            </a>{" "}
+            <span className="text-xs text-slate-500">{t("rts.pol.exportNote")}</span>
+          </p>
+          {data.policyLog && data.policyLog.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-600">{t("rts.pol.logTitle")}</h4>
+              <ul className="mt-0.5 space-y-0.5 text-xs text-slate-600">
+                {data.policyLog.map((l, i) => (
+                  <li key={i}>
+                    {t("rts.pol.logLine", {
+                      at: l.at.slice(0, 16),
+                      by: l.by,
+                      what: `${l.kind in POLICY_KIND ? t(POLICY_KIND[l.kind as keyof typeof POLICY_KIND]) : l.kind}${l.subject ? ` (${l.subject})` : ""}`,
+                      from: policyWord(l.from),
+                      to: policyWord(l.to),
+                    })}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="space-y-2">
         <h3 className="font-semibold">{t("rts.events")}</h3>
