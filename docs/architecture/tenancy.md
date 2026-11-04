@@ -93,7 +93,10 @@ account make it; the dashboard keeps no list of its own
   draw, changing its details, saving it as a template, calling it or a
   competition off, and on the day the buttons to call a match, mark it started
   or take the call back, the choices when nobody comes, and the day's settings
-  (the *Now and next* board itself is read by the desk). Three a route refuses the desk by what is asked rather
+  (the *Now and next* board itself is read by the desk); in a league of teams giving a forfeit
+  and deciding a captain's or the desk's request for one (the desk may ask for one;
+  `teamFixtureForfeit`, `teamForfeitDecide`), and in a climbing event reviewing a correction an
+  official asked for (`correctionRequestDecide`). Three a route refuses the desk by what is asked rather
   than by address (moving a fixture, a correction once the knockout has moved
   on, disqualifying) follow the same answer as the draw (`tournamentRun`):
   the desk is not offered them, and a result the knockout has moved past

@@ -45,13 +45,14 @@ export async function tellOwnersEach(write: WriteAlert): Promise<void> {
 /**
  * A venue's own managers and staff, by email: its business's managers, and
  * anyone at that branch, each in their own staff language, as
- * `tellOwnersEach`.
+ * `tellOwnersEach`. `managersOnly` leaves out the branch's front desk (a
+ * decision that is a manager's: lib/team-forfeits.ts).
  */
-export async function tellVenueStaffEach(venueId: number, write: WriteAlert): Promise<void> {
+export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opts: { managersOnly?: boolean } = {}): Promise<void> {
   const people = (await getDb()
     .prepare(
       `SELECT a.email, a.name, a.locale FROM admins a
-        WHERE a.venue_id = ? OR a.business_id = (SELECT business_id FROM venues WHERE id = ?)`
+        WHERE (a.venue_id = ? OR a.business_id = (SELECT business_id FROM venues WHERE id = ?))${opts.managersOnly ? " AND NOT (a.venue_id IS NOT NULL AND a.role = 'desk')" : ""}`
     )
     .all(venueId, venueId)) as { email: string; name: string; locale: string | null }[];
   for (const p of people) {

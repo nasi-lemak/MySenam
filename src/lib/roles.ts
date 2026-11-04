@@ -52,6 +52,12 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/team-leagues\/\d+$/, methods: ["POST"] },
   { path: /^\/api\/admin\/team-leagues\/\d+\/fixtures\/\d+$/, methods: ["PATCH"] },
   { path: /^\/api\/admin\/team-leagues\/\d+\/teams\/\d+$/, methods: ["DELETE"] },
+  // A forfeit changes the table, the points and who goes where: giving one, and deciding a request for one, are a manager's (lib/team-forfeits.ts).
+  // The desk may ask for one (POST .../forfeit-requests) and take its own request back (DELETE).
+  { path: /^\/api\/admin\/team-leagues\/\d+\/fixtures\/\d+\/forfeit$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/team-leagues\/\d+\/forfeit-requests\/\d+$/, methods: ["POST"] },
+  // A correction an official asked for in a performance event's finished round is reviewed by the organiser (lib/official-performances.ts).
+  { path: /^\/api\/admin\/tournaments\/\d+\/correction-requests\/\d+$/, methods: ["POST"] },
   // Ladders (lib/ladders.ts): setting one up, its settings and seasons, deciding or correcting a result, moving or taking somebody off, a freeze: a manager's. The desk reads, and adds players at the counter (POST /players).
   { path: /^\/api\/admin\/ladders$/, methods: ["POST"] },
   { path: /^\/api\/admin\/ladders\/\d+$/, methods: ["POST"] },
@@ -229,6 +235,11 @@ export const STAFF_ACTIONS = {
   teamLeagueRun: "POST /api/admin/team-leagues/1",
   teamFixtureMove: "PATCH /api/admin/team-leagues/1/fixtures/1",
   teamLeagueRemove: "DELETE /api/admin/team-leagues/1/teams/1",
+  // A forfeit and a decision on a request for one are a manager's; the desk may ask for one.
+  teamFixtureForfeit: "POST /api/admin/team-leagues/1/fixtures/1/forfeit",
+  teamForfeitDecide: "POST /api/admin/team-leagues/1/forfeit-requests/1",
+  // Reviewing a correction an official asked for in a climbing event.
+  correctionRequestDecide: "POST /api/admin/tournaments/1/correction-requests/1",
   // Ladders: setting up, settings, seasons, deciding a result, overrides. The desk reads and adds players at the counter.
   ladders: "POST /api/admin/ladders",
   ladderRun: "POST /api/admin/ladders/1",

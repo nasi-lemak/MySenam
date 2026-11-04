@@ -551,6 +551,10 @@ lane.
   - **Why a link.** Officials are often volunteers without an account, and
     their one-tournament, results-only access does not justify one. A venue
     that wants named accounts can make them staff with the front-desk role.
+  - **A climbing event.** The same link, for a counted performance event, enters its
+    counts instead of match results: see
+    [officials and counted results](#officials-and-counted-results). An event of marks
+    (swimming, athletics) has no official's link: its marks are staff's.
 
 - **Matches:** staff enter the score in the sport's form and who won; a
   score that says the other side won, or has more sets than the match is the
@@ -777,9 +781,9 @@ is all of it or none: one wrong line leaves the rest as they were. On a phone
 the staff screen shows a row for each competitor and, for each boulder, **+**
 for each attempt, **Z** at the attempt that reached the zone and **T** at the
 one that topped it, one boulder at a time if the screen is narrow. Front desk
-and managers enter, as for any performance event (an official's page has no
-performance events); every save is in the activity log with each line's counts
-and what they replaced. The counts are the judge's record as entered, never a
+and managers enter, as for any performance event, and so does an official
+assigned to the event ([below](#officials-and-counted-results)); every save is in
+the activity log with each line's counts and what they replaced. The counts are the judge's record as entered, never a
 verified measure.
 
 **What a round is ranked by.** From the counts, each time: *tops* (boulders
@@ -850,6 +854,53 @@ enter through a guardian's account as for any event. Counts belong to the
 entry: erasing a person anonymises the entry, the counts stay with it as any
 result does, and a person's export lists their entry. A winner is named only
 where first place is not shared.
+
+### Officials and counted results
+
+An **official assigned to a climbing event** (a link made from *Give an official a link* on the
+event, for a counted performance event only: `addOfficial`, `src/lib/match-reports.ts`; the same
+assignment, expiry and withdrawal as a match official's) can enter that event's counts from their
+own page, `/officials/:link`, built for a phone held at the foot of the wall
+(`CountedGridCore`, the judge's grid the dashboard uses: **+** for each attempt, **Z** at the
+attempt that reached the zone, **T** at the one that topped it, one boulder at a time, or the hold
+and attempts of a height). Its words are the customer dictionaries' (English, Malay, Chinese, Tamil).
+The permission is **event-scoped, not a manager's**: the link enters counts of *this* event's
+rounds and asks for corrections, and nothing else (`src/lib/official-performances.ts`).
+
+- **Entering.** Through the same `recordPerformances` as the dashboard's save: the same validation (a
+  boulder topped ends at the top, no zone after the top, boulders numbered 1 to *n*, marks refused for a
+  counted event), the same all-or-nothing save, the same ranking, and `preview: true` for what a save
+  would change. The whole route is one transaction on the round's locked row.
+- **Open and finalised.** A round is **open** while any climber in it has no line. Once every line is in
+  it is **finalised** (the event's ranking, and the final's field once every group is in, follow from it,
+  exactly as for a staff save), and a group is also **advanced** once the final has results. While a
+  round is open the official may enter and **re-enter** any line; each overwrite is kept with what it
+  replaced. Entering a finalised or advanced round is refused (`OFC_ROUND_FINAL`) and nothing is
+  written. The last line of the last group fills the final by itself, as it does for a staff save: that
+  is a consequence of the counts, not an organiser's act.
+- **Correction requests.** For a finalised or advanced round the official sends a **correction request**:
+  a reason (3 to 300 characters) and the counts the round should have, checked as a save of them would be
+  now (a request that could not be made is refused). It changes nothing. The league's managers are
+  emailed in their language; one request is open per round and official, and the official may withdraw it.
+  A manager reviews it under the event's *Results from the players and officials*: **preview** what it
+  would change (each line, the placings, and whether it changes who is in the final), then **apply** it
+  only against that preview's token (`CHANGED` if anything moved since; `OFC_NEEDS_PREVIEW` without one),
+  or **decline** it with a reason the official sees. All of that is a manager's (`MANAGER_ONLY`); the desk
+  may read the list.
+- **What stays the organiser's.** Making the final from a tie at the cut (`makeFinal`, `cutTies:
+  choose`), drawing, changing rules or entries, taking a climber out, ending or calling off the event,
+  prices and payments, and every correction to a finalised round through the manager's flow above. A link
+  has no other action: any other `action` is `400`, a match result or a call, start or release is refused
+  (`OFC_PERF_ONLY`), another event's round or climber is `OFC_NOT_HERE`, and a link sent to any dashboard
+  route is refused as no session (a test sends it to every staff route in each way it could travel).
+- **Audit.** Each save is in the staff activity log as *Official: {name}* with each line's new and
+  previous counts (`tournament.performances`), and as one row per line in `tournament_official_marks`
+  (the counts as entered and as they were); the official's page lists their own recent entries and their
+  requests. A request, its application and its decline are logged (`tournament.correction_*`).
+- **Expiry.** As any official's link: until the event's last day or an earlier day the organiser gave,
+  withdrawn at once on request, and **when the event ends** (finishing the final ends it, so the link no
+  longer works after the last line of the final is in: a count in the final found wrong then is the
+  organiser's to correct from the dashboard).
 
 **Not rated.** A rating comes from decided matches with two sides
 ([ADR 0031](../architecture/decisions/0031-ratings-from-a-ledger-of-results.md));
@@ -1291,18 +1342,67 @@ model, and `AGENTS.md` names this module with them), never a parallel path.
   seen:** it has a `version` that moves with every change by whatever path, and an
   answer or a staff decision on a stale version is refused (`TL_CHANGED`: look
   again).
-- **Staff decide** (the front desk may): enter the games' results (taken as
-  confirmed), give a **forfeit** (the other side is awarded every game, the
-  forfeiting team named; counted in the table as every game to the other side, at
-  the rules' walkover), **strike** it (it does not count), or **put it back to be
+- **Staff decide:** the front desk and managers enter the games' results (taken as
+  confirmed), **strike** a fixture (it does not count), or **put it back to be
   played** (its court time is held again, or refused if the court is no longer
-  free). Both captains are told what was decided. All are in the activity log.
+  free). **Giving a forfeit is a manager's act** (below): the other side is
+  awarded every game, the forfeiting team named, counted in the table as every
+  game to the other side at the rules' walkover. Both captains are told what was
+  decided. All are in the activity log.
 - **The table** counts confirmed results and forfeits; a team that withdrew keeps
   what it played (for the others' tables too) and is listed last; every
   unplayed fixture of a team that withdraws becomes a forfeit to the other side
   (their court time goes back, the opposing captains are told).
 - A league is **finished** when every fixture is decided; **closing** it (a
   manager) strikes what was still to play and gives all its court time back.
+
+### Forfeits are a manager's, and asked for by captains
+
+A forfeit changes the table, the points and who goes where, so **only a manager gives one**
+(`MANAGER_ONLY`: `POST .../fixtures/:fixtureId/forfeit`, and a decision on a request below; the
+front desk is refused with the usual *Ask a manager* answer and its screens hide the button, as
+for any manager-only act). The front desk's other powers are as they were. The same rule
+covers a **whole fixture entered as a walkover** (every game given to one side by walkover): the
+desk is refused it as a forfeit, and a captain's report of it is refused (`TL_FR_USE_REQUEST`);
+one game by walkover is an ordinary result. A team that **withdraws** still forfeits what it had
+left, by its captain's or a manager's act, as before.
+
+**Asking for one** (`src/lib/team-forfeits.ts`, migration 0276). Leagues of teams have no
+officials, so the people who may ask are **the captain of either team in the fixture** and **staff
+(the front desk too)**. A request names the fixture, **which of its two teams is asked to
+forfeit**, a **reason** from a short list (*did not turn up*, *cannot field enough players*,
+*said they will not play*, *another reason*, which needs a note) and up to **300 characters** of
+text, and **changes nothing else**: no result, no table, no points, no advancement, no
+scheduling, and the fixture's court time and the next fixture are untouched (tested). It is
+refused unless the fixture is still to be played (`TL_FIXTURE_DECIDED`).
+
+- **Told:** the league's managers (each in their own staff language; not the front desk) and, for a
+  captain's request, the other captain; the request shows on the manager's fixture screen as
+  *Forfeit requested by {team or staff name}: {team} to forfeit*, with the reason and note. A
+  captain sees the state of the requests on their own fixtures (a request is never shown to the
+  public or to other teams).
+- **One open request per fixture and requester** (`TL_FR_OPEN`); the other captain may have their
+  own. The **requester may withdraw** it (the other captain is told); nobody else's.
+- **It ends** when withdrawn, **after 14 days** (it is no longer answerable even before the
+  scheduler marks it expired, and the captain who asked is told), or **as soon as the fixture is
+  decided any other way**: played and confirmed (or its report left to stand), struck, or given
+  as a forfeit by another route or by a withdrawal. A fixture merely put back to be played keeps
+  its request. This closing happens inside every change that settles a league's fixtures
+  (`settleLeague`), on the league's lock, so a request racing a result is either refused or closed by it.
+- **A manager confirms** it (`POST .../forfeit-requests/:id` with `{ confirm: true, version? }`):
+  the existing forfeit (`decideFixture` with `forfeitBy`), whole, in the same transaction as the
+  request being marked confirmed: the other side awarded every game by the sport template's
+  forfeit scoring, the table recomputed through `standings`, a rated league's ratings read again (a
+  forfeit is a walkover and moves no rating), the fixture's court time let go and offered to the
+  waiting list, both captains told. **Or declines** it (`{ decline: true, reason }`, 3 to 300
+  characters), both captains told the reason, nothing else changed. Two managers acting at
+  once decide it once.
+- **Audit:** the request keeps who asked (a captain's team name, never the person's name; or the
+  staff member), the team asked, reason and note, who confirmed or declined, when, the reason for
+  declining, and the **table before and after** a confirmation. The staff activity log has a line for
+  each step (*asked*, *withdrawn*, *confirmed* with the two teams' places and points before and after,
+  *declined*), a captain's under *Captain of {team}*.
+- Customer text is in English, Malay, Chinese and Tamil; staff text in English, Malay and Chinese.
 
 ### Moving a fixture
 
@@ -1808,14 +1908,48 @@ effect. **A challenged player who ignores a challenge forfeits** when the days a
 records a walkover for the challenger, once, however often it runs. *Accepted:* the two **arrange the
 match privately** (the day suggested is shown; on an adult ladder each sees the other's number and
 WhatsApp link for this challenge only, never on a junior ladder) and play it within the days given, or
-it **lapses** with no effect on the ranks. Court time for a ladder challenge is **not held by the app**:
-players book a court as anybody does. *Reported:* either side says who won and the score, their own
+it **lapses** with no effect on the ranks. **No court time is held for a challenge** (see
+[court time and booking](#court-time-and-booking-for-a-challenge)). *Reported:* either side says who won and the score, their own
 games first (checked by the ladder's scoring rules, `scoreRefusal`, and kept with the challenger's
 first); the other side **confirms** it, or **says it is wrong** and a manager decides; a result nobody
 answers in **3 days** stands. Only a **confirmed** result, a forfeit or a walkover moves ranks.
 An answer names the version of the challenge it saw: one that changed since is refused (code
 `LD_CHANGED`), so nobody answers a result they did not see. Everybody concerned is emailed in their
 language at each step (a guardian, for a child, opening with whose place it is).
+
+### Court time and booking for a challenge
+
+**Creating, accepting, proposing a time, withdrawing, reporting, confirming or deciding a challenge
+reserves no court time**: no claim, block, hold or booking is written by any ladder function
+(`tests/ladder-court-time.test.ts` counts them across a whole challenge's life, and no ladder table has a
+column that refers to one). A day and time suggested or agreed is a note. Another customer may book that
+court at that time, and the challenger then meets the booking path's ordinary refusal. Nothing is held
+open for an unresolved challenge, so nothing can be held indefinitely; the lapse rules above (accepted
+but not played within *g* days) stand.
+
+Once the two have agreed a time they **book through the venue's ordinary booking page** (a link on the
+challenge, *Book a court*, goes to `/venue/:id?sport=…`), with every availability, pricing, payment and
+eligibility check of any booking. Only a confirmed booking reserves the court. Either player may then
+**add that booking's code to the challenge** (`attachBooking`, `{ action: "attach_booking", code }`; migration
+0276) so both see *Court booked: Court 2, 2026-11-20 19:00* on it. The code is checked, and a failure is
+a refusal and nothing else:
+
+| Rule | Refusal |
+| ---- | ------- |
+| the challenge is accepted | `LD_BK_NOT_OPEN` |
+| the booking is made through the account of one of the two players (a code that is nobody's of the two is answered as not found, whatever else is true of it, so a code cannot be probed) | `LD_BK_NOT_FOUND` |
+| confirmed (not cancelled), dated today or later | `LD_BK_STATE` |
+| at the ladder's venue; for the ladder's sport and not a class place | `LD_BK_VENUE`, `LD_BK_SPORT` |
+| not on another challenge (a live attachment) | `LD_BK_TAKEN` |
+| the challenge has no booking attached already | `LD_BK_HAVE` |
+
+Attaching **changes nothing about the booking**: no hold, no price, no payment, no new booking path;
+the booking's own row is locked while it is read, so a cancellation cannot slip in between. Either
+player may take it off (`detach_booking`; the booking is untouched). If the booking is **cancelled**
+(by any route: the customer, the venue, a hold let go) the attachment is dropped, once, and both
+players are told that the challenge stands and a court is to be booked again; `ladderBookingCancelled`
+runs where bookings are cancelled and the scheduler sweeps any that a path missed, so running it again
+changes and tells nobody. A booking moved to another time shows its new time; nothing else follows.
 
 ### The rank rule
 
@@ -1876,7 +2010,7 @@ declared, never verified, and no identity document is asked for.
 
 ### What ladders do not do
 
-- No court time held for a challenge, and no tournament-style scheduling: players arrange and book it.
+- No court time held for a challenge, and no tournament-style scheduling: players arrange it and book it through the ordinary booking page ([above](#court-time-and-booking-for-a-challenge)); a booking attached to a challenge is only shown on it.
 - No persistent teams, no ladder across venues, and no empty restart of a season (the next season always
   carries the order over).
 - A ladder's rank is the venue's own list; it is not shown on a player's profile and is not used to suggest
@@ -1917,9 +2051,11 @@ declared, never verified, and no identity document is asked for.
 | Teams that persist: invitations, children through a guardian, what a captain and members may do, history, privacy | `src/lib/teams.ts`, `db/migrations/0269_teams_and_team_leagues.sql`, `src/app/teams`, `src/app/team-invitation` | `tests/teams.test.ts` (PGlite and Postgres), `tests/components/teams-ui.test.tsx` |
 | Entering a tournament as a team, a roster checked per member | `src/lib/teams.ts` (`rosterRefusal`), `src/lib/tournaments.ts` (`enterLocked`), `src/components/TeamEntry.tsx` | `tests/teams.test.ts`, `tests/tournaments.test.ts` (the typed team as before) |
 | Leagues of teams: setting up, entering, results, forfeits, moves, what the public sees | `src/lib/team-leagues.ts`, `src/app/team-leagues`, `src/components/admin/TeamLeaguesPanel.tsx` | `tests/team-leagues.test.ts` (PGlite and Postgres), `tests/components/teams-ui.test.tsx` |
+| Forfeits are a manager's; a captain's or staff's forfeit request, its confirmation or decline, expiry, withdrawal and audit | `src/lib/team-forfeits.ts`, `src/lib/roles.ts`, `src/app/api/admin/team-leagues/[id]/fixtures/[fixtureId]/forfeit`, `.../forfeit-requests`, `src/app/api/admin/team-leagues/[id]/forfeit-requests`, `src/components/admin/TeamLeaguesPanel.tsx`, `src/app/team-leagues/[id]/page.tsx` | `tests/team-forfeit-requests.test.ts` (PGlite and Postgres) |
 | The fixture generator: round robin, home and away, byes, match nights, blackouts, courts | `src/lib/fixtures.ts` | `tests/fixture-plan.test.ts` |
 | Who enters: a guardian for a participant, staff at the counter, members only by the entrant's own membership | `src/lib/competition-entrants.ts`, `src/components/admin/CounterEntry.tsx` | `tests/competition-entrants.test.ts`, `tests/components/competition-entrants.test.tsx` |
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
+| Officials of a climbing event: event-scoped entry of counts, open and finalised rounds, correction requests and their review, audit, what a link cannot do | `src/lib/official-performances.ts`, `src/lib/match-reports.ts`, `src/app/api/officials/[token]/route.ts`, `src/app/api/admin/tournaments/[id]/correction-requests/[requestId]/route.ts`, `src/app/officials/[token]/page.tsx`, `src/components/admin/CountedGrid.tsx`, `src/components/admin/CorrectionRequests.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/official-climbing.test.ts` |
 | Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |
 | Tournament day: the next match announced, a court called, the wait, the live page | `src/lib/tournament-day.ts`, `src/app/api/admin/tournaments/[id]/day/route.ts`, `src/app/api/tournaments/[id]/live/route.ts`, `src/components/admin/TournamentDay.tsx`, `src/app/tournaments/[id]/live/page.tsx`, `db/migrations/0268_tournament_day.sql` | `tests/tournament-day.test.ts` (also against Postgres), `tests/components/tournament-day.test.tsx` |
 | Consolation draws and double elimination: the structures, progression through a whole event, the grand-final reset, corrections along two routes, leavers in each bracket, placings, court time, names | `src/lib/brackets.ts`, `src/lib/tournaments.ts`, `src/lib/tournament-rules.ts`, `src/lib/tournament-day.ts`, `src/app/tournaments/[id]/page.tsx`, `src/components/admin/TournamentsTab.tsx`, `db/migrations/0271_consolation_and_double_elimination.sql` | `tests/brackets-structure.test.ts`, `tests/double-elimination.test.ts` and `tests/consolation.test.ts` (PGlite and Postgres) |
@@ -1928,6 +2064,7 @@ declared, never verified, and no identity document is asked for.
 | Rating policy: rankings published by choice (404 while off, on the page, API, MCP tool, venue link and sitemap), a venue's number of counted results before a player is ranked, the separate provisional section, which results count (the treatment table, run row by row), replay equality after amendments and policy changes, determinism, pool separation, the audit log and the ledger CSV | `src/lib/rating-eligibility.ts`, `src/lib/ratings.ts` (`rankingPolicy`, `setRankingPolicy`, `ledgerCsv`), `db/migrations/0275_ranking_policy.sql`, `src/app/venue/[id]/rankings/layout.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/ranking-policy.test.ts`, `tests/rating-eligibility.test.ts` (PGlite), `tests/components/ranking-policy-ui.test.tsx`, `tests/mcp.test.ts` (the tool) |
 | Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
 | Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts` |
+| A ladder challenge holds no court time; the ordinary booking it may carry (attach, drop on cancellation) | `src/lib/ladders.ts` (`attachBooking`, `detachBooking`, `ladderBookingCancelled`), `src/lib/store.ts` (the hook), `src/app/api/ladders/[id]/challenges/[challengeId]/route.ts`, `src/app/ladders/[id]/page.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/ladder-court-time.test.ts` |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 
 Which parts are verified, and how, is in

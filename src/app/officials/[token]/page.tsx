@@ -9,7 +9,9 @@ import { translateError } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
 import { scoreExample } from "@/lib/result-text";
 import type { Official } from "@/lib/match-reports";
-import type { TournamentDetail } from "@/lib/tournaments";
+import type { OfficialPerformanceView } from "@/lib/official-performances";
+import type { Match, TournamentDetail } from "@/lib/tournaments";
+import { CountedGridCore, type GridKey } from "@/components/admin/CountedGrid";
 import type { DayBoard, DayFixture } from "@/lib/tournament-day";
 
 /**
@@ -20,7 +22,7 @@ import type { DayBoard, DayFixture } from "@/lib/tournament-day";
 export default function OfficialPage() {
   const t = useT();
   const { token } = useParams<{ token: string }>();
-  const [data, setData] = useState<{ official: Official; tournament: TournamentDetail; day?: DayBoard | null } | null>(null);
+  const [data, setData] = useState<{ official: Official; tournament: TournamentDetail; day?: DayBoard | null; performance?: OfficialPerformanceView } | null>(null);
   const [gone, setGone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -61,7 +63,16 @@ export default function OfficialPage() {
       </div>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>}
-      {waiting.length === 0 ? (
+      {data.performance ? (
+        <ClimbingRounds
+          t={t}
+          token={token}
+          data={{ official: data.official, tournament: data.tournament, performance: data.performance }}
+          patch={(p) => setData((d) => (d ? { ...d, ...(p.tournament ? { tournament: p.tournament } : {}), ...(p.performance ? { performance: p.performance } : {}) } : d))}
+          setError={setError}
+          setNotice={setNotice}
+        />
+      ) : waiting.length === 0 ? (
         <p className="text-sm text-slate-500">{t("official.none")}</p>
       ) : (
         <ul className="space-y-3">
@@ -123,5 +134,188 @@ export default function OfficialPage() {
         </ul>
       )}
     </div>
+  );
+}
+
+const small = "rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-teal-500";
+const field = "w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
+
+/**
+ * A climbing event's rounds for an official (docs/features/tournaments.md#officials-and-counted-results): the counts of each round still open, entered
+ * as a judge does at the wall; a finalised or advanced round is read-only, with a correction request (why, and the counts it should have) for the
+ * organiser to review; and their own recent entries and requests. Nothing else is offered: the link is for this event's counts.
+ */
+function ClimbingRounds({
+  t,
+  token,
+  data,
+  patch,
+  setError,
+  setNotice,
+}: {
+  t: ReturnType<typeof useT>;
+  token: string;
+  data: { official: Official; tournament: TournamentDetail; performance: OfficialPerformanceView };
+  patch: (p: { tournament?: TournamentDetail; performance?: OfficialPerformanceView }) => void;
+  setError: (e: string | null) => void;
+  setNotice: (n: string | null) => void;
+}) {
+  const x = data.tournament;
+  const names = new Map(x.entries.map((e) => [e.id, e.name]));
+  const words = (key: GridKey, vars?: Record<string, string | number>) => t(`ofc1.cg.${key}`, vars);
+  const rounds = x.matches.filter((m): m is Match => m.stage === "heat" || m.stage === "final").sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || (a.minute ?? 0) - (b.minute ?? 0) || a.id - b.id);
+
+  async function send(body: object): Promise<boolean> {
+    setError(null);
+    setNotice(null);
+    const res = await fetch(`/api/officials/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const out = await readJson(res);
+    if (!res.ok) {
+      setError(translateError(t, out) || out.error);
+      return false;
+    }
+    patch({ tournament: out.tournament, performance: out.performance });
+    return true;
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-600">{t("ofc1.of.intro")}</p>
+      {rounds.length === 0 && <p className="text-sm text-slate-500">{t("official.none")}</p>}
+      {rounds.map((m) => {
+        const lines = x.performance?.lines[m.id] ?? [];
+        const lock = data.performance.rounds.find((r) => r.matchId === m.id)?.lock ?? null;
+        const heading = m.stage === "final" ? t("ofc1.cg.final") : t("ofc1.cg.group", { n: m.position });
+        if (lines.length === 0) return <CountedGridCore key={m.id} tn={x} m={m} lines={lines} names={names} t={words} locale={t.locale} onSave={async () => undefined} />;
+        if (lock === null)
+          return (
+            <CountedGridCore
+              key={`${m.id}:${lines.map((l) => `${l.entryId}${l.status}${l.shown ?? ""}`).join(",")}`}
+              tn={x}
+              m={m}
+              lines={lines}
+              names={names}
+              t={words}
+              locale={t.locale}
+              onSave={async (performances) => {
+                if (await send({ matchId: m.id, performances })) setNotice(t("official.saved"));
+              }}
+            />
+          );
+        return (
+          <CorrectionAsk key={m.id} t={t} heading={heading} lock={lock} m={m} lines={lines} names={names} x={x} words={words} send={send} />
+        );
+      })}
+
+      {data.performance.requests.length > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
+          <h2 className="font-semibold">{t("ofc1.of.requests")}</h2>
+          <ul className="mt-1 space-y-1">
+            {data.performance.requests.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-2">
+                <span>
+                  {t("ofc1.of.requestLine", { round: roundName(t, rounds, r.matchId), reason: r.reason })} · {t(`ofc1.of.req.${r.status}`)}
+                  {r.status === "declined" && r.decisionNote ? `: ${r.decisionNote}` : ""}
+                </span>
+                {r.status === "open" && (
+                  <button className={small} onClick={() => void send({ action: "correction_withdraw", requestId: r.id })}>
+                    {t("ofc1.of.withdraw")}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {data.performance.recent.length > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
+          <h2 className="font-semibold">{t("ofc1.of.recent")}</h2>
+          <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+            {data.performance.recent.map((r, i) => (
+              <li key={i}>
+                {roundName(t, rounds, r.matchId)}: {r.entry} · {r.now ?? "-"}
+                {r.was !== null && ` (${t("ofc1.of.was", { was: r.was })})`}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function roundName(t: ReturnType<typeof useT>, rounds: Match[], matchId: number): string {
+  const m = rounds.find((r) => r.id === matchId);
+  return !m ? "" : m.stage === "final" ? t("ofc1.cg.final") : t("ofc1.cg.group", { n: m.position });
+}
+
+/** A finalised or advanced round: its results as they stand, and the way to ask for them to be corrected. */
+function CorrectionAsk({
+  t,
+  heading,
+  lock,
+  m,
+  lines,
+  names,
+  x,
+  words,
+  send,
+}: {
+  t: ReturnType<typeof useT>;
+  heading: string;
+  lock: "finalised" | "advanced";
+  m: Match;
+  lines: NonNullable<TournamentDetail["performance"]>["lines"][number];
+  names: Map<number, string>;
+  x: TournamentDetail;
+  words: (key: GridKey, vars?: Record<string, string | number>) => string;
+  send: (body: object) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
+      <h2 className="font-semibold">
+        {heading} <span className="text-xs font-normal text-slate-500">· {t(lock === "advanced" ? "ofc1.of.advanced" : "ofc1.of.finalised")}</span>
+      </h2>
+      <ol className="mt-1 space-y-0.5 text-xs text-slate-700">
+        {lines
+          .slice()
+          .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999) || a.lane - b.lane)
+          .map((l) => (
+            <li key={l.entryId}>
+              {l.rank ?? "-"} · {names.get(l.entryId)} · {l.shown ?? l.status}
+            </li>
+          ))}
+      </ol>
+      <p className="mt-2 text-xs text-slate-600">{t("ofc1.of.finalNote")}</p>
+      <button className={`${small} mt-1`} aria-expanded={open} onClick={() => setOpen(!open)}>
+        {t("ofc1.of.askCorrection")}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            {t("ofc1.of.reason")}
+            <textarea rows={2} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} className={field} />
+          </label>
+          <CountedGridCore
+            tn={x}
+            m={m}
+            lines={lines}
+            names={names}
+            t={words}
+            locale={t.locale}
+            saveLabel={t("ofc1.of.sendCorrection")}
+            onSave={async (performances) => {
+              if (await send({ action: "correction_request", matchId: m.id, reason, performances })) {
+                setOpen(false);
+                setReason("");
+              }
+            }}
+          />
+        </div>
+      )}
+    </section>
   );
 }

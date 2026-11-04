@@ -32,7 +32,8 @@ function gameName(t: StaffT, kinds: string[], i: number): string {
 /**
  * A venue's leagues of teams (lib/team-leagues.ts): set one up for a season, see the teams that entered, set the match
  * nights and make the fixture list (each fixture's court time is held), enter results, give a forfeit, move a fixture,
- * take a team out. Setting up, the fixture list, moving and taking a team out are a manager's; the desk enters results.
+ * take a team out. Setting up, the fixture list, moving, giving a forfeit (and deciding a request for one, lib/team-forfeits.ts) and
+ * taking a team out are a manager's; the desk enters results and may ask for a forfeit.
  */
 export function TeamLeaguesPanel({ venue }: { venue: ManagedVenue }) {
   const t = useStaffT();
@@ -459,6 +460,126 @@ function Manage({ t, l, courts, send, close }: { t: StaffT; l: TeamLeagueDetail;
   );
 }
 
+const FORFEIT_REASONS = ["no_show", "short_handed", "told_us", "other"] as const;
+
+/**
+ * Forfeit requests on a fixture (lib/team-forfeits.ts): who asked, which team, why, and where each stands. A manager confirms one (the forfeit,
+ * through the usual path) or declines it with a reason; the desk, who may not give a forfeit, can ask for one and take its own request back.
+ */
+function ForfeitRequests({ t, f, base, send }: { t: StaffT; f: FixtureView; base: string; send: (url: string, m: "POST" | "PATCH" | "DELETE", body?: object) => Promise<boolean> }) {
+  const may = useStaffMay();
+  const [asking, setAsking] = useState(false);
+  const [declining, setDeclining] = useState<number | null>(null);
+  const [team, setTeam] = useState(String(f.home.id));
+  const [reason, setReason] = useState<(typeof FORFEIT_REASONS)[number]>("no_show");
+  const [note, setNote] = useState("");
+  const [why, setWhy] = useState("");
+  const requests = f.forfeitRequests ?? [];
+  const line = (p: { teamId: number; name: string; position: number; points: number }) => t("ofs1.fr.standing", { pos: p.position, name: p.name, points: p.points });
+  return (
+    <div className="mt-1 space-y-1 text-xs">
+      {requests.length > 0 && (
+        <ul className="space-y-1">
+          {requests.map((r) => (
+            <li key={r.id} className={`rounded-md border p-2 ${r.status === "open" ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
+              <p>
+                <strong>{t("ofs1.fr.requested", { by: r.by, team: r.forfeitTeam.name })}</strong> · {t(`ofs1.fr.reason.${r.reason}`)}
+                {r.note && <span> · “{r.note}”</span>}
+              </p>
+              <p className="text-slate-600">
+                {t(`ofs1.fr.status.${r.status}`)}
+                {r.decidedBy ? ` · ${r.decidedBy}` : ""}
+                {r.decisionNote ? ` · ${r.decisionNote}` : ""}
+              </p>
+              {r.status === "confirmed" && r.standingsBefore && r.standingsAfter && (
+                <p className="text-slate-600">
+                  {t("ofs1.fr.tableBefore")}: {r.standingsBefore.filter((p) => p.teamId === f.home.id || p.teamId === f.away.id).map(line).join(", ")} · {t("ofs1.fr.tableAfter")}:{" "}
+                  {r.standingsAfter.filter((p) => p.teamId === f.home.id || p.teamId === f.away.id).map(line).join(", ")}
+                </p>
+              )}
+              {r.status === "open" && (
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  {may("teamForfeitDecide") && (
+                    <>
+                      <button className={small} onClick={() => void send(`${base}/forfeit-requests/${r.id}`, "POST", { confirm: true, version: f.version })}>
+                        {t("ofs1.fr.confirm")}
+                      </button>
+                      <button className={small} aria-expanded={declining === r.id} onClick={() => setDeclining(declining === r.id ? null : r.id)}>
+                        {t("ofs1.fr.decline")}
+                      </button>
+                    </>
+                  )}
+                  {r.byKind === "staff" && (
+                    <button className={small} onClick={() => void send(`${base}/forfeit-requests/${r.id}`, "DELETE")}>
+                      {t("ofs1.fr.withdraw")}
+                    </button>
+                  )}
+                </div>
+              )}
+              {declining === r.id && (
+                <form
+                  className="mt-1 flex flex-wrap items-end gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void send(`${base}/forfeit-requests/${r.id}`, "POST", { decline: true, reason: why }).then((ok) => ok && (setDeclining(null), setWhy("")));
+                  }}
+                >
+                  <label className={label}>
+                    {t("ofs1.fr.declineWhy")}
+                    <input required minLength={3} maxLength={300} value={why} onChange={(e) => setWhy(e.target.value)} className={`w-64 ${input}`} />
+                  </label>
+                  <button className={small}>{t("ofs1.fr.declineSend")}</button>
+                </form>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* The desk may ask; a manager has the forfeit buttons above. */}
+      {f.status === "scheduled" && !may("teamFixtureForfeit") && (
+        <>
+          <p className="text-slate-500">{t("ofs1.fr.deskNote")}</p>
+          <button className={small} aria-expanded={asking} onClick={() => setAsking(!asking)}>
+            {t("ofs1.fr.ask")}
+          </button>
+          {asking && (
+            <form
+              className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send(`${base}/fixtures/${f.id}/forfeit-requests`, "POST", { forfeitTeam: Number(team), reason, note }).then((ok) => ok && (setAsking(false), setNote("")));
+              }}
+            >
+              <label className={label}>
+                {t("ofs1.fr.team")}
+                <select value={team} onChange={(e) => setTeam(e.target.value)} className={input}>
+                  <option value={f.home.id}>{f.home.name}</option>
+                  <option value={f.away.id}>{f.away.name}</option>
+                </select>
+              </label>
+              <label className={label}>
+                {t("ofs1.fr.reason")}
+                <select value={reason} onChange={(e) => setReason(e.target.value as typeof reason)} className={input}>
+                  {FORFEIT_REASONS.map((r) => (
+                    <option key={r} value={r}>
+                      {t(`ofs1.fr.reason.${r}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={label}>
+                {t("ofs1.fr.note")}
+                <input maxLength={300} required={reason === "other"} value={note} onChange={(e) => setNote(e.target.value)} className={`w-64 ${input}`} />
+              </label>
+              <button className={small}>{t("ofs1.fr.send")}</button>
+            </form>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Fixture({ t, l, f, courts, base, send }: { t: StaffT; l: TeamLeagueDetail; f: FixtureView; courts: Court[]; base: string; send: (url: string, m: "POST" | "PATCH" | "DELETE", body?: object) => Promise<boolean> }) {
   const may = useStaffMay();
   const [open, setOpen] = useState(false);
@@ -496,12 +617,13 @@ function Fixture({ t, l, f, courts, base, send }: { t: StaffT; l: TeamLeagueDeta
             {t("tl.void")}
           </button>
         )}
-        {f.status !== "forfeit" && (
+        {/* A forfeit changes the table and what follows: a manager's (lib/roles.ts). The desk asks for one below. */}
+        {f.status !== "forfeit" && may("teamFixtureForfeit") && (
           <>
-            <button className={small} onClick={() => void send(url, "POST", { forfeitBy: f.home.id, version: f.version })}>
+            <button className={small} onClick={() => void send(`${url}/forfeit`, "POST", { forfeitBy: f.home.id, version: f.version })}>
               {t("tl.forfeitBy", { team: f.home.name })}
             </button>
-            <button className={small} onClick={() => void send(url, "POST", { forfeitBy: f.away.id, version: f.version })}>
+            <button className={small} onClick={() => void send(`${url}/forfeit`, "POST", { forfeitBy: f.away.id, version: f.version })}>
               {t("tl.forfeitBy", { team: f.away.name })}
             </button>
           </>
@@ -513,6 +635,7 @@ function Fixture({ t, l, f, courts, base, send }: { t: StaffT; l: TeamLeagueDeta
         )}
       </div>
       {f.status === "disputed" && f.disputeNote && <p className="mt-1 text-xs text-slate-600">{t("tl.disputeNote", { note: f.disputeNote })}</p>}
+      <ForfeitRequests t={t} f={f} base={base} send={send} />
       {open && (
         <form
           className="mt-2 space-y-2 rounded-lg bg-slate-50 p-3"

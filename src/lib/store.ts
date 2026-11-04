@@ -6997,6 +6997,8 @@ async function refundBooking(
   // Imported here, not at the top: lib/games.ts reads from this module.
   const { bookingCancelled } = await import("./games");
   await bookingCancelled(bookingId);
+  // A ladder challenge that carried this booking no longer does; its players are told (lib/ladders.ts).
+  await (await import("./ladders")).ladderBookingCancelled(bookingId);
   // Friends who paid a share of it are owed it back.
   const { splitCancelled } = await import("./splits");
   await splitCancelled(bookingId, share);

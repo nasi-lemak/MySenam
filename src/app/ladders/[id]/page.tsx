@@ -308,6 +308,7 @@ function OpenChallenge({ t, x, p, c, post }: { t: T; x: LadderDetail; p: MyPlace
           </a>
         </p>
       )}
+      {c.status === "accepted" && <ChallengeCourt t={t} p={p} c={c} url={url} post={post} />}
       {c.status === "disputed" && <p className="text-amber-800">{t("ldp.disputed")}</p>}
       {c.status === "reported" && c.reportedBy === p.playerId && <p>{t("ldp.waitingConfirm", { result, name: other, days: CONFIRM_DAYS })}</p>}
       {c.status === "reported" && c.reportedBy !== p.playerId && <p>{t("ldp.theyReported", { name: other, result })}</p>}
@@ -369,6 +370,37 @@ function OpenChallenge({ t, x, p, c, post }: { t: T; x: LadderDetail; p: MyPlace
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * The court for an accepted challenge. None is held: the players book through the venue's ordinary booking page, then add that booking's code
+ * here so both see it; adding changes nothing about the booking.
+ */
+function ChallengeCourt({ t, p, c, url, post }: { t: T; p: MyPlace; c: MyPlace["open"][number]; url: string; post: (url: string, body: object) => Promise<boolean> }) {
+  const [code, setCode] = useState("");
+  if (c.booking)
+    return (
+      <div className="space-y-1 text-sm">
+        <p className="font-medium">{t("ofc1.lb.booked", { court: c.booking.court, date: c.booking.date, time: clock(c.booking.startMin) })}</p>
+        <button className={plain} onClick={() => void post(url, { action: "detach_booking" })}>
+          {t("ofc1.lb.detach")}
+        </button>
+      </div>
+    );
+  return (
+    <div className="space-y-1 text-sm">
+      <p className="text-xs text-slate-600">{t("ofc1.lb.none")}</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <Link href={`${p.bookingPage}${c.agreedOn ? `&date=${c.agreedOn}` : ""}`} className={plain}>
+          {t("ofc1.lb.book")}
+        </Link>
+        <input aria-label={t("ofc1.lb.code")} placeholder={t("ofc1.lb.code")} value={code} onChange={(e) => setCode(e.target.value)} className={`w-40 ${input}`} />
+        <button className={button} disabled={code.trim().length < 3} onClick={() => void post(url, { action: "attach_booking", code }).then((ok) => ok && setCode(""))}>
+          {t("ofc1.lb.attach")}
+        </button>
+      </div>
+    </div>
   );
 }
 

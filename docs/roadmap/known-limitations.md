@@ -774,6 +774,21 @@ the pages and the venue API. Its limits:
   venue's choice, which the app does not judge lawful
   ([privacy](../architecture/privacy.md#ai-assistants)).
 
+### Forfeits, officials and ladders
+
+([Team league forfeits](../features/tournaments.md#team-leagues), [officials and
+counted results](../features/tournaments.md#counted-performances), [ladders and
+court time](../features/tournaments.md#club-ladders).) The owner's decisions of 4
+November 2026. Team leagues have no officials, so only captains and staff can
+request a forfeit; a forfeit request can be opened only while the fixture is
+still to be played; a whole fixture entered as a walkover is treated as a forfeit
+for who may enter it; an official's link ends when the climbing event finishes, so
+a count in the final found wrong after its last line is entered is corrected by
+the organiser from the dashboard; the last line of the last group fills the final
+by itself (as the dashboard save already does), while making the final from a
+qualification round and a tie at the cut stay the organiser's; the messages go
+through the outbox (the Email row: unverified).
+
 ### Published rankings and public names
 
 ([Ratings and rankings](../features/tournaments.md#ratings-and-rankings),

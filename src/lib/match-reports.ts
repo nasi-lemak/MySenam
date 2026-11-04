@@ -23,7 +23,9 @@ import { isValidDateString, todayISO } from "./time";
  * for one tournament, made by staff and withdrawn by them. Whoever holds it
  * enters results as staff would, and each one is recorded with the
  * official's name (on the match and in the activity log). Only the SHA-256
- * of the link's secret is kept.
+ * of the link's secret is kept. For a climbing (counted performance) event the
+ * link enters the counts of the event's open rounds and asks for corrections
+ * to finished ones (lib/official-performances.ts).
  */
 
 export interface MatchReport {
@@ -279,7 +281,8 @@ export async function addOfficial(
   if (clean.length < 2 || clean.length > 60) return { ok: false, error: "Give the official's name." };
   const t = await tournamentById(tournamentId);
   if (!t || t.status === "cancelled" || t.status === "finished") return { ok: false, error: "That tournament is not running." };
-  if (t.format === "performance") return { ok: false, error: "A performance event's marks are entered by staff." };
+  // A climbing (counted) event's official enters its counts from their page (lib/official-performances.ts); a marks event's are staff's.
+  if (t.format === "performance" && !t.rules.performance?.counted) return { ok: false, error: "A performance event's marks are entered by staff." };
   const until = expiresOn || t.endsOn;
   if (!isValidDateString(until) || until > t.endsOn || until < todayISO((await venueHours(t.venueId)).zone))
     return { ok: false, error: `The link can work until ${t.endsOn}, the last day, at the latest.` };
@@ -327,6 +330,8 @@ export async function officialResult(token: string, matchId: number, input: Resu
   const who = await officialByToken(token);
   if (!who) return { ok: false, error: "This link no longer works." };
   const db = getDb();
+  // A climbing event's link enters counts for its rounds, never a match result (lib/official-performances.ts).
+  if ((await tournamentById(who.tournamentId))?.format === "performance") return { ok: false, error: "This link is for a climbing event's counts only.", code: "OFC_PERF_ONLY" };
   const m = (await db.prepare("SELECT tournament_id, status FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number; status: string } | undefined;
   if (!m || m.tournament_id !== who.tournamentId) return { ok: false, error: "That match is not in this tournament." };
   // A result already in is corrected by the organiser, who sees what a correction changes.

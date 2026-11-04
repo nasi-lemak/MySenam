@@ -383,7 +383,7 @@ export async function closeTeamLeague(leagueId: number): Promise<TeamResult<Team
 
 // ------------------------------------------------------------ teams enter
 
-interface LeagueTeamRow {
+export interface LeagueTeamRow {
   id: number;
   league_id: number;
   team_id: number | null;
@@ -396,7 +396,7 @@ interface LeagueTeamRow {
 const LT_SELECT = `SELECT x.id, x.league_id, x.team_id, x.name, x.home_court_id, x.status, t.captain_user_id
                      FROM team_league_teams x LEFT JOIN teams t ON t.id = x.team_id`;
 
-async function leagueTeam(id: number): Promise<LeagueTeamRow | undefined> {
+export async function leagueTeam(id: number): Promise<LeagueTeamRow | undefined> {
   return (await getDb().prepare(`${LT_SELECT} WHERE x.id = ?`).get(id)) as LeagueTeamRow | undefined;
 }
 
@@ -582,7 +582,7 @@ export async function withdrawTeam(by: { userId: number } | { adminId: number | 
 
 // ------------------------------------------------------------ fixtures
 
-interface FixtureRow {
+export interface FixtureRow {
   id: number;
   league_id: number;
   night_id: number | null;
@@ -602,7 +602,7 @@ interface FixtureRow {
   version: number;
 }
 
-async function fixtureRow(id: number, lock = false): Promise<FixtureRow | undefined> {
+export async function fixtureRow(id: number, lock = false): Promise<FixtureRow | undefined> {
   return (await getDb().prepare(`SELECT * FROM team_fixtures WHERE id = ?${lock ? " FOR UPDATE" : ""}`).get(id)) as FixtureRow | undefined;
 }
 
@@ -938,7 +938,7 @@ export async function setLineup(userId: number, fixtureId: number, picks: unknow
 }
 
 /** Which side this account is the captain of, if either (a person captains one team of a league). */
-async function sideOfCaptain(f: Pick<FixtureRow, "home_team" | "away_team">, userId: number): Promise<{ side: Side; leagueTeamId: number } | null> {
+export async function sideOfCaptain(f: Pick<FixtureRow, "home_team" | "away_team">, userId: number): Promise<{ side: Side; leagueTeamId: number } | null> {
   const home = await leagueTeam(f.home_team);
   if (home?.captain_user_id === userId && home.status === "entered") return { side: "home", leagueTeamId: home.id };
   const away = await leagueTeam(f.away_team);
@@ -995,6 +995,17 @@ function checkRubbers(league: TeamLeague, given: unknown): CheckedRubber[] | Tea
     out.push({ winner, score, walkover: false });
   }
   return out;
+}
+
+/**
+ * Every game given by walkover to one side is a forfeit in everything but its name: it changes the table as one does. Such a
+ * result is not entered by the desk, nor reported by a captain: a manager gives the forfeit (lib/team-forfeits.ts).
+ */
+export function isWholeFixtureWalkover(rubbers: unknown): boolean {
+  if (!Array.isArray(rubbers) || rubbers.length === 0) return false;
+  const list = rubbers as RubberInput[];
+  const winner = list[0]?.winner;
+  return (winner === "home" || winner === "away") && list.every((r) => r?.walkover === true && r.winner === winner);
 }
 
 async function writeRubbers(fixtureId: number, rubbers: CheckedRubber[]): Promise<void> {
@@ -1102,6 +1113,8 @@ async function computeStandings(league: TeamLeague): Promise<TeamStanding[]> {
 /** The league is over when every fixture is decided (and there are fixtures). */
 async function settleLeague(leagueId: number): Promise<void> {
   const db = getDb();
+  // A forfeit asked for on a fixture now decided any other way is closed (lib/team-forfeits.ts).
+  await (await import("./team-forfeits")).closeSettledForfeitRequests(leagueId);
   const left = (await db.prepare("SELECT COUNT(*)::int AS n FROM team_fixtures WHERE league_id = ? AND status IN ('scheduled', 'reported', 'disputed')").get(leagueId)) as { n: number };
   const total = (await db.prepare("SELECT COUNT(*)::int AS n FROM team_fixtures WHERE league_id = ?").get(leagueId)) as { n: number };
   if (left.n === 0 && total.n > 0) await db.prepare("UPDATE team_leagues SET status = 'finished' WHERE id = ? AND status = 'scheduled'").run(leagueId);
@@ -1110,7 +1123,7 @@ async function settleLeague(leagueId: number): Promise<void> {
 const changed = () => teamRefusal("TL_CHANGED");
 
 /** After a result changes: read the league into the ratings if it is rated (lib/ratings.ts); never fails the change that caused it. */
-async function ratingsAfter(leagueId: number): Promise<void> {
+export async function ratingsAfter(leagueId: number): Promise<void> {
   await (await import("./ratings")).ratedAfter("team_league", leagueId);
 }
 
@@ -1136,6 +1149,8 @@ export async function reportFixture(userId: number, fixtureId: number, rubbers: 
     if (f.status !== "scheduled" && f.status !== "reported") return teamRefusal("TL_SETTLED");
     if (expected.version !== undefined && expected.version !== f.version) return changed();
     if (f.date > (await zoneToday(league.venueId))) return teamRefusal("TL_NOT_YET", { date: f.date });
+    // A whole fixture by walkover is a forfeit, and a forfeit is the venue's manager's to give: the captain asks for one.
+    if (isWholeFixtureWalkover(rubbers)) return teamRefusal("TL_FR_USE_REQUEST");
     const checked = checkRubbers(league, rubbers);
     if (!Array.isArray(checked)) return checked;
     const wrote = await db
@@ -1302,7 +1317,7 @@ export async function decideFixture(fixtureId: number, adminId: number, input: D
 
 // ------------------------------------------------------------ telling people
 
-async function tellCaptainOf(leagueTeamId: number, subject: Written, body: Written): Promise<void> {
+export async function tellCaptainOf(leagueTeamId: number, subject: Written, body: Written): Promise<void> {
   const lt = await leagueTeam(leagueTeamId);
   if (!lt?.captain_user_id) return;
   const league = (await teamLeagueById(lt.league_id))!;
@@ -1359,6 +1374,8 @@ export interface FixtureView {
   mine?: { side: Side; leagueTeamId: number };
   /** Staff: a team's date it said it cannot play falls on this fixture. */
   blackoutClash?: boolean;
+  /** Forfeit requests (lib/team-forfeits.ts): all of them for staff, those on a fixture of a team they captain for a captain. */
+  forfeitRequests?: import("./team-forfeits").ForfeitRequestView[];
 }
 
 export interface TeamLeagueDetail extends TeamLeague {
@@ -1449,6 +1466,13 @@ export async function teamLeagueDetail(id: number, opts: { viewerId?: number | n
       });
     return view;
   });
+  // Forfeit requests: staff see them all, a captain those on their own fixtures.
+  const requests = await (await import("./team-forfeits")).forfeitRequestsOfLeague(id, {
+    forStaff: opts.forStaff === true,
+    viewerId: viewer,
+    fixtureIds: new Set(fixtureViews.filter((v) => v.mine !== undefined).map((v) => v.id)),
+  });
+  for (const v of fixtureViews) if (requests.has(v.id)) v.forfeitRequests = requests.get(v.id);
   const entered: TeamLeagueDetail["entered"] = [];
   for (const t of teams) {
     const own = mine.find((m) => m.leagueTeamId === t.id);
@@ -1601,5 +1625,6 @@ export async function teamLeagueHousekeeping(): Promise<{ confirmed: number }> {
         (tr) => tr("tm.mail.stood.b", { league: league.name, a: names.home, b: names.away, score: fixtureOutcomeOf(league, ok.id, rubbers), days: CONFIRM_DAYS })
       );
   }
+  await (await import("./team-forfeits")).expireForfeitRequests();
   return { confirmed };
 }

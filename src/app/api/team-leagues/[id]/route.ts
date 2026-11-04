@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
 import { captainedTeams } from "@/lib/teams";
+import { requestForfeit, withdrawForfeitRequest } from "@/lib/team-forfeits";
 import {
   confirmFixture,
   disputeFixture,
@@ -49,7 +50,11 @@ const version = (b: Record<string, unknown>) => (Number.isInteger(b.version) ? {
  * its members); for a team you captain, "roster" (`leagueTeamId`, `memberIds`), "blackouts" (`leagueTeamId`, `dates`),
  * "withdraw" (`leagueTeamId`), "lineup" (`fixtureId`, `picks`: for each game, the members who play it), "report"
  * (`fixtureId`, `rubbers`: each game's `winner` "home" or "away" and `score`, home side first, or `walkover`; `version`),
- * "confirm" (`fixtureId`, `version`) and "dispute" (`fixtureId`, `note`, `version`) the other side's report.
+ * "confirm" (`fixtureId`, `version`) and "dispute" (`fixtureId`, `note`, `version`) the other side's report. A captain of either team
+ * of a fixture still to be played may ask the venue for a forfeit: "forfeit_request" (`fixtureId`, `forfeitTeam`: the team asked to
+ * forfeit, `reason`: "no_show", "short_handed", "told_us" or "other", `note?`: up to 300 characters) and take it back with
+ * "forfeit_withdraw" (`requestId`). A request changes nothing: the venue's manager gives the forfeit, or declines the request.
+ * Reporting every game as a walkover is refused (`TL_FR_USE_REQUEST`): that is a forfeit.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser(req);
@@ -79,7 +84,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
                   ? await confirmFixture(user.id, fixtureId, version(body))
                   : body.action === "dispute"
                     ? await disputeFixture(user.id, fixtureId, String(body.note ?? ""), version(body))
-                    : null;
+                    : body.action === "forfeit_request"
+                      ? await requestForfeit({ userId: user.id }, fixtureId, { forfeitTeam: body.forfeitTeam, reason: body.reason, note: body.note })
+                      : body.action === "forfeit_withdraw"
+                        ? await withdrawForfeitRequest({ userId: user.id }, Number(body.requestId))
+                        : null;
   if (!done) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   if (!done.ok) return refusal(done, done.status ?? 409);
   return NextResponse.json({ ...(done.value && typeof done.value === "object" ? done.value : {}), league: await teamLeagueDetail(league.id, { viewerId: user.id }) }, { status: body.action === "enter" ? 201 : 200 });
