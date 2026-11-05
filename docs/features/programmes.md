@@ -227,7 +227,11 @@ roster, attendance taken, the refund window, the notices); this is who may ask. 
 
   A same-price, same-length move with notices, even with people who paid, is not consequential: every move opens the refund window and
   nobody is refunded unless they cancel. A move across a closed day or outside the venue's hours is refused for everyone, as before: there
-  is no override for a class move, so nothing to approve. The preview a desk sees says whether its move needs approval and why
+  is no override for a class move, so nothing to approve (the owner's decision of 5 November 2026: no manager override of availability or operating
+  constraints; `tests/class-move-hours.test.ts`). **An exceptional opening is made in the venue's own scheduling and the class is then moved
+  normally**: a closed day is reopened (*Closed days*), or the venue's or a court's hours are changed *from a date* ([hours from a date](booking.md#hours-from-a-date)),
+  and the move still meets every other rule (what holds the court, capacity, the instructor, the roster, notices, the audit log). The venue scheduling has no
+  *one-day-only* hours exception (a late opening for a single date takes two changes from a date: the day and then the usual hours again from the next day): an optional capability, listed in the roadmap. The preview a desk sees says whether its move needs approval and why
   (`approval` in the preview's answer), and the button reads *Send for approval*.
 - **A request.** Not applied: it is stored (`class_move_requests`: who, the class and where, the note the desk added, why it needs approval,
   the preview as the desk saw it with counts and no person's name, and a fingerprint of what it was computed from) and answers 202. **Nobody

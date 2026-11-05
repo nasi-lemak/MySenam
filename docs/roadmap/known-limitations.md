@@ -1081,7 +1081,9 @@ venue unless the venue turns that off, a consequential move (one that prices dif
 moves a paid term, is far, long or soon, touches a waiting list or is a second move) waiting
 for a manager's approval ([ADR 0045](../architecture/decisions/0045-front-desk-class-moves-with-approval.md));
 the desk cannot withdraw its own request (a manager declines it, or it closes); a move onto
-a closed day or out of hours is refused for everyone, as no override exists for a class; a
+a closed day or out of hours is refused for everyone, as the owner decided (5 November 2026): an exceptional opening is a
+reopened day or hours from a date in the venue's scheduling, then a normal move; a one-day-only special-hours exception does not
+exist (two changes from a date make one), an optional capability gap ([roadmap](roadmap.md)); a
 move is refused whole where a members-only venue's
 membership does not cover a new date; the refund window after a move is install data
 with no screen for a class (a lesson's is a number in *Lessons and registers*); a
