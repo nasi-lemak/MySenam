@@ -903,6 +903,38 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 5 November 2026, commit `72286df` (the owner's five remaining decisions)
+
+The owner's decisions on the five questions left open by the previous round, built by two workers and the lead: guardians in
+conflict (a per-guardian messaging authority, an objection that only every deciding guardian or a safeguarding administrator can end,
+one lock per child and group) and a reported adult who is not told (a neutral protective restriction, a conflict guard, held evidence, a
+moderators' case workflow; migration 0291, ADR 0049); an exact ladder agreement that counts as confirmation, an acceptance preview, and
+active-hold limits that expired holds no longer consume, with an anti-abuse cooldown (migration 0292, ADR 0050); and class moves that stay refused onto
+closed days and outside the hours, with a regression test (`tests/class-move-hours.test.ts`). Not a launch. Run on one cloud container, Node 22, by hand.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 136 passed |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 27 files; 95 of 95 passed |
+| Suite on PGlite | 493 files (3 skipped); 6008 passed, 12 skipped, 2 failed (below) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 493 files; 6021 passed, 1 failed (below) |
+| CI | Not run (deferred) |
+| Real services | None checked |
+
+Both failures were in tests, not the app, and are corrected in the commit after this one. In `tests/attendance.test.ts` one test booked a coach's
+lessons for 19:00 and 20:00 *today* at the venue and read the register link with the real clock; the run reached it after 20:00 Malaysian time, when a booking
+made after its own start is refused. It now books for tomorrow and fakes only the date, as noon that day, for the link's calls (it failed on both engines). In
+`tests/guide-setup-ui.test.tsx` the add-courts test waited one second for the courts to appear, and failed once under the load of the full PGlite run; it
+waits up to ten seconds (the assertion is unchanged) and passed three times alone. After the corrections, the two files passed on PGlite and on Postgres (47
+tests each time); no second full run was made. The suites had also passed earlier on the same build before the clock reached that hour.
+
+Gaps: no live integration has passed its check; no browser scenario covers the guardian authority and objection screens, the reported-adult case workflow,
+ladder acceptance with its preview, or the active-hold limits; the youth-messaging notices, the neutral restriction line, the custody recording, the evidence
+retention and the wording of consents all await legal review; the Malay, Chinese and Tamil of everything added is machine-assisted and awaits native review.
+
 #### 5 November 2026, commit `82d4cdb` (the owner's six decisions)
 
 The owner's decisions of 5 November 2026, built by five workers and merged: supervised group messaging for eligible
