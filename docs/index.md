@@ -110,6 +110,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0037 Launch and tide windows narrow the bookable hours of water hire](architecture/decisions/0037-launch-and-tide-windows.md)
 [0041 Live accounting: a venue's sales pushed to Xero, optional, behind a provider interface](architecture/decisions/0041-live-accounting-push-to-xero.md)
 [0040 Court time held for ladder challenges, and ladders of persistent teams](architecture/decisions/0040-ladder-court-time-and-team-ladders.md)
+[0038 Swiss: accelerated pairing, a tie-break screen, and Swiss for performance events](architecture/decisions/0038-swiss-acceleration-tie-break-screen-and-performance-swiss.md)
 
 ## Integrations
 

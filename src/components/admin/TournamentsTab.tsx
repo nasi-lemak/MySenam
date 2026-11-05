@@ -28,6 +28,8 @@ import type { CorrectionRequest } from "@/lib/official-performances";
 import { TournamentDetailsEditor } from "./TournamentDetailsEditor";
 import { TournamentDay } from "./TournamentDay";
 import { SwissPanel } from "./SwissPanel";
+import { SwissPerformancePanel } from "./SwissPerformancePanel";
+import { SwissTiebreaks } from "./SwissTiebreaks";
 import { sportLabel } from "@/lib/i18n";
 import type { StaffText } from "@/lib/staff-text";
 import { PayMark } from "./CounterMethod";
@@ -341,6 +343,9 @@ function Create({
     // A Swiss event: its rounds (blank: the default for the number entered) and what a bye is worth (blank: a win's points).
     swissRounds: "",
     swissByePoints: "",
+    // Accelerated pairing (ADR 0038): off, or the number of rounds paired with a virtual point for the best half.
+    swissAccel: false,
+    swissAccelRounds: "2",
   });
   const partOf = competitions.find((c) => String(c.id) === f.competitionId) ?? null;
   const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
@@ -392,7 +397,16 @@ function Create({
               consolationThirdPlace: f.format === "knockout" && f.rules.bracket.consolation && f.rules.bracket.consolationThirdPlace,
               consolationMode: f.format === "knockout" && isFeedIn(f.rules.bracket) ? "feed_in" : "first_round",
             },
-            ...(f.format === "swiss" ? { swiss: { rounds: f.swissRounds === "" ? null : Number(f.swissRounds), byePoints: f.swissByePoints === "" ? null : Number(f.swissByePoints), tiebreaks: null } } : {}),
+            ...(f.format === "swiss"
+              ? {
+                  swiss: {
+                    rounds: f.swissRounds === "" ? null : Number(f.swissRounds),
+                    byePoints: f.swissByePoints === "" ? null : Number(f.swissByePoints),
+                    tiebreaks: null,
+                    ...(f.swissAccel ? { acceleration: Number(f.swissAccelRounds) || 2 } : {}),
+                  },
+                }
+              : {}),
           },
           courtIds: f.courtIds.length ? f.courtIds : courts.map((c) => c.id),
         });
@@ -551,6 +565,16 @@ function Create({
               {t("sw.setByePoints")}
               <input type="number" min={0} max={10} placeholder={t("sw.setByePointsDefault")} value={f.swissByePoints} onChange={(e) => setF({ ...f, swissByePoints: e.target.value })} className={`w-24 ${input}`} />
             </label>
+            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+              <input type="checkbox" checked={f.swissAccel} onChange={(e) => setF({ ...f, swissAccel: e.target.checked })} />
+              {t("sw3.set.accel")}
+            </label>
+            {f.swissAccel && (
+              <label className={label}>
+                {t("sw3.set.accelRounds")}
+                <input type="number" min={1} max={126} value={f.swissAccelRounds} onChange={(e) => setF({ ...f, swissAccelRounds: e.target.value })} className={`w-24 ${input}`} />
+              </label>
+            )}
           </>
         )}
         {f.format === "groups" && (
@@ -1174,7 +1198,7 @@ function ScoringFields({ rules, onChange, disabled = false }: { rules: Competiti
           </label>
           <label className={label}>
             {t("tn.sc.finalSize")}
-            <input disabled={disabled} type="number" min={0} max={40} value={p.finalSize} onChange={(e) => setP({ finalSize: Number(e.target.value) })} className={`w-20 ${input}`} />
+            <input disabled={disabled || !!rules.swiss} type="number" min={0} max={40} value={p.finalSize} onChange={(e) => setP({ finalSize: Number(e.target.value) })} className={`w-20 ${input}`} />
           </label>
           <label className={label}>
             {t("tn.cp.finalStart")}
@@ -1194,6 +1218,57 @@ function ScoringFields({ rules, onChange, disabled = false }: { rules: Competiti
             <input type="checkbox" disabled={disabled} checked={c.countback} onChange={(e) => setC({ countback: e.target.checked })} />
             {t("tn.cp.countback")}
           </label>
+          {/* Played in Swiss rounds (ADR 0038): each round's groups are formed from the standing; no final; the placings add up. */}
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <input
+              type="checkbox"
+              disabled={disabled}
+              checked={!!rules.swiss}
+              onChange={(e) =>
+                onChange({
+                  ...rules,
+                  performance: { ...p, ...(e.target.checked ? { finalSize: 0 } : {}) },
+                  swiss: e.target.checked ? { rounds: null, byePoints: null, tiebreaks: null, cumulative: "sum_of_placings" } : null,
+                })
+              }
+            />
+            {t("sw3.set.pfSwiss")}
+          </label>
+          {rules.swiss && (
+            <>
+              <label className={label}>
+                {t("sw3.set.pfRounds")}
+                <input
+                  disabled={disabled}
+                  type="number"
+                  min={2}
+                  max={127}
+                  placeholder={t("sw.setRoundsDefault")}
+                  value={rules.swiss.rounds ?? ""}
+                  onChange={(e) => onChange({ ...rules, swiss: { ...rules.swiss!, rounds: e.target.value === "" ? null : Number(e.target.value) } })}
+                  className={`w-24 ${input}`}
+                />
+              </label>
+              <label className={label}>
+                {t("sw3.set.pfCumulative")}
+                <select
+                  disabled={disabled}
+                  value={rules.swiss.cumulative ?? "sum_of_placings"}
+                  onChange={(e) => onChange({ ...rules, swiss: { ...rules.swiss!, cumulative: e.target.value as "sum_of_placings" | "best_n", bestN: e.target.value === "best_n" ? (rules.swiss!.bestN ?? 2) : null } })}
+                  className={input}
+                >
+                  <option value="sum_of_placings">{t("sw3.set.pfSum")}</option>
+                  <option value="best_n">{t("sw3.set.pfBest")}</option>
+                </select>
+              </label>
+              {rules.swiss.cumulative === "best_n" && (
+                <label className={label}>
+                  {t("sw3.set.pfBestN")}
+                  <input disabled={disabled} type="number" min={1} max={127} value={rules.swiss.bestN ?? 2} onChange={(e) => onChange({ ...rules, swiss: { ...rules.swiss!, bestN: Number(e.target.value) } })} className={`w-24 ${input}`} />
+                </label>
+              )}
+            </>
+          )}
         </div>
       );
     }
@@ -1699,6 +1774,11 @@ function Manage({
       )}
 
       {tn.swiss && <SwissPanel tn={tn} names={names} base={base} call={call} />}
+      {tn.format === "swiss" && !tn.swiss && tn.status !== "cancelled" && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+          <SwissTiebreaks tn={tn} names={names} base={base} call={call} />
+        </section>
+      )}
 
       {tn.status === "drawn" && tn.format !== "performance" && <TournamentDay tn={tn} />}
 
@@ -2126,10 +2206,11 @@ function PerformancePanel({
   const t = useStaffT();
   const p = tn.performance!;
   const rules = tn.rules.performance!;
-  const units = tn.matches.filter((m) => m.stage === "heat" || m.stage === "final").sort((a, b) => (a.stage === "final" ? 1 : 0) - (b.stage === "final" ? 1 : 0) || a.position - b.position);
+  const units = tn.matches.filter((m) => m.stage === "heat" || m.stage === "final").sort((a, b) => (a.stage === "final" ? 1 : 0) - (b.stage === "final" ? 1 : 0) || a.round - b.round || a.position - b.position);
   const [chosen, setChosen] = useState<number[]>([]);
   return (
     <section className="space-y-3">
+      {p.swiss && <SwissPerformancePanel tn={tn} names={names} base={`/api/admin/tournaments/${tn.id}`} call={call} />}
       {p.tieForFinal && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
           <h3 className="font-semibold">{t("tn.perf.tie")}</h3>

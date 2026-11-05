@@ -189,7 +189,7 @@ function ClimbingRounds({
       {rounds.map((m) => {
         const lines = x.performance?.lines[m.id] ?? [];
         const lock = data.performance.rounds.find((r) => r.matchId === m.id)?.lock ?? null;
-        const heading = m.stage === "final" ? t("ofc1.cg.final") : t("ofc1.cg.group", { n: m.position });
+        const heading = m.stage === "final" ? t("ofc1.cg.final") : t("ofc1.cg.group", { n: x.rules.swiss ? `${m.round}.${m.position}` : m.position });
         if (lines.length === 0) return <CountedGridCore key={m.id} tn={x} m={m} lines={lines} names={names} t={words} locale={t.locale} onSave={async () => undefined} />;
         if (lock === null)
           return (
@@ -218,7 +218,7 @@ function ClimbingRounds({
             {data.performance.requests.map((r) => (
               <li key={r.id} className="flex flex-wrap items-center gap-2">
                 <span>
-                  {t("ofc1.of.requestLine", { round: roundName(t, rounds, r.matchId), reason: r.reason })} · {t(`ofc1.of.req.${r.status}`)}
+                  {t("ofc1.of.requestLine", { round: roundName(t, rounds, r.matchId, !!x.rules.swiss), reason: r.reason })} · {t(`ofc1.of.req.${r.status}`)}
                   {r.status === "declined" && r.decisionNote ? `: ${r.decisionNote}` : ""}
                 </span>
                 {r.status === "open" && (
@@ -238,7 +238,7 @@ function ClimbingRounds({
           <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
             {data.performance.recent.map((r, i) => (
               <li key={i}>
-                {roundName(t, rounds, r.matchId)}: {r.entry} · {r.now ?? "-"}
+                {roundName(t, rounds, r.matchId, !!x.rules.swiss)}: {r.entry} · {r.now ?? "-"}
                 {r.was !== null && ` (${t("ofc1.of.was", { was: r.was })})`}
               </li>
             ))}
@@ -249,9 +249,9 @@ function ClimbingRounds({
   );
 }
 
-function roundName(t: ReturnType<typeof useT>, rounds: Match[], matchId: number): string {
+function roundName(t: ReturnType<typeof useT>, rounds: Match[], matchId: number, swiss = false): string {
   const m = rounds.find((r) => r.id === matchId);
-  return !m ? "" : m.stage === "final" ? t("ofc1.cg.final") : t("ofc1.cg.group", { n: m.position });
+  return !m ? "" : m.stage === "final" ? t("ofc1.cg.final") : t("ofc1.cg.group", { n: swiss ? `${m.round}.${m.position}` : m.position });
 }
 
 /** A finalised or advanced round: its results as they stand, and the way to ask for them to be corrected. */

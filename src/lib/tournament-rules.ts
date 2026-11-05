@@ -112,17 +112,52 @@ export interface PerformanceRules {
  * What a Swiss event breaks ties by after its points, in order (docs/architecture/decisions/0033-swiss-tournaments-and-club-ladders.md):
  * Buchholz (the points of the opponents played), median Buchholz, or any of the competition rules' own ranking keys but the points.
  */
-export type SwissTiebreak = "buchholz" | "median_buchholz" | Exclude<RankKey, "points">;
-export const SWISS_TIEBREAKS: SwissTiebreak[] = ["buchholz", "median_buchholz", "wins", "set_diff", "set_ratio", "point_diff", "point_ratio", "points_for", "head_to_head"];
+export type SwissTiebreak = "buchholz" | "median_buchholz" | "buchholz_cut1" | "sonneborn_berger" | Exclude<RankKey, "points">;
+export const SWISS_TIEBREAKS: SwissTiebreak[] = [
+  "buchholz",
+  "median_buchholz",
+  "wins",
+  "set_diff",
+  "set_ratio",
+  "point_diff",
+  "point_ratio",
+  "points_for",
+  "head_to_head",
+  "buchholz_cut1",
+  "sonneborn_berger",
+];
+
+/**
+ * How the rounds of a counted performance event played Swiss-style add up (ADR 0038): the sum of the competitor's placings in
+ * every round counted, or the sum of their best N placings. Lower is better.
+ */
+export type CumulativeRule = "sum_of_placings" | "best_n";
+export const CUMULATIVE_RULES: CumulativeRule[] = ["sum_of_placings", "best_n"];
 
 /** A Swiss event's settings. Null: the default (rounds ⌈log₂ n⌉ at the draw; a bye worth a win; Buchholz, median Buchholz, then the scoring's own keys). */
 export interface SwissRules {
   rounds: number | null;
   byePoints: number | null;
   tiebreaks: SwissTiebreak[] | null;
+  /**
+   * Accelerated pairing (ADR 0038), a Swiss event's option chosen before the draw: the number of rounds paired with a virtual
+   * point for the top half of the initial order. Absent (or null): off. Stored only where it is on.
+   */
+  acceleration?: number | null;
+  /**
+   * A counted performance event played in Swiss rounds (ADR 0038) has `rounds` and these two instead of the head-to-head
+   * settings: how the rounds' placings add up, and for "best_n" how many of them count. Stored only for such an event.
+   */
+  cumulative?: CumulativeRule | null;
+  bestN?: number | null;
 }
 
 export const DEFAULT_SWISS: SwissRules = { rounds: null, byePoints: null, tiebreaks: null };
+
+/** What breaks ties after the points unless the event chooses: Buchholz, median Buchholz, then the scoring's own keys but the points. */
+export function defaultSwissTiebreaks(scoring: Pick<ScoringRules, "rankBy">): SwissTiebreak[] {
+  return ["buchholz", "median_buchholz", ...scoring.rankBy.filter((k): k is Exclude<typeof k, "points"> => k !== "points")];
+}
 
 /**
  * How a knockout is drawn beyond its first elimination (ADR 0032): a consolation
@@ -312,11 +347,41 @@ function readSwiss(raw: unknown): SwissRules | null {
   if (!raw || typeof raw !== "object") return null;
   const s = raw as Record<string, unknown>;
   const tiebreaks = Array.isArray(s.tiebreaks) ? [...new Set(s.tiebreaks.filter((k) => SWISS_TIEBREAKS.includes(k as SwissTiebreak)) as SwissTiebreak[])] : [];
+  const accelerated = int(s.acceleration, 1, 126, 0);
+  const cumulative = CUMULATIVE_RULES.includes(s.cumulative as CumulativeRule) ? (s.cumulative as CumulativeRule) : null;
+  const bestN = int(s.bestN, 1, 127, 0);
   return {
     rounds: int(s.rounds, 1, 127, 0) || null,
     byePoints: Number.isInteger(s.byePoints) && (s.byePoints as number) >= 0 && (s.byePoints as number) <= 10 ? (s.byePoints as number) : null,
     tiebreaks: tiebreaks.length > 0 ? tiebreaks : null,
+    // Stored only where chosen, so what was stored before these options reads exactly as it did.
+    ...(accelerated ? { acceleration: accelerated } : {}),
+    ...(cumulative ? { cumulative } : {}),
+    ...(cumulative === "best_n" && bestN ? { bestN } : {}),
   };
+}
+
+/**
+ * Why Swiss settings cannot be used with this format and these rules, or null (ADR 0038). A Swiss event's own are rounds, the
+ * bye's points, tie-breaks and the acceleration; a counted performance event with no final may be played in Swiss rounds, with
+ * rounds and how the placings add up; no other format has Swiss settings.
+ */
+export function swissRefusal(format: string, rules: Pick<CompetitionRules, "swiss" | "performance">): string | null {
+  const s = rules.swiss;
+  if (!s) return null;
+  if (format === "performance") {
+    if (!rules.performance?.counted) return "Swiss rounds are for a counted performance event (bouldering, climbing by height).";
+    if (rules.performance.finalSize !== 0) return "An event played in Swiss rounds has no final: its ranking is the rounds together. Set the final's size to 0.";
+    if (s.acceleration || s.byePoints !== null || s.tiebreaks) return "Acceleration, a bye's points and tie-breaks are for a head-to-head Swiss event.";
+    if (s.rounds !== null && s.rounds < 2) return "A Swiss performance event plays at least 2 rounds.";
+    if (s.cumulative === "best_n" && !s.bestN) return "Say how many of the best placings count.";
+    if (s.cumulative === "best_n" && s.rounds !== null && s.bestN! > s.rounds) return "The best placings that count cannot be more than the rounds played.";
+    return null;
+  }
+  if (format !== "swiss") return "Swiss settings are for a Swiss event.";
+  if (s.cumulative || s.bestN) return "Placings adding up across rounds is for a performance event played in Swiss rounds.";
+  if (s.acceleration && s.rounds !== null && s.acceleration >= s.rounds) return "Accelerated pairing must leave at least one round paired as usual: ask for fewer accelerated rounds, or more rounds.";
+  return null;
 }
 
 export function readRules(raw: string | null | undefined): CompetitionRules {
@@ -400,6 +465,12 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
         return { ok: false, error: "A bye is worth 0 to 10 points, or leave it at the points for a win." };
       if (x.tiebreaks !== undefined && x.tiebreaks !== null && (!Array.isArray(x.tiebreaks) || x.tiebreaks.length === 0 || x.tiebreaks.some((k) => !SWISS_TIEBREAKS.includes(k as SwissTiebreak))))
         return { ok: false, error: `Break ties by some of: ${SWISS_TIEBREAKS.join(", ")}.` };
+      if (x.acceleration !== undefined && x.acceleration !== null && (!Number.isInteger(x.acceleration) || (x.acceleration as number) < 1 || (x.acceleration as number) > 126))
+        return { ok: false, error: "Accelerated pairing lasts 1 or more rounds, or leave it off." };
+      if (x.cumulative !== undefined && x.cumulative !== null && !CUMULATIVE_RULES.includes(x.cumulative as CumulativeRule))
+        return { ok: false, error: `The rounds' placings add up as: ${CUMULATIVE_RULES.join(", ")}.` };
+      if (x.bestN !== undefined && x.bestN !== null && (!Number.isInteger(x.bestN) || (x.bestN as number) < 1 || (x.bestN as number) > 127))
+        return { ok: false, error: "The best placings that count are 1 or more." };
       swiss = readSwiss({ ...(base.swiss ?? DEFAULT_SWISS), ...x });
     }
   }
