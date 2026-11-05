@@ -43,6 +43,12 @@ export type Category =
 const OWED: Category[] = ["Stored credit", "Gift vouchers"];
 
 export interface JournalRow {
+  /**
+   * What this row is, stable and unique within the venue: `booking:<id>` for a booking's receipt drawn from the booking,
+   * `receipt:<id>` for a stored receipt or credit note (`receipts.id`). The key a live push to an accounting package
+   * keeps so a sale is never sent twice (lib/accounting-push.ts); it names nobody.
+   */
+  ref: string;
   date: string;
   number: string;
   type: "Receipt" | "Credit note";
@@ -202,7 +208,7 @@ export const bookingCredited = (b: string, column: "total" | "tax_amount") =>
  * its credit on a company account (`account-credit:<id>`), its deposit paid online (`payment:<id>`), or a credit note
  * reversing any of those (`credit:<receipt>`). Null for anything else.
  */
-async function bookingOfSource(source: string): Promise<number | null> {
+export async function bookingOfSource(source: string): Promise<number | null> {
   const m = /^([a-z-]+):(\d+)/.exec(source);
   if (!m) return null;
   const id = Number(m[2]);
@@ -251,7 +257,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
   // Bookings' receipts are drawn from the bookings themselves (lib/documents.ts), when they were paid.
   const bookings = (await db
     .prepare(
-      `SELECT ${onDay("b.paid_at")} AS day, b.code, b.name, b.class_id, b.coach_id, b.date, c.name AS court,
+      `SELECT ${onDay("b.paid_at")} AS day, b.id, b.code, b.name, b.class_id, b.coach_id, b.date, c.name AS court,
               ${bookingGross("b")}::float AS gross, b.tax_rate, b.paid_via, b.paid_at, b.paid_by, b.paid_by_name, b.test
          FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE c.venue_id = ? AND b.payment_status = 'paid' AND b.paid_at IS NOT NULL
@@ -260,6 +266,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
     )
     .all(zone, venueId, zone, from, to)) as {
     day: string;
+    id: number;
     code: string;
     name: string;
     class_id: number | null;
@@ -277,7 +284,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
 
   const documents = (await db
     .prepare(
-      `SELECT ${onDay("issued_at")} AS day, kind, number, source, customer_name, lines, total::float AS total,
+      `SELECT ${onDay("issued_at")} AS day, id, kind, number, source, customer_name, lines, total::float AS total,
               tax_rate, tax_amount::float AS tax_amount, paid_via, issued_at, staff_id, staff_name
          FROM receipts
         WHERE (venue_id = ?${opts.counter ? " OR (venue_id IS NULL AND counter_venue_id = ?)" : ""}) AND ${onDay("issued_at")} BETWEEN ? AND ?
@@ -288,6 +295,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
     )
     .all(zone, venueId, ...(opts.counter ? [venueId] : []), zone, from, to)) as {
     day: string;
+    id: number;
     kind: "receipt" | "credit_note";
     number: string;
     source: string;
@@ -306,6 +314,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
     const rate = b.tax_rate === null ? null : Number(b.tax_rate);
     const category: Category = b.class_id ? "Classes" : b.coach_id ? "Coaching" : "Court hire";
     return {
+      ref: `booking:${b.id}`,
       date: b.day,
       number: b.code,
       type: "Receipt",
@@ -343,6 +352,7 @@ export async function salesJournal(venueId: number, from: string, to: string, op
       // An unreadable line is still a document with a total.
     }
     rows.push({
+      ref: `receipt:${d.id}`,
       date: d.day,
       number: d.number,
       type: d.kind === "credit_note" ? "Credit note" : "Receipt",

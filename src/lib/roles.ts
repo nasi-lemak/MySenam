@@ -40,6 +40,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/coaches$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/strikes$/, methods: ["POST"] },
   { path: /^\/api\/admin\/einvoicing$/, methods: "all" },
+  // Live accounting (lib/accounting-push.ts): connecting the venue's Xero organisation, what is mapped to which account, and
+  // what is sent are a manager's, as the export of the same sales is.
+  { path: /^\/api\/admin\/accounting(\/xero\/callback)?$/, methods: "all" },
   { path: /^\/api\/admin\/reviews$/, methods: ["POST"] },
   { path: /^\/api\/admin\/marketing$/, methods: "all" },
   { path: /^\/api\/admin\/coach-payouts$/, methods: "all" },

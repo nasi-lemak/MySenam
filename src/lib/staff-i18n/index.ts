@@ -10,6 +10,7 @@ import competitions from "./competitions";
 import teams from "./teams";
 import ratings from "./ratings";
 import ladders from "./ladders";
+import accounting from "./accounting";
 import courts from "./courts";
 import credit from "./credit";
 import platform from "./platform";
@@ -40,7 +41,7 @@ import { sayWith, type StaffText } from "../staff-text";
  */
 export { STAFF_LOCALES, staffLocale, staffLocales, type StaffLocale };
 
-export const STAFF_AREAS = { common, approvals, server, bookings, competitions, teams, ratings, ladders, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp, playerMessages };
+export const STAFF_AREAS = { common, approvals, server, bookings, competitions, teams, ratings, ladders, accounting, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp, playerMessages };
 
 const EN = {
   ...common.en,
@@ -51,6 +52,7 @@ const EN = {
   ...teams.en,
   ...ratings.en,
   ...ladders.en,
+  ...accounting.en,
   ...courts.en,
   ...credit.en,
   ...platform.en,
@@ -77,6 +79,7 @@ const merged = (l: "ms" | "zh"): Record<StaffPhrase, string> => ({
   ...teams[l],
   ...ratings[l],
   ...ladders[l],
+  ...accounting[l],
   ...courts[l],
   ...credit[l],
   ...platform[l],

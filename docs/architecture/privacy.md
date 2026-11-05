@@ -822,6 +822,45 @@ play with, and to whom, is personal data of **both** sides.
 - **Nothing leaves the country:** conversations are kept in the install's own database and
   backups ([backups held abroad](#backups-held-abroad)); no message is sent to any provider (the
   notification email says where, never what).
+### Live accounting push
+
+A venue's manager may connect the venue's own Xero organisation and have its sales and
+refunds sent there as they happen ([Xero](../integrations/xero.md),
+[ADR 0041](decisions/0041-live-accounting-push-to-xero.md); `accounting_connections`,
+`accounting_queue`, `accounting_mappings`, `accounting_chart`, `accounting_oauth_states`,
+migration 0284). **This sends personal data out of the country by an approved path, never by
+default**, as off-site backups abroad do.
+
+- **A declared and approved path, twice over.** The install must set
+  `ACCOUNTING_PUSH_APPROVED=yes` before any venue is offered the connection and before
+  anything is sent; the app never sets it and does not judge whether the transfer is lawful
+  (a legal question is never settled in code). Then each venue's manager must read what is sent
+  and where Xero keeps it, and tick that the venue agrees: who, when and under which wording
+  (`NOTICE_VERSION`) is kept with the connection, as the venue's own declaration, never as a
+  verified fact. The install owner's own step is the one in
+  [Xero](../integrations/xero.md#the-install-switch-and-the-xero-app); the open legal points
+  (Xero's data-hosting region for the organisation, its terms as the transfer contract, roles) are for a
+  lawyer, as backups abroad's are ([open points](#backups-held-abroad)).
+- **What is sent, and only that:** the account holder's name and email as Xero's contact, the
+  amount, the tax inside it, the date, a line saying the kind of sale, our document number and
+  how it was paid. **Never** a phone number, a child's name (a child's sale is booked under the
+  account that paid for it; accounts are adults', and a receipt's own customer name is not used),
+  whom a place was for, or any other detail. A customer with no account is one `Walk-in
+  customers` contact with no email.
+- **What MySenam keeps:** the queue keeps amounts, the document's number and kind and Xero's
+  identifiers, no name, email or phone: the contact is read from the account at the moment of
+  sending and never stored, so an erasure of an account leaves nothing of it in the queue (the
+  documents already in Xero are Xero's, in the venue's own books; Xero's own retention and the
+  venue's duty to keep its books apply there, and the venue removes a contact in Xero itself).
+  A refusal Xero gave is kept with names, addresses and tokens taken out.
+- **Tokens:** both are sealed with the key that locks the payment gateways' keys, never in plain
+  text, a log, an answer or the activity log; a backup carries them without what opens them.
+  Disconnecting revokes the grant at Xero and empties both columns.
+- **Who:** managers of the venue only (front desk and other venues' managers are refused, and
+  every connect, mapping change, send, retry and disconnect is in the activity log). The
+  connection of a branch is never copied to a copy of a venue.
+- **Retention:** the queue's rows are the books' own record of what was sent and are kept with
+  the venue; the oauth states last fifteen minutes.
 
 ## Where personal data is kept
 

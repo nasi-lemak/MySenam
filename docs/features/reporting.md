@@ -156,6 +156,16 @@ are as written, even where the customer's own receipt says a built-in
 concession's price in their language
 ([regions and tax](../product/regions-and-tax.md#tax-sst-and-gst)).
 
+**Sending the same sales to Xero as they happen.** *Reports → Accounting* can connect the
+venue's own Xero organisation and push this journal's rows (each row has a stable `ref`) as
+sales invoices with their payments and credit notes with their refunds, instead of an import
+by hand. It is optional, off by default, per venue, needs the install's approval of the
+transfer abroad, and leaves the export and its two CSVs exactly as they are: they remain the
+fallback and the way for SQL Account and AutoCount, which have no common cloud API. The
+numbers cannot differ from the journal because they are the journal; a *Check against Xero*
+compares the two and says plainly when they differ. How it works, what is sent and what is
+never sent: [Xero](../integrations/xero.md).
+
 ### Staff activity log
 
 **The staff activity log** (*Reports → Staff activity*, `src/lib/activity.ts`)

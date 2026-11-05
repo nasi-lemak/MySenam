@@ -108,6 +108,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0043 Moving a class, and a class's instructor as one of the venue's coaches](architecture/decisions/0043-moving-a-class-and-a-class-coach.md)
 [0042 Attendance registers, and a lesson the venue moves](architecture/decisions/0042-attendance-registers-and-lessons-moved-by-the-venue.md)
 [0037 Launch and tide windows narrow the bookable hours of water hire](architecture/decisions/0037-launch-and-tide-windows.md)
+[0041 Live accounting: a venue's sales pushed to Xero, optional, behind a provider interface](architecture/decisions/0041-live-accounting-push-to-xero.md)
 
 ## Integrations
 
@@ -118,6 +119,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Email, WhatsApp and SMS: what is sent when, delivery, costs, marketing email | [Messaging](integrations/messaging.md) |
 | WhatsApp set-up and every template, word for word | [WhatsApp templates](integrations/whatsapp-templates.md) |
 | LHDN MyInvois e-invoicing | [MyInvois](integrations/myinvois.md) |
+| Live accounting: sending a venue's sales to Xero (set-up, mapping, the queue, the reconciliation, verifying against a demo company) | [Xero](integrations/xero.md) |
 | Public API, outgoing webhooks, Reserve with Google feeds | [External API](integrations/external-api.md) |
 | Using MySenam from an AI assistant: the MCP server, its tools, keys, signing in from a connector (OAuth), changing settings, and personal data | [MCP server](integrations/mcp.md) |
 
@@ -188,6 +190,7 @@ The README used to hold everything. Sections it named in passing (*see
 | Stored credit, Whose credit it is, Topping up, Gift vouchers, Splitting the cost, Extras, Counter sales, Company and school accounts | [Payments and credit](features/payments-and-credit.md) |
 | Countries, Tax | [Regions and tax](product/regions-and-tax.md) |
 | E-invoicing (MyInvois) | [MyInvois](integrations/myinvois.md) |
+| Live accounting (Xero) | [Xero](integrations/xero.md) |
 | Public API and webhooks, Reserve with Google | [External API](integrations/external-api.md) |
 | AI assistants (MCP) | [MCP server](integrations/mcp.md) |
 | Audit fixes | [Business rules](product/business-rules.md) |
