@@ -17,7 +17,7 @@ import { createNotice } from "./urgent";
 import { refundCancelled, takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
-import { clockTime, money, shortDate } from "./region";
+import { clockTime, money, region, shortDate } from "./region";
 import { localDateOf, slotStartsAt } from "./time";
 import { venueZoneOf } from "./zones";
 import { longEnough } from "./phone";
@@ -889,10 +889,20 @@ export async function notifyRescheduled(
   // A lane given on arrival is not named before it is given (lib/lanes.ts).
   const theirCourt = customerCourtName(court.name, booking, locale);
   const { where, when } = slot(locale, theirCourt, venue.name, booking);
-  const money =
+  let money =
     priceChange !== 0 && booking.paymentStatus !== "paid"
       ? t("msg.priceNow", { total: booking.totalPrice.toFixed(2) })
       : t("msg.priceSame");
+  // A lesson the venue moved: the customer may cancel it with everything back for a while (lib/lesson-venue-moves.ts).
+  if (by === "staff" && booking.coachId) {
+    const offer = await (await import("./lesson-venue-moves")).refundOfferText(
+      booking,
+      locale,
+      `${await venueBaseUrl(venue.id)}${bookingLinkPath(booking.code, booking.date)}`,
+      venue.timeZone ?? region().timeZone
+    );
+    if (offer) money = `${money} ${offer}`;
+  }
   const calendar = calendarFor([booking], theirCourt, venue);
   if (by === "customer") {
     await alertVenueChange("changed", [booking], venue, court.name, was);
@@ -1229,6 +1239,18 @@ export async function notifySeriesMoved(seriesCode: string, moved: { booking: Bo
   const courts = new Map<number, string>();
   for (const w of weeks) if (!courts.has(w.booking.courtId)) courts.set(w.booking.courtId, (await getCourt(w.booking.courtId))?.name ?? court.name);
   const code = seriesCode.trim().toUpperCase();
+  // Lessons the venue moved: the customer may cancel any of them with everything back for a while (lib/lesson-venue-moves.ts).
+  let money = repriced.length > 0 ? t("r9e.msg.priceWeeks", { total: unpaid.toFixed(2) }) : t("msg.priceSame");
+  const lesson = weeks.find((w) => w.booking.coachId);
+  if (lesson) {
+    const offer = await (await import("./lesson-venue-moves")).refundOfferText(
+      lesson.booking,
+      locale,
+      `${await venueBaseUrl(venue.id)}${bookingLinkPath(lesson.booking.code, lesson.booking.date)}`,
+      venue.timeZone ?? region().timeZone
+    );
+    if (offer) money = `${money} ${offer}`;
+  }
   const notice = await createNotice({
     venueId: venue.id,
     bookingId: first.id,
@@ -1261,7 +1283,7 @@ export async function notifySeriesMoved(seriesCode: string, moved: { booking: Bo
       code,
       where: at.where,
       when: t("msg.seriesWhen", { n: weeks.length, from: at.when }),
-      money: repriced.length > 0 ? t("r9e.msg.priceWeeks", { total: unpaid.toFixed(2) }) : t("msg.priceSame"),
+      money,
       ack: linkIn(`${await venueBaseUrl(venue.id)}/ack/${notice.token}`, locale),
     },
   });

@@ -405,6 +405,8 @@ const en = {
   "srv.round.consolationRound": "Consolation round {round}, match {n}",
   "srv.round.consolationFinal": "Consolation final",
   "srv.round.consolationThird": "Consolation third-place match",
+  "clsb.ret.attendance": "Attendance marks and their corrections",
+  "clsb.ret.lessonMoves": "Records of lessons the venue moved",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -805,6 +807,8 @@ const ms: Record<keyof typeof en, string> = {
   "srv.round.consolationRound": "Pusingan saguhati {round}, perlawanan {n}",
   "srv.round.consolationFinal": "Akhir saguhati",
   "srv.round.consolationThird": "Perlawanan tempat ketiga saguhati",
+  "clsb.ret.attendance": "Tanda kehadiran dan pembetulannya",
+  "clsb.ret.lessonMoves": "Rekod pelajaran yang diubah masanya oleh pusat",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1205,6 +1209,8 @@ const zh: Record<keyof typeof en, string> = {
   "srv.round.consolationRound": "安慰赛第 {round} 轮第 {n} 场",
   "srv.round.consolationFinal": "安慰赛决赛",
   "srv.round.consolationThird": "安慰赛季军赛",
+  "clsb.ret.attendance": "出勤标记及其更正记录",
+  "clsb.ret.lessonMoves": "场馆更改课程时间的记录",
 };
 
 const area = { en, ms, zh };

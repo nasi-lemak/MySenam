@@ -108,6 +108,10 @@ export async function POST(req: NextRequest) {
     bookingCode: result.booking.code,
     detail: `${result.from.date} ${formatMinute(result.from.startMin)} → ${result.booking.date} ${formatMinute(result.booking.startMin)}${
       result.priceChange !== 0 ? `, price ${result.priceChange > 0 ? "+" : ""}${money(result.priceChange)}` : ""
+    }${
+      result.keepsAgreedPrice && result.unchargedDifference !== 0
+        ? `; lesson keeps the price agreed, the new time ${result.unchargedDifference > 0 ? "costs" : "is"} ${money(Math.abs(result.unchargedDifference))} ${result.unchargedDifference > 0 ? "more, not charged" : "less, not given back"}`
+        : ""
     }${moved.outcome === "venue" ? `; open game with players moved by the venue: ${String(reason).trim().slice(0, 300)}` : ""}${
       typeof coachId === "number" && result.booking.coachId === coachId ? `; lesson with ${(await coachNames([result.booking.id])).get(result.booking.id) ?? `coach ${coachId}`}` : ""
     }`,

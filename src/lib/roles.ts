@@ -43,6 +43,10 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/reviews$/, methods: ["POST"] },
   { path: /^\/api\/admin\/marketing$/, methods: "all" },
   { path: /^\/api\/admin\/coach-payouts$/, methods: "all" },
+  // Closing a register, correcting it afterwards, the attendance report and its spreadsheet, and how long a moved lesson's customer may cancel (lib/attendance.ts):
+  // a manager's; the desk marks and walks people in (POST /api/admin/attendance).
+  { path: /^\/api\/admin\/attendance\/(lock|report)$/, methods: "all" },
+  { path: /^\/api\/admin\/lesson-settings$/, methods: ["POST"] },
   { path: /^\/api\/admin\/integrations$/, methods: "all" },
   { path: /^\/api\/admin\/(leagues|tournaments)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/competitions(\/\d+)?$/, methods: ["POST", "DELETE"] },
@@ -202,6 +206,10 @@ export const STAFF_ACTIONS = {
   classCancel: "DELETE /api/admin/classes/1",
   classMove: "POST /api/admin/classes/1/move",
   coaches: "POST /api/admin/coaches",
+  // Registers: closing one, the report and the spreadsheet, and the days of the moved-lesson refund window and the register's open days. The desk marks.
+  attendanceLock: "POST /api/admin/attendance/lock",
+  attendanceReport: "GET /api/admin/attendance/report",
+  lessonSettings: "POST /api/admin/lesson-settings",
   // Credit & passes
   passVoid: "POST /api/admin/passes/1/void",
   passProducts: "POST /api/admin/pass-products",

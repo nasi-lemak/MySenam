@@ -15,6 +15,7 @@ const CAUSES: Record<VenueCancelCause, StaffPhrase> = {
   api: "r9e.owed.cause.api",
   class: "r9e.owed.cause.class",
   test: "r10a.owed.cause.test",
+  lesson_moved: "clsb.s.owed.cause.lessonMoved",
 };
 
 /**

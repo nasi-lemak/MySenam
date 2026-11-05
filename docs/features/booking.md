@@ -973,7 +973,10 @@ the time goes while the customer rebooks.
   it somewhere dearer (that would be peak hours at an off-peak price), and
   staff who do have chosen not to charge the difference. Its concessions and
   promo code stay as they were given, the same amounts, and are not asked
-  about again ([discounts together](pricing.md#discounts-together)).
+  about again ([discounts together](pricing.md#discounts-together)). The one
+  exception is a coached lesson **staff** move: it keeps the price agreed, paid
+  or not, whatever the new time costs, and its customer may cancel with everything
+  back for a while ([a lesson moved by the venue](programmes.md#a-lesson-moved-by-the-venue)).
 - A lesson moves with its coach, to a time the coach takes lessons and is
   free, or (staff) to another of the venue's coaches while nothing is paid
   ([moving a lesson](programmes.md#moving-a-lesson)).

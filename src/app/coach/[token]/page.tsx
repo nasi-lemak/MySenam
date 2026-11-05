@@ -8,6 +8,7 @@ import { coachClasses } from "@/lib/class-coaches";
 import { clockRange } from "@/lib/region";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import CoachSelfService from "@/components/CoachSelfService";
+import CoachRegister from "@/components/CoachRegister";
 import Link from "next/link";
 import { linkIn } from "@/lib/link-locale";
 import { staffLocale, staffTranslator } from "@/lib/staff-i18n";
@@ -74,6 +75,8 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
                     <a href={`tel:${l.phone}`} className="text-teal-700 underline">
                       {l.phone}
                     </a>
+                    {/* The roll call of this lesson (lib/attendance.ts): theirs only, from its day. */}
+                    <CoachRegister token={token} lessonId={l.id} />
                   </li>
                 ))}
               {classes

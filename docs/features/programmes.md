@@ -32,6 +32,7 @@ guardian on the number given ([booking for somebody else](booking.md#booking-for
 `enrolPeople` in `src/lib/store.ts`). Each person gets a place and an
 enrolment of their own, at the class price, named on the roster, checked in,
 cancelled and refunded as themself; the adult takes a place only when ticked.
+Each session has an [attendance register](#attendance-registers) of its own.
 All or none: a class with one place left takes neither of two children
 (`CLASS_FULL`), and the class row is locked while its places are counted so
 two guardians cannot take its last place for different children. Somebody
@@ -303,8 +304,10 @@ A lesson moves the way any booking changes its date or time
 - **Staff** use *Change time*: front desk or a manager, keeping the coach.
   Giving the lesson to another coach is a manager's change of its own
   ([giving a lesson to another coach](#giving-a-lesson-to-another-coach)).
-- **The price** follows the court time as for any booking: unpaid, repriced
-  at the new time; paid, kept, the customer unable to move somewhere dearer.
+- **The price.** A lesson its customer moves follows the court time as any
+  booking: unpaid, repriced at the new time; paid, kept, the customer unable to
+  move somewhere dearer. A lesson **staff** move keeps the price agreed whatever
+  the new time costs ([a lesson moved by the venue](#a-lesson-moved-by-the-venue)).
   The coach's fee stays as booked with the same coach.
 - **The coach is told** by email, where they have one, once they had heard
   of the lesson (`notifyLessonMoved` in `src/lib/coach-schedule.ts`): the
@@ -320,6 +323,71 @@ A lesson moves the way any booking changes its date or time
 Tests: `tests/lesson-moves.test.ts` (with the coach, refusals, another coach,
 paid, the coach told, and a move racing a new lesson for the coach's time),
 `tests/coaching.test.ts`, `tests/components/lesson-coach.test.tsx`.
+
+### A lesson moved by the venue
+
+When staff move a coached lesson to another day or time (owner's decision, 5
+November 2026; `src/lib/lesson-venue-moves.ts`, migration 0282,
+[ADR 0042](../architecture/decisions/0042-attendance-registers-and-lessons-moved-by-the-venue.md)),
+it is the booking's own *Change time* ([moving a lesson](#moving-a-lesson),
+front desk or a manager, one lesson or a weekly series), not a second flow.
+What a venue's move of a lesson adds:
+
+- **What is checked.** The coach's hours and time off, and every other lesson
+  of theirs, at the new time (the constraint that keeps a coach in one place at
+  a time; `COACH_NOT_WORKING`, `COACH_TAKEN`), and the court and its claims as
+  for any move (`RESCHEDULE_TAKEN`, closed days, blocked time, a class's time).
+  A class the coach teaches is a commitment of theirs once the class's
+  instructor is one of the venue's coaches; until then a class's instructor is
+  a name and there is nothing of theirs to clash with.
+- **Not once it has begun.** A lesson already started (`LESSON_STARTED`), one
+  somebody was marked present or late at (`LESSON_ATTENDED`), one checked in, or
+  one already over is not moved: the lesson is the same product at the time
+  it was given.
+- **The price stays as agreed.** The new time may price differently (a peak
+  hour); the customer is not charged more and not given back less without a
+  choice. Staff see the difference before they confirm (*the lesson keeps the
+  price agreed; the new time costs RM 20 more, which is not charged*), the move
+  returns it (`unchargedDifference`) and the record keeps it
+  (`lesson_moves.price_difference`). Only another coach's fee changes the price
+  ([giving a lesson to another coach](#giving-a-lesson-to-another-coach)).
+  Changing the price is a manager's own act, the existing logged
+  [price adjustment](pricing.md#a-managers-price-adjustment), never a side effect
+  of moving. A lesson its customer moves themselves keeps today's rule above.
+- **The customer is told** by the notice of a booking the venue changed
+  (email, and WhatsApp where the venue has it on, in their language; the one
+  they acknowledge): the new time, that the price stays, and that they may
+  cancel for everything back until a stated time, with their booking's own link.
+  The sentence rides in the notice's existing wording (`clsb.msg.refundOffer`),
+  so no new WhatsApp template is needed. A weekly series moved together is one
+  notice. The coach is told as for any move, and their link and calendar feed
+  show the lesson where it is now. The change is in the activity log
+  (`booking.rescheduled`) with before and after and who moved it.
+- **Cancelling with everything back, the customer's own act.** Until the
+  window closes the booking page and the account show *The venue moved this
+  lesson* with *Cancel for everything back* (`POST /api/bookings/cancel-moved`,
+  `POST /api/my/bookings/cancel-moved`). Nothing is cancelled or refunded for
+  anybody who does not press it. It goes through the venue's cancellation path
+  (`venueCancel`, cause `lesson_moved`), the one a closed day or a called-off
+  class uses: no late share, no strike; money paid online goes back through the
+  venue's gateway where it can and is otherwise owed for staff
+  ([refunds owed](payments-and-credit.md#owed-back-after-the-venue-cancels)),
+  stored credit and lesson-pack entries are restored, a counter payment is
+  written down as owed back for the desk to hand over, each with its credit
+  note. Two taps at once refund once. The window is the venue's days after the
+  move (**Classes → Lessons and registers**, default 7, 0 offers none;
+  `venues.lesson_move_refund_days`) or the lesson's old time if sooner, never
+  past the new start; a lesson moved again has the window of its latest move.
+  Afterwards the booking's ordinary terms apply.
+- **Reminders are re-armed.** A reminder queued for the old time is given up and
+  one already sent no longer blocks the reminder for the new time; the usual
+  day-before reminder follows from the lesson's new time.
+
+Tests: `tests/lesson-venue-moves.test.ts` (coach, court and other-lesson
+clashes, started and attended lessons, the price policy and the manager's
+adjustment, the notices in the customer's language, the coach's link and
+calendar feed, reminders, the window, credit and counter refunds, two taps at
+once, a series).
 
 ### Giving a lesson to another coach
 
@@ -597,6 +665,80 @@ off beside the coach. The link is the coach's key: the venue replaces or
 withdraws it as before, and a withdrawn or lapsed link changes nothing. Each
 change made at the link is written to the venue's activity log under the
 coach's name (no staff account), so staff can see who changed the hours.
+
+## Attendance registers
+
+Every class session and every coached lesson has a register
+(`src/lib/attendance.ts`, migration 0282, ADR 0042). A **session** is a class's
+session (`classes.id`) or a lesson (`bookings.id` with a coach); both
+identifiers survive a move, so **a register stays with its session when it is
+moved** (a lesson staff move keeps its booking; a class's own time changes in
+place under the same id, and a session whose attendance has been taken is for the
+class mover to refuse, asking `attendanceTaken`).
+
+- **Who is expected.** Each place on each confirmed enrolment or lesson booking:
+  the customer's own, and each person they booked for (a child by their
+  participant record: full name, shown to staff and to the session's own
+  instructor only, never public), plus **walk-ins** the instructor or the desk
+  add by name (up to 50 a session, a mistake taken off again). A place cancelled
+  after somebody was marked at it stays on the list.
+- **The marks.** *Present*, *absent*, *late* or *excused*, with a note up to 200
+  characters, who marked it and when. It is the instructor's record: **declared,
+  never verified**. Marks are not ratings, results, levels or eligibility, and
+  nothing else reads them.
+- **Who marks, and when.** The instructor at their private link (a *Roll call*
+  button on each of their lessons: only sessions of theirs, names and no
+  numbers, `GET/POST /api/coach/:token/register`); the desk or a manager from
+  the dashboard (a *Register* button on a class's roster and on a lesson in the
+  Bookings tab: a tap list that works on a phone and by keyboard). A register
+  opens **on the day of the session**; before that day only a manager marks. It
+  stays editable for the venue's number of days after the session (default 14,
+  `venues.attendance_lock_days`, set under **Classes → Lessons and registers**)
+  or until a manager **locks** it; after that, only a manager corrects it, and
+  must give a **reason**. Every change after a first mark is kept with what it
+  was (`attendance_changes`) and shown to managers; each write is in the
+  activity log (`attendance.marked`, `attendance.corrected`, `attendance.locked`,
+  `attendance.unlocked`, `attendance.exported`), naming the session, never a
+  person. A cancelled session's register is closed.
+- **No money moves because of a mark.** A mark never charges, refunds, uses or
+  restores a pass or an entitlement, and never runs the late-cancel or no-show
+  policy. Managers are *shown* what a venue might do about it (absences, how many
+  in a row, the entries left on the person's pass) and use the existing tools by
+  hand. A venue that wanted *absent = a pass entry used* would need a rule of its
+  own: it is a roadmap item, not built.
+- **Reports, for managers** (`GET /api/admin/attendance/report`, under the
+  roster's *Attendance report*): per class, term or period, per session the
+  counts, per person present, late, absent and excused, the **present rate**
+  ((present + late) of (present + late + absent): excused sessions are left out),
+  **missed in a row** (trailing absences in session order; an excused session
+  neither counts nor breaks the run, present or late ends it) and the entries left
+  on their session passes. Someone is the same person across sessions by their
+  participant record or account, a walk-in by the name typed, a guest by the name
+  and number as booked. The **spreadsheet** (`&format=csv`, staff only, logged)
+  has one row per mark: *Date, Start, Kind, Session, Person, Role, Mark, Note,
+  Marked by, Marked at, Corrected*, children in full; a name starting with a
+  formula character is made harmless.
+- **Customers and guardians.** *Attendance* on the account page lists the
+  customer's own marks and a guardian's for each person they manage (never the
+  note, never anybody else's, never public); the personal-data export includes
+  them with their notes (`attendance`); erasing an account **anonymises its
+  marks**, and erasing a participant theirs: the mark is kept as a count (that one
+  came, one did not), naming nobody and with its note removed.
+- **Retention.** Marks, locks and corrections go **730 days** after the session
+  (`RETENTION.attendanceDays`, one line of the retention schedule in
+  [personal data](../architecture/privacy.md#retention)).
+- **Classes taught by a coach.** A class whose instructor is one of the venue's
+  coaches (`classes.coach_id`, when that exists) is marked by that coach at their
+  link as a lesson is; until then the desk and managers mark classes
+  (`classCoachId` in `src/lib/attendance.ts` is the one place to change).
+- **Open games** hosted by the venue's staff have no register: not built.
+
+Tests: `tests/attendance.test.ts` (the list and the four marks, walk-ins, the
+day's rule, the days after, locks and reasoned corrections, the coach's own
+sessions and link, the dashboard's routes and their roles, a moved session, the
+report and spreadsheet, the customer's and guardian's views, the export, erasure
+and retention, and the proof that no payment, credit, pass, receipt, strike or
+message changes on any mark).
 
 ## Women-only and men-only
 

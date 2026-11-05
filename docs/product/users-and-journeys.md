@@ -130,6 +130,7 @@ Gaps: levels are self-declared, not earned from results
 | See their own lessons; set their own hours and time off, by their link | Built | [Programmes](../features/programmes.md#a-coachs-own-week-and-time-off) |
 | Customers book lessons; lesson packs | Built | [Programmes](../features/programmes.md#lesson-packs) |
 | What they are owed | Built, as a report for the venue; nothing is paid | [Programmes](../features/programmes.md#what-coaches-are-owed) |
+| Take attendance at their own lessons, by their link | Built: a roll call per lesson (present, absent, late, excused, walk-ins) on the lesson's day; a class's instructor is still a name, so classes are marked by the desk | [Programmes](../features/programmes.md#attendance-registers) |
 | Run classes, enrol participants, take attendance | **Partly built for coaches.** Classes are run by the venue's staff; a class's instructor is a name, or one of the venue's coaches, who then sees it (name, court, time, how many places are taken, never who) on their schedule and calendar; a coach cannot enrol anyone or run a class themself; there is no attendance register | [Programmes](../features/programmes.md#a-classs-instructor-as-one-of-the-venues-coaches) |
 
 ## What the journeys show

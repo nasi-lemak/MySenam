@@ -61,6 +61,8 @@ export interface MovePreview {
   to: { date: string; startMin: number; endMin: number; courtId: number; courtName: string };
   priceChange: number;
   unchargedDifference: number;
+  /** A lesson the venue moves keeps the price agreed; `unchargedDifference` is what the new time comes to against it. */
+  keepsAgreedPrice?: boolean;
   overrides?: string[];
   /** What would happen: moved at once (nobody in it, or no game), proposed to the players, or the venue's change. */
   outcome: "move" | "proposal" | "venue";
@@ -164,6 +166,7 @@ export async function previewMove(bookingCode: string, to: To, by: "customer" | 
     to: r.to,
     priceChange: r.priceChange,
     unchargedDifference: r.unchargedDifference,
+    ...(r.keepsAgreedPrice ? { keepsAgreedPrice: true } : {}),
     ...(r.overrides ? { overrides: r.overrides } : {}),
     outcome,
     gameId: game?.id ?? null,
