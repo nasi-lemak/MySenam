@@ -258,6 +258,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "messages.youth_authority": "Recorded what a guardian may do about a child's group messaging",
   "messages.youth_safeguarding_viewed": "Read the guardians and holds on children's messaging in a supervised youth group",
   "messages.youth_objection_resolved": "Settled a hold on a child's messaging in a supervised youth group",
+  "messages.youth_authority_review": "Closed or escalated an authority review of a child's youth messaging",
+  "messages.youth_hold": "Set, reviewed or released a legal hold on youth messaging evidence",
   "ladder.court_time": "Changed a ladder's court time",
   "ladder.hold_released": "Released the court held for a ladder challenge",
   "ladder.hold_moved": "Moved the court held for a ladder challenge",

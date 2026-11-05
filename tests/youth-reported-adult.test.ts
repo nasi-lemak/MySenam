@@ -434,14 +434,15 @@ describe("the evidence", () => {
     await forgetMessagesOfUser(w.acc.id);
     const kept = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM player_message_report_lines WHERE report_id = ? AND sender_id = ? AND body IS NOT NULL").get(reportId, w.acc.id)) as { n: number };
     expect(kept.n).toBe(1);
-    // Once the restriction is lifted the hold ends: the ordinary rules apply, and what was done goes with the report.
+    // Once the restriction is lifted the hold ends: erasure takes what the person wrote. A report in a youth thread is safeguarding evidence: the ordinary
+    // retention job invents no period for it and never deletes it (ADR 0052), so the report and what was done about it stay.
     expect(await caseStep(owner, reportId, { step: "lift", reason: "Cleared" })).toMatchObject({ ok: true });
     await forgetMessagesOfUser(w.acc.id);
     const after = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM player_message_report_lines WHERE report_id = ? AND sender_id = ? AND body IS NOT NULL").get(reportId, w.acc.id)) as { n: number };
     expect(after.n).toBe(0);
     await pruneMessageReports(cutoffFor(-5));
-    expect(await getDb().prepare("SELECT 1 FROM player_message_reports WHERE id = ?").get(reportId)).toBeUndefined();
-    expect(await actionsOf(reportId)).toEqual([]);
+    expect(await getDb().prepare("SELECT 1 FROM player_message_reports WHERE id = ?").get(reportId)).toBeTruthy();
+    expect((await actionsOf(reportId)).length).toBeGreaterThan(0);
   }, 120_000);
 
   it("is kept while the report is still open, however old", async () => {

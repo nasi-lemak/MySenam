@@ -264,6 +264,15 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Youth messaging's interim safeguards (ADR 0052): protective restrictions past their review date are told to the owners (never lifted), authority reviews open
+    // where a guardian link is disputed or unclear, and the owners are asked now and then to decide about what has been kept long (lib/youth-restrictions.ts).
+    await (await import("./youth-restrictions")).youthHousekeeping();
+  } catch (err) {
+    console.error("[mysenam] youth messaging housekeeping failed:", err);
+    await raiseAlert("scheduler:youth-housekeeping-failed", "Scheduled work failed: youth messaging safeguards", err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Supporting documents waiting in quarantine: scanned when their next try is due (lib/document-scanning.ts).
     const scanning = await import("./document-scanning");
     // Where clamd is started on demand: started when documents wait (scanning them once it answers), stopped when idle.

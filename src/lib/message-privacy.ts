@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { addDays, todayISO } from "./time";
+import { ACTIVE_CASE_GROUPS, LEGAL_HELD_REPORTS } from "./youth-evidence-sql";
 
 /**
  * What the privacy rules do to messages between players (docs/architecture/privacy.md#messages-between-players; ADR 0039): the
@@ -107,13 +108,15 @@ export async function forgetMessagesOfUser(userId: number): Promise<void> {
   // The frozen copy of a report in a youth thread that is held (open, or its restriction still in force) is evidence a safeguarding review may need:
   // it is kept as it is until the hold ends, then the ordinary report retention applies and the erasure takes it with the rest (ADR 0049).
   await db.prepare(`UPDATE player_message_report_lines SET body = NULL, sender_label = NULL WHERE sender_id = ? AND report_id NOT IN (${HELD_REPORTS})`).run(userId);
-  await db.prepare("UPDATE player_message_reports SET reporter_label = NULL, note = NULL WHERE reporter_id = ?").run(userId);
+  // Under a legal hold (ADR 0052) even the reporter's label and note stay with the held evidence copy: the person's account is erased, the held copy is not.
+  await db.prepare(`UPDATE player_message_reports SET reporter_label = NULL, note = NULL WHERE reporter_id = ? AND id NOT IN (${LEGAL_HELD_REPORTS})`).run(userId);
   await db.prepare(`UPDATE player_message_reports SET reported_label = NULL WHERE reported_id = ? AND id NOT IN (${HELD_REPORTS})`).run(userId);
 }
 
-/** SQL: the reports in a youth thread whose evidence is held: still open, or the protective restriction they placed is still in force. Exempt from ordinary retention. */
+/** SQL: the reports in a youth thread whose evidence is held: still open, or the restriction they placed is still in force, or under a legal hold (ADR 0052). Exempt from ordinary retention and from erasure. */
 const HELD_REPORTS = `SELECT hr.id FROM player_message_reports hr
-   WHERE hr.urgent = 1 AND (hr.status = 'open' OR EXISTS (SELECT 1 FROM youth_thread_mutes hm WHERE hm.report_id = hr.id AND hm.lifted_at IS NULL))`;
+   WHERE hr.urgent = 1 AND (hr.status = 'open' OR EXISTS (SELECT 1 FROM youth_thread_mutes hm WHERE hm.report_id = hr.id AND hm.lifted_at IS NULL))
+   UNION ${LEGAL_HELD_REPORTS}`;
 
 /**
  * Retention, from the retention job (lib/privacy.ts): a thread whose context has ended is deleted `days` after it ended (messages,
@@ -147,25 +150,31 @@ export async function pruneMessages(threadCutoff: string): Promise<void> {
  */
 export async function pruneYouthMessages(threadCutoff: string): Promise<void> {
   const db = getDb();
-  await db.prepare("DELETE FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ? AND youth = 1").run(threadCutoff);
+  // An ordinary-retention timer never deletes the evidence of an active case: while a report is open, a restriction is in force, a review or a request for a
+  // review is open, or a legal hold stands, the group's conversation (and what a supervisor removed from it) is left alone. Only once the case closes does
+  // ordinary retention resume for the live conversation; the evidence copy stays in its own class (ADR 0052).
+  await db.prepare(`DELETE FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ? AND youth = 1 AND context_id NOT IN (${ACTIVE_CASE_GROUPS})`).run(threadCutoff);
   await db
-    .prepare("UPDATE player_messages SET body = NULL, removed_at = datetime('now') WHERE hidden_at IS NOT NULL AND hidden_at < ? AND body IS NOT NULL")
+    .prepare(
+      `UPDATE player_messages SET body = NULL, removed_at = datetime('now') WHERE hidden_at IS NOT NULL AND hidden_at < ? AND body IS NOT NULL
+          AND thread_id NOT IN (SELECT t.id FROM player_message_threads t WHERE t.youth = 1 AND t.context_kind = 'group' AND t.context_id IN (${ACTIVE_CASE_GROUPS}))`
+    )
     .run(cutoffFor(youthRemovedRetentionDays()));
 }
 
 export async function pruneMessageReports(reportCutoff: string): Promise<void> {
   const db = getDb();
-  // A report is kept until it has been dealt with and the retention has passed, and while a protective restriction it placed is in force (ADR 0049).
-  await db.prepare(`DELETE FROM player_message_reports WHERE status = 'reviewed' AND reviewed_at < ? AND id NOT IN (${HELD_REPORTS})`).run(reportCutoff);
-  // What safeguarding personnel did about a report goes with the report.
-  await db.prepare("DELETE FROM youth_report_actions WHERE report_id NOT IN (SELECT id FROM player_message_reports)").run();
+  // A report in an ordinary (adults') thread is kept until it has been dealt with and MESSAGE_REPORT_RETENTION_DAYS have passed. A report in a youth thread is
+  // **safeguarding evidence**: no period is invented for it, and the ordinary job never deletes it; only an install's own SAFEGUARDING_EVIDENCE_RETENTION_DAYS
+  // does, for closed cases (lib/youth-evidence.ts), and never one under a legal hold or with a restriction in force (ADR 0052).
+  await db.prepare(`DELETE FROM player_message_reports WHERE urgent = 0 AND status = 'reviewed' AND reviewed_at < ? AND id NOT IN (${HELD_REPORTS})`).run(reportCutoff);
 }
 
 /** How many threads and reports the next prune removes: the retention screen's count. */
 export async function messagesDue(threadCutoff: string, reportCutoff: string): Promise<{ threads: number; reports: number }> {
   const db = getDb();
   const threads = (await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ? AND youth = 0").get(threadCutoff)) as { n: number };
-  const reports = (await db.prepare(`SELECT COUNT(*)::int AS n FROM player_message_reports WHERE status = 'reviewed' AND reviewed_at < ? AND id NOT IN (${HELD_REPORTS})`).get(reportCutoff)) as { n: number };
+  const reports = (await db.prepare(`SELECT COUNT(*)::int AS n FROM player_message_reports WHERE urgent = 0 AND status = 'reviewed' AND reviewed_at < ? AND id NOT IN (${HELD_REPORTS})`).get(reportCutoff)) as { n: number };
   return { threads: threads.n, reports: reports.n };
 }
 

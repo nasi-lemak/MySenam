@@ -324,6 +324,14 @@ these once with a real account, in its sandbox where it has one:
       the time a 10 MB PDF takes are noted, and a timer run of
       `mysenam-freshclam` is seen to wait for clamd to stop
       ([the malware scanner](#the-malware-scanner)).
+- [ ] **Youth messaging: leave off until the legal and safeguarding requirements
+      in the [legal-review checklist](legal-review-youth-messaging.md) are
+      satisfied; turning it on is the owner's decision.** In production it is
+      off unless `YOUTH_MESSAGING_LAUNCH_APPROVED=yes` ([ADR
+      0052](../architecture/decisions/0052-youth-messaging-interim-safeguards-pending-legal-review.md)):
+      the [launch gate](legal-review-youth-messaging.md#launch-gate) is the written
+      advice, the venue agreement terms, a safeguarding policy and trained
+      safeguarding contacts. Adults' messaging is unaffected either way.
 - [ ] **Retention periods reviewed**: a lawyer in each country has answered
       the [open questions](../architecture/privacy.md#open-questions-for-professional-review-retention-and-documents),
       the install's periods are set accordingly, and the review is recorded

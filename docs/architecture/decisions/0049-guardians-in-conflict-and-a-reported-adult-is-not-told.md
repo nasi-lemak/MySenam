@@ -1,6 +1,7 @@
 # ADR 0049: Guardians in conflict, and a reported adult is not told
 
-- **Status:** current, decided 2026-11-05 (the owner's decisions 1 and 2 of the five remaining questions; the design choices below
+- **Status:** current, **amended by [ADR 0052](0052-youth-messaging-interim-safeguards-pending-legal-review.md)** (an asserted restriction no longer takes effect, only a verified
+  decision by an authorised operator; a decision has its own neutral line; a youth report's evidence is no longer deleted on a timer and a legal hold can cover it); decided 2026-11-05 (the owner's decisions 1 and 2 of the five remaining questions; the design choices below
   marked *chosen here* are this record's). Built in migration 0291. What people see is
   [messages between players](../../features/player-messages.md#guardians-in-conflict) and
   [a reported adult is not told](../../features/player-messages.md#a-reported-adult-is-not-told). **Amends

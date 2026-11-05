@@ -1,7 +1,11 @@
 import { getDb, withTransaction } from "./db";
 import { logAction } from "./activity";
 import type { Admin } from "./admin-auth";
-import { answerVenueRequest, endYouthGroup, guardianChild, refuseYouth, youthEvent, youthGroupOf, type DeclaredRole, type YouthRefusal } from "./youth-messages";
+import { answerVenueRequest, endYouthGroup, guardianChild, refuseYouth, youthEvent, youthGroupOf, youthOff, type DeclaredRole, type YouthRefusal } from "./youth-messages";
+import { youthMessagingEnabled, INTERIM_STANDARD } from "./youth-launch";
+import { effectiveDecision, openAuthorityReviews, restrictionOfLevel, AUTHORITY_BASES, AUTHORITY_RESTRICTIONS, AUTHORITY_STATUSES, type AuthorityBasis, type AuthorityRestriction, type AuthorityStatus } from "./youth-authority";
+import { groupHasActiveCase } from "./youth-evidence";
+import { hasNumberRun } from "./youth-evidence-sql";
 import { AUTHORITY_LEVELS, AUTHORITY_NOTE_MAX, consentEvent, consentInForce, lockConsentState, openObjectionOf, settleObjection, youthGroupsOfMember, type AuthorityLevel } from "./youth-consent";
 import { adminIsAccusedIn, adminIsGuardianOrSupervisor, namesTheViewerSql } from "./safeguarding-conflict";
 import type { SeatLabel } from "./message-contexts";
@@ -188,6 +192,8 @@ export async function guardianThreadView(guardianId: number, participantId: unkn
   const found = await guardianChild(guardianId, participantId);
   if ("ok" in found) return found;
   const { child } = found;
+  // No youth thread can be read while youth messaging is not enabled on this install, a guardian's read-only view included (ADR 0052).
+  { const off = youthOff(); if (off) return off; }
   const db = getDb();
   const y = await youthGroupOf(groupId);
   if (!y || y.endedAt) return refuseYouth("YG_NOT_YOUTH");
@@ -272,10 +278,30 @@ export interface YouthGroupForStaff {
   threadState: "open" | "muted" | "closed" | null;
   messages: number;
   openReports: number;
+  /** Authority reviews open for children of this group (ADR 0052): for safeguarding administrators only. */
+  openReviews: number;
 }
 
 /** The supervised youth groups that are this staff member's: a venue's manager sees those that asked their venue (the pending ones to answer, the accepted ones to read); the platform owner those with no venue. No message text. */
 export async function listYouthGroupsForStaff(admin: Admin): Promise<YouthGroupForStaff[]> {
+  return (await youthGroupsOverview(admin)).groups;
+}
+
+/**
+ * The groups that are this staff member's, and how many are held back: while youth messaging is not enabled on this install (lib/youth-launch.ts) only a
+ * group with an **open case** (a report open or its restriction in force, an authority review or an appeal open, a legal hold) is listed, for safeguarding
+ * administrators; the rest are stored and shown nowhere, and counted here so the screen can say so plainly.
+ */
+export async function youthGroupsOverview(admin: Admin): Promise<{ enabled: boolean; groups: YouthGroupForStaff[]; hidden: number }> {
+  const enabled = youthMessagingEnabled();
+  const all = await collectYouthGroups(admin);
+  if (enabled) return { enabled, groups: all, hidden: 0 };
+  const open: YouthGroupForStaff[] = [];
+  for (const g of all) if (await groupHasActiveCase(g.groupId)) open.push(g);
+  return { enabled, groups: open, hidden: all.length - open.length };
+}
+
+async function collectYouthGroups(admin: Admin): Promise<YouthGroupForStaff[]> {
   const scope = scopeOf(admin);
   const db = getDb();
   const names = namesTheViewerSql("r", admin);
@@ -319,6 +345,7 @@ export async function listYouthGroupsForStaff(admin: Admin): Promise<YouthGroupF
       threadState: r.staff_state,
       messages: r.messages,
       openReports: r.open_reports,
+      openReviews: ((await db.prepare("SELECT COUNT(*)::int AS n FROM youth_authority_reviews WHERE group_id = ? AND closed_at IS NULL").get(r.group_id)) as { n: number }).n,
     });
   }
   return out;
@@ -341,6 +368,8 @@ export interface StaffYouthMessage {
 export async function staffReadYouthThread(admin: Admin, groupId: number): Promise<{ ok: true; group: string; messages: StaffYouthMessage[] } | YouthRefusal> {
   const y = await youthGroupOf(groupId);
   if (!y || !inScope(scopeOf(admin), y.venueId) || (await adminIsAccusedIn(admin, groupId))) return refuseYouth("YG_NOT_FOUND");
+  // While youth messaging is not enabled only a group with an open case can be read, and only by its safeguarding administrators (ADR 0052).
+  if (!youthMessagingEnabled() && !(await groupHasActiveCase(groupId))) return refuseYouth("YG_OFF");
   const db = getDb();
   const group = (await db.prepare("SELECT name FROM community_groups WHERE id = ?").get(groupId)) as { name: string } | undefined;
   if (!group) return refuseYouth("YG_NOT_FOUND");
@@ -409,7 +438,7 @@ const noteOf = (raw: unknown): string | null | false => {
   if (raw === undefined || raw === null || raw === "") return null;
   if (typeof raw !== "string") return false;
   const text = raw.trim().replace(/\s+/g, " ").slice(0, AUTHORITY_NOTE_MAX);
-  if (/\d[\d\s-]{5,}\d/.test(text)) return false;
+  if (hasNumberRun(text)) return false;
   return text || null;
 };
 
@@ -427,56 +456,101 @@ async function authorityScopeAllows(admin: Admin, link: { link_venue: number | n
 }
 
 /**
- * A venue's manager (or the platform's owner) records what a guardian may do about the child's group messaging (ADR 0049): `decides` (the default,
- * every link that exists), `objects_only` (may switch it off, never counts towards restoring it) or `none` (no say at all), with a short note of what
- * the venue was shown. **Recorded as the venue's word, never verified by the app; no documents and no identity numbers.** Audited (the staff activity
- * log and each youth group the child is in) and serialised with every consent change for the child. Never a member of staff who is a guardian of the
- * same child. A demotion can complete a restoration the other guardians were waiting on, and it does so under the same locks.
+ * A venue's manager (or the platform's owner) records a **decision about a guardian's authority** over the child's group messaging (ADR 0052, which amends
+ * ADR 0049): a `status` (`asserted`, the default: what was declared, not a legal determination; `verified`: an authorised operator recorded a verified
+ * decision; `disputed`; `unclear`), a `basis` (`parent`, `legal_guardian`, `other_authorised`, `not_stated`), what it `restrictions` removes from the guardian's
+ * say (`none`, `may_object_only`, `no_messaging_say`; the older `level` words `decides`, `objects_only`, `none` mean the same) and a short note (no document
+ * or identity number: a run of digits is refused). **A restriction takes effect only on a `verified` decision**: an asserted one sets the link to `unclear`
+ * and the guardian keeps their say. `disputed` or `unclear` on any guardian link of the child keeps youth messaging for that child off until reviewed (an
+ * authority review opens). Only an authorised operator may verify (the interim rule, pending legal review: a venue's manager for a participant the venue
+ * manages, or the platform's owner); never a supervisor of the child's groups, never a guardian of the child, never staff who are the same person as one.
+ * **MySenam does not interpret custody orders or make legal determinations**; it applies the recorded decision, with who, when and the standard label
+ * `interim: pending legal review`. Audited (the staff activity log, and each youth group the child is in in its record) and serialised with every consent
+ * change for the child. A demotion can complete a restoration the other guardians were waiting on, and it does so under the same locks.
  */
-export async function staffSetGuardianAuthority(admin: Admin, input: { guardianshipId: unknown; level: unknown; note?: unknown }): Promise<{ ok: true } | YouthRefusal> {
-  if (typeof input.level !== "string" || !(AUTHORITY_LEVELS as readonly string[]).includes(input.level)) return refuseYouth("YG_LEVEL");
-  const level = input.level as AuthorityLevel;
+export async function staffSetGuardianAuthority(
+  admin: Admin,
+  input: { guardianshipId: unknown; level?: unknown; status?: unknown; basis?: unknown; restrictions?: unknown; note?: unknown }
+): Promise<{ ok: true; status: AuthorityStatus; level: AuthorityLevel } | YouthRefusal> {
+  if (input.level !== undefined && (typeof input.level !== "string" || !(AUTHORITY_LEVELS as readonly string[]).includes(input.level))) return refuseYouth("YG_LEVEL");
+  const asked = {
+    status: input.status === undefined ? null : input.status,
+    basis: input.basis === undefined ? null : input.basis,
+    restrictions: input.restrictions === undefined ? null : input.restrictions,
+  };
+  if (asked.status !== null && !(typeof asked.status === "string" && (AUTHORITY_STATUSES as readonly string[]).includes(asked.status))) return refuseYouth("YG_AUTH_INPUT");
+  if (asked.basis !== null && !(typeof asked.basis === "string" && (AUTHORITY_BASES as readonly string[]).includes(asked.basis))) return refuseYouth("YG_AUTH_INPUT");
+  if (asked.restrictions !== null && !(typeof asked.restrictions === "string" && (AUTHORITY_RESTRICTIONS as readonly string[]).includes(asked.restrictions))) return refuseYouth("YG_AUTH_INPUT");
+  if (input.level === undefined && asked.status === null && asked.basis === null && asked.restrictions === null) return refuseYouth("YG_AUTH_INPUT");
   const note = noteOf(input.note);
   if (note === false) return refuseYouth("YG_NOTE_ID");
   if (!Number.isInteger(input.guardianshipId)) return refuseYouth("YG_NOT_FOUND");
   const db = getDb();
+  type Link = {
+    id: number; participant_id: number; user_id: number; messaging_authority: AuthorityLevel; link_venue: number | null; pt_venue: number | null; linked_user_id: number | null;
+    authority_status: AuthorityStatus; authority_basis: AuthorityBasis; authority_restrictions: AuthorityRestriction;
+  };
   const find = async () =>
     (await db
       .prepare(
-        `SELECT g.id, g.participant_id, g.user_id, g.messaging_authority, g.venue_id AS link_venue, pt.venue_id AS pt_venue, pt.linked_user_id
+        `SELECT g.id, g.participant_id, g.user_id, g.messaging_authority, g.venue_id AS link_venue, pt.venue_id AS pt_venue, pt.linked_user_id,
+                g.authority_status, g.authority_basis, g.authority_restrictions
            FROM participant_guardians g JOIN participants pt ON pt.id = g.participant_id WHERE g.id = ? AND g.revoked_at IS NULL AND g.user_id IS NOT NULL`
       )
-      .get(input.guardianshipId)) as
-      | { id: number; participant_id: number; user_id: number; messaging_authority: AuthorityLevel; link_venue: number | null; pt_venue: number | null; linked_user_id: number | null }
-      | undefined;
+      .get(input.guardianshipId)) as Link | undefined;
   const first = await find();
   if (!first || !(await authorityScopeAllows(admin, first))) return refuseYouth("YG_NOT_FOUND");
-  // A member of staff who is a guardian of the child does not decide what the other guardians may do.
+  // A member of staff who is a guardian of the child, or a supervisor of a group the child is in, does not decide what the guardians may do.
   const guardianOfChild = await db
     .prepare("SELECT 1 FROM participant_guardians g JOIN users u ON u.id = g.user_id WHERE g.participant_id = ? AND u.email = ? LIMIT 1")
     .get(first.participant_id, admin.email);
   if (guardianOfChild) return refuseYouth("YG_NOT_FOUND");
-  const result = await withTransaction(async (): Promise<{ ok: true; before: AuthorityLevel } | YouthRefusal> => {
+  if (first.linked_user_id !== null)
+    for (const g of await youthGroupsOfMember(first.linked_user_id)) if (await adminIsGuardianOrSupervisor(admin, g, first.linked_user_id)) return refuseYouth("YG_NOT_FOUND");
+  const restrictions: AuthorityRestriction = (asked.restrictions as AuthorityRestriction | null) ?? (input.level !== undefined ? restrictionOfLevel(input.level as AuthorityLevel) : first.authority_restrictions);
+  const status: AuthorityStatus = (asked.status as AuthorityStatus | null) ?? "asserted";
+  const basis: AuthorityBasis = (asked.basis as AuthorityBasis | null) ?? first.authority_basis;
+  // Interim, pending legal review: a verified decision, and any move out of `disputed` or `unclear`, is the platform owner's, or a manager's for a participant their
+  // venue manages; a manager who only looks after a group the child is in may mark a link disputed or unclear, never clear it.
+  const held = (x: AuthorityStatus) => x === "disputed" || x === "unclear";
+  if (status === "verified" || (held(first.authority_status) && !held(effectiveDecision(status, restrictions).status))) {
+    const scope = scopeOf(admin);
+    if (!scope.owner && !((first.link_venue !== null && scope.venueIds.includes(first.link_venue)) || (first.pt_venue !== null && scope.venueIds.includes(first.pt_venue)))) return refuseYouth("YG_VERIFY");
+  }
+  if (status === "verified" && basis === "not_stated") return refuseYouth("YG_AUTH_INPUT");
+  const result = await withTransaction(async (): Promise<{ ok: true; before: Link; status: AuthorityStatus; level: AuthorityLevel } | YouthRefusal> => {
     const groups = first.linked_user_id === null ? [] : await youthGroupsOfMember(first.linked_user_id);
     if (first.linked_user_id !== null) await lockConsentState(groups, first.linked_user_id);
     const link = await find();
     if (!link) return refuseYouth("YG_NOT_FOUND");
+    const effect = effectiveDecision(status, restrictions);
     await db
       .prepare(
-        "UPDATE participant_guardians SET messaging_authority = ?, messaging_authority_by = ?, messaging_authority_at = datetime('now'), messaging_authority_note = ? WHERE id = ?"
+        `UPDATE participant_guardians SET messaging_authority = ?, authority_status = ?, authority_basis = ?, authority_restrictions = ?, authority_standard = ?,
+                messaging_authority_by = ?, messaging_authority_at = datetime('now'), messaging_authority_note = ? WHERE id = ?`
       )
-      .run(level, admin.name, note, link.id);
-    if (link.linked_user_id !== null)
+      .run(effect.level, effect.status, basis, restrictions, INTERIM_STANDARD, admin.name, note, link.id);
+    if (link.linked_user_id !== null) {
       for (const g of groups) {
-        await consentEvent(g, "staff", "authority_changed", { minorId: link.linked_user_id, detail: `guardian ${link.user_id}: ${link.messaging_authority} to ${level}` });
+        await consentEvent(g, "staff", "authority_decided", {
+          minorId: link.linked_user_id,
+          detail: `guardian ${link.user_id}: ${link.authority_status} to ${effect.status}; basis ${basis}; restrictions ${restrictions}; ${INTERIM_STANDARD}`,
+        });
         // A guardian who no longer decides stops counting: if the others have all agreed, the hold ends.
         await settleObjection(g, link.linked_user_id);
       }
-    return { ok: true as const, before: link.messaging_authority };
+      // A link that is disputed or unclear holds the child's messaging off and opens an authority review for each group (ADR 0052).
+      if (effect.status === "disputed" || effect.status === "unclear") await openAuthorityReviews(link.linked_user_id, effect.status);
+    }
+    return { ok: true as const, before: link, status: effect.status, level: effect.level };
   });
   if (!result.ok) return result;
-  await logAction(admin, { venueId: first.link_venue ?? first.pt_venue ?? null, action: "messages.youth_authority", detail: `Guardian link ${first.id}: ${result.before} to ${level}` });
-  return { ok: true };
+  await logAction(admin, {
+    venueId: first.link_venue ?? first.pt_venue ?? null,
+    action: "messages.youth_authority",
+    detail: `Guardian link ${first.id}: status ${result.before.authority_status} to ${result.status}, restrictions ${result.before.authority_restrictions} to ${restrictions}, basis ${basis}`,
+  });
+  return { ok: true, status: result.status, level: result.level };
 }
 
 export interface SafeguardingChild {
@@ -486,7 +560,11 @@ export interface SafeguardingChild {
   /** Messaging for this child here is off and needs the guardians who decide (or an administrator). Who objected is shown to administrators only. */
   objection: { id: number; at: string; by: string | null; level: "decides" | "objects_only" } | null;
   consentInForce: boolean;
-  guardians: { guardianshipId: number; name: string; authority: AuthorityLevel; consentLive: boolean; note: string | null; setBy: string | null; setAt: string | null }[];
+  guardians: {
+    guardianshipId: number; name: string; authority: AuthorityLevel; consentLive: boolean; note: string | null; setBy: string | null; setAt: string | null;
+    /** The decision recorded about this link (ADR 0052): its status, basis, what it removes from the guardian's say, and the standard label it was recorded to. */
+    status: AuthorityStatus; basis: AuthorityBasis; restrictions: AuthorityRestriction; standard: string | null;
+  }[];
 }
 
 /**
@@ -516,19 +594,22 @@ export async function staffSafeguardingView(admin: Admin, groupId: number): Prom
     const rows = (await db
       .prepare(
         `SELECT g.id, g.user_id, u.name, g.messaging_authority, g.messaging_authority_note, g.messaging_authority_by, g.messaging_authority_at,
+                g.authority_status, g.authority_basis, g.authority_restrictions, g.authority_standard,
                 EXISTS (SELECT 1 FROM youth_message_consents c WHERE c.group_id = ? AND c.minor_user_id = ? AND c.guardian_user_id = g.user_id AND c.revoked_at IS NULL) AS consent_live
            FROM participant_guardians g JOIN users u ON u.id = g.user_id
           WHERE g.participant_id = ? AND g.user_id IS NOT NULL AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.archived_at IS NULL ORDER BY g.id`
       )
       .all(groupId, k.user_id, k.participant_id)) as {
       id: number; user_id: number; name: string; messaging_authority: AuthorityLevel; messaging_authority_note: string | null; messaging_authority_by: string | null; messaging_authority_at: string | null; consent_live: boolean;
+      authority_status: AuthorityStatus; authority_basis: AuthorityBasis; authority_restrictions: AuthorityRestriction; authority_standard: string | null;
     }[];
     children.push({
       participantId: k.participant_id,
       child: shortName(k.name),
       objection: open ? { id: open.id, at: open.at, by: by ? firstName(by.name) : null, level: open.level } : null,
       consentInForce: await consentInForce(groupId, k.user_id),
-      guardians: rows.map((g) => ({ guardianshipId: g.id, name: firstName(g.name), authority: g.messaging_authority, consentLive: g.consent_live, note: g.messaging_authority_note, setBy: g.messaging_authority_by, setAt: g.messaging_authority_at })),
+      guardians: rows.map((g) => ({ guardianshipId: g.id, name: firstName(g.name), authority: g.messaging_authority, consentLive: g.consent_live, note: g.messaging_authority_note, setBy: g.messaging_authority_by, setAt: g.messaging_authority_at,
+        status: g.authority_status, basis: g.authority_basis, restrictions: g.authority_restrictions, standard: g.authority_standard })),
     });
   }
   await logAction(admin, { venueId: y.venueId, action: "messages.youth_safeguarding_viewed", detail: `Read the guardians and holds of supervised youth group ${groupId}` });

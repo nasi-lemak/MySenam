@@ -75,3 +75,14 @@ export async function adminIsGuardianOrSupervisor(admin: { email: string }, grou
       .get(groupId, admin.email)
   );
 }
+
+/** The staff login emails of accounts that are guardians of the child whose own login this is: left out of whatever safeguarding personnel are told about the child. */
+export async function guardianStaffEmails(minorId: number): Promise<string[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT DISTINCT a.email FROM admins a JOIN users u ON u.email = a.email JOIN participant_guardians g ON g.user_id = u.id JOIN participants pt ON pt.id = g.participant_id
+        WHERE pt.linked_user_id = ?`
+    )
+    .all(minorId)) as { email: string }[];
+  return rows.map((r) => r.email);
+}

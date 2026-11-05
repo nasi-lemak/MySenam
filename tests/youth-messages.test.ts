@@ -210,7 +210,7 @@ describe("who is an eligible minor", () => {
     await join(lone.user, g, org);
     expect(await setMinorOptIn(lone.user.id, g, true)).toMatchObject({ ok: false, code: "YG_NO_GUARDIAN" });
     expect(await myYouthGroups(lone.user.id)).toMatchObject({ eligible: true, linked: false, groups: [{ groupId: g, optedIn: false, guardianOn: false, active: false }] });
-    expect(await myYouthGroups(grown.id)).toEqual({ eligible: false, linked: false, groups: [] });
+    expect(await myYouthGroups(grown.id)).toEqual({ eligible: false, linked: false, groups: [], enabled: true });
     // A guardian cannot switch it on for somebody else's child, or for a person with no login linked.
     const stranger = await adult();
     const { pid } = await child(await adult());
@@ -305,7 +305,7 @@ describe("never private", () => {
     walk(path.join(__dirname, "..", "src", "app", "api", "messages"));
     // The thread routes take a context kind and number; none takes a person.
     const routes = files.map((f) => path.relative(path.join(__dirname, "..", "src", "app", "api", "messages"), f).replace(/\\/g, "/")).sort();
-    expect(routes).toEqual(["[kind]/[id]/block/route.ts", "[kind]/[id]/report/route.ts", "[kind]/[id]/route.ts", "route.ts", "settings/route.ts", "youth/route.ts"]);
+    expect(routes).toEqual(["[kind]/[id]/block/route.ts", "[kind]/[id]/report/route.ts", "[kind]/[id]/route.ts", "route.ts", "settings/route.ts", "youth/review/route.ts", "youth/route.ts"]);
     for (const f of files) expect(fs.readFileSync(f, "utf8")).not.toMatch(/recipient|toUser|userId:\s*body|body\.userId/);
   });
 });

@@ -4,7 +4,10 @@ import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { SeatLabel } from "@/lib/message-contexts";
 import type { SafeguardingChild, StaffYouthMessage, YouthGroupForStaff } from "@/lib/youth-safeguarding";
+import type { AuthorityReview } from "@/lib/youth-authority";
+import type { EvidenceHold, ReviewDue } from "@/lib/youth-evidence";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { AuthorityReviewsSection, HoldsSection } from "./YouthSafeguardingExtras";
 
 /**
  * Supervised youth groups that are this staff member's to look after (`/api/admin/youth-groups`; docs/features/player-messages.md
@@ -17,12 +20,17 @@ export function YouthGroupsPanel() {
   const t = useStaffT();
   const clock = useStaffClock();
   const [groups, setGroups] = useState<YouthGroupForStaff[] | null>(null);
+  // Youth messaging may be off on this install (ADR 0052): the panel says so plainly, and lists only groups with an open case.
+  const [off, setOff] = useState<{ enabled: boolean; hidden: number }>({ enabled: true, hidden: 0 });
+  // The open authority reviews that are this staff member's, and (the platform's owner only) the legal holds and what is due for a decision.
+  const [reviews, setReviews] = useState<AuthorityReview[]>([]);
+  const [holds, setHolds] = useState<{ holds: EvidenceHold[]; due: ReviewDue } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState<{ groupId: number; messages: StaffYouthMessage[] } | null>(null);
   const [reasons, setReasons] = useState<Record<number, string>>({});
   // The children of a group, their guardians' recorded levels and any hold on their messaging: for safeguarding administrators only (ADR 0049).
   const [sg, setSg] = useState<{ groupId: number; children: SafeguardingChild[] } | null>(null);
-  const [edits, setEdits] = useState<Record<number, { level?: string; note?: string }>>({});
+  const [edits, setEdits] = useState<Record<number, { level?: string; note?: string; status?: string; basis?: string; restrictions?: string }>>({});
   const [holdReasons, setHoldReasons] = useState<Record<number, string>>({});
 
   const load = useCallback(async () => {
@@ -31,6 +39,9 @@ export function YouthGroupsPanel() {
       const data = await readJson(res).catch(() => null);
       if (!res.ok) throw new Error(t.err(data, t("ysg.loadFailed")));
       setGroups(data.groups as YouthGroupForStaff[]);
+      setOff({ enabled: data.enabled !== false, hidden: typeof data.hidden === "number" ? data.hidden : 0 });
+      setReviews((data.reviews ?? []) as AuthorityReview[]);
+      setHolds((data.holdsView ?? null) as { holds: EvidenceHold[]; due: ReviewDue } | null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("ysg.loadFailed"));
     }
@@ -74,7 +85,8 @@ export function YouthGroupsPanel() {
     setReading({ groupId, messages: data.messages as StaffYouthMessage[] });
   }
 
-  if (!groups || groups.length === 0) return null;
+  if (!groups || (groups.length === 0 && off.enabled)) return null;
+  if (groups.length === 0 && off.hidden === 0) return null;
   const label = (from: SeatLabel | null) => (from ? (from.n ?? from.c ?? "") : t("pmg.former"));
   const who = (list: { name: string; declaredRole: string }[]) =>
     list.length ? list.map((a) => `${a.name} (${t(`ysg.declared.${a.declaredRole}` as "ysg.declared.other")})`).join(", ") : t("ysg.none.list");
@@ -84,6 +96,11 @@ export function YouthGroupsPanel() {
     <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" data-testid="youth-groups-panel">
       <summary className="cursor-pointer font-semibold text-slate-800">{t("ysg.title")}</summary>
       <p className="mt-2 text-slate-600">{t("ysg.intro")}</p>
+      {!off.enabled && (
+        <p role="status" className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-amber-900" data-testid="youth-off">
+          {t("msg4.off")} {off.hidden > 0 && t("msg4.hidden", { n: off.hidden })}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-2 text-red-600">
           {error}
@@ -104,6 +121,7 @@ export function YouthGroupsPanel() {
             <p className="text-slate-600">
               {g.threadState ? t("ysg.thread", { state: t(`pmg.thread.${g.threadState}`), n: g.messages }) : t("ysg.thread.none")}
               {g.openReports > 0 && <strong className="ml-2 text-red-700">{t("ysg.reportsOpen", { n: g.openReports })}</strong>}
+              {g.openReviews > 0 && <strong className="ml-2 text-amber-800">{t.plural("msg4.att.reviews", g.openReviews)}</strong>}
             </p>
             <div className="mt-2 space-y-2">
               {g.pending ? (
@@ -157,17 +175,51 @@ export function YouthGroupsPanel() {
                                     {gu.name} · {gu.consentLive ? t("msg3.sg.agreed") : t("msg3.sg.notAgreed")}
                                     {gu.setBy && <span className="text-xs text-slate-500"> · {t("msg3.sg.setBy", { name: gu.setBy, when: gu.setAt ? clock.when(gu.setAt) : "" })}</span>}
                                   </p>
+                                  <p className="text-xs text-slate-600">
+                                    {t(`msg4.auth.status.${gu.status}`)} · {t(`msg4.auth.basis.${gu.basis}`)} · {t(`msg4.auth.restrictions.${gu.restrictions}`)}
+                                    {gu.standard && <> · {t("msg4.auth.standard", { standard: gu.standard })}</>}
+                                  </p>
                                   <div className="flex flex-wrap items-end gap-2">
                                     <label className="text-xs font-medium text-slate-600">
-                                      {t("msg3.sg.levelLabel")}
+                                      {t("msg4.auth.status")}
                                       <select
-                                        value={edits[gu.guardianshipId]?.level ?? gu.authority}
-                                        onChange={(e) => setEdits((had) => ({ ...had, [gu.guardianshipId]: { ...had[gu.guardianshipId], level: e.target.value } }))}
+                                        value={edits[gu.guardianshipId]?.status ?? gu.status}
+                                        onChange={(e) => setEdits((had) => ({ ...had, [gu.guardianshipId]: { ...had[gu.guardianshipId], status: e.target.value } }))}
                                         className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm"
                                       >
-                                        <option value="decides">{t("msg3.sg.level.decides")}</option>
-                                        <option value="objects_only">{t("msg3.sg.level.objects_only")}</option>
-                                        <option value="none">{t("msg3.sg.level.none")}</option>
+                                        {(["asserted", "verified", "disputed", "unclear"] as const).map((s) => (
+                                          <option key={s} value={s}>
+                                            {t(`msg4.auth.status.${s}`)}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    <label className="text-xs font-medium text-slate-600">
+                                      {t("msg4.auth.basis")}
+                                      <select
+                                        value={edits[gu.guardianshipId]?.basis ?? gu.basis}
+                                        onChange={(e) => setEdits((had) => ({ ...had, [gu.guardianshipId]: { ...had[gu.guardianshipId], basis: e.target.value } }))}
+                                        className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                                      >
+                                        {(["parent", "legal_guardian", "other_authorised", "not_stated"] as const).map((s) => (
+                                          <option key={s} value={s}>
+                                            {t(`msg4.auth.basis.${s}`)}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    <label className="text-xs font-medium text-slate-600">
+                                      {t("msg4.auth.restrictions")}
+                                      <select
+                                        value={edits[gu.guardianshipId]?.restrictions ?? gu.restrictions}
+                                        onChange={(e) => setEdits((had) => ({ ...had, [gu.guardianshipId]: { ...had[gu.guardianshipId], restrictions: e.target.value } }))}
+                                        className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                                      >
+                                        {(["none", "may_object_only", "no_messaging_say"] as const).map((s) => (
+                                          <option key={s} value={s}>
+                                            {t(`msg4.auth.restrictions.${s}`)}
+                                          </option>
+                                        ))}
                                       </select>
                                     </label>
                                     <label className="min-w-48 flex-1 text-xs font-medium text-slate-600">
@@ -185,12 +237,14 @@ export function YouthGroupsPanel() {
                                         void sgAct(g.groupId, {
                                           action: "authority",
                                           guardianshipId: gu.guardianshipId,
-                                          level: edits[gu.guardianshipId]?.level ?? gu.authority,
+                                          status: edits[gu.guardianshipId]?.status ?? gu.status,
+                                          basis: edits[gu.guardianshipId]?.basis ?? gu.basis,
+                                          restrictions: edits[gu.guardianshipId]?.restrictions ?? gu.restrictions,
                                           note: edits[gu.guardianshipId]?.note ?? gu.note ?? "",
                                         })
                                       }
                                     >
-                                      {t("msg3.sg.save")}
+                                      {t("msg4.auth.save")}
                                     </button>
                                   </div>
                                 </li>
@@ -199,6 +253,7 @@ export function YouthGroupsPanel() {
                           </div>
                         ))}
                         <p className="text-xs text-slate-500">{t("msg3.sg.declared")}</p>
+                        <p className="text-xs text-slate-500">{t("msg4.auth.notInterpreted")}</p>
                       </div>
                     )}
                     {reading?.groupId === g.groupId && (
@@ -241,6 +296,8 @@ export function YouthGroupsPanel() {
           </li>
         ))}
       </ul>
+      <AuthorityReviewsSection reviews={reviews} onChanged={() => void load()} />
+      <HoldsSection data={holds} onChanged={() => void load()} />
     </details>
   );
 }
