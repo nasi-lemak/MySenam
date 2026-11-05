@@ -151,8 +151,9 @@ everybody enrolled and what each will be told).
   `claims`, and `coach_claims`); the preview and the early refusal read the same rules to
   say what is in the way.
 - **What is checked for each session**: attendance taken (`CLSA_MOVE_ATTENDANCE`: a session
-  somebody has checked in to is under way whatever its start says; there is no attendance
-  register yet, so this is the check-in), the court (`CLSA_MOVE_COURT`; another venue's court
+  somebody has checked in to is under way whatever its start says; the move asks for a
+  check-in only, not for a mark in the [attendance register](#attendance-registers), which a
+  lesson's move does ask for), the court (`CLSA_MOVE_COURT`; another venue's court
   is not said to exist), the venue's hours, closed days and the past (`CLSA_MOVE_HOURS`,
   `VENUE_CLOSED`, `SLOT_PAST`), what holds the court then, with its buffers (`CLSA_MOVE_CLASS`,
   `CLSA_MOVE_BOOKED`: a class, a booking, a block, a rained-off or out-of-service time), the
@@ -161,8 +162,9 @@ everybody enrolled and what each will be told).
   members-only venue that everyone holding a place is still a member on the new date
   (`membersOnlyRefusal`, ADR 0026: no override goes past it). A refusal names each session in the
   way (`conflicts`). The **roster check** for a staffed session (a range officer, instructor or
-  lifeguard on the new time) has a seam, `classRosterRefusal` in `src/lib/class-moves.ts`, which
-  checks nothing yet: per-session rosters are another change, and this function is where it is called.
+  lifeguard on the new time) is `classRosterRefusal` in `src/lib/class-moves.ts`, which asks the
+  roster ([who supervises a session](venue-operations.md#who-supervises-a-session)) as scheduling a class does, in the plan and
+  again under the lock; the supervisor of each moved session is recorded afresh.
 - **The preview** (`preview: true`) changes nothing: each session from and to, who is enrolled
   and waiting, who holds a pass entry or a membership's benefit, what is in the way, and the
   message each person will be told, in their language and on which channels.
@@ -728,9 +730,9 @@ class mover to refuse, asking `attendanceTaken`).
   (`RETENTION.attendanceDays`, one line of the retention schedule in
   [personal data](../architecture/privacy.md#retention)).
 - **Classes taught by a coach.** A class whose instructor is one of the venue's
-  coaches (`classes.coach_id`, when that exists) is marked by that coach at their
-  link as a lesson is; until then the desk and managers mark classes
-  (`classCoachId` in `src/lib/attendance.ts` is the one place to change).
+  coaches (`classes.coach_id`, migration 0281) is marked by that coach at their
+  link as a lesson is (`classCoachId` in `src/lib/attendance.ts` reads the column);
+  a class whose instructor is a name only is marked by the desk and managers.
 - **Open games** hosted by the venue's staff have no register: not built.
 
 Tests: `tests/attendance.test.ts` (the list and the four marks, walk-ins, the

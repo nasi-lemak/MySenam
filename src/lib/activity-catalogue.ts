@@ -427,7 +427,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     supervised: true,
     filters: [],
     support: "basic",
-    supportNote: "Hire by the hour, several at once. Guided trips are classes. Kinds of boat (single, double) are resources of their own, each with its price and count. Not built: tide or launch windows beyond rained-off hours, and choosing a kind within one fleet.",
+    supportNote: "Hire by the hour, several at once. Guided trips are classes. Kinds of boat (single, double) are resources of their own, each with its price and count. Not built: choosing a kind within one fleet.",
     country: {},
   },
   {
@@ -442,7 +442,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     supervised: true,
     filters: [],
     support: "basic",
-    supportNote: "Hire by the hour, several at once; guided trips as classes. Boat sizes are resources of their own. Not built: launch windows, and sizes within one fleet.",
+    supportNote: "Hire by the hour, several at once; guided trips as classes. Boat sizes are resources of their own. Not built: sizes within one fleet.",
     country: {},
   },
   {
@@ -457,7 +457,7 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     supervised: true,
     filters: [],
     support: "basic",
-    supportNote: "Hire by the hour, several at once; lessons as classes. Board sizes are resources of their own. Not built: launch windows, and sizes within one fleet.",
+    supportNote: "Hire by the hour, several at once; lessons as classes. Board sizes are resources of their own. Not built: sizes within one fleet.",
     country: {},
   },
   // ------------------------------------------------------------ fitness
@@ -612,8 +612,8 @@ export const BUILTIN_ACTIVITIES: ActivityDefinition[] = [
     surfaced: false,
     supervised: false,
     filters: ["indoor", "outdoor"],
-    support: "basic",
-    supportNote: "Lanes by the hour, priced per archer, with a range briefing as a sign-off unless the venue turns it off; lessons as classes. Not built: scheduling a range officer for each session.",
+    support: "full",
+    supportNote: null,
     country: {},
   },
   {

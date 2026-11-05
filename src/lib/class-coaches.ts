@@ -84,6 +84,18 @@ export async function coachTeachingRefusal(
     if (!coachWorks(coach, slot.date, { start: slot.startMin, end: slot.endMin })) return refuse("COACH_NOT_WORKING", { name: coach.name });
     const clash = await coachClash(coachId, slot, zone, exceptClassIds);
     if (clash) return clashRefusal(coach, clash);
+    // Named to supervise another session then (lib/rosters.ts): not also teaching a class, as a lesson's coach is not (`coachSupervising`).
+    const supervising = await getDb()
+      .prepare(
+        `SELECT 1 FROM session_supervisors s
+          WHERE s.person_kind = 'coach' AND s.person_id = ? AND s.active AND s.how <> 'override' AND s.during && ?::tstzrange
+            AND (s.class_id IS NULL OR NOT (s.class_id = ANY(?::int[])))
+            AND (s.booking_id IS NULL OR EXISTS (SELECT 1 FROM bookings b WHERE b.id = s.booking_id AND b.status = 'confirmed'))
+            AND (s.class_id IS NULL OR EXISTS (SELECT 1 FROM classes c WHERE c.id = s.class_id AND c.status = 'scheduled'))
+          LIMIT 1`
+      )
+      .get(coachId, rangeLiteral(slot.date, slot.startMin, slot.endMin, zone), exceptClassIds);
+    if (supervising) return refuse("COACH_TAKEN", { name: coach.name });
   }
   return null;
 }

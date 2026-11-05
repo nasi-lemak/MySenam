@@ -139,7 +139,7 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
     });
   });
 
-  scenario("Guide H: an archery range is told, in English and Malay, what MySenam does not do (a range officer per session) and what to do instead; gym entry and day passes, built now, are not among it; setup never offers it", async (s) => {
+  scenario("Guide H: an archery range is told, in English and Malay, that a rostered range officer for each session is available (built, so not among what MySenam does not do), and what is not supported for any venue is still said plainly; gym entry and day passes, built now, are not among it; setup never offers what is not built", async (s) => {
     const visitor = await s.actor("Visitor");
     const page = visitor.page;
 
@@ -155,35 +155,29 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
       expect(page.url()).toContain("types=");
     });
 
-    await s.step(visitor, "reads what MySenam does not do: a range officer for each session, with the alternative, and none of it listed as available; gym entry and day passes are not there", async () => {
+    await s.step(visitor, "reads what MySenam can do for a range: the rostered range officer is among what is available and not among what it does not do; gym entry and day passes are not under what it does not do either", async () => {
       const not = page.locator("#not");
-      const officer = not.locator("li").filter({ hasText: "Scheduling a range officer for each session" });
-      await officer.getByText("Assigning a named range officer to each archery session.").waitFor();
-      await officer.getByText("Instead: Book lanes by the hour with a range briefing as a sign-off").waitFor();
-      expect(await not.innerText()).not.toMatch(/Gym entry without booking a session|Open-ended day passes/);
-      // The groups of what is available: the unsupported thing is only in the group that says so.
+      expect(await not.innerText()).not.toMatch(/rostered supervisor|Scheduling a range officer|Gym entry without booking a session|Open-ended day passes/);
+      // What is not supported for any venue is still said plainly.
+      await not.getByText("Not supported for any venue").waitFor();
+      // The groups of what is available: the range officer is in one that is not the unsupported group.
       const groups = await page.locator("#available > div > div").evaluateAll((divs) => divs.map((d) => ({ heading: d.querySelector("h3")?.textContent ?? "", items: [...d.querySelectorAll("li")].map((li) => li.textContent ?? "") })));
-      const unsupported = groups.find((g) => g.heading.includes("Not currently supported"))!;
-      expect(unsupported.items.some((i) => i.includes("Scheduling a range officer for each session"))).toBe(true);
-      expect(unsupported.items.some((i) => /Gym entry without booking a session|Open-ended day passes/.test(i))).toBe(false);
-      for (const g of groups.filter((x) => !x.heading.includes("Not currently supported")))
-        for (const item of g.items) expect(item, `${g.heading} lists ${item}`).not.toContain("Scheduling a range officer for each session");
-      // The catalogue's own note, kept in English and marked as such, says the part that is not built.
-      await page.locator("#know").getByText(/Not built: scheduling a range officer for each session/).waitFor();
-      expect(await page.locator("#know [lang=en]").count()).toBeGreaterThan(0);
+      const listed = groups.filter((x) => !x.heading.includes("Not currently supported")).flatMap((g) => g.items);
+      expect(listed.some((i) => i.includes("A rostered supervisor for each session"))).toBe(true);
+      for (const g of groups.filter((x) => x.heading.includes("Not currently supported")))
+        for (const item of g.items) expect(item, `${g.heading} lists ${item}`).not.toMatch(/rostered supervisor|Gym entry without booking a session|Open-ended day passes/);
+      // Archery is fully supported: the catalogue's note has nothing not built to say of it.
+      expect(await page.locator("#know").innerText()).not.toMatch(/range officer/);
     });
 
-    await s.step(visitor, "switches the page to Bahasa Malaysia: the heading, the group and the unsupported item are in Malay, and still say not supported", async () => {
+    await s.step(visitor, "switches the page to Bahasa Malaysia: the heading and the rostered range officer are in Malay, and nothing says it is not supported", async () => {
       await page.getByTitle("Bahasa Malaysia", { exact: true }).first().click();
       await page.getByRole("heading", { name: "Bagaimana MySenam sesuai dengan perniagaan anda", level: 1 }).waitFor();
-      await page.getByRole("heading", { name: /Belum disokong/ }).first().waitFor();
-      const not = page.locator("#not");
-      await not.getByText("Menjadual pegawai kawasan untuk setiap sesi").waitFor();
-      await not.getByText(/Tempah lorong mengikut jam dengan taklimat kawasan sebagai pengesahan/).waitFor();
+      await page.locator("#available").getByText("Penyelia dalam jadual bagi setiap sesi").waitFor();
       expect(await page.locator("#not h3").count()).toBeGreaterThan(0);
       const text = (await page.locator("#available").innerText()).replace(/\s+/g, " ");
-      expect(text).toContain("Belum disokong");
       expect(text).not.toMatch(/Not currently supported/);
+      expect(await page.locator("#not").innerText()).not.toContain("Penyelia dalam jadual bagi setiap sesi");
       await page.getByTitle("English", { exact: true }).first().click();
       await page.getByRole("heading", { name: "How MySenam fits your business", level: 1 }).waitFor();
     });
@@ -201,7 +195,7 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
     const operator = visitor;
     const venueId = await s.step(operator, "signs up with that choice carried into the form", async () => signUpVenue(operator, `Pusat Memanah Guide ${stamp()}`, { here: true }));
 
-    await s.step(operator, "opens Guide → Set up: not asked again what kind of venue it is or what it offers; archery's limitation is shown as the catalogue says it", async () => {
+    await s.step(operator, "opens Guide → Set up: not asked again what kind of venue it is or what it offers; archery is shown with no limitation, since its rostered range officer is built", async () => {
       await openGuide(page, "Set up");
       const p = page;
       await p.locator("#guide-setup-heading").waitFor();
@@ -215,7 +209,7 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
       await p.getByRole("button", { name: "Back", exact: true }).click();
       await p.locator('[data-question="activities"]').waitFor();
       expect(await p.getByRole("checkbox", { name: /(^|\s)Archery(\s|$)/ }).first().isChecked()).toBe(true);
-      await p.getByText(/Limitation:.*Not built: scheduling a range officer for each session/).first().waitFor();
+      expect(await p.locator('[data-question="activities"]').innerText()).not.toMatch(/Not built: scheduling a range officer/);
       await p.getByRole("button", { name: "Back", exact: true }).click();
       await p.locator('[data-question="types"]').waitFor();
       expect(await p.getByLabel("Archery or other supervised sport", { exact: true }).isChecked()).toBe(true);
@@ -223,7 +217,7 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
       await p.getByRole("button", { name: "Go to my plan" }).click();
       // No step sets up what MySenam cannot do.
       const html = await p.locator("[data-guide-setup]").innerHTML();
-      expect(html).not.toMatch(/range-officer|Scheduling a range officer/);
+      expect(html).not.toMatch(/web-push|native-app|surge-pricing|Scheduling a range officer/);
     });
 
     await s.step(operator, "opens Discover: every unsupported thing says so, what to do instead, and has no way to set it up; gym entry and day passes are available", async () => {
@@ -233,7 +227,7 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
       // The catalogue is in groups, each folded: open every one, as a person does.
       for (const summary of await p.locator("details[data-group] > summary").all()) await summary.click();
       const unsupported = p.locator('li[data-capability][data-state="unsupported"]');
-      expect(await unsupported.count()).toBe(10);
+      expect(await unsupported.count()).toBe(9);
       for (const li of await unsupported.all()) {
         const id = await li.getAttribute("data-capability");
         await li.getByText("Not currently supported", { exact: true }).waitFor();
@@ -243,14 +237,16 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
         expect(await li.getByRole("button").allTextContents(), `${id} has controls`).toEqual(["How it works"]);
         expect(await li.getByRole("link").count(), `${id} has links`).toBe(0);
       }
-      const officer = p.locator('li[data-capability="range-officer"]');
-      await officer.getByText("Instead: Book lanes by the hour with a range briefing as a sign-off").waitFor();
+      // The rostered range officer is built now: available, not among the unsupported.
+      const officer = p.locator('li[data-capability="range-officer"]').first();
+      await officer.getByText("A rostered supervisor for each session").waitFor();
+      expect(await officer.getAttribute("data-state")).not.toBe("unsupported");
       // Built now: gym entry and day passes are not unsupported.
-      for (const id of ["gym-walk-in", "open-day-pass", "bowling-by-game"])
+      for (const id of ["gym-walk-in", "open-day-pass", "bowling-by-game", "range-officer"])
         expect(await p.locator(`li[data-capability="${id}"]`).first().getAttribute("data-state"), id).not.toBe("unsupported");
       // Nothing unsupported is among the suggestions.
       const suggestions = await p.locator('li[data-capability][data-state="available"]:has-text("Suggested above")').evaluateAll((els) => els.map((e) => e.getAttribute("data-capability")));
-      expect(suggestions.filter((id) => id === "range-officer")).toEqual([]);
+      for (const id of await unsupported.evaluateAll((els) => els.map((e) => e.getAttribute("data-capability")))) expect(suggestions, id ?? "").not.toContain(id);
       expect(venueId).toBeGreaterThan(0);
     });
   });

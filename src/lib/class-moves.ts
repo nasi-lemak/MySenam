@@ -31,6 +31,7 @@ import {
   venueHours,
 } from "./store";
 import { addDays, isValidDateString } from "./time";
+import { recordSupervisors, supervisionRefusal } from "./rosters";
 import type { ClassSession, Court, Refusal } from "./types";
 import { coachById } from "./coaching";
 import { membersOnlyRefusal } from "./entitlements";
@@ -90,12 +91,20 @@ export function refundUntil(before: Pick<ClassSession, "date" | "startMin">, zon
 }
 
 /**
- * The seam for a roster check (a staffed session's officer, instructor or lifeguard on the new time), called for each
- * session before it moves and again when it is claimed. Nothing is checked yet: a worker building rosters per session
- * (STAFF1) fills this one function, returning a refusal where the new time has nobody rostered for it.
+ * The roster check (a staffed session's officer, instructor or lifeguard on the new time, ADR 0036), called for each
+ * session before it moves and again when it is claimed: a refusal where the new time has nobody qualified rostered for it.
  */
-export async function classRosterRefusal(_session: ClassSession, _to: { date: string; startMin: number; endMin: number; courtId: number }): Promise<Refusal | null> {
-  return null;
+export async function classRosterRefusal(session: ClassSession, to: { date: string; startMin: number; endMin: number; courtId: number }): Promise<Refusal | null> {
+  const court = (await getDb().prepare("SELECT venue_id, sport FROM courts WHERE id = ?").get(to.courtId)) as { venue_id: number; sport: string } | undefined;
+  if (!court) return null;
+  return supervisionRefusal({
+    venueId: court.venue_id,
+    courtId: to.courtId,
+    sport: session.sport ?? court.sport,
+    date: to.date,
+    span: { start: to.startMin, end: to.endMin },
+    zone: (await venueHours(court.venue_id)).zone,
+  });
 }
 
 /** What the move would do to one session. */
@@ -414,6 +423,9 @@ export async function moveClasses(admin: { id: number | null; name: string }, cl
           throw new Refused(refuse(inWay.some((o) => o.kind === "class") ? "CLSA_MOVE_CLASS" : "CLSA_MOVE_BOOKED", { court: item.court.name, date: item.to.date }));
         }
       }
+      // Who supervises each session at its new time is recorded afresh (lib/rosters.ts), as a booking's move does.
+      for (const item of ordered)
+        await recordSupervisors({ session: { kind: "class", id: item.session.id }, venueId: item.court.venueId, courtId: item.to.courtId, sport: item.court.sport, date: item.to.date, span: { start: item.to.startMin, end: item.to.endMin }, zone });
       for (const item of ordered)
         if (item.session.coachId)
           await holdCoach(item.session.id, item.session.coachId, { date: item.to.date, startMin: item.to.startMin, endMin: item.to.endMin }, zone);

@@ -213,7 +213,14 @@ changes; 6 to 8 name what they wait for. As of 29 October 2026: no defect
 | [The terms](#languages) in English | 7 | Customers reading other languages | Translated after the lawyer's review |
 | [Staff screens](#languages): records written before migration 0120, and what people, providers and gateways wrote, stay as stored | 5 | Staff reading Malay or Chinese | Kept: data is shown as written |
 | [Benchmark](#booking-and-availability-b) run by hand; CI deferred | 5 | The owner | Re-run with each release ([release records](../development/testing.md#release-records)) |
-| [Ways some activities are sold](#activities): launch windows, range officers, heats | 5 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
+| [Ways some activities are sold](#activities): cycling heats, choosing a kind within one fleet | 5 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
+| [Rosters and supervision](#rosters-and-supervision): court time that is not a booking is not asked; no end date on a pattern; no messages; a moved class is not asked | 2 / 5 | Venues with supervised activities | Kept; the owner decides the open questions in the section |
+| [Launch and tide windows](#launch-and-tide-windows): a venue's own table, never a forecast; no override past a window | 5 | Venues hiring on water | Kept; the owner decides whether a manager may book outside a window |
+| [Messages between players](#messages-between-players): declared minors have none; the notice email unverified; no browser scenario | 5 / 6 | Players | The owner decides on minors in an agreed group and a trailing digest; the [email integration](#integrations-awaiting-live-verification-or-a-partner) is checked live |
+| [Moving classes, lessons and registers](#moving-classes-lessons-and-registers): a manager's move; no coach pay for classes; absent does not use a pass entry | 2 / 5 | Venues running classes and lessons | Kept; [roadmap](roadmap.md) proposals for coach pay and for absent as a pass entry |
+| [Live accounting push to Xero](#live-accounting-push): never run against Xero; data goes abroad | 6 / 7 | Venues using Xero | The owner's Xero demo-company check ([Xero](../integrations/xero.md#verifying-against-a-demo-company)); approval of the transfer |
+| [Ladders: court time and teams](#ladders-court-time-and-teams): held time shows as unavailable; no simultaneous courts; lineups do not rate individuals | 5 / 2 | Clubs running ladders | Kept; [roadmap](roadmap.md) proposals |
+| [Swiss: acceleration, tie-breaks and performance events](#swiss-acceleration-tie-breaks-and-performance-events): a constant virtual point, not FIDE's graded; no Swiss for events of marks | 5 / 8 | Organisers | The owner decides on graded acceleration and on marks events |
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
 | [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities); [changing a lesson's coach has limits](#activities) | 5 / 6 | Families, clubs, coaching venues | Kept: deliberate restrictions with their reasons; the online parts wait on the gateways' live checks |
@@ -282,7 +289,7 @@ messages in the install's first language, and what the counter's policies
 leave (staff moves, the class page's buttons, overrides in the export). The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-In the table above, no row is a defect; two are partly of kind 3 (staff
+Round 10 (5 November 2026) added six sections of accepted restrictions (rosters, launch and tide windows, messages between players, moving classes, lessons and registers, live accounting push, and ladders) and rewrote the Swiss one and one integration row, each beside what the work leaves and none a defect; the count above is as of round 9 and has not been redone. In the table above, no row is a defect; two are partly of kind 3 (staff
 messages in one language; what the counter's policies leave), and the
 e-invoice questions are decisions of kind 7.
 
@@ -554,8 +561,10 @@ there):
 What the [activity catalogue](../features/activities.md) does not yet do:
 
 - **Basic and specialised activities lack a way they are commonly sold**:
-  launch and tide windows for water
-  hire, range officers per archery session, cycling heats. Each is in the
+  cycling heats, and choosing a kind within one fleet of boats or boards.
+  (Launch and tide windows for water hire and a range officer for each archery
+  session are built: [launch and tide windows](#launch-and-tide-windows),
+  [rosters and supervision](#rosters-and-supervision).) Each is in the
   [support matrix](../features/activities.md#support-matrix) and the
   [roadmap](roadmap.md); operators see the note as they pick one (P2).
 - **Lanes sold by the game and given on arrival** (accepted restrictions):
@@ -848,19 +857,44 @@ bracket that holds somebody they beat, the losers' final, the grand final); a
 grand-final reset needed again after its time was given back has no court until
 a manager gives it one with Move.
 
-### Swiss tournaments and ladders
+### Swiss: acceleration, tie-breaks and performance events
 
 ([Swiss](../features/tournaments.md#swiss-tournaments),
-[ladders](../features/tournaments.md#club-ladders).) Accepted restrictions: a
-Swiss division of a competition schedules each round into the court time free
-when it is paired, so a later round can fail to fit if another division used
-the time (the round is reported unpaired and the organiser decides); the Swiss
-pairing search is bounded at 400,000 steps and reports unpaired rather than
-looping; the Swiss tie-break order is changeable through the API only; no
-accelerated pairing, and no Swiss for performance events; a ladder challenge has
-no court time held by the app (it is arranged privately); a ladder cannot be
-restarted empty, and persistent teams cannot enter ladders; pairing and
-challenge messages go through the outbox (the Email row: unverified).
+[ADR 0038](../architecture/decisions/0038-swiss-acceleration-tie-break-screen-and-performance-swiss.md).)
+Accepted restrictions: a Swiss division of a competition schedules each round
+into the court time free when it is paired, so a later round can fail to fit if
+another division used the time (the round is reported unpaired and the organiser
+decides); the Swiss pairing search is bounded at 400,000 steps and reports
+unpaired rather than looping; accelerated pairing gives a constant virtual point
+for a set number of rounds, not FIDE's graded (Baku) acceleration; the tie-break
+screen changes the table only, never a pairing, and a Swiss tournament's recorded
+seed is shown on no screen; Swiss for counted performance events forms groups and
+not pairings, has no final built from its rounds and no repeat-avoidance, is not
+rated, is not offered to events of marks, has no tournament-day board, and its
+refusal texts are English only; after a correction a flagged later round may stay
+flagged once climbing has begun (the manager keeps it, with a reason, or regroups
+only while nobody has climbed). Pairing messages go through the outbox (the Email
+row: unverified). **For the owner:** whether acceleration should be graded rather
+than constant; whether a flagged round may stay flagged once climbing has begun;
+whether events of marks need Swiss.
+
+### Ladders: court time and teams
+
+([Club ladders](../features/tournaments.md#club-ladders),
+[ADR 0040](../architecture/decisions/0040-ladder-court-time-and-team-ladders.md).)
+Accepted restrictions: court time is held for a challenge only where the venue
+turns the setting on (off by default, at the owner's request of 5 November); held
+time shows as unavailable on the grid, not as a ladder match; the caps (8 live
+holds a ladder, 4 for a player in 7 days) are install data with no screen; a hold
+lost to something else is noticed by the scheduler, not at once; cancelling the
+booking a challenge carries does not bring a released hold back, and a held time is
+not held again automatically; a team match on a ladder is played on one court, game
+after game (simultaneous courts are not built); lineups do not rate individuals
+(individual ratings from lineups are not built); there is no junior ladder of teams;
+a team's eligibility is checked when it joins and when a lineup is named; a ladder
+cannot be restarted empty; forfeits on a team ladder are a manager's, confirmed
+through a request and never given automatically. Pairing and challenge messages go
+through the outbox (the Email row: unverified).
 
 ### Counted performances
 
@@ -945,6 +979,94 @@ live checks pass ([pricing](../features/pricing.md#buying-a-pass-online)).
   same instant can each be paid and each give a pass; the second is refunded
   by voiding it with money back. At a private venue they are sold only to
   people on its list; at a members-only venue a pass makes nobody a member.
+
+### Rosters and supervision
+
+([Who supervises a session](../features/venue-operations.md#who-supervises-a-session),
+[ADR 0036](../architecture/decisions/0036-who-supervises-a-session.md).) Accepted
+restrictions: court time that is not a booking (a tournament's, a block, an outage)
+is not asked, so a venue that runs a tournament on a supervised range rosters for
+it by its activity's rule; the weekly pattern has no end date (a change applies from
+now, with what it left on the worklist); no message goes to staff or customers about
+a roster; roles and rules are not copied when a branch is started from another; a
+person on shift is not a capacity, so one person may be on several sessions at once
+(a venue wanting one officer per lane asks for as many officers as lanes); a venue's
+own role name is English in a customer's refusal (the starters are translated); a
+class's instructor who is one of the venue's coaches cannot be named to supervise
+another session at the same time (as a lesson's coach cannot), but a coach already
+teaching a class is not offered as cover for a session then. **For the owner:** whether the
+starter roles keep their suggested qualification, and whether a rule type of one
+officer for each lane is wanted.
+
+### Launch and tide windows
+
+([Launch and tide windows](../features/booking.md#launch-and-tide-windows-for-water-hire),
+[ADR 0037](../architecture/decisions/0037-launch-and-tide-windows.md).) Accepted
+restrictions: the window is the hours the venue's own data leave; it is not a
+forecast and not a safety system (whether it is safe to go out is the venue's call
+on the day, and the screens say so); a tide table is the venue's own, typed or
+imported, with station names matched exactly, read at the whole minute with no
+allowance for a station's distance from the water; where the table says nothing the
+time is closed; a tournament's or league's court time is not held to a window (a
+lesson is, as a booking); a venue started from another does not copy its windows;
+the Tamil text is unreviewed. **For the owner:** whether a manager may book outside a
+window with a recorded reason (today no override goes past one), and whether the
+worklist should message customers itself (today staff decide).
+
+### Messages between players
+
+([Messages between players](../features/player-messages.md),
+[ADR 0039](../architecture/decisions/0039-messages-between-players.md).) Accepted
+restrictions: a player who says they are under 18, or says nothing, has no messaging
+at all, even in a group both sides agreed to; the phone and email check is a speed
+bump, not a guarantee; the notice email goes through the outbox (the Email row:
+unverified) and the digest is leading-edge (the first message sends, later ones
+within 6 hours do not); a guardian's label keeps the child's short name until
+retention ends; a team entry's or fixture's seat is the captain's only; reports are
+unseen where a venue has no manager; three accounts can between them trigger an
+automatic suspension; a suspension is deleted with the account; who has messaging on
+can be inferred in a two-person context; there is no browser scenario; the Malay,
+Chinese and Tamil wording is machine-assisted. **For the owner:** whether declared
+minors may message inside an agreed group, and whether a trailing digest is wanted.
+
+### Moving classes, lessons and registers
+
+([Moving a class](../features/programmes.md#moving-a-class),
+[a lesson moved by the venue](../features/programmes.md#a-lesson-moved-by-the-venue),
+[attendance registers](../features/programmes.md#attendance-registers),
+ADRs [0042](../architecture/decisions/0042-attendance-registers-and-lessons-moved-by-the-venue.md)
+and [0043](../architecture/decisions/0043-moving-a-class-and-a-class-coach.md).)
+Accepted restrictions: moving a class is a manager's, not the desk's (one
+`MANAGER_ONLY` line allows it), and is refused whole where a members-only venue's
+membership does not cover a new date; the refund window after a move is install data
+with no screen for a class (a lesson's is a number in *Lessons and registers*); a
+waiting-list person's leave link cannot be resent; a class mover counts a check-in, not a register mark, as attendance
+taken, while a lesson with a mark of present or late is not moved; what a coach is paid
+for a class is not built (a lesson's hours are the class's hours); a coach's later
+change to a class is made only from the worklist; a class is marked by the desk or a
+manager unless its instructor is one of the venue's coaches; an open game hosted by
+staff has no register; an absent mark does not use up a pass entry; guests are grouped
+by name and number in reports; the 730 days a register is kept are provisional. Refunds
+online are the payments integrations (against stand-ins) and notices the Email row.
+**For the owner:** whether the desk may move a class, whether absent should use a pass
+entry (as a setting), whether staff-hosted open games need a register.
+
+### Live accounting push
+
+([Xero](../integrations/xero.md),
+[ADR 0041](../architecture/decisions/0041-live-accounting-push-to-xero.md).) Sales
+reach Xero only after the install approves it (`ACCOUNTING_PUSH_APPROVED`), the Xero
+developer app is registered and a venue connects and maps its accounts; the adapter has
+only ever run against a stand-in, so nothing here is verified until
+`scripts/verify-xero.mjs` passes against a Xero demo company. Accepted restrictions:
+a booking whose amount changed after it was sent is not sent again (the reconciliation
+shows it); contacts follow Xero's name rules and counter customers are one *Walk-in
+customers* contact; a credit note for a sale before the start day is left out; a refund
+is a payment against its credit note, and a payment from stored credit needs a
+liability account that allows payments (unverified); SQL Account and AutoCount remain
+exports and QuickBooks has an interface only; the default scopes are unconfirmed
+(`XERO_SCOPES` overrides them). Sales data goes abroad to Xero, so it needs the owner's
+and a lawyer's approval.
 
 ### Money (M)
 
@@ -1316,6 +1438,7 @@ is relied on ([launch checklist](../operations/deployment.md#before-going-live-w
 | Google sign-in | Needs a registered redirect URI | Only where switched on: password sign-in works |
 | S3-compatible off-site backups and photo storage | Needs a real bucket. Tested against stand-ins for S3 and B2 only: B2's acceptance of a `writeFiles`-only key for uploads, its signing region, Object Lock default retention and versions listing are unverified until `npm run verify-offsite -- --go` passes against a real B2 (preferred) or S3 bucket | Off-site backups: any launch. A photos bucket: before more than one instance |
 | DigitalOcean (remote staging only) | Needs a token for a separate team, scoped to droplets, tags and registry read, and an agreed spend; tested against a stand-in API | None: local staging works without it |
+| Xero (live accounting push) | Tested against a stand-in only; needs the owner's Xero developer app and a demo company, then `node scripts/verify-xero.mjs`; data abroad needs approval ([Xero](../integrations/xero.md#verifying-against-a-demo-company)) | Only a venue that switches the push on: the export works without it |
 | Reserve with Google | Feeds only; needs Actions Center partner approval and a booking server that is **not built** | None |
 | Smart locks (TTLock, Igloohome) | Not built; blocked on vendor credentials | None |
 | Stripe Connect payouts, Singapore InvoiceNow, web push, LINE, Zalo | Not built; each needs a partner or contract | None |

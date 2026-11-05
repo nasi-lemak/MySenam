@@ -660,7 +660,7 @@ booking (`tests/activity-coverage.test.ts` does this for every built-in one).
 Sport-specific extras that nobody needs to sell the activity (scoring,
 rankings, logbooks) do not count against a level.
 
-**Count:** 32 built-in activities: 27 full, 5 basic, 0 specialised
+**Count:** 32 built-in activities: 28 full, 4 basic, 0 specialised
 (`tests/activities.test.ts` holds these numbers).
 
 Tested: `tests/activity-coverage.test.ts` (every built-in, set up from its
@@ -687,11 +687,11 @@ codes), `tests/sports.test.ts`, `tests/capacity.test.ts` and
 | Golf simulator | Specialist | Bays (lanes) | Full | — |
 | Fencing | Specialist | Pistes (lanes); lessons and club nights as classes | Full | — |
 | Gym | Fitness | Floor with places: timed sessions, memberships, passes, inductions; entry with no set time on a membership, pass or walk-in where the venue turns it on | Full | — |
-| Kayak, canoe, stand-up paddleboarding | Water | Fleet hire, per item; kinds of boat or board as resources of their own, booked together with a number of each | Basic | Tide and launch windows |
+| Kayak, canoe, stand-up paddleboarding | Water | Fleet hire, per item; kinds of boat or board as resources of their own, booked together with a number of each; a daily launch and tide window where the venue sets one ([launch and tide windows](booking.md#launch-and-tide-windows-for-water-hire)) | Basic | Choosing a kind within one fleet |
 | Cycling | Fitness | Bike hire (sizes as resources of their own); spin as classes | Basic | Track or velodrome sessions run in heats |
 | Climbing | Specialist | Wall with places, per climber, belay sign-off by default; day passes and entry with no set time where the venue turns it on; a competition by height as a [counted performance](tournaments.md#counted-performances) (a route's highest hold, groups then a final, not rated) | Full | Competitions: lead qualification over two routes, speed climbing, semi-final rounds |
 | Bouldering | Specialist | Wall with places, per climber; day passes and entry with no set time where the venue turns it on; a competition by tops and zones as a [counted performance](tournaments.md#counted-performances) (judged per boulder from a phone, qualification groups then a final, not rated) | Full | Competitions: semi-final rounds, bonus-style scoring, timing and rotating groups through the boulders |
-| Archery | Specialist | Lanes, per archer, range-briefing sign-off by default; a range officer rostered for each session where the venue asks for one ([who supervises a session](venue-operations.md#who-supervises-a-session)) | Basic | — |
+| Archery | Specialist | Lanes, per archer, range-briefing sign-off by default; a range officer rostered for each session where the venue asks for one ([who supervises a session](venue-operations.md#who-supervises-a-session)) | Full | — |
 | Bowling | Specialist | Lanes sold by the game, per player, the lane given on arrival; shoe hire as an extra | Full | — |
 | An operator's own activity | Any | Any | Basic until reviewed | Whatever its workflow needs beyond the models above |
 

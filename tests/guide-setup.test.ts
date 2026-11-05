@@ -609,14 +609,15 @@ describe("launch readiness, as the journey shows it", () => {
 describe("what it says of the catalogue", () => {
   it("says an activity's limitation as the catalogue says it, and never claims what is not built", async () => {
     const { activityFacts } = await import("../src/lib/guide/business-types");
-    // Archery (a gym's entry without a session is built since: lib/entries.ts).
-    const archery = activityFacts("archery")!;
-    expect(archery.support).toBe("basic");
-    expect(archery.supportNote).toContain("Not built");
+    // Kayak hire (a gym's entry without a session is built since: lib/entries.ts; so are an archery range's rostered range officers: lib/rosters.ts).
+    const kayak = activityFacts("kayak")!;
+    expect(kayak.support).toBe("basic");
+    expect(kayak.supportNote).toContain("Not built");
     // The picker reads the same note from the catalogue (components/admin/guide/SetupDiscovery.tsx); the dictionaries carry its Malay and Chinese.
-    for (const locale of ["ms", "zh"] as const) expect(STAFF_DICTIONARIES[locale]["srv.support.archery" as keyof (typeof STAFF_DICTIONARIES)["en"]]).toBeTruthy();
-    // An archery range is not told a range officer is scheduled: the capability stays unsupported.
-    expect(capability("range-officer")!.status).toBe("unsupported");
+    for (const locale of ["ms", "zh"] as const) expect(STAFF_DICTIONARIES[locale]["srv.support.kayak" as keyof (typeof STAFF_DICTIONARIES)["en"]]).toBeTruthy();
+    // An archery range is fully supported, and is told its range officer can be rostered: the capability rests on the roster's feature row.
+    expect(activityFacts("archery")!.support).toBe("full");
+    expect(capability("range-officer")).toMatchObject({ status: "available", featureRow: "Supervisor rosters and supervision rules" });
     expect(capability("gym-walk-in")!.status).toBe("available");
   });
 });

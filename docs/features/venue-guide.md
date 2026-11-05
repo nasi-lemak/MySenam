@@ -123,10 +123,14 @@ The rules, held by `tests/guide-capabilities.test.ts`, which parses
 The registry also keeps the guide honest about the activity catalogue: what an
 activity's support level and `supportNote` say is read from
 `src/lib/activity-catalogue.ts` (`activityFacts`), never copied.
-Scheduling a range officer, a WhatsApp number of the venue's own, web push, a
+A WhatsApp number of the venue's own, web push, a
 store app, demand pricing, referral credit, Billplz refunds, booking from
 Google, smart locks and per-person door credentials are registered as
-unsupported, each with what to do instead. Selling bowling by the game, with
+unsupported, each with what to do instead. A range officer, lifeguard or
+instructor on a roster (`range-officer`, resting on the feature-status row
+*Supervisor rosters and supervision rules*, not tied to an activity) is an
+available capability, and archery, whose one gap it was, is fully supported.
+Selling bowling by the game, with
 the lane given on arrival, is an available capability tied to its activity
 (`activityNote`): choosing bowling lists it. Where a venue's lanes are given on
 arrival, the playbook's check-in steps say how the desk gives the lane. Gym entry without

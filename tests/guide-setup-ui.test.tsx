@@ -189,15 +189,18 @@ describe("the questions", () => {
     expect(document.querySelector("[data-question='coaching']")).toBeNull();
   });
 
-  it("show an activity's limitation as the catalogue says it, so a range is not promised a range officer", async () => {
+  it("show an activity's limitation as the catalogue says it, and an archery range none: its rostered range officer is built", async () => {
     renderJourney(viewOf({ rev: 1, answers: { v: 1, types: ["archery-and-supervised"] } }));
     window.history.replaceState(null, "", "/admin?tab=guide&view=setup&stage=questions");
     document.body.innerHTML = "";
     renderJourney(viewOf({ rev: 1, answers: { v: 1, types: ["archery-and-supervised"] } }));
     expect(await screen.findByRole("heading", { name: "Which activities will you offer?" })).toBeTruthy();
+    const kayak = screen.getByLabelText(/Kayak/).closest("label")!;
+    expect(kayak.textContent).toContain("Limitation");
+    expect(kayak.textContent).toContain("Not built: choosing a kind within one fleet");
     const archery = screen.getByLabelText(/Archery/).closest("label")!;
-    expect(archery.textContent).toContain("Limitation");
-    expect(archery.textContent).toContain("Not built: scheduling a range officer for each session");
+    expect(archery.textContent).not.toContain("Limitation");
+    expect(archery.textContent).not.toContain("range officer");
   });
 });
 

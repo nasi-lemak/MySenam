@@ -199,6 +199,8 @@ const AVAILABLE: Capability[] = [
   available("staff-roles", "people", { featureRow: "Manager and front-desk roles", configure: venues, staffAction: "staff" }),
   available("staff-invitations", "people", { featureRow: "Staff invited to set their own password", configure: venues, staffAction: "staff" }),
   available("staff-log", "people", { featureRow: "Staff activity log", configure: { tab: "reports" }, staffAction: "staffLog", requires: [] }),
+  // Roles, qualifications and a weekly roster; an activity needing somebody qualified on shift is bookable only where covered (lib/rosters.ts).
+  available("range-officer", "people", { featureRow: "Supervisor rosters and supervision rules", configure: courts(), staffAction: "roster", models: ["lanes", "shared"] }),
   // ------------------------------------------------------------ money
   available("counter-payments", "money", { featureRow: "Counter payments and the day's takings", configure: bookings, staffAction: null, requires: [] }),
   available("cash-up", "money", { featureRow: "Cash-up", configure: bookings, staffAction: null, requires: [] }),
@@ -263,7 +265,6 @@ const AVAILABLE: Capability[] = [
 ];
 
 const UNSUPPORTED: Capability[] = [
-  unsupported("range-officer", "people", { featureRow: null, activityNote: "archery", models: ["lanes"] }),
   unsupported("venue-whatsapp-number", "communication", { featureRow: "WhatsApp template messages" }),
   unsupported("web-push", "communication", { featureRow: null, limitation: "integrations-awaiting-live-verification-or-a-partner" }),
   unsupported("native-app", "platform", { featureRow: "Installing as an app" }),

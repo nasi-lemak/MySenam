@@ -30,8 +30,8 @@
   hours after the class was set leaves the class as it is; a worklist names the sessions and why until staff change the
   instructor or the coach's hours.
 - **Not decided here:** what a coach is paid for a class (payouts are for lessons only), a class roster shown to a coach (the
-  coach sees how many places are taken, never who), per-session staffing rosters (`classRosterRefusal` is the one function a
-  roster check would be called from), and an attendance register (attendance taken is, for now, a check-in).
+  coach sees how many places are taken, never who), and an attendance register (attendance taken is, for now, a check-in). Per-session staffing rosters: `classRosterRefusal` asks them
+  (ADR 0036), and a coach named to supervise another session then is not taken to teach a class.
 - **Consequences:** moving a class on a members-only venue is refused where anyone's membership would not cover the new date
   (ADR 0026: no override goes past it), which can hold up a whole series for one person until their membership is extended or
   their place cancelled. The refund window is not settable per venue.

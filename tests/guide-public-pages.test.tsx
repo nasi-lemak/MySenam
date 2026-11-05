@@ -163,10 +163,11 @@ describe("a page for each kind of business", () => {
   it("refines by activity from the address, and says what the catalogue says of it", async () => {
     marketplace(true);
     const d = await typePage("badminton-and-pickleball", { activities: "archery,kayak" });
-    expect(d.querySelector("#know")!.textContent).toContain("Not built: scheduling a range officer for each session");
+    // Kayak hire is basic and says what is not built; archery's rostered range officer is built, so it names nothing.
+    expect(d.querySelector("#know")!.textContent).toContain("Not built: choosing a kind within one fleet");
     expect(d.querySelector("#know")!.textContent).toContain("Basic support");
-    expect(d.querySelector("#not")!.textContent).toContain("Scheduling a range officer for each session");
-    expect(d.querySelector("#not")!.textContent).toContain("Book lanes by the hour with a range briefing as a sign-off");
+    expect(d.querySelector("#know")!.textContent).not.toContain("range officer");
+    expect(d.querySelector("#not")!.textContent).not.toContain("A rostered supervisor for each session");
     expect(d.querySelector("#day")!.textContent).toContain("Hiring equipment with a deposit");
     // Bowling is sold by the game now: nothing about it is "not built".
     const bowling = await typePage("badminton-and-pickleball", { activities: "bowling" });
@@ -189,11 +190,11 @@ describe("a page for each kind of business", () => {
     }
   });
 
-  it("states a supervised range's limit plainly and gives the alternative, offers a gym entry without booking, and never shows swimming an unstaffed door", async () => {
+  it("offers a supervised range its rostered range officer as built, offers a gym entry without booking, and never shows swimming an unstaffed door", async () => {
     marketplace(true);
     const range = await typePage("archery-and-supervised");
-    expect(range.querySelector("#not")!.textContent).toContain("Scheduling a range officer for each session");
-    expect(range.querySelector("#not")!.textContent).toContain("Book lanes by the hour with a range briefing as a sign-off");
+    expect(range.querySelector("#available")!.textContent).toContain("A rostered supervisor for each session");
+    expect(range.querySelector("#not")!.textContent).not.toContain("A rostered supervisor for each session");
     const gym = await typePage("gym-and-fitness");
     // Built now (entry with no set time): never listed as something MySenam does not do.
     expect(gym.querySelector("#not")?.textContent ?? "").not.toContain("Gym entry without booking a session");

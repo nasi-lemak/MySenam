@@ -1083,8 +1083,8 @@ membership (0266); a lost chargeback on a membership now credits its receipt
 
 The six failures were tests stating what had just changed: four still took gym
 entry, climbing day passes or bowling by the game for things not built (now
-built; they take archery's range officer, still not built, and check the new
-ones are no longer listed), and one fixed its booking on 2 November, past by
+built; they take archery's range officer, then not built (rostered range officers
+were built on 5 November 2026), and check the new ones are no longer listed), and one fixed its booking on 2 November, past by
 the run (it now books tomorrow). The tests were corrected, not the code: the
 four unit files passed on both engines and the scenario file against the
 same build, after the commit. Gaps: no live integration has passed its check;

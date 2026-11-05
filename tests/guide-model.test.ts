@@ -105,7 +105,9 @@ describe("business types", () => {
     }
     // Climbing's day passes with no set time are built (lib/entries.ts): fully supported, with nothing to note.
     expect(activityFacts("climbing")!.supportNote).toBeNull();
-    expect(activityFacts("archery")!.supportNote).toContain("range officer");
+    // So are an archery range's rostered range officers (lib/rosters.ts): fully supported too.
+    expect(activityFacts("archery")!.supportNote).toBeNull();
+    expect(activityFacts("kayak")!.supportNote).toContain("Not built: choosing a kind within one fleet");
     expect(activityFacts("not-an-activity")).toBeUndefined();
   });
 
