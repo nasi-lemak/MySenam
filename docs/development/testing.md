@@ -903,6 +903,43 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 5 November 2026, commit `34c4d86` (fixes after it: `eda648a`, `9cd1437`)
+
+Eight roadmap items, built by eight workers and merged: supervisor rosters (migration 0277, ADR 0036), launch and
+tide windows (0278, ADR 0037), Swiss acceleration, the tie-break screen and Swiss for counted events (0279, ADR 0038),
+messages between players (0280, ADR 0039), moving a class and a class's instructor as a coach (0281, ADR 0043), a
+lesson moved by staff and attendance registers (0282, ADR 0042), ladder court time and ladders of teams (0283, ADR 0040),
+and the live Xero push (0284, ADR 0041). Not a launch. Run on one cloud container, Node 22, by hand.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 129 passed |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 27 files; 93 of 95 passed (the two failures below) |
+| Suite on PGlite | 474 files; 5684 passed, 12 skipped, 1 failed (below) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 474 files; 5696 passed, 1 failed (the same one) |
+| CI | Not run (deferred) |
+| Real services | None checked; the Xero push was exercised against a stand-in only and stays `INTEGRATION_VERIFICATION_REQUIRED` |
+
+Three failures, none in what a customer would see, and what was done about each. *Formats C* read the Swiss standings'
+last two columns as points and Buchholz, and the table now has more tie-break columns after them; it reads them by
+heading. *Guide H* had a title so long that its evidence folder name was refused by the file system; the title is
+shorter. Both scenario files were run again against the same build (6 of 6 passed). `tests/booking-references-deferred.test.ts`
+(on both engines) found four new tables whose foreign keys to a booking were checked as each row was written, against
+the rule that rows pointing at a booking are checked at commit (migration 0206); migration 0285 defers them, and that file
+and the files of the features that write those rows were run again on PGlite and, for the three nearest, on Postgres
+(93 and 28 tests passed). None of these corrections was followed by a second full run. Before the run, two
+interactions between workers' code were found and corrected with tests (`tests/class-roster.test.ts`): a moved class was
+not asked the roster, and a coach named to supervise a session could also be taken to teach a class at that time.
+An accounting-push test that depended on which of several equal bookings was listed first now looks at all of them.
+
+Gaps: no live integration has passed its check (the Xero adapter has never run against Xero); no browser scenario covers
+rosters, launch windows, messages, class moves, registers, team ladders, held ladder court time or the Xero panel; the
+Malay, Chinese and Tamil of everything added is machine-assisted and awaits native review; the retention and
+authorisation periods added are provisional and await legal review.
+
 #### 4 November 2026, commit `89bc4b7`
 
 The browser scenarios for teams and team leagues (`tests/uat/teams.uat.ts`,
