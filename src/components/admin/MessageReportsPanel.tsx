@@ -4,6 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { SeatLabel } from "@/lib/message-contexts";
 import type { MessageReportOut, SuspensionOut } from "@/lib/message-moderation";
+import type { CaseOut } from "@/lib/youth-report-cases";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 type Show = "open" | "reviewed" | "all";
@@ -29,6 +30,9 @@ export function MessageReportsPanel() {
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  // A report in a youth group's thread is a case: its evidence is read one report at a time, each reading recorded (ADR 0049).
+  const [cases, setCases] = useState<Record<number, CaseOut>>({});
+  const [texts, setTexts] = useState<Record<string, string>>({});
 
   const load = useCallback(
     async (which: Show, before?: number) => {
@@ -62,6 +66,25 @@ export function MessageReportsPanel() {
     const data = await readJson(res).catch(() => null);
     if (!res.ok) return setError(t.err(data, t("pmg.actionFailed")));
     await load(show);
+  }
+
+  async function openCase(id: number) {
+    setError(null);
+    const res = await fetch(`/api/admin/message-moderation?report=${id}`, { cache: "no-store" });
+    const data = await readJson(res).catch(() => null);
+    if (!res.ok) return setError(t.err(data, t("pmg.actionFailed")));
+    setCases((had) => ({ ...had, [id]: data.case as CaseOut }));
+  }
+
+  /** One step of a case: with a reason, or the words of a note or of the one notification the reported adult is ever sent. */
+  async function caseAct(id: number, step: string, body: Record<string, unknown> = {}) {
+    setError(null);
+    const res = await fetch("/api/admin/message-moderation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "case", id, step, ...body }) });
+    const data = await readJson(res).catch(() => null);
+    if (!res.ok) return setError(t.err(data, t("pmg.actionFailed")));
+    setTexts((had) => ({ ...had, [`n${id}`]: "", [`t${id}`]: "" }));
+    await load(show);
+    await openCase(id);
   }
 
   const label = (from: SeatLabel | null): string => {
@@ -129,6 +152,81 @@ export function MessageReportsPanel() {
                   {r.reported?.suspended && <strong className="ml-1 text-red-700">{t("pmg.suspendedHere")}</strong>}
                 </p>
                 {r.note && <p className="mt-1 whitespace-pre-wrap rounded bg-slate-50 px-2 py-1 text-slate-700">{r.note}</p>}
+                {r.linesHeld && (
+                  <div className="mt-1 space-y-2" data-testid="youth-case">
+                    <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">{t("msg3.case.protective")}</p>
+                    {r.restricted && <p className="text-xs text-slate-600">{t("msg3.case.restricted")}</p>}
+                    {r.escalated && <p className="text-xs text-slate-600">{t("msg3.case.escalated")}</p>}
+                    {!cases[r.id] ? (
+                      <button className={small} onClick={() => void openCase(r.id)}>
+                        {t("msg3.case.open")}
+                      </button>
+                    ) : (
+                      <div className="space-y-2 rounded-md bg-slate-50 p-2">
+                        <p className="text-xs text-slate-500">{t("msg3.case.evidenceNote")}</p>
+                        <ol className="space-y-1">
+                          {cases[r.id].lines.map((l) => (
+                            <li key={l.id} className={`rounded px-2 py-1 ${l.flagged ? "bg-amber-50 ring-1 ring-amber-300" : "bg-white"}`}>
+                              <span className="text-xs font-semibold text-slate-600">
+                                {label(l.from)} · {clock.when(l.at)}
+                                {l.flagged && <> · {t("pmg.flagged")}</>}
+                              </span>
+                              <p className="whitespace-pre-wrap break-words text-slate-800">{l.body ?? t("pmg.removed")}</p>
+                            </li>
+                          ))}
+                        </ol>
+                        {cases[r.id].notes.length > 0 && (
+                          <ul className="space-y-0.5 text-xs text-slate-600">
+                            {cases[r.id].notes.map((n) => (
+                              <li key={n.id}>
+                                {clock.when(n.at)} · {n.by} · {t(`msg3.case.act.${n.action}` as "msg3.case.act.read")}
+                                {n.detail && n.action !== "read" ? `: ${n.detail}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          <button className={small} onClick={() => void caseAct(r.id, "confirm", { reason: reasonFor(key) })}>
+                            {t("msg3.case.confirm")}
+                          </button>
+                          <button className={small} onClick={() => void caseAct(r.id, "extend", { reason: reasonFor(key) })}>
+                            {t("msg3.case.extend")}
+                          </button>
+                          {cases[r.id].restricted && (
+                            <button className={small} onClick={() => void caseAct(r.id, "lift", { reason: reasonFor(key) })}>
+                              {t("msg3.case.lift")}
+                            </button>
+                          )}
+                          {scope === "venue" && !cases[r.id].escalated && (
+                            <button className={small} onClick={() => void caseAct(r.id, "escalate", { reason: reasonFor(key) })}>
+                              {t("msg3.case.escalate")}
+                            </button>
+                          )}
+                        </div>
+                        <label className="block text-xs font-medium text-slate-600">
+                          {t("msg3.case.noteLabel")}
+                          <input value={texts[`n${r.id}`] ?? ""} onChange={(e) => setTexts((had) => ({ ...had, [`n${r.id}`]: e.target.value }))} maxLength={1000} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                        </label>
+                        <button className={small} onClick={() => void caseAct(r.id, "note", { text: texts[`n${r.id}`] ?? "" })}>
+                          {t("msg3.case.note")}
+                        </button>
+                        {cases[r.id].reported.adult && (
+                          <div className="space-y-1">
+                            <label className="block text-xs font-medium text-slate-600">
+                              {t("msg3.case.tellLabel")}
+                              <textarea value={texts[`t${r.id}`] ?? ""} onChange={(e) => setTexts((had) => ({ ...had, [`t${r.id}`]: e.target.value }))} maxLength={1000} rows={3} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                            </label>
+                            <p className="text-xs text-slate-500">{t("msg3.case.tellNote")}</p>
+                            <button className={small} onClick={() => void caseAct(r.id, "notify", { text: texts[`t${r.id}`] ?? "" })}>
+                              {t("msg3.case.tell")}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!r.linesHeld && (
                 <details className="mt-1">
                   <summary className="cursor-pointer text-xs font-semibold text-teal-700">{t("pmg.copy")}</summary>
                   <ol className="mt-1 space-y-1">
@@ -144,6 +242,7 @@ export function MessageReportsPanel() {
                     ))}
                   </ol>
                 </details>
+                )}
                 {r.status === "reviewed" && r.outcome && (
                   <p className="mt-1 text-xs text-slate-500">{t("pmg.handled", { name: r.reviewedBy ?? "", outcome: t(`pmg.outcome.${r.outcome}`) })}</p>
                 )}
@@ -191,6 +290,11 @@ export function MessageReportsPanel() {
                         <button className={small} onClick={() => void act({ action: "review", id: r.id, outcome: "action_taken" })}>
                           {t("pmg.review.taken")}
                         </button>
+                        {r.linesHeld && (
+                          <button className={small} onClick={() => void act({ action: "review", id: r.id, outcome: "restriction_continues" })}>
+                            {t("msg3.case.review.continues")}
+                          </button>
+                        )}
                       </>
                     )}
                   </div>

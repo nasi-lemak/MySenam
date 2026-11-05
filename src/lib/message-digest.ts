@@ -105,6 +105,8 @@ export async function sendDueDigests(opts: { now?: number; force?: boolean } = {
       const adults = await eligibleAmong(ctx.seats.filter((s) => !s.minor).map((s) => s.userId));
       for (const seat of ctx.seats) {
         if (!seat.minor && !adults.has(seat.userId)) continue;
+        // An adult whose access is paused is told nothing of what is written (ADR 0049): not even that there are messages.
+        if (seat.restricted) continue;
         const mode = await noticeModeOf(seat);
         if (mode === null || mode === "immediate") continue;
         if (await isMuted(seat.userId, ctx.info.kind, ctx.info.id)) continue;

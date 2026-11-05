@@ -8,6 +8,8 @@
   [ADR 0016](0016-matchmaking-on-open-games.md) (strangers are not reached; minors only through a group both sides agreed to),
   [ADR 0022](0022-children-managed-from-an-adults-account.md) / [0023](0023-participants-apart-from-accounts.md) (a participant a
   guardian manages; the participant's own login linked by both sides agreeing).
+- **Amended by [ADR 0049](0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md) (5 November 2026)** in two places, each marked where it stands below: a guardian's switch-off is no longer undone by
+  another guardian's switch-on, and a report in a youth thread is no longer told to the supervisors or to the person reported.
 - **Context:** the owner asked: *allow supervised group messaging for eligible minors, but prohibit unsolicited private messaging;
   include moderation, reporting, age-appropriate guardian controls and safeguarding measures; use a 6-hour notification digest by
   default, with immediate delivery for urgent safety or moderation events.* ADR 0039 had kept the conservative end of its brief: a
@@ -62,7 +64,8 @@
     recorded; **block people for the child** (never a supervisor); choose how often notices about the child's messages come; receive the
     child's report and moderation notices; and **export** the child's group messages. Where a child has two guardians, **any live
     guardian's switch-off ends every consent for that child and group**, and any live guardian may switch it on; the other guardians are
-    told at once either way. (A guardian dispute over this is not settled in code.)
+    told at once either way. (A guardian dispute over this is not settled in code.) **Replaced by [ADR 0049](0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md): an objection holds until every
+    guardian who decides agrees, or a safeguarding administrator resolves it.**
   - **Safeguarding measures.** Text only, nothing clickable. The contact-detail refusal is **extended in a youth thread, for everybody**:
     no phone or email (as ever), and no social handle (`@name`), no chat or social service's name (WhatsApp, Telegram, Instagram,
     Snapchat, TikTok, Discord, WeChat, Kik, Facebook, Messenger), no link or web address, no "DM me" / "add me on" / "my number is": a
@@ -72,11 +75,12 @@
     shorten** the install's, and "off" is the install operator's to choose, not reachable from a venue, an organiser or a guardian. A
     visible **report button on every message**. **A report in a youth thread is urgent** (*chosen here*: all of them, not only those by
     or about a minor, because an adult reporting an adult in a thread full of children is the same event): told **at once** to the
-    supervisors (not the person reported), the live guardians of a minor who reported or was reported, and the venue's managers (the
+    supervisors (not the person reported; **no longer: [ADR 0049](0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md)**), the live guardians of a minor who reported or was reported, and the venue's managers (the
     platform's owners where there is no venue), as the `safeguarding_notice` kind (email, never WhatsApp, never the text, not
     digested, **not held to the daily limit per recipient**, like a team decision); **a longer frozen copy** (50 messages, not 20);
     and **the reported person is muted in that thread until the report is reviewed** (a review that found nothing needed lifts it; one
-    that took action keeps it until staff lift it). A guardian is also told at once when a supervisor mutes their child or removes
+    that took action keeps it until staff lift it; **for a reported adult, now a restriction with no reading and no supervisor's powers, shown as
+    one neutral line: [ADR 0049](0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md)**). A guardian is also told at once when a supervisor mutes their child or removes
     their message, when a conversation they have a child in is closed, and when messaging is paused for a person (automatic
     suspensions included: for every person, not only minors). No machine learning and no content scanning beyond the pattern speed bump.
   - **Retention, export, erasure.** A youth conversation is deleted **60 days after its group ended** (`YOUTH_MESSAGE_RETENTION_DAYS`,
@@ -112,7 +116,7 @@
   - A child's short name appears in a guardian's and in other children's views, as on every public surface; a child's full name never
     does.
   - Consent is per guardian and per group, and any guardian's *off* wins: simple and safe, and a second guardian can switch it back
-    on. A decision about who prevails between guardians who disagree is the owner's, not code's.
+    on. A decision about who prevails between guardians who disagree is the owner's, not code's. **Replaced by [ADR 0049](0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md): the owner decided.**
   - What awaits legal and professional review, **not settled in code**: the wording of the first-use screen and the notices; whether a
     guardian's consent recorded this way suffices in a given country; the staff-read exception and its lawful basis; the retention
     periods; the rest hours; and whether a venue may supervise minors in a group at all in a given jurisdiction. All wording is

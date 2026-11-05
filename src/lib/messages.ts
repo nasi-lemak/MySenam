@@ -53,6 +53,8 @@ const REFUSALS = {
   PM_REASON: ["What is the report about?", 400],
   PM_REPORT_LIMIT: ["You have sent a lot of reports today. Please try again tomorrow.", 429],
   PM_OWN: ["That is your own message.", 400],
+  // The one line an adult is shown in place of a youth thread whose access is paused, whatever the reason (a pause or a report): a hold, not a finding.
+  PM_ACCESS_PAUSED: ["Your access to this conversation is paused while the venue reviews it. This is not a finding.", 403],
 } as const;
 export type MessageRefusalCode = keyof typeof REFUSALS;
 
@@ -232,6 +234,11 @@ interface YouthAccess {
   tooFew: boolean;
   /** Muted in this thread by a supervisor or by a report awaiting review: can read, cannot write. */
   mutedHere: boolean;
+  /**
+   * An adult whose access is paused (a supervisor's pause or a report's hold, never said which): reads nothing here, writes nothing, is counted as
+   * nobody's reader and told nothing of new messages, and has no supervisor's powers. Shown one neutral line (ADR 0049).
+   */
+  restricted: boolean;
 }
 
 async function threadOf(kind: ContextKind, id: number, lock = false): Promise<ThreadRow | null> {
@@ -272,7 +279,8 @@ async function access(userId: number, kind: ContextKind, id: number, opts: { loc
     await getDb().prepare("UPDATE player_message_threads SET ended_at = ? WHERE id = ? AND ended_at IS NULL").run(endedAt, thread.id);
     thread.ended_at = endedAt;
   }
-  const others = ctx.seats.filter((s) => s.userId !== userId);
+  // An adult whose access is paused is nobody's reader (and is told nothing of what is written).
+  const others = ctx.seats.filter((s) => s.userId !== userId && !s.restricted);
   const eligible = await eligibleAmong(others.filter((s) => !s.minor).map((s) => s.userId));
   const eligibleOthers = others.filter((s) => s.minor || eligible.has(s.userId));
   const blocked = await blockedWith(userId, eligibleOthers.map((s) => s.userId));
@@ -280,13 +288,14 @@ async function access(userId: number, kind: ContextKind, id: number, opts: { loc
   let youth: YouthAccess | null = null;
   const group = ctx.info.youth ? await youthGroupOf(id) : null;
   if (group) {
-    const supervisor = seat.role === "supervisor";
+    const supervisor = seat.role === "supervisor" && !seat.restricted;
     youth = {
       role: seat.minor ? "minor" : (seat.role ?? "adult"),
       supervisor,
       group,
       tooFew: 1 + reachable.length < YOUTH_LIMITS.minSeats || !(supervisor || reachable.some((s) => s.role === "supervisor")),
       mutedHere: await mutedInThread(id, userId),
+      restricted: seat.restricted === true,
     };
   }
   return {
@@ -365,11 +374,13 @@ async function quietWindowNow(group: YouthGroup): Promise<{ from: number; to: nu
 async function youthView(y: YouthAccess, groupId: number, quiet: { from: number; to: number } | null): Promise<NonNullable<ThreadView["youth"]>> {
   const db = getDb();
   const supervisors = (await db
-    .prepare("SELECT u.name FROM youth_group_adults a JOIN users u ON u.id = a.user_id WHERE a.group_id = ? AND a.role = 'supervisor' AND a.removed_at IS NULL ORDER BY a.id")
+    // Whoever supervises now: a supervisor whose access is paused is not (ADR 0049).
+    .prepare("SELECT u.name FROM youth_group_adults a JOIN users u ON u.id = a.user_id WHERE a.group_id = ? AND a.role = 'supervisor' AND a.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM youth_thread_mutes pm WHERE pm.group_id = a.group_id AND pm.user_id = a.user_id AND pm.lifted_at IS NULL) ORDER BY a.id")
     .all(groupId)) as { name: string }[];
   const muted = y.supervisor
     ? ((await db
-        .prepare("SELECT t.id, t.source, u.name FROM youth_thread_mutes t JOIN users u ON u.id = t.user_id WHERE t.group_id = ? AND t.lifted_at IS NULL ORDER BY t.id")
+        // Only a supervisor's own pauses: a hold a report placed is for safeguarding personnel, never a supervisor's to see or lift (ADR 0049).
+        .prepare("SELECT t.id, t.source, u.name FROM youth_thread_mutes t JOIN users u ON u.id = t.user_id WHERE t.group_id = ? AND t.lifted_at IS NULL AND t.source = 'supervisor' ORDER BY t.id")
         .all(groupId)) as { id: number; source: "supervisor" | "report"; name: string }[])
     : undefined;
   return {
@@ -391,6 +402,12 @@ export async function threadView(userId: number, kind: ContextKind, id: number, 
   const a = await access(userId, kind, id);
   if ("ok" in a) return a;
   if (a.phase === "closed") return refuse("PM_CLOSED");
+  // An adult whose access is paused is shown one neutral line and nothing of the conversation: no messages, no count, no thread number, no supervisors.
+  if (a.youth?.restricted)
+    return {
+      ok: true,
+      view: { kind: kindInUrl(kind), id, info: a.ctx.info, phase: a.phase, people: 0, canSend: false, whyNot: "PM_ACCESS_PAUSED", muted: await isMuted(userId, kind, id), threadId: null, messages: [], latestId: opts.after ?? 0 },
+    };
   let rows: { id: number; sender_id: number | null; sender_label: string | null; body: string | null; created_at: string; hidden_at: string | null }[] = [];
   if (a.thread) {
     rows = (await getDb()
@@ -462,6 +479,11 @@ export async function myThreads(userId: number): Promise<{ settings: MessageSett
     if ("ok" in a || a.phase === "closed") continue;
     // A minor's account lists only the supervised youth groups it has a seat in, never the other contexts it is merely part of.
     if (!settings.enabled && !a.ctx.info.youth) continue;
+    // A conversation whose access is paused is still listed, with nothing unread and nothing said of it: the same line as inside.
+    if (a.youth?.restricted) {
+      out.push({ kind: kindInUrl(c.kind), id: c.id, info: a.ctx.info, phase: a.phase, people: 0, unread: 0, muted: await isMuted(userId, c.kind, c.id), lastAt: null });
+      continue;
+    }
     let unread = 0;
     let lastAt: string | null = null;
     if (a.thread) {
@@ -520,6 +542,7 @@ export async function sendMessage(userId: number, kind: ContextKind, id: number,
       await lockSeat(kind, id, userId);
       const a = await access(userId, kind, id, { lockThread: true });
       if ("ok" in a) throw new Refused(a);
+      if (a.youth?.restricted) throw new Refused(refuse("PM_ACCESS_PAUSED"));
       // The text comes after "in the context and on", so a stranger learns nothing from what is refused; before the rest, so an address is
       // never kept even in a conversation that is closed.
       if (contactDetail(text) || (a.youth && youthContactPattern(text))) throw new Refused(refuse("PM_CONTACT"));
@@ -612,6 +635,7 @@ async function tellReaders(threadId: number, ctx: Context, senderId: number, rea
 export async function blockSender(userId: number, kind: ContextKind, id: number, messageId: number): Promise<{ ok: true } | Refusal> {
   const a = await access(userId, kind, id, { needOn: false });
   if ("ok" in a) return a;
+  if (a.youth?.restricted) return refuse("PM_NOT_FOUND");
   const sender = a.thread
     ? ((await getDb()
         .prepare(`SELECT m.sender_id FROM player_messages m WHERE m.id = ? AND m.thread_id = ? AND m.id > ? AND ${VISIBLE}`)
@@ -647,7 +671,7 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
       urgent.suspendedUser = null;
       const a = await access(userId, kind, id, { needOn: false });
       if ("ok" in a) throw new Refused(a);
-      if (!a.thread) throw new Refused(refuse("PM_NOT_FOUND"));
+      if (!a.thread || a.youth?.restricted) throw new Refused(refuse("PM_NOT_FOUND"));
       const db = getDb();
       const target = (await db
         .prepare(`SELECT m.id, m.sender_id, m.sender_label, m.body FROM player_messages m WHERE m.id = ? AND m.thread_id = ? AND m.id > ? AND m.hidden_at IS NULL AND ${VISIBLE}`)
@@ -676,14 +700,24 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
           .run(made.id, l.id, l.sender_id, l.sender_label, l.body, l.created_at, l.id === messageId ? 1 : 0);
       if (a.youth) {
         await db.prepare("UPDATE player_message_reports SET urgent = 1 WHERE id = ?").run(made.id);
+        // A pause a supervisor placed becomes the report's hold: a supervisor cannot lift it, only safeguarding personnel can (ADR 0049).
+        await db
+          .prepare("UPDATE youth_thread_mutes SET source = 'report', report_id = ? WHERE group_id = ? AND user_id = ? AND lifted_at IS NULL AND source = 'supervisor'")
+          .run(made.id, id, target.sender_id);
         await db
           .prepare("INSERT INTO youth_thread_mutes (group_id, user_id, source, report_id, reason, muted_by) VALUES (?, ?, 'report', ?, 'A report names this person; paused until it is reviewed.', 'automatic') ON CONFLICT DO NOTHING")
           .run(id, target.sender_id, made.id);
         await youthEvent(id, "system", "report_made", { actorId: userId, detail: `report ${made.id}, message ${messageId}` });
+        // A reported member of the venue's own staff cannot be the one to deal with it: the platform's owner sees it too.
+        if (a.thread.venue_id !== null && (await (await import("./safeguarding-conflict")).isStaffOfVenue(target.sender_id, a.thread.venue_id)))
+          await db
+            .prepare("UPDATE player_message_reports SET escalated_at = datetime('now'), escalated_by = 'automatic', escalation_reason = 'The person reported is a member of the venue''s staff.' WHERE id = ?")
+            .run(made.id);
         urgent.id = made.id;
       }
-      const suspended = await autoSuspend(target.sender_id, made.id);
-      if (suspended) urgent.suspendedUser = target.sender_id;
+      const suspended = await autoSuspend(target.sender_id, made.id, a.youth !== null);
+      // The reported adult is never told of a report, so an automatic suspension a youth report brought about is not told to them either (a minor's guardians still are).
+      if (suspended && !(a.youth && (await declaredAdult(target.sender_id)) === true)) urgent.suspendedUser = target.sender_id;
       return { ok: true as const, suspended };
     });
     // A messaging suspension, however it came about, is told at once to the person (and a minor's guardians): an urgent event, never digested.
@@ -703,7 +737,7 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
 }
 
 /** The published rule: three different people's reports within thirty days (none yet found to need no action) suspend somebody's messaging, until the owner reviews it. */
-async function autoSuspend(reportedId: number, reportId: number): Promise<boolean> {
+async function autoSuspend(reportedId: number, reportId: number, inYouthThread = false): Promise<boolean> {
   const db = getDb();
   const { n } = (await db
     .prepare(
@@ -717,6 +751,7 @@ async function autoSuspend(reportedId: number, reportId: number): Promise<boolea
       `INSERT INTO player_message_suspensions (user_id, source, venue_id, reason, report_id) VALUES (?, 'automatic', NULL, ?, ?)
        ON CONFLICT DO NOTHING`
     )
-    .run(reportedId, `Reported by ${n} different people within ${LIMITS.autoSuspendDays} days`, reportId);
+    // The reason is shown to the person suspended: for a report in a youth thread it says nothing of reports (the count stays for the owner's review).
+    .run(reportedId, inYouthThread ? "Paused pending review" : `Reported by ${n} different people within ${LIMITS.autoSuspendDays} days`, reportId);
   return made.changes > 0;
 }

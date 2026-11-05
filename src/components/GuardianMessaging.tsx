@@ -68,6 +68,7 @@ export default function GuardianMessaging() {
           {t("pmy.guardian.title")}
         </h2>
         <p className="text-sm text-slate-600">{t("pmy.guardian.intro")}</p>
+        <p className="text-sm text-slate-600">{t("pmy.guardian.disagree")}</p>
       </div>
       {error && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -105,11 +106,22 @@ export default function GuardianMessaging() {
                   <p className="text-slate-600">{t("pmy.guardian.supervisors", { list: g.supervisors.length ? names(g.supervisors) : "-" })}</p>
                   {g.adults.length > 0 && <p className="text-slate-600">{t("pmy.guardian.adults", { list: names(g.adults) })}</p>}
                   <p className={g.consentOn ? "text-emerald-700" : "text-slate-600"}>{g.consentOn ? t("pmy.guardian.on", { child: c.displayName }) : t("pmy.guardian.off", { child: c.displayName })}</p>
+                  {/* All anybody is told of an objection: never who, never why (ADR 0049). */}
+                  {g.needsAgreement && <p className="text-amber-800">{t("pmy.guardian.needsAgreement", { child: c.displayName })}</p>}
+                  {g.needsAgreement && g.myConsent && <p className="text-slate-600">{t("pmy.guardian.agreedWaiting")}</p>}
+                  {c.authority === "objects_only" && <p className="text-slate-600">{t("pmy.guardian.objectsOnly", { child: c.displayName })}</p>}
                   <p className="text-slate-600">{g.childOptedIn ? t("pmy.guardian.childOn", { child: c.displayName }) : t("pmy.guardian.childOff", { child: c.displayName })}</p>
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={() => void act({ action: "consent", participantId: c.participantId, groupId: g.groupId, on: !g.consentOn })} className={small} aria-pressed={g.consentOn}>
-                      {g.consentOn ? t("pmy.guardian.switchOff", { child: c.displayName }) : t("pmy.guardian.switchOn", { child: c.displayName })}
-                    </button>
+                    {(g.consentOn || g.myConsent || c.authority !== "objects_only") && (
+                      <button onClick={() => void act({ action: "consent", participantId: c.participantId, groupId: g.groupId, on: !(g.consentOn || g.myConsent) })} className={small} aria-pressed={g.consentOn || g.myConsent}>
+                        {g.consentOn || g.myConsent ? t("pmy.guardian.switchOff", { child: c.displayName }) : t("pmy.guardian.switchOn", { child: c.displayName })}
+                      </button>
+                    )}
+                    {c.authority === "objects_only" && !g.consentOn && !g.myConsent && (
+                      <button onClick={() => void act({ action: "consent", participantId: c.participantId, groupId: g.groupId, on: false })} className={small}>
+                        {t("pmy.guardian.switchOff", { child: c.displayName })}
+                      </button>
+                    )}
                     <button onClick={() => (reading?.groupId === g.groupId && reading.participantId === c.participantId ? setReading(null) : void read(c.participantId, g.groupId))} className={small}>
                       {reading?.groupId === g.groupId && reading.participantId === c.participantId ? t("pmy.guardian.hide") : t("pmy.guardian.read")}
                     </button>

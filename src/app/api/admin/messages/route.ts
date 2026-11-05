@@ -48,7 +48,8 @@ export async function POST(req: NextRequest) {
 
   // A message belongs to a venue, and an operator may only touch their own.
   const existing = await messageById(id as number);
-  if (!existing) return NextResponse.json({ error: "Message not found." }, { status: 404 });
+  // A safeguarding notice is not in these screens (lib/outbox.ts): nothing here may say that one exists.
+  if (!existing || existing.kind === "safeguarding_notice") return NextResponse.json({ error: "Message not found." }, { status: 404 });
   const denied = existing.venueId === null ? requireOwner(admin) : denyVenue(admin, existing.venueId);
   if (denied) return denied;
 

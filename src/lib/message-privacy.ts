@@ -70,8 +70,14 @@ export async function messagesExport(userId: number): Promise<unknown> {
     mutedContexts: await all("SELECT context_kind, context_id, muted_at FROM player_message_mutes WHERE user_id = ? ORDER BY muted_at", userId),
     threads: out,
     emailNoticesSent: await all("SELECT sent_at FROM player_message_notices WHERE user_id = ? ORDER BY sent_at", userId),
-    reportsMade: await all("SELECT context_kind, reason, note, status, outcome, created_at FROM player_message_reports WHERE reporter_id = ? ORDER BY id", userId),
-    reportsAboutYou: ((await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_reports WHERE reported_id = ?").get(userId)) as { n: number }).n,
+    reportsMade: await all(
+      "SELECT context_kind, reason, note, status, CASE WHEN outcome = 'restriction_continues' THEN 'action_taken' ELSE outcome END AS outcome, created_at FROM player_message_reports WHERE reporter_id = ? ORDER BY id",
+      userId
+    ),
+    // Reports in a youth thread are not counted here, while open or after: nothing in this person's data may say that one names them (ADR 0049). The
+    // frozen copy of any report is never in a person's own export (it is the reporter's and the venue's evidence), and a report's evidence is never in the
+    // export of the person it names.
+    reportsAboutYou: ((await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_reports WHERE reported_id = ? AND urgent = 0").get(userId)) as { n: number }).n,
     suspensions: await all(
       "SELECT source, reason, created_at, lifted_at, lift_reason FROM player_message_suspensions WHERE user_id = ? ORDER BY id",
       userId
@@ -82,7 +88,8 @@ export async function messagesExport(userId: number): Promise<unknown> {
       consentsForYou: await all("SELECT group_id, granted_at, revoked_at FROM youth_message_consents WHERE minor_user_id = ? ORDER BY id", userId),
       consentsYouGave: await all("SELECT group_id, minor_user_id, participant_id, granted_at, revoked_at FROM youth_message_consents WHERE guardian_user_id = ? ORDER BY id", userId),
       rolesInGroups: await all("SELECT group_id, role, declared_role, created_at, removed_at FROM youth_group_adults WHERE user_id = ? ORDER BY id", userId),
-      pausedInGroups: await all("SELECT group_id, source, created_at, lifted_at FROM youth_thread_mutes WHERE user_id = ? ORDER BY id", userId),
+      // A pause is a pause, whatever placed it: the same one neutral fact for a supervisor's and a report's (ADR 0049).
+      pausedInGroups: await all("SELECT group_id, created_at, lifted_at FROM youth_thread_mutes WHERE user_id = ? ORDER BY id", userId),
       noticeChoiceForChild: await all("SELECT notice_mode FROM youth_guardian_settings WHERE minor_user_id = ?", userId),
       childrenGroupMessages: await (await import("./youth-safeguarding")).youthExportForGuardian(userId),
     },
@@ -97,10 +104,16 @@ export async function messagesExport(userId: number): Promise<unknown> {
 export async function forgetMessagesOfUser(userId: number): Promise<void> {
   const db = getDb();
   await db.prepare("UPDATE player_messages SET body = NULL, sender_label = NULL, removed_at = datetime('now') WHERE sender_id = ?").run(userId);
-  await db.prepare("UPDATE player_message_report_lines SET body = NULL, sender_label = NULL WHERE sender_id = ?").run(userId);
+  // The frozen copy of a report in a youth thread that is held (open, or its restriction still in force) is evidence a safeguarding review may need:
+  // it is kept as it is until the hold ends, then the ordinary report retention applies and the erasure takes it with the rest (ADR 0049).
+  await db.prepare(`UPDATE player_message_report_lines SET body = NULL, sender_label = NULL WHERE sender_id = ? AND report_id NOT IN (${HELD_REPORTS})`).run(userId);
   await db.prepare("UPDATE player_message_reports SET reporter_label = NULL, note = NULL WHERE reporter_id = ?").run(userId);
-  await db.prepare("UPDATE player_message_reports SET reported_label = NULL WHERE reported_id = ?").run(userId);
+  await db.prepare(`UPDATE player_message_reports SET reported_label = NULL WHERE reported_id = ? AND id NOT IN (${HELD_REPORTS})`).run(userId);
 }
+
+/** SQL: the reports in a youth thread whose evidence is held: still open, or the protective restriction they placed is still in force. Exempt from ordinary retention. */
+const HELD_REPORTS = `SELECT hr.id FROM player_message_reports hr
+   WHERE hr.urgent = 1 AND (hr.status = 'open' OR EXISTS (SELECT 1 FROM youth_thread_mutes hm WHERE hm.report_id = hr.id AND hm.lifted_at IS NULL))`;
 
 /**
  * Retention, from the retention job (lib/privacy.ts): a thread whose context has ended is deleted `days` after it ended (messages,
@@ -141,14 +154,18 @@ export async function pruneYouthMessages(threadCutoff: string): Promise<void> {
 }
 
 export async function pruneMessageReports(reportCutoff: string): Promise<void> {
-  await getDb().prepare("DELETE FROM player_message_reports WHERE status = 'reviewed' AND reviewed_at < ?").run(reportCutoff);
+  const db = getDb();
+  // A report is kept until it has been dealt with and the retention has passed, and while a protective restriction it placed is in force (ADR 0049).
+  await db.prepare(`DELETE FROM player_message_reports WHERE status = 'reviewed' AND reviewed_at < ? AND id NOT IN (${HELD_REPORTS})`).run(reportCutoff);
+  // What safeguarding personnel did about a report goes with the report.
+  await db.prepare("DELETE FROM youth_report_actions WHERE report_id NOT IN (SELECT id FROM player_message_reports)").run();
 }
 
 /** How many threads and reports the next prune removes: the retention screen's count. */
 export async function messagesDue(threadCutoff: string, reportCutoff: string): Promise<{ threads: number; reports: number }> {
   const db = getDb();
   const threads = (await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ? AND youth = 0").get(threadCutoff)) as { n: number };
-  const reports = (await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_reports WHERE status = 'reviewed' AND reviewed_at < ?").get(reportCutoff)) as { n: number };
+  const reports = (await db.prepare(`SELECT COUNT(*)::int AS n FROM player_message_reports WHERE status = 'reviewed' AND reviewed_at < ? AND id NOT IN (${HELD_REPORTS})`).get(reportCutoff)) as { n: number };
   return { threads: threads.n, reports: reports.n };
 }
 

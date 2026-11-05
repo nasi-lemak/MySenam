@@ -3,6 +3,8 @@ import { isOwner, type Admin } from "./admin-auth";
 import { logAction } from "./activity";
 import { LIMITS } from "./messages";
 import { kindInUrl, type ContextKind, type SeatLabel } from "./message-contexts";
+import { declaredAdult } from "./player-profiles";
+import { adminIsAccusedIn, adminIsUser, namesTheViewerSql } from "./safeguarding-conflict";
 
 /**
  * What a venue's staff and the platform's owner may do about messages between players (docs/features/player-messages.md#moderation;
@@ -35,6 +37,17 @@ function scopeSql(scope: Scope, column: string): { sql: string; args: number[] }
   if (scope.owner) return { sql: `${column} IS NULL`, args: [] };
   if (scope.venueIds.length === 0) return { sql: "FALSE", args: [] };
   return { sql: `${column} IN (${scope.venueIds.map(() => "?").join(",")})`, args: scope.venueIds };
+}
+
+/**
+ * SQL for the reports a scope may see: a venue's own, the owner's (no venue), and, for the owner, any a venue's staff or a moderator escalated
+ * (ADR 0049). A report in a youth thread that names the viewer (or the same person's staff login) is never among them.
+ */
+function reportScope(scope: Scope, alias: string, admin: Admin): { sql: string; args: (string | number)[] } {
+  const base = scopeSql(scope, `${alias}.venue_id`);
+  const names = namesTheViewerSql(alias, admin);
+  const visible = scope.owner ? `(${base.sql} OR ${alias}.escalated_at IS NOT NULL)` : base.sql;
+  return { sql: `${visible} AND NOT ${names.sql}`, args: [...base.args, ...names.args] };
 }
 
 export type Refused = { ok: false; error: string; status: number };
@@ -72,6 +85,12 @@ export interface MessageReportOut {
   threadState: "open" | "muted" | "closed" | null;
   /** In a supervised youth group's thread: told at once, a longer copy, the reported person muted until it is reviewed. */
   urgent: boolean;
+  /** An urgent report's copy is held back: it is read one report at a time, each reading recorded (lib/youth-report-cases.ts `caseView`). */
+  linesHeld: boolean;
+  /** Escalated to the platform's owner (by a moderator, or because the person reported is staff at the venue). */
+  escalated: boolean;
+  /** A protective restriction (a hold, not a finding) is in force on the reported person's seat. */
+  restricted: boolean;
   reporter: SeatLabel | null;
   /** The reported person: their account number (to suspend them), how they showed, whether their messaging is stopped here, and how many different people have reported them in the window. */
   reported: { userId: number | null; label: SeatLabel | null; suspended: boolean; reporters: number } | null;
@@ -82,13 +101,14 @@ export interface MessageReportOut {
 
 /** Reports in this scope, open first, newest first, a page at a time. */
 export async function listMessageReports(admin: Admin, filter: { status?: "open" | "reviewed"; before?: number; limit?: number } = {}): Promise<MessageReportOut[]> {
-  const scope = scopeSql(scopeOf(admin), "r.venue_id");
+  const scope = reportScope(scopeOf(admin), "r", admin);
   const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
   const db = getDb();
   const rows = (await db
     .prepare(
       `SELECT r.id, r.created_at, r.status, r.outcome, r.reason, r.note, r.context_kind, r.context_id, r.venue_id, r.thread_id, t.staff_state, r.urgent,
-              r.reporter_label, r.reported_label, r.reported_id, r.reviewed_by_name, r.reviewed_at,
+              r.reporter_label, r.reported_label, r.reported_id, r.reviewed_by_name, r.reviewed_at, (r.escalated_at IS NOT NULL) AS escalated,
+              EXISTS (SELECT 1 FROM youth_thread_mutes ym WHERE ym.report_id = r.id AND ym.lifted_at IS NULL) AS restricted,
               EXISTS (SELECT 1 FROM player_message_suspensions s WHERE s.user_id = r.reported_id AND s.lifted_at IS NULL AND (s.venue_id IS NULL OR s.venue_id IS NOT DISTINCT FROM r.venue_id)) AS suspended,
               (SELECT COUNT(DISTINCT x.reporter_id)::int FROM player_message_reports x WHERE x.reported_id = r.reported_id AND x.created_at >= ?) AS reporters
          FROM player_message_reports r LEFT JOIN player_message_threads t ON t.id = r.thread_id
@@ -106,11 +126,12 @@ export async function listMessageReports(admin: Admin, filter: { status?: "open"
     )) as {
     id: number; created_at: string; status: "open" | "reviewed"; outcome: "no_action" | "action_taken" | null; reason: string; note: string | null; context_kind: ContextKind;
     context_id: number; venue_id: number | null; thread_id: number | null; staff_state: "open" | "muted" | "closed" | null; reporter_label: string | null; reported_label: string | null;
-    reported_id: number | null; reviewed_by_name: string | null; reviewed_at: string | null; suspended: boolean; reporters: number; urgent: number;
+    reported_id: number | null; reviewed_by_name: string | null; reviewed_at: string | null; suspended: boolean; reporters: number; urgent: number; escalated: boolean; restricted: boolean;
   }[];
   const out: MessageReportOut[] = [];
   for (const r of rows) {
-    const lines = (await db
+    // The copy of a report in a youth thread is evidence: not in a list, read one report at a time with each reading recorded (youth-report-cases.ts).
+    const lines = r.urgent === 1 ? [] : (await db
       .prepare("SELECT id, sender_label, body, sent_at, flagged FROM player_message_report_lines WHERE report_id = ? ORDER BY id")
       .all(r.id)) as { id: number; sender_label: string | null; body: string | null; sent_at: string; flagged: number }[];
     out.push({
@@ -126,6 +147,9 @@ export async function listMessageReports(admin: Admin, filter: { status?: "open"
       threadId: r.thread_id,
       threadState: r.staff_state,
       urgent: r.urgent === 1,
+      linesHeld: r.urgent === 1,
+      escalated: r.escalated,
+      restricted: r.restricted,
       reporter: parseLabel(r.reporter_label),
       reported: r.reported_id === null ? null : { userId: r.reported_id, label: parseLabel(r.reported_label), suspended: r.suspended, reporters: r.reporters },
       reviewedBy: r.reviewed_by_name,
@@ -136,21 +160,26 @@ export async function listMessageReports(admin: Admin, filter: { status?: "open"
   return out;
 }
 
-/** Mark a report dealt with. Not found for one outside this scope, and for one already reviewed. */
+/**
+ * Mark a report dealt with. Not found for one outside this scope, for one already reviewed, and for one in a youth thread that names this staff
+ * member. A report in a youth thread has a third outcome, `restriction_continues` (it is dealt with and the protective restriction stays in force
+ * until it is lifted), and its review is recorded in the case's own audit, not in the staff activity log (ADR 0049).
+ */
 export async function reviewMessageReport(admin: Admin, id: number, outcome: unknown): Promise<{ ok: true } | Refused> {
-  if (outcome !== "no_action" && outcome !== "action_taken") return no("Say whether anything was needed.");
-  const scope = scopeSql(scopeOf(admin), "venue_id");
+  if (outcome !== "no_action" && outcome !== "action_taken" && outcome !== "restriction_continues") return no("Say whether anything was needed.");
+  const scope = reportScope(scopeOf(admin), "r", admin);
   const done = await getDb()
     .prepare(
-      `UPDATE player_message_reports SET status = 'reviewed', outcome = ?, reviewed_at = datetime('now'), reviewed_by_name = ?
-        WHERE id = ? AND status = 'open' AND ${scope.sql} RETURNING venue_id`
+      `UPDATE player_message_reports r SET status = 'reviewed', outcome = ?, reviewed_at = datetime('now'), reviewed_by_name = ?
+        WHERE r.id = ? AND r.status = 'open' AND (r.urgent = 1 OR ?::text <> 'restriction_continues') AND ${scope.sql} RETURNING r.venue_id, r.urgent, r.context_id`
     )
-    .get(outcome, admin.name, id, ...scope.args) as { venue_id: number | null } | undefined;
+    .get(outcome, admin.name, id, outcome, ...scope.args) as { venue_id: number | null; urgent: number; context_id: number } | undefined;
   if (!done) return no("That report is not here, or it has been dealt with.", 404);
   // A person a report muted in a supervised youth group's thread is paused only until the report is reviewed: nothing needed lifts it.
   if (outcome === "no_action")
     await getDb().prepare("UPDATE youth_thread_mutes SET lifted_at = datetime('now'), lifted_by = ? WHERE report_id = ? AND lifted_at IS NULL").run(admin.name, id);
-  await logAction(admin, { venueId: done.venue_id, action: "messages.report_reviewed", detail: `Report ${id}: ${outcome === "no_action" ? "nothing needed" : "action taken"}` });
+  if (done.urgent === 1) await (await import("./youth-report-cases")).caseAudit(id, done.context_id, admin.name, "reviewed", outcome);
+  else await logAction(admin, { venueId: done.venue_id, action: "messages.report_reviewed", detail: `Report ${id}: ${outcome === "no_action" ? "nothing needed" : "action taken"}` });
   return { ok: true };
 }
 
@@ -170,6 +199,8 @@ export async function setThreadState(admin: Admin, threadId: number, state: unkn
       | { id: number; venue_id: number | null; staff_state: "open" | "muted" | "closed"; youth: number; context_id: number }
       | undefined;
     if (!t || !inScope(scope, t.venue_id)) return no("That conversation is not here.", 404);
+    // A member of staff a report names has no say over the conversation it was made in (ADR 0049).
+    if (t.youth === 1 && (await adminIsAccusedIn(admin, t.context_id))) return no("That conversation is not here.", 404);
     if (t.staff_state === "closed") return no("A conversation closed by staff cannot be opened again.", 409);
     await db
       .prepare("UPDATE player_message_threads SET staff_state = ?, staff_reason = ?, staff_admin_name = ?, staff_at = datetime('now') WHERE id = ?")
@@ -204,9 +235,11 @@ export async function listSuspensions(admin: Admin): Promise<SuspensionOut[]> {
     .prepare(
       `SELECT s.id, s.user_id, split_part(u.name, ' ', 1) AS first_name, s.source, s.venue_id, s.reason, s.admin_name, s.created_at
          FROM player_message_suspensions s JOIN users u ON u.id = s.user_id
-        WHERE s.lifted_at IS NULL AND ${scope.sql} ORDER BY s.id DESC LIMIT 200`
+        WHERE s.lifted_at IS NULL AND ${scope.sql}
+          AND NOT EXISTS (SELECT 1 FROM player_message_reports sr WHERE sr.id = s.report_id AND ${namesTheViewerSql("sr", admin).sql})
+        ORDER BY s.id DESC LIMIT 200`
     )
-    .all(...scope.args)) as { id: number; user_id: number; first_name: string; source: "staff" | "automatic"; venue_id: number | null; reason: string; admin_name: string | null; created_at: string }[];
+    .all(...scope.args, ...namesTheViewerSql("sr", admin).args)) as { id: number; user_id: number; first_name: string; source: "staff" | "automatic"; venue_id: number | null; reason: string; admin_name: string | null; created_at: string }[];
   return rows.map((r) => ({
     id: r.id,
     userId: r.user_id,
@@ -235,11 +268,16 @@ export async function suspendMessaging(admin: Admin, input: { userId: unknown; r
     const db = getDb();
     let venueId: number | null = null;
     let reportId: number | null = null;
+    let aboutYouthReport = false;
     if (Number.isInteger(input.reportId)) {
-      const r = (await db.prepare("SELECT id, venue_id, reported_id FROM player_message_reports WHERE id = ?").get(input.reportId)) as { id: number; venue_id: number | null; reported_id: number | null } | undefined;
-      if (!r || !inScope(scope, r.venue_id) || r.reported_id !== userId) return no("That report is not here.", 404);
+      const r = (await db.prepare("SELECT id, venue_id, reported_id, urgent, escalated_at FROM player_message_reports WHERE id = ?").get(input.reportId)) as
+        | { id: number; venue_id: number | null; reported_id: number | null; urgent: number; escalated_at: string | null }
+        | undefined;
+      if (!r || !(inScope(scope, r.venue_id) || (scope.owner && r.escalated_at !== null)) || r.reported_id !== userId) return no("That report is not here.", 404);
+      if (r.urgent === 1 && (await adminIsUser(admin, r.reported_id))) return no("That report is not here.", 404);
       reportId = r.id;
       venueId = r.venue_id;
+      aboutYouthReport = r.urgent === 1;
     } else if (!scope.owner) return no("Name the report this is about.");
     // A venue's staff can stop somebody in their venue's contexts only; the owner, everywhere.
     if (scope.owner) venueId = null;
@@ -253,10 +291,12 @@ export async function suspendMessaging(admin: Admin, input: { userId: unknown; r
       .get(userId, venueId, reason, admin.name, reportId)) as { id: number } | undefined;
     if (!made) return no("Their messages are already paused here.", 409);
     await logAction(admin, { venueId, action: "messages.suspended", detail: `Person ${userId}${reportId ? `, report ${reportId}` : ""}. ${reason}` });
-    return { ok: true as const, id: made.id };
+    return { ok: true as const, id: made.id, aboutYouthReport };
   });
-  if (done.ok) await (await import("./youth-safeguarding")).tellSuspended(userId).catch(() => undefined);
-  return done;
+  // The person is told their messaging is paused, and a minor's guardians too; but never, by this, of a report in a youth thread, which an adult is told
+  // only in words a moderator writes (ADR 0049).
+  if (done.ok && !(done.aboutYouthReport && (await declaredAdult(userId)) === true)) await (await import("./youth-safeguarding")).tellSuspended(userId).catch(() => undefined);
+  return done.ok ? { ok: true, id: done.id } : done;
 }
 
 /** Lift a suspension, with a reason. A venue lifts its own; the owner lifts platform-wide ones, the automatic ones included. */

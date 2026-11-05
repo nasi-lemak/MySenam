@@ -186,7 +186,14 @@ front desk is turned away).
   suspension, with a reason (a venue its own; the owner platform-wide ones); and, for the
   owner, **confirm** an automatic suspension as their own decision. A suspended person can
   still read, cannot write where the suspension applies, and is told so: on the screen, and at
-  once by email (a `safeguarding_notice`, with their guardians if they are a minor).
+  once by email (a `safeguarding_notice`, with their guardians if they are a minor), **except an
+  adult suspended because of a report in a youth thread, who is told nothing by the system**
+  ([a reported adult is not told](#a-reported-adult-is-not-told)).
+- **A report in a youth group's thread is a case.** Its copy is not in the list: it is read one
+  report at a time, each reading recorded, and the report has its own steps (confirm, extend or lift
+  the protective restriction, escalate, note, notify the reported adult in the moderator's own words)
+  and a third review outcome, *restriction continues*
+  ([a reported adult is not told](#a-reported-adult-is-not-told)).
 
 ## Supervised youth groups
 
@@ -255,21 +262,24 @@ service**, a **link or web address**, and **"DM me" / "add me on" / "my number i
 refused (`PM_CONTACT`): a speed bump, not a guarantee, and nothing understands what a message
 means. A **Report** button is on every message from somebody else.
 
-**Reports are urgent here.** Every report in a youth thread (by or about a minor, or an adult):
+**Reports are urgent here, and a case.** Every report in a youth thread (by or about a minor, or an adult):
 
-- is **told at once** to the supervisors (not the person reported), the live guardians of a
-  minor who reported or was reported, and the venue's managers (the platform's owners where
-  there is no venue), as a `safeguarding_notice` (email, never the text);
-- freezes **the last 50 messages**, not 20;
-- **mutes the reported person in that thread until the report is reviewed**: a review that
-  found nothing needed lifts it; one that took action keeps it until staff lift it (a
-  supervisor cannot lift a pause a report placed). The report shows as *Urgent* to staff.
+- is **told at once** to the live guardians of a minor who reported or was reported (that a
+  report was made, never its content) and to **safeguarding personnel only**: the venue's managers
+  (the platform's owners where there is no venue), as a `safeguarding_notice` (email, never the
+  text). **Not the supervisors, and never the person reported** ([below](#a-reported-adult-is-not-told));
+- freezes **the last 50 messages**, not 20, held as evidence;
+- **restricts the reported person in that thread** at once: a minor can read and cannot write; an
+  adult is paused entirely ([below](#a-reported-adult-is-not-told)). A review that found nothing
+  needed lifts it; one that took action, or that says *restriction continues*, keeps it until
+  safeguarding personnel lift it (a supervisor cannot lift a hold a report placed). The report
+  shows as *Urgent* to staff.
+
 
 **Guardian controls** (on the account page, under *People you manage*, shown only to a guardian
 of a child with a login linked who is in a youth group): see which groups messaging is on in,
 who supervises and which adults were let in; **switch it on or off per group, or off for the
-child everywhere at once** (effective at once; any live guardian's *off* ends every consent for
-that child and group, and the other guardians are told); **read the child's group thread,
+child everywhere at once** (effective at once; see *Guardians in conflict* below); **read the child's group thread,
 read-only**, labelled *as the guardian of {child}*, other children by their short names, each
 read recorded; **block people for the child** (never a supervisor); **choose the notice
 frequency** for the child; **receive** the child's report and moderation notices; and **export**
@@ -290,7 +300,9 @@ a child's account erased turns what they wrote into *message removed*, as for ad
 | Setting | Default | Who can change it | Never |
 | ------- | ------- | ----------------- | ----- |
 | A group is a youth group | No | The organiser (a declared adult) | A venue, on its own |
-| A guardian's consent | **Off** | A live guardian, per child and group; any live guardian's off wins | The child, the organiser, a venue |
+| A guardian's consent | **Off** | A live guardian who decides, per child and group; with no objection one is enough; any guardian's off opens an objection that all who decide must end, or an administrator resolves | The child, the organiser, a venue on its own; another guardian reversing an objection alone |
+| What a guardian may do about messaging | `decides` (every existing link) | A venue's manager or the owner, with a note (the venue's word, never verified) | A guardian for themselves; a member of staff who is the child's guardian |
+| A reported adult's access | Restricted at once, as a hold | Safeguarding personnel: confirm, extend, lift, escalate; no automatic notice, ever | The reported adult or staff who is the same person seeing or lifting it |
 | The child's opt-in | Off | The child | A guardian, for them |
 | Adults in the thread | Only the organiser | The organiser, with a declared role; staff may take one out | Letting an adult in without a supervisor |
 | Rest hours | 22:00 to 07:00 | The install (`YOUTH_QUIET_HOURS`); a group may lengthen | A venue, an organiser or a guardian shortening or removing them |
@@ -302,6 +314,83 @@ a child's account erased turns what they wrote into *message removed*, as for ad
 screen and the notices; whether a guardian's consent recorded this way suffices in a given
 country; the staff-read exception and its lawful basis; the retention periods and the rest
 hours. All wording outside English is machine-assisted and awaits native review.
+
+### Guardians in conflict
+
+*Decided 5 November 2026; [ADR 0049](../architecture/decisions/0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md),
+which amends ADR 0044 (it replaces "any live guardian's off ends consent, any can switch it back on").*
+
+- **Authority is recorded per guardian link, not assumed equal.** A venue's manager (or the owner)
+  records, with a note of a few words and who and when, what a guardian may do about the child's
+  messaging: **`decides`** (every link that exists; may agree and object), **`objects_only`** (may
+  switch it off, never on, and never counts towards restoring it) or **`none`** (no say at all: refused
+  everywhere, shown nothing, told nothing, given none of the child's group messages in an export). **This
+  is the venue's word, applied and recorded, never verified by the app; no documents and no identity
+  numbers are kept.** Never done by a member of staff who is a guardian of that child.
+- **An objection.** A guardian at `decides` or `objects_only` switching messaging off ends every
+  consent and opens an objection. **While it is open no consent counts**: another guardian switching
+  it on records their consent and cannot reverse it. It ends when **every guardian who decides has
+  agreed again** (the objector's own switching on is their withdrawal), or when a **safeguarding
+  administrator** (the venue's manager for a venue's group, the owner for a venue-less group; never the
+  child's supervisor or a guardian of the child) **resolves it with a reason**, which does not switch
+  messaging on: a guardian who decides still has to consent. With no objection one guardian's consent
+  is enough, as before.
+- **Races.** Everything for one child and group serialises on one lock, the guardian's level and
+  relationship read inside it: two guardians changing consent at the same moment end consistently,
+  and **an "on" never wins over a concurrent "off"** in either order of commit.
+- **Minimal disclosure.** The other guardians are told only *"messaging for {child} in {group} is off
+  and needs agreement from all guardians who decide"*; the child, supervisors, the group and venue staff
+  who are not safeguarding administrators see only that messaging is unavailable. Who objected, at what
+  level, and each guardian's recorded level and note are shown to safeguarding administrators only
+  (*Guardians and holds on messaging* on the group's row of *Supervised youth groups*, each reading
+  recorded) and are in the group's record: who, what, when and the level at the time, never a narrative.
+
+### A reported adult is not told
+
+*Decided 5 November 2026; [ADR 0049](../architecture/decisions/0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md),
+which amends ADR 0044. The restriction is **protective and is not a finding of fault**: it assumes
+nothing about the person, and puts the child's safety first.*
+
+- **No notice of a report goes to the reported adult, by any channel**: email, outbox, the thread,
+  the lists, counts and unread badges, the digest, the notification, attention and activity feeds,
+  the staff panels, error messages and HTTP statuses. What they see, **whatever the reason** (a
+  report or a supervisor's pause, so the one cannot be used to infer the other), is one line in the
+  conversation's place, `403 PM_ACCESS_PAUSED`: *Your access to this conversation is paused while
+  the venue reviews it. This is not a finding.* No messages, no count, no thread number, no
+  supervisors. They cannot report or block (`404 PM_NOT_FOUND`), and are in nobody's list of
+  readers.
+- **A reported supervisor or organiser loses those powers while the restriction stands** (they get
+  the answer a stranger gets, `404 YG_NOT_FOUND`, for the group's youth settings and `403
+  YG_SUPERVISOR` for a supervisor's tools), and is not shown as supervising. A conversation left with
+  no supervisor waits for one (`PM_YOUTH_FEW`).
+- **Who is told:** safeguarding personnel (the venue's managers, or the owner for a group with no
+  venue) and the guardians of a minor who reported or was reported. **Conflict-of-interest guard:** a
+  member of staff who is the same person as the one reported (the same account, or a staff login with
+  the same email) is left out of every audience and the report **is not here for them** (the same `404`
+  as for anything that does not exist, in the reports list, the case, every action, the group's staff
+  list, reading and safeguarding screens, the thread's state, the suspensions list); their moderating powers over the group are
+  suspended while it stands; the platform's owners are told instead and the report is escalated to
+  them. The reporting minor's identity is shown only to safeguarding personnel; the reporter's
+  guardians are told that a report was made, not its content.
+- **Evidence:** the frozen copy is **not in any list**; safeguarding personnel read it one report at
+  a time (`?report=<id>`), **each reading recorded** in the case's own audit
+  (`youth_report_actions`, not the staff activity log, which a reported member of staff can read).
+  It is **held** while the report is open or the restriction it placed is in force (an open report is
+  never pruned, as before), and is not cleared by the reported person's erasure while held; it is
+  never in anybody's own *Download my data* (the reported person's export counts no report about them
+  in a youth thread and shows a pause with no source). Erasure is never refused for it.
+- **The case** (`/api/admin/message-moderation`, `action: "case"`): **confirm**, **extend** (put the
+  restriction back in force and keep it past the report's review) or **lift** it, each with a reason;
+  **escalate** to the platform's owner (recorded; the owner is told and sees the report); add a
+  **note**; and **notify the reported adult** in the moderator's own words, **the only way they are
+  ever told** (never automatic; for an adult only; refused if it names the reporter or repeats the
+  reported words). The review outcomes are *nothing needed (restriction lifted)*, *restriction
+  continues* and *action taken*. Every step is recorded with who, what, when and why, never a
+  message's text. The staff screen says the restriction is protective and not a finding.
+- **Automatic suspension** (three different people's reports in thirty days) brought about by
+  youth-thread reports says *paused pending review* and is not told to a reported adult.
+- **Adult-on-adult reports** in a youth thread are treated the same. **Reports in an ordinary (adults')
+  thread are unchanged.**
 
 ## Where to find it
 
@@ -341,6 +430,8 @@ hours. All wording outside English is machine-assisted and awaits native review.
 | Moderation | `src/lib/message-moderation.ts`, `src/app/api/admin/message-moderation/route.ts`, `src/components/admin/MessageReportsPanel.tsx` | `tests/player-messages-safety.test.ts`, `tests/components/player-messages.test.tsx` |
 | Export, erasure, retention | `src/lib/message-privacy.ts`, `src/lib/privacy.ts` | `tests/player-messages-safety.test.ts`, `tests/youth-messages.test.ts` |
 | The player's routes and pages | `src/app/api/messages/`, `src/app/messages/`, `src/components/MessagesLink.tsx` | `tests/player-messages-safety.test.ts`, `tests/components/player-messages.test.tsx` |
+| Guardians in conflict: authority per link, objections, restoring, races (ADR 0049) | `src/lib/youth-consent.ts`, `src/lib/youth-messages.ts`, `src/lib/youth-safeguarding.ts`, `src/components/GuardianMessaging.tsx`, `src/components/admin/YouthGroupsPanel.tsx`, `db/migrations/0291_guardians_in_conflict_and_reported_adults.sql` | `tests/youth-guardian-conflict.test.ts` (races, both engines) |
+| A reported adult is not told: the restriction, the conflict guard, the case, the evidence (ADR 0049) | `src/lib/youth-report-cases.ts`, `src/lib/safeguarding-conflict.ts`, `src/lib/messages.ts`, `src/lib/message-moderation.ts`, `src/lib/message-privacy.ts`, `src/lib/message-digest.ts`, `src/components/admin/MessageReportsPanel.tsx` | `tests/youth-reported-adult.test.ts` |
 | Supervised youth groups: eligibility, supervision, guardian controls, rest hours, limits | `src/lib/youth-messages.ts`, `src/lib/message-contexts.ts`, `src/lib/messages.ts`, `db/migrations/0286_supervised_youth_group_messaging.sql`, `src/app/api/messages/youth/`, `src/app/api/groups/[id]/youth/`, `src/app/api/my/people/messaging/`, `src/components/YouthGroupPanel.tsx`, `src/components/GuardianMessaging.tsx`, `src/app/messages/YouthFirstUse.tsx` | `tests/youth-messages.test.ts`, `tests/youth-messages-races.test.ts` (races, both engines) |
 | Urgent notices, the venue's reading (audited), reports | `src/lib/youth-safeguarding.ts`, `src/lib/message-moderation.ts`, `src/app/api/admin/youth-groups/route.ts`, `src/components/admin/YouthGroupsPanel.tsx` | `tests/youth-safeguarding.test.ts` |
 | The digest | `src/lib/message-digest.ts`, `src/lib/notify.ts` (`tickOutbox`) | `tests/message-digest.test.ts`, `tests/player-messages-contexts.test.ts` |

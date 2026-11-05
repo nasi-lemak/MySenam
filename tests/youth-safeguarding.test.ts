@@ -127,7 +127,7 @@ beforeAll(async () => {
 }, 120_000);
 
 describe("an urgent report in a youth group's thread", () => {
-  it("is told at once to the supervisors, the guardians involved and the platform's owners, never with the text, and not held to the daily limit", async () => {
+  it("is told at once to the guardians involved and the platform's owners (not the supervisors: ADR 0049), never with the text, and not held to the daily limit", async () => {
     const { org, other, g, a, b } = await world();
     const secret = "the-secret-word-cardamom";
     // Sixty lines in the thread first, to see how much is frozen: fifty, more than an ordinary report's twenty.
@@ -144,12 +144,12 @@ describe("an urgent report in a youth group's thread", () => {
     expect(await sendMessage(b.kid.id, "group", g, "my turn")).toMatchObject({ ok: false, code: "PM_YOUTH_MUTED" });
     expect(await threadView(b.kid.id, "group", g)).toMatchObject({ ok: true, view: { canSend: false, whyNot: "PM_YOUTH_MUTED" } });
     expect(await sendMessage(a.kid.id, "group", g, "I am still here")).toMatchObject({ ok: true });
-    // Told at once: the supervisors (not the person reported), each child's guardian, the platform's owners (a group with no venue).
-    const sup = await mailTo(org.email, "safeguarding_notice");
-    expect(sup.length).toBeGreaterThan(0);
+    // Told at once: each child's guardian and the platform's owners (a group with no venue). Not the supervisors (ADR 0049: safeguarding
+    // personnel only, and a supervisor may be the person reported), and not the person reported.
+    expect(await mailTo(org.email, "safeguarding_notice")).toEqual([]);
     expect((await mailTo(a.guardian.email, "safeguarding_notice")).some((m) => m.body.includes("made a report"))).toBe(true);
     expect((await mailTo(b.guardian.email, "safeguarding_notice")).some((m) => m.body.includes("about a message by"))).toBe(true);
-    expect((await mailTo("olive@safeguard.test", "staff_alert")).some((m) => m.subject.includes("youth group"))).toBe(true);
+    expect((await mailTo("olive@safeguard.test", "safeguarding_notice")).some((m) => m.subject.includes("youth group"))).toBe(true);
     expect(await mailTo(other.email, "safeguarding_notice")).toEqual([]);
     // Never the text, never WhatsApp; each queued to send, not written off.
     const all = (await getDb().prepare("SELECT body, params, subject, channel, status FROM messages WHERE kind IN ('safeguarding_notice', 'staff_alert')").all()) as { body: string; params: string; subject: string; channel: string; status: string }[];

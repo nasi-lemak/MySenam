@@ -5,6 +5,15 @@ import { siteName } from "./site";
 import { staffTranslator, type StaffT } from "./staff-i18n";
 import { staffReaderLocale } from "./staff-locales";
 
+/**
+ * What an alert may be told to leave out: people (by staff login email) who are not to be told, and a kind of its own for what is not for the
+ * outbox screens a reported member of staff can read (`safeguarding_notice`, lib/outbox.ts: not listed there, and with no venue).
+ */
+export interface AlertOptions {
+  exceptEmails?: string[];
+  kind?: "staff_alert" | "safeguarding_notice";
+}
+
 /** An alert no longer worth sending a week on (an outbox with no mail server set up for that long). */
 const ALERT_EXPIRES_MINUTES = 7 * 24 * 60;
 
@@ -26,8 +35,9 @@ export function staffSentences(t: StaffT, ...parts: (string | false | null | und
  * a mail server that is down delays it rather than losing it, and the owners
  * can see under Messages how it went.
  */
-export async function tellOwnersEach(write: WriteAlert): Promise<void> {
-  const owners = (await listAdmins()).filter(isOwner);
+export async function tellOwnersEach(write: WriteAlert, opts: AlertOptions = {}): Promise<void> {
+  const except = new Set((opts.exceptEmails ?? []).map((e) => e.toLowerCase()));
+  const owners = (await listAdmins()).filter(isOwner).filter((o) => !except.has(o.email.toLowerCase()));
   for (const owner of owners) {
     const t = staffTranslator(staffReaderLocale(owner.locale));
     const { subject, body } = write(t);
@@ -35,7 +45,7 @@ export async function tellOwnersEach(write: WriteAlert): Promise<void> {
       to: owner.email,
       subject,
       text: `${body}\n\n${t.customer("sl8.mail.ownerFooter", { site: siteName() })}`,
-      kind: "staff_alert",
+      kind: opts.kind ?? "staff_alert",
       expiresMinutes: ALERT_EXPIRES_MINUTES,
       locale: t.locale,
     });
@@ -48,22 +58,23 @@ export async function tellOwnersEach(write: WriteAlert): Promise<void> {
  * `tellOwnersEach`. `managersOnly` leaves out the branch's front desk (a
  * decision that is a manager's: lib/team-forfeits.ts).
  */
-export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opts: { managersOnly?: boolean } = {}): Promise<void> {
+export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opts: AlertOptions & { managersOnly?: boolean } = {}): Promise<void> {
+  const except = new Set((opts.exceptEmails ?? []).map((e) => e.toLowerCase()));
   const people = (await getDb()
     .prepare(
       `SELECT a.email, a.name, a.locale FROM admins a
         WHERE (a.venue_id = ? OR a.business_id = (SELECT business_id FROM venues WHERE id = ?))${opts.managersOnly ? " AND NOT (a.venue_id IS NOT NULL AND a.role = 'desk')" : ""}`
     )
     .all(venueId, venueId)) as { email: string; name: string; locale: string | null }[];
-  for (const p of people) {
+  for (const p of people.filter((x) => !except.has(x.email.toLowerCase()))) {
     const t = staffTranslator(staffReaderLocale(p.locale));
     const { subject, body } = write(t);
     await emailPlain({
       to: p.email,
       subject,
       text: t("r9d.venueMail", { name: p.name, body, site: siteName() }),
-      kind: "staff_alert",
-      venueId,
+      kind: opts.kind ?? "staff_alert",
+      venueId: opts.kind === "safeguarding_notice" ? null : venueId,
       expiresMinutes: ALERT_EXPIRES_MINUTES,
       locale: t.locale,
     });
