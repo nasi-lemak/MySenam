@@ -4654,6 +4654,23 @@ export const ZH: Record<Phrase, string> = {
   "sv1.role.instructor": "指导员",
   "sv1.cal.shift": "值班：{role}",
   "sv1.cal.name": "{venue}：我的班次",
+  "err.LAD3_BOUNDS": "该数字必须是 {min} 到 {max} 之间的整数。",
+  "err.LAD3_EXPIRED": "确认此场地的时间已过，场地已释放。请重新约定时间，届时将再次保留场地。",
+  "err.LAD3_NOT_TENTATIVE": "该场地无需确认。",
+  "err.LAD3_EXTENDED": "确认此场地的时间已延长过一次。",
+  "err.LAD3_NO_EXTENSION": "无法再延长：场地已保留至比赛开始。",
+  "lad3.mail.confirmBy": "请在 {by} 前确认场地，否则将被释放：打开天梯并确认。双方球员都需要确认。",
+  "lad3.mail.confirmed.s": "场地已确认：{l}",
+  "lad3.mail.confirmed.b": "您在 {l} 的挑战场地已确认：{court}，{date} {time}。",
+  "lad3.mail.confirmedBy.s": "请确认场地：{l}",
+  "lad3.mail.confirmedBy.b": "{a} 已确认您在 {l} 的挑战场地。在您也确认之前，场地为您保留。",
+  "lad3.mail.extended.s": "确认时间已延长：{l}",
+  "lad3.mail.extended.b": "场馆已为您延长确认在 {l} 的挑战所保留场地的时间。",
+  "lad3.mail.expired.s": "场地已释放：{l}",
+  "lad3.mail.expired.b": "为您在 {l} 的挑战于 {date} {time} 保留的场地未在时限内确认，已被释放。挑战仍然有效：请重新约定时间，届时将再次保留场地。",
+  "lad3.ui.confirmBy": "请在 {by} 前确认此场地，否则将被释放。",
+  "lad3.ui.waitingOther": "您已确认。{name} 须在 {by} 前确认。",
+  "lad3.ui.confirm": "确认场地",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

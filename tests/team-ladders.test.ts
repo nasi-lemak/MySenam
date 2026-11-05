@@ -22,6 +22,7 @@ import {
   answer,
   challenge,
   confirm,
+  confirmHoldAsPlayer,
   createLadder,
   decide,
   dispute,
@@ -608,5 +609,42 @@ describe("held court time for a team match", () => {
     expect((await getDb().prepare("SELECT released_reason FROM ladder_court_holds WHERE challenge_id = ?").get(made.id)) as { released_reason: string }).toEqual({ released_reason: "forfeited" });
     expect(ok(await answer(c.captain.id, second.id, { accept: true })).hold).toMatchObject({ startMin: 19 * 60 });
     void freeze;
+  });
+
+  it("is tentative until both captains confirm it, and lapses if they do not (ADR 0048): the games' court time is let go whole", async () => {
+    const court = await createCourt({ venueId, name: "Team Confirm Court", sport: "badminton", offPeakRate: 10, peakRate: 12 });
+    if (!court.ok) throw new Error(court.error);
+    const l = await ladder({ courtTime: { on: true, courtIds: [court.court.id] }, settings: { cooldownDays: 0, playDays: 60 } });
+    const a = await side("ConfA");
+    const b = await side("ConfB");
+    await enter(l, a);
+    await enter(l, b);
+    const day = addDays(today, 7);
+    const made = ok(await challenge(b.captain.id, l.id, b.place!, a.place!, { onDate: day, minute: 18 * 60 }));
+    const done = ok(await answer(a.captain.id, made.id, { accept: true }));
+    expect(done.hold).toMatchObject({ tentative: true, endMin: 18 * 60 + 135, confirmedBy: { challenger: false, challenged: false } });
+    const blocks = async () => ((await getDb().prepare("SELECT c.expires_at FROM claims c JOIN blocks k ON k.id = c.block_id JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ? AND c.active").all(made.id)) as { expires_at: unknown }[]);
+    expect((await blocks()).length).toBeGreaterThan(0);
+    expect((await blocks()).every((r) => r.expires_at !== null)).toBe(true);
+    // The captains confirm for their teams (a member who is not the captain is not a side); the second confirmation completes it.
+    expect(ok(await confirmHoldAsPlayer(a.captain.id, made.id)).hold).toMatchObject({ tentative: true, confirmedBy: { challenged: true, challenger: false } });
+    expect(ok(await confirmHoldAsPlayer(b.captain.id, made.id)).hold).toMatchObject({ tentative: false });
+    expect((await blocks()).every((r) => r.expires_at === null)).toBe(true);
+    // A second match that is never confirmed: the whole of its court time is let go, once, both captains told.
+    const c = await side("ConfC");
+    const dd = await side("ConfD");
+    await enter(l, c);
+    await enter(l, dd);
+    const second = ok(await challenge(dd.captain.id, l.id, dd.place!, c.place!, { onDate: day, minute: 10 * 60 }));
+    ok(await answer(c.captain.id, second.id, { accept: true }));
+    await getDb().prepare("UPDATE ladder_court_holds SET confirm_by = now() - interval '1 minute' WHERE challenge_id = ? AND released_at IS NULL").run(second.id);
+    await getDb().prepare("UPDATE claims SET expires_at = now() - interval '1 minute' WHERE kind = 'block' AND block_id IN (SELECT k.id FROM blocks k JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ?)").run(second.id);
+    await ladderHousekeeping();
+    await ladderHousekeeping();
+    expect((await getDb().prepare("SELECT released_reason FROM ladder_court_holds WHERE challenge_id = ?").get(second.id)) as { released_reason: string }).toEqual({ released_reason: "expired" });
+    expect(((await getDb().prepare("SELECT COUNT(*)::int AS n FROM blocks k JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ?").get(second.id)) as { n: number }).n).toBe(0);
+    for (const s of [c, dd]) expect((await mail(s.captain.email)).filter((m) => m.subject.includes("Court let go"))).toHaveLength(1);
+    // The first match's hold is untouched.
+    expect(((await getDb().prepare("SELECT COUNT(*)::int AS n FROM blocks k JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ? AND h.released_at IS NULL").get(made.id)) as { n: number }).n).toBeGreaterThan(0);
   });
 });

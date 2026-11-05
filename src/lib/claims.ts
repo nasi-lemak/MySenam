@@ -2,6 +2,7 @@ import { getDb, withTransaction } from "./db";
 import type { Turnover } from "./booking-rules";
 import { LATEST_MINUTE, freeWithin, instantOf, merge, minuteOfDay, overlaps, rangeLiteral, type Span } from "./interval";
 import { READ_THROUGH_DAYS } from "./claims-archive";
+import { sweepExpiredHolds } from "./ladder-hold-sweep";
 
 /**
  * Claims: everything that occupies a court's time, as exact intervals
@@ -289,8 +290,13 @@ export async function unclaim(source: ClaimSource): Promise<void> {
   if (done.changes === 0) await db.prepare(`DELETE FROM claims_archive WHERE ${SOURCE_COLUMN[source.kind]} = ?`).run(sourceId(source));
 }
 
-/** Waiting-list offers, proposed moves and approval requests' holds past their time stop holding anything. */
+/**
+ * Waiting-list offers, proposed moves and approval requests' holds past their time stop holding anything, and so does a ladder's hold of court
+ * time that its players did not confirm in time (ADR 0048: its block claims carry the confirm-by moment as their `expires_at`; the hold and its
+ * blocks are let go here, so the court is free for whoever it refused).
+ */
 export async function releaseExpiredOffers(courtId?: number): Promise<number> {
+  const holds = (await sweepExpiredHolds()).length;
   const done = await getDb()
     .prepare(
       `UPDATE claims SET active = false
@@ -298,7 +304,7 @@ export async function releaseExpiredOffers(courtId?: number): Promise<number> {
           ${courtId === undefined ? "" : "AND (court_id = ? OR space_id IN (SELECT space_id FROM court_spaces WHERE court_id = ?))"}`
     )
     .run(...(courtId === undefined ? [] : [courtId, courtId]));
-  return done.changes;
+  return done.changes + holds;
 }
 
 /** Something holding a court's time on a day, in that day's minutes. */

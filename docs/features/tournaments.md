@@ -2078,7 +2078,7 @@ now and never rewrites what was held: a hold already made runs its course. When 
   the challenger made, the time the challenged suggested and the challenger accepted, or one the accepter named), the venue
   **holds a court** for the match. A day alone is not a time: nothing is held until a specific time is agreed, which is done
   by one player asking (`propose_move`) and the other agreeing (`agree_move`), and a time later than the day the match has to be played
-  by (`LAD2_AFTER`) is refused.
+  by (`LAD2_AFTER`) is refused. The hold is **tentative until confirmed** (below).
 - **What is held, and where.** The match length (the ladder's *minutes held*, else the sport template's match length; a ladder of teams
   holds its games added up, one court after another as a league does) plus the court's **operational time** (set-up and cleaning) either
   side, as **blocks the hold owns** (`blocks.ladder_hold_id`), the way a team league's fixture holds court time and a tournament's holds its own:
@@ -2092,7 +2092,7 @@ now and never rewrites what was held: a hold already made runs its course. When 
   *pending*: the players pick another time. A challenge is never accepted without the court it was promised. A hold is all of its time or none of it.
 - **Released**, once, with its reason kept (`ladder_court_holds`): the challenge **withdrawn**, **forfeited** (a manager's walkover), **struck** or
   **put back to be played**, **played** (the result confirmed or decided), **lapsed** or **not played in time** (the scheduler), a player **leaving** or
-  **freezing**, the **season ending**, a manager **releasing** it, or the players attaching an **ordinary booking**: *the booking is the court time*, so the hold
+  **freezing**, the **season ending**, a manager **releasing** it, nobody **confirming** it in time (**expired**, below), or the players attaching an **ordinary booking**: *the booking is the court time*, so the hold
   is let go in its favour, and while a booking is attached asking for a time to hold is refused (`LAD2_HAS_BOOKING`). Time freed is offered to the waiting list.
   A hold whose court time was lost (a court taken out of service lets go of the blocks on it, as it does a tournament's) is marked *lost* by the scheduler,
   both players told once, and the challenge stands for them to agree a time again. A hold whose time has passed without a result follows the existing
@@ -2103,9 +2103,39 @@ now and never rewrites what was held: a hold already made runs its course. When 
   **a staff block over held time leaves it and unblocking does not take it**, as for a team league's fixture. A **manager** may **release** a hold or **move** it
   (another day, time or court) with a reason of at least three characters, kept with the hold, logged (`ladder.hold_released`, `ladder.hold_moved`) and told to
   both players (`hold_release`, `hold_move` on `POST /api/admin/ladders/:id`; managers only).
-- **Caps**, so a ladder cannot swallow a venue (install data, `ladder_hold_limits`, seeded with these numbers): at most **8 holds live at once on a ladder**
-  (`LAD2_CAP_LADDER`), and at most **4 holds made in any 7 days for one player's (or team's) challenges**, released ones and moves included, so
-  withdrawing and asking again cannot churn a court (`LAD2_CAP_PLAYER`). A manager's own release or move is not counted against the second.
+- **Caps**, so a ladder cannot swallow a venue: by default at most **8 holds live at once on a ladder** (`LAD2_CAP_LADDER`), and at most **4 holds made in
+  any 7 days for one player's (or team's) challenges**, released and expired ones and moves included, so withdrawing and asking again cannot churn a court
+  (`LAD2_CAP_PLAYER`). A manager's own release or move is not counted against the second, and a move or re-hold, which replaces a hold and adds none, is
+  not counted against the first. These are **defaults** that a manager may change (next two bullets), and they only ever refuse: no limit, however high,
+  holds a court that is not free, because every hold is still claimed under the database's constraints.
+- **Who may change the caps, and how they are resolved** ([ADR 0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md)). The cap that applies to a
+  ladder is its **own override**, else its **venue's setting**, else the **install default** (`ladder_hold_limits`, seeded 8 and 4); each number resolves on its
+  own, and blank goes back to the default above it. A **manager** (not the desk) sets the venue's and each ladder's from the ladder's *Court time* settings, under
+  *Advanced: confirmation and limits* (collapsed; nothing about it is in the guide's setup path), by `POST /api/admin/ladders/:id`
+  `{ action: "hold_limits", scope: "venue" | "ladder", maxLive?, maxWeek?, reason? }`. A number must be a whole number inside the install's **bounds**
+  (`ladder_hold_limits.live_min`/`live_max`/`week_min`/`week_max`, seeded 1 to 50 live and 1 to 20 per week); outside them it is refused with the bounds
+  (`LAD3_BOUNDS`) and nothing changes. Every change is logged (`ladder.hold_limits`: who, the number before and after, the reason if given). A change applies to
+  holds made from now on and **never releases a hold**: set below what is in use, it only stops new ones (the screen says so and shows the number in use). The desk
+  sees the numbers and where each comes from; players and the public never do.
+- **A hold is tentative until confirmed, and expires** (a ladder setting, *A held court has to be confirmed by both players*, `needsConfirmation`, **on unless a
+  manager turns it off**; with it off every hold is confirmed when made, as in the first version). A tentative hold holds the court exactly as a confirmed one does,
+  and is shown as *not yet confirmed*, with who has confirmed and when it lapses. **Both players confirm it** (`{ action: "confirm_hold" }` on the challenge; the
+  other is told when one does), **or a manager confirms for both** (`hold_confirm`, logged `ladder.hold_confirmed`). It lapses at its **confirm-by** moment:
+  the install's window after it was made (`ladder_hold_limits.confirm_hours`, 48), but never later than the match's start less the minimum notice
+  (`min_notice_minutes`, 120), and a match arranged so late that this has gone lapses at the latest **at its start**. A manager may give it **more time once**, with a
+  reason (`hold_extend`, logged `ladder.hold_extended`, by `extend_hours`, 24, never past the start); one that has lapsed is not brought back. A move the
+  players agree keeps the state of the hold it replaces (a confirmed one stays confirmed, a tentative one gets a fresh window), and anything a manager makes
+  is confirmed. A hold made before this existed counts as confirmed and never expires. Confirmed, a hold lasts as before: until it is played, not played in time,
+  withdrawn, forfeited or the rest of the endings above.
+- **What expiry does, and when.** A lapsed hold is **released as `expired`** (by the system, with its blocks and claims gone), both players are told **once** that
+  the court is free and the challenge is back to arranging a time (it stays *accepted* with the day and no time; either player can ask for a time again), and the
+  time is offered to the waiting list. It is enforced **without waiting for the scheduler**: the hold's claims carry the lapse moment as their expiry, so every availability read
+  (the booking page, the counter, the API) already treats it as free, and a booking, staff block or another hold that meets it lets it go on the spot; the scheduler
+  then tidies up and tells the players. It counts towards the player's week, like any hold made. Refusals: `LAD3_EXPIRED` (confirming after it lapsed),
+  `LAD3_NOT_TENTATIVE`, `LAD3_EXTENDED`, `LAD3_NO_EXTENSION`.
+- **No two holds overlap**, however they are made: the court time is claims under the exclusion constraints (so a booking, a class, a tournament or league block, a
+  staff block or another ladder's hold cannot overlap it), and the table of holds has its own exclusion constraint on a court's live holds as a backstop
+  (migration 0290; a hold made before it has no range recorded and conflicts with nothing at that level, its blocks still being under the claims constraints).
 - **Notices and privacy.** The players' notices carry the court and time. The public ladder page and `GET /api/ladders/:id` show **no challenge, no court and no
   time**, as before; a hold is seen by the two sides and staff only, and another family never sees a child's challenge.
 - The booking page shows held time as unavailable, as it does a tournament's or a team league's; it does not say what it is held for.
@@ -2286,7 +2316,7 @@ it is for adults' teams (a ladder of teams is never a junior ladder; a team may 
 | Swiss for counted performance events: groups formed from the standing, the cumulative rule, corrections flagged and regrouped with a preview, leavers, court time, the day, names, never rated | `src/lib/swiss-performances.ts`, `src/lib/tournaments.ts` (`performanceOf`, `recordPerformancesOnce`, `makeDraw`), `src/lib/tournament-rules.ts` (`swissRefusal`), `src/lib/official-performances.ts`, `src/components/admin/SwissPerformancePanel.tsx`, `src/components/SwissPerformanceStandings.tsx`, `src/components/admin/CountedGrid.tsx`, `db/migrations/0279_swiss_acceleration_and_performance_swiss.sql` | `tests/swiss-performances.test.ts` (PGlite and Postgres), `tests/components/swiss-tiebreaks.test.tsx` |
 | Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts`, `tests/ladder-public.test.ts` (what the public is and is not shown) |
 | A ladder challenge holds no court time by default; the ordinary booking it may carry (attach, drop on cancellation) | `src/lib/ladders.ts` (`attachBooking`, `detachBooking`, `ladderBookingCancelled`), `src/lib/store.ts` (the hook), `src/app/api/ladders/[id]/challenges/[challengeId]/route.ts`, `src/app/ladders/[id]/page.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/ladder-court-time.test.ts` |
-| Court time held by the venue for accepted ladder challenges (optional, off by default): the hold, court choice, refusal, release in every ending, move, attached booking, loss, caps, races, staff release and move | `src/lib/ladder-holds.ts`, `src/lib/ladder-holds-constants.ts`, `src/lib/ladders.ts` (`holdFor`, `proposeMove`, `answerMove`, `staffHold`, `changeCourtTime`, `letGo`), `src/lib/store.ts` (`ladderHoldId` on blocks), `src/app/api/admin/ladders/[id]/route.ts`, `src/app/ladders/[id]/page.tsx`, `src/components/admin/LaddersPanel.tsx`, `db/migrations/0283_ladder_court_time_and_team_ladders.sql` | `tests/ladder-held-court-time.test.ts` (PGlite and Postgres), `tests/ladder-court-time.test.ts` (the default) |
+| Court time held by the venue for accepted ladder challenges (optional, off by default): the hold, court choice, refusal, release in every ending, move, attached booking, loss, caps, races, staff release and move | `src/lib/ladder-holds.ts`, `src/lib/ladder-holds-constants.ts`, `src/lib/ladders.ts` (`holdFor`, `proposeMove`, `answerMove`, `staffHold`, `changeCourtTime`, `letGo`), `src/lib/store.ts` (`ladderHoldId` on blocks), `src/app/api/admin/ladders/[id]/route.ts`, `src/app/ladders/[id]/page.tsx`, `src/components/admin/LaddersPanel.tsx`, `db/migrations/0283_ladder_court_time_and_team_ladders.sql`, `src/lib/ladder-hold-sweep.ts`, `db/migrations/0290_ladder_hold_limits_and_expiry.sql` | `tests/ladder-held-court-time.test.ts` (PGlite and Postgres), `tests/ladder-hold-limits-and-expiry.test.ts` (PGlite and Postgres), `tests/ladder-court-time.test.ts` (the default) |
 | Ladders of persistent teams: entering by the captain, challenges between teams, lineups, games reported and confirmed by the team league's checks, forfeits asked for and decided by a manager, a team leaving, privacy, ratings, held court time for a team match | `src/lib/team-ladders.ts`, `src/lib/team-forfeits.ts` (the ladder's requests), `src/lib/team-leagues.ts` (`checkRubbers`, `lineupRefusal`), `src/lib/ladders.ts`, `src/lib/ratings.ts` (the *team* facts of a ladder), `src/app/api/admin/ladders/[id]/forfeit-requests`, `src/app/ladders/[id]/page.tsx`, `src/components/admin/LaddersPanel.tsx`, `db/migrations/0283_ladder_court_time_and_team_ladders.sql` | `tests/team-ladders.test.ts` (PGlite and Postgres), `tests/team-leagues.test.ts` (the shared lineup and result checks) |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 

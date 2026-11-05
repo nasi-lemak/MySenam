@@ -3,7 +3,7 @@ import { logAction } from "@/lib/activity";
 import { readJsonObject, refusal } from "@/lib/api";
 import { getDb } from "@/lib/db";
 import { ladderResponse, staffLadder } from "@/lib/ladder-access";
-import { changeCourtTime, changeSettings, decide, endSeason, freeze, ladderDetail, leave, moveTo, staffHold, thaw, type Decision, type LadderSettings } from "@/lib/ladders";
+import { changeCourtTime, changeHoldLimits, changeSettings, decide, endSeason, freeze, ladderDetail, leave, moveTo, staffHold, thaw, type Decision, type LadderSettings } from "@/lib/ladders";
 import { setEventRated } from "@/lib/ratings";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
  * `{ action: "thaw", playerId }`. Each is in the activity log, with the reason where it has one.
  *
  * Court time (the venue holds a court for an accepted challenge, no money moving; off unless turned on): `{ action: "court_time", on?, courtIds?,
- * minutes? }`; `{ action: "hold_release", challengeId, reason }` lets a challenge's hold go; `{ action: "hold_move", challengeId, onDate, minute, courtId?,
+ * minutes?, needsConfirmation? }`; `{ action: "hold_limits", scope: "venue" | "ladder", maxLive?, maxWeek?, reason? }` sets the caps (a number within the
+ * install's bounds, `null` for the default above; `LAD3_BOUNDS`); `{ action: "hold_confirm", challengeId, reason? }` confirms a tentative hold for both
+ * players and `{ action: "hold_extend", challengeId, reason }` gives it more time, once (ADR 0048); `{ action: "hold_release", challengeId, reason }` lets a challenge's hold go; `{ action: "hold_move", challengeId, onDate, minute, courtId?,
  * reason }` moves it (the new time is held first; refused with the reason, the old court staying held, if it cannot be). A ladder of teams decides a
  * match with `{ action: "decide", challengeId, reason, rubbers: [{ winner: "home" | "away", score?, walkover? }] }` (the challenger's side is `home`).
  */
@@ -44,9 +46,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   };
 
   if (body.action === "court_time") {
-    const done = await changeCourtTime(found.id, { on: body.on, courtIds: body.courtIds, minutes: body.minutes });
+    const done = await changeCourtTime(found.id, { on: body.on, courtIds: body.courtIds, minutes: body.minutes, needsConfirmation: body.needsConfirmation });
     if (!done.ok) return ladderResponse(done);
-    await log("ladder.court_time", done.value.courtTime.on ? `the venue holds court time for accepted challenges (${done.value.courtTime.matchMinutes} minutes)` : "the venue does not hold court time for challenges");
+    await log(
+      "ladder.court_time",
+      `${done.value.courtTime.on ? `the venue holds court time for accepted challenges (${done.value.courtTime.matchMinutes} minutes)` : "the venue does not hold court time for challenges"}; ${done.value.courtTime.needsConfirmation ? "a hold has to be confirmed by both players" : "a hold is confirmed when made"}`
+    );
+  } else if (body.action === "hold_limits") {
+    // The caps on held court time (ADR 0048): the venue's or this ladder's, within the install's bounds. Logged with who, before and after, and why.
+    const scope = body.scope === "venue" ? "venue" : "ladder";
+    const done = await changeHoldLimits(found.id, scope, { maxLive: body.maxLive, maxWeek: body.maxWeek });
+    if (!done.ok) return ladderResponse(done);
+    const { before: was, after: now } = done.value;
+    const of = (v: typeof was) => (scope === "venue" ? v.venue : v.ladder);
+    const show = (n: number | null) => (n === null ? "default" : String(n));
+    await log(
+      "ladder.hold_limits",
+      `${scope === "venue" ? "the venue's" : "this ladder's"} caps on held court time: live per ladder ${show(of(was).maxLivePerLadder)} to ${show(of(now).maxLivePerLadder)}, per player in 7 days ${show(of(was).maxPerPlayerWeek)} to ${show(of(now).maxPerPlayerWeek)}${reason.trim() ? ` (${reason.trim().slice(0, 200)})` : ""}`
+    );
+  } else if (body.action === "hold_confirm" || body.action === "hold_extend") {
+    const challenge = (before.challenges ?? []).find((c) => c.id === Number(body.challengeId));
+    if (!challenge) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    const done = await staffHold(challenge.id, by, body.action === "hold_confirm" ? { confirm: true } : { extend: true }, reason);
+    if (!done.ok) return ladderResponse(done);
+    await log(
+      body.action === "hold_confirm" ? "ladder.hold_confirmed" : "ladder.hold_extended",
+      `${challenge.challengerName} v ${challenge.challengedName}${reason.trim() ? ` (${reason.trim().slice(0, 200)})` : ""}`
+    );
   } else if (body.action === "hold_release" || body.action === "hold_move") {
     const challenge = (before.challenges ?? []).find((c) => c.id === Number(body.challengeId));
     if (!challenge) return NextResponse.json({ error: "Not found." }, { status: 404 });

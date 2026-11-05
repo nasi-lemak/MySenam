@@ -3166,6 +3166,8 @@ export interface BlockDetails {
   teamFixtureId?: number | null;
   /** A ladder's hold of court time for an accepted challenge (lib/ladder-holds.ts): the hold owns it, so a staff block or unblock leaves it. */
   ladderHoldId?: number | null;
+  /** A ladder hold not yet confirmed lapses then (ADR 0048): its claims stop holding the court from that moment, without anything running. */
+  expiresAt?: Date | null;
 }
 
 /** Write one block and claim its time. Throws `23P01` when something holds it. */
@@ -3190,7 +3192,7 @@ async function writeBlock(court: Court, date: string, span: Span, zone: string, 
       details.teamFixtureId ?? null,
       details.ladderHoldId ?? null
     )) as { id: number };
-  await claim({ court, source: { kind: "block", blockId: row.id }, date, span, zone, places: details.places ?? court.capacity });
+  await claim({ court, source: { kind: "block", blockId: row.id }, date, span, zone, places: details.places ?? court.capacity, expiresAt: details.expiresAt ?? null });
   return row.id;
 }
 
