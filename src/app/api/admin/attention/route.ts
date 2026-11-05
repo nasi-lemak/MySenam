@@ -5,6 +5,7 @@ import { closeNoticeTask, guardianReviews, openNoticeTasks } from "@/lib/contact
 import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent";
 import { overdueRefunds } from "@/lib/payments";
 import { classCoachConflicts } from "@/lib/class-coaches";
+import { uncoveredSessions } from "@/lib/rosters";
 import { jsonObject } from "@/lib/api";
 import { strandedByLaunch } from "@/lib/launch-worklist";
 import { listVenues } from "@/lib/store";
@@ -28,6 +29,7 @@ async function launchStranded(venueIds: number[] | null) {
  * And `classCoachConflicts`: upcoming sessions of classes taught by one of the venue's coaches who has since been retired, is on
  * days off then, works other hours or is not held for it.
  * And `launchStranded`: bookings and classes to come that a launch or tide window now leaves outside it, by venue (ADR 0037).
+ * And `uncovered`: sessions to come with too few qualified people rostered, for a manager to decide (lib/rosters.ts).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -41,6 +43,7 @@ export async function GET(req: NextRequest) {
     // Upcoming class sessions whose coach cannot teach them as set (lib/class-coaches.ts): never silently dropped.
     classCoachConflicts: await classCoachConflicts(admin.venueIds),
     launchStranded: await launchStranded(admin.venueIds),
+    uncovered: await uncoveredSessions(admin.venueIds),
   });
 }
 

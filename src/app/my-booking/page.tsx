@@ -44,7 +44,12 @@ interface Result {
   movedLesson?: MovedLessonOffer | null;
   /** This booking's own signed link (lib/booking-access.ts): put in the address once it is found. */
   link?: string;
+  /** The roles supervising it, where the activity asks for somebody on shift: the role, never the person (lib/rosters.ts). */
+  supervisedBy?: { key: string; name: string }[];
 }
+
+/** The customer dictionary's words for the roles a venue starts with; a role of its own is shown as the venue named it. */
+const ROLE_WORDS = { range_officer: "sv1.role.range_officer", lifeguard: "sv1.role.lifeguard", instructor: "sv1.role.instructor" } as const;
 
 export default function MyBookingPage() {
   const t = useT();
@@ -308,6 +313,9 @@ export default function MyBookingPage() {
               [t("mine.time"), `${formatHour(b.startHour, t.locale)} – ${formatHour(b.endHour, t.locale)}`],
               // Who takes part, where the booking is for somebody else (a child; ADR 0023).
               [t("mine.bookedBy"), b.participantName ? `${b.name} · ${t("guard.forLine", { name: b.participantName })}` : b.name],
+              ...(result.supervisedBy?.length
+                ? [[t("sv1.supervisedBy"), result.supervisedBy.map((r) => (r.key in ROLE_WORDS ? t(ROLE_WORDS[r.key as keyof typeof ROLE_WORDS]) : r.name)).join(", ")]]
+                : []),
               ...(result.addons?.length
                 ? [[t("done.extras"), result.addons.map((a) => `${a.quantity} × ${a.name} (${money(a.unitPrice)})`).join(", ")]]
                 : []),

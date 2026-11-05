@@ -13,6 +13,7 @@ import type { Court, Venue } from "@/lib/types";
 import type { AdminCourtSlots, ScheduleEntry } from "@/lib/store";
 import type { StaffT } from "@/lib/staff-i18n";
 import { todayLocal } from "./shared";
+import { supervisorsText } from "./RosterPanel";
 import { useStaffT } from "./StaffLanguage";
 import { WaitlistJoin, WaitlistQueue } from "./WaitlistJoin";
 import { isDay, UpdatedNote, useAddressed, useAutoRefresh } from "./place";
@@ -389,6 +390,7 @@ export function ScheduleTab({
                       <li key={i} className={e.kind === "buffer" ? "text-slate-400" : "text-slate-700"}>
                         {formatMinute(e.start, t.locale)}–{formatMinute(e.end, t.locale)} · {t("sch.minutes", { n: e.end - e.start })} · {(e.phrase ? t.say(e.phrase) : e.label) || kinds[e.kind]}
                         {e.places ? ` · ${t.plural("sch.places", e.places)}` : ""}
+                        {e.supervisors ? ` · ${supervisorsText(t, e.supervisors)}` : ""}
                       </li>
                     ))}
                   </ul>

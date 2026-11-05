@@ -11,6 +11,7 @@ import { ApprovalSettings, ApprovalsReview, SupervisedAttendance } from "./Appro
 import { ApprovalHolds } from "./ApprovalRetention";
 import { OutagesPanel } from "./OutagesPanel";
 import { LaunchWindowsPanel } from "./LaunchWindowsPanel";
+import { RosterPanel } from "./RosterPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ConcessionsEditor } from "./ConcessionsEditor";
 import { ResourceHeadings } from "./ResourceHeadings";
@@ -437,6 +438,7 @@ export function CourtsTab({
           <LaunchWindowsPanel key={venue.id} venueId={venue.id} courts={venue.courts} />
         </ManagerOnly>
       )}
+      {venue && <RosterPanel key={venue.id} venue={venue} />}
 
       {door && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">

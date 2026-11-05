@@ -46,6 +46,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | Open games, suggested games and players, invitations, private games, weekly games, community groups, blocking and reporting | [Open games and matchmaking](features/matchmaking.md) |
 | Messages between players: the contexts a conversation can be in, adults who opted in, text with no contact details, limits, notices that never carry the message, blocking, reports, moderation by the venue that owns the context | [Messages between players](features/player-messages.md) |
 | Check-in, unstaffed hours, equipment hire, notes, waivers, hire enquiries, booking alerts | [Venue operations](features/venue-operations.md) |
+| Check-in, unstaffed hours, who supervises a session (rosters, qualifications), equipment hire, notes, waivers, hire enquiries, booking alerts | [Venue operations](features/venue-operations.md) |
 | How MySenam fits a kind of venue (public), the adaptive setup journey, the personalised operating playbook, contextual help | [The venue guide](features/venue-guide.md) |
 | Search, near me, facilities, photos, reviews, notices, SEO, installing as an app | [Discovery](features/discovery.md) |
 | Reports, exports, sales journal, activity log | [Reporting](features/reporting.md) |
@@ -111,6 +112,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0041 Live accounting: a venue's sales pushed to Xero, optional, behind a provider interface](architecture/decisions/0041-live-accounting-push-to-xero.md)
 [0040 Court time held for ladder challenges, and ladders of persistent teams](architecture/decisions/0040-ladder-court-time-and-team-ladders.md)
 [0038 Swiss: accelerated pairing, a tie-break screen, and Swiss for performance events](architecture/decisions/0038-swiss-acceleration-tie-break-screen-and-performance-swiss.md)
+[0036 Who supervises a session: rosters, qualifications and supervision rules, asked in the one booking path](architecture/decisions/0036-who-supervises-a-session.md)
 
 ## Integrations
 

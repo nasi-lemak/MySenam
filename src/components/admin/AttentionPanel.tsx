@@ -6,9 +6,10 @@ import type { UrgentNotice } from "@/lib/urgent";
 import type { OverdueRefunds } from "@/lib/payments";
 import type { GuardianReviews, NoticeTask } from "@/lib/contact-guardians";
 import type { ClassCoachConflict } from "@/lib/class-coaches";
+import type { UncoveredSession } from "@/lib/rosters";
+import { formatMinute } from "@/lib/interval";
 import { money } from "@/lib/region";
 import { formatHour } from "@/lib/time";
-import { formatMinute } from "@/lib/interval";
 import type { Stranded } from "@/lib/launch-worklist";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
@@ -78,6 +79,8 @@ export function AttentionPanel() {
     guardianReviews?: GuardianReviews[];
     classCoachConflicts?: ClassCoachConflict[];
     launchStranded?: { venueId: number; count: number; items: Stranded[] }[];
+    /** Sessions to come with too few qualified people rostered (lib/rosters.ts), for a manager to decide. */
+    uncovered?: UncoveredSession[];
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +108,8 @@ export function AttentionPanel() {
   // Booked time a launch or tide window now leaves outside it (ADR 0037): nothing was cancelled.
   const stranded = data?.launchStranded ?? [];
   const coachConflicts = data?.classCoachConflicts ?? [];
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0)) return null;
+  const uncovered = data?.uncovered ?? [];
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0)) return null;
 
   /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
   async function guardianTold(taskId: number) {
@@ -127,6 +131,25 @@ export function AttentionPanel() {
         <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900">
           <strong>{t("gw5.att.reviews")}</strong>{" "}
           {reviews.map((r) => t("gw5.att.reviewLine", { venue: r.venueName, waiting: r.waiting, due: r.datesDue })).join(" ")}
+        </div>
+      )}
+      {uncovered.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900">
+          <strong>{t.plural("rs1.att.title", uncovered.length)}</strong>
+          <p className="mt-0.5 text-xs">{t("rs1.att.help")}</p>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {uncovered.slice(0, 8).map((u) => (
+              <li key={`${u.kind}:${u.id}`}>
+                {t("rs1.att.line", {
+                  when: `${u.date} ${formatMinute(u.startMin, t.locale)}`,
+                  court: u.courtName,
+                  what: u.kind === "booking" ? (u.code ?? u.name) : u.name,
+                  roles: u.roles.map((r) => `${r.needed} × ${t.known(`rs1.role.${r.roleKey}`) ?? r.roleName}`).join(", "),
+                })}
+              </li>
+            ))}
+          </ul>
+          {uncovered.length > 8 && <p className="mt-1 text-xs">{t("rs1.att.more", { n: uncovered.length - 8 })}</p>}
         </div>
       )}
       {tasks.length > 0 && (
@@ -202,7 +225,7 @@ export function AttentionPanel() {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 ? t("att.title") : t("att.nothing")}
+          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 ? t("att.title") : t("att.nothing")}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">

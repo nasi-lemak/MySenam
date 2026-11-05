@@ -12,7 +12,7 @@ import { courtFor, courtOffers } from "./court-activities";
 import { getDb, withTransaction } from "./db";
 import { holdNewBookings, holdPolicy } from "./holds";
 import { venueAheadDays } from "./house-rules";
-import { instantOf } from "./interval";
+import { instantOf, overlaps } from "./interval";
 import { customerMayBook } from "./limits";
 import { accountLocale, emailPlain, emailPlayer } from "./outbox";
 import { phoneRefusal } from "./phone-check";
@@ -1150,6 +1150,8 @@ async function holdSlot(requestId: number, venueId: number, sport: Sport, slot: 
   const ahead = (startsAt.getTime() - Date.now()) / 60_000;
   if (ahead <= 0 || !isBookableDate(slot.date, day.zone, await venueAheadDays(venueId))) return bad;
   if (policyBreaches(day.policy, span, day, ahead).length > 0) return bad;
+  // Nobody qualified rostered for some of it, where the activity asks for somebody (lib/rosters.ts): the booking it may become would be refused.
+  if (day.unsupervised?.some((g) => overlaps(g, span))) return bad;
   const until = new Date(Math.min(Date.now() + holdHours * HOUR, startsAt.getTime()));
   try {
     await withTransaction(() =>

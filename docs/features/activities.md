@@ -691,7 +691,7 @@ codes), `tests/sports.test.ts`, `tests/capacity.test.ts` and
 | Cycling | Fitness | Bike hire (sizes as resources of their own); spin as classes | Basic | Track or velodrome sessions run in heats |
 | Climbing | Specialist | Wall with places, per climber, belay sign-off by default; day passes and entry with no set time where the venue turns it on; a competition by height as a [counted performance](tournaments.md#counted-performances) (a route's highest hold, groups then a final, not rated) | Full | Competitions: lead qualification over two routes, speed climbing, semi-final rounds |
 | Bouldering | Specialist | Wall with places, per climber; day passes and entry with no set time where the venue turns it on; a competition by tops and zones as a [counted performance](tournaments.md#counted-performances) (judged per boulder from a phone, qualification groups then a final, not rated) | Full | Competitions: semi-final rounds, bonus-style scoring, timing and rotating groups through the boulders |
-| Archery | Specialist | Lanes, per archer, range-briefing sign-off by default | Basic | Scheduling a range officer per session |
+| Archery | Specialist | Lanes, per archer, range-briefing sign-off by default; a range officer rostered for each session where the venue asks for one ([who supervises a session](venue-operations.md#who-supervises-a-session)) | Basic | — |
 | Bowling | Specialist | Lanes sold by the game, per player, the lane given on arrival; shoe hire as an extra | Full | — |
 | An operator's own activity | Any | Any | Basic until reviewed | Whatever its workflow needs beyond the models above |
 
