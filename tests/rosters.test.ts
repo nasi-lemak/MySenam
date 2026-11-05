@@ -41,8 +41,10 @@ import {
   getAdminSlots,
   getAvailability,
   getBookingById,
+  joinSlotWaitlist,
   moveBooking,
   moveTargetsFor,
+  quoteFor,
   rescheduleBooking,
   listBookingsForDate,
 } from "../src/lib/store";
@@ -287,6 +289,28 @@ describe("the one booking path", () => {
     const sat = ahead(6, 12);
     for (const channel of ["staff", "api"] as const)
       expect(await createBooking({ courtId: archery, date: sat, hours: [10], name: "Online Ola", phone: await signedPhone(), by: channel })).toMatchObject({ ok: false, code: "SV1_NO_SUPERVISOR" });
+  });
+
+  it("is asked of a customer booking online too", async () => {
+    const court = await createCourt({ venueId, name: "Court 13", sport: "badminton", offPeakRate: 20, peakRate: 20, capacity: 1 });
+    if (!court.ok) throw new Error("court");
+    // Nobody is rostered as a lifeguard, so a court that asks for one cannot be booked by anybody.
+    ok(await setRule(venueId, { courtId: court.court.id, roleId: roleGuard.id, needed: 1 }));
+    expect(await createBooking({ courtId: court.court.id, date: ahead(2, 12), hours: [10], name: "Online Ola", phone: phone(), by: "customer" })).toMatchObject({ ok: false, code: "SV1_NO_SUPERVISOR", vars: { role: "Lifeguard" } });
+  });
+
+  it("is asked of a quote too, so the price is never shown for an hour that cannot be booked", async () => {
+    const tue = ahead(2, 12);
+    expect(await quoteFor({ courtId: archery, date: tue, hours: [10] })).toMatchObject({ ok: true, allowed: true });
+    expect(await quoteFor({ courtId: archery, date: tue, hours: [18] })).toMatchObject({ ok: true, allowed: false, refusal: { code: "SV1_NO_SUPERVISOR" } });
+  });
+
+  it("is asked of the waiting list: nobody queues for time that could not be booked", async () => {
+    const tue = ahead(2, 12);
+    // 10:00 is held and covered: the queue takes them. 18:00 has nobody rostered: the offer could never be booked.
+    const held = await joinSlotWaitlist({ courtId: archery, date: tue, start: 10 * 60, end: 11 * 60, name: "Cy Queue", phone: await signedPhone(), madeBy: { channel: "staff", adminId: ann.id, name: "Ann Officer" } });
+    expect(held, JSON.stringify(held)).toMatchObject({ ok: true });
+    expect(await joinSlotWaitlist({ courtId: archery, date: tue, start: 18 * 60, end: 19 * 60, name: "Cy Queue", phone: await signedPhone(), madeBy: { channel: "staff", adminId: ann.id, name: "Ann Officer" } })).toMatchObject({ ok: false, code: "SV1_NO_SUPERVISOR" });
   });
 
   it("checks each week of a series: skipped and named when asked to, otherwise the whole series is refused", async () => {

@@ -670,6 +670,115 @@ reason is required either way, and who decided, when and why is kept on the
 induction, in the participant's history and in the activity log. Front desk
 cannot do it.
 
+## Who supervises a session
+
+A range, a pool, open water and a climbing wall are never left to run unstaffed
+(`supervised` in [the catalogue](activities.md#the-catalogue); the two dials
+above). That says the venue is staffed, not that somebody with the right
+qualification is on, nor who. A venue can say which activity needs whom, roster
+its people, and sell the hours only where they are covered
+([ADR 0036](../architecture/decisions/0036-who-supervises-a-session.md);
+*Courts & rates → Who supervises sessions*). A venue that marks nothing is as it
+was.
+
+**Roles** are the venue's own data. Every venue starts with *range officer*,
+*lifeguard* and *instructor*; it can add its own (*pool attendant*) and turn a
+role off (not while a rule still asks for it). A role may name the
+qualification a holder must have: the starters suggest one (*Range officer
+certificate*, and so on), which the venue may change or clear. Until a person's
+is recorded, their shifts in that role count for nothing, and the roster says so.
+
+**Qualifications** are what the venue saw, not a sign-off (a
+[sign-off](activities.md#sign-offs) is a customer's clearance to book): the
+name, a reference (never a document) and the last day it holds, for a member of
+staff or a coach. A shift counts only to the end of that last day; one that
+outlasts it is flagged on the roster ("ends on …, before some shifts to come"),
+never silently valid.
+
+**The roster** is a weekly pattern (a person, a role, a weekday, from and to;
+a shift may run past midnight, 22:00 to 06:00) with dated exceptions: an extra
+shift on one date, or leave (from a time, or the whole day). The people are the
+venue's own staff accounts and its coaches. Times are the venue's wall clock,
+turned into instants with the zone's offset on the day, as bookings are. A
+manager edits it as a weekly grid; front desk sees all of it and changes none
+of it. A coach is one person with one schedule: while teaching a lesson they
+are not available to supervise another session, and while named to supervise one
+at a time they cannot be taken for a lesson then (the lesson is refused with
+the coach's usual "taken" answer). Supervising is not teaching: one officer may
+be named on several lanes at once, so *n* is people on shift, not sessions each
+may watch (a venue that wants an officer per lane asks for as many as lanes).
+
+**The rule.** A venue marks an activity, a resource, or a resource's activity as
+needing *n* people (1 to 20) in a role: *the range needs one range officer*,
+*the pool two lifeguards*. A session is bookable only where, at every moment of
+it, at least *n* qualified people are on shift in that role. Every rule that
+matches applies (several roles are all needed). It is asked in the one booking
+path, in the booking's own transaction, by everything that makes or moves a
+session: a customer online, the counter, the venue's API key, a waiting-list
+claim, an approval's booking, a lesson, each week of a series, each session of a
+class term, a booking moved to another time or court (a series move previews
+which weeks are refused and why), and games added to a booking. An open game is
+its booking's. A refusal is `SV1_NO_SUPERVISOR` ("That time cannot be booked: it
+needs 1 Range officer on duty for all of it"); a weekly series refused names the
+week and why, or skips and names it where the customer asked to skip
+unavailable weeks. The board shows such hours as unavailable ("No supervisor
+rostered") and offers no start across them or the waiting list for them; search,
+any-court booking, move targets, reschedule options and an approval's slot hold
+read the same. **A manager's override of a court's booking rules goes past none
+of it:** to sell an hour nobody is rostered for, roster somebody (an extra shift).
+
+**How it composes with staffed hours and unstaffed use.** Staffed hours say
+*when the venue is staffed*; a resource's `unmanned` says whether it may be used
+outside them; the roster says *by whom and with what qualification*. The roster
+adds a condition and takes none away: the stricter wins, never the looser. A
+rostered person does not make hours bookable that opening hours, a closure, a
+sign-off or the court's booking rules refuse; being staffed does not make hours
+bookable that no qualified person is rostered for; and an activity the catalogue
+marks supervised is still refused unmanned.
+
+**When somebody is away after bookings exist** (a shift taken off, leave, a
+qualification taken back, a role changed, a rule added): **nothing is cancelled
+and nobody is emailed.** The change says which sessions it left without a
+supervisor, and *Sessions without their supervisors* lists every session to come
+(120 days) that has too few qualified people on shift and no decision: on the
+Courts tab, on the needs-attention panel, and for the desk to read. It is worked
+out from the roster each time it is read, so a booking made under a shift is
+listed the moment the shift is gone, and leaves the list when somebody is
+rostered again. A manager **covers** a session (names another person: on the
+venue's list, holding the role's qualification through the whole session, not
+teaching then; they need not be rostered), **lets it stand** with a reason
+(required, kept, in the log), or moves or cancels it the usual way; either
+decision can be taken back. A booking made under a shift stays valid until a
+manager decides.
+
+**Who supervises is a record.** A session made or moved names the people on
+shift who cover it (the fewest that do, staff before coaches), kept as made
+whatever the roster does afterwards; a session moved or re-checked keeps the old
+names as history and names again. Staff see it on the booking, the day's list
+and the schedule's entries ("Supervisor: Range officer: Ann"), and a cover or a
+decision to let it stand as such, with the reason. A customer sees the role
+("Supervised by Range officer") on their booking, never the person or their
+contact details.
+
+**Records and calendars.** Every change is in the staff log (`roster.*`). A
+member of staff makes a private link to their own shifts as a calendar (*My
+shifts in my calendar*; shown once, a year, only the one person's), and a
+coach's own rostered shifts are on their own coach calendar link. Neither carries
+anyone else's shifts or any customer's name or number.
+
+**Not built.** Court time that is not a booking (a tournament's, a block, an
+outage) is not asked: such a venue rosters for the activity its bookings ask. A
+venue's own role is English in a customer's refusal (the starters are
+translated). The pattern has no end date: a change applies from now, with what
+it left on the worklist. No messages go to staff or customers about the roster.
+How the roster composes with a class's instructor as one of the venue's coaches
+is in [ADR 0036](../architecture/decisions/0036-who-supervises-a-session.md).
+Tests: `tests/rosters.test.ts` (the maths: patterns, exceptions, midnight,
+a change of clocks, qualification's last day; every booking path; the worklist;
+coaches), `tests/rosters-routes.test.ts` (who may change it, the log, calendars),
+`tests/rosters-concurrency.test.ts` (a shift removed as people book, on PGlite
+and on Postgres).
+
 ## Equipment hire and deposits
 
 Most resources stay where they are: you cannot walk off with a badminton court.

@@ -11,6 +11,7 @@ import { isLocale, offeredLocales, translator, type Locale } from "./i18n";
 import { staffLocales } from "./staff-locales";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
+import { shiftEvents } from "./roster-calendar";
 import { addDays, formatHour, todayISO } from "./time";
 import { venueZoneOf } from "./zones";
 
@@ -226,6 +227,8 @@ export async function coachCalendar(found: CoachByToken, venueId: number, locale
       `LOCATION:${icsText(found.venueAddress)}`,
       "END:VEVENT",
     ]),
+    // Their own rostered shifts as an instructor or the like, on their own link only (lib/rosters.ts).
+    ...(await shiftEvents(venueId, { kind: "coach", id: found.coach.id }, locale, found.zone)),
     "END:VCALENDAR",
   ].join("\r\n");
 }

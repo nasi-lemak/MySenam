@@ -746,14 +746,19 @@ export async function unmetNeeds(input: {
   if (needs.length === 0) return [];
   const session = instantsOf(input.date, input.span, input.zone);
   const providers = await supply(input.venueId, input.zone, session, needs.map((n) => n.roleId));
+  return unmetWith(providers, needs, input.date, session, input.zone, input.exceptBookingId);
+}
+
+/** What is short of `needs` over a session, given who is on shift (`supply`). */
+function unmetWith(providers: Provider[], needs: Need[], date: string, session: Interval, zone: string, exceptBookingId?: number): Unmet[] {
   const out: Unmet[] = [];
   for (const need of needs) {
     const gaps = shortfall(
-      providers.filter((p) => p.roleId === need.roleId).map((p) => availableOf(p, input.exceptBookingId)),
+      providers.filter((p) => p.roleId === need.roleId).map((p) => availableOf(p, exceptBookingId)),
       need.needed,
       session
     );
-    if (gaps.length > 0) out.push({ need, gaps: gaps.map((g) => spanOf(g, input.date, input.zone)) });
+    if (gaps.length > 0) out.push({ need, gaps: gaps.map((g) => spanOf(g, date, zone)) });
   }
   return out;
 }
@@ -788,14 +793,6 @@ export async function supervisionRefusal(input: {
   return unmet.length > 0 ? noSupervisor(unmet[0]) : null;
 }
 
-/** The part of the business day `date` (its opening to closing) where a session on this resource has too few, for the grid; null where nothing is asked. */
-export async function unsupervisedSpans(input: { venueId: number; courtId: number; sport: string; date: string; span: Span; zone: string }): Promise<Span[] | null> {
-  const needs = await needsFor(input.venueId, input.courtId, input.sport);
-  if (needs.length === 0) return null;
-  const unmet = await unmetNeeds({ ...input, needs });
-  return merge(unmet.flatMap((u) => u.gaps));
-}
-
 /**
  * Several resources' unsupervised spans of one day in one go, for the board and the lists of starts: only the venues
  * and resources a rule applies to cost anything.
@@ -812,12 +809,16 @@ export async function unsupervisedOn(
     .prepare(`${RULES_SQL.replace("WHERE r.venue_id = ?", `WHERE r.venue_id IN (${venueIds.map(() => "?").join(",")})`)}`)
     .all(...venueIds)) as (RuleRow & { role_key: string; role_name: string })[];
   if (rules.length === 0) return out;
-  for (const c of courts) {
-    const needs = needsFrom(rules.filter((r) => r.venue_id === c.venueId), c.id, c.sport);
-    const h = hours.get(c.id);
-    if (needs.length === 0 || !h || h.span.end <= h.span.start) continue;
-    const unmet = await unmetNeeds({ venueId: c.venueId, courtId: c.id, sport: c.sport, date, span: h.span, zone: h.zone, needs });
-    out.set(c.id, merge(unmet.flatMap((u) => u.gaps)));
+  // Who is on shift is read once for a venue, over the whole of its courts' day, and asked of each court.
+  const subject = courts
+    .map((c) => ({ c, needs: needsFrom(rules.filter((r) => r.venue_id === c.venueId), c.id, c.sport), h: hours.get(c.id) }))
+    .filter((x): x is { c: (typeof courts)[number]; needs: Need[]; h: { span: Span; zone: string } } => x.needs.length > 0 && x.h !== undefined && x.h.span.end > x.h.span.start);
+  for (const venueId of new Set(subject.map((x) => x.c.venueId))) {
+    const mine = subject.filter((x) => x.c.venueId === venueId);
+    const sessions = mine.map((x) => instantsOf(date, x.h.span, x.h.zone));
+    const window = { from: Math.min(...sessions.map((i) => i.from)), to: Math.max(...sessions.map((i) => i.to)) };
+    const providers = await supply(venueId, mine[0].h.zone, window, [...new Set(mine.flatMap((x) => x.needs.map((n) => n.roleId)))]);
+    mine.forEach((x, i) => out.set(x.c.id, merge(unmetWith(providers, x.needs, date, sessions[i], x.h.zone).flatMap((u) => u.gaps))));
   }
   return out;
 }

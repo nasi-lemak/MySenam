@@ -2066,6 +2066,9 @@ export async function quoteFor(input: {
   const breaches = policyBreaches(day.policy, span, day, minutesUntil(input.date, span.start, day.zone));
   if (day.closed) return { ok: true, span, quote, allowed: false, refusal: refuse("VENUE_CLOSED") };
   if (breaches.length > 0) return { ok: true, span, quote, allowed: false, refusal: breachRefusal(day.policy, span, breaches[0]) };
+  // Somebody qualified on shift for the whole of it, where the activity asks for one (lib/rosters.ts): the quote says so as the booking would.
+  const bare = await supervisionRefusal({ venueId: court.venueId, courtId: court.id, sport: court.sport, date: input.date, span, zone: day.zone });
+  if (bare) return { ok: true, span, quote, allowed: false, refusal: bare };
   return { ok: true, span, quote, allowed: true };
 }
 
@@ -9371,6 +9374,9 @@ export async function joinSlotWaitlist(input: {
           !(await signOffHolds({ venueId: waitCourt.venueId, sport: waitCourt.sport, until: date, phone: input.phone, userId: input.userId, channel: input.madeBy?.channel ?? "customer", need, participant: who ? who.id : null }))
         )
           return signOffRefusal(need, activityName(waitCourt.sport), who ? who.name : null);
+    // Nor for time nobody qualified is rostered for, where the activity asks for somebody (lib/rosters.ts): the offer could not be booked.
+    const unsupervised = await supervisionRefusal({ venueId: waitCourt.venueId, courtId: waitCourt.id, sport: waitCourt.sport, date, span, zone: day.zone });
+    if (unsupervised) return unsupervised;
 
     if (await slotTimeFree(waitCourt, date, span, day.policy, day.zone, places))
       return refuse("SLOT_FREE_BOOK_IT");
