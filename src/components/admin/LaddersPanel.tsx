@@ -266,17 +266,17 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
   const [settings, setSettings] = useState<Record<string, string>>({ ...Object.fromEntries(NUMBERS.map((n) => [n.key, String(l.settings[n.key])])), declineIs: l.settings.declineIs });
   const [counter, setCounter] = useState({ phone: "", name: "", adult: false, partnerName: "" });
   const [court, setCourt] = useState({ on: l.courtTime.on, courtIds: l.courtTime.courtIds, minutes: l.courtTime.minutes === null ? "" : String(l.courtTime.minutes), needsConfirmation: l.courtTime.needsConfirmation });
-  // The limits on held court time (advanced, a manager's; blank: the default above it): holds live at once on the ladder and for each player, and the holds a player may abandon.
+  // The limits on held court time (advanced, a manager's; blank: the default above it): holds live at once on the ladder and for each player, and the held courts a player may cancel themself before new holds pause.
   const capsFor = (scope: "ladder" | "venue") => {
     const o = scope === "venue" ? l.holdLimits?.venue : l.holdLimits?.ladder;
     return {
       scope,
       live: o?.maxLivePerLadder == null ? "" : String(o.maxLivePerLadder),
       active: o?.maxActivePerPlayer == null ? "" : String(o.maxActivePerPlayer),
-      abandoned: o?.abandonedThreshold == null ? "" : String(o.abandonedThreshold),
+      cancelled: o?.cancelThreshold == null ? "" : String(o.cancelThreshold),
     };
   };
-  const [caps, setCaps] = useState<{ scope: "ladder" | "venue"; live: string; active: string; abandoned: string }>(capsFor("ladder"));
+  const [caps, setCaps] = useState<{ scope: "ladder" | "venue"; live: string; active: string; cancelled: string }>(capsFor("ladder"));
   const sportCourts = venue.courts.filter((c) => c.sport === l.sport);
   const current = l.viewing?.endedOn === null;
   const names = new Map(l.rows.map((r) => [r.playerId, r.name]));
@@ -469,13 +469,13 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
                   </label>
                   <p className="text-xs text-slate-500">{t("lad3.adv.confirmNote")}</p>
                   <p className="text-xs text-slate-600">
-                    {t("lad4.adv.now", {
+                    {t("lad5.adv.now", {
                       live: l.holdLimits.maxLivePerLadder,
                       liveFrom: t(`lad3.adv.from.${l.holdLimits.from.live}`),
                       active: l.holdLimits.maxActivePerPlayer,
                       activeFrom: t(`lad3.adv.from.${l.holdLimits.from.active}`),
-                      abandoned: l.holdLimits.abandonedThreshold,
-                      abandonedFrom: t(`lad3.adv.from.${l.holdLimits.from.abandoned}`),
+                      cancel: l.holdLimits.cancelThreshold,
+                      cancelFrom: t(`lad3.adv.from.${l.holdLimits.from.cancel}`),
                       days: l.holdLimits.abuse.windowDays,
                       hours: l.holdLimits.abuse.cooldownHours,
                       used: l.holdLimits.inUse,
@@ -498,8 +498,8 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
                       <input type="number" min={l.holdLimits.bounds.activeMin} max={l.holdLimits.bounds.activeMax} placeholder={t("lad3.adv.default")} value={caps.active} onChange={(e) => setCaps({ ...caps, active: e.target.value })} className={`w-24 ${input}`} />
                     </label>
                     <label className={label}>
-                      {t("lad4.adv.abandoned", { min: l.holdLimits.bounds.abandonedMin, max: l.holdLimits.bounds.abandonedMax })}
-                      <input type="number" min={l.holdLimits.bounds.abandonedMin} max={l.holdLimits.bounds.abandonedMax} placeholder={t("lad3.adv.default")} value={caps.abandoned} onChange={(e) => setCaps({ ...caps, abandoned: e.target.value })} className={`w-24 ${input}`} />
+                      {t("lad5.adv.cancelled", { min: l.holdLimits.bounds.cancelMin, max: l.holdLimits.bounds.cancelMax })}
+                      <input type="number" min={l.holdLimits.bounds.cancelMin} max={l.holdLimits.bounds.cancelMax} placeholder={t("lad3.adv.default")} value={caps.cancelled} onChange={(e) => setCaps({ ...caps, cancelled: e.target.value })} className={`w-24 ${input}`} />
                     </label>
                     <button
                       onClick={() =>
@@ -508,7 +508,7 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
                           scope: caps.scope,
                           maxLive: caps.live === "" ? null : Number(caps.live),
                           maxActive: caps.active === "" ? null : Number(caps.active),
-                          maxAbandoned: caps.abandoned === "" ? null : Number(caps.abandoned),
+                          maxCancelled: caps.cancelled === "" ? null : Number(caps.cancelled),
                           reason,
                         })
                       }
@@ -518,17 +518,22 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
                     </button>
                   </div>
                   <p className="text-xs text-slate-500">{t("lad3.adv.note")}</p>
-                  <p className="text-xs text-slate-500">{t("lad4.adv.note")}</p>
+                  <p className="text-xs text-slate-500">{t("lad5.adv.note")}</p>
                   <div className="text-xs text-slate-600">
-                    <p className="font-medium">{t("lad4.adv.abandonedTitle", { days: l.holdLimits.abuse.windowDays })}</p>
-                    {(l.holdAbandoned ?? []).length === 0 ? (
-                      <p>{t("lad4.adv.abandonedNone")}</p>
+                    <p className="font-medium">{t("lad5.adv.historyTitle", { days: l.holdLimits.abuse.windowDays })}</p>
+                    {(l.holdHistory ?? []).length === 0 ? (
+                      <p>{t("lad5.adv.historyNone")}</p>
                     ) : (
                       <ul className="list-disc pl-4">
-                        {(l.holdAbandoned ?? []).map((a) => (
+                        {(l.holdHistory ?? []).map((a) => (
                           <li key={a.playerId}>
-                            {t("lad4.adv.abandonedRow", { name: a.name, n: a.count })}
-                            {a.coolingUntil && ` · ${t("lad4.adv.cooling", { until: new Date(a.coolingUntil).toLocaleString() })}`}
+                            {t("lad5.adv.historyRow", { name: a.name, n: a.releasedUnplayed, c: a.cancelledByPlayer })}
+                            {a.pausedUntil && ` · ${t("lad5.adv.paused", { until: new Date(a.pausedUntil).toLocaleString() })}`}
+                            {a.pausedUntil && (
+                              <button className={`ml-2 ${small}`} disabled={reason.trim().length < 3} onClick={() => void act({ action: "hold_pause_lift", playerId: a.playerId, reason })}>
+                                {t("lad5.adv.lift")}
+                              </button>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -641,6 +646,23 @@ function Challenge({ t, l, c, names, editable, reason, act, reload, send }: { t:
           {c.move && ` · ${t("lad2.hold.moveAsked", { date: c.move.onDate, time: clockOf(c.move.minute) })}`}
         </p>
       ) : null}
+      {c.history && c.history.length > 0 && (
+        <details className="text-xs text-slate-600">
+          <summary className="cursor-pointer">{t("lad5.ev.title")}</summary>
+          <ul className="list-disc pl-4">
+            {c.history.map((e, i) => (
+              <li key={i}>
+                {t("lad5.ev.row", {
+                  kind: t(`lad5.ev.kind.${e.kind as "proposed"}`),
+                  by: e.by !== null ? ` ${names.get(e.by) ?? ""}` : e.byName ? ` ${e.byName}` : "",
+                  when: [e.date, e.startMin !== null ? clockOf(e.startMin) : ""].filter(Boolean).join(" ") || new Date(e.at).toLocaleString(),
+                  capacity: e.reservedCapacity ? t("lad5.ev.reserved") : t("lad5.ev.notReserved"),
+                })}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {c.team && c.team.rubbers.length > 0 && (
         <p className="text-xs text-slate-600">
           {t("lad2.team.games")}:{" "}

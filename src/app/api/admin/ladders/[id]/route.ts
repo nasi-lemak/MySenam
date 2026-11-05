@@ -3,7 +3,7 @@ import { logAction } from "@/lib/activity";
 import { readJsonObject, refusal } from "@/lib/api";
 import { getDb } from "@/lib/db";
 import { ladderResponse, staffLadder } from "@/lib/ladder-access";
-import { changeCourtTime, changeHoldLimits, changeSettings, decide, endSeason, freeze, ladderDetail, leave, moveTo, staffHold, thaw, type Decision, type LadderSettings } from "@/lib/ladders";
+import { changeCourtTime, changeHoldLimits, changeSettings, decide, endSeason, freeze, ladderDetail, leave, liftHoldPause, moveTo, staffHold, thaw, type Decision, type LadderSettings } from "@/lib/ladders";
 import { setEventRated } from "@/lib/ratings";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +25,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
  * `{ action: "thaw", playerId }`. Each is in the activity log, with the reason where it has one.
  *
  * Court time (the venue holds a court for an accepted challenge, no money moving; off unless turned on): `{ action: "court_time", on?, courtIds?,
- * minutes?, needsConfirmation? }`; `{ action: "hold_limits", scope: "venue" | "ladder", maxLive?, maxActive?, maxAbandoned?, reason? }` sets the limits: holds
- * live at once on a ladder, holds live at once for one player (`maxWeek` is its old name), and the holds a player may create and abandon in the window before a cooldown on
- * creating new ones (ADR 0050), each a number within the install's bounds, `null` for the default above (`LAD3_BOUNDS`); `{ action: "hold_confirm", challengeId, reason? }` confirms a tentative hold for both
+ * minutes?, needsConfirmation? }`; `{ action: "hold_limits", scope: "venue" | "ladder", maxLive?, maxActive?, maxCancelled?, reason? }` sets the limits: holds
+ * live at once on a ladder, holds live at once for one player (`maxWeek` is its old name), and the holds that really reserved a court that a player may cancel themself in the window
+ * before a pause on creating new ones (`maxCancelled`; `maxAbandoned` is its old name; ADR 0051), each a number within the install's bounds, `null` for the default above (`LAD3_BOUNDS`);
+ * `{ action: "hold_pause_lift", playerId, reason }` lifts a player's pause on creating new holds, with a reason (kept and logged); `{ action: "hold_confirm", challengeId, reason? }` confirms a tentative hold for both
  * players and `{ action: "hold_extend", challengeId, reason }` gives it more time, once (ADR 0048); `{ action: "hold_release", challengeId, reason }` lets a challenge's hold go; `{ action: "hold_move", challengeId, onDate, minute, courtId?,
  * reason }` moves it (the new time is held first; refused with the reason, the old court staying held, if it cannot be). A ladder of teams decides a
  * match with `{ action: "decide", challengeId, reason, rubbers: [{ winner: "home" | "away", score?, walkover? }] }` (the challenger's side is `home`).
@@ -56,15 +57,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } else if (body.action === "hold_limits") {
     // The caps on held court time (ADR 0048): the venue's or this ladder's, within the install's bounds. Logged with who, before and after, and why.
     const scope = body.scope === "venue" ? "venue" : "ladder";
-    const done = await changeHoldLimits(found.id, scope, { maxLive: body.maxLive, maxActive: body.maxActive, maxWeek: body.maxWeek, maxAbandoned: body.maxAbandoned });
+    const done = await changeHoldLimits(found.id, scope, { maxLive: body.maxLive, maxActive: body.maxActive, maxWeek: body.maxWeek, maxCancelled: body.maxCancelled, maxAbandoned: body.maxAbandoned });
     if (!done.ok) return ladderResponse(done);
     const { before: was, after: now } = done.value;
     const of = (v: typeof was) => (scope === "venue" ? v.venue : v.ladder);
     const show = (n: number | null) => (n === null ? "default" : String(n));
     await log(
       "ladder.hold_limits",
-      `${scope === "venue" ? "the venue's" : "this ladder's"} limits on held court time: live per ladder ${show(of(was).maxLivePerLadder)} to ${show(of(now).maxLivePerLadder)}, live per player ${show(of(was).maxActivePerPlayer)} to ${show(of(now).maxActivePerPlayer)}, holds abandoned before a cooldown ${show(of(was).abandonedThreshold)} to ${show(of(now).abandonedThreshold)}${reason.trim() ? ` (${reason.trim().slice(0, 200)})` : ""}`
+      `${scope === "venue" ? "the venue's" : "this ladder's"} limits on held court time: live per ladder ${show(of(was).maxLivePerLadder)} to ${show(of(now).maxLivePerLadder)}, live per player ${show(of(was).maxActivePerPlayer)} to ${show(of(now).maxActivePerPlayer)}, own cancellations of held courts before a pause on new holds ${show(of(was).cancelThreshold)} to ${show(of(now).cancelThreshold)}${reason.trim() ? ` (${reason.trim().slice(0, 200)})` : ""}`
     );
+  } else if (body.action === "hold_pause_lift") {
+    // A pause on creating new holds is temporary and a manager can lift it, with a reason (ADR 0051): kept in the neutral record and logged by the lift itself.
+    const done = await liftHoldPause(found.id, body.playerId, by, reason);
+    if (!done.ok) return ladderResponse(done);
   } else if (body.action === "hold_confirm" || body.action === "hold_extend") {
     const challenge = (before.challenges ?? []).find((c) => c.id === Number(body.challengeId));
     if (!challenge) return NextResponse.json({ error: "Not found." }, { status: 404 });

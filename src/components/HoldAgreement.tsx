@@ -11,12 +11,18 @@ import type { HoldPreviewView } from "@/lib/ladders";
  * ADR 0050): the court that would be held, the day, start and duration, what it costs (the hold is free and moves no money; the venue's own court hire terms apply), and
  * what it means (what releases it, what replaces it, what happens if the court becomes unavailable, what a later change that both did not agree does). The court is a
  * non-binding look at the one the deterministic choice would hold: it is reserved only if the hold itself succeeds.
+ *
+ * ADR 0051: the same screen is shown before a player's own counter-proposal (`kind: "counter"`, and `propose_move` over the other's request), where it says plainly that
+ * this is their proposal and not a reservation, and every screen says that agreeing a time does not by itself reserve a court. A player whose new holds are paused is told
+ * so and can still accept, with no court held.
  */
 export type HoldLook = Extract<HoldPreviewView, { applies: true }>;
 
 const hm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
-export function HoldAgreement({ t, look, kind, name }: { t: T; look: HoldLook; kind: "accept" | "agree_move" | "propose_move"; name: string }) {
+export type AgreeKind = "accept" | "counter" | "agree_move" | "propose_move";
+
+export function HoldAgreement({ t, look, kind, name }: { t: T; look: HoldLook; kind: AgreeKind; name: string }) {
   return (
     <section aria-label={t("lad4.ui.title")} className="space-y-1 rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm">
       <h4 className="font-semibold">{t("lad4.ui.title")}</h4>
@@ -25,7 +31,8 @@ export function HoldAgreement({ t, look, kind, name }: { t: T; look: HoldLook; k
       <p>{t("lad4.ui.when", { date: look.date, time: hm(look.startMin), end: hm(look.endMin), minutes: look.minutes })}</p>
       {look.replaces && <p>{t("lad4.ui.replaces", { court: look.replaces.court, date: look.replaces.date, time: hm(look.replaces.startMin) })}</p>}
       <p>{t("lad4.ui.charges")}</p>
-      <p>{t(look.effect === "confirmed" ? (kind === "propose_move" ? "lad4.ui.effect.askConfirmed" : "lad4.ui.effect.confirmed") : "lad4.ui.effect.tentative", { name })}</p>
+      <p>{t(look.effect === "proposal" ? "lad5.ui.effect.proposal" : look.effect === "confirmed" ? (kind === "propose_move" ? "lad4.ui.effect.askConfirmed" : "lad4.ui.effect.confirmed") : "lad4.ui.effect.tentative", { name })}</p>
+      <p className="text-xs text-slate-600">{t("lad5.ui.noGuarantee")}</p>
       <p className="font-medium">{t("lad4.ui.implications")}</p>
       <ul className="list-disc space-y-0.5 pl-5 text-xs text-slate-700">
         <li>{t("lad4.ui.imp.release")}</li>
@@ -54,31 +61,40 @@ export function AgreeAfterLook({
   check,
   go,
   onGo,
+  rev,
 }: {
   t: T;
   url: string;
-  kind: "accept" | "agree_move" | "propose_move";
+  /** The revision of the proposal being answered (`ChallengeView.rev`): a look at a proposal that has been replaced is refused. */
+  rev?: number;
+  kind: AgreeKind;
   name: string;
-  /** The day and start for `propose_move`; `accept` and `agree_move` use the time the other side proposed. */
+  /** The day and start for `counter` and `propose_move`; `accept` and `agree_move` use the time the other side proposed. */
   when?: { onDate: string; minute: number };
   check: string;
   go: string;
   onGo: (courtId: number | null) => Promise<boolean>;
 }) {
-  const [state, setState] = useState<"idle" | "looking" | "shown">("idle");
+  const [state, setState] = useState<"idle" | "looking" | "shown" | "paused">("idle");
+  const [pausedUntil, setPausedUntil] = useState("");
   const [look, setLook] = useState<HoldLook | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   async function ask() {
     setProblem(null);
     setState("looking");
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "preview_hold", for: kind, ...(when ? { onDate: when.onDate, minute: when.minute } : {}) }) });
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "preview_hold", for: kind, ...(rev !== undefined ? { rev } : {}), ...(when ? { onDate: when.onDate, minute: when.minute } : {}) }) });
     const out = await readJson(res);
     if (!res.ok) {
       setProblem(translateError(t, out) || out.error || "");
       return setState("idle");
     }
     const preview = out.preview as HoldPreviewView | undefined;
+    if (preview && !preview.applies && preview.paused && (kind === "accept" || kind === "agree_move")) {
+      // New court holds are paused for this player (ADR 0051): they can still accept, with no court held, and are told so before they do.
+      setPausedUntil(preview.paused.until);
+      return setState("paused");
+    }
     if (!preview || !preview.applies) {
       setState("idle");
       await onGo(null);
@@ -91,11 +107,24 @@ export function AgreeAfterLook({
   return (
     <div className="space-y-2">
       {state !== "shown" && (
-        <button className={kind === "accept" || kind === "agree_move" ? button : plain} disabled={state === "looking"} onClick={() => void ask()}>
+        <button className={kind === "accept" || kind === "agree_move" ? button : plain} disabled={state === "looking" || state === "paused"} onClick={() => void ask()}>
           {state === "looking" ? t("lad4.ui.checking") : check}
         </button>
       )}
       {problem && <p role="alert" className="text-sm text-red-700">{problem}</p>}
+      {state === "paused" && (
+        <>
+          <p className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-sm">{t("lad5.ui.paused", { until: pausedUntil })}</p>
+          <div className="flex flex-wrap gap-2">
+            <button className={button} onClick={() => void onGo(null).then((done) => done || setState("idle"))}>
+              {t("lad5.ui.goNoHold")}
+            </button>
+            <button className={plain} onClick={() => setState("idle")}>
+              {t("lad4.ui.notNow")}
+            </button>
+          </div>
+        </>
+      )}
       {state === "shown" && look && (
         <>
           <HoldAgreement t={t} look={look} kind={kind} name={name} />

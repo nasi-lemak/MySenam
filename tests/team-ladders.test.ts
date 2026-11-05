@@ -33,6 +33,7 @@ import {
   leave,
   myPlaces,
   report,
+  staffHold,
   type LadderInput,
 } from "../src/lib/ladders";
 import { selfEntrant } from "../src/lib/competition-entrants";
@@ -620,9 +621,11 @@ describe("held court time for a team match", () => {
     await enter(l, a);
     await enter(l, b);
     const day = addDays(today, 7);
-    // The challenged captain accepts the day and names the time: a counter-proposal the challenger has not agreed, so it is tentative (ADR 0048, ADR 0050).
+    // The challenged captain accepts the day and a manager holds a court at a time the captains had not agreed, so it is tentative (ADR 0048, ADR 0050); a captain naming a time
+    // of their own would be a counter-proposal, which holds nothing (ADR 0051).
     const made = ok(await challenge(b.captain.id, l.id, b.place!, a.place!, { onDate: day }));
-    const done = ok(await answer(a.captain.id, made.id, { accept: true, onDate: day, minute: 18 * 60 }));
+    ok(await answer(a.captain.id, made.id, { accept: true }));
+    const done = ok(await staffHold(made.id, { adminId, name: "Mina" }, { move: { onDate: day, minute: 18 * 60 } }, "Courts are busy that week"));
     expect(done.hold).toMatchObject({ tentative: true, endMin: 18 * 60 + 135, confirmedBy: { challenger: false, challenged: false } });
     const blocks = async () => ((await getDb().prepare("SELECT c.expires_at FROM claims c JOIN blocks k ON k.id = c.block_id JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ? AND c.active").all(made.id)) as { expires_at: unknown }[]);
     expect((await blocks()).length).toBeGreaterThan(0);
@@ -637,7 +640,8 @@ describe("held court time for a team match", () => {
     await enter(l, c);
     await enter(l, dd);
     const second = ok(await challenge(dd.captain.id, l.id, dd.place!, c.place!, { onDate: day }));
-    ok(await answer(c.captain.id, second.id, { accept: true, onDate: day, minute: 10 * 60 }));
+    ok(await answer(c.captain.id, second.id, { accept: true }));
+    ok(await staffHold(second.id, { adminId, name: "Mina" }, { move: { onDate: day, minute: 10 * 60 } }, "Courts are busy that week"));
     await getDb().prepare("UPDATE ladder_court_holds SET confirm_by = now() - interval '1 minute' WHERE challenge_id = ? AND released_at IS NULL").run(second.id);
     await getDb().prepare("UPDATE claims SET expires_at = now() - interval '1 minute' WHERE kind = 'block' AND block_id IN (SELECT k.id FROM blocks k JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ?)").run(second.id);
     await ladderHousekeeping();

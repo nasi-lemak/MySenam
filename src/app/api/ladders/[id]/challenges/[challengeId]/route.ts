@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { ladderResponse } from "@/lib/ladder-access";
 import { answer, attachBooking, confirm, detachBooking, dispute, report, withdraw } from "@/lib/ladders";
-import { answerMove, confirmHoldAsPlayer, previewHoldFor, proposeMove } from "@/lib/ladders";
+import { answerMove, confirmHoldAsPlayer, previewHoldFor, proposeMove, revisionNeeded } from "@/lib/ladders";
 import { rateLimit } from "@/lib/rate-limit";
 import { requestLadderForfeit, withdrawLadderForfeitRequest } from "@/lib/team-forfeits";
 import { reportTeamResult, setTeamLineup } from "@/lib/team-ladders";
@@ -14,9 +14,9 @@ export const dynamic = "force-dynamic";
 /**
  * A player on one of their own challenges (or one of somebody they act for), `version` being the challenge as they saw it
  * (`ChallengeView.version`; an answer to a challenge that changed since is refused, 409 `LD_CHANGED`):
- * `{ action: "accept", onDate?, minute?, version? }`, `{ action: "decline", version? }`,
- * `{ action: "propose", onDate, minute?, version? }` (a time, which hands the answer to the other side),
- * `{ action: "withdraw", version? }` (the challenger, before it is played), `{ action: "report", winner, score, version? }` (their games
+ * `{ action: "accept", onDate?, minute?, version?, rev? }`, `{ action: "decline", version? }`,
+ * `{ action: "propose", onDate, minute?, version?, rev? }` (a time, which hands the answer to the other side),
+ * `{ action: "withdraw", version?, rev? }` (the challenger, before it is played), `{ action: "report", winner, score, version? }` (their games
  * first), `{ action: "confirm", version }` and `{ action: "dispute", note, version }`. A challenge holds no court time: once a time is
  * agreed the players book through the venue's ordinary booking page, and either adds that booking to an accepted challenge with
  * `{ action: "attach_booking", code }` (a confirmed booking of this ladder's venue and sport, today or later, made through the account of one of
@@ -31,10 +31,17 @@ export const dynamic = "force-dynamic";
  * (`hold.confirmBy`; `LAD3_*` refusals, ADR 0048), unless both players agreed that exact time (ADR 0050): a day and start one proposed (the challenge, a counter, or
  * `propose_move`) and the other accepts unchanged (`accept` without a time of their own, or `agree_move`) is made confirmed, with each player's agreement kept; a time
  * the accepter names themselves, or a manager's, is tentative. `accept` and `agree_move` may carry `courtId`, the court the player was shown: it is held or nothing is
- * (409 `LAD4_COURT_CHANGED`). `{ action: "preview_hold", for: "accept" | "agree_move" | "propose_move", onDate?, minute? }` answers `{ preview }` without holding anything:
- * `{ applies: false }` when no court would be held, or the court, day, start, minutes, what the act does (`effect`: `confirmed` or `tentative`) and any hold it replaces,
- * or the refusal the act itself would meet. A new hold is also refused while the player is at the active limit (`LAD4_CAP_ACTIVE`) or cooling down after abandoning holds
- * (`LAD4_COOLDOWN`). A ladder of teams: the captain
+ * (409 `LAD4_COURT_CHANGED`). `{ action: "preview_hold", for: "accept" | "counter" | "agree_move" | "propose_move", onDate?, minute?, rev? }` answers `{ preview }` without holding anything:
+ * `{ applies: false }` when no court would be held (with `paused` while the player's new holds are paused, below), or the court, day, start, minutes, what the act does (`effect`: `confirmed`,
+ * `tentative`, or `proposal` for the player's own counter-proposal, which reserves nothing) and any hold it replaces, or the refusal the act itself would meet. A new hold is also refused while the
+ * player is at the active limit (`LAD4_CAP_ACTIVE`).
+ *
+ * A counter-proposal (ADR 0051): on a ladder that holds court time, naming a different, fully specified time in answer to a proposal (`propose`, or `accept` with a time of one's own, or
+ * `propose_move` over the other's request) is that player's agreement to that exact time; it holds nothing, replaces the proposal before it, and the other player must explicitly accept exactly it
+ * (`accept` / `agree_move`), whereupon the hold is made confirmed. Every proposal has a revision (`rev` in the challenge): on such a ladder `accept`, `propose`, `withdraw`, `propose_move`, `agree_move`,
+ * `decline_move` and `withdraw_move` must name the `rev` they answer (400 `LAD5_REV_NEEDED` without it); one for a superseded proposal is refused 409 `LAD5_STALE` with `{ challenge }` as it is
+ * now, nothing agreed or held; a proposal past its last day is refused 409 `LAD5_EXPIRED`. A player whose new holds are paused (own cancellations of held courts, a temporary pause that ends by
+ * itself) still accepts: the match is agreed and no court is held. A ladder of teams: the captain
  * names the lineup with `{ action: "set_lineup", picks: [{ rubber, memberIds }] }` and reports the games with `{ action: "report_team", rubbers:
  * [{ winner: "home" | "away", score?, walkover? }] }` (the challenger's side is `home`; confirm and dispute as above), and asks for a forfeit with
  * `{ action: "request_forfeit", forfeitPlayer, reason, note? }` (a manager decides it) and takes the request back with `{ action:
@@ -51,6 +58,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const body = await readJsonObject(req);
   if (body instanceof NextResponse) return body;
   const version = Number.isInteger(body.version) ? (body.version as number) : undefined;
+  const rev = Number.isInteger(body.rev) ? (body.rev as number) : undefined;
+  // An act that answers a proposal names the revision it saw, on a ladder that holds court time (ADR 0051): never taken as "current".
+  if (body.action === "accept" || body.action === "propose" || body.action === "withdraw" || body.action === "propose_move" || body.action === "agree_move" || body.action === "decline_move" || body.action === "withdraw_move") {
+    const missing = await revisionNeeded(user.id, found.id, rev);
+    if (missing) return ladderResponse(missing);
+  }
   // An answer is to the challenge the player saw, so it names it.
   if ((body.action === "confirm" || body.action === "dispute") && version === undefined)
     return NextResponse.json({ error: "Say which result you are answering: version is needed." }, { status: 400 });
@@ -65,16 +78,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   // Court time held by the venue, on a ladder that holds it.
   if (body.action === "propose_move") {
-    const done = await proposeMove(user.id, found.id, { onDate: body.onDate, minute: body.minute }, { version });
+    const done = await proposeMove(user.id, found.id, { onDate: body.onDate, minute: body.minute }, { version, rev });
     return done.ok ? NextResponse.json({ challenge: done.value }) : ladderResponse(done);
   }
   if (body.action === "agree_move" || body.action === "decline_move" || body.action === "withdraw_move") {
-    const done = await answerMove(user.id, found.id, body.action === "agree_move", { version, courtId: Number.isInteger(body.courtId) ? (body.courtId as number) : undefined });
+    const done = await answerMove(user.id, found.id, body.action === "agree_move", { version, rev, courtId: Number.isInteger(body.courtId) ? (body.courtId as number) : undefined });
     return done.ok ? NextResponse.json({ challenge: done.value }) : ladderResponse(done);
   }
   // A look at the court that would be held, before the player agrees: holds nothing, changes nothing (ADR 0050).
   if (body.action === "preview_hold") {
-    const done = await previewHoldFor(user.id, found.id, { kind: body.for, onDate: body.onDate, minute: body.minute });
+    const done = await previewHoldFor(user.id, found.id, { kind: body.for, onDate: body.onDate, minute: body.minute, rev });
     return done.ok ? NextResponse.json({ preview: done.value }) : ladderResponse(done);
   }
   // A hold is tentative until both players confirm it (ADR 0048).
@@ -104,13 +117,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const when = { onDate: typeof body.onDate === "string" ? body.onDate : undefined, minute: body.minute === undefined || body.minute === null ? undefined : Number(body.minute) };
   const result =
     body.action === "accept"
-      ? await answer(user.id, found.id, { accept: true, ...when, courtId: Number.isInteger(body.courtId) ? (body.courtId as number) : undefined }, { version })
+      ? await answer(user.id, found.id, { accept: true, ...when, courtId: Number.isInteger(body.courtId) ? (body.courtId as number) : undefined }, { version, rev })
       : body.action === "decline"
         ? await answer(user.id, found.id, { decline: true }, { version })
         : body.action === "propose"
-          ? await answer(user.id, found.id, { propose: true, onDate: when.onDate ?? "", minute: when.minute }, { version })
+          ? await answer(user.id, found.id, { propose: true, onDate: when.onDate ?? "", minute: when.minute }, { version, rev })
           : body.action === "withdraw"
-            ? await withdraw(user.id, found.id, { version })
+            ? await withdraw(user.id, found.id, { version, rev })
             : body.action === "report"
               ? await report(user.id, found.id, { winner: Number(body.winner), score: String(body.score ?? "") }, { version })
               : body.action === "confirm"

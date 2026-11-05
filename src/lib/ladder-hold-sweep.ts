@@ -10,8 +10,8 @@ import { getDb } from "./db";
  * nobody and touches no challenge: the scheduler does that, once (lib/ladders.ts `tellExpiredHolds`), from the rows this leaves with
  * `released_reason = 'expired'` and `expiry_told_at` empty.
  *
- * A hold nobody confirmed that a player made is also recorded as abandoned by that player (`abandoned_place`, `abandoned_at`, ADR 0050): history for the
- * anti-abuse count, and nothing else. A hold a manager made, or one made before migration 0292, has no one to be recorded against.
+ * An expiry names no one (ADR 0051): nobody is recorded as having abandoned or failed to confirm a hold, and nothing here counts towards any limit. The neutral
+ * record says "no response", written by the scheduler's telling (lib/ladders.ts `tellExpiredHolds`).
  *
  * Availability does not wait for it: a tentative hold's block claims carry the hold's `confirm_by` as their `expires_at`, and every availability
  * read ignores a claim past its time (lib/claims.ts `occupantsOn`), so an expired hold never keeps a court from a booking even if this has not run.
@@ -21,8 +21,7 @@ export async function sweepExpiredHolds(): Promise<{ id: number; challengeId: nu
   const rows = (await db
     .prepare(
       `UPDATE ladder_court_holds
-          SET released_at = datetime('now'), released_reason = 'expired', released_by = 'system',
-              abandoned_place = made_by_place, abandoned_at = CASE WHEN made_by_place IS NULL THEN NULL ELSE now() END
+          SET released_at = datetime('now'), released_reason = 'expired', released_by = 'system'
         WHERE released_at IS NULL AND confirmed_at IS NULL AND confirm_by IS NOT NULL AND confirm_by <= now()
         RETURNING id, challenge_id, ladder_id`
     )

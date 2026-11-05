@@ -2112,7 +2112,7 @@ every ladder until then**, and everything above is true of a ladder that has not
 now and never rewrites what was held: a hold already made runs its course. When it is on:
 
 - **When a hold is made.** When a challenge is **accepted at an agreed day and a specific time** (the proposal
-  the challenger made, the time the challenged suggested and the challenger accepted, or one the accepter named), the venue
+  the challenger made and the challenged accepted, or a time either suggested and the other accepted as it was), the venue
   **holds a court** for the match. A day alone is not a time: nothing is held until a specific time is agreed, which is done
   by one player asking (`propose_move`) and the other agreeing (`agree_move`), and a time later than the day the match has to be played
   by (`LAD2_AFTER`) is refused. The hold is **confirmed at once when both players agreed that exact time** (next bullet), and otherwise **tentative until
@@ -2121,20 +2121,35 @@ now and never rewrites what was held: a hold already made runs its course. When 
   ADR 0048). A **fully specified time (a day and a start) that one player proposed and the other explicitly accepts unchanged** is both players' agreement:
   the challenger's proposal and the other's acceptance, a counter-proposal and the original proposer's acceptance of it, or `propose_move` and `agree_move`.
   The hold is made **already confirmed**: no confirm-by window, no second tap, nothing to expire. Each player's agreement is kept as that player's agreement to
-  that exact specification (`ladder_agreed_times`: the day, the start, the minutes and the court shown and held, with who proposed and who accepted). It is
-  **not** an agreement, and the hold stays tentative on a ladder that asks for confirmation, when the accepter names a time of their own (the proposer has not
-  agreed it), when only a day was agreed (nothing is held at all), or when a manager chose the time. **Nothing is bypassed**: an agreement is only a
+  that exact specification (`ladder_agreed_times`: the day, the start, the minutes and the court shown and held, with who proposed, countered or accepted). It is
+  **not** an agreement, and the hold stays tentative on a ladder that asks for confirmation, only when a manager chose the time (when only a day was agreed, nothing is held at
+  all; a time the accepter names themselves is a counter-proposal, next bullet). **Nothing is bypassed**: an agreement is only a
   request for the hold, which is still made by the one claim path under the exclusion constraints, the ladder's limits, the venue's hours, closures and
   set-up times, so if nothing is free the acceptance is refused with the reason (`LAD2_NO_COURT`, `LAD2_CLOSED`, the limits below) and **nothing is
   reserved**; the challenge stays as it was.
-- **The acceptance screen says everything before the tap.** Accepting a proposed time, asking for a time, and agreeing a time asked for each first offer
-  **Check the court** (`POST /api/ladders/:id/challenges/:challengeId` `{ action: "preview_hold", for: "accept" | "agree_move" | "propose_move", onDate?, minute? }`),
+- **A counter-proposal is a proposal** ([ADR 0051](../architecture/decisions/0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md), which amends ADR 0050). A player who names a **different, fully specified time** in answer to a
+  proposal (`propose`, `accept` carrying a time of their own, or `propose_move` over the other's request) makes a counter-proposal. It is **that player's recorded agreement to that exact
+  specification** (`ladder_agreed_times`, role `countered`, with the revision it was made at), it **holds no court and reserves no capacity**, it replaces the proposal before it, and it waits for the
+  **other player's explicit acceptance of exactly it**; then the hold is made **confirmed**, once, by the one claim path, and the counter's maker is **not asked to confirm again**. If the claim is refused
+  (a court taken, a limit, the hours) nothing is reserved and the challenge stays in "arrange a time" with the counter still there. A tentative hold, and so the confirm-by window, now arises only from a
+  manager's time. **Revisions:** each challenge's proposal has a revision (`rev`, `proposal_rev`); on a ladder that holds court time every act that answers a proposal (`accept`, `propose`,
+  `withdraw`, `propose_move`, `agree_move`, `decline_move`, `withdraw_move`, and the preview) must name the revision it saw (400 `LAD5_REV_NEEDED` without it); one for a revision that is no longer
+  current is refused **409 `LAD5_STALE`** with the current challenge returned, so **a superseded proposal can never be accepted**. A material change (the day, the start, the minutes, or a
+  manager's time) is a new revision that ends every agreement recorded for the earlier specification: kept as history, flagged superseded, never toward a hold. **Simultaneous counters:** the
+  second act finds the revision moved and is refused as stale with the first's proposal returned; nothing is merged and nobody's earlier agreement is reused. **Expiry:** a proposal follows the
+  challenge's response window (`respond_by`; a request to move a time, the same number of days, never past the play-by day); an expired one cannot be accepted or countered (**409
+  `LAD5_EXPIRED`**), and the ladder's own outcome for an unanswered challenge is unchanged; a move request nobody answered is ended by the scheduler once, both told, nothing changed, nobody
+  at fault. **Agreement does not itself guarantee a court**: only a hold that was successfully made reserves capacity, under every rule above. A player whose match length changed after a time was
+  proposed gets `LAD5_TERMS` (the proposal ended; nothing agreed or held). Ladders of teams are the same through the captains.
+- **The acceptance screen says everything before the tap.** Accepting a proposed time, countering with a time of one's own, asking for a time, and agreeing a time asked for each first offer
+  **Check the court** (`POST /api/ladders/:id/challenges/:challengeId` `{ action: "preview_hold", for: "accept" | "counter" | "agree_move" | "propose_move", onDate?, minute?, rev? }`),
   a non-binding look that runs the real path in a rolled-back step, so the **court named is the one the deterministic choice would hold**, under the same limits.
   It shows the **court** (reserved only if the hold then succeeds), the **day, time and duration**, the **charges** (the hold is free and moves no money; the
   venue's own court hire terms apply if they play there; no price is invented or charged here, and an attached booking is priced as any booking is), and the
   **implications**: what releases it (either player withdrawing, a result or the day passing, the venue releasing it with notice), that an ordinary booking
   replaces it, that if the court becomes unavailable both are told and agree a time again, and that a later change they did not both agree asks both to
-  confirm again. It also says what agreeing does (confirmed at once, or tentative and both confirm), and what it would replace. The act then carries the
+  confirm again. It also says what agreeing does (confirmed at once, or tentative and both confirm; for a counter, **"this is your proposal; it is not a reservation"**, the other must accept it
+  first), that **agreeing a time does not by itself reserve a court**, and what it would replace. The act then carries the
   court that was shown (`courtId`): it is **held or nothing is** (`LAD4_COURT_CHANGED`, with the court taken or not allowed), so the court held is the court
   on the screen. A client that sends no `courtId` gets the deterministic choice as before.
 - **A change both players did not agree needs renewed consent.** *Material* is the day, the start, the minutes held or the court. A change **both players agree
@@ -2175,20 +2190,25 @@ now and never rewrites what was held: a hold already made runs its course. When 
     same persistent team, or the same account for an adult's own, never a phone number or email address; the opponent's live holds count too). A hold that expires
     or is released (by the venue, withdrawn, played, let go for any reason) **stops counting at that moment**, by the lazy read and by the scheduler, and the
     court is free at once. A move or re-hold replaces a hold and adds none, so it is counted against neither.
-  - **The anti-abuse limit** is only about *repeatedly creating and abandoning* holds. A hold is **abandoned** when it expired unconfirmed (counted against the
-    player who made it) or was withdrawn by a player while still tentative (counted against the one who withdrew). A hold that was played, moved, forfeited, released
-    by the venue, confirmed and then withdrawn, or made by a manager is **never** counted. At **6 abandoned in a rolling 7 days** (`abuse_limit`,
-    `abuse_window_days`), a **cooldown of 24 hours** (`abuse_cooldown_hours`) applies to creating new holds, counted from the latest abandoned one (`LAD4_COOLDOWN`, with
-    a plain message and the time it ends); it ends by itself, and nothing here ever blocks a player whose proposals merely expired fewer times than that. The
-    threshold is logged by the system when reached (`ladder.hold_cooldown`). Abandoned holds stay in `ladder_court_holds` as history, never deleted; a manager sees each
-    player's count and cooldown in the ladder's staff view (`holdAbandoned`), and players and the public never do.
+  - **The anti-abuse limit** ([ADR 0051](../architecture/decisions/0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md), which replaced ADR 0050's "abandoned holds") is one objective pattern: a player **repeatedly blocking court
+    capacity**. It counts only a player's **own cancellations of holds that really reserved a court** (the challenger withdrawing a challenge that has a live hold, whatever state the hold was in;
+    `ladder_court_holds.cancelled_place`), per person across ladders, in a rolling window. An **expiry, a non-response, a decline, a release by the venue or the system, a move, a hold lost to
+    an outage, a booking replacing it, a player leaving, and a proposal or counter-proposal that never reserved capacity never count**, and nobody is blamed, labelled or restricted for an isolated timeout.
+    At **6 in a rolling 7 days** (`abuse_limit`, `abuse_window_days`) **creating new capacity-reserving holds is paused** for **24 hours after the latest** (`abuse_cooldown_hours`; `LAD5_PAUSED`).
+    The pause is **temporary and ends by itself**, restricts only the creating of a hold by that player's own act, and **never stops proposing, countering, accepting an invitation to play (the
+    acceptance goes ahead, the match is agreed and no court is held, the player is told first and the other is told "no court is held for this match") or playing**, nor a manager's hold. It is logged by the
+    system with the objective facts (`ladder.hold_pause`), shown to the player in plain neutral words, and **a manager can lift it with a reason** (`hold_pause_lift`, logged `ladder.hold_pause_lifted`;
+    the count starts again after the lift). The abandonment columns of migration 0292 are history that nothing reads for a limit.
+  - **A neutral record, no blame.** What happened to each proposal and hold is kept in `ladder_hold_events` (proposed, countered, accepted, held, moved, withdrawn, cancelled, released, declined,
+    superseded, **no response**, pause lifted), with who acted and whether a court was ever **reserved** (a proposal or counter never reserves capacity; a hold always does). Managers see it per challenge
+    and, per player, neutral numbers ("5 released unplayed, of which 2 cancelled by the player", `holdHistory`) and any pause; players and the public never do.
   Both only ever refuse: no limit, however high, holds a court that is not free, because every hold is still claimed under the database's constraints.
 - **Who may change the limits, and how they are resolved** ([ADR 0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md), extended by ADR 0050). The
   limit that applies to a ladder is its **own override**, else its **venue's setting**, else the **install default** (`ladder_hold_limits`, seeded 8 live per ladder, 4
-  live per player, 6 abandoned); each number resolves on its own, and blank goes back to the default above it. A **manager** (not the desk) sets the venue's and each
+  live per player, 6 own cancellations before a pause); each number resolves on its own, and blank goes back to the default above it. A **manager** (not the desk) sets the venue's and each
   ladder's from the ladder's *Court time* settings, under *Advanced: confirmation and limits* (collapsed; nothing about it is in the guide's setup path), by
-  `POST /api/admin/ladders/:id` `{ action: "hold_limits", scope: "venue" | "ladder", maxLive?, maxActive?, maxAbandoned?, reason? }` (`maxWeek` is the old name of
-  `maxActive`). A number must be a whole number inside the install's **bounds** (`live_min`/`live_max` 1 to 50, `active_min`/`active_max` 1 to 20, `abuse_min`/`abuse_max`
+  `POST /api/admin/ladders/:id` `{ action: "hold_limits", scope: "venue" | "ladder", maxLive?, maxActive?, maxCancelled?, reason? }` (`maxWeek` is the old name of
+  `maxActive`, `maxAbandoned` of `maxCancelled`), and lifts a pause with `{ action: "hold_pause_lift", playerId, reason }`. A number must be a whole number inside the install's **bounds** (`live_min`/`live_max` 1 to 50, `active_min`/`active_max` 1 to 20, `abuse_min`/`abuse_max`
   2 to 50); outside them it is refused with the bounds (`LAD3_BOUNDS`) and nothing changes. Every change is logged (`ladder.hold_limits`: who, the number before and
   after, the reason if given). A change applies to holds made from now on and **never releases a hold**: set below what is in use, it only stops new ones (the screen says so
   and shows the number in use). The desk sees the numbers and where each comes from; players and the public never do.
@@ -2212,8 +2232,8 @@ now and never rewrites what was held: a hold already made runs its course. When 
   the court is free and the challenge is back to arranging a time (it stays *accepted* with the day and no time; either player can ask for a time again), and the
   time is offered to the waiting list. It is enforced **without waiting for the scheduler**: the hold's claims carry the lapse moment as their expiry, so every availability read
   (the booking page, the counter, the API) already treats it as free, and a booking, staff block or another hold that meets it lets it go on the spot; the scheduler
-  then tidies up and tells the players. It stops counting towards the player's active allowance at once; it is kept as history and counts towards the
-  anti-abuse limit only as a hold the player made and abandoned. Refusals: `LAD3_EXPIRED` (confirming after it lapsed),
+  then tidies up and tells the players. It stops counting towards the player's active allowance at once; it is kept as history, recorded as **no response**, and **names no one and counts towards
+  no limit** ([ADR 0051](../architecture/decisions/0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md)). Refusals: `LAD3_EXPIRED` (confirming after it lapsed),
   `LAD3_NOT_TENTATIVE`, `LAD3_EXTENDED`, `LAD3_NO_EXTENSION`.
 - **No two holds overlap**, however they are made: the court time is claims under the exclusion constraints (so a booking, a class, a tournament or league block, a
   staff block or another ladder's hold cannot overlap it), and the table of holds has its own exclusion constraint on a court's live holds as a backstop
@@ -2399,7 +2419,7 @@ it is for adults' teams (a ladder of teams is never a junior ladder; a team may 
 | Swiss for counted performance events: groups formed from the standing, the cumulative rule, corrections flagged and regrouped with a preview, leavers, court time, the day, names, never rated | `src/lib/swiss-performances.ts`, `src/lib/tournaments.ts` (`performanceOf`, `recordPerformancesOnce`, `makeDraw`), `src/lib/tournament-rules.ts` (`swissRefusal`), `src/lib/official-performances.ts`, `src/components/admin/SwissPerformancePanel.tsx`, `src/components/SwissPerformanceStandings.tsx`, `src/components/admin/CountedGrid.tsx`, `db/migrations/0279_swiss_acceleration_and_performance_swiss.sql` | `tests/swiss-performances.test.ts` (PGlite and Postgres), `tests/components/swiss-tiebreaks.test.tsx` |
 | Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts`, `tests/ladder-public.test.ts` (what the public is and is not shown) |
 | A ladder challenge holds no court time by default; the ordinary booking it may carry (attach, drop on cancellation) | `src/lib/ladders.ts` (`attachBooking`, `detachBooking`, `ladderBookingCancelled`), `src/lib/store.ts` (the hook), `src/app/api/ladders/[id]/challenges/[challengeId]/route.ts`, `src/app/ladders/[id]/page.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/ladder-court-time.test.ts` |
-| Court time held by the venue for accepted ladder challenges (optional, off by default): the hold, court choice, refusal, release in every ending, move, attached booking, loss, caps, races, staff release and move | `src/lib/ladder-holds.ts`, `src/lib/ladder-holds-constants.ts`, `src/lib/ladders.ts` (`holdFor`, `proposeMove`, `answerMove`, `staffHold`, `changeCourtTime`, `letGo`), `src/lib/store.ts` (`ladderHoldId` on blocks), `src/app/api/admin/ladders/[id]/route.ts`, `src/app/ladders/[id]/page.tsx`, `src/components/admin/LaddersPanel.tsx`, `db/migrations/0283_ladder_court_time_and_team_ladders.sql`, `src/lib/ladder-hold-sweep.ts`, `db/migrations/0290_ladder_hold_limits_and_expiry.sql` | `tests/ladder-held-court-time.test.ts` (PGlite and Postgres), `tests/ladder-hold-limits-and-expiry.test.ts` (PGlite and Postgres), `tests/ladder-court-time.test.ts` (the default) |
+| Court time held by the venue for accepted ladder challenges (optional, off by default): the hold, court choice, refusal, release in every ending, move, attached booking, loss, caps, races, staff release and move | `src/lib/ladder-holds.ts`, `src/lib/ladder-holds-constants.ts`, `src/lib/ladders.ts` (`holdFor`, `proposeMove`, `answerMove`, `staffHold`, `changeCourtTime`, `letGo`), `src/lib/store.ts` (`ladderHoldId` on blocks), `src/app/api/admin/ladders/[id]/route.ts`, `src/app/ladders/[id]/page.tsx`, `src/components/admin/LaddersPanel.tsx`, `db/migrations/0283_ladder_court_time_and_team_ladders.sql`, `src/lib/ladder-hold-sweep.ts`, `src/components/HoldAgreement.tsx`, `db/migrations/0290_ladder_hold_limits_and_expiry.sql`, `db/migrations/0292_ladder_agreement_and_active_hold_limits.sql`, `db/migrations/0293_ladder_counter_proposals_and_neutral_history.sql` | `tests/ladder-held-court-time.test.ts` (PGlite and Postgres), `tests/ladder-hold-limits-and-expiry.test.ts` (PGlite and Postgres), `tests/ladder-agreement-and-active-holds.test.ts` (PGlite and Postgres), `tests/ladder-counter-proposals.test.ts` (PGlite and Postgres), `tests/ladder-hold-agreement-ui.test.tsx`, `tests/ladder-court-time.test.ts` (the default) |
 | Ladders of persistent teams: entering by the captain, challenges between teams, lineups, games reported and confirmed by the team league's checks, forfeits asked for and decided by a manager, a team leaving, privacy, ratings, held court time for a team match | `src/lib/team-ladders.ts`, `src/lib/team-forfeits.ts` (the ladder's requests), `src/lib/team-leagues.ts` (`checkRubbers`, `lineupRefusal`), `src/lib/ladders.ts`, `src/lib/ratings.ts` (the *team* facts of a ladder), `src/app/api/admin/ladders/[id]/forfeit-requests`, `src/app/ladders/[id]/page.tsx`, `src/components/admin/LaddersPanel.tsx`, `db/migrations/0283_ladder_court_time_and_team_ladders.sql` | `tests/team-ladders.test.ts` (PGlite and Postgres), `tests/team-leagues.test.ts` (the shared lineup and result checks) |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 

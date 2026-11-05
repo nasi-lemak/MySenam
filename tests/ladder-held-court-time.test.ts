@@ -497,11 +497,15 @@ describe("through the player's route", () => {
     expect((await send(null, { action: "propose_move", onDate: day, minute: START })).status).toBe(401);
     expect((await send(await person(), { action: "propose_move", onDate: day, minute: START })).status).toBe(404);
     expect((await send(low.user, { action: "propose_move", onDate: day })).status).toBe(400);
-    const asked = await send(low.user, { action: "propose_move", onDate: day, minute: START });
+    // On a ladder that holds court time an act that answers a proposal names the revision it saw (ADR 0051): without it, it is refused.
+    expect((await (await send(low.user, { action: "propose_move", onDate: day, minute: START })).json()).code).toBe("LAD5_REV_NEEDED");
+    const revOf = async () => ((await getDb().prepare("SELECT proposal_rev FROM ladder_challenges WHERE id = ?").get(made.id)) as { proposal_rev: number }).proposal_rev;
+    const asked = await send(low.user, { action: "propose_move", onDate: day, minute: START, rev: await revOf() });
     expect(asked.status).toBe(200);
     expect((await asked.json()).challenge.move).toMatchObject({ onDate: day, minute: START });
-    expect((await (await send(low.user, { action: "agree_move" })).json()).code).toBe("LAD2_OWN_MOVE");
-    const agreed = await send(top.user, { action: "agree_move" });
+    expect((await (await send(low.user, { action: "agree_move", rev: await revOf() })).json()).code).toBe("LAD2_OWN_MOVE");
+    expect((await (await send(top.user, { action: "agree_move" })).json()).code).toBe("LAD5_REV_NEEDED");
+    const agreed = await send(top.user, { action: "agree_move", rev: await revOf() });
     expect(agreed.status).toBe(200);
     expect((await agreed.json()).challenge.hold).toMatchObject({ court: "Held Court A", startMin: START });
   });

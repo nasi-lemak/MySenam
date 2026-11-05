@@ -2,7 +2,8 @@
 
 - **Status:** current, decided 2026-11-05 at the owner's request. Built in migration 0292. What managers and players see is in
   [court time held by the venue](../../features/tournaments.md#court-time-held-by-the-venue-an-optional-setting-per-ladder).
-  **Amends [ADR 0048](0048-ladder-hold-limits-and-expiry.md)** in the places listed under *What this changes*. Builds on
+  **Amends [ADR 0048](0048-ladder-hold-limits-and-expiry.md)** in the places listed under *What this changes*. **Amended in turn by [ADR 0051](0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md)**: a counter-proposal
+  is its maker's agreement and holds nothing (the *What does not count* and *The accepter's act* paragraphs below are replaced), and the anti-abuse limit counts a player's own cancellations, not abandonment (Decision 5's second bullet is replaced). Builds on
   [ADR 0010](0010-interval-booking.md) (court time as claims under exclusion constraints) and [ADR 0002](0002-database-enforced-concurrency.md).
 - **Context:** the owner decided two things. (3) "If Player A proposes a fully specified match time and Player B explicitly accepts it, treat that as both
   players' agreement. Do not require both to repeat an identical confirmation unnecessarily. However, the acceptance interface must clearly communicate the
@@ -27,7 +28,7 @@
 - **What is kept.** One row per player per hold made by agreement (`ladder_agreed_times`): the day, the start, the minutes and the court that were shown and held, the
   role (`proposed` or `accepted`) and when. The hold row says it was made that way (`agreed_exactly`). A hold's rows stay when it is moved or released; a later agreement
   has rows of its own.
-- **What does not count.** A **counter-proposal** the other side has not agreed (the accepter names a time of their own), a **day alone** (nothing is held at all,
+- **What does not count.** *(Amended by [ADR 0051](0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md): a counter-proposal is the counter's maker's agreement and holds nothing until the other accepts it; only a manager's time is tentative.)* A **counter-proposal** the other side has not agreed (the accepter names a time of their own), a **day alone** (nothing is held at all,
   as before), and a **time a manager chose** are not agreements: the hold stays tentative on a ladder that asks for confirmation (ADR 0048), and each player confirms.
   The `needsConfirmation` setting keeps working: with it off every hold is confirmed when made, as before.
 - **The accepter's act does not confirm a counter-proposal.** ADR 0048's rule that both players confirm a tentative hold is unchanged: the accepter who named a time
@@ -73,7 +74,7 @@ nobody agreed and falls under this rule.
   team, or, for an adult's own place, the same account (never a contact detail), and counting the opponent's too, so a player cannot be put over their limit by asking. They resolve ladder override, then
   venue, then install, inside install bounds, are a manager's to set (`hold_limits`, logged), and they apply to holds made from now on and release none. A hold that expires or is released **stops counting at that
   moment** (lazily, by the read, and by the scheduler's sweep).
-- **The anti-abuse limit** is only about creating and abandoning holds repeatedly. **Abandoned** means: expired unconfirmed (against the place that made it) or withdrawn by a player while still tentative
+- **The anti-abuse limit** *(replaced by [ADR 0051](0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md): only a player's own cancellations of holds that reserved capacity count, and the consequence is a temporary pause)* is only about creating and abandoning holds repeatedly. **Abandoned** means: expired unconfirmed (against the place that made it) or withdrawn by a player while still tentative
   (against the one who withdrew). Not abandoned: played, moved, forfeited, released by the venue, confirmed and then withdrawn, made by a manager, or made before migration 0292 (nobody is recorded against it). At the
   threshold (default 6 in a rolling 7 days; install data, with a venue setting and a ladder override inside bounds 2 to 50) a **cooldown** applies to creating new holds (default 24 hours since the latest abandoned one;
   install data), refused as `LAD4_COOLDOWN` with a plain message; it ends by itself. Reaching it is logged by the system (`ladder.hold_cooldown`). It never applies to a move, to a manager, or to a player who has abandoned fewer.

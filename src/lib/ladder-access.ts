@@ -15,4 +15,8 @@ export async function staffLadder(req: NextRequest, rawId: string): Promise<{ ad
 }
 
 /** A ladder's refusal on its way to the browser, with the status it carries (code and variables for the reader's language). */
-export const ladderResponse = (r: LadderRefusal): NextResponse => refusal(r, r.status);
+export const ladderResponse = (r: LadderRefusal): NextResponse => {
+  // A stale act (`LAD5_STALE`) is answered with the challenge as it is now, so the page shows the current proposal again (ADR 0051).
+  if (r.challenge) return NextResponse.json({ error: r.error, code: r.code, vars: r.vars, challenge: r.challenge }, { status: r.status });
+  return refusal(r, r.status);
+};

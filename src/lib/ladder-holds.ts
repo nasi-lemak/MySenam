@@ -33,7 +33,13 @@ import { sweepExpiredHolds } from "./ladder-hold-sweep";
  * `ladder_agreed_times`); a manager's hold is tentative unless it changes nothing material (`changedFrom`, `carryAgreement`); a look at the court that would be held without
  * holding it (`previewHold`, a rolled-back savepoint of the same path), and a court shown to the player is held or nothing is (`expectCourtId`); and two limits that are
  * never mixed up: the **active** limits count live holds only (an expired or released hold stops counting at once; the per-player one counts all of a player's places,
- * `SAME_PLAYER`), and the **anti-abuse** limit counts only holds a player created and abandoned in a rolling window, whose consequence is a cooldown (`cooldownOf`).
+ * `SAME_PLAYER`), and the **anti-abuse** limit counts only holds a player created and abandoned in a rolling window, whose consequence was a cooldown (ADR 0050; replaced by ADR 0051 below).
+ *
+ * ADR 0051 (migration 0293) amends that: nobody is blamed for an expired or unanswered hold. The anti-abuse signal is now only **a player's own cancellations of holds that
+ * really reserved court capacity** (`cancelled_place`, `ownCancellations`); an expiry, a non-response, a decline, a release by the venue or the system, and a proposal that never
+ * reserved capacity are never counted, and the abandonment columns of migration 0292 are history that nothing reads for a limit. Its consequence is a **temporary pause on
+ * creating new capacity-reserving holds** (`pauseOf`) that ends by itself and a manager can lift with a reason (`liftPause`); it never stops a player proposing, countering,
+ * accepting an invitation to play or playing. What happened to a proposal or a hold is kept as a neutral record (`ladder_hold_events`, `recordEvent`), attributing nothing.
  */
 
 /** The install's caps, with the numbers they are seeded with (migration 0283). A row in `ladder_hold_limits` replaces them. */
@@ -71,8 +77,8 @@ export async function installHoldPolicy(): Promise<{ limits: Limits; bounds: Bou
     | undefined;
   if (!row) return { limits: DEFAULT_HOLD_LIMITS, bounds: DEFAULT_HOLD_BOUNDS, expiry: DEFAULT_HOLD_EXPIRY, abuse: DEFAULT_HOLD_ABUSE };
   return {
-    limits: { maxLivePerLadder: row.max_live_per_ladder, maxActivePerPlayer: row.max_active_per_player, maxPerPlayerWeek: row.max_active_per_player, abandonedThreshold: row.abuse_limit },
-    bounds: { liveMin: row.live_min, liveMax: row.live_max, activeMin: row.active_min, activeMax: row.active_max, weekMin: row.active_min, weekMax: row.active_max, abandonedMin: row.abuse_min, abandonedMax: row.abuse_max },
+    limits: { maxLivePerLadder: row.max_live_per_ladder, maxActivePerPlayer: row.max_active_per_player, maxPerPlayerWeek: row.max_active_per_player, cancelThreshold: row.abuse_limit },
+    bounds: { liveMin: row.live_min, liveMax: row.live_max, activeMin: row.active_min, activeMax: row.active_max, weekMin: row.active_min, weekMax: row.active_max, cancelMin: row.abuse_min, cancelMax: row.abuse_max },
     expiry: { confirmHours: row.confirm_hours, minNoticeMinutes: row.min_notice_minutes, extendHours: row.extend_hours },
     abuse: { windowDays: row.abuse_window_days, cooldownHours: row.abuse_cooldown_hours },
   };
@@ -89,25 +95,26 @@ type Source = "ladder" | "venue" | "install";
 interface Overrides {
   maxLivePerLadder: number | null;
   maxActivePerPlayer: number | null;
-  abandonedThreshold: number | null;
+  cancelThreshold: number | null;
   /** The old name of `maxActivePerPlayer` (the number carried over from the "made in 7 days" cap, ADR 0050); the same value. */
   maxPerPlayerWeek: number | null;
 }
 
 /**
  * The limits that apply to one ladder, and where each comes from (ADR 0048, ADR 0050). Two kinds that are never mixed up:
- * **active-hold limits** (holds live now: per ladder, and per player) and the **anti-abuse limit** (holds a player created and abandoned in a rolling window,
- * whose consequence is a cooldown on creating new holds). A hold that expired or was released stops counting towards the first at once; it is history for the second.
+ * **active-hold limits** (holds live now: per ladder, and per player) and the **anti-abuse limit** (a player's own cancellations of holds that really reserved
+ * court capacity in a rolling window, whose consequence is a temporary pause on creating new holds, ADR 0051). A hold that expired or was released stops counting towards
+ * the first at once, and never counts towards the second unless the player themself cancelled it.
  */
 export interface HoldLimitsView {
   /** What applies now. */
   maxLivePerLadder: number;
   maxActivePerPlayer: number;
-  /** Holds created and abandoned in the window that bring on the cooldown. */
-  abandonedThreshold: number;
+  /** The player's own cancellations of capacity-reserving holds in the window that bring on the pause. */
+  cancelThreshold: number;
   /** The old name of `maxActivePerPlayer`: the same number. */
   maxPerPlayerWeek: number;
-  from: { live: Source; active: Source; abandoned: Source; week: Source };
+  from: { live: Source; active: Source; cancel: Source; week: Source };
   install: Limits;
   /** The venue's setting (null: none) and the ladder's override (null: none). */
   venue: Overrides;
@@ -127,19 +134,19 @@ export async function resolveHoldLimits(ladder: { id: number; venueId: number })
     | { max_live_per_ladder: number | null; max_active_per_player: number | null; abuse_limit: number | null }
     | undefined;
   const own = (await db.prepare("SELECT cap_live, cap_active, cap_abuse FROM ladders WHERE id = ?").get(ladder.id)) as { cap_live: number | null; cap_active: number | null; cap_abuse: number | null } | undefined;
-  const v: Overrides = { maxLivePerLadder: venue?.max_live_per_ladder ?? null, maxActivePerPlayer: venue?.max_active_per_player ?? null, abandonedThreshold: venue?.abuse_limit ?? null, maxPerPlayerWeek: venue?.max_active_per_player ?? null };
-  const l: Overrides = { maxLivePerLadder: own?.cap_live ?? null, maxActivePerPlayer: own?.cap_active ?? null, abandonedThreshold: own?.cap_abuse ?? null, maxPerPlayerWeek: own?.cap_active ?? null };
+  const v: Overrides = { maxLivePerLadder: venue?.max_live_per_ladder ?? null, maxActivePerPlayer: venue?.max_active_per_player ?? null, cancelThreshold: venue?.abuse_limit ?? null, maxPerPlayerWeek: venue?.max_active_per_player ?? null };
+  const l: Overrides = { maxLivePerLadder: own?.cap_live ?? null, maxActivePerPlayer: own?.cap_active ?? null, cancelThreshold: own?.cap_abuse ?? null, maxPerPlayerWeek: own?.cap_active ?? null };
   const pick = (a: number | null, b: number | null, c: number): [number, Source] => (a !== null ? [a, "ladder"] : b !== null ? [b, "venue"] : [c, "install"]);
   const [live, liveFrom] = pick(l.maxLivePerLadder, v.maxLivePerLadder, policy.limits.maxLivePerLadder);
   const [active, activeFrom] = pick(l.maxActivePerPlayer, v.maxActivePerPlayer, policy.limits.maxActivePerPlayer);
-  const [abandoned, abandonedFrom] = pick(l.abandonedThreshold, v.abandonedThreshold, policy.limits.abandonedThreshold);
+  const [cancel, cancelFrom] = pick(l.cancelThreshold, v.cancelThreshold, policy.limits.cancelThreshold);
   const inUse = ((await db.prepare(`SELECT COUNT(*)::int AS n FROM ladder_court_holds h WHERE h.ladder_id = ? AND ${LIVE} AND h.date >= ?`).get(ladder.id, todayISO())) as { n: number }).n;
   return {
     maxLivePerLadder: live,
     maxActivePerPlayer: active,
-    abandonedThreshold: abandoned,
+    cancelThreshold: cancel,
     maxPerPlayerWeek: active,
-    from: { live: liveFrom, active: activeFrom, abandoned: abandonedFrom, week: activeFrom },
+    from: { live: liveFrom, active: activeFrom, cancel: cancelFrom, week: activeFrom },
     install: policy.limits,
     venue: v,
     ladder: l,
@@ -155,7 +162,7 @@ const LIVE = "h.released_at IS NULL AND NOT (h.confirmed_at IS NULL AND h.confir
 /**
  * The places held by the same player as place `?` (itself included), on any ladder: the same participant (a child's own places, entered by a guardian), the same
  * persistent team, or, for an adult's own place, the same account. A person is one player however many ladders they are on, so the limits that are about a player
- * (live holds, abandoned holds) count them all: a hold on one ladder and a hold on another are two holds of one player. A contact detail is never consulted: only
+ * (live holds, own cancellations) count them all: a hold on one ladder and a hold on another are two holds of one player. A contact detail is never consulted: only
  * the place's own participant, team or account ties places together (never a phone number or an email address).
  */
 const SAME_PLAYER = `SELECT lp.id FROM ladder_players lp JOIN ladder_players me ON me.id = ?
@@ -165,7 +172,7 @@ const SAME_PLAYER = `SELECT lp.id FROM ladder_players lp JOIN ladder_players me 
       OR (me.participant_id IS NULL AND me.team_id IS NULL AND me.user_id IS NOT NULL AND lp.participant_id IS NULL AND lp.team_id IS NULL AND lp.user_id = me.user_id)`;
 
 /** A number a holder may set, `null` to go back to the default above it, or why not (with the bounds). */
-function limitOk(raw: unknown, min: number, max: number, what: "live" | "active" | "abandoned"): number | null | HoldRefusal {
+function limitOk(raw: unknown, min: number, max: number, what: "live" | "active" | "cancel"): number | null | HoldRefusal {
   if (raw === null || raw === "") return null;
   const n = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw) : NaN;
   if (!Number.isInteger(n) || n < min || n > max) return refuse("LAD3_BOUNDS", { what, min, max });
@@ -180,28 +187,29 @@ function limitOk(raw: unknown, min: number, max: number, what: "live" | "active"
 export async function setHoldLimits(
   ladder: { id: number; venueId: number },
   scope: "venue" | "ladder",
-  change: { maxLive?: unknown; maxActive?: unknown; maxWeek?: unknown; maxAbandoned?: unknown }
+  change: { maxLive?: unknown; maxActive?: unknown; maxWeek?: unknown; maxCancelled?: unknown; maxAbandoned?: unknown }
 ): Promise<{ ok: true; before: HoldLimitsView; after: HoldLimitsView } | HoldRefusal> {
   const db = getDb();
   const before = await resolveHoldLimits(ladder);
   const { bounds } = before;
   const rawActive = change.maxActive !== undefined ? change.maxActive : change.maxWeek;
+  const rawCancel = change.maxCancelled !== undefined ? change.maxCancelled : change.maxAbandoned;
   const live = change.maxLive === undefined ? undefined : limitOk(change.maxLive, bounds.liveMin, bounds.liveMax, "live");
   const active = rawActive === undefined ? undefined : limitOk(rawActive, bounds.activeMin, bounds.activeMax, "active");
-  const abandoned = change.maxAbandoned === undefined ? undefined : limitOk(change.maxAbandoned, bounds.abandonedMin, bounds.abandonedMax, "abandoned");
-  for (const x of [live, active, abandoned]) if (typeof x === "object" && x !== null) return x;
+  const cancel = rawCancel === undefined ? undefined : limitOk(rawCancel, bounds.cancelMin, bounds.cancelMax, "cancel");
+  for (const x of [live, active, cancel]) if (typeof x === "object" && x !== null) return x;
   const current = scope === "venue" ? before.venue : before.ladder;
   const nextLive = live === undefined ? current.maxLivePerLadder : (live as number | null);
   const nextActive = active === undefined ? current.maxActivePerPlayer : (active as number | null);
-  const nextAbandoned = abandoned === undefined ? current.abandonedThreshold : (abandoned as number | null);
+  const nextCancel = cancel === undefined ? current.cancelThreshold : (cancel as number | null);
   if (scope === "venue")
     await db
       .prepare(
         `INSERT INTO venue_ladder_hold_limits (venue_id, max_live_per_ladder, max_active_per_player, abuse_limit) VALUES (?, ?, ?, ?)
          ON CONFLICT (venue_id) DO UPDATE SET max_live_per_ladder = EXCLUDED.max_live_per_ladder, max_active_per_player = EXCLUDED.max_active_per_player, abuse_limit = EXCLUDED.abuse_limit`
       )
-      .run(ladder.venueId, nextLive, nextActive, nextAbandoned);
-  else await db.prepare("UPDATE ladders SET cap_live = ?, cap_active = ?, cap_abuse = ? WHERE id = ?").run(nextLive, nextActive, nextAbandoned, ladder.id);
+      .run(ladder.venueId, nextLive, nextActive, nextCancel);
+  else await db.prepare("UPDATE ladders SET cap_live = ?, cap_active = ?, cap_abuse = ? WHERE id = ?").run(nextLive, nextActive, nextCancel, ladder.id);
   return { ok: true, before, after: await resolveHoldLimits(ladder) };
 }
 
@@ -350,9 +358,10 @@ export interface HoldRequest {
   confirmed?: boolean;
   /**
    * The two places agreed this exact time (the one that proposed it and the one that explicitly accepted it unchanged, ADR 0050): the hold is made confirmed, with
-   * both players' confirmations in and what each agreed kept as history. Never set for a counter-proposal, a day alone, or a manager's time.
+   * both players' confirmations in and what each agreed kept as history. Never set for a day alone or a manager's time. A counter-proposal the other player then accepts
+   * is one (ADR 0051): `rev` is the revision at which its maker's agreement was recorded (role `countered`, or `proposed` for a request to move; no hold behind it until now), which this hold takes up.
    */
-  agreement?: { proposer: number; accepter: number };
+  agreement?: { proposer: number; accepter: number; rev?: number; role?: "proposed" | "countered" };
   /**
    * The court the player was shown before they agreed: held, or nothing is (`LAD4_COURT_CHANGED`), so the court held is the one on the acceptance screen.
    * Without it the court is chosen as ever.
@@ -398,10 +407,11 @@ export async function makeHold(req: HoldRequest): Promise<{ ok: true; hold: Hold
         .get(today, own?.id ?? 0, p, p)) as { n: number };
       if (active.n >= limits.maxActivePerPlayer) return refuse("LAD4_CAP_ACTIVE", { n: limits.maxActivePerPlayer });
     }
-    // The anti-abuse limit is another thing altogether (ADR 0050): only holds this player created and abandoned count, and only a run of them brings a cooldown.
+    // The anti-abuse limit is another thing altogether (ADR 0051): only this player's own cancellations of holds that reserved capacity count, and only a run of them
+    // brings a temporary pause on creating new holds (never on proposing, countering, accepting an invitation to play or playing: `answer` accepts without a hold).
     for (const p of req.by.placeId !== undefined ? [req.by.placeId] : req.playerIds) {
-      const cooling = await cooldownOf(p, limits);
-      if (cooling) return refuse("LAD4_COOLDOWN", { hours: limits.abuse.cooldownHours, until: localText(cooling.until, hours.zone), n: cooling.count, days: limits.abuse.windowDays });
+      const paused = await pauseOf(p, limits);
+      if (paused) return refuse("LAD5_PAUSED", { hours: limits.abuse.cooldownHours, until: localText(paused.until, hours.zone), n: paused.count, days: limits.abuse.windowDays });
     }
   }
   // The courts it may be on.
@@ -487,11 +497,23 @@ async function tryCourt(req: HoldRequest, courtId: number, from: number, to: num
         : 0;
       if (covered >= to - from) {
         // What each player agreed, kept as history (ADR 0050): the exact day, start, minutes and the court shown and held.
-        if (req.agreement)
-          for (const [player, role] of [[req.agreement.proposer, "proposed"], [req.agreement.accepter, "accepted"]] as const)
-            await db
-              .prepare("INSERT INTO ladder_agreed_times (held_id, challenge_id, player_id, role, date, start_min, minutes, court_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-              .run(row.id, req.challengeId, player, role, req.date, req.startMin, matchEnd - req.startMin, courtId);
+        if (req.agreement) {
+          for (const [player, role] of [[req.agreement.proposer, req.agreement.role ?? "proposed"], [req.agreement.accepter, "accepted"]] as const) {
+            // A counter-proposal's maker agreed it when they made it: that row takes up the hold now (an agreement of an earlier revision never does).
+            const taken =
+              role !== "accepted" && req.agreement.rev !== undefined
+                ? await db
+                    .prepare(
+                      "UPDATE ladder_agreed_times SET held_id = ?, court_id = ? WHERE challenge_id = ? AND player_id = ? AND rev = ? AND held_id IS NULL AND superseded_at IS NULL AND date = ? AND start_min = ?"
+                    )
+                    .run(row.id, courtId, req.challengeId, player, req.agreement.rev, req.date, req.startMin)
+                : { changes: 0 };
+            if (taken.changes !== 1)
+              await db
+                .prepare("INSERT INTO ladder_agreed_times (held_id, challenge_id, player_id, role, date, start_min, minutes, court_id, rev) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .run(row.id, req.challengeId, player, role, req.date, req.startMin, matchEnd - req.startMin, courtId, req.agreement.rev ?? null);
+          }
+        }
         return (await holdViews([req.challengeId])).get(req.challengeId) ?? null;
       }
       await db.prepare("DELETE FROM blocks WHERE ladder_hold_id = ?").run(row.id);
@@ -508,15 +530,15 @@ async function tryCourt(req: HoldRequest, courtId: number, from: number, to: num
 /**
  * Let a challenge's hold go, once: its blocks deleted, the row kept with why and by whom, and the freed day offered to the waiting list (after
  * the caller's transaction, `offerFreed`). Running it on a challenge with no live hold does nothing and returns null. It frees the player's active
- * allowance at once, and the row stays as history. `abandonedBy` (a place) says the player let go of a hold of their own that was still tentative, which is
- * recorded as abandoned (ADR 0050): the one thing here that counts towards the anti-abuse limit, and then only if the hold was still unconfirmed.
+ * allowance at once, and the row stays as history. `cancelledBy` (a place) says the player themself cancelled a hold that reserved court capacity, whatever state it
+ * was in (ADR 0051): the one thing here that counts towards the anti-abuse limit. Any other release (the venue's, the system's, a move, an expiry) names no one.
  */
 export async function releaseHold(
   challengeId: number,
   reason: string,
   by: string | null = null,
   note: string | null = null,
-  abandonedBy?: number
+  cancelledBy?: number
 ): Promise<{ courtId: number | null; date: string; hold: HoldView } | null> {
   const db = getDb();
   const hold = (await holdViews([challengeId])).get(challengeId);
@@ -526,7 +548,7 @@ export async function releaseHold(
     .prepare("UPDATE ladder_court_holds SET released_at = datetime('now'), released_reason = ?, released_by = ?, release_note = ? WHERE id = ? AND released_at IS NULL")
     .run(reason, by, note, hold.id);
   if (done.changes !== 1) return null;
-  if (abandonedBy !== undefined && hold.tentative) await db.prepare("UPDATE ladder_court_holds SET abandoned_place = ?, abandoned_at = now() WHERE id = ?").run(abandonedBy, hold.id);
+  if (cancelledBy !== undefined) await db.prepare("UPDATE ladder_court_holds SET cancelled_place = ?, cancelled_at = now() WHERE id = ?").run(cancelledBy, hold.id);
   await db.prepare("DELETE FROM blocks WHERE ladder_hold_id = ?").run(hold.id);
   return { courtId: hold.courtId, date: hold.date, hold };
 }
@@ -563,45 +585,87 @@ export function localText(at: Date | string, zone: string): string {
 }
 
 /**
- * The anti-abuse count (ADR 0050): holds this player (this place, and any other of the same player's) created and abandoned (expired unconfirmed, or withdrawn while
- * still tentative) inside the window, and when the latest was. Only the history of abandoned holds is read, never what is live, so it is the one thing a normal player whose proposal merely expired is unlikely to
- * accumulate: a hold that was played, moved, forfeited or released by the venue is not in it.
+ * The anti-abuse count (ADR 0051): the holds this player (this place, and any other of the same player's) themself cancelled, that really reserved court capacity,
+ * inside the window, and when the latest was. Only that history is read, never what is live: an expiry, a non-response, a decline, a release by the venue or the
+ * system, a move, and a proposal or counter-proposal that never reserved capacity are not in it. A pause a manager lifted starts the count again after the lift.
  */
-export async function abandonedCount(placeId: number, windowDays: number): Promise<{ count: number; last: Date | null }> {
+export async function ownCancellations(placeId: number, windowDays: number): Promise<{ count: number; last: Date | null }> {
   const row = (await getDb()
-    .prepare(`SELECT COUNT(*)::int AS n, MAX(abandoned_at) AS last FROM ladder_court_holds WHERE abandoned_place IN (${SAME_PLAYER}) AND abandoned_at > now() - (?::int * interval '1 day')`)
-    .get(placeId, windowDays)) as { n: number; last: Date | string | null };
+    .prepare(
+      `SELECT COUNT(*)::int AS n, MAX(h.cancelled_at) AS last FROM ladder_court_holds h
+        WHERE h.cancelled_place IN (${SAME_PLAYER}) AND h.cancelled_at > now() - (?::int * interval '1 day')
+          AND h.cancelled_at > COALESCE((SELECT MAX(e.at) FROM ladder_hold_events e WHERE e.kind = 'pause_lifted' AND e.place_id IN (${SAME_PLAYER})), '-infinity'::timestamptz)`
+    )
+    .get(placeId, windowDays, placeId)) as { n: number; last: Date | string | null };
   return { count: row.n, last: row.last === null ? null : new Date(row.last) };
 }
 
 /**
- * The cooldown on creating new holds, or null: at or past the threshold of abandoned holds in the window, a new hold cannot be created until the cooldown has
- * passed since the latest was abandoned. Ending when the older ones leave the window, it asks nothing of a player who stopped abandoning holds.
+ * The pause on creating new capacity-reserving holds, or null: at or past the threshold of the player's own cancellations in the window, a new hold cannot be created
+ * until the pause has passed since the latest. It ends by itself (as the older ones leave the window), asks nothing of a player who stopped cancelling, and never
+ * applies to proposing, countering, accepting an invitation to play, playing, or a hold a manager makes.
  */
-export async function cooldownOf(placeId: number, limits: Pick<HoldLimitsView, "abandonedThreshold" | "abuse">): Promise<{ until: Date; count: number } | null> {
-  const { count, last } = await abandonedCount(placeId, limits.abuse.windowDays);
-  if (count < limits.abandonedThreshold || last === null) return null;
+export async function pauseOf(placeId: number, limits: Pick<HoldLimitsView, "cancelThreshold" | "abuse">): Promise<{ until: Date; count: number } | null> {
+  const { count, last } = await ownCancellations(placeId, limits.abuse.windowDays);
+  if (count < limits.cancelThreshold || last === null) return null;
   const until = new Date(last.getTime() + limits.abuse.cooldownHours * 3_600_000);
   return until.getTime() > Date.now() ? { until, count } : null;
 }
 
+/** Why a hold ended with nobody having played it: the reasons that count as "released unplayed" in the staff view (a move, a result and a booking taking its place do not). */
+const UNPLAYED = ["withdrawn", "expired", "staff", "lost", "lapsed", "notPlayed", "left", "frozen", "season", "forfeited", "void", "cleared"];
+
 /**
- * For a manager (staff only, never shown to players): each place on a ladder whose player has holds abandoned in the window (counted over all of the player's places,
- * as the cooldown is), how many, when the latest was, and until when they are cooling down.
+ * For a manager (staff only, never shown to players): each place on the ladder with holds released unplayed in the window, as neutral numbers: how many were released
+ * unplayed, of which how many the player themself cancelled, when the latest was, and until when new holds are paused for them (the person's, counted over all their places).
  */
-export async function abandonedHolds(ladder: { id: number; venueId: number }): Promise<{ playerId: number; count: number; last: string; coolingUntil: string | null }[]> {
+export async function holdHistory(ladder: { id: number; venueId: number }): Promise<{ playerId: number; releasedUnplayed: number; cancelledByPlayer: number; last: string | null; pausedUntil: string | null }[]> {
   const limits = await resolveHoldLimits(ladder);
-  const places = (await getDb()
-    .prepare("SELECT DISTINCT abandoned_place AS place FROM ladder_court_holds WHERE ladder_id = ? AND abandoned_at > now() - (?::int * interval '1 day') ORDER BY abandoned_place")
-    .all(ladder.id, limits.abuse.windowDays)) as { place: number }[];
-  const out: { playerId: number; count: number; last: string; coolingUntil: string | null }[] = [];
-  for (const { place } of places) {
-    const { count, last } = await abandonedCount(place, limits.abuse.windowDays);
-    if (last === null) continue;
-    const cooling = await cooldownOf(place, limits);
-    out.push({ playerId: place, count, last: last.toISOString(), coolingUntil: cooling ? cooling.until.toISOString() : null });
+  const rows = (await getDb()
+    .prepare(
+      `SELECT p.id AS place, COUNT(*)::int AS released,
+              COUNT(*) FILTER (WHERE h.cancelled_place = p.id)::int AS cancelled,
+              MAX(h.released_at) AS last
+         FROM ladder_court_holds h JOIN ladder_challenges c ON c.id = h.challenge_id JOIN ladder_players p ON p.id IN (c.challenger, c.challenged)
+        WHERE h.ladder_id = ? AND h.released_at IS NOT NULL AND h.released_reason IN (${UNPLAYED.map((r) => `'${r}'`).join(", ")})
+          AND h.released_at::timestamp > (now() AT TIME ZONE 'UTC') - (?::int * interval '1 day')
+        GROUP BY p.id ORDER BY p.id`
+    )
+    .all(ladder.id, limits.abuse.windowDays)) as { place: number; released: number; cancelled: number; last: string | null }[];
+  const out: { playerId: number; releasedUnplayed: number; cancelledByPlayer: number; last: string | null; pausedUntil: string | null }[] = [];
+  for (const r of rows) {
+    const paused = await pauseOf(r.place, limits);
+    out.push({ playerId: r.place, releasedUnplayed: r.released, cancelledByPlayer: r.cancelled, last: r.last, pausedUntil: paused ? paused.until.toISOString() : null });
   }
-  return out.sort((x, y) => y.count - x.count || x.playerId - y.playerId);
+  return out.sort((x, y) => y.cancelledByPlayer - x.cancelledByPlayer || y.releasedUnplayed - x.releasedUnplayed || x.playerId - y.playerId);
+}
+
+/** A manager lifts a player's pause on creating new holds, with a reason: the count starts again after this moment, and the lift is kept in the neutral record. */
+export async function liftPause(ladder: { id: number }, placeId: number, by: string, reason: string): Promise<void> {
+  await recordEvent({ ladderId: ladder.id, challengeId: null, placeId, byName: by, kind: "pause_lifted", note: reason.slice(0, 300) });
+}
+
+/**
+ * The neutral record of what happened to a proposal or a hold (`ladder_hold_events`): who proposed, countered, accepted, withdrew or cancelled, and a hold that was
+ * released or that nobody answered (`no_response`), said as it happened and attributing nothing. `reservedCapacity` is true only for what really held a court.
+ */
+export async function recordEvent(e: {
+  ladderId: number;
+  challengeId: number | null;
+  placeId?: number | null;
+  byName?: string | null;
+  kind: string;
+  rev?: number | null;
+  date?: string | null;
+  startMin?: number | null;
+  minutes?: number | null;
+  courtId?: number | null;
+  reservedCapacity?: boolean;
+  note?: string | null;
+}): Promise<void> {
+  await getDb()
+    .prepare("INSERT INTO ladder_hold_events (ladder_id, challenge_id, place_id, by_name, kind, rev, date, start_min, minutes, court_id, reserved_capacity, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(e.ladderId, e.challengeId, e.placeId ?? null, e.byName ?? null, e.kind, e.rev ?? null, e.date ?? null, e.startMin ?? null, e.minutes ?? null, e.courtId ?? null, e.reservedCapacity === true, e.note ?? null);
 }
 
 /** A look at the court that would be held, refused or not, without holding it (ADR 0050). */
@@ -766,12 +830,12 @@ export async function reconcileHolds(): Promise<{ challengeId: number; ladderId:
  * The scheduler's half of expiry: holds nobody confirmed in time are let go (`sweepExpiredHolds`, which every claim and every hold made also runs), and
  * the ones whose two players have not yet been told are returned, once each (`markExpiryTold`). Running it again returns nothing new.
  */
-export async function expiredHoldsToTell(): Promise<{ id: number; challengeId: number; ladderId: number; courtId: number | null; date: string; startMin: number; abandonedPlace: number | null }[]> {
+export async function expiredHoldsToTell(): Promise<{ id: number; challengeId: number; ladderId: number; courtId: number | null; date: string; startMin: number }[]> {
   await sweepExpiredHolds();
   const rows = (await getDb()
-    .prepare("SELECT id, challenge_id, ladder_id, court_id, date, start_min, abandoned_place FROM ladder_court_holds WHERE released_reason = 'expired' AND expiry_told_at IS NULL ORDER BY id")
-    .all()) as { id: number; challenge_id: number; ladder_id: number; court_id: number | null; date: string; start_min: number; abandoned_place: number | null }[];
-  return rows.map((r) => ({ id: r.id, challengeId: r.challenge_id, ladderId: r.ladder_id, courtId: r.court_id, date: r.date, startMin: r.start_min, abandonedPlace: r.abandoned_place }));
+    .prepare("SELECT id, challenge_id, ladder_id, court_id, date, start_min FROM ladder_court_holds WHERE released_reason = 'expired' AND expiry_told_at IS NULL ORDER BY id")
+    .all()) as { id: number; challenge_id: number; ladder_id: number; court_id: number | null; date: string; start_min: number }[];
+  return rows.map((r) => ({ id: r.id, challengeId: r.challenge_id, ladderId: r.ladder_id, courtId: r.court_id, date: r.date, startMin: r.start_min }));
 }
 
 /** Claim the telling of one expiry: true for the one caller that gets to tell, so two schedulers never tell the players twice. */

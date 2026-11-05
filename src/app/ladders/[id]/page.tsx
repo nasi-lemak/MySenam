@@ -53,6 +53,8 @@ export default function LadderPage() {
     if (!res.ok && accountDetour(out)) return false;
     if (!res.ok) {
       setError(translateError(t, out) || out.error);
+      // A proposal that has been replaced, or has lapsed (ADR 0051): show the current one again, nothing was agreed or held.
+      if (out.code === "LAD5_STALE" || out.code === "LAD5_EXPIRED") await load();
       return false;
     }
     await load();
@@ -291,7 +293,8 @@ function OpenChallenge({ t, x, p, c, post }: { t: T; x: LadderDetail; p: MyPlace
   const [note, setNote] = useState("");
   const [disputing, setDisputing] = useState(false);
   const waitingFor = c.status === "pending" ? (c.awaiting === "challenged" ? c.challenged : c.challenger) : null;
-  const act = (body: object) => post(url, { version: c.version, ...body });
+  // Every act that answers a proposal names the revision the player saw (ADR 0051): a superseded proposal can never be accepted.
+  const act = (body: object) => post(url, { version: c.version, rev: c.rev, ...body });
   const when = c.proposedOn ? `${c.proposedOn} ${clock(c.proposedMin)}` : "";
   const result = c.winner !== null ? `${c.winner === p.playerId ? t("ldp.iWon") : t("ldp.theyWon", { name: other })} ${c.score ?? ""}`.trim() : "";
   return (
@@ -301,6 +304,7 @@ function OpenChallenge({ t, x, p, c, post }: { t: T; x: LadderDetail; p: MyPlace
       {c.status === "pending" && when && c.proposedBy !== p.playerId && <p>{t("ldp.counterMine", { name: other, date: c.proposedOn ?? "", time: clock(c.proposedMin) })}</p>}
       {c.status === "pending" && waitingFor !== p.playerId && <p>{t("ldp.pendingTheirs", { name: other, date: c.respondBy ?? "" })}</p>}
       {c.status === "pending" && when && c.proposedBy === p.playerId && <p>{t("ldp.counterTheirs", { name: other, date: c.proposedOn ?? "", time: clock(c.proposedMin), by: c.respondBy ?? "" })}</p>}
+      {x.courtTime.on && c.status === "pending" && when && c.proposedMin !== null && c.proposedBy === p.playerId && <p className="text-xs text-slate-600">{t("lad5.ui.mineNote")}</p>}
       {c.status === "accepted" && <p>{t("ldp.accepted", { name: other, date: c.playBy ?? "" })}</p>}
       {c.agreedOn && c.status !== "pending" && <p className="text-xs text-slate-500">{t("ldp.agreed", { date: c.agreedOn, time: clock(c.agreedMin) })}</p>}
       {c.contact && (
@@ -330,6 +334,7 @@ function OpenChallenge({ t, x, p, c, post }: { t: T; x: LadderDetail; p: MyPlace
                 t={t}
                 url={url}
                 kind="accept"
+                rev={c.rev}
                 name={other}
                 check={t("lad4.ui.check")}
                 go={t("lad4.ui.go")}
@@ -347,9 +352,25 @@ function OpenChallenge({ t, x, p, c, post }: { t: T; x: LadderDetail; p: MyPlace
             )}
             <input type="date" aria-label={t("ldp.day")} value={date} onChange={(e) => setDate(e.target.value)} className={input} />
             <input type="time" aria-label={t("ldp.time")} value={time} onChange={(e) => setTime(e.target.value)} className={input} />
-            <button className={plain} disabled={!date} onClick={() => void act({ action: "propose", onDate: date, minute: minutes(time) })}>
-              {t("ldp.propose")}
-            </button>
+            {x.courtTime.on && date && minutes(time) !== undefined ? (
+              // A time of one's own in answer is a counter-proposal (ADR 0051): the court that would be held is shown first, and it is said plainly that this is a proposal and not a reservation.
+              <AgreeAfterLook
+                key={`${date} ${time}`}
+                t={t}
+                url={url}
+                kind="counter"
+                rev={c.rev}
+                name={other}
+                when={{ onDate: date, minute: minutes(time)! }}
+                check={t("lad5.ui.checkCounter")}
+                go={t("lad5.ui.goCounter")}
+                onGo={() => act({ action: "propose", onDate: date, minute: minutes(time) })}
+              />
+            ) : (
+              <button className={plain} disabled={!date} onClick={() => void act({ action: "propose", onDate: date, minute: minutes(time) })}>
+                {t("ldp.propose")}
+              </button>
+            )}
           </>
         )}
         {mineIsChallenger && (c.status === "pending" || c.status === "accepted") && (
@@ -435,7 +456,7 @@ function ChallengeCourt({ t, x, p, c, url, post, other }: { t: T; x: LadderDetai
 function HeldCourt({ t, p, c, url, post, other }: { t: T; p: MyPlace; c: MyPlace["open"][number]; url: string; post: (url: string, body: object) => Promise<boolean>; other: string }) {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
-  const act = (body: object) => post(url, { version: c.version, ...body });
+  const act = (body: object) => post(url, { version: c.version, rev: c.rev, ...body });
   return (
     <div className="space-y-1">
       <p className="font-medium">{c.hold ? t("lad2.ui.held", { court: c.hold.court, date: c.hold.date, time: clock(c.hold.startMin) }) : t("lad2.ui.notHeld", { name: other })}</p>
@@ -468,6 +489,7 @@ function HeldCourt({ t, p, c, url, post, other }: { t: T; p: MyPlace; c: MyPlace
                 t={t}
                 url={url}
                 kind="agree_move"
+                rev={c.rev}
                 name={other}
                 check={t("lad4.ui.checkAgree")}
                 go={t("lad4.ui.goAgree")}
@@ -489,6 +511,7 @@ function HeldCourt({ t, p, c, url, post, other }: { t: T; p: MyPlace; c: MyPlace
             t={t}
             url={url}
             kind="propose_move"
+            rev={c.rev}
             name={other}
             when={{ onDate: date, minute: minutes(time)! }}
             check={t("lad4.ui.checkAsk", { name: other })}

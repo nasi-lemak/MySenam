@@ -13,7 +13,7 @@ import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { createSession, registerUser, SESSION_COOKIE, type User } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
-import { abandonedCount, holdViews, resolveHoldLimits } from "../src/lib/ladder-holds";
+import { ownCancellations, holdViews, resolveHoldLimits } from "../src/lib/ladder-holds";
 import { sweepExpiredHolds } from "../src/lib/ladder-hold-sweep";
 import {
   answer,
@@ -47,6 +47,9 @@ import * as challengeRoute from "../src/app/api/ladders/[id]/challenges/[challen
  *  - an expired or released hold stops counting towards the player's active allowance at once; only holds a player created and abandoned count towards
  *    the anti-abuse limit, whose consequence is a cooldown.
  * Nothing here bypasses the one claim path: every hold is still made under the exclusion constraints and the ladder's limits.
+ *
+ * ADR 0051 (migration 0293) amends this file's subject: a counter-proposal is its maker's agreement and holds nothing, so a tentative hold now only comes from a manager;
+ * and the anti-abuse signal is a player's own cancellation of a hold that reserved capacity, never an expiry (tests/ladder-counter-proposals.test.ts holds the new rules).
  */
 
 vi.setConfig({ testTimeout: 120_000 });
@@ -57,6 +60,7 @@ let courtA: number;
 let courtB: number;
 let courtC: number;
 let managerCookie: string;
+let deskCookie: string;
 let n = 0;
 let dayNo = 0;
 const today = todayISO();
@@ -98,6 +102,9 @@ beforeAll(async () => {
   const manager = await createAdmin({ name: "Mina Manager", email: "mina-agree@venue.my", password: "manager-pass-1", venueId });
   if (!manager.ok) throw new Error("staff");
   managerCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(manager.admin.id)).token}`;
+  const desk = await createAdmin({ name: "Dan Desk", email: "dan-agree@venue.my", password: "desk-password-1", venueId, role: "desk" });
+  if (!desk.ok) throw new Error("desk");
+  deskCookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(desk.admin.id)).token}`;
 });
 
 /**
@@ -139,13 +146,14 @@ async function agreed(over: Partial<LadderInput> = {}, minute = START) {
   return { ...s, top, low, c, day, made };
 }
 
-/** A tentative hold: the accepter names the time (a counter-proposal), so both must confirm. */
+/** A tentative hold: a manager holds a court at a time the players had not agreed (a player's own different time is a counter-proposal that holds nothing, ADR 0051), so both must confirm. */
 async function tentative(over: Partial<LadderInput> = {}, minute = START) {
   const s = await ladder(over, 3);
   const [, top, low] = s.people;
   const day = freshDay();
   const made = await propose(s.l, low, top, day);
-  const c = ok(await answer(top.user.id, made.id, { accept: true, onDate: day, minute }));
+  ok(await answer(top.user.id, made.id, { accept: true }));
+  const c = ok(await staffHold(made.id, { adminId, name: "Mina Manager" }, { move: { onDate: day, minute } }, "Courts are busy that week"));
   return { ...s, top, low, c, day, made };
 }
 
@@ -164,6 +172,8 @@ type HoldRow = {
   changed_from: string | null;
   abandoned_place: number | null;
   abandoned_at: Date | string | null;
+  cancelled_place: number | null;
+  cancelled_at: Date | string | null;
 };
 const holdRows = async (challengeId: number) => (await db().prepare("SELECT * FROM ladder_court_holds WHERE challenge_id = ? ORDER BY id").all(challengeId)) as HoldRow[];
 const lastHold = async (challengeId: number) => (await holdRows(challengeId)).at(-1)!;
@@ -185,7 +195,13 @@ const agreements = async (challengeId: number) =>
     start_min: number;
     minutes: number;
     court_id: number | null;
+    rev: number | null;
+    superseded_at: Date | string | null;
+    superseded_reason: string | null;
   }[];
+/** The agreements that made a hold (one a proposal alone has recorded, held by nothing, is not among them). */
+const heldAgreements = async (challengeId: number) => (await agreements(challengeId)).filter((r) => r.held_id !== null);
+const revOf = async (challengeId: number) => ((await db().prepare("SELECT proposal_rev FROM ladder_challenges WHERE id = ?").get(challengeId)) as { proposal_rev: number }).proposal_rev;
 const mail = async (to: string) => (await db().prepare("SELECT subject, body FROM messages WHERE kind IN ('programme', 'team_decision') AND recipient = ? ORDER BY id").all(to)) as { subject: string; body: string }[];
 const mailAbout = async (to: string, text: string) => (await mail(to)).filter((m) => m.subject.includes(text) || m.body.includes(text));
 const view = async (l: { id: number }, challengeId: number) => (await ladderDetail(l.id, { forStaff: true }))!.challenges!.find((c) => c.id === challengeId)!;
@@ -255,7 +271,7 @@ describe("an existing agreement counts as confirmation", () => {
     expect(told[0].body).not.toContain("Please confirm the court");
   });
 
-  it("accepting with the very same day and time named is the same agreement; a different time named is a counter-proposal", async () => {
+  it("accepting with the very same day and time named is the same agreement; a different time named is a counter-proposal that holds nothing (ADR 0051)", async () => {
     const s = await ladder({}, 4);
     const [, top, low, third] = s.people;
     const day = freshDay();
@@ -263,22 +279,31 @@ describe("an existing agreement counts as confirmation", () => {
     expect(ok(await answer(top.user.id, made.id, { accept: true, onDate: day, minute: START })).hold).toMatchObject({ tentative: false, agreed: true });
     const other = await propose(s.l, third, s.people[0], freshDay(), START);
     const counter = ok(await answer(s.people[0].user.id, other.id, { accept: true, onDate: other.proposedOn!, minute: START + 30 }));
-    expect(counter.hold).toMatchObject({ tentative: true, agreed: false, startMin: START + 30, confirmedBy: { challenger: false, challenged: false } });
-    expect(await agreements(other.id)).toEqual([]);
+    // It is a proposal, not a hold: nothing is held, the challenge waits for the other player, and the counter's maker has agreed their own specification.
+    expect(counter).toMatchObject({ status: "pending", hold: null, proposedMin: START + 30, proposedBy: s.people[0].id, awaiting: "challenger" });
+    expect(await holdRows(other.id)).toEqual([]);
+    expect(await heldAgreements(other.id)).toEqual([]);
+    expect((await agreements(other.id)).filter((r) => r.superseded_at === null)).toEqual([expect.objectContaining({ player_id: s.people[0].id, role: "countered", start_min: START + 30, held_id: null })]);
   });
 
-  it("a counter-proposal the other side then accepts unchanged is an agreement, the counter's proposer being the one who proposed", async () => {
+  it("a counter-proposal the other side then accepts unchanged is an agreement, the counter's maker being the one who agreed it first and never asked again", async () => {
     const s = await ladder({}, 3);
     const [, top, low] = s.people;
     const day = freshDay();
     const made = await propose(s.l, low, top, day, START);
     ok(await answer(top.user.id, made.id, { propose: true, onDate: day, minute: START + 60 }));
     const c = ok(await answer(low.user.id, made.id, { accept: true }));
-    expect(c.hold).toMatchObject({ tentative: false, agreed: true, startMin: START + 60 });
-    expect((await agreements(c.id)).find((r) => r.role === "proposed")!.player_id).toBe(top.id);
+    expect(c.hold).toMatchObject({ tentative: false, agreed: true, startMin: START + 60, confirmedBy: { challenger: true, challenged: true } });
+    const rows = await heldAgreements(c.id);
+    expect(rows.find((r) => r.role === "countered")!.player_id).toBe(top.id);
+    expect(rows.find((r) => r.role === "accepted")!.player_id).toBe(low.id);
+    // The original proposal's own agreement is history, flagged superseded, never toward this hold.
+    const first = (await agreements(c.id)).find((r) => r.player_id === low.id && r.role === "proposed")!;
+    expect(first).toMatchObject({ held_id: null, start_min: START });
+    expect(first.superseded_at).not.toBeNull();
   });
 
-  it("a day alone, a counter-proposal and a time a manager chose are not an agreement: a day alone holds nothing, the others are tentative until both confirm", async () => {
+  it("a day alone and a time a manager chose are not an agreement: a day alone holds nothing, the manager's is tentative until both confirm", async () => {
     // A day alone, accepted: no time, no court.
     const s = await ladder({}, 3);
     const [, top, low] = s.people;
@@ -290,14 +315,13 @@ describe("an existing agreement counts as confirmation", () => {
     const day = freshDay();
     expect((await send(managerCookie, s.l.id, { action: "hold_move", challengeId: dayOnly.id, onDate: day, minute: START, reason: "Courts are busy that week" })).status).toBe(200);
     expect(await view(s.l, dayOnly.id)).toMatchObject({ hold: { tentative: true, agreed: false, confirmedBy: { challenger: false, challenged: false } } });
-    expect(await agreements(dayOnly.id)).toEqual([]);
+    expect(await heldAgreements(dayOnly.id)).toEqual([]);
     ok(await confirmHoldAsPlayer(top.user.id, dayOnly.id));
     expect((await view(s.l, dayOnly.id)).hold).toMatchObject({ tentative: true });
     ok(await confirmHoldAsPlayer(low.user.id, dayOnly.id));
     expect((await view(s.l, dayOnly.id)).hold).toMatchObject({ tentative: false, agreed: false });
-    // A counter-proposal: tentative.
-    const t = await tentative();
-    expect(t.c.hold).toMatchObject({ tentative: true, agreed: false });
+    // Both are told, by the manager's hold, to confirm it.
+    expect(await mailAbout(top.user.email, "confirm the court by")).not.toHaveLength(0);
   });
 
   it("on a ladder whose manager turned confirmation off every hold is confirmed, as before", async () => {
@@ -306,7 +330,8 @@ describe("an existing agreement counts as confirmation", () => {
     expect((await send(managerCookie, s.l.id, { action: "court_time", needsConfirmation: false })).status).toBe(200);
     const day = freshDay();
     const made = await propose(s.l, low, top, day);
-    expect(ok(await answer(top.user.id, made.id, { accept: true, onDate: day, minute: START })).hold).toMatchObject({ tentative: false, agreed: false, confirmBy: null });
+    ok(await answer(top.user.id, made.id, { accept: true }));
+    expect(ok(await staffHold(made.id, { adminId, name: "Mina Manager" }, { move: { onDate: day, minute: START } }, "Courts are busy that week")).hold).toMatchObject({ tentative: false, agreed: false, confirmBy: null });
   });
 });
 
@@ -326,7 +351,7 @@ describe("agreement bypasses nothing: the one claim path, the limits, the hours 
     expect(await count("SELECT COUNT(*)::int AS n FROM ladder_court_holds")).toBe(before.holds);
     expect(await statusOf(made.id)).toBe("pending");
     expect(await versionOf(made.id)).toBe(before.version);
-    expect(await agreements(made.id)).toEqual([]);
+    expect(await heldAgreements(made.id)).toEqual([]);
     expect(await mailAbout(low.user.email, "You both agreed this exact time")).toHaveLength(0);
     // An old client that names no court still gets the deterministic choice among what is free: the other court.
     const open = ok(await answer(top.user.id, made.id, { accept: true }));
@@ -355,7 +380,7 @@ describe("agreement bypasses nothing: the one claim path, the limits, the hours 
       expect(await answer(p4.user.id, second.id, { accept: true })).toMatchObject({ ok: false, code: "LAD2_CAP_LADDER" });
       expect(await statusOf(second.id)).toBe("pending");
       expect(await versionOf(second.id)).toBe(version);
-      expect(await agreements(second.id)).toEqual([]);
+      expect(await heldAgreements(second.id)).toEqual([]);
     });
   });
 
@@ -466,7 +491,7 @@ describe("the acceptance screen's preview", () => {
     expect(await holdRows(made.id)).toEqual([]);
     // The acceptance by the route carries the court shown.
     const shown = (await (await ask(top.user)).json()).preview;
-    const accepted = await challengeRoute.POST(req(`/api/ladders/${s.l.id}/challenges/${made.id}`, "POST", await cookieOf(top.user), { action: "accept", courtId: shown.courtId }), ctx2(s.l.id, made.id));
+    const accepted = await challengeRoute.POST(req(`/api/ladders/${s.l.id}/challenges/${made.id}`, "POST", await cookieOf(top.user), { action: "accept", courtId: shown.courtId, rev: await revOf(made.id) }), ctx2(s.l.id, made.id));
     expect(accepted.status).toBe(200);
     expect((await accepted.json()).challenge.hold).toMatchObject({ courtId: shown.courtId, tentative: false });
   });
@@ -568,8 +593,8 @@ describe("races", () => {
     expect(done.filter((r) => !r.ok)[0]).toMatchObject({ code: "LAD2_NO_COURT" });
     const winner = done[0].ok ? x : y;
     const loser = done[0].ok ? y : x;
-    expect((await agreements(winner.id)).length).toBe(2);
-    expect(await agreements(loser.id)).toEqual([]);
+    expect((await heldAgreements(winner.id)).length).toBe(2);
+    expect(await heldAgreements(loser.id)).toEqual([]);
     expect(await statusOf(loser.id)).toBe("pending");
     expect(await count(`SELECT COUNT(*)::int AS n FROM claims c JOIN blocks k ON k.id = c.block_id WHERE k.court_id = ${courtA} AND k.date = '${day}' AND c.active`)).toBe(1);
     expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_court_holds WHERE court_id = ${courtA} AND date = '${day}' AND released_at IS NULL`)).toBe(1);
@@ -582,7 +607,7 @@ describe("races", () => {
     const done = await Promise.all([answer(top.user.id, made.id, { accept: true }), answer(top.user.id, made.id, { accept: true })]);
     expect(done.filter((r) => r.ok)).toHaveLength(1);
     expect(await holdRows(made.id)).toHaveLength(1);
-    expect(await agreements(made.id)).toHaveLength(2);
+    expect(await heldAgreements(made.id)).toHaveLength(2);
   });
 
   it("an acceptance racing a booking for the same court and time: whichever is first, the other is refused and nothing overlaps", async () => {
@@ -652,7 +677,7 @@ describe("races", () => {
 // ============================================================================ expired holds do not count
 
 describe("an expired or released hold stops counting towards the player's active allowance", () => {
-  it("the moment it lapses, before the scheduler runs and after it: the ladder's live count and the player's allowance drop, the court is free, the row is kept as history", async () => {
+  it("the moment it lapses, before the scheduler runs and after it: the ladder's live count and the player's allowance drop, the court is free, the row is kept as history and names no one", async () => {
     await clean(async () => {
       const a = await tentative();
       await caps(a.l.id, { maxActive: 1 });
@@ -663,9 +688,8 @@ describe("an expired or released hold stops counting towards the player's active
       await ladderHousekeeping();
       expect((await resolveHoldLimits({ id: a.l.id, venueId })).inUse).toBe(0);
       const row = await lastHold(a.c.id);
-      expect(row).toMatchObject({ released_reason: "expired", abandoned_place: a.top.id });
+      expect(row).toMatchObject({ released_reason: "expired", abandoned_place: null, abandoned_at: null, cancelled_place: null, cancelled_at: null });
       expect(row.released_at).not.toBeNull();
-      expect(row.abandoned_at).not.toBeNull();
       expect(await liveBlocks(a.c.id)).toEqual([]);
       // The same two players agree a time again: the allowance of 1 is free, so it is held.
       ok(await proposeMove(a.low.user.id, a.c.id, { onDate: a.day, minute: START + 60 }));
@@ -674,169 +698,267 @@ describe("an expired or released hold stops counting towards the player's active
     });
   });
 
-  it("a player with four expired holds can create a new one: expiry is never held against a normal player", async () => {
+  it("a player with four expired holds can create a new one: an expiry is never held against anyone, and is recorded as no response", async () => {
     await clean(async () => {
       const s = await ladder({}, 3);
       const [, top, low] = s.people;
       for (let i = 0; i < 4; i++) {
         const day = freshDay();
         const made = await propose(s.l, low, top, day);
-        const c = ok(await answer(top.user.id, made.id, { accept: true, onDate: day, minute: START }));
+        ok(await answer(top.user.id, made.id, { accept: true }));
+        const c = ok(await staffHold(made.id, { adminId, name: "Mina Manager" }, { move: { onDate: day, minute: START } }, "Courts are busy that week"));
         await lapse(c.id);
         await ladderHousekeeping();
         ok(await withdraw(low.user.id, c.id));
       }
-      // Four holds expired in the week, a threshold of six: not blocked, and the allowance of four is all free.
-      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_court_holds WHERE released_reason = 'expired' AND abandoned_place = ${top.id}`)).toBe(4);
+      // Four holds expired in the week; nobody is recorded against any, and the allowance of four is all free.
+      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_court_holds WHERE released_reason = 'expired' AND abandoned_place IS NULL AND cancelled_place IS NULL AND ladder_id = ${s.l.id}`)).toBe(4);
+      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_hold_events WHERE kind = 'no_response' AND ladder_id = ${s.l.id} AND place_id IS NULL`)).toBeGreaterThanOrEqual(4);
+      expect((await ownCancellations(low.id, 7)).count).toBe(0);
+      expect((await ownCancellations(top.id, 7)).count).toBe(0);
       const day = freshDay();
-      const made = await propose(s.l, low, top, day);
-      expect(ok(await answer(top.user.id, made.id, { accept: true, onDate: day, minute: START })).hold).toMatchObject({ tentative: true });
+      const made = await propose(s.l, low, top, day, START);
+      expect(ok(await answer(top.user.id, made.id, { accept: true })).hold).toMatchObject({ tentative: false, agreed: true });
     });
   });
 
-  it("released by the venue, or played, frees the allowance and is never an abandoned hold", async () => {
+  it("released by the venue, or played, frees the allowance and is never anyone's cancellation", async () => {
     await clean(async () => {
       const a = await agreed();
       await caps(a.l.id, { maxActive: 1 });
       expect((await resolveHoldLimits({ id: a.l.id, venueId })).inUse).toBe(1);
       expect((await send(managerCookie, a.l.id, { action: "hold_release", challengeId: a.c.id, reason: "Court needed for a league" })).status).toBe(200);
       expect((await resolveHoldLimits({ id: a.l.id, venueId })).inUse).toBe(0);
-      expect(await lastHold(a.c.id)).toMatchObject({ released_reason: "staff", abandoned_place: null });
+      expect(await lastHold(a.c.id)).toMatchObject({ released_reason: "staff", abandoned_place: null, cancelled_place: null });
       // Played: a result stands, the hold is let go as played.
       const b = await agreed();
       ok(await report(b.low.user.id, b.c.id, { winner: b.low.id, score: "21-10, 21-12" }));
       ok(await confirm(b.top.user.id, b.c.id, { version: (await myPlaces(b.top.user.id, b.l.id))[0].open[0].version }));
-      expect(await lastHold(b.c.id)).toMatchObject({ released_reason: "played", abandoned_place: null });
+      expect(await lastHold(b.c.id)).toMatchObject({ released_reason: "played", abandoned_place: null, cancelled_place: null });
       expect((await resolveHoldLimits({ id: b.l.id, venueId })).inUse).toBe(0);
     });
   });
 });
 
-describe("the anti-abuse limit: only holds a player created and abandoned count, and the consequence is a cooldown", () => {
-  /** One counter-accepted hold by `top`, let lapse and swept, then the challenge withdrawn so the pair can start again. */
-  async function abandonOne(s: { l: { id: number }; people: Pl[] }) {
+describe("the anti-abuse limit: only a player's own cancellations of holds that reserved a court count, and the consequence is a temporary pause", () => {
+  /** An exact agreement, a court really held, and the challenger cancelling it themself (withdrawing): one own cancellation, against `low`. */
+  async function cancelOne(s: { l: { id: number }; people: Pl[] }) {
+    const [, top, low] = s.people;
+    const made = await propose(s.l, low, top, freshDay(), START);
+    const c = ok(await answer(top.user.id, made.id, { accept: true }));
+    expect(c.hold).not.toBeNull();
+    ok(await withdraw(low.user.id, c.id));
+    return c;
+  }
+
+  /** `low` challenges for a day, `top` proposes a time (a counter) and `low` accepts it: `low`'s act would create the hold. */
+  async function lowAccepts(s: { l: { id: number }; people: Pl[] }) {
     const [, top, low] = s.people;
     const day = freshDay();
     const made = await propose(s.l, low, top, day);
-    const accepted = await answer(top.user.id, made.id, { accept: true, onDate: day, minute: START });
-    if (!accepted.ok) return accepted;
-    await lapse(accepted.value.id);
-    await ladderHousekeeping();
-    ok(await withdraw(low.user.id, accepted.value.id));
-    return accepted;
+    ok(await answer(top.user.id, made.id, { propose: true, onDate: day, minute: START }));
+    return { made, day, accepted: await answer(low.user.id, made.id, { accept: true }) };
   }
 
-  it("past the threshold a new hold is refused with a plain message and nothing is held; the active limits are separate and untouched", async () => {
+  it("past the threshold, creating a new hold is paused for that player: they can still accept, the match is agreed, no court is held, and nobody else's holds are touched", async () => {
     await clean(async () => {
       const s = await ladder({}, 3);
       const [, top, low] = s.people;
-      await caps(s.l.id, { maxAbandoned: 2 });
-      expect((await resolveHoldLimits({ id: s.l.id, venueId })).abandonedThreshold).toBe(2);
-      ok(await abandonOne(s));
-      ok(await abandonOne(s));
-      const day = freshDay();
-      const made = await propose(s.l, low, top, day);
-      const refused = await answer(top.user.id, made.id, { accept: true, onDate: day, minute: START });
-      expect(refused).toMatchObject({ ok: false, code: "LAD4_COOLDOWN", vars: { hours: 24, n: 2, days: 7 } });
+      await caps(s.l.id, { maxCancelled: 2 });
+      expect((await resolveHoldLimits({ id: s.l.id, venueId })).cancelThreshold).toBe(2);
+      await cancelOne(s);
+      await cancelOne(s);
+      expect((await ownCancellations(low.id, 7)).count).toBe(2);
+      // `low` accepting the other's proposal is accepting an invitation to play: it goes ahead, with no court held, and the other is told so.
+      const { made, day, accepted } = await lowAccepts(s);
+      expect(ok(accepted)).toMatchObject({ status: "accepted", agreedOn: day, agreedMin: START, hold: null });
       expect(await holdRows(made.id)).toEqual([]);
-      expect(await statusOf(made.id)).toBe("pending");
-      // It is the same for an agreed time (a cooldown is about creating holds), and the preview says so too; the active limits are separate and untouched.
-      expect(await previewHoldFor(top.user.id, made.id, { kind: "accept", onDate: day, minute: START })).toMatchObject({ ok: false, code: "LAD4_COOLDOWN" });
-      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ inUse: 0, maxActivePerPlayer: 4 });
+      expect(await mailAbout(top.user.email, "No court is held for this match")).toHaveLength(1);
+      ok(await withdraw(low.user.id, made.id));
+      // The preview says so before they act, instead of refusing.
+      const day2 = freshDay();
+      const again = await propose(s.l, low, top, day2);
+      ok(await answer(top.user.id, again.id, { propose: true, onDate: day2, minute: START }));
+      const looked = ok(await previewHoldFor(low.user.id, again.id, { kind: "accept" }));
+      expect(looked).toMatchObject({ applies: false, paused: { hours: 24 } });
+      // Proposing and countering are never paused.
+      expect(ok(await answer(low.user.id, again.id, { propose: true, onDate: day2, minute: START + 30 }))).toMatchObject({ status: "pending", proposedMin: START + 30 });
+      // Only the player with the cancellations is paused: `top` creates a hold as ever, and a manager's hold is not restricted either.
+      ok(await withdraw(low.user.id, again.id));
+      const other = await propose(s.l, low, top, freshDay(), START);
+      expect(ok(await answer(top.user.id, other.id, { accept: true })).hold).not.toBeNull();
+      // The active limits are separate and untouched.
+      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ maxActivePerPlayer: 4 });
     });
   });
 
-  it("the cooldown ends once its hours have passed since the last abandoned hold, and a hold is allowed again", async () => {
+  it("it ends by itself once its hours have passed since the last cancellation, and the window forgets the older ones", async () => {
     await clean(async () => {
       const s = await ladder({}, 3);
-      const [, top, low] = s.people;
-      await caps(s.l.id, { maxAbandoned: 2 });
-      ok(await abandonOne(s));
-      ok(await abandonOne(s));
-      await db().prepare("UPDATE ladder_court_holds SET abandoned_at = now() - interval '25 hours' WHERE abandoned_place = ?").run(top.id);
-      const day = freshDay();
-      const made = await propose(s.l, low, top, day);
-      expect(ok(await answer(top.user.id, made.id, { accept: true, onDate: day, minute: START })).hold).toMatchObject({ tentative: true });
-      // The window: holds abandoned more than 7 days ago no longer count at all.
-      expect((await abandonedCount(top.id, 7)).count).toBe(2);
-      await db().prepare("UPDATE ladder_court_holds SET abandoned_at = now() - interval '8 days' WHERE abandoned_place = ?").run(top.id);
-      expect((await abandonedCount(top.id, 7)).count).toBe(0);
+      const [, , low] = s.people;
+      await caps(s.l.id, { maxCancelled: 2 });
+      await cancelOne(s);
+      await cancelOne(s);
+      const first = await lowAccepts(s);
+      expect(first.accepted).toMatchObject({ ok: true, value: { hold: null } });
+      ok(await withdraw(low.user.id, first.made.id));
+      await db().prepare("UPDATE ladder_court_holds SET cancelled_at = now() - interval '25 hours' WHERE cancelled_place = ?").run(low.id);
+      expect(ok((await lowAccepts(s)).accepted).hold).not.toBeNull();
+      // The window: cancellations more than 7 days ago no longer count at all.
+      expect((await ownCancellations(low.id, 7)).count).toBe(2);
+      await db().prepare("UPDATE ladder_court_holds SET cancelled_at = now() - interval '8 days' WHERE cancelled_place = ?").run(low.id);
+      expect((await ownCancellations(low.id, 7)).count).toBe(0);
     });
   });
 
-  it("counts only abandoned holds: played, released by the venue, a manager's that expired, and a confirmed one withdrawn do not; a tentative one withdrawn does, against the one who withdrew", async () => {
+  it("counts only a player's own cancellations of holds that reserved a court: an expiry, a release by the venue, a decline, a withdrawn proposal, a counter and a move never count", async () => {
     await clean(async () => {
-      // Released by the venue.
+      // Released by the venue, and a manager's hold that expired.
       const a = await tentative();
       expect((await send(managerCookie, a.l.id, { action: "hold_release", challengeId: a.c.id, reason: "League night" })).status).toBe(200);
-      expect(await lastHold(a.c.id)).toMatchObject({ released_reason: "staff", abandoned_place: null });
-      // A manager's hold that nobody confirmed: the players did not create it.
-      const b = await ladder({}, 3);
-      const day = freshDay();
-      const dayOnly = await propose(b.l, b.people[2], b.people[1], day);
-      ok(await answer(b.people[1].user.id, dayOnly.id, { accept: true }));
-      expect((await send(managerCookie, b.l.id, { action: "hold_move", challengeId: dayOnly.id, onDate: day, minute: START, reason: "Courts are busy" })).status).toBe(200);
-      await lapse(dayOnly.id);
+      expect(await lastHold(a.c.id)).toMatchObject({ released_reason: "staff", cancelled_place: null });
+      const b = await tentative();
+      await lapse(b.c.id);
       await ladderHousekeeping();
-      expect(await lastHold(dayOnly.id)).toMatchObject({ released_reason: "expired", made_by: "staff", abandoned_place: null, abandoned_at: null });
-      // Confirmed by both, then withdrawn: not abandoned.
-      const c = await tentative();
-      ok(await confirmHoldAsPlayer(c.top.user.id, c.c.id));
-      ok(await confirmHoldAsPlayer(c.low.user.id, c.c.id));
-      ok(await withdraw(c.low.user.id, c.c.id));
-      expect(await lastHold(c.c.id)).toMatchObject({ released_reason: "withdrawn", abandoned_place: null });
-      // Withdrawn while still tentative: counted, against the one who withdrew.
-      const d = await tentative();
-      ok(await withdraw(d.low.user.id, d.c.id));
-      expect(await lastHold(d.c.id)).toMatchObject({ released_reason: "withdrawn", abandoned_place: d.low.id });
+      expect(await lastHold(b.c.id)).toMatchObject({ released_reason: "expired", cancelled_place: null, abandoned_place: null });
+      // A proposal that never reserved a court, withdrawn: a neutral event, not a cancellation of anything.
+      const c = await ladder({}, 3);
+      const proposed = await propose(c.l, c.people[2], c.people[1], freshDay(), START);
+      ok(await withdraw(c.people[2].user.id, proposed.id));
+      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_court_holds WHERE ladder_id = ${c.l.id}`)).toBe(0);
+      expect((await ownCancellations(c.people[2].id, 7)).count).toBe(0);
+      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_hold_events WHERE challenge_id = ${proposed.id} AND kind = 'withdrawn' AND reserved_capacity = false`)).toBe(1);
+      // A decline of a challenge: no hold ever existed.
+      const d = await ladder({}, 3);
+      const declined = await propose(d.l, d.people[2], d.people[1], freshDay(), START);
+      ok(await answer(d.people[1].user.id, declined.id, { decline: true }));
+      expect((await ownCancellations(d.people[1].id, 7)).count).toBe(0);
+      // A move the players agree replaces a hold and cancels nothing.
+      const m = await agreed();
+      ok(await proposeMove(m.low.user.id, m.c.id, { onDate: freshDay(), minute: START + 60 }, { rev: await revOf(m.c.id) }));
+      ok(await answerMove(m.top.user.id, m.c.id, true, { rev: await revOf(m.c.id) }));
+      expect((await holdRows(m.c.id)).map((h) => [h.released_reason, h.cancelled_place])).toEqual([["moved", null], [null, null]]);
+      // Cancelled by the player themself, confirmed or tentative alike: counted, against the one who cancelled.
+      const e = await tentative();
+      ok(await confirmHoldAsPlayer(e.top.user.id, e.c.id));
+      ok(await confirmHoldAsPlayer(e.low.user.id, e.c.id));
+      ok(await withdraw(e.low.user.id, e.c.id));
+      expect(await lastHold(e.c.id)).toMatchObject({ released_reason: "withdrawn", cancelled_place: e.low.id, abandoned_place: null });
+      const f = await tentative();
+      ok(await withdraw(f.low.user.id, f.c.id));
+      expect(await lastHold(f.c.id)).toMatchObject({ released_reason: "withdrawn", cancelled_place: f.low.id });
     });
   });
 
-  it("is logged by the system once the threshold is reached, kept as history, shown to staff in the ladder and never to players; the threshold is a manager's and bounded", async () => {
+  it("is logged by the system with the objective facts, kept as history, shown to staff as neutral numbers and never to players; the threshold is a manager's and bounded; no label anywhere", async () => {
     await clean(async () => {
       const s = await ladder({}, 3);
       const [, top, low] = s.people;
-      await caps(s.l.id, { maxAbandoned: 2 });
-      ok(await abandonOne(s));
-      const named = async () => (await listActivity([venueId], { limit: 500 })).filter((e) => e.action === "ladder.hold_cooldown" && e.detail?.includes(top.user.name));
+      await caps(s.l.id, { maxCancelled: 2 });
+      await cancelOne(s);
+      const named = async () => (await listActivity([venueId], { limit: 500 })).filter((e) => e.action === "ladder.hold_pause" && e.detail?.includes(low.user.name));
       expect(await named()).toHaveLength(0);
-      ok(await abandonOne(s));
-      const cooldown = await named();
-      expect(cooldown).toHaveLength(1);
-      expect(cooldown[0].adminName).toBe("System");
-      expect(cooldown[0].detail).toContain("limit 2");
+      await cancelOne(s);
+      const paused = await named();
+      expect(paused).toHaveLength(1);
+      expect(paused[0].adminName).toBe("System");
+      expect(paused[0].detail).toContain("limit 2");
+      expect(paused[0].detail).toContain("cancelled 2 holds");
       // The rows are history: nothing was deleted.
-      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_court_holds WHERE abandoned_place = ${top.id} AND released_reason = 'expired'`)).toBe(2);
-      // Staff see each player's count and whether they are cooling down.
+      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_court_holds WHERE cancelled_place = ${low.id} AND released_reason = 'withdrawn'`)).toBe(2);
+      // Staff see neutral numbers per player: released unplayed, of which cancelled by the player, and whether new holds are paused.
       const staff = (await ladderDetail(s.l.id, { forStaff: true }))!;
-      expect(staff.holdAbandoned).toEqual([expect.objectContaining({ playerId: top.id, name: top.user.name, count: 2, coolingUntil: expect.any(String) })]);
-      expect(staff.holdLimits).toMatchObject({ abandonedThreshold: 2, from: { abandoned: "ladder" }, abuse: { windowDays: 7, cooldownHours: 24 } });
-      // Players and the public are shown none of it.
+      expect(staff.holdHistory).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: low.id, name: low.user.name, releasedUnplayed: 2, cancelledByPlayer: 2, pausedUntil: expect.any(String) })]));
+      expect(staff.holdHistory!.find((h) => h.playerId === top.id)).toMatchObject({ releasedUnplayed: 2, cancelledByPlayer: 0, pausedUntil: null });
+      expect(staff.holdLimits).toMatchObject({ cancelThreshold: 2, from: { cancel: "ladder" }, abuse: { windowDays: 7, cooldownHours: 24 } });
+      // The staff view of a challenge says what happened, neutrally, and whether a court was ever reserved.
+      const history = staff.challenges!.flatMap((c) => c.history ?? []);
+      expect(history.map((h) => h.kind)).toEqual(expect.arrayContaining(["proposed", "accepted", "held", "cancelled"]));
+      expect(history.find((h) => h.kind === "proposed")).toMatchObject({ reservedCapacity: false });
+      expect(history.find((h) => h.kind === "cancelled")).toMatchObject({ reservedCapacity: true, by: low.id });
+      // Players and the public are shown none of it, and no wording blames anyone.
       for (const shown of [JSON.stringify(await ladderDetail(s.l.id)), JSON.stringify(await myPlaces(top.user.id, s.l.id)), JSON.stringify(await myPlaces(low.user.id, s.l.id))]) {
-        expect(shown).not.toContain("holdAbandoned");
+        expect(shown).not.toContain("holdHistory");
         expect(shown).not.toContain("abandoned");
-        expect(shown).not.toContain("coolingUntil");
+        expect(shown).not.toContain("pausedUntil");
+        expect(shown).not.toContain("reservedCapacity");
       }
-      // A manager's, bounded: below the install's minimum is refused with the bounds; the desk and another venue cannot set it.
-      const low1 = await send(managerCookie, s.l.id, { action: "hold_limits", scope: "ladder", maxAbandoned: 1 });
+      // A manager's, bounded: below the install's minimum is refused with the bounds; a signed-out caller cannot set it.
+      const low1 = await send(managerCookie, s.l.id, { action: "hold_limits", scope: "ladder", maxCancelled: 1 });
       expect(low1.status).toBe(400);
-      expect(await low1.json()).toMatchObject({ code: "LAD3_BOUNDS", vars: { what: "abandoned", min: 2, max: 50 } });
-      expect((await send(undefined, s.l.id, { action: "hold_limits", scope: "ladder", maxAbandoned: 3 })).status).toBe(401);
-      const entry = (await listActivity([venueId], { limit: 500 })).find((e) => e.action === "ladder.hold_limits" && e.detail?.includes("holds abandoned before a cooldown default to 2"));
+      expect(await low1.json()).toMatchObject({ code: "LAD3_BOUNDS", vars: { what: "cancel", min: 2, max: 50 } });
+      expect((await send(undefined, s.l.id, { action: "hold_limits", scope: "ladder", maxCancelled: 3 })).status).toBe(401);
+      // The old name still works as an alias.
+      expect((await send(managerCookie, s.l.id, { action: "hold_limits", scope: "ladder", maxAbandoned: 3, reason: "Busy season" })).status).toBe(200);
+      const entry = (await listActivity([venueId], { limit: 500 })).find((e) => e.action === "ladder.hold_limits" && e.detail?.includes("own cancellations of held courts before a pause on new holds 2 to 3"));
       expect(entry?.adminName).toBe("Mina Manager");
+    });
+  });
+
+  it("a manager can lift a pause with a reason: it ends at once, is kept in the record and the log, and only counts again what is cancelled after it", async () => {
+    await clean(async () => {
+      const s = await ladder({}, 3);
+      const [, , low] = s.people;
+      await caps(s.l.id, { maxCancelled: 2 });
+      await cancelOne(s);
+      await cancelOne(s);
+      const first = await lowAccepts(s);
+      expect(first.accepted).toMatchObject({ ok: true, value: { hold: null } });
+      ok(await withdraw(low.user.id, first.made.id));
+      expect((await send(deskCookie, s.l.id, { action: "hold_pause_lift", playerId: low.id, reason: "They were away" })).status).toBe(403);
+      expect((await send(managerCookie, s.l.id, { action: "hold_pause_lift", playerId: low.id, reason: "" })).status).toBe(400);
+      expect((await send(managerCookie, s.l.id, { action: "hold_pause_lift", playerId: 99999999, reason: "They were away" })).status).toBe(404);
+      expect((await send(managerCookie, s.l.id, { action: "hold_pause_lift", playerId: low.id, reason: "They were away" })).status).toBe(200);
+      expect((await ownCancellations(low.id, 7)).count).toBe(0);
+      const second = await lowAccepts(s);
+      expect(ok(second.accepted).hold).not.toBeNull();
+      // The venue clears that match (its release is no one's cancellation) so the pair can start again.
+      expect((await send(managerCookie, s.l.id, { action: "hold_release", challengeId: second.made.id, reason: "Clearing it" })).status).toBe(200);
+      ok(await withdraw(low.user.id, second.made.id));
+      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_hold_events WHERE kind = 'pause_lifted' AND place_id = ${low.id} AND by_name = 'Mina Manager'`)).toBe(1);
+      const logged = (await listActivity([venueId], { limit: 500 })).find((e) => e.action === "ladder.hold_pause_lifted");
+      expect(logged?.detail).toContain("They were away");
+      // The cancellations before the lift stay as history, and one after it counts on its own.
+      expect(await count(`SELECT COUNT(*)::int AS n FROM ladder_court_holds WHERE cancelled_place = ${low.id}`)).toBe(2);
+      await cancelOne(s);
+      expect((await ownCancellations(low.id, 7)).count).toBe(1);
     });
   });
 
   it("an override is resolved ladder, then venue, then install, like the other limits", async () => {
     await clean(async () => {
       const s = await ladder({}, 2);
-      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ abandonedThreshold: 6, maxActivePerPlayer: 4, from: { abandoned: "install", active: "install" } });
-      await caps(s.l.id, { maxAbandoned: 4, maxActive: 3 }, "venue");
-      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ abandonedThreshold: 4, maxActivePerPlayer: 3, from: { abandoned: "venue", active: "venue" } });
-      await caps(s.l.id, { maxAbandoned: 5 });
-      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ abandonedThreshold: 5, maxActivePerPlayer: 3, from: { abandoned: "ladder", active: "venue" } });
-      await caps(s.l.id, { maxAbandoned: null });
-      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ abandonedThreshold: 4 });
+      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ cancelThreshold: 6, maxActivePerPlayer: 4, from: { cancel: "install", active: "install" } });
+      await caps(s.l.id, { maxCancelled: 4, maxActive: 3 }, "venue");
+      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ cancelThreshold: 4, maxActivePerPlayer: 3, from: { cancel: "venue", active: "venue" } });
+      await caps(s.l.id, { maxCancelled: 5 });
+      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ cancelThreshold: 5, maxActivePerPlayer: 3, from: { cancel: "ladder", active: "venue" } });
+      await caps(s.l.id, { maxCancelled: null });
+      expect(await resolveHoldLimits({ id: s.l.id, venueId })).toMatchObject({ cancelThreshold: 4 });
+    });
+  });
+
+  it("migration 0293 carries over what 0292 recorded: a withdrawal while tentative becomes the player's own cancellation, an expiry stays unread history; running it twice changes nothing", async () => {
+    await clean(async () => {
+      const a = await tentative();
+      ok(await withdraw(a.low.user.id, a.c.id));
+      const b = await tentative();
+      await lapse(b.c.id);
+      await ladderHousekeeping();
+      // As 0292 left them: the withdrawal and the expiry each recorded as abandoned, nothing in the new columns.
+      await db().prepare("UPDATE ladder_court_holds SET abandoned_place = ?, abandoned_at = now(), cancelled_place = NULL, cancelled_at = NULL WHERE challenge_id = ?").run(a.low.id, a.c.id);
+      await db().prepare("UPDATE ladder_court_holds SET abandoned_place = ?, abandoned_at = now(), cancelled_place = NULL, cancelled_at = NULL WHERE challenge_id = ?").run(b.top.id, b.c.id);
+      const sql = fs.readFileSync(path.join(process.cwd(), "db", "migrations", "0293_ladder_counter_proposals_and_neutral_history.sql"), "utf8");
+      await db().exec(sql);
+      expect(await lastHold(a.c.id)).toMatchObject({ cancelled_place: a.low.id, abandoned_place: a.low.id });
+      expect(await lastHold(b.c.id)).toMatchObject({ cancelled_place: null, abandoned_place: b.top.id });
+      // Nothing reads the abandonment for a limit: the expiry's player has no cancellations.
+      expect((await ownCancellations(b.top.id, 7)).count).toBe(0);
+      expect((await ownCancellations(a.low.id, 7)).count).toBe(1);
+      await db().exec(sql);
+      expect(await lastHold(a.c.id)).toMatchObject({ cancelled_place: a.low.id });
+      // A challenge already in flow has revision 1 and keeps the proposal it has.
+      expect(await db().prepare("SELECT column_default FROM information_schema.columns WHERE table_name = 'ladder_challenges' AND column_name = 'proposal_rev'").get()).toEqual({ column_default: "1" });
     });
   });
 });

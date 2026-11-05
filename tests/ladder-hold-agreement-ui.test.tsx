@@ -132,3 +132,64 @@ describe("looking first, then agreeing", () => {
     await waitFor(() => expect(onGo).toHaveBeenCalledWith(null));
   });
 });
+
+/**
+ * ADR 0051: a counter-proposal is a proposal, not a reservation. Before a player sends one, and before they accept one, the screen shows the court that would be held
+ * (reserved only if the hold succeeds), the date, time, duration, the charges and the implications; it says this is the player's own proposal and no reservation, and that
+ * agreeing a time does not by itself reserve a court; and a player whose new holds are paused can still accept, with no court held, and is told so first.
+ */
+describe("a counter-proposal's screen (ADR 0051)", () => {
+  const counterLook: HoldLook = { ...look, effect: "proposal" };
+
+  for (const locale of LOCALES) {
+    it(`shows the court, date, time, duration, charges and implications, says it is a proposal and no reservation, and says agreeing does not reserve a court, in ${locale}`, () => {
+      const t = translator(locale, "Senam Courts");
+      const { container } = render(<HoldAgreement t={t} look={counterLook} kind="counter" name="Aisha" />);
+      const text = container.textContent ?? "";
+      for (const part of ["Court Seven", "2026-12-01", "18:45", "21:00", "135"]) expect(text).toContain(part);
+      for (const key of ["lad4.ui.courtNote", "lad4.ui.charges", "lad4.ui.implications", "lad4.ui.imp.release", "lad4.ui.imp.booking", "lad4.ui.imp.unavailable", "lad4.ui.imp.change", "lad5.ui.noGuarantee"] as const)
+        expect(text).toContain(t(key));
+      expect(text).toContain(t("lad5.ui.effect.proposal", { name: "Aisha" }));
+      expect(text).not.toContain("{");
+      expect(text).not.toContain("MySenam");
+    });
+  }
+
+  it("says in English that it is the player's own proposal and not a reservation, that the other must accept it, and that agreeing does not by itself reserve a court", () => {
+    const t = translator("en", "Senam Courts");
+    const { container } = render(<HoldAgreement t={t} look={counterLook} kind="counter" name="Aisha" />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("This is your proposal; it is not a reservation.");
+    expect(text).toContain("Aisha must accept it as it is before any court is held");
+    expect(text).toContain("Agreeing a time does not by itself reserve a court.");
+    expect(text).not.toMatch(/RM\s?\d/);
+  });
+
+  it("looks first for a counter and sends the revision it answers, then proposes only when the player says so", async () => {
+    const fetch = vi.fn(async () => json({ preview: counterLook }));
+    vi.stubGlobal("fetch", fetch);
+    const onGo = vi.fn(async () => true);
+    const t = translator("en", "Senam Courts");
+    render(<AgreeAfterLook t={t} url="/u" kind="counter" rev={4} name="Aisha" when={{ onDate: "2026-12-01", minute: 1125 }} check={t("lad5.ui.checkCounter")} go={t("lad5.ui.goCounter")} onGo={onGo} />);
+    fireEvent.click(screen.getByRole("button", { name: "Check the court and propose this time" }));
+    await screen.findByText("Court: Court Seven");
+    expect(JSON.parse((fetch.mock.calls[0] as unknown as [string, { body: string }])[1].body)).toEqual({ action: "preview_hold", for: "counter", rev: 4, onDate: "2026-12-01", minute: 1125 });
+    expect(onGo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send my proposal" }));
+    await waitFor(() => expect(onGo).toHaveBeenCalledTimes(1));
+  });
+
+  it("a player whose new holds are paused is told so, in plain words, before accepting, and can still accept with no court held", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ preview: { applies: false, paused: { until: "2026-11-07 14:30", hours: 24 } } })));
+    const onGo = vi.fn(async () => true);
+    const t = translator("en", "Senam Courts");
+    render(<AgreeAfterLook t={t} url="/u" kind="accept" rev={2} name="Aisha" check="Check" go="Go" onGo={onGo} />);
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
+    const note = await screen.findByText(/New court holds are paused for you until 2026-11-07 14:30/);
+    expect(note.textContent).toContain("You can still accept");
+    expect(note.textContent).not.toMatch(/abandon|penal|fault|cooldown/i);
+    expect(onGo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Accept without a held court" }));
+    await waitFor(() => expect(onGo).toHaveBeenCalledWith(null));
+  });
+});
