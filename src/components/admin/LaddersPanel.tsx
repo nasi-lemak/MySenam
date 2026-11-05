@@ -265,7 +265,17 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
   const [until, setUntil] = useState<Record<number, string>>({});
   const [settings, setSettings] = useState<Record<string, string>>({ ...Object.fromEntries(NUMBERS.map((n) => [n.key, String(l.settings[n.key])])), declineIs: l.settings.declineIs });
   const [counter, setCounter] = useState({ phone: "", name: "", adult: false, partnerName: "" });
-  const [court, setCourt] = useState({ on: l.courtTime.on, courtIds: l.courtTime.courtIds, minutes: l.courtTime.minutes === null ? "" : String(l.courtTime.minutes) });
+  const [court, setCourt] = useState({ on: l.courtTime.on, courtIds: l.courtTime.courtIds, minutes: l.courtTime.minutes === null ? "" : String(l.courtTime.minutes), needsConfirmation: l.courtTime.needsConfirmation });
+  // The caps on held court time (advanced, a manager's; blank: the default above it).
+  const [caps, setCaps] = useState<{ scope: "ladder" | "venue"; live: string; week: string }>({
+    scope: "ladder",
+    live: l.holdLimits?.ladder.maxLivePerLadder == null ? "" : String(l.holdLimits.ladder.maxLivePerLadder),
+    week: l.holdLimits?.ladder.maxPerPlayerWeek == null ? "" : String(l.holdLimits.ladder.maxPerPlayerWeek),
+  });
+  const capsFor = (scope: "ladder" | "venue") => {
+    const o = scope === "venue" ? l.holdLimits?.venue : l.holdLimits?.ladder;
+    return { scope, live: o?.maxLivePerLadder == null ? "" : String(o.maxLivePerLadder), week: o?.maxPerPlayerWeek == null ? "" : String(o.maxPerPlayerWeek) };
+  };
   const sportCourts = venue.courts.filter((c) => c.sport === l.sport);
   const current = l.viewing?.endedOn === null;
   const names = new Map(l.rows.map((r) => [r.playerId, r.name]));
@@ -443,11 +453,56 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
               <input type="number" min={10} max={480} value={court.minutes} onChange={(e) => setCourt({ ...court, minutes: e.target.value })} className={`w-24 ${input}`} />
             </label>
             <button
-              onClick={() => void act({ action: "court_time", on: court.on, courtIds: court.courtIds, minutes: court.minutes ? Number(court.minutes) : null })}
+              onClick={() => void act({ action: "court_time", on: court.on, courtIds: court.courtIds, minutes: court.minutes ? Number(court.minutes) : null, needsConfirmation: court.needsConfirmation })}
               className={small}
             >
               {t("lad2.ct.save")}
             </button>
+            {l.holdLimits && (
+              <details className="rounded border border-slate-200 p-2">
+                <summary className="cursor-pointer text-xs font-medium">{t("lad3.adv.title")}</summary>
+                <div className="mt-2 space-y-2">
+                  <label className="flex items-center gap-1.5 text-slate-600">
+                    <input type="checkbox" checked={court.needsConfirmation} onChange={(e) => setCourt({ ...court, needsConfirmation: e.target.checked })} />
+                    {t("lad3.adv.confirm")}
+                  </label>
+                  <p className="text-xs text-slate-500">{t("lad3.adv.confirmNote")}</p>
+                  <p className="text-xs text-slate-600">
+                    {t("lad3.adv.now", {
+                      live: l.holdLimits.maxLivePerLadder,
+                      liveFrom: t(`lad3.adv.from.${l.holdLimits.from.live}`),
+                      week: l.holdLimits.maxPerPlayerWeek,
+                      weekFrom: t(`lad3.adv.from.${l.holdLimits.from.week}`),
+                      used: l.holdLimits.inUse,
+                    })}
+                  </p>
+                  <label className={label}>
+                    {t("lad3.adv.scope")}
+                    <select value={caps.scope} onChange={(e) => setCaps(capsFor(e.target.value === "venue" ? "venue" : "ladder"))} className={input}>
+                      <option value="ladder">{t("lad3.adv.scope.ladder")}</option>
+                      <option value="venue">{t("lad3.adv.scope.venue")}</option>
+                    </select>
+                  </label>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className={label}>
+                      {t("lad3.adv.live", { min: l.holdLimits.bounds.liveMin, max: l.holdLimits.bounds.liveMax })}
+                      <input type="number" min={l.holdLimits.bounds.liveMin} max={l.holdLimits.bounds.liveMax} placeholder={t("lad3.adv.default")} value={caps.live} onChange={(e) => setCaps({ ...caps, live: e.target.value })} className={`w-24 ${input}`} />
+                    </label>
+                    <label className={label}>
+                      {t("lad3.adv.week", { min: l.holdLimits.bounds.weekMin, max: l.holdLimits.bounds.weekMax })}
+                      <input type="number" min={l.holdLimits.bounds.weekMin} max={l.holdLimits.bounds.weekMax} placeholder={t("lad3.adv.default")} value={caps.week} onChange={(e) => setCaps({ ...caps, week: e.target.value })} className={`w-24 ${input}`} />
+                    </label>
+                    <button
+                      onClick={() => void act({ action: "hold_limits", scope: caps.scope, maxLive: caps.live === "" ? null : Number(caps.live), maxWeek: caps.week === "" ? null : Number(caps.week), reason })}
+                      className={small}
+                    >
+                      {t("lad3.adv.save")}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500">{t("lad3.adv.note")}</p>
+                </div>
+              </details>
+            )}
           </div>
         </details>
       )}
@@ -545,6 +600,8 @@ function Challenge({ t, l, c, names, editable, reason, act, reload, send }: { t:
       {l.courtTime.on || c.hold ? (
         <p className="text-xs text-slate-600">
           {c.hold ? t("lad2.hold.held", { court: c.hold.court, date: c.hold.date, time: clockOf(c.hold.startMin) }) : c.status === "accepted" ? t("lad2.hold.none") : ""}
+          {c.hold?.tentative && ` · ${t("lad3.hold.tentative", { by: c.hold.confirmBy ? new Date(c.hold.confirmBy).toLocaleString() : "", a: c.hold.confirmedBy.challenger ? "✓" : "–", b: c.hold.confirmedBy.challenged ? "✓" : "–" })}`}
+          {c.hold?.extended && ` · ${t("lad3.hold.extended")}`}
           {c.move && ` · ${t("lad2.hold.moveAsked", { date: c.move.onDate, time: clockOf(c.move.minute) })}`}
         </p>
       ) : null}
@@ -646,6 +703,16 @@ function Challenge({ t, l, c, names, editable, reason, act, reload, send }: { t:
             {c.hold && (
               <button disabled={reason.trim().length < 3} onClick={() => void act({ action: "hold_release", challengeId: c.id, reason }).then(reload)} className={small}>
                 {t("lad2.hold.release")}
+              </button>
+            )}
+            {c.hold?.tentative && (
+              <button onClick={() => void act({ action: "hold_confirm", challengeId: c.id, reason }).then(reload)} className={small}>
+                {t("lad3.hold.confirm")}
+              </button>
+            )}
+            {c.hold?.tentative && !c.hold.extended && (
+              <button disabled={reason.trim().length < 3} onClick={() => void act({ action: "hold_extend", challengeId: c.id, reason }).then(reload)} className={small}>
+                {t("lad3.hold.extend")}
               </button>
             )}
           </div>

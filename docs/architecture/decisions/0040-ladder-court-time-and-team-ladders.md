@@ -44,6 +44,8 @@
   put out of service releases the blocks on it, as it does a tournament's), with both players told once.
 - **Caps are install data** (`ladder_hold_limits`, one row, seeded 8 live holds per ladder and 4 holds made per player in 7 days, released and moved
   ones counted so churn is capped; a manager's own move or release is not counted against the player). Counting made holds, not live ones, is the point.
+  *Amended by [ADR 0048](0048-ladder-hold-limits-and-expiry.md): these are now the install **defaults**, which a venue and a ladder may override within
+  bounds; a hold made on acceptance is tentative until both players confirm it and expires if they do not.*
 - **Managers only** release or move a hold (`MANAGER_ONLY` on `POST /api/admin/ladders/:id`), with a reason, logged, told to both.
 - Nothing about a hold is public: the public ladder page and API are unchanged (no challenge, no court, no time); a hold is seen by the two
   sides and staff.

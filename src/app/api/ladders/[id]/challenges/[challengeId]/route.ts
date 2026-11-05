@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { ladderResponse } from "@/lib/ladder-access";
 import { answer, attachBooking, confirm, detachBooking, dispute, report, withdraw } from "@/lib/ladders";
-import { answerMove, proposeMove } from "@/lib/ladders";
+import { answerMove, confirmHoldAsPlayer, proposeMove } from "@/lib/ladders";
 import { rateLimit } from "@/lib/rate-limit";
 import { requestLadderForfeit, withdrawLadderForfeitRequest } from "@/lib/team-forfeits";
 import { reportTeamResult, setTeamLineup } from "@/lib/team-ladders";
@@ -26,7 +26,9 @@ export const dynamic = "force-dynamic";
  * A ladder that holds court time (a manager turned it on; the venue then holds a court when a day and time are agreed, no money moving): a time is
  * agreed by `{ action: "propose_move", onDate, minute, version? }` (the first specific time, or a move), which the other player answers with
  * `{ action: "agree_move", version? }` (the new time is held first, then the old let go; refused with the reason if nothing is free) or
- * `{ action: "decline_move" }`; the one who asked takes it back with `{ action: "withdraw_move" }` (`LAD2_*` refusals). A ladder of teams: the captain
+ * `{ action: "decline_move" }`; the one who asked takes it back with `{ action: "withdraw_move" }` (`LAD2_*` refusals). A hold is tentative until both
+ * players confirm it with `{ action: "confirm_hold", version? }` (or a manager does), and lapses if they do not by the time the challenge shows
+ * (`hold.confirmBy`; `LAD3_*` refusals, ADR 0048). A ladder of teams: the captain
  * names the lineup with `{ action: "set_lineup", picks: [{ rubber, memberIds }] }` and reports the games with `{ action: "report_team", rubbers:
  * [{ winner: "home" | "away", score?, walkover? }] }` (the challenger's side is `home`; confirm and dispute as above), and asks for a forfeit with
  * `{ action: "request_forfeit", forfeitPlayer, reason, note? }` (a manager decides it) and takes the request back with `{ action:
@@ -62,6 +64,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   if (body.action === "agree_move" || body.action === "decline_move" || body.action === "withdraw_move") {
     const done = await answerMove(user.id, found.id, body.action === "agree_move", { version });
+    return done.ok ? NextResponse.json({ challenge: done.value }) : ladderResponse(done);
+  }
+  // A hold is tentative until both players confirm it (ADR 0048).
+  if (body.action === "confirm_hold") {
+    const done = await confirmHoldAsPlayer(user.id, found.id, { version });
     return done.ok ? NextResponse.json({ challenge: done.value }) : ladderResponse(done);
   }
   // A ladder of teams.

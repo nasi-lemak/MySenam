@@ -425,6 +425,20 @@ function HeldCourt({ t, p, c, url, post, other }: { t: T; p: MyPlace; c: MyPlace
   return (
     <div className="space-y-1">
       <p className="font-medium">{c.hold ? t("lad2.ui.held", { court: c.hold.court, date: c.hold.date, time: clock(c.hold.startMin) }) : t("lad2.ui.notHeld", { name: other })}</p>
+      {c.hold?.tentative && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span>
+            {(c.challenger === p.playerId ? c.hold.confirmedBy.challenger : c.hold.confirmedBy.challenged)
+              ? t("lad3.ui.waitingOther", { name: other, by: c.hold.confirmBy ? new Date(c.hold.confirmBy).toLocaleString() : "" })
+              : t("lad3.ui.confirmBy", { by: c.hold.confirmBy ? new Date(c.hold.confirmBy).toLocaleString() : "" })}
+          </span>
+          {!(c.challenger === p.playerId ? c.hold.confirmedBy.challenger : c.hold.confirmedBy.challenged) && (
+            <button className={button} onClick={() => void act({ action: "confirm_hold" })}>
+              {t("lad3.ui.confirm")}
+            </button>
+          )}
+        </div>
+      )}
       {c.move && (
         <div className="flex flex-wrap items-center gap-2">
           <span>{c.move.by === p.playerId ? t("lad2.ui.moveAskedByMe", { name: other, date: c.move.onDate, time: clock(c.move.minute) }) : t("lad2.ui.moveAskedOfMe", { name: other, date: c.move.onDate, time: clock(c.move.minute) })}</span>
