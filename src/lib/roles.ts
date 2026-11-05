@@ -79,6 +79,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/ratings$/, methods: "all" },
   // Reports of messages between players, suspending somebody's messaging, muting or closing a thread (lib/message-moderation.ts): safety decisions, a manager's.
   { path: /^\/api\/admin\/message-moderation$/, methods: "all" },
+  // Supervised youth groups that asked this venue to look after them: answering, ending, taking an adult out, and reading a group's conversation for safeguarding review (each reading recorded): a manager's (lib/youth-safeguarding.ts).
+  { path: /^\/api\/admin\/youth-groups$/, methods: "all" },
   // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.
   { path: /^\/api\/admin\/tournaments\/\d+\/issues\/\d+$/, methods: ["POST"] },
   // Calling a fixture to its court, deciding what happens when nobody comes, the day's settings: the organiser's; the desk checks in and enters results.
@@ -277,6 +279,7 @@ export const STAFF_ACTIONS = {
   ratings: "POST /api/admin/ratings",
   // Reports of messages between players and what is done about them.
   messageModeration: "POST /api/admin/message-moderation",
+  youthGroups: "POST /api/admin/youth-groups",
   // The venue guide's setup journey and discoveries (lib/guide); the playbook is every role's own.
   guideSetup: "POST /api/admin/guide/setup",
   // Screens the guide links to that a manager alone uses, named so a link can be held to what its reader may open.

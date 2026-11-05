@@ -372,6 +372,15 @@ by email until they accept. Members see each other's
 first names only. A group holds 2 to 60 people, an organiser runs at most
 five, and a closed group no longer counts for invitations.
 
+A group's organiser may mark it a **supervised youth group**, an advanced setting: members
+who have not said they are 18 or over can then write in the group's shared conversation, each
+only with their own opt-in and a linked guardian's consent, with supervisors who can read,
+remove, pause and close, and never privately ([messages between
+players](player-messages.md#supervised-youth-groups); [ADR
+0044](../architecture/decisions/0044-supervised-group-messaging-for-minors-and-a-digest.md)).
+It changes nothing about invitations: a player under 18 is still invited to a game only
+through a group both sides agreed to.
+
 ## Emails of suggested games
 
 A player chooses in their preferences whether to hear of games suggested for

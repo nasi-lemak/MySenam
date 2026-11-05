@@ -156,7 +156,8 @@ describe("what a message is", () => {
   it("has no way to send a file, picture or a link that opens", async () => {
     // The only text a message carries is its body; there is no attachment column, and a link is stored as the text it is.
     const cols = (await getDb().prepare("SELECT column_name FROM information_schema.columns WHERE table_name = 'player_messages' ORDER BY ordinal_position").all()) as { column_name: string }[];
-    expect(cols.map((c) => c.column_name)).toEqual(["id", "thread_id", "sender_id", "sender_label", "body", "removed_at", "created_at"]);
+    // `hidden_at` / `hidden_by` (migration 0286): a supervisor of a youth group removing a message; still no attachment.
+    expect(cols.map((c) => c.column_name)).toEqual(["id", "thread_id", "sender_id", "sender_label", "body", "removed_at", "created_at", "hidden_at", "hidden_by"]);
   });
 });
 

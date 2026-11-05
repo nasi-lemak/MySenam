@@ -784,6 +784,7 @@ play with, and to whom, is personal data of **both** sides.
   ever in a log, the staff activity log, an error report or the outbox.**
 - **Who sees it:** the people in the conversation, each only what is not from somebody
   who blocked them or whom they blocked. **No member of staff reads an ordinary message**
+  (the exception, for a supervised youth group's thread, is below)
   (there is no route to one). A report brings its frozen copy to the staff of the
   context's venue, or to the platform owner where the context has no venue. Nothing is in
   the venue's API, the MCP tools, the public pages, or any export a venue can download.
@@ -813,12 +814,32 @@ play with, and to whom, is personal data of **both** sides.
   1095); an open report stays until somebody deals with it. Both are in the retention list
   under *Venues & staff → Keeping nothing too long*. A conversation whose context was deleted
   (a game that was removed) counts as ended when the job first sees it.
-- **Children:** a child never has a conversation. Where a child is in a team or an event,
+- **Children:** a child has no conversation of their own outside a supervised youth group (below). Where a child is in a team or an event,
   the seat is the guardian's account and the child is shown by their short name only
   ([the one rule](#minors-names-on-public-pages)); a child's short name stays in the label of
   a guardian's messages until the conversation is deleted by retention.
-- **A person who says they are under 18 (or has not said)** has no messaging: not even inside
-  a group both sides agreed to.
+- **A person who says they are under 18 (or has not said)** has no messaging of their own. The
+  one exception is a **supervised youth group's** conversation ([ADR
+  0044](decisions/0044-supervised-group-messaging-for-minors-and-a-digest.md); `youth_groups`,
+  `youth_group_adults`, `youth_message_optins`, `youth_message_consents`,
+  `youth_guardian_settings`, `youth_thread_mutes`, `youth_message_events`; migration 0286), with
+  the child's own opt-in and a live guardian's consent, both revocable at once. Here a thread
+  **is** readable by people other than its members, by design and told to them: its
+  **supervisors** (declared adults the organiser named, with a declared role), a child's
+  **guardian** (read-only, each read recorded), and, for a group that asked a venue which accepted
+  (or the platform's owner, for one with none), **that venue's managers**, **each reading in the
+  staff activity log and the group's own record**. Adults' ordinary threads stay unreadable to
+  staff. The child's name in these views is the short name. **Retention** is shorter: **60 days
+  after the group ended** (`YOUTH_MESSAGE_RETENTION_DAYS`), the **words of a message a supervisor
+  removed 30 days after** (`YOUTH_REMOVED_RETENTION_DAYS`). **Export:** the child's and the
+  guardian's *Download my data* hold the opt-ins, consents, roles and pauses, and a guardian's
+  holds their children's group messages. **Erasure** is as for adults (what the child wrote
+  becomes *message removed*). Declared ages, guardianship, consent and roles are recorded as
+  declared, never verified. Whether this is lawful in a given country, the staff-read exception
+  and the periods are professional questions, **not settled in code**.
+- **Notification emails** are a digest by default (`MESSAGE_DIGEST_HOURS`, 6): the count and
+  where, never the text, never WhatsApp; urgent safeguarding notices (a report in a youth
+  thread, a thread closed, somebody paused) go at once, as their own kind, and carry no text.
 - **Nothing leaves the country:** conversations are kept in the install's own database and
   backups ([backups held abroad](#backups-held-abroad)); no message is sent to any provider (the
   notification email says where, never what).

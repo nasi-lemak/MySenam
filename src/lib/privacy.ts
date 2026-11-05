@@ -8,7 +8,7 @@ import { removeVenuePhotoFiles } from "./photos";
 import { money } from "./region";
 import { englishOf, said, type StaffText } from "./staff-text";
 import { VERIFIED_BY_ROLE, participantsExport, unusedParticipantsWhere } from "./participants";
-import { reportRetentionDays as messageReportDays, threadRetentionDays as messageThreadDays } from "./message-privacy";
+import { reportRetentionDays as messageReportDays, threadRetentionDays as messageThreadDays, youthThreadRetentionDays as messageYouthDays } from "./message-privacy";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -317,8 +317,17 @@ const RULES: Rule[] = [
     days: messageThreadDays(),
     action: "deleted",
     table: "player_message_threads",
-    where: "ended_at IS NOT NULL AND ended_at < ?",
+    where: "ended_at IS NOT NULL AND ended_at < ? AND youth = 0",
     apply: async (_where, cutoff) => (await import("./message-privacy")).pruneMessages(cutoff),
+  },
+  {
+    // A supervised youth group's conversation, once its group has ended, for a shorter period (YOUTH_MESSAGE_RETENTION_DAYS); and the words of a message a supervisor removed, sooner (YOUTH_REMOVED_RETENTION_DAYS).
+    what: said("pmg.ret.youthThreads"),
+    days: messageYouthDays(),
+    action: "deleted",
+    table: "player_message_threads",
+    where: "ended_at IS NOT NULL AND ended_at < ? AND youth = 1",
+    apply: async (_where, cutoff) => (await import("./message-privacy")).pruneYouthMessages(cutoff),
   },
   {
     // A report of a message and the copy frozen with it, once dealt with (MESSAGE_REPORT_RETENTION_DAYS).

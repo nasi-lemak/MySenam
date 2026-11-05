@@ -8,6 +8,7 @@ import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel, translateError } from "@/lib/i18n";
 import type { Group } from "@/lib/groups";
 import { MessagesLink } from "@/components/MessagesLink";
+import { YouthGroupPanel } from "@/components/YouthGroupPanel";
 
 /** One community group: asking to join or answering an invitation; for its organiser, who is in and who is asking. */
 export default function GroupPage({ params }: { params: Promise<{ id: string }> }) {
@@ -164,6 +165,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           <button onClick={() => void post(`/api/groups/${group.id}`, { action: "close" })} className={`${small} text-red-700`}>
             {t("groups.close")}
           </button>
+          <YouthGroupPanel groupId={group.id} />
         </div>
       )}
     </div>

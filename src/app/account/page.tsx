@@ -23,6 +23,7 @@ import { BookAgain } from "@/components/BookAgain";
 import { MyVenues } from "@/components/MyVenues";
 import { GuestInvites } from "@/components/GuestInvites";
 import ManagedPeople from "@/components/ManagedPeople";
+import GuardianMessaging from "@/components/GuardianMessaging";
 import { useT } from "@/components/Language";
 import { SeriesCancel } from "@/components/SeriesCancel";
 import { BookingPayment, HoldNotice, isHeld } from "@/components/BookingPayment";
@@ -210,6 +211,7 @@ export default function AccountPage() {
         {t("apr.accountLink")} →
       </Link>
       <ManagedPeople />
+      <GuardianMessaging />
       <GuestInvites />
 
       {regulars.length > 0 && (
