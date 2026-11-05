@@ -252,6 +252,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "ladder.hold_limits": "lds.act.holdLimits",
   "ladder.hold_confirmed": "lds.act.holdConfirmed",
   "ladder.hold_extended": "lds.act.holdExtended",
+  "ladder.hold_cooldown": "lad4.act.holdCooldown",
   "ladder.forfeit_requested": "lds.act.forfeitRequested",
   "ladder.forfeit_request_withdrawn": "lds.act.forfeitRequestWithdrawn",
   "ladder.forfeit_declined": "lds.act.forfeitDeclined",

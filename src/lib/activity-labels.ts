@@ -261,6 +261,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "ladder.hold_limits": "Changed the caps on court time held for ladder challenges",
   "ladder.hold_confirmed": "Confirmed the court held for a ladder challenge",
   "ladder.hold_extended": "Gave more time to confirm a court held for a ladder challenge",
+  "ladder.hold_cooldown": "A player's holds abandoned reached the limit: a cooldown on new holds (by the system)",
   "ladder.forfeit_requested": "Asked for a forfeit on a ladder challenge",
   "ladder.forfeit_request_withdrawn": "Withdrew a forfeit request on a ladder challenge",
   "ladder.forfeit_declined": "Declined a forfeit request on a ladder challenge",

@@ -117,7 +117,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0040 Court time held for ladder challenges, and ladders of persistent teams](architecture/decisions/0040-ladder-court-time-and-team-ladders.md)
 [0038 Swiss: accelerated pairing, a tie-break screen, and Swiss for performance events](architecture/decisions/0038-swiss-acceleration-tie-break-screen-and-performance-swiss.md)
 [0036 Who supervises a session: rosters, qualifications and supervision rules, asked in the one booking path](architecture/decisions/0036-who-supervises-a-session.md)
-[0048 Ladder court-time holds: configurable limits, tentative holds that expire, no overlap, limits that only refuse](architecture/decisions/0048-ladder-hold-limits-and-expiry.md)
+[0048 Ladder court-time holds: configurable limits, tentative holds that expire, no overlap, limits that only refuse](architecture/decisions/0048-ladder-hold-limits-and-expiry.md) ·
+[0050 Ladder court time: an existing agreement counts as confirmation; expired and released holds do not count towards the active allowance](architecture/decisions/0050-ladder-agreement-counts-and-expired-holds-do-not.md)
 
 ## Integrations
 

@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { ladderResponse } from "@/lib/ladder-access";
 import { answer, attachBooking, confirm, detachBooking, dispute, report, withdraw } from "@/lib/ladders";
-import { answerMove, confirmHoldAsPlayer, proposeMove } from "@/lib/ladders";
+import { answerMove, confirmHoldAsPlayer, previewHoldFor, proposeMove } from "@/lib/ladders";
 import { rateLimit } from "@/lib/rate-limit";
 import { requestLadderForfeit, withdrawLadderForfeitRequest } from "@/lib/team-forfeits";
 import { reportTeamResult, setTeamLineup } from "@/lib/team-ladders";
@@ -28,7 +28,13 @@ export const dynamic = "force-dynamic";
  * `{ action: "agree_move", version? }` (the new time is held first, then the old let go; refused with the reason if nothing is free) or
  * `{ action: "decline_move" }`; the one who asked takes it back with `{ action: "withdraw_move" }` (`LAD2_*` refusals). A hold is tentative until both
  * players confirm it with `{ action: "confirm_hold", version? }` (or a manager does), and lapses if they do not by the time the challenge shows
- * (`hold.confirmBy`; `LAD3_*` refusals, ADR 0048). A ladder of teams: the captain
+ * (`hold.confirmBy`; `LAD3_*` refusals, ADR 0048), unless both players agreed that exact time (ADR 0050): a day and start one proposed (the challenge, a counter, or
+ * `propose_move`) and the other accepts unchanged (`accept` without a time of their own, or `agree_move`) is made confirmed, with each player's agreement kept; a time
+ * the accepter names themselves, or a manager's, is tentative. `accept` and `agree_move` may carry `courtId`, the court the player was shown: it is held or nothing is
+ * (409 `LAD4_COURT_CHANGED`). `{ action: "preview_hold", for: "accept" | "agree_move" | "propose_move", onDate?, minute? }` answers `{ preview }` without holding anything:
+ * `{ applies: false }` when no court would be held, or the court, day, start, minutes, what the act does (`effect`: `confirmed` or `tentative`) and any hold it replaces,
+ * or the refusal the act itself would meet. A new hold is also refused while the player is at the active limit (`LAD4_CAP_ACTIVE`) or cooling down after abandoning holds
+ * (`LAD4_COOLDOWN`). A ladder of teams: the captain
  * names the lineup with `{ action: "set_lineup", picks: [{ rubber, memberIds }] }` and reports the games with `{ action: "report_team", rubbers:
  * [{ winner: "home" | "away", score?, walkover? }] }` (the challenger's side is `home`; confirm and dispute as above), and asks for a forfeit with
  * `{ action: "request_forfeit", forfeitPlayer, reason, note? }` (a manager decides it) and takes the request back with `{ action:
@@ -63,8 +69,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return done.ok ? NextResponse.json({ challenge: done.value }) : ladderResponse(done);
   }
   if (body.action === "agree_move" || body.action === "decline_move" || body.action === "withdraw_move") {
-    const done = await answerMove(user.id, found.id, body.action === "agree_move", { version });
+    const done = await answerMove(user.id, found.id, body.action === "agree_move", { version, courtId: Number.isInteger(body.courtId) ? (body.courtId as number) : undefined });
     return done.ok ? NextResponse.json({ challenge: done.value }) : ladderResponse(done);
+  }
+  // A look at the court that would be held, before the player agrees: holds nothing, changes nothing (ADR 0050).
+  if (body.action === "preview_hold") {
+    const done = await previewHoldFor(user.id, found.id, { kind: body.for, onDate: body.onDate, minute: body.minute });
+    return done.ok ? NextResponse.json({ preview: done.value }) : ladderResponse(done);
   }
   // A hold is tentative until both players confirm it (ADR 0048).
   if (body.action === "confirm_hold") {
@@ -93,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const when = { onDate: typeof body.onDate === "string" ? body.onDate : undefined, minute: body.minute === undefined || body.minute === null ? undefined : Number(body.minute) };
   const result =
     body.action === "accept"
-      ? await answer(user.id, found.id, { accept: true, ...when }, { version })
+      ? await answer(user.id, found.id, { accept: true, ...when, courtId: Number.isInteger(body.courtId) ? (body.courtId as number) : undefined }, { version })
       : body.action === "decline"
         ? await answer(user.id, found.id, { decline: true }, { version })
         : body.action === "propose"

@@ -620,8 +620,9 @@ describe("held court time for a team match", () => {
     await enter(l, a);
     await enter(l, b);
     const day = addDays(today, 7);
-    const made = ok(await challenge(b.captain.id, l.id, b.place!, a.place!, { onDate: day, minute: 18 * 60 }));
-    const done = ok(await answer(a.captain.id, made.id, { accept: true }));
+    // The challenged captain accepts the day and names the time: a counter-proposal the challenger has not agreed, so it is tentative (ADR 0048, ADR 0050).
+    const made = ok(await challenge(b.captain.id, l.id, b.place!, a.place!, { onDate: day }));
+    const done = ok(await answer(a.captain.id, made.id, { accept: true, onDate: day, minute: 18 * 60 }));
     expect(done.hold).toMatchObject({ tentative: true, endMin: 18 * 60 + 135, confirmedBy: { challenger: false, challenged: false } });
     const blocks = async () => ((await getDb().prepare("SELECT c.expires_at FROM claims c JOIN blocks k ON k.id = c.block_id JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ? AND c.active").all(made.id)) as { expires_at: unknown }[]);
     expect((await blocks()).length).toBeGreaterThan(0);
@@ -635,8 +636,8 @@ describe("held court time for a team match", () => {
     const dd = await side("ConfD");
     await enter(l, c);
     await enter(l, dd);
-    const second = ok(await challenge(dd.captain.id, l.id, dd.place!, c.place!, { onDate: day, minute: 10 * 60 }));
-    ok(await answer(c.captain.id, second.id, { accept: true }));
+    const second = ok(await challenge(dd.captain.id, l.id, dd.place!, c.place!, { onDate: day }));
+    ok(await answer(c.captain.id, second.id, { accept: true, onDate: day, minute: 10 * 60 }));
     await getDb().prepare("UPDATE ladder_court_holds SET confirm_by = now() - interval '1 minute' WHERE challenge_id = ? AND released_at IS NULL").run(second.id);
     await getDb().prepare("UPDATE claims SET expires_at = now() - interval '1 minute' WHERE kind = 'block' AND block_id IN (SELECT k.id FROM blocks k JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ?)").run(second.id);
     await ladderHousekeeping();
@@ -646,5 +647,24 @@ describe("held court time for a team match", () => {
     for (const s of [c, dd]) expect((await mail(s.captain.email)).filter((m) => m.subject.includes("Court let go"))).toHaveLength(1);
     // The first match's hold is untouched.
     expect(((await getDb().prepare("SELECT COUNT(*)::int AS n FROM blocks k JOIN ladder_court_holds h ON h.id = k.ladder_hold_id WHERE h.challenge_id = ? AND h.released_at IS NULL").get(made.id)) as { n: number }).n).toBeGreaterThan(0);
+  });
+
+  it("is confirmed at once when the captains agree an exact time: one proposes it, the other accepts it unchanged (ADR 0050); each captain's agreement is kept", async () => {
+    const court = await createCourt({ venueId, name: "Team Agreed Court", sport: "badminton", offPeakRate: 10, peakRate: 12 });
+    if (!court.ok) throw new Error(court.error);
+    const l = await ladder({ courtTime: { on: true, courtIds: [court.court.id] }, settings: { cooldownDays: 0, playDays: 60 } });
+    const a = await side("AgrA");
+    const b = await side("AgrB");
+    await enter(l, a);
+    await enter(l, b);
+    const day = addDays(today, 9);
+    const made = ok(await challenge(b.captain.id, l.id, b.place!, a.place!, { onDate: day, minute: 18 * 60 }));
+    const done = ok(await answer(a.captain.id, made.id, { accept: true }));
+    expect(done.hold).toMatchObject({ tentative: false, agreed: true, confirmBy: null, confirmedBy: { challenger: true, challenged: true }, endMin: 18 * 60 + 135 });
+    const rows = (await getDb().prepare("SELECT player_id, role, date, start_min FROM ladder_agreed_times WHERE challenge_id = ? ORDER BY role").all(made.id)) as { player_id: number; role: string; date: string; start_min: number }[];
+    expect(rows).toEqual([
+      { player_id: a.place!, role: "accepted", date: day, start_min: 18 * 60 },
+      { player_id: b.place!, role: "proposed", date: day, start_min: 18 * 60 },
+    ]);
   });
 });
