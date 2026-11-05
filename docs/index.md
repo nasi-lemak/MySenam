@@ -107,6 +107,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0035 Rating policy: rankings published by choice, a venue's number to be ranked, and which results count](architecture/decisions/0035-rating-policy-published-rankings-and-counted-results.md)
 [0039 Messages between players: only inside a context they share, adults who opted in, text with no contact details, moderated by the venue that owns the context](architecture/decisions/0039-messages-between-players.md)
 [0043 Moving a class, and a class's instructor as one of the venue's coaches](architecture/decisions/0043-moving-a-class-and-a-class-coach.md)
+[0046 The strength of a requirement: advisory windows a manager may override with a reason, and qualification levels](architecture/decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)
 [0042 Attendance registers, and a lesson the venue moves](architecture/decisions/0042-attendance-registers-and-lessons-moved-by-the-venue.md)
 [0037 Launch and tide windows narrow the bookable hours of water hire](architecture/decisions/0037-launch-and-tide-windows.md)
 [0041 Live accounting: a venue's sales pushed to Xero, optional, behind a provider interface](architecture/decisions/0041-live-accounting-push-to-xero.md)

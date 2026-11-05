@@ -34,6 +34,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "tournament.day_settings": "dy1.act.settings",
   "booking.override": "act.a.bookingOverride",
   "booking.policy_overridden": "r9.act.policyOverridden",
+  "booking.window_overridden": "safe1.act.windowOverridden",
   "phone.blocked": "r9.act.phoneBlocked",
   "phone.unblocked": "r9.act.phoneUnblocked",
   "signoff.added": "act.a.signoffAdded",

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { jsonObject } from "@/lib/api";
-import { coverSession, overrideSession, undoDecision, uncoveredSessions } from "@/lib/rosters";
+import { coverSession, overrideSession, recommendedGaps, undoDecision, uncoveredSessions } from "@/lib/rosters";
 import { getVenue } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,11 @@ export async function GET(req: NextRequest) {
     if (denied) return denied;
   }
   return NextResponse.json(
-    { sessions: await uncoveredSessions(admin.venueIds, venueId === undefined ? {} : { venueId }) },
+    {
+      sessions: await uncoveredSessions(admin.venueIds, venueId === undefined ? {} : { venueId }),
+      // Covered, but by somebody a recommended qualification is not recorded for (advisory, ADR 0046): for one venue.
+      ...(venueId === undefined ? {} : { advisory: await recommendedGaps(venueId) }),
+    },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

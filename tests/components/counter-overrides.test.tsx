@@ -118,3 +118,43 @@ describe("a counter booking refused by the venue's policies", () => {
     expect(screen.queryByText("Override for this booking")).toBeNull();
   });
 });
+
+/** A launch or tide window's refusal at the counter (ADR 0046): the advisory one a manager may override with a reason, or a hard one. */
+const WINDOW = {
+  error: "That time is outside the launch window (7:10 AM–10:40 AM). Pick a time inside it.",
+  code: "LAUNCH_WINDOW",
+  vars: { window: "7:10 AM–10:40 AM" },
+  policy: "launch_window",
+  reasonMin: 15,
+  hard: false,
+};
+
+describe("a counter booking refused for a launch or tide window", () => {
+  it("offers a manager the override with a reason of the venue's length, sent as its own field", async () => {
+    refusals = [{ ...WINDOW, overridable: true, askManager: false }];
+    await filledForm();
+    expect(screen.getByText(/A manager can book it anyway: give a reason of at least 15 characters/)).toBeTruthy();
+    const go = () => screen.getByRole("button", { name: "Override and book" }) as HTMLButtonElement;
+    await act(async () => void fireEvent.change(screen.getByLabelText(/^Why/), { target: { value: "Too short" } }));
+    expect(go().disabled).toBe(true);
+    await act(async () => void fireEvent.change(screen.getByLabelText(/^Why/), { target: { value: "Guests asked for the late tide" } }));
+    expect(go().disabled).toBe(false);
+    await act(async () => void fireEvent.click(go()));
+    expect(posts[1]).toMatchObject({ overrideWindow: true, windowReason: "Guests asked for the late tide" });
+    expect(posts[1].overridePolicies).toBeUndefined();
+  });
+
+  it("tells front desk to ask a manager, with no override to send", async () => {
+    refusals = [{ ...WINDOW, overridable: false, askManager: true }];
+    await filledForm();
+    expect(screen.getByText(/Ask a manager/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Override and book" })).toBeNull();
+  });
+
+  it("says a hard window has no override", async () => {
+    refusals = [{ ...WINDOW, overridable: false, askManager: false, hard: true }];
+    await filledForm();
+    expect(screen.getByText("This window is marked hard by the venue: nothing overrides it.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Override and book" })).toBeNull();
+  });
+});

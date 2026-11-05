@@ -6,6 +6,7 @@ import {
   addException,
   addShift,
   listRoles,
+  previewRole,
   recordQualification,
   removeException,
   removeRule,
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
 
 const ACTIONS = [
   "role_save",
+  "role_preview",
   "qualification_add",
   "qualification_revoke",
   "shift_add",
@@ -63,7 +65,10 @@ const ACTIONS = [
 
 /**
  * A manager changes the roster: `{ venueId, action, … }` with `action` one of `role_save` (`id?`, `name`, `qualification`,
- * `active`), `qualification_add` (`personKind`, `personId`, `qualification`, `reference?`, `expiresOn?`),
+ * `qualificationLevel` (`recommended` | `venue_required` | `legally_required`: how firmly the qualification is asked, ADR 0046),
+ * `qualificationReference` (for a legal requirement: the reference or wording the venue gives, kept as given), `active`),
+ * `role_preview` (the same fields for a role that exists: what the change would do, nothing changed: `shiftsWithoutIt`,
+ * `becomeUncovered`, `becomeCovered`), `qualification_add` (`personKind`, `personId`, `qualification`, `reference?`, `expiresOn?`),
  * `qualification_revoke` (`id`), `shift_add` (`roleId`, `personKind`, `personId`, `weekday`, `fromMin`, `toMin`),
  * `shift_remove` (`id`), `exception_add` (`kind`: `extra` | `leave`, `personKind`, `personId`, `date`, and for an extra shift
  * `roleId`, `fromMin`, `toMin`; leave may name a time), `exception_remove` (`id`), `rule_set` (`courtId?`, `activity?`,
@@ -86,6 +91,12 @@ export async function POST(req: NextRequest) {
   const action = ACTIONS.find((a) => a === b.action);
   if (!action) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
 
+  // What a change to a role's qualification or its level would do, before it is made: nothing is written, so nothing is logged.
+  if (action === "role_preview") {
+    const seen = await previewRole(venueId, { id: b.id, qualification: b.qualification, qualificationLevel: b.qualificationLevel, qualificationReference: b.qualificationReference });
+    if (!seen.ok) return NextResponse.json({ error: seen.error, ...(seen.code ? { code: seen.code } : {}) }, { status: seen.status ?? 400 });
+    return NextResponse.json(seen);
+  }
   const roles = new Map((await listRoles(venueId)).map((r) => [r.id, r.name]));
   const role = (id: unknown) => (typeof id === "number" ? (roles.get(id) ?? `role ${id}`) : "a role");
   const who = `${String(b.personKind ?? "")} ${String(b.personId ?? "")}`.trim();
@@ -95,8 +106,13 @@ export async function POST(req: NextRequest) {
 
   switch (action) {
     case "role_save": {
-      result = await saveRole(venueId, { id: b.id, name: b.name, qualification: b.qualification, active: b.active });
-      log = { action: "roster.role", detail: `Role ${typeof b.name === "string" ? b.name : role(b.id)}${b.active === false ? " turned off" : " saved"}${result.ok ? left((result.affected ?? []).length) : ""}` };
+      result = await saveRole(venueId, { id: b.id, name: b.name, qualification: b.qualification, qualificationLevel: b.qualificationLevel, qualificationReference: b.qualificationReference, active: b.active });
+      log = {
+        action: "roster.role",
+        detail: `Role ${typeof b.name === "string" ? b.name : role(b.id)}${b.active === false ? " turned off" : " saved"}${typeof b.qualificationLevel === "string" ? `, qualification ${b.qualificationLevel.replace("_", " ")}` : ""}${
+          b.qualificationLevel === "legally_required" && typeof b.qualificationReference === "string" ? ` (reference: ${b.qualificationReference.slice(0, 120)})` : ""
+        }${result.ok ? left((result.affected ?? []).length) : ""}`,
+      };
       break;
     }
     case "qualification_add": {

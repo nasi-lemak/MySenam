@@ -12,6 +12,8 @@ import { coachChangeDetail, notifyCoachChanged } from "@/lib/lesson-coaches";
 import { bookingLocale } from "@/lib/place-withdrawals";
 import { refundCancelled } from "@/lib/payments";
 import { jsonObject } from "@/lib/api";
+import { windowOverrideFromBody, windowRefused } from "@/lib/counter-policy";
+import { isWindowCode } from "@/lib/restriction-strength";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +86,9 @@ export async function POST(req: NextRequest) {
   const coachChanging = lessonCoach !== null && coachId !== lessonCoach;
   if (coachChanging && admin.role === "desk")
     return NextResponse.json({ error: "Only a manager can give a lesson to another coach.", code: "COACH_CHANGE_MANAGER" }, { status: 403 });
+  // A manager's override of an advisory launch or tide window for the new time, with its reason (lib/window-overrides.ts).
+  const windowAsk = await windowOverrideFromBody(body, admin, venueId);
+  if (windowAsk.refuse) return windowAsk.refuse;
   const to = {
     date,
     start,
@@ -92,13 +97,15 @@ export async function POST(req: NextRequest) {
     ...(coachMoney === "keep" || coachMoney === "adjust" ? { coachMoney: coachMoney as "keep" | "adjust" } : {}),
     changedBy: { adminId: admin.id, name: admin.name },
     override: override === true,
+    ...(windowAsk.record ? { windowOverride: windowAsk.record } : {}),
   };
   if (preview === true) {
     const seen = await previewMove(code, to, "staff");
-    if (!seen.ok) return NextResponse.json(seen, { status: 409 });
+    if (!seen.ok) return isWindowCode(seen.code) ? windowRefused(seen, { staff: admin, venueId }) : NextResponse.json(seen, { status: 409 });
     return NextResponse.json({ preview: seen.preview });
   }
   const moved = await staffMove(admin, code, to, typeof reason === "string" ? reason : null);
+  if (!moved.ok && isWindowCode(moved.code)) return windowRefused(moved, { staff: admin, venueId });
   if (!moved.ok) return NextResponse.json(moved, { status: moved.status ?? 409 });
   if (moved.outcome === "proposal") return NextResponse.json({ error: "Unexpected." }, { status: 500 });
   const result = moved.result;

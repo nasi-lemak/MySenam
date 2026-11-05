@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
     reason: typeof body.reason === "string" ? body.reason : undefined,
     reasonPreset: typeof body.reasonPreset === "string" ? body.reasonPreset : undefined,
     preview: body.preview === true,
+    // Rained off for outdoor safety: a safety closure, said so on its blocks and in the log (ADR 0046).
+    safety: body.safety === true,
   });
   if (!result.ok) return NextResponse.json(result, { status: 400 });
   const { classesOff, ...shown } = result;
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
     await logAction(admin, {
       venueId: body.venueId as number,
       action: "booking.cancelled",
-      detail: `Rained off ${body.date} ${formatMinute(readMinute(body, "fromMin", "fromHour"))}–${formatMinute(readMinute(body, "untilMin", "untilHour"))}: ${result.bookings.length} booking(s), ${result.classes} class(es) called off`,
+      detail: `Rained off${body.safety === true ? " [safety closure]" : ""} ${body.date} ${formatMinute(readMinute(body, "fromMin", "fromHour"))}–${formatMinute(readMinute(body, "untilMin", "untilHour"))}: ${result.bookings.length} booking(s), ${result.classes} class(es) called off`,
     });
     // And each one under its own code, as a closed day's are.
     const why = `rained off ${String(body.date)}`;

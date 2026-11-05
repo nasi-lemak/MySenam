@@ -100,6 +100,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   // A resource's launch and tide windows and the tide table behind them narrow what customers may book (lib/launch-windows.ts, ADR 0037); the desk reads them.
   { path: /^\/api\/admin\/launch-windows$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/tides$/, methods: ["POST"] },
+  // A manager's overrides of advisory launch and tide windows, their report and the venue's settings for them (lib/window-overrides.ts, ADR 0046); the desk is never offered one.
+  { path: /^\/api\/admin\/window-overrides$/, methods: "all" },
   { path: /^\/api\/admin\/reports(\/customers)?$/, methods: "all" },
   { path: /^\/api\/admin\/activity$/, methods: "all" },
   { path: /^\/api\/admin\/export$/, methods: "all" },
@@ -208,6 +210,7 @@ export const STAFF_ACTIONS = {
   outages: "POST /api/admin/outages",
   launchWindows: "POST /api/admin/launch-windows",
   tides: "POST /api/admin/tides",
+  windowOverrides: "GET /api/admin/window-overrides",
   inductionDecide: "PATCH /api/admin/inductions/1",
   approvalSettings: "POST /api/admin/approvals/settings",
   approvalReviewers: "POST /api/admin/approvals/reviewers",

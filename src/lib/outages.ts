@@ -33,6 +33,8 @@ export interface Outage {
   /** null: until further notice. */
   endsOn: string | null;
   reason: string | null;
+  /** The venue marked it a safety closure (ADR 0046): nothing overrides it, and it is named so. */
+  safety: boolean;
 }
 
 export interface Affected {
@@ -47,7 +49,7 @@ export interface Affected {
 }
 
 const SELECT = `
-  SELECT o.id, o.court_id, c.name AS court_name, c.venue_id, o.starts_on, o.ends_on, o.reason
+  SELECT o.id, o.court_id, c.name AS court_name, c.venue_id, o.starts_on, o.ends_on, o.reason, o.safety
     FROM court_outages o JOIN courts c ON c.id = o.court_id`;
 
 interface Row {
@@ -58,6 +60,7 @@ interface Row {
   starts_on: string;
   ends_on: string | null;
   reason: string | null;
+  safety: boolean;
 }
 
 const toOutage = (r: Row): Outage => ({
@@ -68,6 +71,7 @@ const toOutage = (r: Row): Outage => ({
   startsOn: r.starts_on,
   endsOn: r.ends_on,
   reason: r.reason,
+  safety: r.safety === true,
 });
 
 /** Outages not yet over at these venues, soonest first. */
@@ -165,6 +169,8 @@ export async function createOutage(input: {
   adminId: number;
   /** Cancel, refund and tell everybody booked in the stretch. Without it, any booking stops it. */
   cancelAffected?: boolean;
+  /** The venue marks it a safety closure (ADR 0046). */
+  safety?: boolean;
 }): Promise<OutageResult> {
   const db = getDb();
   if (!isValidDateString(input.startsOn)) return { ok: false, error: "Give the first day it is out." };
@@ -242,8 +248,8 @@ export async function createOutage(input: {
         if (again) return alreadyOut(again);
         if ((await affectedBy(input.courtId, input.startsOn, input.endsOn)).length > 0) return null;
         const info = await db
-          .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason, created_by) VALUES (?, ?, ?, ?, ?)")
-          .run(input.courtId, input.startsOn, input.endsOn, reason, input.adminId);
+          .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason, created_by, safety) VALUES (?, ?, ?, ?, ?, ?)")
+          .run(input.courtId, input.startsOn, input.endsOn, reason, input.adminId, input.safety === true);
         // Blocks in those days give way: a court out of service needs no block,
         // and a tournament's hold there is time its draw cannot use.
         const blocks = (await db

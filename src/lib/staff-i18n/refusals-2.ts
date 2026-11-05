@@ -944,4 +944,12 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "venueId is not a venue.": { ms: "venueId bukan venue.", zh: "venueId 不是一个场馆。" },
   "Venue not found.": { ms: "Venue tidak ditemui.", zh: "找不到该场馆。" },
   "Only staff of one venue have shifts on its roster.": { ms: "Hanya kakitangan satu venue mempunyai syif dalam jadualnya.", zh: "只有某一场馆的员工才有该场馆排班表上的班次。" },
+  "A qualification is recommended, required by the venue, or declared a legal requirement.": { ms: "Kelayakan itu disyorkan, diperlukan oleh pusat, atau dinyatakan sebagai keperluan undang-undang.", zh: "资格可以是建议、场馆要求，或声明为法律要求。" },
+  "Name the qualification a legal requirement is for.": { ms: "Namakan kelayakan yang menjadi sasaran keperluan undang-undang itu.", zh: "请写明该法律要求所针对的资格名称。" },
+  "Give the reference or wording of the legal requirement. The app records it as given and does not judge it.": { ms: "Berikan rujukan atau perkataan bagi keperluan undang-undang itu. Aplikasi merekodkannya seperti yang diberikan dan tidak menilainya.", zh: "请提供该法律要求的依据或原文。应用按原样记录，不作判断。" },
+  "This role's qualification is declared a legal requirement, so a session cannot be let stand without it. Cover it with somebody who holds it, or move or cancel it.": { ms: "Kelayakan peranan ini dinyatakan sebagai keperluan undang-undang, jadi sesi tidak boleh dibiarkan diteruskan tanpanya. Liputi dengan orang yang memegangnya, atau pindahkan atau batalkannya.", zh: "该角色的资格已声明为法律要求，因此场次不能在缺少它的情况下继续。请安排持有者补位，或改期、取消。" },
+  "A rule is advisory (a manager may go past it with a reason) or hard (nobody does).": { ms: "Peraturan itu bersifat nasihat (pengurus boleh mengatasinya dengan sebab) atau keras (tiada sesiapa boleh).", zh: "规则可以是建议性（经理可附原因破例）或硬性（任何人都不能破例）。" },
+  "Allowing the override is yes or no.": { ms: "Membenarkan pengatasan ialah ya atau tidak.", zh: "是否允许破例只能选是或否。" },
+  "The shortest reason is a whole number of characters, from 3 to 300.": { ms: "Sebab terpendek ialah bilangan aksara yang bulat, dari 3 hingga 300.", zh: "原因的最少字数须为 3 到 300 之间的整数。" },
+  "The weekly alert is a whole number of overrides, from 0 (no alert) to 1000.": { ms: "Amaran mingguan ialah bilangan pengatasan yang bulat, dari 0 (tiada amaran) hingga 1000.", zh: "每周提醒次数须为 0（不提醒）到 1000 之间的整数。" },
 };

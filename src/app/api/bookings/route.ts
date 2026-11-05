@@ -31,7 +31,8 @@ import { openLessonMove } from "@/lib/lesson-venue-moves";
 import { guestSurge, policyCheck } from "@/lib/limits";
 import { overrideRefusal, policyRefusal, readOverride, type PolicyOverrideRecord } from "@/lib/policy-overrides";
 import { guestHostAt, registerGuest, undoGuestRegistration, type GuestHost, type GuestRegistration } from "@/lib/guest-invites";
-import { logOverride, policyRefused } from "@/lib/counter-policy";
+import { logOverride, policyRefused, windowOverrideFromBody, windowRefused } from "@/lib/counter-policy";
+import { isWindowCode } from "@/lib/restriction-strength";
 import { money } from "@/lib/region";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
 import { cancelPolicy, cancelPolicyFor, struckOut } from "@/lib/cancel-policy";
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
   // hours, notice and window), never over anything that holds the court.
   // Managers only, at their own venue, and each time it is recorded.
   // Staff act as staff here only past the install's two-factor rule, as in the admin routes (lib/admin-auth.ts).
-  if (override === true || askOverride || (paidAtCounter !== undefined && paidAtCounter !== null)) {
+  if (override === true || askOverride || (body as Record<string, unknown> | null)?.overrideWindow === true || (paidAtCounter !== undefined && paidAtCounter !== null)) {
     const held = await twoFactorRefusal(req);
     if (held) return held;
   }
@@ -181,6 +182,9 @@ export async function POST(req: NextRequest) {
     const no = await overrideRefusal(desk, venueBooked, askOverride);
     if (no) return refusal(no.refusal, no.status);
   }
+  // A manager's override of an advisory launch or tide window, with its reason (lib/window-overrides.ts): the counter's alone, a manager of this venue.
+  const windowAsk = await windowOverrideFromBody((body ?? {}) as Record<string, unknown>, byStaff ? desk : null, venueBooked);
+  if (windowAsk.refuse) return windowAsk.refuse;
   // Taking payment as it is booked is the counter's.
   if (paidAtCounter !== undefined && paidAtCounter !== null && !byStaff) return refusal(policyRefusal("R9_PAY_NOW_STAFF"), 403);
   // Booking somebody as a member's or resident's guest is staff's: members invite their own from their account page.
@@ -371,6 +375,8 @@ export async function POST(req: NextRequest) {
     addedBy: byStaff && desk ? { adminId: desk.id } : { userId: user?.id ?? null },
     // A manager's override of the venue's policies, written with each booking in its transaction.
     ...(policyOverride ? { policyOverride } : {}),
+    // A manager's override of an advisory window, written with each booking in its transaction.
+    ...(windowAsk.record ? { windowOverride: windowAsk.record } : {}),
     // Whose guest, where staff booked a member's or resident's guest rather than a walk-in customer.
     ...(host ? { guestOf: host.id } : {}),
   };
@@ -403,7 +409,11 @@ export async function POST(req: NextRequest) {
       ? await createGroupBooking({ ...common, courtIds: group, placesByCourt, ...(Object.keys(assign).length > 0 ? { assign } : {}) })
       : await createBookingSeries({ ...common, ...forPeople, courtId: courtId as number });
 
-  if (!result.ok) return undone(refusal(result));
+  if (!result.ok) {
+    // A window's refusal at the counter says what a manager can do about it (lib/counter-policy.ts `windowRefused`).
+    if (byStaff && desk && venueBooked !== undefined && isWindowCode(result.code)) return undone(await windowRefused(result, { staff: desk, venueId: venueBooked }));
+    return undone(refusal(result));
+  }
 
   // Outside the court's rules, on a manager's say: on the record.
   if (staff && result.overrides && result.overrides.length > 0) {

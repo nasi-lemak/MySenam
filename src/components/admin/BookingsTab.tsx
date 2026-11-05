@@ -1621,13 +1621,17 @@ function TestChip({ b }: { b: AdminBookingRow }) {
   );
 }
 
-/** A manager's override of the venue's policies that let this booking through: which, by whom, and why (lib/policy-overrides.ts). */
+/** A manager's override of the venue's policies that let this booking through: which, by whom, and why (lib/policy-overrides.ts); and of an advisory window (lib/window-overrides.ts). */
 function OverrideNote({ b }: { b: AdminBookingRow }) {
   const t = useStaffT();
-  if (!b.policyOverrides?.length) return null;
+  const windows = b.windowOverrides?.map((o) => (
+    <div key={`w${o.createdAt}${o.adminName}`}>{t("safe1.bk.windowOverride", { window: o.window, name: o.adminName, reason: o.reason })}</div>
+  ));
+  if (!b.policyOverrides?.length) return windows?.length ? <div className="mt-1 text-xs text-amber-800">{windows}</div> : null;
   const byWhom = [...new Set(b.policyOverrides.map((o) => o.adminName))];
   return (
     <div className="mt-1 text-xs text-amber-800">
+      {windows}
       {byWhom.map((by) => {
         const theirs = b.policyOverrides!.filter((o) => o.adminName === by);
         return (

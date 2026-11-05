@@ -116,6 +116,8 @@ import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
 import { launchDaysFor, rulesForCourts } from "./launch-windows";
 import { bookableWindows, launchOk, launchRefusal, reasonFor, type LaunchDay } from "./launch-day";
+import { mayGoPastWindow, recordWindowOverride, windowOverridesFor, type BookingWindowOverride, type WindowOverrideRecord } from "./window-overrides";
+import type { WindowCode } from "./restriction-strength";
 import { coachSupervising, recordSupervisors, supervisionRefusal, supervisorsOf, unsupervisedOn, type Supervisor } from "./rosters";
 import { utilisationByDay, type UseSplit } from "./reports";
 import { cancelPolicy, cancelPolicyFor, lateCancelTerms } from "./cancel-policy";
@@ -368,12 +370,12 @@ export async function getVenueClosure(venueId: number, date: string): Promise<Ve
 export async function listVenueClosures(venueId: number, from?: string): Promise<VenueClosure[]> {
   const rows = await getDb()
     .prepare(`
-      SELECT date, reason FROM venue_closures
+      SELECT date, reason, safety FROM venue_closures
       WHERE venue_id = ? AND (?::text IS NULL OR date >= ?)
       ORDER BY date
     `)
-    .all(venueId, from ?? null, from ?? null) as { date: string; reason: string | null }[];
-  return rows.map((r) => ({ date: r.date, reason: r.reason }));
+    .all(venueId, from ?? null, from ?? null) as { date: string; reason: string | null; safety: boolean }[];
+  return rows.map((r) => ({ date: r.date, reason: r.reason, ...(r.safety === true ? { safety: true } : {}) }));
 }
 
 /**
@@ -428,7 +430,7 @@ const ENGLISH = translator("en");
 export type ClosureResult = { ok: true; closure: VenueClosure } | Refusal;
 
 /** Shut a venue for a whole day. Existing bookings are left for staff to handle. */
-export async function closeVenueDay(venueId: number, date: string, reason?: string): Promise<ClosureResult> {
+export async function closeVenueDay(venueId: number, date: string, reason?: string, opts: { safety?: boolean } = {}): Promise<ClosureResult> {
   return withTransaction(async () => {
     if (!isValidDateString(date)) return { ok: false, error: "Invalid date." };
     const db = getDb();
@@ -438,9 +440,9 @@ export async function closeVenueDay(venueId: number, date: string, reason?: stri
     if (date < todayISO((await venueHours(venueId)).zone)) return refuse("CLOSURE_PAST");
     const trimmed = reason?.trim();
     await db.prepare(
-      `INSERT INTO venue_closures (venue_id, date, reason) VALUES (?, ?, ?)
-       ON CONFLICT (venue_id, date) DO UPDATE SET reason = excluded.reason`
-    ).run(venueId, date, trimmed && trimmed.length > 0 ? trimmed : null);
+      `INSERT INTO venue_closures (venue_id, date, reason, safety) VALUES (?, ?, ?, ?)
+       ON CONFLICT (venue_id, date) DO UPDATE SET reason = excluded.reason, safety = excluded.safety`
+    ).run(venueId, date, trimmed && trimmed.length > 0 ? trimmed : null, opts.safety === true);
     return { ok: true, closure: { date, reason: trimmed && trimmed.length > 0 ? trimmed : null } };
   });
 }
@@ -909,6 +911,8 @@ export async function createBookingOnAnyCourt(input: {
   addedBy?: { userId?: number | null; adminId?: number | null };
   /** A manager's override of the venue's policies (createBookingSeries). */
   policyOverride?: PolicyOverrideRecord;
+  /** A manager's override of an advisory launch or tide window (createBookingSeries; lib/window-overrides.ts). */
+  windowOverride?: WindowOverrideRecord;
   /** Whose guest (createBookingSeries). */
   guestOf?: number;
 } & WhenInput): Promise<CreateSeriesResult> {
@@ -994,6 +998,8 @@ export async function createGroupBooking(input: {
   addedBy?: { userId?: number | null; adminId?: number | null };
   /** A manager's override of the venue's policies, kept with each court's booking (createBookingSeries). */
   policyOverride?: PolicyOverrideRecord;
+  /** A manager's override of an advisory launch or tide window, kept with each court's booking (createBookingSeries). */
+  windowOverride?: WindowOverrideRecord;
   /** Whose guest, on each court's booking (createBookingSeries). */
   guestOf?: number;
 } & WhenInput): Promise<CreateSeriesResult> {
@@ -2164,6 +2170,8 @@ export async function createBooking(
     addedBy?: { userId?: number | null; adminId?: number | null };
     /** Whose guest, where staff or the venue's API key book a member's or resident's guest (createBookingSeries). */
     guestOf?: number;
+    /** A manager's override of an advisory launch or tide window (createBookingSeries; lib/window-overrides.ts). */
+    windowOverride?: WindowOverrideRecord;
   } & WhenInput
 ): Promise<CreateBookingResult> {
   const result = await createBookingSeries({ ...input, weeks: 1 });
@@ -2180,7 +2188,7 @@ function launchWhy(code: ReturnType<typeof launchRefusal>["code"]): string {
 export function launchRefused(span: Span, launch?: LaunchDay | null): Refusal {
   if (!launch) return refuse("LAUNCH_CLOSED");
   const why = launchRefusal(launch, span);
-  return refuse(why.code, why.vars as Record<string, string | number>);
+  return { ...refuse(why.code, why.vars as Record<string, string | number>), strength: launch.strength };
 }
 
 /** A broken rule said as the customer is told, under the code the page translates. */
@@ -2271,6 +2279,12 @@ export async function createBookingSeries(
      */
     policyOverride?: PolicyOverrideRecord;
     /**
+     * A manager's override of an advisory launch or tide window (lib/window-overrides.ts), authorised by the counter's route:
+     * the booking is made outside its day's window and the override is written with it, in its transaction. A hard
+     * window, and every other refusal, still refuses.
+     */
+    windowOverride?: WindowOverrideRecord;
+    /**
      * The path the booking is made on, kept with it (`bookings.made_on`):
      * `by` where not said. The limit on online bookings without an account
      * does not count the counter's (lib/limits.ts `guestSurge`).
@@ -2333,11 +2347,16 @@ export async function createBookingSeries(
   // Closed that day (a closure, or a weekday it never opens) says so, rather than "outside the hours".
   if (day.closed && !input.classId) return refuse("VENUE_CLOSED");
   // The court's rules: customers keep to them; staff allowed to may go past them, and it is recorded.
-  const breaches = input.classId ? [] : policyBreaches(policy, span, day, minutesUntil(date, span.start, zone));
+  const allBreaches = input.classId ? [] : policyBreaches(policy, span, day, minutesUntil(date, span.start, zone));
+  // An advisory launch or tide window is the venue's own judgement: a manager's override with a reason goes past it (ADR 0046, which
+  // supersedes ADR 0037's F1). A hard one never is; the answer then says so.
+  const windowPast = allBreaches.includes("WINDOW") && mayGoPastWindow(input.windowOverride, day.launch);
+  if (allBreaches.includes("WINDOW") && input.windowOverride && day.launch?.strength === "hard") return refuse("SAFE1_WINDOW_HARD");
+  const breaches = windowPast ? allBreaches.filter((b) => b !== "WINDOW") : allBreaches;
   // A change of the clocks is no rule a manager can waive: the booking would mean two moments, or none.
   if (breaches.includes("CLOCK")) return breachRefusal(policy, span, "CLOCK");
   if (breaches.length > 0 && !override) return breachRefusal(policy, span, breaches[0], day.launch);
-  // Nor is the launch or tide window: it is the venue's own data, which a manager changes rather than goes past (ADR 0037).
+  // A window the override does not reach (none asked, or not a manager's to go past) still refuses, whatever the court's rules allow.
   if (breaches.includes("WINDOW")) return breachRefusal(policy, span, "WINDOW", day.launch);
   if (minutesUntil(date, span.start, zone) <= 0) return refuse("SLOT_PAST");
   // A studio run as classes is booked through its classes; the venue's staff may still hire the room out.
@@ -2467,10 +2486,16 @@ export async function createBookingSeries(
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
         let reason: string | null = null;
+        // A manager's override of an advisory window, where this week is outside its day's window (ADR 0046): recorded with the booking.
+        let windowWent: { code: WindowCode; day: LaunchDay } | null = week === 0 && windowPast && day.launch ? { code: launchRefusal(day.launch, span).code, day: day.launch } : null;
         if (week > 0 && (await getVenueClosure(court.venueId, weekDate))) reason = "venue closed";
         if (!reason && week > 0 && windowed) {
           const that = (await courtDay(court, weekDate)).launch;
-          if (that && !launchOk(that, span)) reason = launchWhy(launchRefusal(that, span).code);
+          if (that && !launchOk(that, span)) {
+            const why = launchRefusal(that, span).code;
+            if (mayGoPastWindow(input.windowOverride, that)) windowWent = { code: why, day: that };
+            else reason = launchWhy(why);
+          }
         }
         const members = await membersOn(weekDate);
         const member: MemberPricing = members.booking?.level ?? false;
@@ -2496,6 +2521,7 @@ export async function createBookingSeries(
                 const bare = await supervisionRefusal({ venueId: court.venueId, courtId: court.id, sport: court.sport, date: weekDate, span, zone });
                 if (bare) throw new SupervisorMissing(bare);
               }
+              const bookingCode = generateCode();
               const id = (await db
                 .prepare(
                   `INSERT INTO bookings (code, court_id, sport, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
@@ -2504,7 +2530,7 @@ export async function createBookingSeries(
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
                 )
                 .get(
-                  generateCode(), courtId, court.sport, weekDate, span.start, span.end,
+                  bookingCode, courtId, court.sport, weekDate, span.start, span.end,
                   instantOf(weekDate, span.start, zone).toISOString(), instantOf(weekDate, span.end, zone).toISOString(),
                   name, phone, email ?? null, roundMoney(quote.total - placeOff), quote.fees,
                   userId ?? null, seriesCode, randomBytes(16).toString("hex"),
@@ -2522,6 +2548,18 @@ export async function createBookingSeries(
               });
               // A manager's override of the venue's policies, kept with the booking it let through, or neither is.
               if (input.policyOverride) await recordOverrides(id.id, input.policyOverride);
+              // A manager's override of an advisory window, with its reason, in this same transaction (lib/window-overrides.ts).
+              if (windowWent && input.windowOverride)
+                await recordWindowOverride(input.windowOverride, {
+                  code: windowWent.code,
+                  action: "booked",
+                  courtId,
+                  date: weekDate,
+                  span,
+                  day: windowWent.day,
+                  booking: { id: id.id, code: bookingCode },
+                  who: name,
+                });
               // Each member's own place at the member's price, kept per place (lib/entitlements.ts).
               if (memberPlaces.length > 0) {
                 const places = await placeRows(id.id);
@@ -2929,6 +2967,8 @@ export interface SupervisorLine {
   person: string | null;
   how: "rostered" | "covered" | "override";
   reason?: string;
+  /** Counted although the qualification the role recommends is not recorded for them, or has ended (advisory, ADR 0046). */
+  qualification?: { why: "not_recorded" | "expired"; qualification: string };
 }
 
 const supervisorLines = (list: Supervisor[] | undefined): SupervisorLine[] | undefined => {
@@ -2940,7 +2980,7 @@ const supervisorLines = (list: Supervisor[] | undefined): SupervisorLine[] | und
     const k = `${s.roleKey}|${s.personKind ?? ""}${s.personId ?? ""}|${s.how}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ role: s.roleName, roleKey: s.roleKey, person: s.personName, how: s.how, ...(s.reason ? { reason: s.reason } : {}) });
+    out.push({ role: s.roleName, roleKey: s.roleKey, person: s.personName, how: s.how, ...(s.reason ? { reason: s.reason } : {}), ...(s.qualification ? { qualification: s.qualification } : {}) });
   }
   return out;
 };
@@ -3166,14 +3206,16 @@ export interface BlockDetails {
   teamFixtureId?: number | null;
   /** A ladder's hold of court time for an accepted challenge (lib/ladder-holds.ts): the hold owns it, so a staff block or unblock leaves it. */
   ladderHoldId?: number | null;
+  /** The venue marks it a safety closure (a rain-out for outdoor safety, a hazard): nothing overrides it, as nothing overrides any block, and it is named so (ADR 0046). */
+  safety?: boolean;
 }
 
 /** Write one block and claim its time. Throws `23P01` when something holds it. */
 async function writeBlock(court: Court, date: string, span: Span, zone: string, details: BlockDetails): Promise<number> {
   const row = (await getDb()
     .prepare(
-      `INSERT INTO blocks (venue_id, court_id, date, start_min, end_min, reason, places, repeat_code, tournament_id, competition_id, team_league_id, team_fixture_id, ladder_hold_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO blocks (venue_id, court_id, date, start_min, end_min, reason, places, repeat_code, tournament_id, competition_id, team_league_id, team_fixture_id, ladder_hold_id, safety)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
     .get(
       court.venueId,
@@ -3188,7 +3230,8 @@ async function writeBlock(court: Court, date: string, span: Span, zone: string, 
       details.competitionId ?? null,
       details.teamLeagueId ?? null,
       details.teamFixtureId ?? null,
-      details.ladderHoldId ?? null
+      details.ladderHoldId ?? null,
+      details.safety === true
     )) as { id: number };
   await claim({ court, source: { kind: "block", blockId: row.id }, date, span, zone, places: details.places ?? court.capacity });
   return row.id;
@@ -3602,6 +3645,11 @@ async function rescheduleBookingOnce(
     courtId?: number;
     /** Staff allowed to (a manager) going past the new court's booking policy; recorded by the caller. */
     override?: boolean;
+    /**
+     * A manager's override of an advisory launch or tide window for the new time (lib/window-overrides.ts), authorised by the
+     * caller's route; written with the move, in its transaction. A hard window and the clocks changing still refuse.
+     */
+    windowOverride?: WindowOverrideRecord;
     /** Work out what it would do, and undo it: nothing changes. */
     preview?: boolean;
     /**
@@ -3740,7 +3788,14 @@ async function rescheduleBookingOnce(
     // The court's rules for the new time, its length included: a court that
     // does not sell bookings that long does not take this one either.
     // Managers may go past them, and it is recorded.
-    const breaches = policyBreaches(day.policy, span, day, minutesUntil(to.date, span.start, zone));
+    const allBreaches = policyBreaches(day.policy, span, day, minutesUntil(to.date, span.start, zone));
+    // An advisory window a manager overrides with a reason (ADR 0046); a hard one, and the clocks changing, never.
+    const windowPast = by === "staff" && allBreaches.includes("WINDOW") && mayGoPastWindow(to.windowOverride, day.launch);
+    if (by === "staff" && to.windowOverride && allBreaches.includes("WINDOW") && day.launch?.strength === "hard") {
+      firstRefusal ??= refuse("SAFE1_WINDOW_HARD");
+      continue;
+    }
+    const breaches = windowPast ? allBreaches.filter((b) => b !== "WINDOW") : allBreaches;
     if (breaches.length > 0 && (breaches.includes("CLOCK") || breaches.includes("WINDOW") || !(by === "staff" && to.override === true))) {
       // The first it breaks; but where a manager's override is not the reason it stops, the clocks changing and the window are said.
       const goesPast = by === "staff" && to.override === true;
@@ -3915,6 +3970,18 @@ async function rescheduleBookingOnce(
           if (to.fromHold !== undefined) await unclaim({ kind: "move", moveId: to.fromHold });
           // The claims are what decide: a booking, class, block, waiting-list offer or held move there refuses it.
           await reclaimBooking(booking, court, to.date, span, zone, day.policy);
+          // A manager's override of an advisory window, with its reason, in this same transaction (lib/window-overrides.ts).
+          if (windowPast && to.windowOverride && day.launch)
+            await recordWindowOverride(to.windowOverride, {
+              code: launchRefusal(day.launch, span).code,
+              action: "moved",
+              courtId: court.id,
+              date: to.date,
+              span,
+              day: day.launch,
+              booking: { id: booking.id, code: booking.code },
+              who: booking.name,
+            });
           // Who is on shift at the new time, kept with the booking (the old record stays as history).
           if (movesSession) await recordSupervisors({ session: { kind: "booking", id: booking.id }, venueId: court.venueId, courtId: court.id, sport: booking.sport, date: to.date, span, zone });
           if (lesson) {
@@ -4649,6 +4716,8 @@ export interface AdminBookingRow extends Booking {
   coachPaid?: { changeId: number; amount: number; coach: string; via: string }[];
   /** A manager's overrides of the venue's policies that let it through: which, why, by whom (lib/policy-overrides.ts). */
   policyOverrides?: BookingOverride[];
+  /** A manager's overrides of an advisory launch or tide window that let it be made or moved: why, by whom, which window (lib/window-overrides.ts). */
+  windowOverrides?: BookingWindowOverride[];
   /** Who supervises it, where the activity asks for somebody on shift: the record kept when it was made (lib/rosters.ts). */
   supervisors?: SupervisorLine[];
 }
@@ -6276,6 +6345,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
 
   // A manager's overrides of the venue's policies, on the bookings they let through (lib/policy-overrides.ts).
   const overridden = await overridesFor(rows.map((r) => r.id));
+  const windowOverridden = await windowOverridesFor(rows.map((r) => r.id));
   const supervised = await supervisorsOf("booking", rows.map((r) => r.id));
   const list: AdminBookingRow[] = [];
   for (const r of rows) {
@@ -6309,6 +6379,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       ...(coachOwed.has(booking.id) ? { coachOwed: coachOwed.get(booking.id)! } : {}),
       ...(coachPaid.has(booking.id) ? { coachPaid: coachPaid.get(booking.id)! } : {}),
       ...(overridden.has(booking.id) ? { policyOverrides: overridden.get(booking.id)! } : {}),
+      ...(windowOverridden.has(booking.id) ? { windowOverrides: windowOverridden.get(booking.id)! } : {}),
       ...(supervisorLines(supervised.get(booking.id)) ? { supervisors: supervisorLines(supervised.get(booking.id))! } : {}),
     });
   }
@@ -6458,6 +6529,11 @@ export async function createClassSessions(input: {
   termOffPercent?: number | null;
   /** One of the venue's coaches as the instructor (lib/class-coaches.ts): held for every session, checked like a lesson's coach. */
   coachId?: number | null;
+  /**
+   * A manager's override of an advisory launch or tide window (lib/window-overrides.ts), authorised by the route: each session outside
+   * its day's window is made and the override is written with it, in the transaction. A hard window still refuses.
+   */
+  windowOverride?: WindowOverrideRecord;
 }): Promise<CreateClassResult> {
   const { courtId, date } = input;
   const start = minutesFrom(input.start, input.startHour);
@@ -6479,12 +6555,22 @@ export async function createClassSessions(input: {
   if (await getVenueClosure(court.venueId, date))
     return refuse("VENUE_CLOSED");
   // On a resource with a launch or tide window, every session must be inside its own day's window (ADR 0037).
-  if (day.launch && !launchOk(day.launch, { start, end })) return launchRefused({ start, end }, day.launch);
+  // A manager's override of an advisory window goes past it with a reason, session by session (ADR 0046); a hard one never.
+  const gonePast = new Map<string, { code: WindowCode; day: LaunchDay }>();
+  if (day.launch && !launchOk(day.launch, { start, end })) {
+    if (input.windowOverride && day.launch.strength === "hard") return refuse("SAFE1_WINDOW_HARD");
+    if (!mayGoPastWindow(input.windowOverride, day.launch)) return launchRefused({ start, end }, day.launch);
+    gonePast.set(date, { code: launchRefusal(day.launch, { start, end }).code, day: day.launch });
+  }
   if (weeks > 1 && ((await rulesForCourts([court.id])).get(court.id) ?? []).length > 0) {
     for (let week = 1; week < weeks; week++) {
       const weekDate = addDays(date, week * 7);
       const that = (await courtDay(court, weekDate)).launch;
-      if (that && !launchOk(that, { start, end })) return refuse("LAUNCH_WEEK", { date: weekDate });
+      if (that && !launchOk(that, { start, end })) {
+        if (input.windowOverride && that.strength === "hard") return refuse("SAFE1_WINDOW_HARD");
+        if (!mayGoPastWindow(input.windowOverride, that)) return { ...refuse("LAUNCH_WEEK", { date: weekDate }), strength: that.strength };
+        gonePast.set(weekDate, { code: "LAUNCH_WEEK", day: that });
+      }
     }
   }
   if (input.capacity < 1 || input.capacity > court.capacity)
@@ -6547,6 +6633,19 @@ export async function createClassSessions(input: {
           const why = whyTaken(held, court, span, policyBuffers(day.policy));
           throw new Error(`${why?.why === "class" ? "CLASH" : "BOOKED"}:${weekDate}`);
         }
+        // A manager's override of an advisory window, with its reason, in this same transaction (lib/window-overrides.ts).
+        const went = gonePast.get(weekDate);
+        if (went && input.windowOverride)
+          await recordWindowOverride(input.windowOverride, {
+            code: went.code,
+            action: "class",
+            courtId,
+            date: weekDate,
+            span,
+            day: went.day,
+            classId: row.id,
+            who: input.name.trim(),
+          });
         // The coach, after the court (the order every claim locks in): in a lesson or another class then, and the class is not made.
         if (classCoaches && coachId !== null) await classCoaches.holdCoach(row.id, coachId, { date: weekDate, startMin: start, endMin: end }, day.zone);
         await recordSupervisors({ session: { kind: "class", id: row.id }, venueId: court.venueId, courtId, sport: court.sport, date: weekDate, span, zone: day.zone });

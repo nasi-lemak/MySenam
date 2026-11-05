@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 /**
- * `{ date, reason?, cancelAffected? }` — close the venue for a day. Written
+ * `{ date, reason?, cancelAffected?, safety? }` — close the venue for a day (`safety`: a safety closure, ADR 0046). Written
  * in the activity log: the closure with what it called off, a
  * `class.cancelled` for each class, and a `booking.cancelled` for each
  * booking and enrolment it cancelled, so each customer's booking says who.
@@ -106,12 +106,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (cancelled > 0) await tickOutbox();
   await logCancelledBookings(admin, venueId, offed, why);
 
-  const result = await closeVenueDay(venueId, date, reason);
+  // A closure for safety (ADR 0046): kept as such, and said so in the log. No closure is overridden at the counter either way.
+  const safety = input.safety === true;
+  const result = await closeVenueDay(venueId, date, reason, { safety });
   if (!result.ok) return refusal(result, 400);
   await logAction(admin, {
     venueId,
     action: "day.closed",
-    detail: `${date}${result.closure.reason ? ` (${result.closure.reason})` : ""}: ${offed.length} booking(s) and ${classesOff} class(es) with ${enrolments} enrolment(s) cancelled`,
+    detail: `${date}${safety ? " [safety closure]" : ""}${result.closure.reason ? ` (${result.closure.reason})` : ""}: ${offed.length} booking(s) and ${classesOff} class(es) with ${enrolments} enrolment(s) cancelled`,
   });
   return NextResponse.json({ closure: result.closure, cancelled }, { status: 201 });
 }

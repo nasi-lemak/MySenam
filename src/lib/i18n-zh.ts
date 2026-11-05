@@ -4654,6 +4654,13 @@ export const ZH: Record<Phrase, string> = {
   "sv1.role.instructor": "指导员",
   "sv1.cal.shift": "值班：{role}",
   "sv1.cal.name": "{venue}：我的班次",
+  "err.SAFE1_WINDOW_MANAGERS": "只有本场馆的经理才能在下水时段或潮汐时段之外预订或改期。",
+  "err.SAFE1_WINDOW_OFF": "本场馆已关闭对下水和潮汐时段的破例放行。",
+  "err.SAFE1_WINDOW_REASON": "请说明为何超出该时段，字数 {min} 至 {max} 个字符。",
+  "err.SAFE1_WINDOW_HARD": "该时段已被场馆设为硬性：任何人都不能破例。请选择时段内的时间，或请场馆修改规则。",
+  "err.SAFE1_WINDOW_OFFER": "经理可附上至少 {min} 个字符的原因，照样预订；原因会与预订一起保存。",
+  "safe1.form.offer": "不在场馆的下水或潮汐时段内。经理仍可预订：请填写至少 {min} 个字符的原因；原因会与预订一起保存，并记入操作日志。",
+  "safe1.form.hard": "该时段已被场馆设为硬性：任何人都不能破例。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

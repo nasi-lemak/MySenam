@@ -7,6 +7,7 @@ import { changeDeadline, rescheduleBooking, type RescheduleResult } from "./stor
 import { gameById, gamePlayers, gameTimeChanged, moveOf, pendingMove, resumeGame, type GameMove, type OpenGame } from "./games";
 import type { Refusal } from "./types";
 import type { CoachChange } from "./lesson-coaches";
+import type { WindowOverrideRecord } from "./window-overrides";
 
 /**
  * Moving an open game to another time.
@@ -48,6 +49,8 @@ type To = {
   start: number;
   courtId?: number;
   override?: boolean;
+  /** A manager's override of an advisory launch or tide window (lib/window-overrides.ts), authorised by the route. */
+  windowOverride?: WindowOverrideRecord;
   coachId?: number;
   /** A paid lesson to another coach: the manager's word on the money (lib/lesson-coaches.ts). */
   coachMoney?: "keep" | "adjust";

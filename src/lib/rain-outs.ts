@@ -38,6 +38,8 @@ export interface RainOut {
   /** Staff left the built-in reason as it was (`RAIN_PRESETS`). */
   reasonPreset?: string;
   preview?: boolean;
+  /** Rained off for outdoor safety: its blocks are safety closures, which nothing overrides (ADR 0046). */
+  safety?: boolean;
 }
 
 /** The built-in reasons, by the customer phrase each is written from. */
@@ -121,7 +123,7 @@ export async function rainOut(input: RainOut): Promise<RainOutResult> {
   // The blocks' label on the staff's schedule: what the panel showed them.
   const reason = typed || "Rained off";
   if (start < until)
-    for (const id of courtIds) if ((await blockSlots(id, input.date, { start, end: until }, reason)).ok) blocked++;
+    for (const id of courtIds) if ((await blockSlots(id, input.date, { start, end: until }, reason, undefined, { safety: input.safety === true })).ok) blocked++;
   await tickOutbox();
   return { ok: true, bookings: cancelled, classes: classesOff.length, blocked, classesOff };
 }

@@ -1120,8 +1120,8 @@ function BookingForm({
 
   // At the counter, what the last refusal lets staff do (lib/counter-policy.ts): take payment now (no-show
   // strikes, the guest limit), override it for this booking (a manager, where the venue allows), or ask a manager.
-  const [counterOffer, setCounterOffer] = useState<{ payNow: boolean; policy: string | null; overridable: boolean; askManager: boolean } | null>(null);
-  const [counterExtra, setCounterExtra] = useState<{ paidAtCounter?: CounterMethod; overridePolicies?: string[]; overrideReason?: string }>({});
+  const [counterOffer, setCounterOffer] = useState<{ payNow: boolean; policy: string | null; overridable: boolean; askManager: boolean; hard?: boolean; reasonMin?: number } | null>(null);
+  const [counterExtra, setCounterExtra] = useState<{ paidAtCounter?: CounterMethod; overridePolicies?: string[]; overrideReason?: string; overrideWindow?: boolean; windowReason?: string }>({});
   const [payVia, setPayVia] = useState<CounterMethod>("cash");
   const [overrideWhy, setOverrideWhy] = useState("");
   useEffect(() => {
@@ -1202,8 +1202,15 @@ function BookingForm({
       const data = await readJson(res);
       if (atCounter)
         setCounterOffer(
-          !res.ok && (data?.payNow === true || data?.overridable === true || data?.askManager === true)
-            ? { payNow: data.payNow === true, policy: typeof data.policy === "string" ? data.policy : null, overridable: data.overridable === true, askManager: data.askManager === true }
+          !res.ok && (data?.payNow === true || data?.overridable === true || data?.askManager === true || data?.hard === true)
+            ? {
+                payNow: data.payNow === true,
+                policy: typeof data.policy === "string" ? data.policy : null,
+                overridable: data.overridable === true,
+                askManager: data.askManager === true,
+                // A launch or tide window's refusal: the advisory window a manager may override with a reason, or a hard one (ADR 0046).
+                ...(data.policy === "launch_window" ? { hard: data.hard === true, reasonMin: typeof data.reasonMin === "number" ? data.reasonMin : 15 } : {}),
+              }
             : null
         );
       // Back to this very selection once the phone is sorted out.
@@ -1407,6 +1414,8 @@ function BookingForm({
               </button>
             </div>
           )}
+          {counterOffer.policy === "launch_window" && counterOffer.hard && <p className="font-medium">{t("safe1.form.hard")}</p>}
+          {counterOffer.policy === "launch_window" && counterOffer.overridable && <p>{t("safe1.form.offer", { min: counterOffer.reasonMin ?? 15 })}</p>}
           {counterOffer.overridable && counterOffer.policy && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{t("r9.form.override")}</span>
@@ -1420,13 +1429,17 @@ function BookingForm({
               />
               <button
                 type="button"
-                disabled={submitting || overrideWhy.trim().length < 5}
+                disabled={submitting || overrideWhy.trim().length < (counterOffer.policy === "launch_window" ? (counterOffer.reasonMin ?? 15) : 5)}
                 onClick={() => {
-                  const next = {
-                    ...counterExtra,
-                    overridePolicies: [...new Set([...(counterExtra.overridePolicies ?? []), counterOffer.policy!])],
-                    overrideReason: overrideWhy.trim(),
-                  };
+                  // A window is overridden by its own field and reason (lib/window-overrides.ts); the venue's policies by name.
+                  const next =
+                    counterOffer.policy === "launch_window"
+                      ? { ...counterExtra, overrideWindow: true, windowReason: overrideWhy.trim() }
+                      : {
+                          ...counterExtra,
+                          overridePolicies: [...new Set([...(counterExtra.overridePolicies ?? []), counterOffer.policy!])],
+                          overrideReason: overrideWhy.trim(),
+                        };
                   setCounterExtra(next);
                   void send(next);
                 }}

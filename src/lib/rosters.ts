@@ -7,6 +7,7 @@ import { addDays, dayOfWeek, isValidDateString, todayISO, zoneOffsetMinutes } fr
 import { instantOf, merge, minuteOfDay, rangeLiteral, type Span } from "./interval";
 import type { Refusal } from "./types";
 import { venueZoneOf } from "./zones";
+import { isQualificationLevel, levelBlocks, type QualificationLevel } from "./restriction-strength";
 
 /**
  * Who supervises a session (ADR 0036; docs/features/venue-operations.md#who-supervises-a-session).
@@ -50,16 +51,27 @@ export interface RosterRole {
   key: string;
   name: string;
   builtin: boolean;
-  /** The qualification a holder must have; null: none needed. */
+  /** The qualification a holder is asked to have; null: none asked. */
   qualification: string | null;
+  /**
+   * How firmly it is asked (ADR 0046): `recommended` (a person without it still counts as supervising, flagged), `venue_required`
+   * (counts only with it recorded and unexpired), `legally_required` (the same, and a manager may never let a session stand without it).
+   */
+  qualificationLevel: QualificationLevel;
+  /** For `legally_required`: the reference or wording the venue gave for the claim, kept as given and never judged. */
+  qualificationReference: string | null;
   active: boolean;
 }
 
-/** The starters every venue has, to use or change: a role is data, a qualification a name the venue gives. */
-export const STARTER_ROLES: { key: string; name: string; qualification: string }[] = [
-  { key: "range_officer", name: "Range officer", qualification: "Range officer certificate" },
-  { key: "lifeguard", name: "Lifeguard", qualification: "Lifeguard certificate" },
-  { key: "instructor", name: "Instructor", qualification: "Instructor certificate" },
+/**
+ * The starters every venue has, to use or change: a role is data, a qualification a name the venue gives, and a level of how firmly it
+ * is asked. Templates, not rules: the instructor's is a recommendation, a range officer's and a lifeguard's (safety roles) are
+ * required by the venue until it says otherwise (ADR 0046).
+ */
+export const STARTER_ROLES: { key: string; name: string; qualification: string; level: QualificationLevel }[] = [
+  { key: "range_officer", name: "Range officer", qualification: "Range officer certificate", level: "venue_required" },
+  { key: "lifeguard", name: "Lifeguard", qualification: "Lifeguard certificate", level: "venue_required" },
+  { key: "instructor", name: "Instructor", qualification: "Instructor certificate", level: "recommended" },
 ];
 
 interface RoleRow {
@@ -69,6 +81,8 @@ interface RoleRow {
   name: string;
   builtin: boolean;
   qualification: string | null;
+  qualification_level: string | null;
+  qualification_reference: string | null;
   active: boolean;
 }
 const toRole = (r: RoleRow): RosterRole => ({
@@ -78,6 +92,8 @@ const toRole = (r: RoleRow): RosterRole => ({
   name: r.name,
   builtin: r.builtin === true,
   qualification: r.qualification,
+  qualificationLevel: isQualificationLevel(r.qualification_level) ? r.qualification_level : "venue_required",
+  qualificationReference: r.qualification_reference,
   active: r.active === true,
 });
 
@@ -87,9 +103,9 @@ export async function ensureRoles(venueId: number): Promise<void> {
   for (const s of STARTER_ROLES)
     await db
       .prepare(
-        "INSERT INTO roster_roles (venue_id, key, name, builtin, qualification) VALUES (?, ?, ?, true, ?) ON CONFLICT (venue_id, key) DO NOTHING"
+        "INSERT INTO roster_roles (venue_id, key, name, builtin, qualification, qualification_level) VALUES (?, ?, ?, true, ?, ?) ON CONFLICT (venue_id, key) DO NOTHING"
       )
-      .run(venueId, s.key, s.name, s.qualification);
+      .run(venueId, s.key, s.name, s.qualification, s.level);
 }
 
 export async function listRoles(venueId: number, opts: { activeOnly?: boolean } = {}): Promise<RosterRole[]> {
@@ -110,28 +126,48 @@ const cleanText = (v: unknown, max: number): string | null => (typeof v === "str
 
 export type RoleResult = { ok: true; role: RosterRole; affected: UncoveredSession[] } | Refusal;
 
-/** Add a role of the venue's own, or change one (its name, the qualification it needs, or turn it off). Sessions a change leaves uncovered are returned. */
-export async function saveRole(
-  venueId: number,
-  input: { id?: unknown; name?: unknown; qualification?: unknown; active?: unknown }
-): Promise<RoleResult> {
+type RoleInput = { id?: unknown; name?: unknown; qualification?: unknown; qualificationLevel?: unknown; qualificationReference?: unknown; active?: unknown };
+
+/**
+ * What a role's qualification will be once a change is made, or why it cannot be (ADR 0046): the level is one of the three, a legal
+ * requirement names the qualification and gives the reference or wording the venue relies on (kept as given, never judged), and a
+ * reference that is not for a legal requirement is not kept.
+ */
+function readQualification(found: RosterRole | null, input: RoleInput): { qualification: string | null; level: QualificationLevel; reference: string | null } | (Refusal & { status: number }) {
+  if (input.qualificationLevel !== undefined && !isQualificationLevel(input.qualificationLevel))
+    return said("A qualification is recommended, required by the venue, or declared a legal requirement.");
+  const qualification = input.qualification === undefined ? (found?.qualification ?? null) : cleanText(input.qualification, 80);
+  const level: QualificationLevel = isQualificationLevel(input.qualificationLevel) ? input.qualificationLevel : (found?.qualificationLevel ?? "venue_required");
+  const asked = input.qualificationReference === undefined ? (found?.qualificationReference ?? null) : cleanText(input.qualificationReference, 300);
+  if (level === "legally_required") {
+    if (!qualification) return said("Name the qualification a legal requirement is for.");
+    if (!asked) return said("Give the reference or wording of the legal requirement. The app records it as given and does not judge it.");
+  }
+  return { qualification, level, reference: level === "legally_required" ? asked : null };
+}
+
+/** Add a role of the venue's own, or change one (its name, the qualification it asks for and how firmly, or turn it off). Sessions a change leaves uncovered are returned. */
+export async function saveRole(venueId: number, input: RoleInput): Promise<RoleResult> {
   await ensureRoles(venueId);
   const db = getDb();
   const name = cleanText(input.name, 60);
-  const qualification = cleanText(input.qualification, 80);
   if (input.id === undefined) {
     if (!name || name.length < 2) return said("Give the role a name.");
     const dup = await db.prepare("SELECT 1 FROM roster_roles WHERE venue_id = ? AND lower(name) = lower(?) AND active").get(venueId, name);
     if (dup) return said("The venue already has a role with that name.");
+    const q = readQualification(null, input);
+    if ("ok" in q) return q;
     const n = (await db.prepare("SELECT COUNT(*) AS n FROM roster_roles WHERE venue_id = ?").get(venueId)) as { n: number };
     const row = (await db
-      .prepare("INSERT INTO roster_roles (venue_id, key, name, builtin, qualification) VALUES (?, ?, ?, false, ?) RETURNING *")
-      .get(venueId, `role-${Number(n.n) + 1}-${Date.now().toString(36)}`, name, qualification)) as RoleRow;
+      .prepare("INSERT INTO roster_roles (venue_id, key, name, builtin, qualification, qualification_level, qualification_reference) VALUES (?, ?, ?, false, ?, ?, ?) RETURNING *")
+      .get(venueId, `role-${Number(n.n) + 1}-${Date.now().toString(36)}`, name, q.qualification, q.level, q.reference)) as RoleRow;
     return { ok: true, role: toRole(row), affected: [] };
   }
   const found = await roleById(venueId, input.id);
   if (!found) return said("That role is not at this venue.", 404);
   if (name !== null && name.length < 2) return said("Give the role a name.");
+  const q = readQualification(found, input);
+  if ("ok" in q) return q;
   return withTransaction(async () => {
     await lockRoster(venueId, "exclusive");
     // A role that rules still ask for is not turned off: the rules would ask for nobody, and the activity would quietly stop being asked.
@@ -141,11 +177,65 @@ export async function saveRole(
     }
     const affected = await newlyUncovered(venueId, () =>
       db
-        .prepare("UPDATE roster_roles SET name = COALESCE(?, name), qualification = ?, active = ? WHERE id = ?")
-        .run(name, input.qualification === undefined ? found.qualification : qualification, input.active === undefined ? found.active : input.active === true, found.id)
+        .prepare("UPDATE roster_roles SET name = COALESCE(?, name), qualification = ?, qualification_level = ?, qualification_reference = ?, active = ? WHERE id = ?")
+        .run(name, q.qualification, q.level, q.reference, input.active === undefined ? found.active : input.active === true, found.id)
     );
     return { ok: true as const, role: (await roleById(venueId, found.id))!, affected };
   });
+}
+
+/** Thrown to undo whatever a preview did, carrying what it found. */
+class RolePreview<T> extends Error {
+  readonly value: T;
+  constructor(value: T) {
+    super("preview");
+    this.value = value;
+  }
+}
+
+/** What a change to a role's qualification or its level would do, before it is made (ADR 0046). */
+export interface RoleChangePreview {
+  /** Shifts in the role (weekly, and extra ones from today) whose person does not hold the qualification as recorded: they count only where it is recommended. */
+  shiftsWithoutIt: number;
+  /** Sessions to come the change would leave with too few people counted. */
+  becomeUncovered: UncoveredSession[];
+  /** Sessions to come the change would put right. */
+  becomeCovered: UncoveredSession[];
+}
+
+/**
+ * Say what a change to a role would do, and change nothing: how many rostered shifts hold a qualification that is not recorded, and
+ * which sessions to come would newly lack the people they need, or newly have them. The manager sees it before lowering a level to
+ * `recommended`, raising it to `venue_required` or `legally_required`, or changing the qualification asked for.
+ */
+export async function previewRole(venueId: number, input: RoleInput): Promise<{ ok: true; preview: RoleChangePreview } | (Refusal & { status: number })> {
+  await ensureRoles(venueId);
+  const found = await roleById(venueId, input.id);
+  if (!found) return said("That role is not at this venue.", 404);
+  const q = readQualification(found, input);
+  if ("ok" in q) return q;
+  const before = await uncoveredAt(venueId);
+  try {
+    await withTransaction(async () => {
+      await lockRoster(venueId, "exclusive");
+      await getDb()
+        .prepare("UPDATE roster_roles SET qualification = ?, qualification_level = ?, qualification_reference = ? WHERE id = ?")
+        .run(q.qualification, q.level, q.reference, found.id);
+      const after = await uncoveredAt(venueId);
+      const was = new Set(before.map((u) => `${u.kind}:${u.id}`));
+      const is = new Set(after.map((u) => `${u.kind}:${u.id}`));
+      const flags = await rosterFlags(venueId);
+      throw new RolePreview<RoleChangePreview>({
+        shiftsWithoutIt: flags.filter((f) => f.roleId === found.id && (f.kind === "no_qualification" || f.kind === "expires")).length,
+        becomeUncovered: after.filter((u) => !was.has(`${u.kind}:${u.id}`)),
+        becomeCovered: before.filter((u) => !is.has(`${u.kind}:${u.id}`)),
+      });
+    });
+  } catch (err) {
+    if (err instanceof RolePreview) return { ok: true, preview: err.value as RoleChangePreview };
+    throw err;
+  }
+  throw new Error("unreachable");
 }
 
 // ------------------------------------------------------------ people and qualifications
@@ -524,24 +614,30 @@ export interface Need {
   roleKey: string;
   roleName: string;
   needed: number;
+  /** The role's qualification is declared a legal requirement: a manager never lets a session stand without it (ADR 0046). */
+  legal?: boolean;
 }
 
-function needsFrom(rules: (RuleRow & { role_key: string; role_name: string })[], courtId: number, sport: string): Need[] {
+/** A supervision rule with its role's name and how firmly its qualification is asked. */
+type RuleJoined = RuleRow & { role_key: string; role_name: string; role_qualification: string | null; role_level: string | null };
+
+function needsFrom(rules: RuleJoined[], courtId: number, sport: string): Need[] {
   const byRole = new Map<number, Need>();
   for (const r of rules) {
     if (r.court_id !== null && r.court_id !== courtId) continue;
     if (r.activity !== null && r.activity !== sport) continue;
     const have = byRole.get(r.role_id);
-    if (!have || have.needed < Number(r.needed)) byRole.set(r.role_id, { roleId: r.role_id, roleKey: r.role_key, roleName: r.role_name, needed: Number(r.needed) });
+    if (!have || have.needed < Number(r.needed))
+      byRole.set(r.role_id, { roleId: r.role_id, roleKey: r.role_key, roleName: r.role_name, needed: Number(r.needed), legal: r.role_qualification !== null && r.role_level === "legally_required" });
   }
   return [...byRole.values()].sort((a, b) => a.roleId - b.roleId);
 }
 
-const RULES_SQL = `SELECT r.*, ro.key AS role_key, ro.name AS role_name FROM supervision_rules r JOIN roster_roles ro ON ro.id = r.role_id WHERE r.venue_id = ?`;
+const RULES_SQL = `SELECT r.*, ro.key AS role_key, ro.name AS role_name, ro.qualification AS role_qualification, ro.qualification_level AS role_level FROM supervision_rules r JOIN roster_roles ro ON ro.id = r.role_id WHERE r.venue_id = ?`;
 
 /** The roles and numbers a session of `sport` on this resource needs; none where nothing is asked. */
 export async function needsFor(venueId: number, courtId: number, sport: string): Promise<Need[]> {
-  const rules = (await getDb().prepare(RULES_SQL).all(venueId)) as (RuleRow & { role_key: string; role_name: string })[];
+  const rules = (await getDb().prepare(RULES_SQL).all(venueId)) as RuleJoined[];
   return needsFrom(rules, courtId, sport);
 }
 
@@ -589,6 +685,11 @@ function localDate(at: number, zone: string): string {
 export interface Provider {
   person: RosterPerson;
   roleId: number;
+  /**
+   * Where the role's qualification is only recommended and the person does not hold it as recorded (none recorded, or it ends before
+   * their shifts do): they count all the same, and the roster says so (ADR 0046). Null where it is held, or is not recommended.
+   */
+  unrecorded: "not_recorded" | "expired" | null;
   intervals: Interval[];
   busy: { bookingId: number; from: number; to: number }[];
 }
@@ -677,19 +778,25 @@ export async function supply(venueId: number, zone: string, window: Interval, on
     const person = people.get(personKey);
     if (!role || !person || (onlyRoles && !onlyRoles.includes(roleId))) continue;
     let intervals = minus(joined(ivs), [...(leave.get(personKey) ?? []), ...(off.get(personKey) ?? [])]);
+    let unrecorded: Provider["unrecorded"] = null;
     if (role.qualification) {
       const held = quals.filter((q) => q.person_kind === person.kind && q.person_id === person.id && norm(q.qualification) === norm(role.qualification!));
-      if (held.length === 0) continue;
-      // Holds until the end of the last day of the one that lasts longest; none ending means until taken back.
-      const never = held.some((q) => q.expires_on === null);
-      if (!never) {
+      // Where it is only recommended, a person without it counts all the same and is flagged; where the venue requires it, or says it is a
+      // legal requirement, they count only with it recorded, and only until it ends (ADR 0046; round 10's rule for a required one).
+      const required = levelBlocks(role.qualificationLevel);
+      if (held.length === 0) {
+        if (required) continue;
+        unrecorded = "not_recorded";
+      } else if (!held.some((q) => q.expires_on === null)) {
+        // Holds until the end of the last day of the one that lasts longest; none ending means until taken back.
         const until = Math.max(...held.map((q) => instantOf(addDays(q.expires_on!, 1), 0, zone).getTime()));
-        intervals = within(intervals, { from: -Infinity, to: until });
+        if (required) intervals = within(intervals, { from: -Infinity, to: until });
+        else if (intervals.some((iv) => iv.to > until)) unrecorded = "expired";
       }
     }
     intervals = within(intervals, window);
     if (intervals.length === 0) continue;
-    out.push({ person, roleId, intervals, busy: (lessons.get(personKey) ?? []).filter((b) => b.to > window.from && b.from < window.to) });
+    out.push({ person, roleId, unrecorded, intervals, busy: (lessons.get(personKey) ?? []).filter((b) => b.to > window.from && b.from < window.to) });
   }
   return out;
 }
@@ -807,7 +914,7 @@ export async function unsupervisedOn(
   const venueIds = [...new Set(courts.map((c) => c.venueId))];
   const rules = (await getDb()
     .prepare(`${RULES_SQL.replace("WHERE r.venue_id = ?", `WHERE r.venue_id IN (${venueIds.map(() => "?").join(",")})`)}`)
-    .all(...venueIds)) as (RuleRow & { role_key: string; role_name: string })[];
+    .all(...venueIds)) as RuleJoined[];
   if (rules.length === 0) return out;
   // Who is on shift is read once for a venue, over the whole of its courts' day, and asked of each court.
   const subject = courts
@@ -840,10 +947,13 @@ export interface Supervisor {
   from: string;
   to: string;
   recordedByName: string | null;
+  /** Counted although the qualification the role recommends is not recorded for them, or has ended (ADR 0046): advisory. */
+  qualification?: QualificationNote;
 }
 
 interface SupervisorRow {
   id: number;
+  venue_id: number;
   booking_id: number | null;
   class_id: number | null;
   role_id: number | null;
@@ -858,7 +968,7 @@ interface SupervisorRow {
   hi: Date;
   recorded_by_name: string | null;
 }
-const toSupervisor = (r: SupervisorRow): Supervisor => ({
+const toSupervisor = (r: SupervisorRow, note?: QualificationNote | null): Supervisor => ({
   id: r.id,
   roleId: r.role_id,
   roleKey: r.role_key,
@@ -871,7 +981,116 @@ const toSupervisor = (r: SupervisorRow): Supervisor => ({
   from: new Date(r.lo).toISOString(),
   to: new Date(r.hi).toISOString(),
   recordedByName: r.recorded_by_name,
+  ...(note ? { qualification: note } : {}),
 });
+
+/** A person named on a session who does not hold, as recorded, the qualification the role only recommends: they count, and this says so (ADR 0046). */
+export interface QualificationNote {
+  why: "not_recorded" | "expired";
+  qualification: string;
+}
+
+/**
+ * For each supervisor row, the note to show where the role's qualification is only recommended and the person does not hold it as
+ * recorded (none recorded, or it ended before the part of the session they cover does); null otherwise. A required qualification is
+ * never a note: nobody without it is named in the first place (`supply`).
+ */
+async function recommendedNotes(
+  rows: { venue_id: number; role_id: number | null; how: string; person_kind: PersonKind | null; person_id: number | null; hi: Date }[]
+): Promise<(QualificationNote | null)[]> {
+  const out: (QualificationNote | null)[] = rows.map(() => null);
+  const named = rows.filter((r) => r.how !== "override" && r.role_id !== null && r.person_kind !== null && r.person_id !== null);
+  if (named.length === 0) return out;
+  const db = getDb();
+  const roleIds = [...new Set(named.map((r) => r.role_id!))];
+  const roles = (await db
+    .prepare(`SELECT id, qualification, qualification_level FROM roster_roles WHERE id IN (${roleIds.map(() => "?").join(",")})`)
+    .all(...roleIds)) as { id: number; qualification: string | null; qualification_level: string }[];
+  const asked = new Map(roles.filter((r) => r.qualification && !levelBlocks(isQualificationLevel(r.qualification_level) ? r.qualification_level : "venue_required")).map((r) => [r.id, r.qualification!]));
+  const subject = named.filter((r) => asked.has(r.role_id!));
+  if (subject.length === 0) return out;
+  const venueIds = [...new Set(subject.map((r) => r.venue_id))];
+  const personIds = [...new Set(subject.map((r) => r.person_id!))];
+  const quals = (await db
+    .prepare(
+      `SELECT venue_id, person_kind, person_id, qualification, expires_on FROM roster_qualifications
+        WHERE revoked_at IS NULL AND venue_id IN (${venueIds.map(() => "?").join(",")}) AND person_id IN (${personIds.map(() => "?").join(",")})`
+    )
+    .all(...venueIds, ...personIds)) as { venue_id: number; person_kind: PersonKind; person_id: number; qualification: string; expires_on: string | null }[];
+  const venues = (await db
+    .prepare(`SELECT id, time_zone, lat, lng FROM venues WHERE id IN (${venueIds.map(() => "?").join(",")})`)
+    .all(...venueIds)) as { id: number; time_zone: string | null; lat: number | null; lng: number | null }[];
+  const zones = new Map(venues.map((v) => [v.id, venueZoneOf(v)]));
+  rows.forEach((r, i) => {
+    const qualification = r.role_id !== null ? asked.get(r.role_id) : undefined;
+    if (!qualification || r.how === "override" || r.person_kind === null || r.person_id === null) return;
+    const held = quals.filter((q) => q.venue_id === r.venue_id && q.person_kind === r.person_kind && q.person_id === r.person_id && norm(q.qualification) === norm(qualification));
+    if (held.length === 0) {
+      out[i] = { why: "not_recorded", qualification };
+      return;
+    }
+    if (held.some((q) => q.expires_on === null)) return;
+    const until = Math.max(...held.map((q) => instantOf(addDays(q.expires_on!, 1), 0, zones.get(r.venue_id) ?? "UTC").getTime()));
+    if (new Date(r.hi).getTime() > until) out[i] = { why: "expired", qualification };
+  });
+  return out;
+}
+
+/** A session to come with somebody named on it who lacks a qualification the role only recommends (ADR 0046): advisory, never blocking. */
+export interface AdvisorySession {
+  kind: "booking" | "class";
+  id: number;
+  code: string | null;
+  courtName: string;
+  date: string;
+  startMin: number;
+  endMin: number;
+  name: string;
+  people: { roleKey: string; roleName: string; personName: string; qualification: string; why: "not_recorded" | "expired" }[];
+}
+
+/**
+ * Sessions to come at this venue (WORKLIST_DAYS ahead) that are supervised by somebody counted although a recommended qualification is
+ * not recorded for them, or has ended: listed for a manager beside the sessions without cover, and not for the same reason: these are
+ * covered. Worked out from what is recorded now, each time.
+ */
+export async function recommendedGaps(venueId: number): Promise<AdvisorySession[]> {
+  const db = getDb();
+  const v = (await db.prepare("SELECT time_zone, lat, lng FROM venues WHERE id = ?").get(venueId)) as { time_zone: string | null; lat: number | null; lng: number | null } | undefined;
+  if (!v) return [];
+  const today = todayISO(venueZoneOf(v));
+  const until = addDays(today, WORKLIST_DAYS);
+  const rows = (await db
+    .prepare(
+      `SELECT 'booking' AS kind, b.id AS sid, b.code, c.name AS court_name, b.date, b.start_min, b.end_min, b.name, s.venue_id, s.role_id, s.role_key, s.role_name, s.how,
+              s.person_kind, s.person_id, s.person_name, upper(s.during) AS hi
+         FROM session_supervisors s JOIN bookings b ON b.id = s.booking_id JOIN courts c ON c.id = b.court_id
+        WHERE s.venue_id = ? AND s.active AND s.how <> 'override' AND b.status = 'confirmed' AND b.date BETWEEN ? AND ?
+       UNION ALL
+       SELECT 'class' AS kind, k.id AS sid, NULL AS code, c.name AS court_name, k.date, k.start_min, k.end_min, k.name, s.venue_id, s.role_id, s.role_key, s.role_name, s.how,
+              s.person_kind, s.person_id, s.person_name, upper(s.during) AS hi
+         FROM session_supervisors s JOIN classes k ON k.id = s.class_id JOIN courts c ON c.id = k.court_id
+        WHERE s.venue_id = ? AND s.active AND s.how <> 'override' AND k.status = 'scheduled' AND k.date BETWEEN ? AND ?`
+    )
+    .all(venueId, today, until, venueId, today, until)) as {
+    kind: "booking" | "class"; sid: number; code: string | null; court_name: string; date: string; start_min: number; end_min: number; name: string; venue_id: number;
+    role_id: number | null; role_key: string; role_name: string; how: string; person_kind: PersonKind | null; person_id: number | null; person_name: string | null; hi: Date;
+  }[];
+  const notes = await recommendedNotes(rows);
+  const bySession = new Map<string, AdvisorySession>();
+  rows.forEach((r, i) => {
+    const note = notes[i];
+    if (!note) return;
+    const key = `${r.kind}:${r.sid}`;
+    const session =
+      bySession.get(key) ??
+      ({ kind: r.kind, id: r.sid, code: r.code, courtName: r.court_name, date: r.date, startMin: Number(r.start_min), endMin: Number(r.end_min), name: r.name, people: [] } as AdvisorySession);
+    if (!session.people.some((p) => p.roleKey === r.role_key && p.personName === (r.person_name ?? "")))
+      session.people.push({ roleKey: r.role_key, roleName: r.role_name, personName: r.person_name ?? "", qualification: note.qualification, why: note.why });
+    bySession.set(key, session);
+  });
+  return [...bySession.values()].sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin || a.id - b.id);
+}
 
 const column = (ref: SessionRef) => (ref.kind === "booking" ? "booking_id" : "class_id");
 
@@ -882,14 +1101,15 @@ export async function supervisorsOf(kind: SessionRef["kind"], ids: number[]): Pr
   const col = kind === "booking" ? "booking_id" : "class_id";
   const rows = (await getDb()
     .prepare(
-      `SELECT id, booking_id, class_id, role_id, role_key, role_name, how, person_kind, person_id, person_name, reason, lower(during) AS lo, upper(during) AS hi, recorded_by_name
+      `SELECT id, venue_id, booking_id, class_id, role_id, role_key, role_name, how, person_kind, person_id, person_name, reason, lower(during) AS lo, upper(during) AS hi, recorded_by_name
          FROM session_supervisors WHERE ${col} IN (${ids.map(() => "?").join(",")}) AND active ORDER BY id`
     )
     .all(...ids)) as SupervisorRow[];
-  for (const r of rows) {
+  const notes = await recommendedNotes(rows);
+  rows.forEach((r, i) => {
     const id = (kind === "booking" ? r.booking_id : r.class_id)!;
-    out.set(id, [...(out.get(id) ?? []), toSupervisor(r)]);
-  }
+    out.set(id, [...(out.get(id) ?? []), toSupervisor(r, notes[i])]);
+  });
   return out;
 }
 
@@ -1046,7 +1266,7 @@ async function uncoveredAt(venueId: number): Promise<UncoveredSession[]> {
   const zone = venueZoneOf(row);
   const today = todayISO(zone);
   const until = addDays(today, WORKLIST_DAYS);
-  const rules = (await db.prepare(RULES_SQL).all(venueId)) as (RuleRow & { role_key: string; role_name: string })[];
+  const rules = (await db.prepare(RULES_SQL).all(venueId)) as RuleJoined[];
   if (rules.length === 0) return [];
   const sessions = (await db
     .prepare(
@@ -1081,7 +1301,8 @@ async function uncoveredAt(venueId: number): Promise<UncoveredSession[]> {
     const mine = decisions.filter((d) => (s.kind === "booking" ? d.booking_id === s.id : d.class_id === s.id));
     const roles: UncoveredSession["roles"] = [];
     for (const need of needs) {
-      if (mine.some((d) => d.how === "override" && d.role_id === need.roleId)) continue;
+      // A manager's "let it stand" covers a session that lacks a role the venue requires, never one that lacks a legally required one (ADR 0046).
+      if (need.legal !== true && mine.some((d) => d.how === "override" && d.role_id === need.roleId)) continue;
       const people = new Map<string, Interval[]>();
       for (const p of providers) if (p.roleId === need.roleId) people.set(keyOf(p.person.kind, p.person.id), availableOf(p, s.kind === "booking" ? s.id : undefined));
       // Somebody a manager named to cover is on, for the part named, whether rostered or not (once, where they are both).
@@ -1164,7 +1385,8 @@ export async function coverSession(
     const needs = await needsFor(venueId, s.court_id, s.sport);
     if (!needs.some((n) => n.roleId === role.id)) return said("That session needs nobody in that role.");
     const during = instantsOf(s.date, { start: s.start_min, end: s.end_min }, s.zone);
-    if (role.qualification) {
+    // A recommended qualification is no condition of being named to cover: they count, and the roster flags it (ADR 0046).
+    if (role.qualification && levelBlocks(role.qualificationLevel)) {
       const held = (await getDb()
         .prepare("SELECT qualification, expires_on FROM roster_qualifications WHERE venue_id = ? AND person_kind = ? AND person_id = ? AND revoked_at IS NULL")
         .all(venueId, person.kind, person.id)) as { qualification: string; expires_on: string | null }[];
@@ -1214,6 +1436,9 @@ export async function overrideSession(
   if (!reason || reason.length < 3) return said("Say why the session may go ahead without them.");
   const role = await roleById(venueId, input.roleId);
   if (!role) return said("That role is not at this venue.", 404);
+  // A qualification the venue declares a legal requirement is never let stand: the session is covered by somebody who holds it, moved or cancelled (ADR 0046).
+  if (role.qualification && role.qualificationLevel === "legally_required")
+    return said("This role's qualification is declared a legal requirement, so a session cannot be let stand without it. Cover it with somebody who holds it, or move or cancel it.", 409);
   const ref = { kind: input.kind, id: input.id as number } as SessionRef;
   return withTransaction(async () => {
     await lockRoster(venueId, "exclusive");
@@ -1261,6 +1486,10 @@ export interface RosterFlag {
   personKind: PersonKind;
   personId: number;
   roleId: number;
+  /** How firmly the role asks for the qualification (ADR 0046). */
+  level?: QualificationLevel;
+  /** True where the shift counts as cover despite the flag (a recommended qualification): advisory, not blocking. */
+  counts?: boolean;
   shiftId?: number;
   exceptionId?: number;
   qualification?: string | null;
@@ -1271,7 +1500,8 @@ export interface RosterFlag {
 /**
  * What is wrong with the roster as it stands, for a manager: a shift whose role asks for a qualification the person has not
  * recorded, one whose qualification ends before some shift to come does, and a shift whose person is no longer on the
- * venue's list. Such time is never counted as cover (`supply`); this says why.
+ * venue's list. Where the venue requires the qualification (or declares it a legal requirement) such time is not counted as cover
+ * (`supply`); this says why. Where it is only recommended the shift counts, and the flag is advisory (`counts`, ADR 0046).
  */
 export async function rosterFlags(venueId: number): Promise<RosterFlag[]> {
   const roles = new Map((await listRoles(venueId)).map((r) => [r.id, r]));
@@ -1285,10 +1515,11 @@ export async function rosterFlags(venueId: number): Promise<RosterFlag[]> {
     const role = roles.get(roleId);
     if (!role?.qualification) return;
     const held = quals.filter((q) => q.personKind === personKind && q.personId === personId && norm(q.qualification) === norm(role.qualification!));
-    if (held.length === 0) return flags.push({ kind: "no_qualification", personKind, personId, roleId, qualification: role.qualification, ...where });
+    const how = { level: role.qualificationLevel, counts: !levelBlocks(role.qualificationLevel) };
+    if (held.length === 0) return flags.push({ kind: "no_qualification", personKind, personId, roleId, qualification: role.qualification, ...how, ...where });
     if (held.some((q) => q.expiresOn === null)) return;
     const last = held.map((q) => q.expiresOn!).sort().pop()!;
-    if (lastShiftEnds !== null && last < lastShiftEnds) flags.push({ kind: "expires", personKind, personId, roleId, qualification: role.qualification, expiresOn: last, ...where });
+    if (lastShiftEnds !== null && last < lastShiftEnds) flags.push({ kind: "expires", personKind, personId, roleId, qualification: role.qualification, expiresOn: last, ...how, ...where });
   };
   // A weekly shift goes on, so its qualification must reach as far ahead as anybody can book, a half year.
   const horizon = addDays(todayISO(), 180);
@@ -1355,7 +1586,7 @@ export async function ownShifts(venueId: number, person: { kind: PersonKind; id:
 
 /** The roster as a manager or the desk sees it. */
 export async function rosterOverview(venueId: number) {
-  const [roles, people, qualifications, shifts, exceptions, rules, flags] = await Promise.all([
+  const [roles, people, qualifications, shifts, exceptions, rules, flags, advisory] = await Promise.all([
     listRoles(venueId),
     rosterPeople(venueId),
     listQualifications(venueId),
@@ -1363,6 +1594,7 @@ export async function rosterOverview(venueId: number) {
     listExceptions(venueId),
     listRules(venueId),
     rosterFlags(venueId),
+    recommendedGaps(venueId),
   ]);
-  return { roles, people, qualifications, shifts, exceptions, rules, flags };
+  return { roles, people, qualifications, shifts, exceptions, rules, flags, advisory };
 }

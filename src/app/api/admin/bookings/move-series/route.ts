@@ -9,6 +9,7 @@ import { notifySeriesMoved, tickOutbox } from "@/lib/notify";
 import { money } from "@/lib/region";
 import { moveSeries, previewSeriesMove, seriesMoveChoices, type SeriesMoveTo } from "@/lib/series-moves";
 import { getCourt, policyForCourt } from "@/lib/store";
+import { windowOverrideFromBody } from "@/lib/counter-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -62,11 +63,15 @@ export async function POST(req: NextRequest) {
     const denied = denyVenue(admin, court.venueId);
     if (denied) return denied;
   }
+  // A manager's override of an advisory launch or tide window for each week moved, with its reason (lib/window-overrides.ts).
+  const windowAsk = await windowOverrideFromBody(body, admin, venueIds[0]);
+  if (windowAsk.refuse) return windowAsk.refuse;
   const to: SeriesMoveTo = {
     start,
     ...(typeof weekday === "number" ? { weekday } : {}),
     ...(typeof courtId === "number" ? { courtId } : {}),
     ...(override === true ? { override: true } : {}),
+    ...(windowAsk.record ? { windowOverride: windowAsk.record } : {}),
   };
 
   if (preview === true) {

@@ -121,6 +121,8 @@ export function doorFor(
 export interface VenueClosure {
   date: string;
   reason: string | null;
+  /** Marked a safety closure by the venue (ADR 0046). */
+  safety?: boolean;
 }
 
 export const DEFAULT_CANCEL_CUTOFF_HOURS = 2;
@@ -909,6 +911,8 @@ export interface Refusal {
   error: string;
   code?: ErrorCode;
   vars?: Record<string, string | number>;
+  /** A launch or tide window's refusal: how firmly its rule holds (lib/restriction-strength.ts). Said to staff at the counter only, never to a customer. */
+  strength?: "advisory" | "hard";
 }
 
 /** The deposits a venue may take online to hold a booking, as a percent of the price (lib/holds.ts). */

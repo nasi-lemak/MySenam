@@ -9,6 +9,7 @@ import { uncoveredSessions } from "@/lib/rosters";
 import { jsonObject } from "@/lib/api";
 import { strandedByLaunch } from "@/lib/launch-worklist";
 import { listVenues } from "@/lib/store";
+import { windowOverrideAlert } from "@/lib/window-overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,16 @@ async function launchStranded(venueIds: number[] | null) {
   return out;
 }
 
+/** A manager's needs-attention lines for venues whose overrides of advisory windows in 7 days are past the venue's limit (lib/window-overrides.ts). */
+async function windowOverrideAlerts(venueIds: number[] | null) {
+  const out: NonNullable<Awaited<ReturnType<typeof windowOverrideAlert>>>[] = [];
+  for (const venueId of venueIds ?? (await listVenues()).map((v) => v.id)) {
+    const alert = await windowOverrideAlert(venueId);
+    if (alert) out.push(alert);
+  }
+  return out;
+}
+
 /**
  * Urgent news not yet known to have reached the customer, what closed this week, and refunds past the date customers were told.
  * And guardians (lib/contact-guardians.ts): `guardianTasks`, guardians recorded by name and number to be told of a change in
@@ -30,6 +41,7 @@ async function launchStranded(venueIds: number[] | null) {
  * days off then, works other hours or is not held for it.
  * And `launchStranded`: bookings and classes to come that a launch or tide window now leaves outside it, by venue (ADR 0037).
  * And `uncovered`: sessions to come with too few qualified people rostered, for a manager to decide (lib/rosters.ts).
+ * And `windowOverrideAlerts` (managers only): venues whose managers overrode advisory windows more often in 7 days than the venue's limit (ADR 0046).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -44,6 +56,7 @@ export async function GET(req: NextRequest) {
     classCoachConflicts: await classCoachConflicts(admin.venueIds),
     launchStranded: await launchStranded(admin.venueIds),
     uncovered: await uncoveredSessions(admin.venueIds),
+    windowOverrideAlerts: admin.role === "desk" ? [] : await windowOverrideAlerts(admin.venueIds),
   });
 }
 
