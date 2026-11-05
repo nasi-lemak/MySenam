@@ -216,10 +216,10 @@ changes; 6 to 8 name what they wait for. As of 5 November 2026 no defect
 | [Ways some activities are sold](#activities): cycling heats, choosing a kind within one fleet | 5 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
 | [Rosters and supervision](#rosters-and-supervision): court time that is not a booking is not asked; no end date on a pattern; no messages; a legally required qualification is the venue's declaration, never verified | 2 / 5 | Venues with supervised activities | Kept; the owner decides the open question in the section |
 | [Launch and tide windows](#launch-and-tide-windows): a venue's own table, never a forecast; a manager may override an advisory window with a reason, never a hard one; no owner emergency override | 5 | Venues hiring on water | Kept; the owner decides whether the worklist should message customers |
-| [Messages between players](#messages-between-players): a minor writes only in a supervised youth group of a community group; guardian consent is a declared word; staff-read exception, retention and rest hours await legal review; the notice email unverified; no browser scenario | 5 / 6 / 7 | Players, guardians | The owner decides how conflicting guardians and a reported adult are handled; a lawyer reviews the youth rules; the [email integration](#integrations-awaiting-live-verification-or-a-partner) is checked live |
+| [Messages between players](#messages-between-players): a minor writes only in a supervised youth group of a community group; guardian consent and each guardian's say are declared or the venue's word, never verified; the notices, the restriction without notice, the evidence hold, the staff-read exception, retention and rest hours await legal review; the notice email unverified; no browser scenario | 5 / 6 / 7 | Players, guardians | A lawyer reviews the youth rules; the [email integration](#integrations-awaiting-live-verification-or-a-partner) is checked live |
 | [Moving classes, lessons and registers](#moving-classes-lessons-and-registers): a manager's move, and the desk's with a manager's approval for a consequential one (the desk cannot withdraw its request); no coach pay for classes; absent does not use a pass entry | 2 / 5 | Venues running classes and lessons | Kept; [roadmap](roadmap.md) proposals for coach pay and for absent as a pass entry |
 | [Live accounting push to Xero](#live-accounting-push): never run against Xero; data goes abroad | 6 / 7 | Venues using Xero | The owner's Xero demo-company check ([Xero](../integrations/xero.md#verifying-against-a-demo-company)); approval of the transfer |
-| [Ladders: court time and teams](#ladders-court-time-and-teams): held time shows as unavailable; an expired hold still counts to the weekly cap; confirmation only on the ladder screen; no simultaneous courts; lineups do not rate individuals | 5 / 2 | Clubs running ladders | Kept; the owner decides two open questions in the section; [roadmap](roadmap.md) proposals |
+| [Ladders: court time and teams](#ladders-court-time-and-teams): held time shows as unavailable; an exact agreement confirms a hold and an expired one frees the active allowance, a counter-proposal or a manager's change still needs confirming; confirmation only on the ladder screen; no simultaneous courts; lineups do not rate individuals | 5 / 2 | Clubs running ladders | Kept; the owner decides two open questions in the section; [roadmap](roadmap.md) proposals |
 | [Swiss: acceleration, tie-breaks and performance events](#swiss-acceleration-tie-breaks-and-performance-events): Baku acceleration for chess only, FIDE's text unconfirmed; other accelerated systems and Swiss for events of marks not built | 5 / 8 | Organisers | The owner decides on events of marks and on a flagged round once climbing has begun |
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
@@ -289,7 +289,7 @@ messages in the install's first language, and what the counter's policies
 leave (staff moves, the class page's buttons, overrides in the export). The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-Round 10 (5 November 2026) added six sections of accepted restrictions (rosters, launch and tide windows, messages between players, moving classes, lessons and registers, live accounting push, and ladders) and rewrote the Swiss one and one integration row, each beside what the work leaves and none a defect; the count above is as of round 9 and has not been redone. Round 11 (5 November 2026) rewrote the sections for rosters, launch and tide windows, messages between players, moving classes, ladders and Swiss for what the owner decided, and recorded one defect found on the way (B76). In the table above, one row is a defect (B76); two are partly of kind 3 (staff
+Round 10 (5 November 2026) added six sections of accepted restrictions (rosters, launch and tide windows, messages between players, moving classes, lessons and registers, live accounting push, and ladders) and rewrote the Swiss one and one integration row, each beside what the work leaves and none a defect; the count above is as of round 9 and has not been redone. Round 11 (5 November 2026) rewrote the sections for rosters, launch and tide windows, messages between players, moving classes, ladders and Swiss for what the owner decided, and recorded one defect found on the way (B76). Round 12 (5 November 2026) rewrote the sections for messages between players (guardians in conflict, a reported adult not told) and ladders (an agreement counts, expired holds free the allowance) for what the owner decided, and left the owner's questions about conflicting guardians, a reported adult, both players confirming and expired holds out of the open ones. In the table above, one row is a defect (B76); two are partly of kind 3 (staff
 messages in one language; what the counter's policies leave), and the
 e-invoice questions are decisions of kind 7.
 
@@ -886,31 +886,42 @@ climbing has begun; whether events of marks need Swiss.
 ### Ladders: court time and teams
 
 ([Club ladders](../features/tournaments.md#club-ladders),
-ADRs [0040](../architecture/decisions/0040-ladder-court-time-and-team-ladders.md) and
-[0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md).)
+ADRs [0040](../architecture/decisions/0040-ladder-court-time-and-team-ladders.md),
+[0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md) and
+[0050](../architecture/decisions/0050-ladder-agreement-counts-and-expired-holds-do-not.md).)
 Accepted restrictions: court time is held for a challenge only where the venue
 turns the setting on (off by default, at the owner's request of 5 November); held
-time shows as unavailable on the grid, not as a ladder match; the default caps (8 live
-holds a ladder, 4 for a player in 7 days) are changed by a manager per venue and per
-ladder within the install's bounds (1 to 50 and 1 to 20), and those bounds, the
+time shows as unavailable on the grid, not as a ladder match; the default
+limits (8 live holds a ladder, 4 live for a player) count live holds only, so a hold that
+expired or was released stops counting at once, and are changed by a manager per venue and
+per ladder within the install's bounds (1 to 50 and 1 to 20), and those bounds, the
 confirmation window (48 hours, never later than 120 minutes before the start), the
-minimum notice and the one extension are install data with no screen; a hold is
-tentative until both players or a manager confirm it, and the confirmation is on the
+minimum notice, the one extension, and the abandonment threshold, window and cooldown
+(6 in 7 days, 24 hours) are install data with no screen; a player's limit counts a person
+across ladders (the same account, participant or team), never by contact details; a hold
+is tentative until both players or a manager confirm it unless both agreed that exact time
+(an exact agreement confirms it; a counter-proposal, a day alone and a manager's time do
+not, and a manager's hold or material move is tentative), and the confirmation is on the
 ladder screen and API only, with no link in the email; holds made before migration 0290 have
 no `held_during` (their blocks are still held by the claims constraint); a hold that
-expired is not restored (the players arrange again); an expired hold still counts toward
-a player's weekly cap; a hold lost to something else is noticed by the scheduler, not at
-once; cancelling the booking a challenge carries does not bring a released hold back, and a
-held time is not held again automatically; a team match on a ladder is played on one court, game
+expired is not restored (the players arrange again); holds a player created and abandoned
+are counted for the cooldown only from migration 0292 on (an earlier hold never counted),
+and an opponent who does not respond can run up the creator's abandoned count; a hold
+lost to something else (a court lost to an outage included) is noticed by the scheduler, not at
+once, and the system does not hold the court again (the players agree a time again);
+cancelling the booking a challenge carries does not bring a released hold back, and a
+held time is not held again automatically; the acceptance preview and the concurrency
+tests run on PGlite and local Postgres only, with no browser scenario, and the Malay,
+Chinese and Tamil wording is machine-assisted; a team match on a ladder is played on one court, game
 after game (simultaneous courts are not built); lineups do not rate individuals
 (individual ratings from lineups are not built); there is no junior ladder of teams;
 a team's eligibility is checked when it joins and when a lineup is named; a ladder
 cannot be restarted empty; forfeits on a team ladder are a manager's, confirmed
 through a request and never given automatically. Pairing and challenge messages go
-through the outbox (the Email row: unverified). **For the owner:** whether "both players
-confirm" is read literally even when the challenger and the accepter already agreed (the
-alternative counts each side's own agreement), and whether an expired hold should stop
-counting toward the weekly cap.
+through the outbox (the Email row: unverified). **For the owner:** whether an accepter who
+names a time of their own should count as confirming it (today they still confirm it, like
+the other player), and whether an abandoned hold should be counted against the one who made
+it or against whoever failed to confirm (today the creator, or the player who withdrew it).
 
 ### Counted performances
 
@@ -1045,14 +1056,22 @@ decide).
 ### Messages between players
 
 ([Messages between players](../features/player-messages.md),
-ADRs [0039](../architecture/decisions/0039-messages-between-players.md) and
-[0044](../architecture/decisions/0044-supervised-group-messaging-for-minors-and-a-digest.md).)
+ADRs [0039](../architecture/decisions/0039-messages-between-players.md),
+[0044](../architecture/decisions/0044-supervised-group-messaging-for-minors-and-a-digest.md) and
+[0049](../architecture/decisions/0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md).)
 Accepted restrictions: a player who says they are under 18, or says nothing, has no
 messaging outside a supervised youth group; inside one a minor writes only with their
 own opt-in, a linked guardian's consent and a supervisor in the thread. Only a
 community group can be a youth group; only its organiser admits or removes adults;
 staff cannot mute a single member; a guardian's consent is a declared word, never
-verified, and any live guardian's *off* wins; an account that says 18 or over but is
+verified; where guardians disagree, what each guardian may do about the child's messaging
+(`decides`, `objects_only` or `none`) is the venue's word, recorded by a manager or the owner
+with a short note and never verified (the app collects no identity or court documents), and
+the owner asked for verified custody; an objection made by a guardian is ended only by every
+guardian who decides agreeing again or by a safeguarding administrator, and an
+`objects_only` guardian's objection by the deciders alone; settling an objection does not
+switch messaging on (a guardian who decides still consents); a child with no guardian who
+decides has no messaging until a manager records one; an account that says 18 or over but is
 a managed child's linked login is treated as an adult for ordinary messaging; the
 staff-read exception, the retention periods (60 days after a youth group ended, 30 for
 a removed message's words) and the rest hours (22:00 to 07:00) await a lawyer's review.
@@ -1064,10 +1083,16 @@ unseen where a venue has no manager; three accounts can between them trigger an
 automatic suspension; a suspension is deleted with the account; who has messaging on
 can be inferred in a two-person context; there is no browser scenario; the Malay,
 Chinese and Tamil wording is machine-assisted, and the youth wording is a machine-assisted
-check as well as translation. **For the owner:** how conflicting guardians are handled
-(today any live guardian's *off* ends the consent and any can switch it on again, the others
-told), and whether a report in a youth thread should mute and notify the reported adult as
-it does today.
+check as well as translation. A reported adult is told nothing and is restricted at once
+(neutral line, not a finding); the report's evidence is held while the report or its
+restriction stands, also against the reported person's erasure (the existing open-report
+rule, not an approval hold), and erasure is never refused; the safeguarding notices are not
+listed in any outbox screen; a reported adult's other powers as a member of the community
+group outside the youth module are not restricted (a group's organiser could still disband
+it, say); the reporter's own `reportMessage` answer still says *suspended*. The wording of
+every notice and neutral line, a venue's recording of custody, the restriction without
+notice and the evidence hold await a lawyer's review, and email delivery of the notices is
+the unverified Email row. Nothing here is open for the owner beyond that review.
 
 ### Moving classes, lessons and registers
 
@@ -1448,6 +1473,10 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Moving a class was a manager's alone, so the front desk could not reschedule one | The desk moves a class at its own venue; a consequential move waits for a manager's approval ([ADR 0045](../architecture/decisions/0045-front-desk-class-moves-with-approval.md), migration 0287) | `tests/class-move-requests.test.ts` (also on Postgres), `tests/components/class-move-requests.test.tsx` |
 | No override went past a launch or tide window, and an unqualified person counted for nothing whatever the qualification | An advisory window a manager may override with a recorded reason, a hard one never; a qualification is recommended, venue required or legally required ([ADR 0046](../architecture/decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md), migration 0288) | `tests/advisory-windows.test.ts`, `tests/advisory-windows-routes.test.ts`, `tests/qualification-levels.test.ts` |
 | Ladder court-time holds were capped by install data with no setting, never expired and could not be confirmed | Limits a manager sets per venue and per ladder within bounds; a hold tentative until confirmed, expiring lazily with both players told ([ADR 0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md), migration 0290) | `tests/ladder-hold-limits-and-expiry.test.ts` (also on Postgres) |
+| Two guardians in disagreement over a child's messaging: any guardian's *off* ended every consent and any guardian could switch it on again (an owner decision) | Authority recorded per guardian link (`decides`, `objects_only`, `none`) as the venue's word; an objection that no consent overrides until every guardian who decides agrees again or a safeguarding administrator resolves it; one lock per child and group so *on* never beats *off*; the other guardians told only that agreement is needed ([ADR 0049](../architecture/decisions/0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md), migration 0291) | `tests/youth-guardian-conflict.test.ts` (also on Postgres), `tests/youth-messages-races.test.ts` |
+| A report in a youth thread told the supervisors, muted the reported adult and showed it to the venue's managers whoever they were (an owner decision) | The reported adult told nothing by any channel and restricted at once behind a neutral line, a conflict guard for staff who are the accused, evidence read one report at a time with each reading recorded, a moderator's case as the only way they are ever told ([ADR 0049](../architecture/decisions/0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md), migration 0291) | `tests/youth-reported-adult.test.ts` (also on Postgres), `tests/youth-safeguarding.test.ts` |
+| Ladder court time: both players confirmed even a time they had both already agreed (an owner decision) | An exact day and start one proposed and the other accepted unchanged makes the hold confirmed, each agreement kept; a counter-proposal or a manager's time stays tentative, and a manager's material change is tentative again ([ADR 0050](../architecture/decisions/0050-ladder-agreement-counts-and-expired-holds-do-not.md), migration 0292) | `tests/ladder-agreement-and-active-holds.test.ts` (also on Postgres), `tests/ladder-hold-agreement-ui.test.tsx` |
+| An expired or released ladder hold still counted to a player's weekly cap (an owner decision) | Only live holds count towards the active limit; holds a player created and abandoned meet a separate cooldown ([ADR 0050](../architecture/decisions/0050-ladder-agreement-counts-and-expired-holds-do-not.md), migration 0292) | `tests/ladder-agreement-and-active-holds.test.ts` (also on Postgres), `tests/ladder-hold-limits-and-expiry.test.ts` |
 | Cancellations by the venue refunded online payments on some paths only (a court taken out of service and a class called off left them to staff, a tournament called off and shares paid by other players the same) | One policy: back through the gateway wherever it has a refund API, whatever the venue chose for customers' own cancellations, else owed for staff with its due date | `tests/venue-cancel-refunds.test.ts` (also on Postgres) |
 
 ## Production readiness
