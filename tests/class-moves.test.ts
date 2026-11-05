@@ -471,10 +471,10 @@ describe("cancelling a moved place for everything back", () => {
     const [oa, ob] = [await offerOf(a.id), await offerOf(b.id)];
     expect(oa.token).toBe(ob.token);
     expect(await classMoveWindowDays()).toBe(7);
-    // The first session was three days off: the window ends at its original start, not seven days on.
+    // The first session was three days and part of a day off: the window ends at its original start, not seven days on.
     const original = new Date(refundUntil({ date: classes[0].date, startMin: 18 * 60 }, "Asia/Kuala_Lumpur", 7)).getTime();
     expect(new Date(oa.valid_until).getTime()).toBe(original);
-    expect(new Date(oa.valid_until).getTime() - Date.now()).toBeLessThan(3.5 * 86_400_000);
+    expect(new Date(oa.valid_until).getTime() - Date.now()).toBeLessThan(4 * 86_400_000);
     // The second was ten days off: the full window.
     expect(new Date(ob.valid_until).getTime() - Date.now()).toBeGreaterThan(6.9 * 86_400_000);
     const places = await movedPlaces(oa.token);

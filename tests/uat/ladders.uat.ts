@@ -239,7 +239,7 @@ describe("ladders", () => {
       await challenges.getByText(/Tan Tester v Ravi Tester/).first().waitFor();
       await challenges.getByText(/confirmed 21-15, 21-17/).first().waitFor();
       await challenges.getByText(/Siti Tester v Ravi Tester/).first().waitFor();
-      await challenges.getByText(/declined/).first().waitFor();
+      await challenges.getByText(/declined/).and(page.locator(":visible")).first().waitFor();
     });
 
     await s.step(manager, "moves Ravi to first place: refused without a reason, done with one, which is kept in the ledger", async () => {
