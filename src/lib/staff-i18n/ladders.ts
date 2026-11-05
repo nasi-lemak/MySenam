@@ -296,6 +296,13 @@ const en = {
   "sw3.act.tiebreaks": "Changed the tie-break order of a Swiss event",
   "sw3.act.regrouped": "Grouped a round of a counted event played in Swiss rounds again",
   "sw3.act.kept": "Kept a round's groups as they are, after review",
+  // Swiss: FIDE's Baku acceleration as a chess pairing option (ADR 0047; lib/swiss.ts)
+  "swb.accel": "Baku acceleration (FIDE C.04.7): the best {group} of the initial order (group GA) are paired as if they had one point more in round {fullRange} and half a point more in round {halfRange}. These virtual points only steer the pairing: they are in no table, tie-break, result or rating, and after round {last} everybody is paired on real points.",
+  "swb.accelFull": "Baku acceleration (FIDE C.04.7): the best {group} of the initial order (group GA) are paired as if they had one point more in round {fullRange}. That virtual point only steers the pairing: it is in no table, tie-break, result or rating, and after round {last} everybody is paired on real points.",
+  "swb.set.pairing": "Pairing",
+  "swb.set.standard": "Standard Swiss pairing (the default)",
+  "swb.set.baku": "FIDE Baku acceleration (the best half carries virtual points in the first half of the rounds)",
+  "swb.set.legacy": "This template carries the earlier constant acceleration: {rounds} round(s) paired with one virtual point for the best half. It is kept as it was.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -591,6 +598,13 @@ const ms: Record<keyof typeof en, string> = {
   "sw3.act.tiebreaks": "Mengubah susunan pemutus seri acara Swiss",
   "sw3.act.regrouped": "Mengumpulkan semula satu pusingan acara berkira yang dimainkan dalam pusingan Swiss",
   "sw3.act.kept": "Mengekalkan kumpulan satu pusingan seperti sedia ada, selepas semakan",
+  // Swiss: FIDE's Baku acceleration as a chess pairing option (ADR 0047; lib/swiss.ts)
+  "swb.accel": "Pecutan Baku (FIDE C.04.7): {group} terbaik dalam susunan awal (kumpulan GA) dipasangkan seolah-olah mempunyai satu mata lebih dalam pusingan {fullRange} dan setengah mata lebih dalam pusingan {halfRange}. Mata maya ini hanya mengarahkan pasangan: ia tiada dalam sebarang jadual, pemutus seri, keputusan atau penarafan, dan selepas pusingan {last} semua orang dipasangkan dengan mata sebenar.",
+  "swb.accelFull": "Pecutan Baku (FIDE C.04.7): {group} terbaik dalam susunan awal (kumpulan GA) dipasangkan seolah-olah mempunyai satu mata lebih dalam pusingan {fullRange}. Mata maya itu hanya mengarahkan pasangan: ia tiada dalam sebarang jadual, pemutus seri, keputusan atau penarafan, dan selepas pusingan {last} semua orang dipasangkan dengan mata sebenar.",
+  "swb.set.pairing": "Pemasangan",
+  "swb.set.standard": "Pemasangan Swiss piawai (lalai)",
+  "swb.set.baku": "Pecutan Baku FIDE (separuh terbaik membawa mata maya dalam separuh pertama pusingan)",
+  "swb.set.legacy": "Templat ini membawa pecutan tetap yang terdahulu: {rounds} pusingan dipasangkan dengan satu mata maya untuk separuh terbaik. Ia dikekalkan seperti sedia ada.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -886,6 +900,13 @@ const zh: Record<keyof typeof en, string> = {
   "sw3.act.tiebreaks": "更改了瑞士制赛事的同分规则顺序",
   "sw3.act.regrouped": "为分轮进行的计数赛事重新分组了一轮",
   "sw3.act.kept": "复核后保持某一轮的分组不变",
+  // Swiss: FIDE's Baku acceleration as a chess pairing option (ADR 0047; lib/swiss.ts)
+  "swb.accel": "巴库加速法（FIDE C.04.7）：初始顺序中最靠前的 {group} 人（GA 组），在第 {fullRange} 轮按多 1 分、在第 {halfRange} 轮按多 0.5 分来配对。这些虚拟分只影响配对：不计入任何排名表、同分规则、结果或评分，第 {last} 轮之后所有人按实际得分配对。",
+  "swb.accelFull": "巴库加速法（FIDE C.04.7）：初始顺序中最靠前的 {group} 人（GA 组），在第 {fullRange} 轮按多 1 分来配对。该虚拟分只影响配对：不计入任何排名表、同分规则、结果或评分，第 {last} 轮之后所有人按实际得分配对。",
+  "swb.set.pairing": "配对方式",
+  "swb.set.standard": "标准瑞士制配对（默认）",
+  "swb.set.baku": "FIDE 巴库加速法（前半段轮次中较强的一半带虚拟分）",
+  "swb.set.legacy": "此模板沿用早先的固定加速：前 {rounds} 轮给较强的一半加 1 个虚拟分，保持原样。",
 };
 
 const area = { en, ms, zh };

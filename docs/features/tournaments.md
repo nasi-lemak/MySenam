@@ -65,6 +65,7 @@ rules, which start from the sport's template
   | Volleyball, points by set score | volleyball (teams or pairs) | Best of five; 3 table points for a 3-0 or 3-1 win, 2 for a 3-2 win, 1 for a 2-3 loss, 0 for a clear loss (a walkover or retirement counts as clear, a walkover as 25-0 in three sets); points, wins, set and point difference (ratios can be chosen instead) |
   | Goals, with draws | futsal, football, floorball, water polo, netball (teams) | Goals ("3-2"); group matches may be drawn; 3 points a win, 1 a draw; goal difference, goals scored, who beat whom; a walkover counts as 3-0; a level knockout match needs its winner and how ("2-2 (penalties 4-3)") |
   | Points, no draws | basketball (teams) | Points ("78-71"); 2 a win, 1 a loss; who beat whom, point difference, points scored |
+  | Chess: win, draw, loss | chess (a venue's own activity; any activity may choose it) | Win 1-0, draw 1-1 (half a point each), loss 0-1; points kept doubled (2, 1, 0) and shown halved in Swiss tables; who beat whom, then wins; a forfeit is 1-0; Swiss, round robin, groups or knockout; the only template that offers [Baku acceleration](#accelerated-pairing) |
   | Timed heats and a final | swimming | One swim each, eight to a heat, the eight fastest in the final |
   | Timed heats | cycling | One timed run each, no final |
   | Ranking round by ends | archery | Six ends each, added up |
@@ -1746,7 +1747,7 @@ same rules, with results entered only through `recordResult`.
   tables are the event's). It takes at least 4 entries. Its settings are in the
   rules (`rules.swiss`): the **rounds** (blank: the default, below), the **points
   for a bye** (blank: what a win is worth), **accelerated pairing** (off unless
-  chosen, [below](#accelerated-pairing)) and the order of **tie-breaks** (blank: the
+  chosen, [below](#accelerated-pairing); on the chess template, FIDE's [Baku method](#baku-acceleration-for-chess)) and the order of **tie-breaks** (blank: the
   default, below; chosen on [the tie-break screen](#the-tie-break-screen)). The match
   length is the group stage's.
 - **Rounds.** The default is ⌈log₂ n⌉ for n entries at the draw (4 entries 2, 8 → 3,
@@ -1900,7 +1901,42 @@ had **one virtual point** (what a win is worth in table points) more, so the str
   pairing with its reason, the bye, and whether the court time held takes it, and changes nothing. A round pairs by
   itself as soon as the one before is decided, so the preview is for the one that could not be paired (no court time) or
   that a manager is asked to pair; round 1 is paired at the draw and its reasons are on the page at once.
-- **What it is not:** FIDE's Baku scheme lowers the virtual point in the later accelerated rounds. This is the constant version.
+- **What it is not:** FIDE's Baku scheme lowers the virtual point in the later accelerated rounds. This is the constant version, the
+  event's *legacy* method: it is read, paired and shown as described, and no longer offered for a new event on the set-up screen
+  (the API still accepts `acceleration: R`). FIDE's graded method is [below](#baku-acceleration-for-chess).
+
+### Baku acceleration for chess
+
+An option on a **chess** Swiss event (`rules.swiss.acceleration: { method: "baku" }`, [ADR 0047](../architecture/decisions/0047-baku-acceleration-for-chess.md);
+`src/lib/swiss.ts`), **off unless chosen, and chosen before the draw** (*Pairing* on the set-up screen, which offers *Standard Swiss
+pairing (the default)* or *FIDE Baku acceleration* on the chess template and nothing on any other). It is **FIDE Handbook C.04.7
+section 1 (effective 1 February 2026)**, implemented as the text gives it, and **this is not a FIDE-certified pairing program**: the
+pairing under it is the app's own ([Swiss tournaments](#swiss-tournaments)), not the FIDE Dutch system.
+
+- **The groups.** GA is the first half of the initial order rounded up to an even number (2⌈n ÷ 4⌉: 4 of 8, 6 of 9 to 12, 82 of 161);
+  GB is everybody else. Fixed at the draw.
+- **The schedule** for an event of *R* rounds (fixed at the draw, so ending an event early does not move it): the accelerated rounds are
+  the first ⌈*R* ÷ 2⌉; GA is paired as if it had **a win's points more** before the first half of those rounded up and **half of
+  that** before the rest; nobody has any after them, GB never. Nine rounds: five accelerated, 1 point in rounds 1 to 3 and ½ in
+  4 and 5. Eleven: six, 1 in rounds 1 to 3 and ½ in 4 to 6. Chess scores 2, 1 and 0 table points (shown 1, ½, 0), so the virtual
+  values are 2 then 1 in the same units. An event of 1 or 2 rounds has one accelerated round, at the full value.
+- **Pairing score** is the real points plus the virtual ones (article 1.5): it makes the score groups, the order in them, the bye
+  (the lowest pairing score without one) and the order of the boards. **They are never part of the standings, a tie-break, a reported
+  score, a rating or a result**: the table, Buchholz, Sonneborn-Berger and the ratings read real points only, and a bye is a real point.
+- **Each pairing says why:** "0 + 1 accelerated", "1 + ½ accelerated" (the real points, then the virtual ones) on the staff panel, the
+  next-round preview and the public page, and both pages say which rounds carried a point and which half a point.
+- **Scoring it needs** (article 1.1): a win worth two draws and a loss nothing. The set-up refuses it with any other scoring, on any
+  template that does not list it (`swissAcceleration: ["baku"]`, data on the template: chess's only), for another format, and for a
+  counted performance event in Swiss rounds. Standard pairing and the legacy constant method are every sport's.
+- **Leavers, byes, corrections, seed:** as [Accelerated pairing](#accelerated-pairing) above. A withdrawal moves nobody in or out of
+  GA; a correction that pairs again re-pairs with the virtual points the round's number gives (a full point in a full round, half
+  in a half round), equal to a fresh pairing from the corrected results; every pairing can be made again from the recorded seed.
+- **Defaults and settings:** none (standard pairing) unless chosen; chosen by the venue's staff before the draw, in the activity log
+  (`pairing standard | baku | constant (R rounds)` on creation and on each rules change); stored on the event at the draw
+  (`swiss_events.accel_method`, `accel_rounds`, `accel_group`, `accel_points`).
+- **Not built:** other FIDE-approved accelerated systems, late entries after the draw, FIDE's Dutch system and colour rules, a
+  FIDE-endorsed engine, chess in the activity catalogue (add "Chess" as the venue's own activity, or pick the template for any
+  activity), and points shown in halves outside the Swiss tables.
 
 ### The tie-break screen
 
@@ -1961,8 +1997,9 @@ forms groups**. It is data: tick *Play in rounds* on the set-up screen (`rules.s
 ### What Swiss does not do
 
 - No other pairing method, and the colours of a sport with sides are
-  only the first-named rule above. Accelerated pairing is the constant virtual point below,
-  not FIDE's graded Baku scheme.
+  only the first-named rule above. Accelerated pairing is FIDE's Baku method for the chess template
+  and the earlier constant virtual point where an event already has it, [below](#accelerated-pairing);
+  no other acceleration, and the pairing is this app's own, not a FIDE-certified pairing program.
 - A tie-break order that decided pairings is not built: pairings never read a tie-break.
 - Swiss for a performance event of marks (times, distances) is not built (a counted event can be played in
   [Swiss rounds](#swiss-for-performance-events)); a Swiss division of a competition schedules
@@ -2281,6 +2318,7 @@ it is for adults' teams (a ladder of teams is never a junior ladder; a team may 
 | Ratings from results: the rule, the ledger, replay, corrections, voids, walkovers, exclusions and restarts, rankings, seeding proposal, privacy | `src/lib/rating-math.ts`, `src/lib/ratings.ts`, `db/migrations/0270_ratings_from_results.sql`, `src/app/api/admin/ratings/route.ts`, `src/app/api/my/ratings/route.ts`, `src/app/api/venues/[id]/rankings/route.ts`, `src/app/ratings/page.tsx`, `src/app/venue/[id]/rankings/page.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/rating-math.test.ts`, `tests/ratings.test.ts` (PGlite and Postgres) |
 | Rating policy: rankings published by choice (404 while off, on the page, API, MCP tool, venue link and sitemap), a venue's number of counted results before a player is ranked, the separate provisional section, which results count (the treatment table, run row by row), replay equality after amendments and policy changes, determinism, pool separation, the audit log and the ledger CSV | `src/lib/rating-eligibility.ts`, `src/lib/ratings.ts` (`rankingPolicy`, `setRankingPolicy`, `ledgerCsv`), `db/migrations/0275_ranking_policy.sql`, `src/app/venue/[id]/rankings/layout.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/ranking-policy.test.ts`, `tests/rating-eligibility.test.ts` (PGlite), `tests/components/ranking-policy-ui.test.tsx`, `tests/mcp.test.ts` (the tool) |
 | Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
+| Swiss: Baku acceleration for chess (FIDE C.04.7: GA, the graded schedule, validation against the text's examples, virtual points that never reach a table, tie-break or rating, byes, leavers, corrections, the seed, the preview, the template's data, authorisation and audit) | `src/lib/swiss.ts` (`bakuRounds`, `bakuVirtualPoints`, `virtualFor`), `src/lib/tournament-rules.ts` (`accelerationOf`, `swissRefusal`, `bakuScoringRefusal`), `src/lib/competition-templates.ts` (`chess_results`), `src/lib/swiss-columns.ts`, `db/migrations/0289_swiss_acceleration_method.sql` | `tests/swiss-baku.test.ts` (PGlite and Postgres), `tests/components/swiss-baku.test.tsx` |
 | Swiss: accelerated pairing (the group, virtual points that never reach a table or rating, byes, leavers, corrections, the seed, the preview) | `src/lib/swiss.ts` (`accelerationGroup`, `virtualPointsFor`, `pairRound`, `previewNextRound`), `db/migrations/0279_swiss_acceleration_and_performance_swiss.sql`, `src/components/admin/SwissPanel.tsx`, `src/components/SwissStandings.tsx` | `tests/swiss-acceleration.test.ts` (PGlite and Postgres), `tests/components/swiss-tiebreaks.test.tsx` |
 | Swiss: the tie-break screen (every tie-break as a column, what separated each tie, the order chosen with a live preview, locked from round 1 and changed with a reason and the preview's token, audit) | `src/lib/swiss.ts` (`previewTiebreaks`, `setTiebreaks`, `SwissTie`), `src/lib/swiss-columns.ts`, `src/components/admin/SwissTiebreaks.tsx`, `src/app/api/admin/tournaments/[id]/route.ts`, `src/components/SwissStandings.tsx` | `tests/swiss-tiebreaks.test.ts`, `tests/components/swiss-tiebreaks.test.tsx` |
 | Swiss for counted performance events: groups formed from the standing, the cumulative rule, corrections flagged and regrouped with a preview, leavers, court time, the day, names, never rated | `src/lib/swiss-performances.ts`, `src/lib/tournaments.ts` (`performanceOf`, `recordPerformancesOnce`, `makeDraw`), `src/lib/tournament-rules.ts` (`swissRefusal`), `src/lib/official-performances.ts`, `src/components/admin/SwissPerformancePanel.tsx`, `src/components/SwissPerformanceStandings.tsx`, `src/components/admin/CountedGrid.tsx`, `db/migrations/0279_swiss_acceleration_and_performance_swiss.sql` | `tests/swiss-performances.test.ts` (PGlite and Postgres), `tests/components/swiss-tiebreaks.test.tsx` |

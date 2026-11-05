@@ -61,6 +61,12 @@ export interface ScoringRules {
    * the win and no score, as before forfeits could be scored.
    */
   walkover: string | null;
+  /**
+   * Table points are whole numbers, so a sport whose scores go in halves (chess: 1, ½, 0) keeps them doubled (2, 1, 0) and says so here:
+   * the Swiss tables and pairing notes then show the points halved (docs/architecture/decisions/0047-baku-acceleration-for-chess.md).
+   * Display only: nothing is ranked or paired on it. Stored only where true, so what was stored before reads as it did.
+   */
+  pointsInHalves?: boolean;
 }
 
 /**
@@ -140,16 +146,57 @@ export interface SwissRules {
   byePoints: number | null;
   tiebreaks: SwissTiebreak[] | null;
   /**
-   * Accelerated pairing (ADR 0038), a Swiss event's option chosen before the draw: the number of rounds paired with a virtual
-   * point for the top half of the initial order. Absent (or null): off. Stored only where it is on.
+   * Accelerated pairing, a Swiss event's option chosen before the draw. Absent (or null): off, standard Swiss pairing (the default).
+   * A number is the legacy constant method of ADR 0038 and reads as it always did: that many rounds paired with a virtual point for the
+   * top half of the initial order. `{ method: "baku" }` is FIDE's Baku Acceleration Method (ADR 0047), offered only for a template that
+   * lists it (`swissAcceleration`). Stored only where it is on.
    */
-  acceleration?: number | null;
+  acceleration?: number | AccelerationRules | null;
   /**
    * A counted performance event played in Swiss rounds (ADR 0038) has `rounds` and these two instead of the head-to-head
    * settings: how the rounds' placings add up, and for "best_n" how many of them count. Stored only for such an event.
    */
   cumulative?: CumulativeRule | null;
   bestN?: number | null;
+}
+
+/**
+ * What a Swiss event's acceleration is, as the settings are given: the method, and for the legacy constant method its rounds.
+ * "none" is standard Swiss pairing.
+ */
+export type AccelerationMethod = "none" | "constant" | "baku";
+export const ACCELERATION_METHODS: AccelerationMethod[] = ["none", "constant", "baku"];
+export interface AccelerationRules {
+  method: AccelerationMethod;
+  /** The legacy constant method's rounds. */
+  rounds?: number;
+}
+
+/** The acceleration an event's settings choose, read one way whichever way it was written: a number is the legacy constant method. */
+export function accelerationOf(s: Partial<SwissRules> | null | undefined): { method: "none" } | { method: "constant"; rounds: number } | { method: "baku" } {
+  const a = s?.acceleration;
+  if (typeof a === "number" && a > 0) return { method: "constant", rounds: a };
+  if (a && typeof a === "object") {
+    if (a.method === "baku") return { method: "baku" };
+    if (a.method === "constant" && Number.isInteger(a.rounds) && (a.rounds as number) > 0) return { method: "constant", rounds: a.rounds as number };
+  }
+  return { method: "none" };
+}
+
+/** The pairing an event's settings choose, as the activity log says it: "standard", "baku" or the legacy "constant (R rounds)". */
+export function pairingName(s: Partial<SwissRules> | null | undefined): string {
+  const a = accelerationOf(s);
+  return a.method === "none" ? "standard" : a.method === "constant" ? `constant (${a.rounds} round${a.rounds === 1 ? "" : "s"})` : "baku";
+}
+
+/**
+ * Why Baku acceleration cannot be scored this way, or null. FIDE's text (C.04.7 article 1.1) is for events in which a win is worth two
+ * draws and a loss nothing, so the virtual points (a win's, then half of it) are whole table points.
+ */
+export function bakuScoringRefusal(scoring: Pick<ScoringRules, "tablePoints">): string | null {
+  const p = scoring.tablePoints;
+  if (p.draw < 1 || p.win !== 2 * p.draw || p.loss !== 0) return "Baku acceleration is for scoring where a win is worth two draws and a loss nothing (2, 1, 0 in table points).";
+  return null;
 }
 
 export const DEFAULT_SWISS: SwissRules = { rounds: null, byePoints: null, tiebreaks: null };
@@ -258,6 +305,7 @@ function readScoring(raw: unknown): ScoringRules {
     walkover: walkoverRefusal(s.walkover, s.kind === "tally" ? "tally" : "sets", [1, 3, 5, 7].includes(s.bestOf as number) ? (s.bestOf as number) : DEFAULT_SCORING.bestOf) === null && typeof s.walkover === "string"
       ? s.walkover.trim()
       : null,
+    ...(s.pointsInHalves === true ? { pointsInHalves: true } : {}),
   };
 }
 
@@ -347,7 +395,10 @@ function readSwiss(raw: unknown): SwissRules | null {
   if (!raw || typeof raw !== "object") return null;
   const s = raw as Record<string, unknown>;
   const tiebreaks = Array.isArray(s.tiebreaks) ? [...new Set(s.tiebreaks.filter((k) => SWISS_TIEBREAKS.includes(k as SwissTiebreak)) as SwissTiebreak[])] : [];
-  const accelerated = int(s.acceleration, 1, 126, 0);
+  // A number is the legacy constant method; an object names the method (Baku, or the constant one with its rounds, which reads as the number). "none" is off.
+  const asked = s.acceleration && typeof s.acceleration === "object" ? (s.acceleration as Record<string, unknown>) : null;
+  const accelerated = asked ? (asked.method === "constant" ? int(asked.rounds, 1, 126, 0) : 0) : int(s.acceleration, 1, 126, 0);
+  const baku = asked?.method === "baku";
   const cumulative = CUMULATIVE_RULES.includes(s.cumulative as CumulativeRule) ? (s.cumulative as CumulativeRule) : null;
   const bestN = int(s.bestN, 1, 127, 0);
   return {
@@ -355,7 +406,7 @@ function readSwiss(raw: unknown): SwissRules | null {
     byePoints: Number.isInteger(s.byePoints) && (s.byePoints as number) >= 0 && (s.byePoints as number) <= 10 ? (s.byePoints as number) : null,
     tiebreaks: tiebreaks.length > 0 ? tiebreaks : null,
     // Stored only where chosen, so what was stored before these options reads exactly as it did.
-    ...(accelerated ? { acceleration: accelerated } : {}),
+    ...(accelerated ? { acceleration: accelerated } : baku ? { acceleration: { method: "baku" as const } } : {}),
     ...(cumulative ? { cumulative } : {}),
     ...(cumulative === "best_n" && bestN ? { bestN } : {}),
   };
@@ -366,7 +417,7 @@ function readSwiss(raw: unknown): SwissRules | null {
  * bye's points, tie-breaks and the acceleration; a counted performance event with no final may be played in Swiss rounds, with
  * rounds and how the placings add up; no other format has Swiss settings.
  */
-export function swissRefusal(format: string, rules: Pick<CompetitionRules, "swiss" | "performance">): string | null {
+export function swissRefusal(format: string, rules: Pick<CompetitionRules, "swiss" | "performance"> & Partial<Pick<CompetitionRules, "scoring">>, allowed: readonly AccelerationMethod[] = []): string | null {
   const s = rules.swiss;
   if (!s) return null;
   if (format === "performance") {
@@ -380,7 +431,14 @@ export function swissRefusal(format: string, rules: Pick<CompetitionRules, "swis
   }
   if (format !== "swiss") return "Swiss settings are for a Swiss event.";
   if (s.cumulative || s.bestN) return "Placings adding up across rounds is for a performance event played in Swiss rounds.";
-  if (s.acceleration && s.rounds !== null && s.acceleration >= s.rounds) return "Accelerated pairing must leave at least one round paired as usual: ask for fewer accelerated rounds, or more rounds.";
+  const accel = accelerationOf(s);
+  if (accel.method === "constant" && s.rounds !== null && accel.rounds >= s.rounds) return "Accelerated pairing must leave at least one round paired as usual: ask for fewer accelerated rounds, or more rounds.";
+  // Baku is chess's: only a template that lists it offers it (ADR 0047). Standard Swiss and the legacy constant method are every sport's.
+  if (accel.method === "baku") {
+    if (!allowed.includes("baku")) return "Baku acceleration is for a chess tournament: this event's template does not offer it.";
+    const unscored = rules.scoring ? bakuScoringRefusal(rules.scoring) : null;
+    if (unscored) return unscored;
+  }
   return null;
 }
 
@@ -426,6 +484,7 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
       return { ok: false, error: `Rank by some of: ${RANK_KEYS.join(", ")}.` };
     if (s.setPoints !== undefined && s.setPoints !== null && readSetPoints(s.setPoints) === null)
       return { ok: false, error: "Points by set score are four whole numbers, 0 to 10: a clear win, a win in the deciding set, a loss in it, a clear loss." };
+    if (s.pointsInHalves !== undefined && typeof s.pointsInHalves !== "boolean") return { ok: false, error: "Say whether points are shown in halves." };
     if (s.setPoints && (s.kind ?? base.scoring.kind) === "tally") return { ok: false, error: "Points by set score are for matches scored in sets." };
     // Checked against the match as it will be, so changing the sets or the kind cannot quietly drop a walkover's score.
     const why = walkoverRefusal(
@@ -465,12 +524,18 @@ export function parseRules(input: unknown, base: CompetitionRules = DEFAULT_RULE
         return { ok: false, error: "A bye is worth 0 to 10 points, or leave it at the points for a win." };
       if (x.tiebreaks !== undefined && x.tiebreaks !== null && (!Array.isArray(x.tiebreaks) || x.tiebreaks.length === 0 || x.tiebreaks.some((k) => !SWISS_TIEBREAKS.includes(k as SwissTiebreak))))
         return { ok: false, error: `Break ties by some of: ${SWISS_TIEBREAKS.join(", ")}.` };
-      if (x.acceleration !== undefined && x.acceleration !== null && (!Number.isInteger(x.acceleration) || (x.acceleration as number) < 1 || (x.acceleration as number) > 126))
+      if (x.acceleration !== undefined && x.acceleration !== null && typeof x.acceleration !== "object" && (!Number.isInteger(x.acceleration) || (x.acceleration as number) < 1 || (x.acceleration as number) > 126))
         return { ok: false, error: "Accelerated pairing lasts 1 or more rounds, or leave it off." };
+      if (x.acceleration && typeof x.acceleration === "object") {
+        const a = x.acceleration as Record<string, unknown>;
+        if (!ACCELERATION_METHODS.includes(a.method as AccelerationMethod)) return { ok: false, error: `Pairing is ${ACCELERATION_METHODS.join(", ")}: "none" is standard Swiss.` };
+        if (a.method === "constant" && (!Number.isInteger(a.rounds) || (a.rounds as number) < 1 || (a.rounds as number) > 126)) return { ok: false, error: "Accelerated pairing lasts 1 or more rounds, or leave it off." };
+      }
       if (x.cumulative !== undefined && x.cumulative !== null && !CUMULATIVE_RULES.includes(x.cumulative as CumulativeRule))
         return { ok: false, error: `The rounds' placings add up as: ${CUMULATIVE_RULES.join(", ")}.` };
       if (x.bestN !== undefined && x.bestN !== null && (!Number.isInteger(x.bestN) || (x.bestN as number) < 1 || (x.bestN as number) > 127))
         return { ok: false, error: "The best placings that count are 1 or more." };
+      // Choosing standard pairing again takes an acceleration away (it is stored only where it is on).
       swiss = readSwiss({ ...(base.swiss ?? DEFAULT_SWISS), ...x });
     }
   }

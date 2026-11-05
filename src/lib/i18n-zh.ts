@@ -4654,6 +4654,9 @@ export const ZH: Record<Phrase, string> = {
   "sv1.role.instructor": "指导员",
   "sv1.cal.shift": "值班：{role}",
   "sv1.cal.name": "{venue}：我的班次",
+  // Swiss: FIDE's Baku acceleration as a chess pairing option (ADR 0047; lib/swiss.ts)
+  "swb.ui.accel": "巴库加速法（FIDE）：初始顺序中最靠前的 {group} 人，在第 {fullRange} 轮按多 1 分、在第 {halfRange} 轮按多 0.5 分来配对，使强者早些相遇。这些分不是成绩，不计入任何排名表、同分规则或等级分；第 {last} 轮之后所有人按实际得分配对。",
+  "swb.ui.accelFull": "巴库加速法（FIDE）：初始顺序中最靠前的 {group} 人，在第 {fullRange} 轮按多 1 分来配对，使强者早些相遇。该分不是成绩，不计入任何排名表、同分规则或等级分；第 {last} 轮之后所有人按实际得分配对。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

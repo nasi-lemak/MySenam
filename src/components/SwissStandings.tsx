@@ -1,6 +1,6 @@
 import type { T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
-import { showValue, tiebreakValue } from "@/lib/swiss-columns";
+import { bakuNote, showPoints, showValue, tiebreakValue } from "@/lib/swiss-columns";
 import type { Match, TournamentDetail } from "@/lib/tournaments";
 
 /**
@@ -14,7 +14,8 @@ export function SwissStandings({ t, x, names }: { t: T; x: TournamentDetail; nam
   const played = s.rounds.filter((r) => r.complete).length;
   const tally = x.rules.scoring.kind === "tally";
   /** A pairing's points as it was made: the real points, and the virtual ones of an accelerated round where there were any. */
-  const pts = (real: number | null, virtual?: number) => (virtual ? `${real ?? 0} + ${virtual} ${t("swiss.ui.accelShort")}` : String(real ?? 0));
+  const halves = x.rules.scoring.pointsInHalves === true;
+  const pts = (real: number | null, virtual?: number) => (virtual ? `${showPoints(real ?? 0, halves)} + ${showPoints(virtual, halves)} ${t("swiss.ui.accelShort")}` : showPoints(real ?? 0, halves));
   // The event's other tie-breaks as columns, in the order they are applied (Buchholz and wins are columns already; who beat whom has no number).
   const extra = s.tiebreaks.filter((k) => k !== "buchholz" && k !== "wins" && k !== "head_to_head");
   const result = (m: Match) =>
@@ -71,11 +72,11 @@ export function SwissStandings({ t, x, names }: { t: T; x: TournamentDetail; nam
                   <td className="text-center">{l.won}</td>
                   {tally && <td className="text-center">{l.drawn}</td>}
                   <td className="text-center">{l.lost}</td>
-                  <td className="text-center font-medium">{l.points}</td>
-                  <td className="text-center">{l.buchholz}</td>
+                  <td className="text-center font-medium">{showPoints(l.points, halves)}</td>
+                  <td className="text-center">{showValue(tiebreakValue(l, "buchholz", halves))}</td>
                   {extra.map((k) => (
                     <td key={k} className="px-1 text-center tabular-nums">
-                      {showValue(tiebreakValue(l, k))}
+                      {showValue(tiebreakValue(l, k, halves))}
                     </td>
                   ))}
                 </tr>
@@ -83,7 +84,10 @@ export function SwissStandings({ t, x, names }: { t: T; x: TournamentDetail; nam
             </tbody>
           </table>
         </div>
-        {s.acceleration && <p className="mt-2 text-xs text-slate-500">{t("swiss.ui.accel", { rounds: s.acceleration.rounds, group: s.acceleration.group })}</p>}
+        {s.acceleration && s.acceleration.method === "baku" && (
+        <p className="mt-2 text-xs text-slate-500">{t(bakuNote(s.acceleration).half ? "swb.ui.accel" : "swb.ui.accelFull", bakuNote(s.acceleration).params)}</p>
+      )}
+        {s.acceleration && s.acceleration.method !== "baku" && <p className="mt-2 text-xs text-slate-500">{t("swiss.ui.accel", { rounds: s.acceleration.rounds, group: s.acceleration.group })}</p>}
         {s.nextRound !== null && <p className="mt-2 text-xs text-slate-500">{t("swiss.ui.next", { n: s.nextRound })}</p>}
       </div>
       {[...s.rounds].reverse().map((r) => {

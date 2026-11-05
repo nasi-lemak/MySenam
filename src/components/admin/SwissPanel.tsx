@@ -6,6 +6,7 @@ import type { RoundPreview } from "@/lib/swiss";
 import type { TournamentDetail } from "@/lib/tournaments";
 import { useStaffMay, ManagerOnly } from "./StaffMay";
 import { useStaffT } from "./StaffLanguage";
+import { bakuNote, showPoints } from "@/lib/swiss-columns";
 import { SwissTiebreaks } from "./SwissTiebreaks";
 
 type Call = (url: string, body: object) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
@@ -42,7 +43,8 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
     else setPreview(done.data.preview as RoundPreview);
   }
   /** A pairing's points as it was made: the real points, and the virtual ones of an accelerated round where there were any. */
-  const pts = (real: number | null, virtual?: number) => (virtual ? `${real ?? 0} + ${virtual} ${t("sw3.accelShort")}` : String(real ?? 0));
+  const halves = tn.rules.scoring.pointsInHalves === true;
+  const pts = (real: number | null, virtual?: number) => (virtual ? `${showPoints(real ?? 0, halves)} + ${showPoints(virtual, halves)} ${t("sw3.accelShort")}` : showPoints(real ?? 0, halves));
   const blockedWhy = s.blocked?.startsWith("NO_TIME") ? t("sw.blocked.noTime") : s.blocked?.startsWith("NO_PAIRING") ? t("sw.blocked.noPairing") : null;
   const complete = latest?.complete ?? false;
   return (
@@ -51,9 +53,12 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
         <h3 className="font-semibold">{t("sw.title")}</h3>
         <span className="text-xs text-slate-500">{t("sw.roundsPaired", { paired: s.rounds.length, total: s.roundsTotal })}</span>
       </div>
-      <p className="text-xs text-slate-500">{t("sw.rulesNote", { list: s.tiebreaks.map((k) => t(`sw.tb.${k}`)).join(", "), bye: s.byePoints })}</p>
+      <p className="text-xs text-slate-500">{t("sw.rulesNote", { list: s.tiebreaks.map((k) => t(`sw.tb.${k}`)).join(", "), bye: showPoints(s.byePoints, halves) })}</p>
       <p className="text-xs text-slate-500">{t("sw.pairingNote")}</p>
-      {s.acceleration && <p className="text-xs text-slate-500">{t("sw3.accel", { rounds: s.acceleration.rounds, group: s.acceleration.group, points: s.acceleration.points })}</p>}
+      {s.acceleration && s.acceleration.method === "baku" && (
+        <p className="text-xs text-slate-500">{t(bakuNote(s.acceleration).half ? "swb.accel" : "swb.accelFull", bakuNote(s.acceleration).params)}</p>
+      )}
+      {s.acceleration && s.acceleration.method !== "baku" && <p className="text-xs text-slate-500">{t("sw3.accel", { rounds: s.acceleration.rounds, group: s.acceleration.group, points: s.acceleration.points })}</p>}
       {error && <p className="text-red-700">{error}</p>}
       {blockedWhy && tn.status === "drawn" && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
@@ -101,9 +106,9 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
                 <td className="text-center">
                   {l.won}–{l.drawn}–{l.lost}
                 </td>
-                <td className="text-center font-medium">{l.points}</td>
-                <td className="text-center">{l.buchholz}</td>
-                <td className="text-center">{l.medianBuchholz}</td>
+                <td className="text-center font-medium">{showPoints(l.points, halves)}</td>
+                <td className="text-center">{showPoints(l.buchholz, halves)}</td>
+                <td className="text-center">{showPoints(l.medianBuchholz, halves)}</td>
               </tr>
             ))}
           </tbody>
@@ -124,7 +129,7 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
                   <li key={m.id} className="flex flex-wrap gap-x-2">
                     {m.status === "bye" && m.b === null ? (
                       <span>
-                        {t("sw.bye", { name: name(m.a) })} <span className="text-xs text-slate-500">{t("sw.byeWhy", { pts: note?.aPoints ?? 0 })}</span>
+                        {t("sw.bye", { name: name(m.a) })} <span className="text-xs text-slate-500">{t("sw.byeWhy", { pts: showPoints(note?.aPoints ?? 0, halves) })}</span>
                       </span>
                     ) : (
                       <>
@@ -203,7 +208,7 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
             ))}
             {preview.bye && (
               <li>
-                {t("sw3.preview.bye", { name: name(preview.bye.id) })} <span className="text-slate-500">{t("sw.byeWhy", { pts: preview.bye.note.aPoints })}</span>
+                {t("sw3.preview.bye", { name: name(preview.bye.id) })} <span className="text-slate-500">{t("sw.byeWhy", { pts: showPoints(preview.bye.note.aPoints, halves) })}</span>
               </li>
             )}
           </ul>

@@ -5,6 +5,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { createTournament, listTournaments, type Format, type StageKey } from "@/lib/tournaments";
 import { listCompetitions } from "@/lib/competitions";
 import { logAction } from "@/lib/activity";
+import { pairingName } from "@/lib/tournament-rules";
 import { money } from "@/lib/region";
 import type { Level } from "@/lib/games";
 import type { Category } from "@/lib/who";
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
     action: "tournament.created",
     detail: `${made.name}: ${made.startsOn}${made.endsOn !== made.startsOn ? ` to ${made.endsOn}` : ""}, up to ${made.maxEntries} entries, fee ${money(made.entryFee)}${
       made.competition ? `, a division of ${made.competition.name}` : ""
-    }`,
+    }${made.format === "swiss" ? `, pairing ${pairingName(made.rules.swiss)}` : ""}`,
   });
   return NextResponse.json({ tournament: result.value }, { status: 201 });
 }

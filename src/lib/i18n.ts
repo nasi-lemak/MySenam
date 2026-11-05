@@ -4821,6 +4821,9 @@ const EN = {
   "sv1.role.instructor": "Instructor",
   "sv1.cal.shift": "On shift: {role}",
   "sv1.cal.name": "{venue}: my shifts",
+  // Swiss: FIDE's Baku acceleration as a chess pairing option (ADR 0047; lib/swiss.ts)
+  "swb.ui.accel": "Baku acceleration (FIDE): the best {group} of the initial order were paired as if they had one point more in round {fullRange} and half a point more in round {halfRange}, so the strongest meet early. Those points are not results: they are in no table, tie-break or rating, and after round {last} everybody is paired on real points.",
+  "swb.ui.accelFull": "Baku acceleration (FIDE): the best {group} of the initial order were paired as if they had one point more in round {fullRange}, so the strongest meet early. That point is not a result: it is in no table, tie-break or rating, and after round {last} everybody is paired on real points.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -9588,6 +9591,9 @@ const MS: Record<Phrase, string> = {
   "sv1.role.instructor": "Pengajar",
   "sv1.cal.shift": "Bertugas: {role}",
   "sv1.cal.name": "{venue}: syif saya",
+  // Swiss: FIDE's Baku acceleration as a chess pairing option (ADR 0047; lib/swiss.ts)
+  "swb.ui.accel": "Pecutan Baku (FIDE): {group} terbaik dalam susunan awal dipasangkan seolah-olah mereka mempunyai satu mata lebih dalam pusingan {fullRange} dan setengah mata lebih dalam pusingan {halfRange}, supaya yang terkuat bertemu awal. Mata itu bukan keputusan: ia tiada dalam sebarang jadual, pemutus seri atau penarafan, dan selepas pusingan {last} semua orang dipasangkan dengan mata sebenar.",
+  "swb.ui.accelFull": "Pecutan Baku (FIDE): {group} terbaik dalam susunan awal dipasangkan seolah-olah mereka mempunyai satu mata lebih dalam pusingan {fullRange}, supaya yang terkuat bertemu awal. Mata itu bukan keputusan: ia tiada dalam sebarang jadual, pemutus seri atau penarafan, dan selepas pusingan {last} semua orang dipasangkan dengan mata sebenar.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
