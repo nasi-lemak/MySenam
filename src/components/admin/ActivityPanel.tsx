@@ -249,6 +249,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "messages.youth_authority": "msg3.act.authority",
   "messages.youth_safeguarding_viewed": "msg3.act.safeguardingViewed",
   "messages.youth_objection_resolved": "msg3.act.objectionResolved",
+  "messages.youth_authority_review": "msg4.act.authorityReview",
+  "messages.youth_hold": "msg4.act.hold",
   "ladder.court_time": "lds.act.courtTime",
   "ladder.hold_released": "lds.act.holdReleased",
   "ladder.hold_moved": "lds.act.holdMoved",

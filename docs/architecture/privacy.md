@@ -168,7 +168,8 @@ safety or dispute reason ([below](#holds)), and says so.
 | Sign-up requests, and the addresses sign-up emails went to (with each link's keyed hash) | until worked through (a request), 1 day (what was sent) | deleted ([signing up](authentication.md#signing-up)) |
 | Settled waiting-list entries | 90 days | deleted |
 | A conversation between players, with its messages and read marks | 90 days after its game, team, group or fixture ended (`MESSAGE_RETENTION_DAYS`) | deleted ([below](#messages-between-players)) |
-| A report of a message between players, with the copy of the conversation frozen with it | 365 days after it was dealt with (`MESSAGE_REPORT_RETENTION_DAYS`); open ones until dealt with | deleted |
+| A report of a message between players in an ordinary (adults') conversation, with the copy of the conversation frozen with it | 365 days after it was dealt with (`MESSAGE_REPORT_RETENTION_DAYS`); open ones until dealt with | deleted |
+| A report in a **youth thread**, its case actions, and the safeguarding event store | **no period**: kept unless the install sets `SAFEGUARDING_EVIDENCE_RETENTION_DAYS` (closed cases only); the owner is prompted to decide about what is kept long ([below](#youth-messaging-evidence)) | not deleted by default |
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
@@ -810,17 +811,19 @@ play with, and to whom, is personal data of **both** sides.
   notices and suspensions go with the account. **The other side's messages stay for them.**
   A report about the erased person stays as a record, without who they were
   (`forgetMessagesOfUser`). **The frozen copy of a report in a youth thread is held while the report
-  is open or the protective restriction it placed is in force:** erasure leaves that evidence as it is
-  until the hold ends, then the ordinary rules apply (ADR 0049; the only retention hold messaging has
-  is "an open report stays", extended by that one condition; the legal-hold records of
-  [applications](#holds) are for applications and are not used here). Erasure itself is never refused
+  is open or the restriction it placed is in force, or while a controlled legal hold covers it:**
+  erasure leaves that evidence as it is until the hold ends (ADR 0049 and
+  [0052](decisions/0052-youth-messaging-interim-safeguards-pending-legal-review.md); the legal-hold
+  records of [applications](#holds) are for applications and are not used here; messaging's own are
+  `youth_evidence_holds`, [below](#youth-messaging-evidence)). Erasure itself is never refused
   or delayed by it, so an erasure request is not a way to learn that a report exists.
 - **Retention:** a conversation is deleted with its messages **90 days after its game,
   team, group or fixture ended** (`MESSAGE_RETENTION_DAYS`; 7 to 730); it is read-only for
   14 days after the end and then closed, not readable, but kept to the period for a report
-  already made and for the person's own export. A report and its frozen copy are kept until
+  already made and for the person's own export. A report in an ordinary (adults') conversation and its frozen copy are kept until
   it has been dealt with and then **365 days** (`MESSAGE_REPORT_RETENTION_DAYS`; 30 to
-  1095); an open report stays until somebody deals with it. Both are in the retention list
+  1095); an open report stays until somebody deals with it. **A report in a youth thread is not
+  on this timer** ([below](#youth-messaging-evidence)). Both are in the retention list
   under *Venues & staff → Keeping nothing too long*. A conversation whose context was deleted
   (a game that was removed) counts as ended when the job first sees it.
 - **Children:** a child has no conversation of their own outside a supervised youth group (below). Where a child is in a team or an event,
@@ -850,8 +853,9 @@ play with, and to whom, is personal data of **both** sides.
   objected is in the group's record and for safeguarding administrators, never shown to the child,
   the supervisors, the group, other staff or the other guardians. **A report about an adult in a
   youth thread** is a case for safeguarding personnel only (`youth_report_actions`, kept apart from
-  the staff activity log, deleted with the report after its retention); the reported person is
-  never told by the system, by any channel. **Erasure** is as for adults (what the child wrote
+  the staff activity log, **kept with the report: no period is invented for it**
+  ([below](#youth-messaging-evidence))); the reported person is never told by the system, by any
+  channel. **Erasure** is as for adults (what the child wrote
   becomes *message removed*). Declared ages, guardianship, consent and roles are recorded as
   declared, never verified. Whether this is lawful in a given country, the staff-read exception
   and the periods are professional questions, **not settled in code**.
@@ -861,6 +865,54 @@ play with, and to whom, is personal data of **both** sides.
 - **Nothing leaves the country:** conversations are kept in the install's own database and
   backups ([backups held abroad](#backups-held-abroad)); no message is sent to any provider (the
   notification email says where, never what).
+
+#### Youth messaging evidence
+
+*An interim, conservative measure prepared for review by qualified Malaysian legal and child-safeguarding
+professionals; none of it settles a legal question or claims compliance. [ADR
+0052](decisions/0052-youth-messaging-interim-safeguards-pending-legal-review.md); the questions are in
+[the legal-review checklist](../operations/legal-review-youth-messaging.md).* **Youth messaging itself is off
+in production unless `YOUTH_MESSAGING_LAUNCH_APPROVED=yes`**; what is stored while it is off is kept, and shown
+to nobody but safeguarding administrators for an open case.
+
+What youth messaging keeps is four classes, kept apart in the code (the retention job, `lib/youth-evidence.ts`)
+and here:
+
+| Class | What | Period | Deleted automatically? |
+| ----- | ---- | ------ | ---------------------- |
+| (a) **Ordinary message retention** | A youth group's conversation, and the words of a message a supervisor removed | `YOUTH_MESSAGE_RETENTION_DAYS` (60) after the group ended, `YOUTH_REMOVED_RETENTION_DAYS` (30): **operational defaults pending legal approval** | Yes, **but never while a case is active in the group** (below) |
+| (b) **Safeguarding evidence** | The frozen copy of a report in a youth thread, the case's actions (reads, restrictions, decisions, escalations, requests for a review), authority reviews, requests for a review of a restriction | **None invented.** | **No.** Only if the install itself sets `SAFEGUARDING_EVIDENCE_RETENTION_DAYS` (which needs legal approval before it is set), and then **only closed cases** with no restriction in force and no hold |
+| (c) **Audit records** | The safeguarding event store (`youth_message_events`), the activity entries about youth messaging (`messages.youth_*`) | **None invented.** | **No**, by any setting. The database refuses an edit of an audit record; an erased account only loses the link to it |
+| (d) **Records under a legal hold** | Whatever a hold covers (below) | While the hold stands | **No** |
+
+- **An ordinary-retention timer never deletes active-case evidence.** While a report is open, a restriction
+  is in force, an authority review or a request for a review is open, or a legal hold stands, the retention
+  job skips the group's conversation **and** what a supervisor removed from it; the case copy is not on the
+  timer at all. Only after the case closes does ordinary retention resume for the live conversation; the
+  evidence copy stays in class (b). The adults' conversation reports keep their 365 days
+  (`MESSAGE_REPORT_RETENTION_DAYS`), unchanged.
+- **No period for (b) and (c); a prompt to decide instead.** Unset, the evidence is kept, and the platform's
+  owners are asked, by a safeguarding email (once a month while something is due) and a needs-attention line,
+  to look at the closed cases and holds kept longer than `SAFEGUARDING_REVIEW_MONTHS` (12, operational) **for a
+  decision to keep or to release, not for deletion**; a recorded decision to keep (owner only, with a reason)
+  starts the interval again. This avoids keeping without any justification or review, and invents no
+  retention period.
+- **Legal holds, controlled.** Only the platform's owner sets, reviews and releases one
+  (`youth_evidence_holds`), on a **case** or on a **child and group** (every youth report of that group, and
+  its conversation: conservative), with a reason, an external reference in words (digit runs are refused: no
+  case, identity or document number is kept) and an optional review date. A hold blocks deletion and
+  anonymisation of the covered **evidence copy** and **conversation** by retention and by erasure; **an
+  erasure of the person's account is never refused** (what they wrote in the live conversation is still
+  theirs to erase, and the held evidence copy remains, its access restricted to safeguarding personnel). A
+  hold is audited in the case's own record and the group's, and in the activity log **without a venue**, so a
+  venue's staff cannot read it. *Legal preservation requirements are pending legal review.*
+- **Access:** only safeguarding personnel (the venue's managers for an accepted group, the platform's owners
+  otherwise; never staff who are the same person as the reported adult, a guardian of the child or a
+  supervisor of the group), **each reading recorded**, and the actions are **append-only**.
+- **Protected against accidental deletion:** the retention job and the erasure code refuse covered evidence
+  (`ACTIVE_CASE_GROUPS`, `LEGAL_HELD_REPORTS` in `lib/youth-evidence-sql.ts`), and the activity-log prune
+  leaves `messages.youth_*` entries alone; each is tested (`tests/youth-restrictions-evidence.test.ts`).
+
 ### Live accounting push
 
 A venue's manager may connect the venue's own Xero organisation and have its sales and

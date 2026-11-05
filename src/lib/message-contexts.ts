@@ -55,6 +55,8 @@ export interface Seat {
    * of new messages, and have no supervisor's powers.
    */
   restricted?: boolean;
+  /** The restriction is a moderator's recorded decision (ADR 0052), not a protective hold: the neutral line says "changed following a review". */
+  decided?: boolean;
 }
 
 export interface ContextInfo {

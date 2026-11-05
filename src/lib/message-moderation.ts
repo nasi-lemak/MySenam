@@ -304,12 +304,16 @@ export async function liftSuspension(admin: Admin, id: number, reasonRaw: unknow
   const reason = reasonOf(reasonRaw);
   if (!reason) return no("Say why, in a few words.");
   const scope = scopeSql(scopeOf(admin), "venue_id");
+  // A suspension a report in a youth thread brought about, about the same person as this staff login, is not theirs to lift: it is not here for them, as the
+  // report is not (ADR 0049's conflict-of-interest guard; found in the review of ADR 0052).
+  const names = namesTheViewerSql("sr", admin);
   const done = (await getDb()
     .prepare(
       `UPDATE player_message_suspensions SET lifted_at = datetime('now'), lifted_by_name = ?, lift_reason = ?
-        WHERE id = ? AND lifted_at IS NULL AND ${scope.sql} RETURNING venue_id, user_id`
+        WHERE id = ? AND lifted_at IS NULL AND ${scope.sql}
+          AND NOT EXISTS (SELECT 1 FROM player_message_reports sr WHERE sr.id = player_message_suspensions.report_id AND ${names.sql}) RETURNING venue_id, user_id`
     )
-    .get(admin.name, reason, id, ...scope.args)) as { venue_id: number | null; user_id: number } | undefined;
+    .get(admin.name, reason, id, ...scope.args, ...names.args)) as { venue_id: number | null; user_id: number } | undefined;
   if (!done) return no("That suspension is not here, or it has been lifted.", 404);
   await logAction(admin, { venueId: done.venue_id, action: "messages.suspension_lifted", detail: `Person ${done.user_id}. ${reason}` });
   return { ok: true };

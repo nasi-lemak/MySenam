@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import MessagesPage from "../../src/app/messages/page";
 import { Thread } from "../../src/app/messages/Thread";
@@ -305,8 +305,8 @@ describe("guardians who disagree (ADR 0049)", () => {
         participantId: 9, child: "Aina L.", consentInForce: false,
         objection: { id: 12, at: "2026-11-05 10:00:00", by: "Gia", level: "decides" },
         guardians: [
-          { guardianshipId: 21, name: "Gia", authority: "decides", consentLive: false, note: null, setBy: null, setAt: null },
-          { guardianshipId: 22, name: "Gus", authority: "objects_only", consentLive: false, note: "Shown a contact order", setBy: "Mia Manager", setAt: "2026-11-05 09:00:00" },
+          { guardianshipId: 21, name: "Gia", authority: "decides", consentLive: false, note: null, setBy: null, setAt: null, status: "asserted", basis: "not_stated", restrictions: "none", standard: null },
+          { guardianshipId: 22, name: "Gus", authority: "decides", consentLive: false, note: "Shown a contact order", setBy: "Mia Manager", setAt: "2026-11-05 09:00:00", status: "unclear", basis: "other_authorised", restrictions: "may_object_only", standard: "interim: pending legal review" },
         ],
       },
     ];
@@ -329,12 +329,15 @@ describe("guardians who disagree (ADR 0049)", () => {
       fireEvent.click(screen.getByText("Settle the hold"));
     });
     expect(bodyOf(posts()[0])).toEqual({ action: "resolve", objectionId: 12, reason: "Settled with both families" });
-    // A level is recorded with its note.
-    fireEvent.change(screen.getAllByLabelText(/What this guardian may do about messaging/)[0], { target: { value: "none" } });
+    // A decision is recorded with its status, basis, what it removes and its note (ADR 0052); what is already recorded is shown with the standard it was recorded to.
+    expect(screen.getByText(/Unclear \(messaging for this child stays off\) · Other authorised person · May object only/)).toBeTruthy();
+    expect(screen.getByText(/Recorded to the standard: interim: pending legal review/)).toBeTruthy();
+    expect(screen.getByText(/does not interpret custody orders or make legal determinations/)).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText(/What it removes from the guardian's say/)[0], { target: { value: "no_messaging_say" } });
     await act(async () => {
-      fireEvent.click(screen.getAllByText("Record")[0]);
+      fireEvent.click(screen.getAllByText("Record decision")[0]);
     });
-    expect(bodyOf(posts()[1])).toEqual({ action: "authority", guardianshipId: 21, level: "none", note: "" });
+    expect(bodyOf(posts()[1])).toEqual({ action: "authority", guardianshipId: 21, status: "asserted", basis: "not_stated", restrictions: "no_messaging_say", note: "" });
   });
 });
 
@@ -347,6 +350,8 @@ describe("a report in a youth thread is a case (ADR 0049)", () => {
   const caseOut = {
     id: 5, createdAt: report.createdAt, status: "open", outcome: null, reason: "abuse", note: null, groupId: 4, venueId: null, reporter: { n: "Aina L." },
     reported: { userId: 7, label: { n: "Alan" }, adult: true }, restricted: true, escalated: null,
+    restriction: { kind: "protective", since: "2026-11-05 10:00:00", ageDays: 0, reviewBy: "2026-11-12 10:00:00", overdue: false, decision: null },
+    safeguardingEscalations: [], appeals: [],
     lines: [{ id: 1, from: { n: "Alan" }, body: "the flagged words", at: "2026-11-05 09:59:00", flagged: true }], notes: [{ id: 1, action: "read", by: "Olive", detail: null, at: "2026-11-05 10:01:00" }],
   };
 
@@ -367,6 +372,22 @@ describe("a report in a youth thread is a case (ADR 0049)", () => {
     expect(fetchMock.mock.calls.some(([u]) => String(u) === "/api/admin/message-moderation?report=5")).toBe(true);
     expect(screen.getByText("the flagged words")).toBeTruthy();
     expect(screen.getByText(/Olive · read the evidence/)).toBeTruthy();
+    // A protective restriction is temporary and not a finding; it has a date to be reviewed by; the guidance about danger and reporting is static (ADR 0052).
+    expect(screen.getByText("A temporary protective restriction. It is not a finding.")).toBeTruthy();
+    expect(screen.getByText(/To be reviewed by/)).toBeTruthy();
+    expect(screen.getByTestId("safeguarding-guidance").textContent).toBe(
+      "If a child is in immediate danger, contact the emergency services (999) now. Whether and how an incident must be reported to the authorities is pending legal review; follow your own safeguarding policy."
+    );
+    // A moderator may convert it to a decision, or escalate for safeguarding, each with a reason.
+    fireEvent.change(screen.getAllByLabelText(/Reason/)[0], { target: { value: "The venue's inquiry is not finished" } });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Convert to a decision"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ action: "case", id: 5, step: "decide", reason: "The venue's inquiry is not finished", outcome: "messaging_suspended" });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Escalate (safeguarding)"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ action: "case", id: 5, step: "safeguarding", reason: "The venue's inquiry is not finished", kind: "suspected_abuse" });
     // The one way the reported adult is told: the moderator's own words.
     fireEvent.change(screen.getByLabelText(/Tell the reported adult/), { target: { value: "Your access is paused while we review something." } });
     expect(screen.getByText(/Do not name who reported or repeat what was reported/)).toBeTruthy();
@@ -379,5 +400,130 @@ describe("a report in a youth thread is a case (ADR 0049)", () => {
       fireEvent.click(screen.getByText("Dealt with, restriction continues"));
     });
     expect(posts().map(bodyOf)).toContainEqual({ action: "review", id: 5, outcome: "restriction_continues" });
+  });
+});
+
+describe("interim safeguards, prepared for legal review (ADR 0052)", () => {
+  const info = { kind: "group", id: 4, venueId: null, venueName: null, name: "Sunday juniors", sport: "badminton", date: null, startMin: null, ended: false, endedAt: null, youth: true };
+  const paused = (whyNot: string) => ({ kind: "group", id: 4, info, phase: "open", people: 0, canSend: false, whyNot, muted: false, threadId: null, messages: [], latestId: 0 });
+
+  it("offers the restricted adult a request for a review on the neutral line, which shows no reason, and says when it was received", async () => {
+    let state: { state: string; outcome: string | null; text: string | null } = { state: "none", outcome: null, text: null };
+    fetchMock.mockImplementation(async (u: string, init?: RequestInit) => {
+      if (String(u).startsWith("/api/messages/youth/review") && init?.method === "POST") {
+        state = { state: "received", outcome: null, text: null };
+        return json({ ok: true, state: "received" });
+      }
+      if (String(u).startsWith("/api/messages/youth/review")) return json(state);
+      return json(paused("PM_ACCESS_PAUSED"));
+    });
+    wrap(<Thread kind="group" id={4} onBack={() => {}} />);
+    await act(async () => {});
+    expect(screen.getAllByText("Your access to this conversation is paused while the venue reviews it. This is not a finding.").length).toBeGreaterThan(0);
+    const section = screen.getByTestId("review-request");
+    expect(section.textContent).toContain("Nothing about why can be shown here.");
+    expect(section.textContent).not.toMatch(/report|reporter|alleg/i);
+    fireEvent.change(screen.getByLabelText("Anything you would like the reviewer to know (optional)"), { target: { value: "Please look at this again" } });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Send the request"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ groupId: 4, text: "Please look at this again" });
+    expect(screen.getByText("Your request was received.")).toBeTruthy();
+    // Once it is open, it is not offered again.
+    expect(screen.queryByText("Send the request")).toBeNull();
+  });
+
+  it("words a decision differently from a protective hold, and tells the outcome of a decided request in neutral words", async () => {
+    fetchMock.mockImplementation(async (u: string) =>
+      String(u).startsWith("/api/messages/youth/review") ? json({ state: "decided", outcome: "continues", text: "Your access stays paused for now." }) : json(paused("PM_ACCESS_DECIDED"))
+    );
+    wrap(<Thread kind="group" id={4} onBack={() => {}} />);
+    await act(async () => {});
+    expect(screen.getAllByText(/has been changed following a review by the venue/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Your request was decided: the restriction continues\. Your access stays paused for now\./)).toBeTruthy();
+  });
+
+  it("says plainly, to a child, a guardian, an organiser and staff, that youth messaging is not enabled on this install", async () => {
+    const off = "Youth messaging is not enabled on this install: it needs safeguarding and legal approval first.";
+    fetchMock.mockImplementation(async (u: string) =>
+      String(u) === "/api/messages/youth" ? json({ eligible: true, linked: false, groups: [], enabled: false }) : json({ settings: settings(), threads: [], unread: 0 })
+    );
+    const first = wrap(<MessagesPage />);
+    await act(async () => {});
+    expect(screen.getByTestId("youth-off").textContent).toBe(off);
+    first.unmount();
+
+    const child = { participantId: 9, displayName: "Aina Lee", hasLogin: true, noticeMode: "digest", authority: "decides", groups: [{ groupId: 4, name: "Sunday juniors", supervisors: [], adults: [], consentOn: false, myConsent: false, needsAgreement: false, childOptedIn: false, active: false, blocked: [], others: [] }] };
+    fetchMock.mockImplementation(async () => json({ children: [child], digestHours: 6, enabled: false }));
+    const guardian = wrap(<GuardianMessaging />);
+    await act(async () => {});
+    expect(screen.getByTestId("youth-off").textContent).toBe(off);
+    guardian.unmount();
+
+    fetchMock.mockImplementation(async () => json({ error: off, code: "YG_OFF" }, false, 409));
+    const organiser = wrap(<YouthGroupPanel groupId={4} />);
+    await act(async () => {});
+    expect(screen.getByTestId("youth-off").textContent).toBe(off);
+    organiser.unmount();
+
+    fetchMock.mockImplementation(async () => json({ groups: [], enabled: false, hidden: 2, reviews: [], holdsView: null }));
+    wrap(<YouthGroupsPanel />);
+    await act(async () => {});
+    expect(screen.getByTestId("youth-off").textContent).toContain(off);
+    expect(screen.getByTestId("youth-off").textContent).toContain("2 supervised youth groups are stored here and shown nowhere while youth messaging is off");
+  });
+
+  it("lists authority reviews and legal holds in the youth panel, and acts on them with a reason", async () => {
+    const group = { groupId: 4, name: "Sunday juniors", organiser: "Orla", pending: false, ended: false, venueId: null, supervisors: [], adults: [], minors: 1, threadId: 8, threadState: "open", messages: 3, openReports: 0, openReviews: 1 };
+    const review = {
+      id: 7, groupId: 4, groupName: "Sunday juniors", child: "Aina L.", cause: "unclear", openedAt: "2026-11-05 10:00:00", escalated: false,
+      guardians: [{ guardianshipId: 21, name: "Gus", status: "unclear", basis: "other_authorised", restrictions: "may_object_only", standard: "interim: pending legal review", decidedBy: "Mia", decidedAt: "2026-11-05 09:00:00" }],
+    };
+    const hold = { id: 3, scope: "case", groupId: 4, groupName: "Sunday juniors", child: null, reportId: 5, reason: "Preservation asked for", reference: "A letter from the adviser", createdBy: "Olive", createdAt: "2026-11-01 10:00:00", reviewOn: null, lastReviewedAt: null, reviewDue: true };
+    fetchMock.mockImplementation(async (_u: string, init?: RequestInit) =>
+      init?.method === "POST"
+        ? json({ ok: true })
+        : json({ groups: [group], enabled: true, hidden: 0, reviews: [review], holdsView: { holds: [hold], due: { months: 12, cases: [{ reportId: 9, groupId: 4, groupName: "Sunday juniors", closedAt: "2025-01-01 10:00:00" }], holds: [] } } })
+    );
+    render(<YouthGroupsPanel />);
+    await act(async () => {});
+    expect(screen.getByTestId("authority-reviews").textContent).toContain("A guardian's authority is recorded as unclear");
+    expect(screen.getByTestId("authority-reviews").textContent).toContain("Recorded to the standard: interim: pending legal review");
+    fireEvent.change(within(screen.getByTestId("authority-reviews")).getByLabelText(/Reason/), { target: { value: "Waiting for the family" } });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Remains unclear"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ action: "reviewClose", reviewId: 7, outcome: "remains_unclear", reason: "Waiting for the family" });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Escalate to the platform's owner"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ action: "reviewEscalate", reviewId: 7 });
+    // The holds and the prompt to decide (never a deletion).
+    const holds = screen.getByTestId("evidence-holds");
+    expect(holds.textContent).toContain("Legal preservation requirements are pending legal review.");
+    expect(holds.textContent).toContain("This is a prompt to decide, not a deletion.");
+    expect(holds.textContent).toContain("Review due");
+    fireEvent.change(holds.querySelectorAll("input[aria-label]")[1], { target: { value: "Adviser confirmed" } });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Release the hold"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ action: "holdRelease", holdId: 3, reason: "Adviser confirmed" });
+  });
+
+  it("lists requests for a review in the reports panel, decided with a reason by somebody who did not apply the restriction", async () => {
+    const appeal = { id: 11, groupId: 4, groupName: "Sunday juniors", createdAt: "2026-11-05 10:00:00", restriction: { kind: "protective", since: "2026-11-04 10:00:00" }, person: "Alan", message: "Please look again", reportId: 5 };
+    fetchMock.mockImplementation(async (_u: string, init?: RequestInit) => (init?.method === "POST" ? json({ ok: true }) : json({ reports: [], suspensions: [], appeals: [appeal], scope: "venue" })));
+    render(<MessageReportsPanel />);
+    await act(async () => {});
+    const section = screen.getByTestId("restriction-appeals");
+    expect(section.textContent).toContain("Alan asked for the restriction in Sunday juniors to be looked at again");
+    expect(section.textContent).toContain("A protective restriction (not a finding)");
+    expect(section.textContent).toContain("Rights to review and notification are pending legal review.");
+    expect(section.textContent).not.toMatch(/reported by|reporter/i);
+    fireEvent.change(within(section).getByLabelText(/^Reason/), { target: { value: "Nothing found" } });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Lift the restriction"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ action: "appeal", id: 11, outcome: "lifted", reason: "Nothing found", text: "" });
   });
 });

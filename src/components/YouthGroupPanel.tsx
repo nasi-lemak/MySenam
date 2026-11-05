@@ -17,6 +17,8 @@ const DECLARED = ["coach", "venue_staff", "volunteer", "parent", "other"] as con
 export function YouthGroupPanel({ groupId }: { groupId: number }) {
   const t = useT();
   const [state, setState] = useState<YouthGroupState | null>(null);
+  // Youth messaging is not enabled on this install (ADR 0052): the organiser is told so plainly, and nothing else is offered.
+  const [off, setOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [member, setMember] = useState("");
@@ -30,6 +32,7 @@ export function YouthGroupPanel({ groupId }: { groupId: number }) {
   const load = useCallback(async () => {
     const res = await fetch(`/api/groups/${groupId}/youth`, { cache: "no-store" });
     if (res.ok) setState((await readJson(res)).state);
+    else if ((await readJson(res).catch(() => null))?.code === "YG_OFF") setOff(true);
   }, [groupId]);
   useEffect(() => {
     void load();
@@ -45,6 +48,12 @@ export function YouthGroupPanel({ groupId }: { groupId: number }) {
     await load();
   }
 
+  if (off)
+    return (
+      <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" data-testid="youth-off">
+        {t("err.YG_OFF")}
+      </p>
+    );
   if (!state?.organiser) return null;
   const small = "min-h-9 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:border-teal-500";
   const input = "mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";

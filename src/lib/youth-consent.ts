@@ -26,12 +26,27 @@ export type AuthorityLevel = (typeof AUTHORITY_LEVELS)[number];
 export const AUTHORITY_NOTE_MAX = 200;
 
 /**
+ * SQL that is true when any live guardian link of the child (the participant whose own login this is) is `disputed` or `unclear`: youth messaging for that
+ * child is **off, whatever consents exist**, until an authorised operator has reviewed it (ADR 0052). A conservative interim measure, not a legal determination.
+ */
+export function authorityHoldSql(minor: string): string {
+  return `EXISTS (SELECT 1 FROM participants pah JOIN participant_guardians gah ON gah.participant_id = pah.id
+                   WHERE pah.linked_user_id = ${minor} AND gah.revoked_at IS NULL AND gah.archived_at IS NULL AND gah.authority_status IN ('disputed', 'unclear'))`;
+}
+
+/** Whether youth messaging for this child is held off by a guardian link whose authority is disputed or unclear. */
+export async function authorityHold(minorId: number): Promise<boolean> {
+  return Boolean(await getDb().prepare(`SELECT 1 FROM (SELECT ?::int AS mid) x WHERE ${authorityHoldSql("x.mid")}`).get(minorId));
+}
+
+/**
  * SQL that is true when a child's consent for a group is in force, for the `group` and `minor` expressions given (columns, or `x.gid`/`x.mid`
  * of a one-row subquery): a live consent from a live guardian at `decides`, and no open objection that some live deciding guardian has not
  * agreed again after. Read live on every call; nothing is copied.
  */
 export function consentInForceSql(group: string, minor: string): string {
-  return `(EXISTS (SELECT 1 FROM youth_message_consents c
+  return `(NOT ${authorityHoldSql(minor)}
+          AND EXISTS (SELECT 1 FROM youth_message_consents c
                      JOIN participants pt ON pt.id = c.participant_id AND pt.linked_user_id = ${minor}
                      JOIN participant_guardians g ON g.participant_id = pt.id AND g.user_id = c.guardian_user_id
                     WHERE c.group_id = ${group} AND c.minor_user_id = ${minor} AND c.revoked_at IS NULL
@@ -117,6 +132,8 @@ export async function allDecidersAgree(groupId: number, minorId: number): Promis
 
 /** An objection is open and has not been agreed away: messaging is off and needs the guardians who decide. */
 export async function needsAgreement(groupId: number, minorId: number): Promise<boolean> {
+  // A guardian link whose authority is disputed or unclear holds messaging off the same way, and is told the same neutral thing (ADR 0049, 0052).
+  if (await authorityHold(minorId)) return true;
   return (await openObjectionOf(groupId, minorId)) !== null && !(await allDecidersAgree(groupId, minorId));
 }
 

@@ -6,6 +6,7 @@ import { digestHours, LIMITS, NOTICE_CHOICES, REPORT_REASONS, YOUTH_LIMITS, type
 import {
   clockOfMinute, inYouthGroup, mutedInThread, quietFor, quietNow, refuseYouth, youthContactPattern, youthEvent, youthGroupOf, type YouthGroup, type YouthRefusal, type YouthRefusalCode,
 } from "./youth-messages";
+import { protectiveReviewDays } from "./youth-launch";
 
 /**
  * Messages between players (docs/features/player-messages.md; ADR 0039).
@@ -55,6 +56,7 @@ const REFUSALS = {
   PM_OWN: ["That is your own message.", 400],
   // The one line an adult is shown in place of a youth thread whose access is paused, whatever the reason (a pause or a report): a hold, not a finding.
   PM_ACCESS_PAUSED: ["Your access to this conversation is paused while the venue reviews it. This is not a finding.", 403],
+  PM_ACCESS_DECIDED: ["Your access to this conversation has been changed following a review by the venue. You can ask for that to be looked at again.", 403],
 } as const;
 export type MessageRefusalCode = keyof typeof REFUSALS;
 
@@ -239,6 +241,8 @@ interface YouthAccess {
    * nobody's reader and told nothing of new messages, and has no supervisor's powers. Shown one neutral line (ADR 0049).
    */
   restricted: boolean;
+  /** The restriction is a moderator's recorded decision, not a protective hold (ADR 0052): worded differently, and still neutral about why. */
+  decided: boolean;
 }
 
 async function threadOf(kind: ContextKind, id: number, lock = false): Promise<ThreadRow | null> {
@@ -296,6 +300,7 @@ async function access(userId: number, kind: ContextKind, id: number, opts: { loc
       tooFew: 1 + reachable.length < YOUTH_LIMITS.minSeats || !(supervisor || reachable.some((s) => s.role === "supervisor")),
       mutedHere: await mutedInThread(id, userId),
       restricted: seat.restricted === true,
+      decided: seat.decided === true,
     };
   }
   return {
@@ -406,7 +411,7 @@ export async function threadView(userId: number, kind: ContextKind, id: number, 
   if (a.youth?.restricted)
     return {
       ok: true,
-      view: { kind: kindInUrl(kind), id, info: a.ctx.info, phase: a.phase, people: 0, canSend: false, whyNot: "PM_ACCESS_PAUSED", muted: await isMuted(userId, kind, id), threadId: null, messages: [], latestId: opts.after ?? 0 },
+      view: { kind: kindInUrl(kind), id, info: a.ctx.info, phase: a.phase, people: 0, canSend: false, whyNot: a.youth.decided ? "PM_ACCESS_DECIDED" : "PM_ACCESS_PAUSED", muted: await isMuted(userId, kind, id), threadId: null, messages: [], latestId: opts.after ?? 0 },
     };
   let rows: { id: number; sender_id: number | null; sender_label: string | null; body: string | null; created_at: string; hidden_at: string | null }[] = [];
   if (a.thread) {
@@ -542,7 +547,7 @@ export async function sendMessage(userId: number, kind: ContextKind, id: number,
       await lockSeat(kind, id, userId);
       const a = await access(userId, kind, id, { lockThread: true });
       if ("ok" in a) throw new Refused(a);
-      if (a.youth?.restricted) throw new Refused(refuse("PM_ACCESS_PAUSED"));
+      if (a.youth?.restricted) throw new Refused(refuse(a.youth.decided ? "PM_ACCESS_DECIDED" : "PM_ACCESS_PAUSED"));
       // The text comes after "in the context and on", so a stranger learns nothing from what is refused; before the rest, so an address is
       // never kept even in a conversation that is closed.
       if (contactDetail(text) || (a.youth && youthContactPattern(text))) throw new Refused(refuse("PM_CONTACT"));
@@ -701,11 +706,13 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
       if (a.youth) {
         await db.prepare("UPDATE player_message_reports SET urgent = 1 WHERE id = ?").run(made.id);
         // A pause a supervisor placed becomes the report's hold: a supervisor cannot lift it, only safeguarding personnel can (ADR 0049).
+        // A protective restriction is temporary and not a finding: it has a date by which it has to be reviewed (ADR 0052; operational, not a legal period).
+        const reviewBy = `datetime('now', '+${protectiveReviewDays()} days')`;
         await db
-          .prepare("UPDATE youth_thread_mutes SET source = 'report', report_id = ? WHERE group_id = ? AND user_id = ? AND lifted_at IS NULL AND source = 'supervisor'")
+          .prepare(`UPDATE youth_thread_mutes SET source = 'report', report_id = ?, kind = 'protective', review_by = ${reviewBy} WHERE group_id = ? AND user_id = ? AND lifted_at IS NULL AND source = 'supervisor'`)
           .run(made.id, id, target.sender_id);
         await db
-          .prepare("INSERT INTO youth_thread_mutes (group_id, user_id, source, report_id, reason, muted_by) VALUES (?, ?, 'report', ?, 'A report names this person; paused until it is reviewed.', 'automatic') ON CONFLICT DO NOTHING")
+          .prepare(`INSERT INTO youth_thread_mutes (group_id, user_id, source, report_id, reason, muted_by, kind, review_by) VALUES (?, ?, 'report', ?, 'A report names this person; paused until it is reviewed.', 'automatic', 'protective', ${reviewBy}) ON CONFLICT DO NOTHING`)
           .run(id, target.sender_id, made.id);
         await youthEvent(id, "system", "report_made", { actorId: userId, detail: `report ${made.id}, message ${messageId}` });
         // A reported member of the venue's own staff cannot be the one to deal with it: the platform's owner sees it too.

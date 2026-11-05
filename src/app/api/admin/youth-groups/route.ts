@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { readJsonObject } from "@/lib/api";
+import { closeAuthorityReview, escalateAuthorityReview, listAuthorityReviews } from "@/lib/youth-authority";
+import { createHold, listHolds, recordRetentionReview, releaseHold, reviewHold, safeguardingReviewDue } from "@/lib/youth-evidence";
+import { youthMessagingEnabled } from "@/lib/youth-launch";
 import {
-  listYouthGroupsForStaff, staffAnswerVenue, staffEndYouthGroup, staffReadYouthThread, staffRemoveYouthAdult, staffResolveObjection, staffSafeguardingView, staffSetGuardianAuthority,
+  youthGroupsOverview, staffAnswerVenue, staffEndYouthGroup, staffReadYouthThread, staffRemoveYouthAdult, staffResolveObjection, staffSafeguardingView, staffSetGuardianAuthority,
 } from "@/lib/youth-safeguarding";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +26,13 @@ export async function GET(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
   const group = req.nextUrl.searchParams.get("group");
   const safeguarding = req.nextUrl.searchParams.get("safeguarding");
+  // `?reviews=1`: the open authority reviews that are the caller's (ADR 0052). `?holds=1`: the legal holds in force and what is due for a decision: the platform's owner only.
+  if (req.nextUrl.searchParams.get("reviews") !== null) return NextResponse.json({ reviews: await listAuthorityReviews(admin) }, { headers: { "Cache-Control": "no-store" } });
+  if (req.nextUrl.searchParams.get("holds") !== null) {
+    const holds = await listHolds(admin);
+    if (!holds.ok) return NextResponse.json({ error: holds.error, code: holds.code }, { status: holds.status });
+    return NextResponse.json({ holds: holds.holds, due: await safeguardingReviewDue() }, { headers: { "Cache-Control": "no-store" } });
+  }
   if (safeguarding !== null) {
     const id = Number(safeguarding);
     if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "That group is not here.", code: "YG_NOT_FOUND" }, { status: 404 });
@@ -37,17 +47,30 @@ export async function GET(req: NextRequest) {
     if (!read.ok) return NextResponse.json({ error: read.error, code: read.code }, { status: read.status });
     return NextResponse.json(read, { headers: { "Cache-Control": "no-store" } });
   }
-  return NextResponse.json({ groups: await listYouthGroupsForStaff(admin) }, { headers: { "Cache-Control": "no-store" } });
+  // While youth messaging is not enabled on this install (`enabled: false`) only a group with an open case is listed, and `hidden` counts what is stored and shown nowhere.
+  // `reviews`: the open authority reviews that are the caller's; `holdsView`: for the platform's owner, the legal holds in force and what is due for a decision (null for anybody else).
+  const holds = await listHolds(admin);
+  return NextResponse.json(
+    { ...(await youthGroupsOverview(admin)), enabled: youthMessagingEnabled(), reviews: await listAuthorityReviews(admin), holdsView: holds.ok ? { holds: holds.holds, due: await safeguardingReviewDue() } : null },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 /**
  * `{ action: "answer", groupId, accept: boolean }` (a venue's manager answers the group's request to be looked after by their venue);
  * `{ action: "end", groupId, reason }` ends the youth group and closes its conversation for good; `{ action: "removeAdult", groupId,
  * memberUserId, reason }` takes an adult out of its conversation (never the organiser). Each is logged by group number and reason.
- * `{ action: "authority", guardianshipId, level: "decides" | "objects_only" | "none", note? }` records what a guardian may do about the child's group
- * messaging (the venue's word, never verified; a note of up to 200 characters, no identity numbers); `{ action: "resolve", objectionId, reason }`
- * settles a hold on a child's messaging (it does not switch messaging on). Both are manager-only, audited, and refused as not found for a guardian
- * or supervisor of the child (ADR 0049).
+ * `{ action: "authority", guardianshipId, status?: "asserted" | "verified" | "disputed" | "unclear", basis?: "parent" | "legal_guardian" | "other_authorised" |
+ * "not_stated", restrictions?: "none" | "may_object_only" | "no_messaging_say", note? }` records a decision about a guardian's authority over the child's group
+ * messaging (ADR 0052: a restriction takes effect only on a verified decision, by the platform's owner or a manager of the venue that manages the child; an asserted
+ * one sets the link to unclear; disputed or unclear keeps youth messaging for the child off and opens an authority review; MySenam does not interpret custody orders;
+ * a note of up to 200 characters, no identity numbers; the older `level` words still work and mean the restriction that says the same);
+ * `{ action: "resolve", objectionId, reason }` settles a hold on a child's messaging (it does not switch messaging on). Both are manager-only, audited, and refused
+ * as not found for a guardian or supervisor of the child (ADR 0049). `{ action: "reviewClose", reviewId, outcome: "resolved" | "remains_unclear", reason }` and
+ * `{ action: "reviewEscalate", reviewId }` deal with an authority review. The platform's owner only: `{ action: "holdSet", scope: "case", reportId, ... }` or
+ * `{ scope: "child_group", groupId, minorUserId, ... }` with `reason`, `reference?`, `reviewOn?` (a legal hold: retention and erasure leave the evidence alone);
+ * `{ action: "holdRelease", holdId, reason }`, `{ action: "holdReview", holdId, reason, reviewOn? }`, `{ action: "keepCase", reportId, reason }` (a decision to keep a
+ * closed case after the review prompt: never a deletion).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -63,10 +86,22 @@ export async function POST(req: NextRequest) {
         : body.action === "removeAdult"
           ? await staffRemoveYouthAdult(admin, groupId, body.memberUserId, body.reason)
           : body.action === "authority"
-            ? await staffSetGuardianAuthority(admin, { guardianshipId: body.guardianshipId, level: body.level, note: body.note })
+            ? await staffSetGuardianAuthority(admin, { guardianshipId: body.guardianshipId, level: body.level, status: body.status, basis: body.basis, restrictions: body.restrictions, note: body.note })
             : body.action === "resolve"
               ? await staffResolveObjection(admin, body.objectionId, body.reason)
-              : null;
+              : body.action === "reviewClose"
+                ? await closeAuthorityReview(admin, body.reviewId, body.outcome, body.reason)
+                : body.action === "reviewEscalate"
+                  ? await escalateAuthorityReview(admin, body.reviewId)
+                  : body.action === "holdSet"
+                    ? await createHold(admin, { scope: body.scope, groupId: body.groupId, minorUserId: body.minorUserId, reportId: body.reportId, reason: body.reason, reference: body.reference, reviewOn: body.reviewOn })
+                    : body.action === "holdRelease"
+                      ? await releaseHold(admin, body.holdId, body.reason)
+                      : body.action === "holdReview"
+                        ? await reviewHold(admin, body.holdId, body.reason, body.reviewOn)
+                        : body.action === "keepCase"
+                          ? await recordRetentionReview(admin, body.reportId, body.reason)
+                          : null;
   if (!done) return NextResponse.json({ error: "Choose what to do." }, { status: 400 });
   if (!done.ok) return NextResponse.json({ error: done.error, code: done.code }, { status: done.status });
   return NextResponse.json(done);

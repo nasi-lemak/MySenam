@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { digestHours } from "@/lib/message-limits";
 import { rateLimit } from "@/lib/rate-limit";
 import { guardianThreadView } from "@/lib/youth-safeguarding";
+import { youthMessagingEnabled } from "@/lib/youth-launch";
 import { guardianBlock, guardianOverview, setConsent, setGuardianNoticeMode, switchOffAll } from "@/lib/youth-messages";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,8 @@ export async function GET(req: NextRequest) {
     if (!view.ok) return NextResponse.json({ error: view.error, code: view.code }, { status: view.status });
     return NextResponse.json(view, { headers: { "Cache-Control": "no-store" } });
   }
-  return NextResponse.json({ children: await guardianOverview(user.id), digestHours: digestHours() }, { headers: { "Cache-Control": "no-store" } });
+  // `enabled: false`: youth messaging is not enabled on this install (ADR 0052); the page says so plainly and offers nothing but switching it off.
+  return NextResponse.json({ children: await guardianOverview(user.id), digestHours: digestHours(), enabled: youthMessagingEnabled() }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -58,5 +60,5 @@ export async function POST(req: NextRequest) {
             : null;
   if (!done) return NextResponse.json({ error: "Choose what to do." }, { status: 400 });
   if (!done.ok) return NextResponse.json({ error: done.error, code: done.code, vars: done.vars }, { status: done.status });
-  return NextResponse.json({ ok: true, children: await guardianOverview(user.id), digestHours: digestHours() });
+  return NextResponse.json({ ok: true, children: await guardianOverview(user.id), digestHours: digestHours(), enabled: youthMessagingEnabled() });
 }

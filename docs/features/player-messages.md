@@ -102,7 +102,7 @@ then deleted with its messages ([privacy](../architecture/privacy.md#messages-be
 | Reports one person makes | 10 a day |
 | Frozen with a report | the last 20 messages the reporter could see (50 in a youth group's thread) |
 | A conversation ended | read-only 14 days, then closed |
-| Retention | 90 days after the context ended (`MESSAGE_RETENTION_DAYS`); a dealt-with report 365 days (`MESSAGE_REPORT_RETENTION_DAYS`); a youth group's conversation 60 days after the group ended (`YOUTH_MESSAGE_RETENTION_DAYS`) and the words of a removed message 30 days (`YOUTH_REMOVED_RETENTION_DAYS`) |
+| Retention | 90 days after the context ended (`MESSAGE_RETENTION_DAYS`); a dealt-with report in an adults' conversation 365 days (`MESSAGE_REPORT_RETENTION_DAYS`; a report in a youth thread has **no period**: [evidence](../architecture/privacy.md#youth-messaging-evidence)); a youth group's conversation 60 days after the group ended (`YOUTH_MESSAGE_RETENTION_DAYS`) and the words of a removed message 30 days (`YOUTH_REMOVED_RETENTION_DAYS`), **operational defaults pending legal approval, never while a case is active in the group** |
 
 The constants are in `src/lib/message-limits.ts`. A refused message is a refusal with a
 code and a sentence in all four languages; none of the limits learns or changes by
@@ -205,6 +205,13 @@ Ages, guardianship, consent and roles are everybody's own word: recorded as decl
 verified, and no identity document is collected. Only **community groups** can be youth
 groups (teams, matches, ladders and fixtures are not: see the ADR).
 
+**Youth messaging is off in production** unless the install sets `YOUTH_MESSAGING_LAUNCH_APPROVED=yes` (on in development and
+tests): until the owner has the legal advice and safeguarding requirements in [the legal-review
+checklist](../operations/legal-review-youth-messaging.md), no group can be marked a youth group, no minor has a seat, no youth
+thread is read or written, and everybody who meets it is told plainly *Youth messaging is not enabled on this install: it needs
+safeguarding and legal approval first*. Adults' messaging is unaffected. See [the interim
+safeguards](#interim-safeguards-pending-legal-review) ([ADR 0052](../architecture/decisions/0052-youth-messaging-interim-safeguards-pending-legal-review.md)).
+
 **Who is an eligible minor.** An account that has not declared it is 18 or over, that is a
 member of a youth group, and has **all three** of: its **own opt-in** for that group; a
 **guardian's consent** for that child and that group (a live guardian of the participant
@@ -301,8 +308,8 @@ a child's account erased turns what they wrote into *message removed*, as for ad
 | ------- | ------- | ----------------- | ----- |
 | A group is a youth group | No | The organiser (a declared adult) | A venue, on its own |
 | A guardian's consent | **Off** | A live guardian who decides, per child and group; with no objection one is enough; any guardian's off opens an objection that all who decide must end, or an administrator resolves | The child, the organiser, a venue on its own; another guardian reversing an objection alone |
-| What a guardian may do about messaging | `decides` (every existing link) | A venue's manager or the owner, with a note (the venue's word, never verified) | A guardian for themselves; a member of staff who is the child's guardian |
-| A reported adult's access | Restricted at once, as a hold | Safeguarding personnel: confirm, extend, lift, escalate; no automatic notice, ever | The reported adult or staff who is the same person seeing or lifting it |
+| What a guardian may do about messaging | `decides` (every existing link), status `asserted` | A recorded decision ([below](#custody-and-authority-a-recorded-decision)): a restriction takes effect only when **verified** by the owner or the manager of the venue that manages the child | A guardian for themselves; a supervisor; a member of staff who is the child's guardian |
+| A reported adult's access | Restricted at once, as a **protective** hold with a date to be reviewed by | Safeguarding personnel: confirm, extend, lift, convert to a decision, escalate; no automatic notice, ever; the restricted adult may ask for a review | The reported adult or staff who is the same person seeing or lifting it; a clock lifting or converting it |
 | The child's opt-in | Off | The child | A guardian, for them |
 | Adults in the thread | Only the organiser | The organiser, with a declared role; staff may take one out | Letting an adult in without a supervisor |
 | Rest hours | 22:00 to 07:00 | The install (`YOUTH_QUIET_HOURS`); a group may lengthen | A venue, an organiser or a guardian shortening or removing them |
@@ -313,20 +320,22 @@ a child's account erased turns what they wrote into *message removed*, as for ad
 **Awaiting legal and professional review (not settled in code):** the wording of the first-use
 screen and the notices; whether a guardian's consent recorded this way suffices in a given
 country; the staff-read exception and its lawful basis; the retention periods and the rest
-hours. All wording outside English is machine-assisted and awaits native review.
+hours; and every item of [the legal-review checklist](../operations/legal-review-youth-messaging.md).
+All wording outside English is machine-assisted and awaits native review.
 
 ### Guardians in conflict
 
 *Decided 5 November 2026; [ADR 0049](../architecture/decisions/0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md),
 which amends ADR 0044 (it replaces "any live guardian's off ends consent, any can switch it back on").*
 
-- **Authority is recorded per guardian link, not assumed equal.** A venue's manager (or the owner)
-  records, with a note of a few words and who and when, what a guardian may do about the child's
-  messaging: **`decides`** (every link that exists; may agree and object), **`objects_only`** (may
+- **Authority is recorded per guardian link, not assumed equal.** What a guardian may do about the child's
+  messaging is **`decides`** (every link that exists; may agree and object), **`objects_only`** (may
   switch it off, never on, and never counts towards restoring it) or **`none`** (no say at all: refused
-  everywhere, shown nothing, told nothing, given none of the child's group messages in an export). **This
-  is the venue's word, applied and recorded, never verified by the app; no documents and no identity
-  numbers are kept.** Never done by a member of staff who is a guardian of that child.
+  everywhere, shown nothing, told nothing, given none of the child's group messages in an export). **It is
+  now the result of [a recorded decision](#custody-and-authority-a-recorded-decision):** a restriction takes
+  effect only when an authorised operator has *verified* it; an asserted one makes the link *unclear* and
+  keeps messaging for the child off. No documents and no identity numbers are kept. Never done by a member
+  of staff who is a guardian of that child.
 - **An objection.** A guardian at `decides` or `objects_only` switching messaging off ends every
   consent and opens an objection. **While it is open no consent counts**: another guardian switching
   it on records their consent and cannot reverse it. It ends when **every guardian who decides has
@@ -375,10 +384,11 @@ nothing about the person, and puts the child's safety first.*
 - **Evidence:** the frozen copy is **not in any list**; safeguarding personnel read it one report at
   a time (`?report=<id>`), **each reading recorded** in the case's own audit
   (`youth_report_actions`, not the staff activity log, which a reported member of staff can read).
-  It is **held** while the report is open or the restriction it placed is in force (an open report is
-  never pruned, as before), and is not cleared by the reported person's erasure while held; it is
-  never in anybody's own *Download my data* (the reported person's export counts no report about them
-  in a youth thread and shows a pause with no source). Erasure is never refused for it.
+  It is **held** while the report is open or the restriction it placed is in force, or a [legal
+  hold](#evidence-retention-and-legal-holds) covers it, and is not cleared by the reported person's
+  erasure while held; it is never in anybody's own *Download my data* (the reported person's export
+  counts no report about them in a youth thread and shows a pause with no source). Erasure is never
+  refused for it. **No period is set for how long it is then kept** ([evidence](#evidence-retention-and-legal-holds)).
 - **The case** (`/api/admin/message-moderation`, `action: "case"`): **confirm**, **extend** (put the
   restriction back in force and keep it past the report's review) or **lift** it, each with a reason;
   **escalate** to the platform's owner (recorded; the owner is told and sees the report); add a
@@ -391,6 +401,96 @@ nothing about the person, and puts the child's safety first.*
   youth-thread reports says *paused pending review* and is not told to a reported adult.
 - **Adult-on-adult reports** in a youth thread are treated the same. **Reports in an ordinary (adults')
   thread are unchanged.**
+
+## Interim safeguards, pending legal review
+
+*The owner approved an interim product and safety direction, **subject to review by qualified Malaysian legal and
+child-safeguarding professionals before live youth messaging is enabled** ([ADR
+0052](../architecture/decisions/0052-youth-messaging-interim-safeguards-pending-legal-review.md); migration 0294).
+Nothing in this section settles a legal question or claims compliance: every period is operational, every standard is
+labelled pending legal review, and the questions are in [the checklist for a lawyer](../operations/legal-review-youth-messaging.md).
+No custody order, identity number or other document is collected, and nothing is reported to any authority by MySenam.*
+
+### The launch switch
+
+`youthMessagingEnabled()` (`src/lib/youth-launch.ts`) is **false in production unless
+`YOUTH_MESSAGING_LAUNCH_APPROVED=yes`**, on in development and tests. Off: a group cannot be marked (`YG_OFF`), a minor has no
+seat (`youthSeats` is empty), nothing is read or written in a youth thread (a guardian's read-only view included), and the
+child's first-use screen, the guardian's page, the organiser's group panel and the staff youth panel say *Youth messaging is not
+enabled on this install: it needs safeguarding and legal approval first*. A guardian can still switch it **off**, never on.
+**Adults' messaging is unaffected.** Stored data is kept and shown to nobody except safeguarding administrators for an **open case**
+(a report open or its restriction in force, an authority review or a request for a review open, or a legal hold); the staff panel
+counts the rest as *stored and shown nowhere*. Turning it on is the owner's deliberate decision after the [launch
+gate](../operations/legal-review-youth-messaging.md#launch-gate) (a row of the [launch checklist](../operations/deployment.md#before-going-live-what-only-a-live-account-can-prove)).
+
+### Custody and authority: a recorded decision
+
+Per guardian link a safeguarding administrator records (*Guardians and holds on messaging*, `POST /api/admin/youth-groups`
+`action: "authority"`):
+
+| Field | Values | Meaning |
+| ----- | ------ | ------- |
+| **Status** | `asserted` (the default), `verified`, `disputed`, `unclear` | `asserted` is only what the guardian or the venue declared when the link was made, **not a legal determination**; `verified` is a verified decision recorded by an authorised operator |
+| **Basis** | `parent`, `legal_guardian`, `other_authorised`, `not_stated` | A fixed short list: no documents, no narrative |
+| **What it removes** | `none`, `may_object_only`, `no_messaging_say` | The guardian's say; it takes effect (as `decides` / `objects_only` / `none`) **only on a verified decision** |
+| **Standard, who, when** | `interim: pending legal review`, the operator, the time | Stored with the decision; the note is the existing short text (a run of digits is refused) |
+
+- **An asserted restriction does not take effect:** it sets the link to `unclear` and the guardian keeps their say.
+- **`disputed` or `unclear` on any live guardian link of the child keeps youth messaging for that child off, whatever consents exist**,
+  until reviewed. **A disputed or unclear guardian can still switch it off** (their objection counts). The other guardians are told only
+  *off, and needs agreement*.
+- **Authorised operators (interim; who may verify is pending legal review):** the platform's owner, or a venue's manager for a child
+  the venue manages. A venue that only looks after a group the child is in may mark a link disputed or unclear, never verify it or clear
+  it (`YG_VERIFY`). **Never a supervisor of the child's groups, a guardian of the child, or staff who are the same person as either.**
+  Every decision is audited (who, status, basis, restrictions, the standard label, when) in the group's record, visible to safeguarding
+  administrators only, and in the staff activity log.
+- **MySenam does not interpret custody orders or make legal determinations.** It applies the operator's recorded decision; the supporting
+  record, if any, is held by the venue under its own controls. The screens say so.
+- **Authority review.** One open per child and group (`youth_authority_reviews`), opened when a link becomes disputed or unclear, or a
+  guardian conflict stays unresolved beyond `YOUTH_REVIEW_DAYS` (7: operational, **not a legal period**), and again after that interval if a
+  review ended *remains unclear*. For safeguarding administrators only (*Authority reviews* in the youth panel; the needs-attention line);
+  actions: record a verified decision, **mark resolved** (refused while messaging is still held off), **remains unclear**, or **escalate to the
+  platform's owner**, each with a reason where it needs one.
+
+### A restriction on an adult is protective, or a decision
+
+- **Protective** (the default a report places at once) is **temporary and not a finding**. A moderator may **convert it to a decision**
+  (`removed from this group's conversation` or `messaging suspended`) with a recorded reason (`case` step `decide`, for a reported adult
+  only). Staff screens word them differently; the restricted adult's neutral line is *paused while the venue reviews it, this is not a
+  finding* for a protective hold (the same as a supervisor's pause) and *changed following a review by the venue* for a decision; neither
+  says why. Nothing, anywhere, presents an allegation as proven.
+- **No indefinite unreviewed restriction.** A protective restriction has a date to be reviewed by (`YOUTH_PROTECTIVE_REVIEW_DAYS`, 7:
+  operational, **not a legal period**). Past it unreviewed, the platform's owners get a needs-attention line and a safeguarding email,
+  repeated at that interval, and the restriction is **never lifted or converted automatically**. A moderator's review (*continue* with a reason,
+  *extend*, *lift*, or *convert*) starts it again. The case shows its age and review state.
+- **Ask for a review.** On the neutral line the restricted adult (for any cause: the same line) can **ask for a review** with one short text;
+  nothing of any report is shown or asked (`POST /api/messages/youth/review`). It opens an item for a reviewer **other than whoever applied the
+  restriction** (a different manager of the venue, else the platform's owner), who **lifts** it or **lets it continue**, with a reason, recorded in
+  the case and the group's record; the adult is told only that it was received and, when decided, the outcome in neutral words (a moderator may add
+  a few words, never naming the reporter or repeating what was reported). **Rights to review and notification are pending legal review**: this
+  promises no legal right.
+- **Escalate (safeguarding).** A case step with a fixed reason (`suspected_abuse`, `imminent_danger`, `possible_reportable_incident`, `other`):
+  the platform's owner is told **at once**, who, when and why are recorded in the case, and the case shows a **static guidance panel**: *If a child
+  is in immediate danger, contact the emergency services (999) now. Whether and how an incident must be reported to the authorities is pending legal
+  review; follow your own safeguarding policy.* **Nothing is sent to any authority by MySenam**, and no statutory body or contact is named.
+- **The reporter stays unknown**: no review item, escalation notice, owner email, needs-attention line or outcome notice shows who reported or what
+  was said (tested across them).
+
+### Evidence, retention and legal holds
+
+Four classes, kept apart ([privacy](../architecture/privacy.md#youth-messaging-evidence) has the table): (a) ordinary message retention (the operational
+defaults, **pending legal approval**, and never while a case is active in the group); (b) **safeguarding evidence** (the frozen copy, case actions,
+escalations, review items) and (c) **audit records** (the group's event store, the activity entries about youth messaging): **no period is invented, and neither
+is ever deleted automatically**; (d) records under a **legal hold**.
+
+- A deletion period for **closed cases** applies only if the install sets `SAFEGUARDING_EVIDENCE_RETENTION_DAYS` (*requires legal approval before setting*);
+  unset, everything is kept and the platform's owners are asked, now and then, to **decide** about what has been kept longer than
+  `SAFEGUARDING_REVIEW_MONTHS` (12): a decision to keep, never a deletion.
+- **Legal holds** (`youth_evidence_holds`): the platform's owner only creates, reviews and releases one, on a case or on a child and group, with a reason,
+  an external reference in words (digit runs refused) and an optional review date. A hold keeps the covered evidence copy and conversation from retention and
+  erasure; an erasure of the person's account is **never refused**, and the held copy stays with its access restricted to safeguarding personnel. Audited in
+  the case and the group's record and in the activity log without a venue. *Legal preservation requirements are pending legal review.*
+- Access is only safeguarding personnel (the conflict guard), every reading recorded, and the actions are append-only (the database refuses an edit).
 
 ## Where to find it
 
@@ -434,4 +534,7 @@ nothing about the person, and puts the child's safety first.*
 | A reported adult is not told: the restriction, the conflict guard, the case, the evidence (ADR 0049) | `src/lib/youth-report-cases.ts`, `src/lib/safeguarding-conflict.ts`, `src/lib/messages.ts`, `src/lib/message-moderation.ts`, `src/lib/message-privacy.ts`, `src/lib/message-digest.ts`, `src/components/admin/MessageReportsPanel.tsx` | `tests/youth-reported-adult.test.ts` |
 | Supervised youth groups: eligibility, supervision, guardian controls, rest hours, limits | `src/lib/youth-messages.ts`, `src/lib/message-contexts.ts`, `src/lib/messages.ts`, `db/migrations/0286_supervised_youth_group_messaging.sql`, `src/app/api/messages/youth/`, `src/app/api/groups/[id]/youth/`, `src/app/api/my/people/messaging/`, `src/components/YouthGroupPanel.tsx`, `src/components/GuardianMessaging.tsx`, `src/app/messages/YouthFirstUse.tsx` | `tests/youth-messages.test.ts`, `tests/youth-messages-races.test.ts` (races, both engines) |
 | Urgent notices, the venue's reading (audited), reports | `src/lib/youth-safeguarding.ts`, `src/lib/message-moderation.ts`, `src/app/api/admin/youth-groups/route.ts`, `src/components/admin/YouthGroupsPanel.tsx` | `tests/youth-safeguarding.test.ts` |
+| Interim safeguards: the launch switch, recorded custody decisions, authority reviews (ADR 0052) | `src/lib/youth-launch.ts`, `src/lib/youth-authority.ts`, `src/lib/youth-consent.ts`, `src/lib/youth-safeguarding.ts`, `src/lib/youth-messages.ts`, `db/migrations/0294_youth_messaging_interim_safeguards.sql`, `src/components/admin/YouthSafeguardingExtras.tsx` | `tests/youth-interim-safeguards.test.ts`, `tests/components/youth-messages.test.tsx` |
+| Interim safeguards: protective or decided restrictions, review dates, requests for a review, escalation (ADR 0052) | `src/lib/youth-report-cases.ts`, `src/lib/youth-restrictions.ts`, `src/lib/messages.ts`, `src/app/api/messages/youth/review/route.ts`, `src/app/messages/Thread.tsx`, `src/components/admin/MessageReportsPanel.tsx` | `tests/youth-restrictions-evidence.test.ts` (races on both engines), `tests/components/youth-messages.test.tsx` |
+| Interim safeguards: evidence classes, retention, legal holds, the review prompt (ADR 0052) | `src/lib/youth-evidence.ts`, `src/lib/youth-evidence-sql.ts`, `src/lib/message-privacy.ts`, `src/lib/privacy.ts` | `tests/youth-restrictions-evidence.test.ts` |
 | The digest | `src/lib/message-digest.ts`, `src/lib/notify.ts` (`tickOutbox`) | `tests/message-digest.test.ts`, `tests/player-messages-contexts.test.ts` |

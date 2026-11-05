@@ -8,6 +8,7 @@ import { removeVenuePhotoFiles } from "./photos";
 import { money } from "./region";
 import { englishOf, said, type StaffText } from "./staff-text";
 import { VERIFIED_BY_ROLE, participantsExport, unusedParticipantsWhere } from "./participants";
+import { ACTIVE_CASE_GROUPS } from "./youth-evidence-sql";
 import { reportRetentionDays as messageReportDays, threadRetentionDays as messageThreadDays, youthThreadRetentionDays as messageYouthDays } from "./message-privacy";
 
 /**
@@ -326,16 +327,19 @@ const RULES: Rule[] = [
     days: messageYouthDays(),
     action: "deleted",
     table: "player_message_threads",
-    where: "ended_at IS NOT NULL AND ended_at < ? AND youth = 1",
+    // Never while a case is active in the group (a report open or its restriction in force, a review or a request for one open, a legal hold): lib/youth-evidence-sql.ts.
+    where: `ended_at IS NOT NULL AND ended_at < ? AND youth = 1 AND context_id NOT IN (${ACTIVE_CASE_GROUPS})`,
     apply: async (_where, cutoff) => (await import("./message-privacy")).pruneYouthMessages(cutoff),
   },
   {
-    // A report of a message and the copy frozen with it, once dealt with (MESSAGE_REPORT_RETENTION_DAYS).
+    // A report of a message in an ordinary (adults') thread and the copy frozen with it, once dealt with (MESSAGE_REPORT_RETENTION_DAYS). A report in a youth
+    // thread is safeguarding evidence: no period is invented for it (lib/youth-evidence.ts; ADR 0052).
     what: said("pmg.ret.reports"),
     days: messageReportDays(),
     action: "deleted",
     table: "player_message_reports",
-    where: "status = 'reviewed' AND reviewed_at < ?",
+    where: "urgent = 0 AND status = 'reviewed' AND reviewed_at < ?",
+    apply: async (_where, cutoff) => (await import("./message-privacy")).pruneMessageReports(cutoff),
   },
 ];
 
@@ -355,6 +359,12 @@ export async function retentionDue(): Promise<RetentionLine[]> {
       action: rule.action,
       affected: await count(`SELECT COUNT(*) AS n FROM ${rule.table} WHERE ${rule.where}`, addDays(today, -rule.days)),
     });
+  // Closed safeguarding cases, only where the install itself sets a period (SAFEGUARDING_EVIDENCE_RETENTION_DAYS, which needs legal approval before it is set).
+  const evidenceDays = (await import("./youth-launch")).safeguardingEvidenceRetentionDays();
+  if (evidenceDays !== null) {
+    const evidence = said("msg4.ret.evidence");
+    lines.push({ what: englishOf(evidence), whatPhrase: evidence, days: evidenceDays, action: "deleted", affected: await (await import("./youth-evidence")).safeguardingEvidenceDue() });
+  }
   // Applications to be approved for an activity: by purpose, per activity, and never while held.
   lines.push(...(await (await import("./approval-retention")).approvalRetentionDue()));
   // E-invoice records, after the install's statutory period (lib/einvoice-retention.ts): a sent one cleared to a
@@ -418,6 +428,7 @@ export async function pruneOldData(): Promise<PruneResult> {
     photoKeys = [];
     // Applications first, so an approval's end is noted before the sign-off it rests on can go.
     await approvals.pruneApprovals();
+    await (await import("./youth-evidence")).pruneSafeguardingEvidence();
     await ledger.pruneErasureLedger();
     await (await import("./myinvois")).pruneEInvoices();
     // Those that read other records first (a receipt's names, from its booking), before the other rules clear them.
@@ -441,7 +452,8 @@ export async function pruneOldData(): Promise<PruneResult> {
     // Errors, 90 days after they last happened: long enough to see one is fixed.
     await db.prepare("DELETE FROM error_events WHERE last_at < ?").run(`${addDays(todayISO(), -90)} 00:00:00`);
     // The staff activity log: two years, long enough for any dispute or audit.
-    await db.prepare("DELETE FROM staff_actions WHERE created_at < ?").run(`${addDays(todayISO(), -730)} 00:00:00`);
+    // Entries about youth messaging are audit records (class (c), ADR 0052): no period is invented for them, and they are never deleted by this.
+    await db.prepare("DELETE FROM staff_actions WHERE created_at < ? AND action NOT LIKE 'messages.youth%'").run(`${addDays(todayISO(), -730)} 00:00:00`);
     // A guest let into a private venue until a date is not on its list after it.
     await db.prepare("DELETE FROM venue_access_list WHERE expires_on IS NOT NULL AND expires_on < ?").run(todayISO());
     await db.prepare(

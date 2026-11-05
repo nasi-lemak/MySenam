@@ -79,7 +79,7 @@ const en = {
   "srv.ret.receiptNames": "Names and numbers on old receipts",
   "srv.ret.access": "Withdrawn out-of-hours access",
   "pmg.ret.threads": "Conversations between players, once the game, team, group or fixture they belong to has ended",
-  "pmg.ret.reports": "Reports of messages between players, with the copy of the conversation kept with each, once dealt with",
+  "pmg.ret.reports": "Reports of messages between players in ordinary (adults') conversations, with the copy of the conversation kept with each, once dealt with",
   "pmg.ret.youthThreads": "Conversations of supervised youth groups, once the group has ended (a shorter period than adults' conversations)",
   "srv.ret.signOffs": "Withdrawn activity sign-offs",
   "srv.ret.applications": "Venue applications never confirmed by email",
@@ -412,6 +412,7 @@ const en = {
   "srv.round.consolationThird": "Consolation third-place match",
   "clsb.ret.attendance": "Attendance marks and their corrections",
   "clsb.ret.lessonMoves": "Records of lessons the venue moved",
+  "msg4.ret.evidence": "Closed safeguarding cases in youth groups, with their case records, once dealt with (only where this install sets a period)",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -489,7 +490,7 @@ const ms: Record<keyof typeof en, string> = {
   "srv.ret.receiptNames": "Nama dan nombor pada resit lama",
   "srv.ret.access": "Akses luar waktu yang ditarik balik",
   "pmg.ret.threads": "Perbualan antara pemain, setelah permainan, pasukan, kumpulan atau perlawanan yang dimilikinya tamat",
-  "pmg.ret.reports": "Laporan mesej antara pemain, dengan salinan perbualan yang disimpan bersamanya, setelah diselesaikan",
+  "pmg.ret.reports": "Laporan mesej antara pemain dalam perbualan biasa (orang dewasa), dengan salinan perbualan yang disimpan bersamanya, setelah diselesaikan",
   "pmg.ret.youthThreads": "Perbualan kumpulan belia berselia, setelah kumpulan tamat (tempoh lebih pendek daripada perbualan orang dewasa)",
   "srv.ret.signOffs": "Pengesahan aktiviti yang ditarik balik",
   "srv.ret.applications": "Permohonan tempat yang tidak pernah disahkan melalui e-mel",
@@ -818,6 +819,7 @@ const ms: Record<keyof typeof en, string> = {
   "srv.round.consolationThird": "Perlawanan tempat ketiga saguhati",
   "clsb.ret.attendance": "Tanda kehadiran dan pembetulannya",
   "clsb.ret.lessonMoves": "Rekod pelajaran yang diubah masanya oleh pusat",
+  "msg4.ret.evidence": "Kes keselamatan kumpulan belia yang ditutup, dengan rekod kesnya, setelah diselesaikan (hanya jika pemasangan ini menetapkan tempoh)",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -895,7 +897,7 @@ const zh: Record<keyof typeof en, string> = {
   "srv.ret.receiptNames": "旧收据上的姓名和号码",
   "srv.ret.access": "已撤销的非营业时间进出权限",
   "pmg.ret.threads": "球员之间的对话（在其所属的比赛、球队、小组或赛程结束之后）",
-  "pmg.ret.reports": "球员之间消息的举报及随附保存的对话副本（处理完毕之后）",
+  "pmg.ret.reports": "球员之间普通（成人）对话中消息的举报及随附保存的对话副本（处理完毕之后）",
   "pmg.ret.youthThreads": "受监督青少年小组的对话（小组结束之后；保留期短于成年人对话）",
   "srv.ret.signOffs": "已撤销的活动资格确认",
   "srv.ret.applications": "从未通过电子邮件确认的场馆申请",
@@ -1224,6 +1226,7 @@ const zh: Record<keyof typeof en, string> = {
   "srv.round.consolationThird": "安慰赛季军赛",
   "clsb.ret.attendance": "出勤标记及其更正记录",
   "clsb.ret.lessonMoves": "场馆更改课程时间的记录",
+  "msg4.ret.evidence": "青少年小组中已结的安全保障案件及其案件记录（处理完毕之后；仅当本系统设置了期限时）",
 };
 
 const area = { en, ms, zh };

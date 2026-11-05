@@ -7,6 +7,8 @@ import { namesTheViewerSql, staffEmailsOf } from "./safeguarding-conflict";
 import { siteName } from "./site";
 import { staffSentences, tellOwnersEach } from "./owner-alerts";
 import type { SeatLabel } from "./message-contexts";
+import { consentEvent } from "./youth-consent";
+import { protectiveReviewDays } from "./youth-launch";
 
 /**
  * The case a report in a youth group's thread becomes for safeguarding personnel (docs/features/player-messages.md#a-reported-adult-is-not-told;
@@ -20,6 +22,11 @@ import type { SeatLabel } from "./message-contexts";
  * - **confirm** that the restriction stands, **extend** it (put it back in force, and have it continue past the report's review), **lift** it, each
  *   with a reason;
  * - **escalate** to the platform's owner (recorded; the owner then sees the report as well);
+ * - **escalate for safeguarding** (suspected abuse, imminent danger, a possibly legally reportable incident, or other): the owner is told at once, and who, when
+ *   and why are recorded in the case. Nothing is sent to any authority by MySenam; the case shows a static guidance panel (ADR 0052);
+ * - **convert the restriction to a decision** (a moderator's recorded outcome with its reason): a protective restriction is temporary and **not a finding**, a
+ *   decision is the moderator's recorded outcome; either is reviewed, and a protective one passing its review date unreviewed is escalated to the owner and
+ *   never lifted or converted by itself (lib/youth-restrictions.ts);
  * - add a **note**;
  * - **notify** the reported adult: the one way they are ever told, written by the moderator, never automatic, never naming who reported or repeating
  *   what was reported.
@@ -28,7 +35,15 @@ import type { SeatLabel } from "./message-contexts";
  * reported member of staff can read.
  */
 
-const STEPS = ["confirm", "extend", "lift", "escalate", "note", "notify"] as const;
+const STEPS = ["confirm", "extend", "lift", "escalate", "note", "notify", "decide", "safeguarding"] as const;
+
+/** Why a moderator escalates a case for safeguarding. A fixed choice: nothing else is asked, and nothing legal is decided here. */
+export const ESCALATION_KINDS = ["suspected_abuse", "imminent_danger", "possible_reportable_incident", "other"] as const;
+export type EscalationKind = (typeof ESCALATION_KINDS)[number];
+
+/** What a moderator may record a restriction on a reported adult as, when it becomes a decision. */
+export const DECISION_OUTCOMES = ["removed_from_group", "messaging_suspended"] as const;
+export type DecisionOutcome = (typeof DECISION_OUTCOMES)[number];
 type Step = (typeof STEPS)[number];
 
 const no = (error: string, status = 400): Refused => ({ ok: false, error, status });
@@ -72,7 +87,7 @@ interface CaseRow {
 }
 
 /** The report, if it is a youth report this staff member may deal with: in their scope (or escalated to the owner) and not naming them. Otherwise it is not here. */
-async function caseFor(admin: Admin, id: number, lock = false): Promise<CaseRow | null> {
+export async function caseFor(admin: Admin, id: number, lock = false): Promise<CaseRow | null> {
   const scope = scopeOf(admin);
   const names = namesTheViewerSql("r", admin);
   const r = (await getDb()
@@ -99,7 +114,20 @@ export interface CaseOut {
   reported: { userId: number | null; label: SeatLabel | null; adult: boolean };
   /** A restriction is in force on the reported person's seat (a hold, not a finding). */
   restricted: boolean;
+  /** The restriction in force, if any: protective (temporary, not a finding) or a decision, with its age and review (ADR 0052). */
+  restriction: {
+    kind: "protective" | "decision";
+    since: string;
+    ageDays: number;
+    reviewBy: string | null;
+    overdue: boolean;
+    decision: { outcome: DecisionOutcome; reason: string | null; by: string | null; at: string | null } | null;
+  } | null;
   escalated: { at: string; by: string; reason: string | null } | null;
+  /** Safeguarding escalations recorded in this case: who, when, why (a fixed choice). */
+  safeguardingEscalations: { by: string; at: string; kind: EscalationKind; reason: string }[];
+  /** Requests for a review of the restriction, from the restricted adult: that one was made and how it stands, never what was said. */
+  appeals: { id: number; status: "open" | "decided"; at: string; outcome: "lifted" | "continues" | null }[];
   lines: ReportLine[];
   notes: { id: number; action: string; by: string; detail: string | null; at: string }[];
 }
@@ -118,7 +146,26 @@ export async function caseView(admin: Admin, id: number): Promise<{ ok: true; ca
   const actions = (await db.prepare("SELECT id, action, actor_name, detail, created_at FROM youth_report_actions WHERE report_id = ? ORDER BY id").all(id)) as {
     id: number; action: string; actor_name: string; detail: string | null; created_at: string;
   }[];
-  const restricted = Boolean(await db.prepare("SELECT 1 FROM youth_thread_mutes WHERE report_id = ? AND lifted_at IS NULL").get(id));
+  const mute = (await db
+    .prepare(
+      `SELECT m.id, m.kind, m.created_at, COALESCE(m.review_by, datetime(m.created_at, '+${protectiveReviewDays()} days')) AS review_by, m.decision_outcome, m.decision_reason, m.decided_by, m.decided_at,
+              (m.kind = 'protective' AND COALESCE(m.review_by, datetime(m.created_at, '+${protectiveReviewDays()} days')) <= datetime('now')) AS overdue,
+              GREATEST(0, floor(extract(epoch FROM (now() AT TIME ZONE 'utc') - m.created_at::timestamp) / 86400)::int) AS age_days
+         FROM youth_thread_mutes m WHERE m.report_id = ? AND m.lifted_at IS NULL`
+    )
+    .get(id)) as
+    | { id: number; kind: "protective" | "decision"; created_at: string; review_by: string; decision_outcome: DecisionOutcome | null; decision_reason: string | null; decided_by: string | null; decided_at: string | null; overdue: boolean; age_days: number }
+    | undefined;
+  const restricted = Boolean(mute);
+  const escalations = actions
+    .filter((a) => a.action === "safeguarding_escalated")
+    .map((a) => {
+      const [kind, ...rest] = (a.detail ?? "").split(": ");
+      return { by: a.actor_name, at: a.created_at, kind: ((ESCALATION_KINDS as readonly string[]).includes(kind) ? kind : "other") as EscalationKind, reason: rest.join(": ") };
+    });
+  const appeals = (await db
+    .prepare("SELECT p.id, p.status, p.created_at, p.outcome FROM youth_restriction_appeals p JOIN youth_thread_mutes m ON m.id = p.mute_id WHERE m.report_id = ? ORDER BY p.id")
+    .all(id)) as { id: number; status: "open" | "decided"; created_at: string; outcome: "lifted" | "continues" | null }[];
   await caseAudit(id, r.context_id, admin.name, "read");
   return {
     ok: true,
@@ -134,7 +181,19 @@ export async function caseView(admin: Admin, id: number): Promise<{ ok: true; ca
       reporter: parseLabel(r.reporter_label),
       reported: { userId: r.reported_id, label: parseLabel(r.reported_label), adult: r.reported_id !== null && (await declaredAdult(r.reported_id)) === true },
       restricted,
+      restriction: mute
+        ? {
+            kind: mute.kind,
+            since: mute.created_at,
+            ageDays: mute.age_days,
+            reviewBy: mute.kind === "protective" ? mute.review_by : null,
+            overdue: mute.overdue,
+            decision: mute.kind === "decision" ? { outcome: mute.decision_outcome as DecisionOutcome, reason: mute.decision_reason, by: mute.decided_by, at: mute.decided_at } : null,
+          }
+        : null,
       escalated: r.escalated_at ? { at: r.escalated_at, by: r.escalated_by ?? "", reason: r.escalation_reason } : null,
+      safeguardingEscalations: escalations,
+      appeals: appeals.map((p) => ({ id: p.id, status: p.status, at: p.created_at, outcome: p.outcome })),
       lines: lines.map((l) => ({ id: l.id, from: parseLabel(l.sender_label), body: l.body, at: l.sent_at, flagged: l.flagged === 1 })),
       notes: actions.map((a) => ({ id: a.id, action: a.action, by: a.actor_name, detail: a.detail, at: a.created_at })),
     },
@@ -143,6 +202,12 @@ export async function caseView(admin: Admin, id: number): Promise<{ ok: true; ca
 
 /** Whether a note to the reported adult gives away who reported or repeats what was reported. A speed bump for the moderator's own words, not a guarantee. */
 async function givesAway(r: CaseRow, text: string): Promise<boolean> {
+  return givesAwayReport(r.id, r.reporter_id, text);
+}
+
+/** The same check for any words that go to the reported adult (a note to them, the outcome of their request for a review): not the reporter, not what was reported. */
+export async function givesAwayReport(reportId: number, reporterId: number | null, text: string): Promise<boolean> {
+  const r = { id: reportId, reporter_id: reporterId };
   const db = getDb();
   const lower = text.toLowerCase();
   if (r.reporter_id !== null) {
@@ -157,10 +222,10 @@ async function givesAway(r: CaseRow, text: string): Promise<boolean> {
  * One step of the case (see the top of this file), each with its own checks and each recorded. Steps on one report run one at a time (the report's
  * row is locked). Not found for a report that is not theirs or names them.
  */
-export async function caseStep(admin: Admin, id: number, input: { step: unknown; reason?: unknown; text?: unknown }): Promise<{ ok: true } | Refused> {
+export async function caseStep(admin: Admin, id: number, input: { step: unknown; reason?: unknown; text?: unknown; outcome?: unknown; kind?: unknown }): Promise<{ ok: true } | Refused> {
   if (typeof input.step !== "string" || !(STEPS as readonly string[]).includes(input.step)) return no("Choose what to do.");
   const step = input.step as Step;
-  const done = await withTransaction(async (): Promise<({ ok: true } & { escalate?: { groupId: number; reportId: number }; notify?: { userId: number; text: string; reportId: number; groupId: number } }) | Refused> => {
+  const done = await withTransaction(async (): Promise<({ ok: true } & { escalate?: { groupId: number; reportId: number }; safeguarding?: { groupId: number; reportId: number; kind: EscalationKind }; notify?: { userId: number; text: string; reportId: number; groupId: number } }) | Refused> => {
     const r = await caseFor(admin, id, true);
     if (!r) return NOT_HERE();
     const db = getDb();
@@ -176,16 +241,23 @@ export async function caseStep(admin: Admin, id: number, input: { step: unknown;
     if (step !== "notify" && !reason) return no("Say why, in a few words.");
     if (step === "confirm") {
       if (!(await db.prepare("SELECT 1 FROM youth_thread_mutes WHERE report_id = ? AND lifted_at IS NULL").get(id))) return no("There is no restriction in force on this report.", 409);
+      // Continuing a protective restriction after looking at it, with a reason, is a review: its date to be reviewed by starts again.
+      await db
+        .prepare(`UPDATE youth_thread_mutes SET review_by = datetime('now', '+${protectiveReviewDays()} days'), last_reviewed_at = datetime('now'), last_reviewed_by = ?, overdue_notified_at = NULL WHERE report_id = ? AND lifted_at IS NULL AND kind = 'protective'`)
+        .run(by, id);
       await caseAudit(id, group, by, "restriction_confirmed", reason);
       return { ok: true };
     }
     if (step === "extend") {
       if (r.reported_id === null) return no("The person this names is no longer here.", 409);
-      const live = await db.prepare("UPDATE youth_thread_mutes SET reason = 'Held by safeguarding review.', muted_by = ? WHERE report_id = ? AND lifted_at IS NULL").run(by, id);
-      // A restriction already lifted is put back in force: the hold is the moderator's to keep, not the report's status.
+      const next = `datetime('now', '+${protectiveReviewDays()} days')`;
+      const live = await db
+        .prepare(`UPDATE youth_thread_mutes SET reason = 'Held by safeguarding review.', muted_by = ?, review_by = CASE WHEN kind = 'protective' THEN ${next} ELSE review_by END, last_reviewed_at = datetime('now'), last_reviewed_by = ?, overdue_notified_at = NULL WHERE report_id = ? AND lifted_at IS NULL`)
+        .run(by, by, id);
+      // A restriction already lifted is put back in force: the hold is the moderator's to keep, not the report's status. A protective one, with a date to be reviewed by.
       if (live.changes === 0)
         await db
-          .prepare("INSERT INTO youth_thread_mutes (group_id, user_id, source, report_id, reason, muted_by) VALUES (?, ?, 'report', ?, 'Held by safeguarding review.', ?) ON CONFLICT DO NOTHING")
+          .prepare(`INSERT INTO youth_thread_mutes (group_id, user_id, source, report_id, reason, muted_by, kind, review_by) VALUES (?, ?, 'report', ?, 'Held by safeguarding review.', ?, 'protective', ${next}) ON CONFLICT DO NOTHING`)
           .run(group, r.reported_id, id, by);
       await caseAudit(id, group, by, "restriction_extended", reason);
       return { ok: true };
@@ -202,6 +274,33 @@ export async function caseStep(admin: Admin, id: number, input: { step: unknown;
       await db.prepare("UPDATE player_message_reports SET escalated_at = datetime('now'), escalated_by = ?, escalation_reason = ? WHERE id = ?").run(by, reason, id);
       await caseAudit(id, group, by, "escalated", reason);
       return { ok: true, escalate: { groupId: group, reportId: id } };
+    }
+    if (step === "decide") {
+      // A moderator's recorded outcome, with its reason: for a reported adult. A protective restriction is not a finding; a decision is the moderator's own word.
+      const outcome = typeof input.outcome === "string" && (DECISION_OUTCOMES as readonly string[]).includes(input.outcome) ? (input.outcome as DecisionOutcome) : null;
+      if (!outcome) return no("Choose the outcome: removed from this group's conversation, or messaging suspended.");
+      if (r.reported_id === null || (await declaredAdult(r.reported_id)) !== true) return no("A decision is recorded about a reported adult only. A minor's guardians follow the usual notices.", 409);
+      const mute = (await db.prepare("SELECT id, kind FROM youth_thread_mutes WHERE report_id = ? AND lifted_at IS NULL FOR UPDATE").get(id)) as { id: number; kind: string } | undefined;
+      if (!mute) return no("There is no restriction in force on this report.", 409);
+      if (mute.kind === "decision") return no("A decision has already been recorded for this restriction.", 409);
+      await db
+        .prepare(
+          `UPDATE youth_thread_mutes SET kind = 'decision', decision_outcome = ?, decision_reason = ?, decided_by = ?, decided_at = datetime('now'), review_by = NULL, overdue_notified_at = NULL,
+                  last_reviewed_at = datetime('now'), last_reviewed_by = ? WHERE id = ?`
+        )
+        .run(outcome, reason, by, by, mute.id);
+      await caseAudit(id, group, by, "restriction_decided", `${outcome}: ${reason}`);
+      await consentEvent(group, "staff", "restriction_decided", { minorId: r.reported_id, detail: `report ${id}: ${outcome}` });
+      return { ok: true };
+    }
+    if (step === "safeguarding") {
+      const kind = typeof input.kind === "string" && (ESCALATION_KINDS as readonly string[]).includes(input.kind) ? (input.kind as EscalationKind) : null;
+      if (!kind) return no("Choose why: suspected abuse, imminent danger, a possibly reportable incident, or other.");
+      // The owner sees the case from now on (as for an ordinary escalation), told at once; who, when and why are in the case.
+      if (r.escalated_at === null)
+        await db.prepare("UPDATE player_message_reports SET escalated_at = datetime('now'), escalated_by = ?, escalation_reason = ? WHERE id = ?").run(by, "Escalated for safeguarding.", id);
+      await caseAudit(id, group, by, "safeguarding_escalated", `${kind}: ${reason}`);
+      return { ok: true, safeguarding: { groupId: group, reportId: id, kind } };
     }
     // notify: the only way the reported adult is ever told, in the moderator's own words.
     const text = clean(input.text, 10, 1000);
@@ -220,6 +319,23 @@ export async function caseStep(admin: Admin, id: number, input: { step: unknown;
       await tellOwnersEach(
         (t) => ({ subject: t("msg3.mail.escalatedSubject", { group: group?.name ?? "" }), body: staffSentences(t, t("msg3.mail.escalatedBody", { group: group?.name ?? "", id: escalate.reportId })) }),
         { exceptEmails: await staffEmailsOf(r?.reported_id ?? null), kind: "safeguarding_notice" }
+      );
+    } catch (err) {
+      console.error("[mysenam] could not queue a safeguarding notice:", err instanceof Error ? err.message : "unknown error");
+    }
+  }
+  if (done.safeguarding) {
+    const { safeguarding } = done;
+    const group = (await getDb().prepare("SELECT name FROM community_groups WHERE id = ?").get(safeguarding.groupId)) as { name: string } | undefined;
+    const rep = (await getDb().prepare("SELECT reported_id FROM player_message_reports WHERE id = ?").get(safeguarding.reportId)) as { reported_id: number | null } | undefined;
+    try {
+      // At once, to every owner (never the person reported if they are staff too): the kind of escalation and where, never who reported or what was said.
+      await tellOwnersEach(
+        (t) => ({
+          subject: t("msg4.mail.safeguardingSubject", { group: group?.name ?? "" }),
+          body: staffSentences(t, t("msg4.mail.safeguardingBody", { group: group?.name ?? "", id: safeguarding.reportId, kind: t(`msg4.esc.${safeguarding.kind}` as "msg4.esc.other") }), t("msg4.guidance")),
+        }),
+        { exceptEmails: await staffEmailsOf(rep?.reported_id ?? null), kind: "safeguarding_notice" }
       );
     } catch (err) {
       console.error("[mysenam] could not queue a safeguarding notice:", err instanceof Error ? err.message : "unknown error");

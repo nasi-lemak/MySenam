@@ -10,6 +10,8 @@
   guardian manages; the participant's own login linked by both sides agreeing).
 - **Amended by [ADR 0049](0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md) (5 November 2026)** in two places, each marked where it stands below: a guardian's switch-off is no longer undone by
   another guardian's switch-on, and a report in a youth thread is no longer told to the supervisors or to the person reported.
+- **Amended by [ADR 0052](0052-youth-messaging-interim-safeguards-pending-legal-review.md) (5 November 2026)**: youth messaging is **off in production** unless the install is approved; a youth
+  group's conversation below is **not deleted while a case is active in the group**, and a report in a youth thread is **not kept 365 days then deleted** (no period is invented for safeguarding evidence).
 - **Context:** the owner asked: *allow supervised group messaging for eligible minors, but prohibit unsolicited private messaging;
   include moderation, reporting, age-appropriate guardian controls and safeguarding measures; use a 6-hour notification digest by
   default, with immediate delivery for urgent safety or moderation events.* ADR 0039 had kept the conservative end of its brief: a

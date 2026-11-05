@@ -6,6 +6,7 @@ import { venueZoneOf } from "./zones";
 import { guardianshipOf } from "./participants";
 import { blockPlayer } from "./player-safety";
 import type { Seat, SeatLabel } from "./message-contexts";
+import { youthMessagingEnabled } from "./youth-launch";
 import { consentInForce, consentInForceSql, lockConsentState, needsAgreement, recordSwitchOff, settleObjection, youthGroupsOfMember, type AuthorityLevel } from "./youth-consent";
 
 /**
@@ -75,6 +76,19 @@ const REFUSALS = {
   YG_LEVEL: ["Choose whether this guardian decides about messaging, may only object, or has no say.", 400],
   YG_NOTE_ID: ["Say in words what you were shown. Do not enter identity or document numbers.", 400],
   YG_NO_HOLD: ["There is no hold on this child's messaging in this group.", 404],
+  YG_OFF: ["Youth messaging is not enabled on this install: it needs safeguarding and legal approval first.", 409],
+  YG_AUTH_INPUT: ["Choose a status (asserted, verified, disputed or unclear), a basis, and what it removes from the guardian's say.", 400],
+  YG_VERIFY: ["Only a venue's manager for a child the venue manages, or the platform's owner, can record a verified decision.", 403],
+  YG_REVIEW: ["There is no such authority review.", 404],
+  YG_REVIEW_OPEN: ["A guardian link of this child is still disputed or unclear: record a decision first.", 409],
+  YG_OWNER_ONLY: ["Only the platform's owner can do that.", 403],
+  YG_HOLD: ["There is no such hold.", 404],
+  YG_HOLD_REF: ["Give a short reference in words. Do not enter identity, case or document numbers.", 400],
+  YG_OUTCOME: ["Choose an outcome: resolved, or remains unclear.", 400],
+  YG_ESCALATED: ["That is already with the platform's owner.", 409],
+  YG_APPEAL_TEXT: ["Do not name who made the report or repeat what was reported.", 400],
+  YG_DATE: ["Give the date as year-month-day.", 400],
+  YG_APPEAL_DUP: ["Your request for a review has already been received.", 409],
 } as const;
 export type YouthRefusalCode = keyof typeof REFUSALS;
 
@@ -82,6 +96,9 @@ export function refuseYouth(code: YouthRefusalCode, vars?: Record<string, string
   const [text, status] = REFUSALS[code];
   return { ok: false, code, status, error: vars ? text.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? "")) : text, ...(vars ? { vars } : {}) };
 }
+
+/** The refusal every youth entry point gives while youth messaging is not enabled on this install (lib/youth-launch.ts); null when it is. */
+export const youthOff = (): YouthRefusal | null => (youthMessagingEnabled() ? null : refuseYouth("YG_OFF"));
 
 const firstName = (name: string): string => name.trim().split(/\s+/)[0] ?? name;
 const clean = (raw: unknown, max = 300): string | null => (typeof raw === "string" && raw.trim().length >= 3 ? raw.trim().replace(/\s+/g, " ").slice(0, max) : null);
@@ -146,19 +163,21 @@ export async function youthGroupOf(groupId: number): Promise<YouthGroup | null> 
  */
 export async function youthSeats(groupId: number): Promise<Seat[]> {
   const db = getDb();
-  // A group that is not marked, or no longer is, has no youth seats at all.
+  // A group that is not marked, or no longer is, has no youth seats at all; nor has any group while youth messaging is not enabled on this install (ADR 0052).
+  if (!youthMessagingEnabled()) return [];
   const group = await youthGroupOf(groupId);
   if (!group || group.endedAt) return [];
   const adults = (await db
     .prepare(
       `SELECT a.user_id, a.role, u.name,
-              EXISTS (SELECT 1 FROM youth_thread_mutes t WHERE t.group_id = a.group_id AND t.user_id = a.user_id AND t.lifted_at IS NULL) AS restricted
+              EXISTS (SELECT 1 FROM youth_thread_mutes t WHERE t.group_id = a.group_id AND t.user_id = a.user_id AND t.lifted_at IS NULL) AS restricted,
+              EXISTS (SELECT 1 FROM youth_thread_mutes t WHERE t.group_id = a.group_id AND t.user_id = a.user_id AND t.lifted_at IS NULL AND t.kind = 'decision') AS decided
          FROM youth_group_adults a
          JOIN group_members m ON m.group_id = a.group_id AND m.user_id = a.user_id AND m.status = 'member'
          JOIN users u ON u.id = a.user_id
         WHERE a.group_id = ? AND a.removed_at IS NULL ORDER BY a.id`
     )
-    .all(groupId)) as { user_id: number; role: "supervisor" | "adult"; name: string; restricted: boolean }[];
+    .all(groupId)) as { user_id: number; role: "supervisor" | "adult"; name: string; restricted: boolean; decided: boolean }[];
   const minors = (await db
     .prepare(
       `SELECT m.user_id, u.name FROM group_members m JOIN users u ON u.id = m.user_id
@@ -174,7 +193,7 @@ export async function youthSeats(groupId: number): Promise<Seat[]> {
     // An adult whose access is paused keeps a seat, only to be shown the neutral line: no supervisor's powers, nobody's reader (ADR 0049).
     ...adults
       .filter((a) => !minorIds.has(a.user_id))
-      .map((a): Seat => (a.restricted ? { userId: a.user_id, role: "adult", restricted: true, from: { n: firstName(a.name), r: a.role } } : { userId: a.user_id, role: a.role, from: { n: firstName(a.name), r: a.role } })),
+      .map((a): Seat => (a.restricted ? { userId: a.user_id, role: "adult", restricted: true, ...(a.decided ? { decided: true } : {}), from: { n: firstName(a.name), r: a.role } } : { userId: a.user_id, role: a.role, from: { n: firstName(a.name), r: a.role } })),
     ...minors.map((m): Seat => ({ userId: m.user_id, minor: true, from: { n: shortName(m.name) } })),
   ];
 }
@@ -318,6 +337,7 @@ async function organiserRefusal(g: { organiser_id: number }, userId: number, gro
  * setting of a group: nothing about it is part of anybody's setup.
  */
 export async function markYouthGroup(userId: number, groupId: number): Promise<Result> {
+  { const off = youthOff(); if (off) return off; }
   const g = await groupFor(groupId);
   if (!g) return refuseYouth("YG_NOT_FOUND");
   if (g.organiser_id !== userId) return refuseYouth("YG_ORGANISER");
@@ -374,6 +394,7 @@ export async function endYouthGroup(actor: { userId: number } | { staffName: str
 
 /** The organiser asks a venue to look after the group (or withdraws the request, `venueId` null). Until a manager accepts, the platform owner moderates it. */
 export async function requestVenue(userId: number, groupId: number, venueId: number | null): Promise<Result> {
+  { const off = youthOff(); if (off) return off; }
   const g = await groupFor(groupId);
   const y = await youthGroupOf(groupId);
   if (!g || !y) return refuseYouth("YG_NOT_FOUND");
@@ -412,6 +433,7 @@ export async function answerVenueRequest(admin: { name: string; venueIds: number
 
 /** The organiser lengthens the group's rest hours (never shortens the install's: a restriction is never weakened by a setting a venue or organiser can reach). `null` clears the group's own. */
 export async function setGroupQuiet(userId: number, groupId: number, input: { from: unknown; to: unknown } | null): Promise<Result> {
+  { const off = youthOff(); if (off) return off; }
   const g = await groupFor(groupId);
   const y = await youthGroupOf(groupId);
   if (!g || !y) return refuseYouth("YG_NOT_FOUND");
@@ -434,6 +456,7 @@ export async function setGroupQuiet(userId: number, groupId: number, input: { fr
  * takes them out. Only an adult member who has declared they are 18 or over. The organiser is always a supervisor and stays one.
  */
 export async function setYouthAdult(userId: number, groupId: number, input: { memberUserId: unknown; role: unknown; declaredRole: unknown; remove?: unknown }): Promise<Result> {
+  { const off = youthOff(); if (off) return off; }
   const g = await groupFor(groupId);
   const y = await youthGroupOf(groupId);
   if (!g || !y) return refuseYouth("YG_NOT_FOUND");
@@ -493,6 +516,8 @@ export interface YouthGroupState {
 export async function youthGroupState(userId: number, groupId: number): Promise<YouthGroupState | YouthRefusal> {
   const g = await groupFor(groupId);
   if (!g) return refuseYouth("YG_NOT_FOUND");
+  // While youth messaging is not enabled the group's youth settings say so plainly, to the organiser only (anybody else is a stranger, as always).
+  if (!youthMessagingEnabled()) return g.organiser_id === userId ? refuseYouth("YG_OFF") : refuseYouth("YG_NOT_FOUND");
   // A person whose access is paused has none of an organiser's or a supervisor's powers, and is told nothing of why (ADR 0049).
   const organiser = g.organiser_id === userId && !(await accessPaused(groupId, userId));
   const supervisor = organiser || (await isSupervisor(userId, groupId));
@@ -565,9 +590,12 @@ export interface MyYouthGroup {
  * The supervised youth groups this account is in, with where each of the three consents stands, for the child's own first-use screen.
  * Only for an account that has not declared 18 or over; an adult is told nothing here.
  */
-export async function myYouthGroups(userId: number): Promise<{ eligible: boolean; linked: boolean; groups: MyYouthGroup[] }> {
+export async function myYouthGroups(userId: number): Promise<{ eligible: boolean; linked: boolean; groups: MyYouthGroup[]; enabled: boolean }> {
   const db = getDb();
-  if ((await declaredAdult(userId)) === true) return { eligible: false, linked: false, groups: [] };
+  const enabled = youthMessagingEnabled();
+  if ((await declaredAdult(userId)) === true) return { eligible: false, linked: false, groups: [], enabled };
+  // A minor has no seat anywhere while youth messaging is not enabled, and is told so plainly (ADR 0052).
+  if (!enabled) return { eligible: true, linked: false, groups: [], enabled };
   const linked = Boolean(await db.prepare("SELECT 1 FROM participants pt JOIN participant_guardians g ON g.participant_id = pt.id WHERE pt.linked_user_id = ? AND g.user_id IS NOT NULL AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.archived_at IS NULL").get(userId));
   const rows = (await db
     .prepare(
@@ -585,7 +613,7 @@ export async function myYouthGroups(userId: number): Promise<{ eligible: boolean
     const active = (await youthSeats(r.id)).some((s) => s.userId === userId);
     out.push({ groupId: r.id, name: r.name, sport: r.sport, supervisors: sup.map((s) => ({ name: firstName(s.name), declaredRole: s.declared_role })), optedIn, guardianOn, active });
   }
-  return { eligible: true, linked, groups: out };
+  return { eligible: true, linked, groups: out, enabled };
 }
 
 /** The guardians' side is in force: a consent from a guardian who decides, and no objection still waiting for them all (lib/youth-consent.ts). */
@@ -609,6 +637,7 @@ export async function setMinorOptIn(userId: number, groupId: number, on: boolean
       await youthEvent(groupId, "minor", "opt_out", { actorId: userId, minorId: userId });
       return { ok: true as const };
     }
+    { const off = youthOff(); if (off) return off; }
     const guarded = await db
       .prepare("SELECT 1 FROM participants pt JOIN participant_guardians g ON g.participant_id = pt.id WHERE pt.linked_user_id = ? AND g.user_id IS NOT NULL AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.archived_at IS NULL")
       .get(userId);
@@ -694,6 +723,8 @@ export async function setConsent(guardianId: number, participantId: unknown, gro
   const found = await guardianChild(guardianId, participantId);
   if ("ok" in found) return found;
   const { child } = found;
+  // Switching messaging off is always allowed; switching it on is not while youth messaging is not enabled on this install (ADR 0052).
+  if (on) { const off = youthOff(); if (off) return off; }
   if (on && child.authority === "objects_only") return refuseYouth("YG_OBJECTS_ONLY");
   const y = await youthGroupOf(groupId);
   if (!y || y.endedAt) return refuseYouth("YG_NOT_YOUTH");
@@ -777,6 +808,7 @@ export async function guardianNoticeMode(minorId: number): Promise<GuardianNotic
  * reaches the child, nothing the child writes reaches them). Never a supervisor (a thread no supervisor can read is not supervised).
  */
 export async function guardianBlock(guardianId: number, participantId: unknown, groupId: number, targetUserId: unknown): Promise<Result> {
+  { const off = youthOff(); if (off) return off; }
   const found = await guardianChild(guardianId, participantId);
   if ("ok" in found) return found;
   if (!Number.isInteger(targetUserId)) return refuseYouth("YG_BLOCK_TARGET");
@@ -867,6 +899,7 @@ export async function guardianOverview(guardianId: number): Promise<GuardianChil
 // ------------------------------------------------------------------ the supervisor
 
 async function supervisedThread(userId: number, groupId: number): Promise<{ threadId: number } | YouthRefusal> {
+  { const off = youthOff(); if (off) return off; }
   const y = await youthGroupOf(groupId);
   if (!y) return refuseYouth("YG_NOT_FOUND");
   if (y.endedAt) return refuseYouth("YG_ENDED");

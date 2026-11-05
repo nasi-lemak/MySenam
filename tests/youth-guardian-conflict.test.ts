@@ -122,7 +122,7 @@ describe("authority per guardian link", () => {
 
   it("lets a guardian who may only object switch messaging off, never on, and never counts them towards restoring it", async () => {
     const { g, pid, g1, g2, link, seat } = await world();
-    expect(await staffSetGuardianAuthority(owner, { guardianshipId: await link(g2), level: "objects_only", note: "Shown a contact order, 3 Nov" })).toMatchObject({ ok: true });
+    expect(await staffSetGuardianAuthority(owner, { guardianshipId: await link(g2), level: "objects_only", status: "verified", basis: "legal_guardian", note: "Shown a contact order, 3 Nov" })).toMatchObject({ ok: true });
     expect(await setConsent(g2.id, pid, g, true)).toMatchObject({ ok: false, code: "YG_OBJECTS_ONLY", status: 403 });
     // They can object: messaging goes off, and one open objection is recorded at their level.
     expect(await setConsent(g2.id, pid, g, false)).toMatchObject({ ok: true });
@@ -138,7 +138,7 @@ describe("authority per guardian link", () => {
 
   it("gives a guardian with no say none of it: refused everywhere, shown nothing, told nothing", async () => {
     const { g, pid, g1, g2, link, seat } = await world();
-    expect(await staffSetGuardianAuthority(owner, { guardianshipId: await link(g2), level: "none", note: "Court-ordered restriction shown to the venue" })).toMatchObject({ ok: true });
+    expect(await staffSetGuardianAuthority(owner, { guardianshipId: await link(g2), level: "none", status: "verified", basis: "legal_guardian", note: "Court-ordered restriction shown to the venue" })).toMatchObject({ ok: true });
     for (const r of [
       await setConsent(g2.id, pid, g, false),
       await setConsent(g2.id, pid, g, true),
@@ -174,15 +174,18 @@ describe("authority per guardian link", () => {
     // A manager whose venue accepted the group may.
     expect(await requestVenue(org.id, g, venues[0].id)).toMatchObject({ ok: true });
     expect(await staffAnswerVenue(managerA, g, true)).toMatchObject({ ok: true });
-    expect(await staffSetGuardianAuthority(managerA, { guardianshipId: id, level: "objects_only", note: "  Shown a contact order  " })).toMatchObject({ ok: true });
-    const row = (await getDb().prepare("SELECT messaging_authority, messaging_authority_by, messaging_authority_note, messaging_authority_at FROM participant_guardians WHERE id = ?").get(id)) as Record<string, string>;
-    expect(row).toMatchObject({ messaging_authority: "objects_only", messaging_authority_by: "Mia Manager", messaging_authority_note: "Shown a contact order" });
+    // The venue that only looks after the group is not one that manages the child: it may record what it was shown, which is an assertion (and, for a restriction,
+    // sets the link to unclear), never a verified decision (ADR 0052).
+    expect(await staffSetGuardianAuthority(managerA, { guardianshipId: id, level: "objects_only", status: "verified", basis: "legal_guardian" })).toMatchObject({ ok: false, code: "YG_VERIFY" });
+    expect(await staffSetGuardianAuthority(managerA, { guardianshipId: id, level: "objects_only", note: "  Shown a contact order  " })).toMatchObject({ ok: true, status: "unclear", level: "decides" });
+    const row = (await getDb().prepare("SELECT messaging_authority, messaging_authority_by, messaging_authority_note, messaging_authority_at, authority_status, authority_restrictions, authority_standard FROM participant_guardians WHERE id = ?").get(id)) as Record<string, string>;
+    expect(row).toMatchObject({ messaging_authority: "decides", messaging_authority_by: "Mia Manager", messaging_authority_note: "Shown a contact order", authority_status: "unclear", authority_restrictions: "may_object_only", authority_standard: "interim: pending legal review" });
     expect(row.messaging_authority_at).toBeTruthy();
     const logged = (await getDb().prepare("SELECT action, detail FROM staff_actions WHERE action = 'messages.youth_authority' ORDER BY id DESC LIMIT 1").get()) as { action: string; detail: string };
-    expect(logged.detail).toBe(`Guardian link ${id}: decides to objects_only`);
+    expect(logged.detail).toBe(`Guardian link ${id}: status asserted to unclear, restrictions none to may_object_only, basis not_stated`);
     expect(logged.detail).not.toContain("contact order");
-    expect((await events(g)).filter((e) => e.action === "authority_changed")).toEqual([
-      expect.objectContaining({ actor_kind: "staff", detail: `guardian ${g2.id}: decides to objects_only` }),
+    expect((await events(g)).filter((e) => e.action === "authority_decided")).toEqual([
+      expect.objectContaining({ actor_kind: "staff", detail: `guardian ${g2.id}: asserted to unclear; basis not_stated; restrictions may_object_only; interim: pending legal review` }),
     ]);
     void pid;
   });
@@ -238,9 +241,9 @@ describe("an objection", () => {
     expect(await setConsent(g1.id, pid, g, true)).toMatchObject({ ok: true, restored: false });
     expect(await seat()).toBe(false);
     // The venue records that the second guardian has no say in messaging: the first guardian's agreement is now every guardian who decides.
-    expect(await staffSetGuardianAuthority(owner, { guardianshipId: await link(g2), level: "none" })).toMatchObject({ ok: true });
+    expect(await staffSetGuardianAuthority(owner, { guardianshipId: await link(g2), level: "none", status: "verified", basis: "legal_guardian" })).toMatchObject({ ok: true });
     expect(await seat()).toBe(true);
-    expect((await events(g)).map((e) => e.action)).toEqual(expect.arrayContaining(["authority_changed", "objection_agreed"]));
+    expect((await events(g)).map((e) => e.action)).toEqual(expect.arrayContaining(["authority_decided", "objection_agreed"]));
   });
 
   it("is also opened by switching messaging off everywhere, in each youth group the child is in", async () => {
@@ -308,7 +311,7 @@ describe("a safeguarding administrator settles a hold", () => {
 
   it("shows who objected, at what level, and each guardian's level and note, only to safeguarding administrators, each reading recorded", async () => {
     const { org, g, g1, g2, link, pid } = await held();
-    expect(await staffSetGuardianAuthority(owner, { guardianshipId: await link(g2), level: "objects_only", note: "Shown a contact order" })).toMatchObject({ ok: true });
+    expect(await staffSetGuardianAuthority(owner, { guardianshipId: await link(g2), level: "objects_only", status: "verified", basis: "legal_guardian", note: "Shown a contact order" })).toMatchObject({ ok: true });
     const view = await staffSafeguardingView(owner, g);
     if (!view.ok) throw new Error(view.error);
     expect(view.children).toHaveLength(1);
@@ -510,7 +513,7 @@ describe("races between simultaneous consent changes", () => {
     const g2Link = await link(g2);
     const lock = holding(g, kid.id);
     await lock.ready;
-    const demote = staffSetGuardianAuthority(owner, { guardianshipId: g2Link, level: "none" });
+    const demote = staffSetGuardianAuthority(owner, { guardianshipId: g2Link, level: "none", status: "verified", basis: "legal_guardian" });
     await settle();
     const off = setConsent(g1.id, pid, g, false);
     await settle();

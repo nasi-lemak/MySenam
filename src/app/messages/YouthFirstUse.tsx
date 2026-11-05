@@ -14,7 +14,7 @@ import type { MyYouthGroup } from "@/lib/youth-messages";
  */
 export function YouthFirstUse({ onOpen }: { onOpen: (groupId: number) => void }) {
   const t = useT();
-  const [data, setData] = useState<{ linked: boolean; groups: MyYouthGroup[] } | null>(null);
+  const [data, setData] = useState<{ linked: boolean; groups: MyYouthGroup[]; enabled?: boolean } | null>(null);
   const [understood, setUnderstood] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +45,12 @@ export function YouthFirstUse({ onOpen }: { onOpen: (groupId: number) => void })
         <p>{t("pmy.first.who")}</p>
         <p>{t("pmy.first.rules")}</p>
         <p>{t("pmy.first.safe")}</p>
-        {data && !data.linked && <p className="rounded-md bg-amber-50 px-3 py-2 text-amber-900">{t("pmy.first.needGuardian")}</p>}
+        {data && data.enabled === false && (
+          <p role="status" className="rounded-md bg-amber-50 px-3 py-2 text-amber-900" data-testid="youth-off">
+            {t("err.YG_OFF")}
+          </p>
+        )}
+        {data && data.enabled !== false && !data.linked && <p className="rounded-md bg-amber-50 px-3 py-2 text-amber-900">{t("pmy.first.needGuardian")}</p>}
       </section>
       {error && (
         <p role="alert" className="text-sm text-red-600">

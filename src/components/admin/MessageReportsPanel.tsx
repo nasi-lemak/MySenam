@@ -5,7 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { SeatLabel } from "@/lib/message-contexts";
 import type { MessageReportOut, SuspensionOut } from "@/lib/message-moderation";
 import type { CaseOut } from "@/lib/youth-report-cases";
+import type { AppealItem } from "@/lib/youth-restrictions";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
+import { AppealsSection, CaseRestriction } from "./YouthSafeguardingExtras";
 
 type Show = "open" | "reviewed" | "all";
 type Kind = "game" | "team" | "group" | "tournament-match" | "league-match" | "ladder-challenge" | "team-fixture";
@@ -26,6 +28,8 @@ export function MessageReportsPanel() {
   const [show, setShow] = useState<Show>("open");
   const [reports, setReports] = useState<MessageReportOut[] | null>(null);
   const [suspensions, setSuspensions] = useState<SuspensionOut[]>([]);
+  // Requests for a review of a restriction that are this staff member's to decide (ADR 0052).
+  const [appeals, setAppeals] = useState<AppealItem[]>([]);
   const [scope, setScope] = useState<"venue" | "platform">("venue");
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +51,7 @@ export function MessageReportsPanel() {
         const page = (data?.reports ?? []) as MessageReportOut[];
         setReports((had) => (before && had ? [...had, ...page] : page));
         setSuspensions((data?.suspensions ?? []) as SuspensionOut[]);
+        setAppeals((data?.appeals ?? []) as AppealItem[]);
         setScope(data?.scope === "platform" ? "platform" : "venue");
         setMore(page.length >= PAGE);
       } catch (err) {
@@ -179,12 +184,13 @@ export function MessageReportsPanel() {
                           <ul className="space-y-0.5 text-xs text-slate-600">
                             {cases[r.id].notes.map((n) => (
                               <li key={n.id}>
-                                {clock.when(n.at)} · {n.by} · {t(`msg3.case.act.${n.action}` as "msg3.case.act.read")}
+                                {clock.when(n.at)} · {n.by} · {t.known(`msg4.case.act.${n.action}`) ?? t(`msg3.case.act.${n.action}` as "msg3.case.act.read")}
                                 {n.detail && n.action !== "read" ? `: ${n.detail}` : ""}
                               </li>
                             ))}
                           </ul>
                         )}
+                        <CaseRestriction c={cases[r.id]} reason={reasonFor(key)} act={(step, body) => void caseAct(r.id, step, body)} />
                         <div className="flex flex-wrap gap-2">
                           <button className={small} onClick={() => void caseAct(r.id, "confirm", { reason: reasonFor(key) })}>
                             {t("msg3.case.confirm")}
@@ -336,6 +342,7 @@ export function MessageReportsPanel() {
           );
         })}
       </ul>
+      <AppealsSection items={appeals} onChanged={() => void load(show)} />
     </details>
   );
 }

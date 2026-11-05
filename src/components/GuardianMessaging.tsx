@@ -24,12 +24,15 @@ export default function GuardianMessaging() {
   const [notice, setNotice] = useState<string | null>(null);
   const [reading, setReading] = useState<Reading | null>(null);
   const [hours, setHours] = useState(6);
+  // Youth messaging may not be enabled on this install (ADR 0052): said plainly; switching it off stays possible.
+  const [enabled, setEnabled] = useState(true);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/my/people/messaging", { cache: "no-store" });
     if (res.ok) {
       const data = await readJson(res);
       setChildren(data.children);
+      setEnabled(data.enabled !== false);
       if (typeof data.digestHours === "number") setHours(data.digestHours);
     }
   }, []);
@@ -69,6 +72,11 @@ export default function GuardianMessaging() {
         </h2>
         <p className="text-sm text-slate-600">{t("pmy.guardian.intro")}</p>
         <p className="text-sm text-slate-600">{t("pmy.guardian.disagree")}</p>
+        {!enabled && (
+          <p role="status" className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="youth-off">
+            {t("err.YG_OFF")}
+          </p>
+        )}
       </div>
       {error && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">

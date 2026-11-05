@@ -87,6 +87,14 @@ export function AttentionPanel() {
     classMoveRequests?: MoveRequestView[];
     /** A manager's: venues whose overrides of advisory windows in 7 days are past the venue's limit (lib/window-overrides.ts). */
     windowOverrideAlerts?: { venueId: number; count: number; limit: number }[];
+    /** Safeguarding (ADR 0052): the owner's overdue restrictions and escalated cases, and what is waiting for a manager or the owner to decide. */
+    safeguarding?: {
+      overdue: { reportId: number | null; groupId: number; groupName: string }[];
+      escalatedCases: { reportId: number; groupId: number; groupName: string; kind: string }[];
+      appealsWaiting: number;
+      reviewsOpen: number;
+      retention: { cases: number; holds: number; months: number } | null;
+    } | null;
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +125,9 @@ export function AttentionPanel() {
   const uncovered = data?.uncovered ?? [];
   const moveRequests = data?.classMoveRequests ?? [];
   const overrideAlerts = data?.windowOverrideAlerts ?? [];
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0)) return null;
+  const sg = data?.safeguarding ?? null;
+  const sgLines = sg ? sg.overdue.length + sg.escalatedCases.length + sg.appealsWaiting + sg.reviewsOpen + (sg.retention ? 1 : 0) : 0;
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && sgLines === 0)) return null;
 
   /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
   async function guardianTold(taskId: number) {
@@ -135,6 +145,20 @@ export function AttentionPanel() {
   const reach = reachLabels(t);
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label={t("att.title")}>
+      {sg && sgLines > 0 && (
+        <div className="mb-3 space-y-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="safeguarding-attention">
+          <strong>{t("msg4.att.title")}</strong>
+          {sg.overdue.map((o) => (
+            <p key={`o${o.groupId}-${o.reportId}`}>{t("msg4.att.overdue", { group: o.groupName, id: o.reportId ?? 0 })}</p>
+          ))}
+          {sg.escalatedCases.map((e) => (
+            <p key={`e${e.reportId}`}>{t("msg4.att.escalated", { group: e.groupName, id: e.reportId, kind: t.known(`msg4.esc.${e.kind}`) ?? e.kind })}</p>
+          ))}
+          {sg.appealsWaiting > 0 && <p>{t.plural("msg4.att.appeals", sg.appealsWaiting)}</p>}
+          {sg.reviewsOpen > 0 && <p>{t.plural("msg4.att.reviews", sg.reviewsOpen)}</p>}
+          {sg.retention && <p>{t("msg4.att.retention", { cases: sg.retention.cases, holds: sg.retention.holds, months: sg.retention.months })}</p>}
+        </div>
+      )}
       {reviews.length > 0 && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900">
           <strong>{t("gw5.att.reviews")}</strong>{" "}

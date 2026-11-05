@@ -13,6 +13,63 @@ const REASONS = ["abuse", "spam", "contact", "safety", "other"] as const;
 const POLL_MS = 15_000;
 
 /**
+ * On the neutral line an adult whose access is restricted sees, the same whatever the cause: ask for it to be looked at again (ADR 0052). One short text; nothing
+ * about why is shown or asked, and nothing here promises any legal right. Once asked, it says it was received, and later the outcome in neutral words.
+ */
+function ReviewRequest({ groupId }: { groupId: number }) {
+  const t = useT();
+  const [state, setState] = useState<{ state: "none" | "received" | "decided"; outcome: "lifted" | "continues" | null; text: string | null } | null>(null);
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/messages/youth/review?groupId=${groupId}`, { cache: "no-store" });
+    if (res.ok) setState(await readJson(res));
+  }, [groupId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  async function send() {
+    setError(null);
+    const res = await fetch("/api/messages/youth/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ groupId, text }) });
+    const data = await readJson(res).catch(() => null);
+    if (!res.ok) return setError(translateError(t, data));
+    setText("");
+    await load();
+  }
+  if (!state) return null;
+  return (
+    <section aria-labelledby="pmy-review" className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-sm" data-testid="review-request">
+      {state.state === "received" && <p role="status">{t("msg4.review.received")}</p>}
+      {state.state === "decided" && (
+        <p role="status">
+          {t(state.outcome === "lifted" ? "msg4.review.lifted" : "msg4.review.continues")} {state.text}
+        </p>
+      )}
+      {state.state !== "received" && (
+        <>
+          <h2 id="pmy-review" className="font-semibold">
+            {t("msg4.review.ask")}
+          </h2>
+          <p className="text-slate-600">{t("msg4.review.note")}</p>
+          <label className="block font-medium">
+            {t("msg4.review.label")}
+            <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={300} rows={2} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          </label>
+          {error && (
+            <p role="alert" className="text-red-600">
+              {error}
+            </p>
+          )}
+          <button type="button" onClick={() => void send()} className="min-h-10 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:border-teal-500">
+            {t("msg4.review.send")}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
  * One conversation (docs/features/player-messages.md): the messages, newest last, a box to write in, and for each message from somebody
  * else a way to block them or report it. New messages are announced in a live region for screen readers and arrive by polling.
  * Text only: a message is shown as the plain text it is, with no link opened and no picture loaded.
@@ -293,6 +350,7 @@ export function Thread({ kind, id, onBack }: { kind: string; id: number; onBack:
                       : ""}
             </p>
           )}
+          {(view.whyNot === "PM_ACCESS_PAUSED" || view.whyNot === "PM_ACCESS_DECIDED") && kind === "group" && <ReviewRequest groupId={id} />}
           {view.youth?.role === "supervisor" && (
             <section aria-labelledby="pmy-sup" className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-sm" data-testid="supervisor-tools">
               <h2 id="pmy-sup" className="font-semibold">

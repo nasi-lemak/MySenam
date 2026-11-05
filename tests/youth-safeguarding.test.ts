@@ -334,7 +334,7 @@ describe("who may call each route", () => {
     // The child's own opt-in route: a declared adult is told it is not for them.
     expect((await reply(await (await youthRoute()).POST(call("http://localhost/api/messages/youth", "POST", stranger.cookie, { groupId: g, on: true })))).status).toBe(404);
     expect((await reply(await (await youthRoute()).POST(call("http://localhost/api/messages/youth", "POST", a.kid.cookie, { groupId: "x" })))).status).toBe(400);
-    expect((await reply(await (await youthRoute()).GET(call("http://localhost/api/messages/youth", "GET", stranger.cookie)))).body).toEqual({ eligible: false, linked: false, groups: [] });
+    expect((await reply(await (await youthRoute()).GET(call("http://localhost/api/messages/youth", "GET", stranger.cookie)))).body).toEqual({ eligible: false, linked: false, groups: [], enabled: true });
     expect((await reply(await (await youthRoute()).GET(call("http://localhost/api/messages/youth", "GET", a.kid.cookie)))).body).toMatchObject({ eligible: true, linked: true, groups: [{ groupId: g, active: true }] });
   });
 
