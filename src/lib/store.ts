@@ -114,6 +114,7 @@ import { venueContact, type VenueContact } from "./venue-contact";
 import { hoursOn, parseWeekHours, storedHours, validateUsualHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
+import { coachSupervising, recordSupervisors, supervisionRefusal, supervisorsOf, unsupervisedOn, type Supervisor } from "./rosters";
 import { utilisationByDay, type UseSplit } from "./reports";
 import { cancelPolicy, cancelPolicyFor, lateCancelTerms } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
@@ -736,6 +737,11 @@ export interface CourtDay {
   zone: string;
   /** The business day these are the hours of. */
   date: string;
+  /**
+   * Where a session of its activity here has too few qualified people rostered (lib/rosters.ts): no start may overlap
+   * it. Absent where no supervision is asked of it. The booking asks again, in its own transaction (`supervisionRefusal`).
+   */
+  unsupervised?: Span[];
 }
 
 async function courtDays(courts: Court[], date: string): Promise<Map<number, CourtDay>> {
@@ -751,6 +757,7 @@ async function courtDays(courts: Court[], date: string): Promise<Map<number, Cou
     .all(date, ...venueIds)) as { venue_id: number }[];
   // The courts' own hours as set for this date (ADR 0027).
   const policies = await policiesFor(courts, date);
+  const supervisedHours = new Map<number, { span: Span; zone: string }>();
   for (const court of courts) {
     const v = rows.find((r) => r.id === court.venueId);
     // The venue's hours as set for this date, whatever is in force today (ADR 0027).
@@ -758,17 +765,23 @@ async function courtDays(courts: Court[], date: string): Promise<Map<number, Cou
     const policy = policies.get(court.id)!;
     const h = policyHoursOn(policy, venue, date);
     const venueClosedWeekday = hoursOn(venue, date).closed;
+    const closed = h.closed || venueClosedWeekday || shut.some((c) => c.venue_id === court.venueId);
+    const zone = venueZoneOf(v ?? {});
     out.set(court.id, {
       // At the rates set for this date (ADR 0027).
       court: courtOn(court, date),
       policy,
       openMin: h.openMin,
       closeMin: h.closeMin,
-      closed: h.closed || venueClosedWeekday || shut.some((c) => c.venue_id === court.venueId),
-      zone: venueZoneOf(v ?? {}),
+      closed,
+      zone,
       date,
     });
+    if (!closed) supervisedHours.set(court.id, { span: { start: h.openMin, end: h.closeMin }, zone });
   }
+  // Where nobody qualified is rostered for an activity that asks for somebody (lib/rosters.ts).
+  const unsupervised = await unsupervisedOn(courts.map((c) => ({ id: c.id, venueId: c.venueId, sport: c.sport })), date, supervisedHours);
+  for (const [id, spans] of unsupervised) out.get(id)!.unsupervised = spans;
   return out;
 }
 
@@ -838,6 +851,7 @@ export async function courtsForAnyBooking(input: { venueId: number; sport: Sport
     const span = asked.span;
     if (policyBreaches(day.policy, span, day, minutesUntil(date, span.start, zone)).length > 0) continue;
     if (minutesUntil(date, span.start, zone) <= 0) continue;
+    if (day.unsupervised?.some((g) => overlaps(g, span))) continue;
     if (!fits(held.get(court.id)!, court.capacity, span, policyBuffers(day.policy))) continue;
     priced.push({ court, price: priceBooking({ court, date, span, rules, pricing: day.policy.pricing, at: Date.now(), players, games: input.games ?? null }).total });
   }
@@ -1080,6 +1094,11 @@ export function startOptions(day: CourtDay, occupants: Occupant[], date: string,
       if (start + length > day.closeMin) break;
       // Where the clocks change, no booking touching the change (lib/time.ts); longer ones would too.
       if (crossesClockChange(day.date, start, start + length, day.zone)) break;
+      // Nobody qualified rostered for some of it (lib/rosters.ts): longer ones overlap the same time.
+      if (day.unsupervised?.some((g) => overlaps(g, { start, end: start + length }))) {
+        if (wide) continue;
+        break;
+      }
       if (!fits(occupants, court.capacity, { start, end: start + length }, buffers, ignore)) {
         // Fixed lengths need not fit in order, but anything longer than one that does not fit will not either.
         if (wide) continue;
@@ -1178,6 +1197,8 @@ export async function getAvailability(
       const session = inCell.find((o) => o.kind === "class" && overlaps(o.span, cell));
       const cleared = clear.filter((z) => overlaps(z, cell));
       const full = day.closed || load >= court.capacity || cleared.some((z) => z.start <= cell.start && z.end >= cell.end);
+      // Nobody qualified is rostered for some of it, where the activity asks for somebody (lib/rosters.ts).
+      const unsupervised = day.unsupervised?.some((g) => overlaps(g, cell)) === true;
       // Held for some of it, not all: a booking from 18:07, or a buffer (on a shared facility, its turnover).
       const partly = !full && (court.capacity === 1 ? inCell.length > 0 : cleared.length > 0);
       const past = minutesUntil(date, minute, zone) <= 0;
@@ -1191,7 +1212,8 @@ export async function getAvailability(
         booked,
         capacity: court.capacity,
         // A class owns the time: enrolling is the only way in.
-        available: !full && !partly && !session && !past,
+        available: !full && !partly && !session && !past && !unsupervised,
+        ...(unsupervised && !full ? { unsupervised: true } : {}),
         ...(partly ? { partly: true } : {}),
         ...(session ? { className: classNames.get(session.classId!) ?? "", classId: session.classId! } : {}),
         // Only meaningful while places remain; `blocked` covers the rest.
@@ -1772,6 +1794,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       const ahead = minutesUntil(input.date, start, zone);
       if (ahead <= 0 || ahead < day.policy.noticeMinutes) continue;
       const span = { start, end: start + held1 };
+      if (day.unsupervised?.some((g) => overlaps(g, span))) continue;
       if (!fits(occupants, court.capacity, span, buffers)) continue;
       shownUpTo = start;
       results.push({
@@ -2377,6 +2400,8 @@ export async function createBookingSeries(
       // same index page as every other, and Postgres stopped some (B13).
       const bookingIds: number[] = [];
       const skipped: SeriesSkip[] = [];
+      let missing: Refusal | null = null;
+      let supervisionSkips = 0;
       // Asked again in the booking's own transaction: a membership suspended, cancelled or ended while this
       // booking was being made is either seen here, or sees this booking when it flags its bookings
       // (lib/membership-suspensions.ts, lib/membership-flags.ts): the transactions are serializable, so never neither.
@@ -2408,6 +2433,12 @@ export async function createBookingSeries(
         if (!reason) {
           try {
             bookingId = await withTransaction(async () => {
+              // Somebody qualified on shift for the whole of it, where the activity here asks for one (lib/rosters.ts):
+              // asked in this transaction, under the roster's lock. An enrolment is the class's, checked when it was made.
+              if (!input.classId) {
+                const bare = await supervisionRefusal({ venueId: court.venueId, courtId: court.id, sport: court.sport, date: weekDate, span, zone });
+                if (bare) throw new SupervisorMissing(bare);
+              }
               const id = (await db
                 .prepare(
                   `INSERT INTO bookings (code, court_id, sport, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
@@ -2446,13 +2477,24 @@ export async function createBookingSeries(
                 }
               }
               // An enrolment holds a place in its class; the class holds the court.
-              if (!input.classId)
+              if (!input.classId) {
                 await claim({ court, source: { kind: "booking", bookingId: id.id }, date: weekDate, span, zone, places: players, ...claimBuffers(policy) });
+                // Who is on shift, kept with the booking whatever the roster does afterwards (a coach's lock comes after the court's).
+                await recordSupervisors({ session: { kind: "booking", id: id.id }, venueId: court.venueId, courtId: court.id, sport: court.sport, date: weekDate, span, zone });
+              }
               return id.id;
             });
           } catch (err) {
-            if (!isConflict(err)) throw err;
-            reason = await reasonFor(weekDate);
+            if (err instanceof SupervisorMissing) {
+              // One booking says so as the customer is told; a week of a series is named with the role missing, and skipped if the customer said so.
+              if (weeks === 1) throw err;
+              missing ??= err.refusal;
+              reason = `no ${String(err.refusal.vars?.role ?? "supervisor").replace(/:/g, " ")} rostered`;
+              supervisionSkips++;
+            } else {
+              if (!isConflict(err)) throw err;
+              reason = await reasonFor(weekDate);
+            }
           }
         }
         if (reason || bookingId === null) {
@@ -2462,6 +2504,8 @@ export async function createBookingSeries(
         }
         bookingIds.push(bookingId);
       }
+      // Every week refused for want of a supervisor says so, rather than that they were all taken.
+      if (bookingIds.length === 0 && missing && supervisionSkips === skipped.length) throw new SupervisorMissing(missing);
       if (bookingIds.length === 0) throw new Error("ALL_CONFLICT");
       return { bookingIds, skipped };
     });
@@ -2470,6 +2514,7 @@ export async function createBookingSeries(
     return { ok: true, bookings, skipped: result.skipped, seriesCode, ...(breaches.length > 0 ? { overrides: breaches } : {}) };
   } catch (err: unknown) {
     if (err instanceof MembershipLapsed) return err.refusal;
+    if (err instanceof SupervisorMissing) return err.refusal;
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith("CONFLICT:")) {
       const [, conflictDate, reason] = message.split(":");
@@ -2503,6 +2548,13 @@ export async function createBookingSeries(
 
 /** A membership that stopped covering somebody while their booking was being made: its refusal, out of the transaction. */
 class MembershipLapsed extends Error {
+  constructor(readonly refusal: Refusal) {
+    super(refusal.error);
+  }
+}
+
+/** Nobody qualified rostered for the whole of a session (lib/rosters.ts `supervisionRefusal`): its refusal, out of the transaction that was making it. */
+class SupervisorMissing extends Error {
   constructor(readonly refusal: Refusal) {
     super(refusal.error);
   }
@@ -2809,7 +2861,32 @@ export interface ScheduleEntry {
   places?: number;
   /** Made on another court sharing this one's floor. */
   viaCourt?: number;
+  /** Who supervises it, where the activity asks for somebody (lib/rosters.ts): the record kept when it was made. */
+  supervisors?: SupervisorLine[];
 }
+
+/** One line of who is named on a session, for staff: the role, and the person (a manager's decision to let it stand has none). */
+export interface SupervisorLine {
+  role: string;
+  roleKey: string;
+  person: string | null;
+  how: "rostered" | "covered" | "override";
+  reason?: string;
+}
+
+const supervisorLines = (list: Supervisor[] | undefined): SupervisorLine[] | undefined => {
+  if (!list || list.length === 0) return undefined;
+  // One line for each role and person, however many pieces of the session they cover.
+  const seen = new Set<string>();
+  const out: SupervisorLine[] = [];
+  for (const s of list) {
+    const k = `${s.roleKey}|${s.personKind ?? ""}${s.personId ?? ""}|${s.how}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ role: s.roleName, roleKey: s.roleKey, person: s.personName, how: s.how, ...(s.reason ? { reason: s.reason } : {}) });
+  }
+  return out;
+};
 
 export interface AdminCourtSlots {
   court: Court;
@@ -2897,6 +2974,9 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
     ).map((o) => [o.id, o.reason])
   );
   const classNames = await classNamesFor(all.map((o) => o.classId).filter((id): id is number => id !== null));
+  // Who supervises each booking and class session, where the activity asks for somebody (lib/rosters.ts).
+  const supervisedBookings = await supervisorsOf("booking", bookingIds);
+  const supervisedClasses = await supervisorsOf("class", [...new Set(all.map((o) => o.classId).filter((id): id is number => id !== null))]);
   // An outage nobody gave a reason for is out of service: MySenam's words, so a phrase too.
   const unexplained = (o: Occupant) => o.outageId !== null && outageReasons.has(o.outageId) && outageReasons.get(o.outageId) === null;
   const reasonOf = (o: Occupant) =>
@@ -2943,12 +3023,16 @@ export async function getAdminSlots(venueId: number, date: string): Promise<Admi
               : unexplained(o)
                 ? said("srv.sch.outOfService")
                 : undefined;
+      const supervisors = supervisorLines(
+        o.kind === "booking" && o.bookingId !== null ? supervisedBookings.get(o.bookingId) : o.kind === "class" && o.classId !== null ? supervisedClasses.get(o.classId) : undefined
+      );
       entries.push({
         kind: o.kind,
         start: clip(o.span.start),
         end: clip(o.span.end),
         label,
         ...(phrase ? { phrase } : {}),
+        ...(supervisors ? { supervisors } : {}),
         ...(b ? { bookingCode: b.code } : {}),
         ...(o.blockId !== null ? { blockId: o.blockId } : {}),
         ...places,
@@ -3679,6 +3763,13 @@ async function rescheduleBookingOnce(
           const again = await gameUnder(booking.id);
           if (again && (again.players > 0 || (again.pendingMove !== null && again.pendingMove !== to.hold?.moveId))) throw new BookingChanged();
         }
+        // Somebody qualified on shift for the new time, where the activity there asks for one (lib/rosters.ts): a move of
+        // time or court is asked as a booking is. A change of coach alone moves nothing the roster is asked about.
+        const movesSession = to.date !== booking.date || span.start !== booking.startMin || court.id !== booking.courtId;
+        if (movesSession) {
+          const bare = await supervisionRefusal({ venueId: court.venueId, courtId: court.id, sport: booking.sport, date: to.date, span, zone, exceptBookingId: booking.id });
+          if (bare) throw new SupervisorMissing(bare);
+        }
         if (to.hold) {
           // The booking keeps its own time; the new time is held beside it. Where
           // the two overlap on floor the booking already holds (the same court, or
@@ -3749,9 +3840,13 @@ async function rescheduleBookingOnce(
           if (to.fromHold !== undefined) await unclaim({ kind: "move", moveId: to.fromHold });
           // The claims are what decide: a booking, class, block, waiting-list offer or held move there refuses it.
           await reclaimBooking(booking, court, to.date, span, zone, day.policy);
+          // Who is on shift at the new time, kept with the booking (the old record stays as history).
+          if (movesSession) await recordSupervisors({ session: { kind: "booking", id: booking.id }, venueId: court.venueId, courtId: court.id, sport: booking.sport, date: to.date, span, zone });
           if (lesson) {
             // The coach for the new time, after the courts (the order every claim locks in): taken, and the move is refused.
             await lockCoach(lesson.coachId);
+            // Named to supervise another session then: a coach is one person with one schedule (lib/rosters.ts).
+            if (await coachSupervising(lesson.coachId, to.date, span, zone, booking.id)) throw new CoachTaken();
             await db.prepare("DELETE FROM coach_claims WHERE booking_id = ?").run(booking.id);
             try {
               await db
@@ -3786,6 +3881,10 @@ async function rescheduleBookingOnce(
     } catch (err) {
       if (err instanceof PreviewOnly) return { ...result, booking, preview: true, ...(coachChange ? { coachChange } : {}) };
       if (err instanceof BookingChanged) return refuse("RESCHEDULE_CHANGED");
+      if (err instanceof SupervisorMissing) {
+        firstRefusal ??= err.refusal;
+        continue;
+      }
       if (err instanceof CoachTaken) return refuse("COACH_TAKEN", { name: lesson?.name ?? "" });
       if (isConflict(err)) continue;
       throw err;
@@ -3870,6 +3969,7 @@ export async function rescheduleOptions(code: string, date: string, opts: { coac
       const span = { start, end: start + length };
       if (policyBreaches(day.policy, span, day, minutesUntil(date, start, zone)).length > 0) continue;
       if (coachFree && !coachFree.some((f) => f.start <= span.start && span.end <= f.end)) continue;
+      if (day.unsupervised?.some((g) => overlaps(g, span))) continue;
       if (!fits(held.get(c.id)!, c.capacity, span, policyBuffers(day.policy), own, players)) continue;
       const price = quoteBooking(c, day.policy, date, span, member, rules, undefined, players, booking.games ?? null).total;
       options.set(start, {
@@ -3921,6 +4021,7 @@ export async function bookAgainLink(code: string): Promise<string | null> {
     for (const c of courts) {
       const day = days2.get(c.id)!;
       if (policyBreaches(day.policy, span, day, minutesUntil(date, span.start, day.zone)).length > 0) continue;
+      if (day.unsupervised?.some((g) => overlaps(g, span))) continue;
       if (fits(held.get(c.id)!, c.capacity, span, policyBuffers(day.policy), undefined, booking.players ?? 1)) return link(date, c.id);
     }
   }
@@ -3992,8 +4093,16 @@ async function moveBookingOnce(code: string, toCourtId: number): Promise<MoveRes
   const policy = await policyFor(toCourt);
   try {
     // Its claims go to the other court in one step; the constraints refuse it there if anything holds that time.
-    await withTransaction(() => reclaimBooking(booking, toCourt, booking.date, { start: booking.startMin, end: booking.endMin }, zone, policy));
+    await withTransaction(async () => {
+      const span = { start: booking.startMin, end: booking.endMin };
+      // Somebody qualified on shift on the court it goes to, where the activity there asks for one (lib/rosters.ts).
+      const bare = await supervisionRefusal({ venueId: toCourt.venueId, courtId: toCourt.id, sport: booking.sport, date: booking.date, span, zone, exceptBookingId: booking.id });
+      if (bare) throw new SupervisorMissing(bare);
+      await reclaimBooking(booking, toCourt, booking.date, span, zone, policy);
+      await recordSupervisors({ session: { kind: "booking", id: booking.id }, venueId: toCourt.venueId, courtId: toCourt.id, sport: booking.sport, date: booking.date, span, zone });
+    });
   } catch (err) {
+    if (err instanceof SupervisorMissing) return err.refusal;
     if (isConflict(err)) return { ok: false, error: await inTheWay(booking, toCourt, policy, zone) };
     throw err;
   }
@@ -4076,11 +4185,16 @@ async function addGamesOnce(code: string, extra: number): Promise<AddGamesResult
         .get(booking.id)) as { status: string; end_min: number; court_id: number; payment_status: string; games: number | null };
       if (now.status !== booking.status || now.end_min !== booking.endMin || now.court_id !== booking.courtId || now.payment_status !== booking.paymentStatus || now.games !== booking.games)
         throw new BookingChanged();
+      // The longer session needs somebody qualified on shift too, where the activity here asks for one (lib/rosters.ts).
+      const bare = await supervisionRefusal({ venueId: court.venueId, courtId: court.id, sport: booking.sport, date: booking.date, span, zone, exceptBookingId: booking.id });
+      if (bare) throw new SupervisorMissing(bare);
       // The claims decide: the next time on the lane booked, blocked or kept free refuses it.
       await reclaimBooking(booking, court, booking.date, span, zone, policy);
+      await recordSupervisors({ session: { kind: "booking", id: booking.id }, venueId: court.venueId, courtId: court.id, sport: booking.sport, date: booking.date, span, zone });
       await db.prepare("UPDATE bookings SET games = ?, total_price = total_price + ? WHERE id = ?").run(games, priceChange, booking.id);
     });
   } catch (err) {
+    if (err instanceof SupervisorMissing) return err.refusal;
     if (err instanceof BookingChanged) return refuse("RESCHEDULE_CHANGED");
     if (isConflict(err)) return refuse("GAMES_ADD_TAKEN", { court: court.name });
     throw err;
@@ -4106,6 +4220,8 @@ export async function moveTargetsFor(code: string): Promise<Court[]> {
   // Booked, blocked, a class, or offered to somebody on the waiting list, as the move itself counts; its own time is free.
   return candidates.filter((c) => {
     const p = days.get(c.id)!.policy;
+    // Nobody qualified rostered there for some of it is not a court it can go to (lib/rosters.ts).
+    if (days.get(c.id)!.unsupervised?.some((g) => overlaps(g, span))) return false;
     return fits(held.get(c.id)!, c.capacity, span, policyBuffers(p), (o) => o.bookingId === booking.id, booking.players ?? 1);
   });
 }
@@ -4444,6 +4560,8 @@ export interface AdminBookingRow extends Booking {
   coachPaid?: { changeId: number; amount: number; coach: string; via: string }[];
   /** A manager's overrides of the venue's policies that let it through: which, why, by whom (lib/policy-overrides.ts). */
   policyOverrides?: BookingOverride[];
+  /** Who supervises it, where the activity asks for somebody on shift: the record kept when it was made (lib/rosters.ts). */
+  supervisors?: SupervisorLine[];
 }
 
 export interface UserBookingRow extends Booking {
@@ -6069,6 +6187,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
 
   // A manager's overrides of the venue's policies, on the bookings they let through (lib/policy-overrides.ts).
   const overridden = await overridesFor(rows.map((r) => r.id));
+  const supervised = await supervisorsOf("booking", rows.map((r) => r.id));
   const list: AdminBookingRow[] = [];
   for (const r of rows) {
     const booking = toBooking(r);
@@ -6101,6 +6220,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
       ...(coachOwed.has(booking.id) ? { coachOwed: coachOwed.get(booking.id)! } : {}),
       ...(coachPaid.has(booking.id) ? { coachPaid: coachPaid.get(booking.id)! } : {}),
       ...(overridden.has(booking.id) ? { policyOverrides: overridden.get(booking.id)! } : {}),
+      ...(supervisorLines(supervised.get(booking.id)) ? { supervisors: supervisorLines(supervised.get(booking.id))! } : {}),
     });
   }
   return list;
@@ -6278,6 +6398,9 @@ export async function createClassSessions(input: {
       const sessions: ClassSession[] = [];
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
+        // Somebody qualified on shift for the whole of it, where the activity here asks for one (lib/rosters.ts).
+        const bare = await supervisionRefusal({ venueId: court.venueId, courtId, sport: court.sport, date: weekDate, span, zone: day.zone });
+        if (bare) throw new SupervisorMissing(weeks > 1 ? refuse("SV1_NO_SUPERVISOR_ON", { role: String(bare.vars?.role ?? ""), n: Number(bare.vars?.n ?? 1), date: weekDate }) : bare);
         const row = (await db
           .prepare(
             `INSERT INTO classes (court_id, name, instructor, date, start_min, end_min, capacity, price, series_code, who, term_off_percent)
@@ -6305,12 +6428,14 @@ export async function createClassSessions(input: {
           const why = whyTaken(held, court, span, policyBuffers(day.policy));
           throw new Error(`${why?.why === "class" ? "CLASH" : "BOOKED"}:${weekDate}`);
         }
+        await recordSupervisors({ session: { kind: "class", id: row.id }, venueId: court.venueId, courtId, sport: court.sport, date: weekDate, span, zone: day.zone });
         sessions.push((await getClass(row.id))!);
       }
       return sessions;
     });
     return { ok: true, classes: created, seriesCode };
   } catch (err) {
+    if (err instanceof SupervisorMissing) return err.refusal;
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith("BOOKED:"))
       return {

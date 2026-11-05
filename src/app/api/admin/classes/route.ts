@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
     who: who === "women" || who === "men" ? who : "anyone",
     termOffPercent: termOffPercent === undefined || termOffPercent === null || termOffPercent === "" ? null : Number(termOffPercent),
   });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return NextResponse.json({ error: result.error, ...(result.code ? { code: result.code, ...(result.vars ? { vars: result.vars } : {}) } : {}) }, { status: 409 });
   await logAction(admin, {
     venueId: court.venueId,
     action: "class.scheduled",

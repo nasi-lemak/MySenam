@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   if (deniedTarget) return deniedTarget;
 
   const result = await moveBooking(code, courtId as number);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return NextResponse.json({ error: result.error, ...(result.code ? { code: result.code, ...(result.vars ? { vars: result.vars } : {}) } : {}) }, { status: 409 });
   await logAction(admin, {
     venueId,
     action: "booking.moved",

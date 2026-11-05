@@ -36,6 +36,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/accounts\/invoices\/\d+$/, methods: ["DELETE"] },
   { path: /^\/api\/admin\/data-request$/, methods: "all" },
   { path: /^\/api\/admin\/coaches$/, methods: ["POST", "DELETE"] },
+  // Who supervises sessions (lib/rosters.ts): the roles, rosters and qualifications, the rules that ask for somebody on shift, and a manager's
+  // decision about a session left without one. The desk reads the roster and the list of such sessions, and may make a link to its own shifts.
+  { path: /^\/api\/admin\/roster(\/uncovered)?$/, methods: ["POST"] },
   { path: /^\/api\/admin\/strikes$/, methods: ["POST"] },
   { path: /^\/api\/admin\/einvoicing$/, methods: "all" },
   { path: /^\/api\/admin\/reviews$/, methods: ["POST"] },
@@ -197,6 +200,9 @@ export const STAFF_ACTIONS = {
   classChange: "PATCH /api/admin/classes/1",
   classCancel: "DELETE /api/admin/classes/1",
   coaches: "POST /api/admin/coaches",
+  // The roster and the rules that ask for somebody on shift; deciding a session left without a supervisor.
+  roster: "POST /api/admin/roster",
+  rosterDecide: "POST /api/admin/roster/uncovered",
   // Credit & passes
   passVoid: "POST /api/admin/passes/1/void",
   passProducts: "POST /api/admin/pass-products",

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { UrgentNotice } from "@/lib/urgent";
 import type { OverdueRefunds } from "@/lib/payments";
 import type { GuardianReviews, NoticeTask } from "@/lib/contact-guardians";
+import type { UncoveredSession } from "@/lib/rosters";
+import { formatMinute } from "@/lib/interval";
 import { money } from "@/lib/region";
 import { formatHour } from "@/lib/time";
 import type { StaffT } from "@/lib/staff-i18n";
@@ -73,6 +75,8 @@ export function AttentionPanel() {
     refundsOverdue?: OverdueRefunds[];
     guardianTasks?: NoticeTask[];
     guardianReviews?: GuardianReviews[];
+    /** Sessions to come with too few qualified people rostered (lib/rosters.ts), for a manager to decide. */
+    uncovered?: UncoveredSession[];
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +101,8 @@ export function AttentionPanel() {
   const tasks = data?.guardianTasks ?? [];
   const reviews = data?.guardianReviews ?? [];
   const guardians = tasks.length + reviews.length > 0;
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians)) return null;
+  const uncovered = data?.uncovered ?? [];
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && uncovered.length === 0)) return null;
 
   /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
   async function guardianTold(taskId: number) {
@@ -119,6 +124,25 @@ export function AttentionPanel() {
         <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900">
           <strong>{t("gw5.att.reviews")}</strong>{" "}
           {reviews.map((r) => t("gw5.att.reviewLine", { venue: r.venueName, waiting: r.waiting, due: r.datesDue })).join(" ")}
+        </div>
+      )}
+      {uncovered.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900">
+          <strong>{t.plural("rs1.att.title", uncovered.length)}</strong>
+          <p className="mt-0.5 text-xs">{t("rs1.att.help")}</p>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {uncovered.slice(0, 8).map((u) => (
+              <li key={`${u.kind}:${u.id}`}>
+                {t("rs1.att.line", {
+                  when: `${u.date} ${formatMinute(u.startMin, t.locale)}`,
+                  court: u.courtName,
+                  what: u.kind === "booking" ? (u.code ?? u.name) : u.name,
+                  roles: u.roles.map((r) => `${r.needed} × ${t.known(`rs1.role.${r.roleKey}`) ?? r.roleName}`).join(", "),
+                })}
+              </li>
+            ))}
+          </ul>
+          {uncovered.length > 8 && <p className="mt-1 text-xs">{t("rs1.att.more", { n: uncovered.length - 8 })}</p>}
         </div>
       )}
       {tasks.length > 0 && (

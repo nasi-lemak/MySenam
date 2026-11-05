@@ -180,7 +180,7 @@ function firstLength(policy: PublicPolicy, option: StartOption): number | null {
  * cannot, because no cancellation will ever free it. Past by the venue's clock.
  */
 function canQueue(slot: CourtAvailability["slots"][number], date: string, zone: string): boolean {
-  if (slot.available || slot.blocked || slot.className || slot.outside) return false;
+  if (slot.available || slot.blocked || slot.className || slot.outside || slot.unsupervised) return false;
   return !isPastSlot(date, slot.minute / 60, zone);
 }
 
@@ -330,6 +330,8 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
     () => (availability ?? []).some((a) => a.court.capacity > 1),
     [availability]
   );
+  // An activity that asks for somebody qualified on shift, with times nobody is rostered for (lib/rosters.ts).
+  const hasUnsupervised = useMemo(() => (availability ?? []).some((a) => a.slots.some((s) => s.unsupervised)), [availability]);
 
   /**
    * The rows in the order shown: kinds of the same thing under one heading
@@ -672,7 +674,9 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                                   ? t("board.queueHint")
                                   : slot.className
                                     ? t("board.reservedFor", { name: slot.className })
-                                    : t("board.unavailable")
+                                    : slot.unsupervised
+                                      ? t("sv1.slotNoSupervisor")
+                                      : t("board.unavailable")
                                 : shared
                                   ? t("board.sharedSlot", {
                                       time: formatMinute(slot.minute, t.locale),
@@ -750,6 +754,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
               <span className="mr-1 inline-block h-3 w-3 rounded bg-slate-100 align-middle" />
               {t("board.legendTaken")}
             </span>
+            {hasUnsupervised && <span>{t("sv1.slotNoSupervisor")}</span>}
           </div>
         </div>
       ) : (

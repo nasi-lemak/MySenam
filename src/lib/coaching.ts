@@ -6,6 +6,7 @@ import { addDays, isValidDateString, todayISO } from "./time";
 import { type Refusal, type Sport, type StartOption } from "./types";
 import { LATEST_MINUTE, freeWithin, instantOf, minuteOfDay, rangeLiteral, type Span } from "./interval";
 import { isConflict, lockCoach, occupantsOn } from "./claims";
+import { coachSupervising } from "./rosters";
 
 /**
  * One-to-one coaching. A venue lists its coaches, what each coaches, their
@@ -278,6 +279,9 @@ export async function lessonStarts(coach: Coach, date: string, sport: Sport): Pr
 
 export type AttachResult = { ok: true; fee: number } | Refusal;
 
+/** The coach is named to supervise another session in the time of this lesson (lib/rosters.ts `coachSupervising`). */
+class CoachSupervising extends Error {}
+
 /**
  * Put the coach on a booking just made: the coach claimed for its time,
  * their fee on its price, pro rata to the minute. Refused, and nothing
@@ -304,6 +308,8 @@ export async function attachCoach(bookingId: number, coach: Coach): Promise<Atta
   try {
     await withTransaction(async () => {
       await lockCoach(coach.id);
+      // Named to supervise another session then (lib/rosters.ts): a coach is one person with one schedule.
+      if (await coachSupervising(coach.id, booking.date, span, zone, bookingId)) throw new CoachSupervising();
       await db
         .prepare("INSERT INTO coach_claims (coach_id, booking_id, during) VALUES (?, ?, ?::tstzrange)")
         .run(coach.id, bookingId, rangeLiteral(booking.date, span.start, span.end, zone));
@@ -312,7 +318,7 @@ export async function attachCoach(bookingId: number, coach: Coach): Promise<Atta
         .run(coach.id, fee, fee, bookingId);
     });
   } catch (err) {
-    if (isConflict(err)) return refuse("COACH_TAKEN", { name: coach.name });
+    if (isConflict(err) || err instanceof CoachSupervising) return refuse("COACH_TAKEN", { name: coach.name });
     throw err;
   }
   return { ok: true, fee };

@@ -47,6 +47,7 @@ import { refundStatusFor, takesPaymentOnline } from "@/lib/payments";
 import { chatNumber } from "@/lib/outbox";
 import { chatOfferedFor } from "@/lib/whatsapp-credit";
 import { addonsFor, attachAddons, priceChoice, readChosen, type BookingAddon } from "@/lib/addons";
+import { rolesOnBookings } from "@/lib/rosters";
 import { receiptPath } from "@/lib/receipts";
 import { reviewable, reviewPath } from "@/lib/reviews";
 import { recordConsent } from "@/lib/marketing";
@@ -714,6 +715,8 @@ export async function GET(req: NextRequest) {
         ? (await holdPolicy(venue.id)).depositPercent
         : null,
     addons: (await addonsFor([booking.id])).get(booking.id) ?? [],
+    // Who supervises it, where the activity asks for somebody on shift: the role, never the person (lib/rosters.ts).
+    supervisedBy: (await rolesOnBookings([booking.id])).get(booking.id) ?? [],
     // Its receipt (a tax invoice where the venue charges SST or GST), once paid.
     receiptUrl: booking.paymentStatus === "paid" && booking.totalPrice > 0 ? receiptPath(booking.code) : null,
     // Once played: where to rate the visit.

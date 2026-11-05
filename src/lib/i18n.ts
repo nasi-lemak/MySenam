@@ -4495,6 +4495,15 @@ const EN = {
   "err.LD_BK_TAKEN": "That booking is already added to another challenge.",
   "ldp.publicResult": "{winner} beat {loser} {score}",
   "ofc1.of.afterFinish": "This event has finished. Until {date} this link still shows the results and lets you ask for a correction, which the organiser decides. Counts can no longer be entered here.",
+  "err.SV1_NO_SUPERVISOR": "That time cannot be booked: it needs {n} {role} on duty for all of it, and the venue has not rostered enough. Please pick another time.",
+  "err.SV1_NO_SUPERVISOR_ON": "{date} cannot be booked: it needs {n} {role} on duty for all of it, and the venue has not rostered enough.",
+  "sv1.slotNoSupervisor": "No supervisor rostered",
+  "sv1.supervisedBy": "Supervised by",
+  "sv1.role.range_officer": "Range officer",
+  "sv1.role.lifeguard": "Lifeguard",
+  "sv1.role.instructor": "Instructor",
+  "sv1.cal.shift": "On shift: {role}",
+  "sv1.cal.name": "{venue}: my shifts",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -8936,6 +8945,15 @@ const MS: Record<Phrase, string> = {
   "err.LD_BK_TAKEN": "Tempahan itu sudah ditambah pada cabaran lain.",
   "ldp.publicResult": "{winner} menewaskan {loser} {score}",
   "ofc1.of.afterFinish": "Acara ini telah tamat. Sehingga {date} pautan ini masih menunjukkan keputusan dan membolehkan anda meminta pembetulan, yang diputuskan oleh penganjur. Kiraan tidak lagi boleh dimasukkan di sini.",
+  "err.SV1_NO_SUPERVISOR": "Masa itu tidak boleh ditempah: ia memerlukan {n} {role} bertugas sepanjang masa itu, dan venue belum menyediakan jadual yang mencukupi. Sila pilih masa lain.",
+  "err.SV1_NO_SUPERVISOR_ON": "{date} tidak boleh ditempah: ia memerlukan {n} {role} bertugas sepanjang masa itu, dan venue belum menyediakan jadual yang mencukupi.",
+  "sv1.slotNoSupervisor": "Tiada penyelia dalam jadual",
+  "sv1.supervisedBy": "Diselia oleh",
+  "sv1.role.range_officer": "Pegawai range",
+  "sv1.role.lifeguard": "Pengawal penyelamat",
+  "sv1.role.instructor": "Pengajar",
+  "sv1.cal.shift": "Bertugas: {role}",
+  "sv1.cal.name": "{venue}: syif saya",
 };
 
 /** Exported so a test can hold the two languages against each other. */

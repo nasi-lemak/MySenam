@@ -4328,6 +4328,15 @@ export const ZH: Record<Phrase, string> = {
   "err.LD_BK_TAKEN": "该预订已添加到另一个挑战。",
   "ldp.publicResult": "{winner} 以 {score} 击败 {loser}",
   "ofc1.of.afterFinish": "本赛事已结束。在 {date} 之前，此链接仍可查看成绩并申请更正，由主办方决定；已无法在此录入计数。",
+  "err.SV1_NO_SUPERVISOR": "该时段无法预订：全程需要 {n} 名{role}当值，而场馆尚未排足人手。请选择其他时间。",
+  "err.SV1_NO_SUPERVISOR_ON": "{date} 无法预订：全程需要 {n} 名{role}当值，而场馆尚未排足人手。",
+  "sv1.slotNoSupervisor": "未安排监督人员",
+  "sv1.supervisedBy": "监督人员",
+  "sv1.role.range_officer": "靶场安全员",
+  "sv1.role.lifeguard": "救生员",
+  "sv1.role.instructor": "指导员",
+  "sv1.cal.shift": "值班：{role}",
+  "sv1.cal.name": "{venue}：我的班次",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

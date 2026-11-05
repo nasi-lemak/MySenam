@@ -770,6 +770,8 @@ export interface SlotInfo {
   blocked?: boolean;
   /** Outside this court's hours that day (its own, or the venue's). */
   outside?: boolean;
+  /** The activity here asks for somebody qualified on duty, and nobody is rostered for some of this time (lib/rosters.ts). */
+  unsupervised?: boolean;
   /**
    * Places out of service while others remain bookable — two kayaks of six in
    * for repair. Absent when the hour is fully blocked, which `blocked` says.

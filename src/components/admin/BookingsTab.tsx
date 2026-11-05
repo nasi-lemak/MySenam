@@ -4,6 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { useStaffMay } from "./StaffMay";
 import { ActivityGlyph } from "@/components/Glyph";
 import { AttentionPanel } from "./AttentionPanel";
+import { supervisorsText } from "./RosterPanel";
 import { EnquiriesPanel } from "./EnquiriesPanel";
 import { ChangeTime } from "@/components/ChangeTime";
 import { LessonCoach } from "./LessonCoach";
@@ -1678,12 +1679,14 @@ function Extras({ b, act }: { b: AdminBookingRow; act: Act }) {
         {b.games ? <div className="mt-1 text-xs text-slate-600">{t.plural("bowl.games", b.games)}</div> : null}
         {(b.players ?? 1) > 1 && <div className="mt-1 text-xs text-slate-600">👥 {t.plural("bk.players", b.players ?? 1)}</div>}
         {b.coachName && <Coach b={b} act={act} />}
+        {b.supervisors && <div className="mt-1 text-xs text-slate-600">{supervisorsText(t, b.supervisors)}</div>}
         <ConcessionCheck b={b} act={act} />
       </>
     );
   return (
     <div className="mt-1 text-xs text-slate-600">
       {b.coachName && <Coach b={b} act={act} />}
+      {b.supervisors && <div>{supervisorsText(t, b.supervisors)}</div>}
       {b.games ? <div>{t.plural("bowl.games", b.games)}</div> : null}
       {(b.players ?? 1) > 1 && <div>👥 {t.plural("bk.players", b.players ?? 1)}</div>}
       🎒 {b.addons.map((a) => (a.kind === "rental" ? t("bk.addonHire", { qty: a.quantity, name: a.name }) : `${a.quantity} × ${a.name}`)).join(", ")}
