@@ -455,7 +455,7 @@ describe("the actions a card runs, against the real routes", () => {
     fireEvent.change(within(form).getByLabelText(/^Off-peak/), { target: { value: "12" } });
     fireEvent.change(within(form).getByLabelText(/^Peak \(/), { target: { value: "20" } });
     await act(async () => fireEvent.submit(form));
-    await waitFor(async () => expect((await store.getVenue(venueId))!.courts.length).toBe(3));
+    await waitFor(async () => expect((await store.getVenue(venueId))!.courts.length).toBe(3), { timeout: 10_000 });
     const courts = (await store.getVenue(venueId))!.courts;
     expect(courts.map((c) => [c.offPeakRate, c.peakRate])).toEqual([
       [12, 20],

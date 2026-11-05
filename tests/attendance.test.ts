@@ -315,9 +315,14 @@ describe("the instructor, at their own link", () => {
   });
 
   it("works through the private link's own route, logged under their name, and a lesson of another coach is not found", async () => {
-    const date = day(0);
+    // The lessons are booked ahead (a booking made after its own start is refused, whatever the time of day the suite runs), and the
+    // route is then read as if it were noon on that day, when the register is open: only the clock's date is faked.
+    const date = day(1);
     const mine = await lesson(ana, date, 20);
     const his = await lesson(ben, date, 19);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(noonOn(date));
+    try {
     const link = await setCoachLink(ana.id, venueId, true);
     const token = link!.link!.pageUrl.split("/coach/")[1];
     const params = { params: Promise.resolve({ token }) };
@@ -340,6 +345,9 @@ describe("the instructor, at their own link", () => {
     expect(log[0].detail).toContain("at their own link");
     // The log names the session and the mark, never the person.
     expect(log.map((l) => l.detail).join(" ")).not.toContain("Sibling");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
