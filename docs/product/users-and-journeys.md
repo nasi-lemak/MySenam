@@ -107,7 +107,7 @@ a browser; nothing announces the next match on the day
 | Move the game to another time, with the players' agreement | Built; tested in a browser | [Matchmaking](../features/matchmaking.md#moving-a-game-to-another-time) |
 | Call it off, keeping the court, or end a weekly game | Built; tested in a browser | [Matchmaking](../features/matchmaking.md#weekly-games) |
 
-Gaps: hosts and players cannot write to each other in the app ([roadmap](../roadmap/roadmap.md)).
+Hosts and players can write to each other inside the game, as adults who turned it on ([messages](../features/player-messages.md)).
 
 ### A player looking for a game
 
@@ -139,7 +139,7 @@ Gaps: levels are self-declared, not earned from results
 
 - Coaches cannot see or manage the classes they teach, or take attendance:
   classes and coaching are separate.
-- No messages between players.
+- Messages between players are only inside a shared context and for declared adults who turned them on; a player who says they are under 18 has none ([messages](../features/player-messages.md)).
 - On the staff dashboard, text the server composes is English in every language.
 
 **Not driven in a browser** (journeys covered by route and unit tests only):

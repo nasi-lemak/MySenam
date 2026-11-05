@@ -67,6 +67,10 @@ export const POLICIES = {
   playerAccept: { limit: 20, windowMs: 10 * MINUTE },
   /** Inviting, blocking and reporting other players: a few an hour for a person, not a mailing list. */
   social: { limit: 30, windowMs: 60 * MINUTE },
+  /** Reading messages from people one plays with: a page polling every fifteen seconds, in a few tabs (lib/messages.ts). */
+  messageRead: { limit: 240, windowMs: 10 * MINUTE },
+  /** Writing, reporting and blocking in messages, per address; a person's own limits are kept in the database (LIMITS in lib/messages.ts). */
+  messageWrite: { limit: 60, windowMs: 60 * MINUTE },
   /** A browser reporting its errors: a broken page sends a few, a script flooding the log many. */
   clientError: { limit: 20, windowMs: 10 * MINUTE },
   /** Pricing a booking before it is made: a person changing the length a few times a minute, not a scrape of every price. */

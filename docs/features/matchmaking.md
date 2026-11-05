@@ -310,7 +310,9 @@ player chooses (`src/lib/matchmaking.ts`, `src/lib/ratings.ts`):
 ## Blocking and reporting
 
 A player can block, or report to the platform's owners, somebody they have
-come across here (`src/lib/player-safety.ts`). A block works both ways and
+come across here (`src/lib/player-safety.ts`). A block is also made from a
+[message](player-messages.md#blocking-and-reporting) in any context the two share, and
+then stops what each writes reaching the other. A block works both ways and
 says nothing: neither is suggested to the other, neither can invite the
 other, and neither can join a game the other hosts or plays in, refused in the
 same words as a closed game. Blocking withdraws invitations between them and
@@ -380,10 +382,11 @@ the scheduler works through players in the order they were last looked at,
 
 ## What is not here
 
-There is no messaging between players. Levels are self-declared unless a player
+Players can write to each other only inside a game, team, group or fixture they share,
+as adults who turned it on: see [messages between players](player-messages.md). Levels
+are self-declared unless a player
 chooses [earned levels](#earned-levels), built from rated events' results. A
-rating is never enforced as a level on a game. Messaging is a proposal in the
-[roadmap](../roadmap/roadmap.md), not a commitment. (A team that enters tournaments and leagues is a
+rating is never enforced as a level on a game. (A team that enters tournaments and leagues is a
 [team](tournaments.md#teams), not a group.)
 
 ## Related capabilities
@@ -410,6 +413,7 @@ rating is never enforced as a level on a game. Messaging is a proposal in the
 | Playing profiles | `src/lib/player-profiles.ts` | `tests/matchmaking.test.ts` |
 | Earned levels: which level matching uses, similar ratings, what a host sees, who may share one | `src/lib/matchmaking.ts` (`levelFor`, `earnedLevelReason`), `src/lib/ratings.ts` (`matchingThreshold`, `earnedRatingsOf`, `gameReferenceRatings`, `poolEarned`), `src/lib/player-profiles.ts`, `src/app/games/preferences/page.tsx` | `tests/rating-matchmaking.test.ts`, `tests/ratings.test.ts` |
 | Blocking and reporting | `src/lib/player-safety.ts` | `tests/matchmaking.test.ts`, `tests/matchmaking-routes.test.ts` |
+| Messages between players (a block can be made from a conversation: `blockPlayer`'s `related` option) | `src/lib/messages.ts`, [messages](player-messages.md) | `tests/player-messages.test.ts` |
 | Weekly games, groups, suggestion emails | `src/lib/game-series.ts`, `src/lib/groups.ts` | `tests/community.test.ts` |
 | Invitations by email to a game or a group | `src/lib/player-invitations.ts`, `src/app/player-invitation/page.tsx` | `tests/player-invitations.test.ts`, `tests/components/games-screens.test.tsx` |
 | Withdrawing an invitation by email | `src/lib/player-invitations.ts` (`withdrawPlayerInvitation`), `src/lib/games.ts`, `src/lib/groups.ts`, `db/migrations/0213_player_invitations_withdrawn.sql` | `tests/invitation-withdrawals.test.ts` (races on Postgres), `tests/components/invitation-withdrawals.test.tsx` |
@@ -425,6 +429,6 @@ Which parts are verified, and how, is in
   its booking, a game with players moves only as a proposal they answer or
   as the venue's change with a reason (decided 24 October 2026). How long a
   proposal holds the new time (a day at most) is fixed, not set by the venue.
-- Messages between players and group news are proposals in the
-  [roadmap](../roadmap/roadmap.md). Persistent teams are built: see
+- Messages between players are built ([messages](player-messages.md)); group news is a
+  proposal in the [roadmap](../roadmap/roadmap.md). Persistent teams are built: see
   [teams](tournaments.md#teams); earned levels are built ([above](#earned-levels)).

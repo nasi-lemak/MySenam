@@ -7,6 +7,7 @@ import { useT } from "@/components/Language";
 import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel, translateError } from "@/lib/i18n";
 import type { Group } from "@/lib/groups";
+import { MessagesLink } from "@/components/MessagesLink";
 
 /** One community group: asking to join or answering an invitation; for its organiser, who is in and who is asking. */
 export default function GroupPage({ params }: { params: Promise<{ id: string }> }) {
@@ -94,6 +95,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           </button>
         )
       )}
+
+      {group.mine?.status === "member" && group.status === "active" && <MessagesLink kind="group" id={group.id} what="group" />}
 
       {group.roster && (
         <ul className="space-y-1 rounded-xl border border-slate-200 bg-white p-3 text-sm" data-testid="roster">

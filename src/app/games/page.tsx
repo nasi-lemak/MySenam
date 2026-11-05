@@ -19,6 +19,7 @@ import type { Intensity } from "@/lib/player-profiles";
 import { Suggested } from "./Suggested";
 import { HostTools, SafetyButtons } from "./HostTools";
 import { HostMove, PlayerMove } from "./MoveGame";
+import { MessagesLink } from "@/components/MessagesLink";
 
 const LEVELS: Level[] = ["beginner", "intermediate", "advanced", "competitive"];
 const levelLabel = (t: T, level: Level) => t(`games.level.${level}`);
@@ -145,6 +146,11 @@ export default function GamesPage() {
           <Link href="/teams" className="text-teal-700 underline">
             {t("tm.ui.title")}
           </Link>
+          {signedIn && (
+            <Link href="/messages" className="text-teal-700 underline">
+              {t("pmsg.link")}
+            </Link>
+          )}
           {signedIn && (
             <Link href="/games/preferences" className="text-teal-700 underline">
               {t("games.preferences")}
@@ -484,6 +490,7 @@ function MyGames({
             />
           )}
           {!started(g) && <HostTools t={t} g={g} act={act} />}
+          {g.status !== "cancelled" && <MessagesLink kind="game" id={g.id} what="game" />}
         </div>
       ))}
       {mine.playing.map((g) => (
@@ -502,6 +509,7 @@ function MyGames({
             <SafetyButtons t={t} userId={g.hostId} gameId={g.id} done={say} />
           </span>
           <span className="flex flex-wrap items-center gap-2">
+            {g.mine?.status === "accepted" && <MessagesLink kind="game" id={g.id} what="game" />}
             {g.mine?.status === "accepted" && g.share > 0 &&
               (g.mine.paid ? (
                 <span className="text-xs font-semibold text-emerald-700">{t("games.paid")}</span>

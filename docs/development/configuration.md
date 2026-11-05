@@ -49,6 +49,8 @@ Everything is an environment variable; there is nothing else to configure.
 | `MYINVOIS_CLIENT_ID`, `MYINVOIS_CLIENT_SECRET` | unset | The platform's own MyInvois ERP client, to act as venues' intermediary for LHDN e-invoicing (Malaysia) |
 | `OFFSITE_S3_*` | — | Where to copy each backup off the machine (Backblaze B2 preferred, Amazon S3 supported); see *Off-site copies*. `OFFSITE_S3_REGION` is read from a B2 or S3 endpoint when not set |
 | `OFFSITE_S3_READ_ACCESS_KEY_ID` / `OFFSITE_S3_READ_SECRET_ACCESS_KEY` | — | The read key, on the machine you restore from only ([backups](../operations/backups.md#keys-and-object-lock)) |
+| `MESSAGE_RETENTION_DAYS` | `90` | Days a conversation between players is kept after its game, team, group or fixture ended (7 to 730); then it is deleted with its messages ([privacy](../architecture/privacy.md#messages-between-players)) |
+| `MESSAGE_REPORT_RETENTION_DAYS` | `365` | Days a report of a message, with the copy of the conversation frozen with it, is kept after it was dealt with (30 to 1095); an open one is kept until it is |
 | `OFFSITE_DATA_LOCATION` | — | Country the bucket keeps data in; nothing is copied off-site until it is set, or while it disagrees with the country a B2 or S3 endpoint names ([backups](../operations/backups.md#where-the-data-may-go)) |
 | `OFFSITE_TRANSFER_APPROVED` | — | That country again, once a transfer abroad is approved and recorded |
 | `OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE` | — | Encrypt each off-site copy before upload ([backups](../operations/backups.md#encryption)) |

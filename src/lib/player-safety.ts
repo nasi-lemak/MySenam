@@ -73,8 +73,10 @@ export async function related(a: number, b: number): Promise<boolean> {
 
 export type SafetyResult = { ok: true } | { ok: false; error: string; status?: number };
 
-export async function blockPlayer(blockerId: number, blockedId: number): Promise<SafetyResult> {
-  if (!(await related(blockerId, blockedId))) return { ok: false, error: "You can block only somebody you have played with or been invited by.", status: 404 };
+/** `opts.related`: the caller has already shown the two share a context (a message thread, lib/messages.ts), so `related` is not asked again. */
+export async function blockPlayer(blockerId: number, blockedId: number, opts: { related?: boolean } = {}): Promise<SafetyResult> {
+  if (blockerId === blockedId) return { ok: false, error: "You can block only somebody you have played with or been invited by.", status: 404 };
+  if (!opts.related && !(await related(blockerId, blockedId))) return { ok: false, error: "You can block only somebody you have played with or been invited by.", status: 404 };
   await withTransaction(async () => {
     const db = getDb();
     await db.prepare("INSERT INTO player_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING").run(blockerId, blockedId);

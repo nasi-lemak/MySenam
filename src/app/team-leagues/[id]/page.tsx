@@ -10,6 +10,7 @@ import { sportLabel, translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
 import type { FixtureView, TeamLeagueDetail } from "@/lib/team-leagues";
+import { MessagesLink } from "@/components/MessagesLink";
 
 type Captained = { id: number; name: string; sport: string; members: number };
 type RosterMember = { id: number; name: string | null; junior: boolean; role: string };
@@ -413,6 +414,7 @@ function FixtureRow({
           {f.status === "disputed" && f.disputeNote && <p className="text-xs text-slate-600">{t("tml.disputeNote", { note: f.disputeNote })}</p>}
         </div>
       )}
+      {captainHere && f.mine && f.status !== "void" && <MessagesLink kind="team-fixture" id={f.id} what="match" />}
       {captainHere && f.mine && (f.status === "scheduled" || (f.status === "reported" && f.reportedBy === f.mine.leagueTeamId)) && (
         <ReportForm t={t} league={league} f={f} post={post} />
       )}

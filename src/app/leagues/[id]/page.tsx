@@ -11,6 +11,7 @@ import { translateError } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
 
 import type { LeagueDetail, LeagueMatch, MyLeague } from "@/lib/leagues";
+import { MessagesLink } from "@/components/MessagesLink";
 
 /**
  * One league, for anybody: what it is, the boxes and tables of a season, and
@@ -421,6 +422,7 @@ function MatchRow({
       </div>
       {mineMatch && mode === "idle" && (
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+          <MessagesLink kind="league-match" id={m.id} what="match" />
           {m.status === "unplayed" && (
             <button onClick={() => setMode("report")} className={small}>
               {t("leag.report")}

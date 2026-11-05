@@ -8,6 +8,7 @@ import { removeVenuePhotoFiles } from "./photos";
 import { money } from "./region";
 import { englishOf, said, type StaffText } from "./staff-text";
 import { VERIFIED_BY_ROLE, participantsExport, unusedParticipantsWhere } from "./participants";
+import { reportRetentionDays as messageReportDays, threadRetentionDays as messageThreadDays } from "./message-privacy";
 
 /**
  * Personal data: what is kept, for how long, and how somebody gets it back or
@@ -282,6 +283,23 @@ const RULES: Rule[] = [
     table: "venue_applications",
     where: "email_check = 'waiting' AND created_at < ?",
   },
+  {
+    // A conversation between players, once its game, team, group or fixture has ended (MESSAGE_RETENTION_DAYS; lib/message-privacy.ts).
+    what: said("pmg.ret.threads"),
+    days: messageThreadDays(),
+    action: "deleted",
+    table: "player_message_threads",
+    where: "ended_at IS NOT NULL AND ended_at < ?",
+    apply: async (_where, cutoff) => (await import("./message-privacy")).pruneMessages(cutoff),
+  },
+  {
+    // A report of a message and the copy frozen with it, once dealt with (MESSAGE_REPORT_RETENTION_DAYS).
+    what: said("pmg.ret.reports"),
+    days: messageReportDays(),
+    action: "deleted",
+    table: "player_message_reports",
+    where: "status = 'reviewed' AND reviewed_at < ?",
+  },
 ];
 
 /** What a prune would do right now, without doing it. */
@@ -475,6 +493,8 @@ export interface CustomerExport {
   ladders: unknown[];
   /** Teams it is on, or acts for a child who is: its place on each and what it declared for events' age ranges and categories (lib/teams.ts). */
   teams: unknown[];
+  /** Messages to and from people they play with: their setting, threads they can read, reports they made, suspensions (lib/message-privacy.ts). */
+  playerMessages: unknown;
   /** Ratings earned from results at rated events: where it stands at each venue, sport and format, and each result that moved it (lib/ratings.ts). */
   ratings: unknown;
   /** Receipts and credit notes issued to this account. */
@@ -675,6 +695,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId
     ),
     teams: await (await import("./teams")).teamsExport(userId),
+    playerMessages: await (await import("./message-privacy")).messagesExport(userId),
     ratings: await (await import("./ratings")).ratingsExport(userId),
     receipts: await all(
       `SELECT r.kind, r.number, r.issued_at, r.total, r.lines, r.paid_via, r.customer_name, r.customer_phone, v.name AS venue
@@ -1076,6 +1097,8 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
       .get(userId)) as { back: number };
     if (Number(back) > 0) throw new ErasureGivesBack();
     await forgetPlayer(userId);
+    // What they wrote to people they play with becomes "message removed"; the other side's stays for them (lib/message-privacy.ts).
+    await (await import("./message-privacy")).forgetMessagesOfUser(userId);
     // Off every waiting list. A place they were waiting for, or were offered,
     // goes to the next person in line, as if they had left it themselves.
     const { leaveWaitlist } = await import("./store");

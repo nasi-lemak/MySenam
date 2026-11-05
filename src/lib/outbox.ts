@@ -89,7 +89,12 @@ export type MessageKind =
    * requested or decided, a lineup named; lib/team-leagues.ts). It is the venue's decision about somebody's match, and one written
    * off for a busy day's limit is a team that never learns it, so it is not held to the daily limit per recipient.
    */
-  | "team_decision";
+  | "team_decision"
+  /**
+   * By email only, to a player: "you have a message in {place}", never the message itself, with a link into the signed-in app
+   * (lib/messages.ts). Held to the daily limit per recipient like any other.
+   */
+  | "player_message";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
@@ -747,7 +752,7 @@ export async function accountLocale(userId: number): Promise<Locale> {
  * An email to a player about a game, tournament, league or group, written in
  * the language their account last used (users.locale), the greeting too.
  */
-export async function emailPlayer(input: { venueId: number | null; userId: number; subject: Written; body: Written; link: string; dedupeKey?: string; decision?: boolean }): Promise<void> {
+export async function emailPlayer(input: { venueId: number | null; userId: number; subject: Written; body: Written; link: string; dedupeKey?: string; decision?: boolean; kind?: MessageKind }): Promise<void> {
   const user = (await getDb().prepare("SELECT name, email FROM users WHERE id = ?").get(input.userId)) as { name: string; email: string } | undefined;
   if (!user) return;
   const { siteName } = await import("./site");
@@ -756,7 +761,7 @@ export async function emailPlayer(input: { venueId: number | null; userId: numbe
   const text = `${t("mail.hi", { name: user.name.split(/\s+/)[0] })}\n\n${input.body(t)}\n\n${linkIn(input.link, locale)}\n\n${siteName()}`;
   await enqueue({
     venueId: input.venueId,
-    kind: input.decision ? "team_decision" : "programme",
+    kind: input.kind ?? (input.decision ? "team_decision" : "programme"),
     channel: "email",
     recipient: user.email,
     locale,

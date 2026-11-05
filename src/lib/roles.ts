@@ -63,6 +63,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/ladders\/\d+$/, methods: ["POST"] },
   // Ratings from results (lib/ratings.ts): which events count, leaving a result out, restarting a rating and seeding a draw from ratings shape what people are ranked by.
   { path: /^\/api\/admin\/ratings$/, methods: "all" },
+  // Reports of messages between players, suspending somebody's messaging, muting or closing a thread (lib/message-moderation.ts): safety decisions, a manager's.
+  { path: /^\/api\/admin\/message-moderation$/, methods: "all" },
   // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.
   { path: /^\/api\/admin\/tournaments\/\d+\/issues\/\d+$/, methods: ["POST"] },
   // Calling a fixture to its court, deciding what happens when nobody comes, the day's settings: the organiser's; the desk checks in and enters results.
@@ -245,6 +247,8 @@ export const STAFF_ACTIONS = {
   ladderRun: "POST /api/admin/ladders/1",
   // Ratings from results: which events count, leaving a result out, restarting a rating, seeding a draw from ratings.
   ratings: "POST /api/admin/ratings",
+  // Reports of messages between players and what is done about them.
+  messageModeration: "POST /api/admin/message-moderation",
   // The venue guide's setup journey and discoveries (lib/guide); the playbook is every role's own.
   guideSetup: "POST /api/admin/guide/setup",
   // Screens the guide links to that a manager alone uses, named so a link can be held to what its reader may open.

@@ -8,6 +8,7 @@ import { useT } from "@/components/Language";
 import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel, translateError } from "@/lib/i18n";
 import type { Team, TeamHistory } from "@/lib/teams";
+import { MessagesLink } from "@/components/MessagesLink";
 
 type Person = { id: number; displayName: string };
 
@@ -91,6 +92,11 @@ export default function TeamPage() {
         {team.description && <p className="mt-2 whitespace-pre-line text-sm text-slate-700">{team.description}</p>}
         {!member && <p className="mt-2 text-sm text-slate-500">{t("tm.ui.publicNote")}</p>}
         {member && !team.published && <p className="mt-2 text-xs text-slate-500">{t("tm.ui.notPublished")}</p>}
+        {member && team.status === "active" && (
+          <p className="mt-2">
+            <MessagesLink kind="team" id={team.id} what="team" />
+          </p>
+        )}
         {team.status === "archived" && <p className="mt-2 text-sm text-amber-800">{t("tm.ui.archivedNote")}</p>}
       </div>
       {error && (

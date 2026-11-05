@@ -44,6 +44,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | Classes and terms, one-to-one coaching, women-only and men-only (for every programme) | [Programmes](features/programmes.md) |
 | Tournaments, competitions with divisions, competition rules and templates, results, corrections, box leagues, teams that persist across events, leagues of teams and fixture lists | [Tournaments and leagues](features/tournaments.md) |
 | Open games, suggested games and players, invitations, private games, weekly games, community groups, blocking and reporting | [Open games and matchmaking](features/matchmaking.md) |
+| Messages between players: the contexts a conversation can be in, adults who opted in, text with no contact details, limits, notices that never carry the message, blocking, reports, moderation by the venue that owns the context | [Messages between players](features/player-messages.md) |
 | Check-in, unstaffed hours, equipment hire, notes, waivers, hire enquiries, booking alerts | [Venue operations](features/venue-operations.md) |
 | How MySenam fits a kind of venue (public), the adaptive setup journey, the personalised operating playbook, contextual help | [The venue guide](features/venue-guide.md) |
 | Search, near me, facilities, photos, reviews, notices, SEO, installing as an app | [Discovery](features/discovery.md) |
@@ -103,6 +104,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0032 Consolation draws and double elimination, on the knockout graph](architecture/decisions/0032-consolation-draws-and-double-elimination.md)
 [0034 An advanced feed-in consolation draw, on the knockout graph](architecture/decisions/0034-feed-in-consolation-draws.md)
 [0035 Rating policy: rankings published by choice, a venue's number to be ranked, and which results count](architecture/decisions/0035-rating-policy-published-rankings-and-counted-results.md)
+[0039 Messages between players: only inside a context they share, adults who opted in, text with no contact details, moderated by the venue that owns the context](architecture/decisions/0039-messages-between-players.md)
 
 ## Integrations
 

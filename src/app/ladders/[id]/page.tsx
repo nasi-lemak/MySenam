@@ -11,6 +11,7 @@ import { errorText, translateError } from "@/lib/i18n";
 import type { ErrorCode, T } from "@/lib/i18n";
 import type { ChallengeView, LadderDetail, MyPlace } from "@/lib/ladders";
 import { CONFIRM_DAYS } from "@/lib/ladders-constants";
+import { MessagesLink } from "@/components/MessagesLink";
 
 const button = "rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-40";
 const plain = "rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-teal-500";
@@ -288,6 +289,7 @@ function OpenChallenge({ t, x, p, c, post }: { t: T; x: LadderDetail; p: MyPlace
   const result = c.winner !== null ? `${c.winner === p.playerId ? t("ldp.iWon") : t("ldp.theyWon", { name: other })} ${c.score ?? ""}`.trim() : "";
   return (
     <li className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+      <MessagesLink kind="ladder-challenge" id={c.id} what="match" />
       {c.status === "pending" && waitingFor === p.playerId && <p>{t("ldp.pendingMine", { name: other, date: c.respondBy ?? "" })}</p>}
       {c.status === "pending" && when && c.proposedBy !== p.playerId && <p>{t("ldp.counterMine", { name: other, date: c.proposedOn ?? "", time: clock(c.proposedMin) })}</p>}
       {c.status === "pending" && waitingFor !== p.playerId && <p>{t("ldp.pendingTheirs", { name: other, date: c.respondBy ?? "" })}</p>}

@@ -18,6 +18,7 @@ import type { MatchReport } from "@/lib/match-reports";
 import { MatchResultForm } from "@/components/MatchResultForm";
 import { SwissStandings } from "@/components/SwissStandings";
 import { resultSentence, scoreExample } from "@/lib/result-text";
+import { MessagesLink } from "@/components/MessagesLink";
 
 /**
  * One tournament, for anybody: what it is, who has entered, and once the
@@ -278,6 +279,7 @@ export default function TournamentPage() {
                           ? `${m.score ?? ""} (${t("tour.drawn")})`
                           : m.score}
                   </span>
+                  {ourSide(m) !== null && m.a !== null && m.b !== null && m.status !== "bye" && <MessagesLink kind="tournament-match" id={m.id} what="match" />}
                   {x.resultsBy === "players" && ourSide(m) !== null && m.status === "scheduled" && m.a !== null && m.b !== null && (
                     <MyResult t={t} x={x} m={m} mine={ourSide(m)!} names={names} report={(data.reports ?? []).find((r) => r.matchId === m.id) ?? null} act={act} />
                   )}

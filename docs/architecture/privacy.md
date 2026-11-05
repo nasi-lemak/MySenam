@@ -167,6 +167,8 @@ safety or dispute reason ([below](#holds)), and says so.
 | Phone check codes and links | 1 day | deleted |
 | Sign-up requests, and the addresses sign-up emails went to (with each link's keyed hash) | until worked through (a request), 1 day (what was sent) | deleted ([signing up](authentication.md#signing-up)) |
 | Settled waiting-list entries | 90 days | deleted |
+| A conversation between players, with its messages and read marks | 90 days after its game, team, group or fixture ended (`MESSAGE_RETENTION_DAYS`) | deleted ([below](#messages-between-players)) |
+| A report of a message between players, with the copy of the conversation frozen with it | 365 days after it was dealt with (`MESSAGE_REPORT_RETENTION_DAYS`); open ones until dealt with | deleted |
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
@@ -758,6 +760,65 @@ ledger of results at events a venue marked as rated (`rated_results`,
   counted.
 - **Nothing leaves the country:** ratings are computed and kept in the install's own
   database and backups ([backups held abroad](#backups-held-abroad)).
+
+### Messages between players
+
+[Messages between players](../features/player-messages.md) (`player_message_settings`,
+`player_message_threads`, `player_messages`, `player_message_reads`,
+`player_message_mutes`, `player_message_notices`, `player_message_reports`,
+`player_message_report_lines`, `player_message_suspensions`; migration 0280; [ADR
+0039](decisions/0039-messages-between-players.md)). What somebody says to a person they
+play with, and to whom, is personal data of **both** sides.
+
+- **What is held:** the person's setting (on or off, whether they are emailed, the day
+  they read the first screen), the contexts they muted, and for each conversation its
+  context (a kind and a number: an open game, a team, a community group, a fixture), the
+  messages (text, the time, and how the sender showed in the context: a first name, or a
+  child's *short name* beside *guardian of*, never a child's full name), who has read as far
+  as which message, the notification emails sent (when, to whom: never a text), the reports
+  made (reason, the reporter's note, a frozen copy of the thread's last 20 messages as the
+  reporter saw them) and the suspensions placed on a person, with their reasons. **No message is
+  ever in a log, the staff activity log, an error report or the outbox.**
+- **Who sees it:** the people in the conversation, each only what is not from somebody
+  who blocked them or whom they blocked. **No member of staff reads an ordinary message**
+  (there is no route to one). A report brings its frozen copy to the staff of the
+  context's venue, or to the platform owner where the context has no venue. Nothing is in
+  the venue's API, the MCP tools, the public pages, or any export a venue can download.
+- **Why it is held (the product's reasoning, not a legal conclusion):** to let people
+  who already share a game, a team or a match arrange it, with the consent of both (each
+  turned messaging on, as a declared adult), and to be able to look into a report of abuse.
+  Whether that is a lawful basis in each country an install serves, and for how long
+  messages may be kept, is a question for professional review and is **not settled in code**;
+  the periods below are the product owner's provisional choice. A message's contents are
+  never used for marketing, ranking or matching.
+- **Export:** *Download my data* lists the setting, the muted contexts, each conversation
+  they can read with the messages they were shown (their own, and the others' as they
+  showed in the context; what a blocker blocked is not in it), the notices sent, the reports
+  they made, how many reports there are about them (counted, not shown), and the suspensions
+  with their reasons (`playerMessages`).
+- **Erasure:** closing an account turns what the person **wrote** into *message removed*
+  in every conversation (the text and the label are cleared), and in the frozen copies kept
+  with reports; the words of reports they made are cleared; their setting, mutes, read marks,
+  notices and suspensions go with the account. **The other side's messages stay for them.**
+  A report about the erased person stays as a record, without who they were
+  (`forgetMessagesOfUser`).
+- **Retention:** a conversation is deleted with its messages **90 days after its game,
+  team, group or fixture ended** (`MESSAGE_RETENTION_DAYS`; 7 to 730); it is read-only for
+  14 days after the end and then closed, not readable, but kept to the period for a report
+  already made and for the person's own export. A report and its frozen copy are kept until
+  it has been dealt with and then **365 days** (`MESSAGE_REPORT_RETENTION_DAYS`; 30 to
+  1095); an open report stays until somebody deals with it. Both are in the retention list
+  under *Venues & staff → Keeping nothing too long*. A conversation whose context was deleted
+  (a game that was removed) counts as ended when the job first sees it.
+- **Children:** a child never has a conversation. Where a child is in a team or an event,
+  the seat is the guardian's account and the child is shown by their short name only
+  ([the one rule](#minors-names-on-public-pages)); a child's short name stays in the label of
+  a guardian's messages until the conversation is deleted by retention.
+- **A person who says they are under 18 (or has not said)** has no messaging: not even inside
+  a group both sides agreed to.
+- **Nothing leaves the country:** conversations are kept in the install's own database and
+  backups ([backups held abroad](#backups-held-abroad)); no message is sent to any provider (the
+  notification email says where, never what).
 
 ## Where personal data is kept
 
