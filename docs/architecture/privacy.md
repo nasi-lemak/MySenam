@@ -799,13 +799,22 @@ play with, and to whom, is personal data of **both** sides.
   they can read with the messages they were shown (their own, and the others' as they
   showed in the context; what a blocker blocked is not in it), the notices sent, the reports
   they made, how many reports there are about them (counted, not shown), and the suspensions
-  with their reasons (`playerMessages`).
+  with their reasons (`playerMessages`). **A report in a supervised youth group's thread is not
+  counted among those about a person, open or closed, and its frozen copy is never in anybody's own
+  export** (the reported person's included): nothing in a person's data may say a report names them
+  ([ADR 0049](decisions/0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md)). A pause on
+  their place in a youth thread is exported as a pause, with no source.
 - **Erasure:** closing an account turns what the person **wrote** into *message removed*
   in every conversation (the text and the label are cleared), and in the frozen copies kept
   with reports; the words of reports they made are cleared; their setting, mutes, read marks,
   notices and suspensions go with the account. **The other side's messages stay for them.**
   A report about the erased person stays as a record, without who they were
-  (`forgetMessagesOfUser`).
+  (`forgetMessagesOfUser`). **The frozen copy of a report in a youth thread is held while the report
+  is open or the protective restriction it placed is in force:** erasure leaves that evidence as it is
+  until the hold ends, then the ordinary rules apply (ADR 0049; the only retention hold messaging has
+  is "an open report stays", extended by that one condition; the legal-hold records of
+  [applications](#holds) are for applications and are not used here). Erasure itself is never refused
+  or delayed by it, so an erasure request is not a way to learn that a report exists.
 - **Retention:** a conversation is deleted with its messages **90 days after its game,
   team, group or fixture ended** (`MESSAGE_RETENTION_DAYS`; 7 to 730); it is read-only for
   14 days after the end and then closed, not readable, but kept to the period for a report
@@ -833,7 +842,16 @@ play with, and to whom, is personal data of **both** sides.
   after the group ended** (`YOUTH_MESSAGE_RETENTION_DAYS`), the **words of a message a supervisor
   removed 30 days after** (`YOUTH_REMOVED_RETENTION_DAYS`). **Export:** the child's and the
   guardian's *Download my data* hold the opt-ins, consents, roles and pauses, and a guardian's
-  holds their children's group messages. **Erasure** is as for adults (what the child wrote
+  holds their children's group messages (never a guardian's whose recorded level is *no say*).
+  **Guardians who disagree** (ADR 0049; `youth_message_objections`, `youth_consent_locks`,
+  `participant_guardians.messaging_authority*`, migration 0291): what each guardian may do about
+  the child's messaging is the venue's recorded word (`decides`, `objects_only`, `none`; a note of at
+  most 200 characters, no document or identity number), seen by managers and the owner only; who
+  objected is in the group's record and for safeguarding administrators, never shown to the child,
+  the supervisors, the group, other staff or the other guardians. **A report about an adult in a
+  youth thread** is a case for safeguarding personnel only (`youth_report_actions`, kept apart from
+  the staff activity log, deleted with the report after its retention); the reported person is
+  never told by the system, by any channel. **Erasure** is as for adults (what the child wrote
   becomes *message removed*). Declared ages, guardianship, consent and roles are recorded as
   declared, never verified. Whether this is lawful in a given country, the staff-read exception
   and the periods are professional questions, **not settled in code**.

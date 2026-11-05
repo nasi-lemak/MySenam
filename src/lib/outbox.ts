@@ -382,7 +382,7 @@ export async function messageById(id: number): Promise<OutboxMessage | null> {
 export async function listMessages(venueId: number, limit = 50): Promise<OutboxMessage[]> {
   return (
     await getDb()
-      .prepare("SELECT * FROM messages WHERE venue_id = ? ORDER BY id DESC LIMIT ?")
+      .prepare("SELECT * FROM messages WHERE venue_id = ? AND kind <> 'safeguarding_notice' ORDER BY id DESC LIMIT ?")
       .all(venueId, limit) as MessageRow[]
   ).map(toMessage);
 }
@@ -390,7 +390,7 @@ export async function listMessages(venueId: number, limit = 50): Promise<OutboxM
 /** Messages that belong to no venue: to applicants, password resets, alerts to staff. For the platform's owners. */
 export async function listPlatformMessages(limit = 50): Promise<OutboxMessage[]> {
   return (
-    (await getDb().prepare("SELECT * FROM messages WHERE venue_id IS NULL ORDER BY id DESC LIMIT ?").all(limit)) as MessageRow[]
+    (await getDb().prepare("SELECT * FROM messages WHERE venue_id IS NULL AND kind <> 'safeguarding_notice' ORDER BY id DESC LIMIT ?").all(limit)) as MessageRow[]
   )
     .map(toMessage)
     // A link into somebody's account is theirs alone: its subject and how it went are shown, never the link.
@@ -718,7 +718,7 @@ export async function emailPlain(input: {
   to: string;
   subject: string;
   text: string;
-  kind: "account_email" | "staff_alert" | "applicant";
+  kind: "account_email" | "staff_alert" | "applicant" | "safeguarding_notice";
   /** The venue it is about, where there is one; null for the platform's own. */
   venueId?: number | null;
   dedupeKey?: string;

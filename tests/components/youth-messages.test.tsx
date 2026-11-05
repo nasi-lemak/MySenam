@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import MessagesPage from "../../src/app/messages/page";
 import { Thread } from "../../src/app/messages/Thread";
+import { MessageReportsPanel } from "../../src/components/admin/MessageReportsPanel";
 import { YouthGroupsPanel } from "../../src/components/admin/YouthGroupsPanel";
 import GuardianMessaging from "../../src/components/GuardianMessaging";
 import { LanguageProvider } from "../../src/components/Language";
@@ -264,5 +265,119 @@ describe("the staff panel", () => {
     expect(screen.getByText(/You are reading this for moderation and safeguarding review/)).toBeTruthy();
     expect(screen.getByText("the words")).toBeTruthy();
     expect(screen.getByText(/removed by a supervisor/)).toBeTruthy();
+  });
+});
+
+describe("guardians who disagree (ADR 0049)", () => {
+  const view = (authority: string, over = {}) => ({
+    participantId: 9, displayName: "Aina Lee", hasLogin: true, noticeMode: "digest", authority,
+    groups: [{ groupId: 4, name: "Sunday juniors", supervisors: [], adults: [], consentOn: false, myConsent: false, needsAgreement: false, childOptedIn: true, active: false, blocked: [], others: [], ...over }],
+  });
+
+  it("says only that messaging is off and needs agreement from all guardians who decide, and what this guardian has done", async () => {
+    fetchMock.mockImplementation(async () => json({ children: [view("decides", { needsAgreement: true, myConsent: true })], digestHours: 6 }));
+    wrap(<GuardianMessaging />);
+    await act(async () => {});
+    expect(screen.getByText("Messaging for Aina Lee here is off and needs agreement from all guardians who decide.")).toBeTruthy();
+    expect(screen.getByText("You have agreed. Messaging stays off until the other guardians who decide agree too.")).toBeTruthy();
+    expect(screen.getByText(/stays off until all guardians who decide agree again, or the venue settles it/)).toBeTruthy();
+    // Having agreed, the guardian may still take it back.
+    expect(screen.getByText("Switch off for Aina Lee")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/objector|who objected/i);
+  });
+
+  it("offers a guardian who may only object a switch-off and never a switch-on", async () => {
+    fetchMock.mockImplementation(async () => json({ children: [view("objects_only")], digestHours: 6 }));
+    wrap(<GuardianMessaging />);
+    await act(async () => {});
+    expect(screen.getByText("You can switch messaging off for Aina Lee. You cannot switch it on.")).toBeTruthy();
+    expect(screen.queryByText("Switch on for Aina Lee")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Switch off for Aina Lee"));
+    });
+    expect(bodyOf(posts()[0])).toEqual({ action: "consent", participantId: 9, groupId: 4, on: false });
+  });
+
+  it("shows safeguarding administrators who objected, each guardian's level and note, records a level and settles a hold with a reason", async () => {
+    const groups = [{ groupId: 4, name: "Sunday juniors", organiser: "Orla", pending: false, ended: false, venueId: 1, supervisors: [], adults: [], minors: 1, threadId: 8, threadState: "open", messages: 3, openReports: 0 }];
+    const children = [
+      {
+        participantId: 9, child: "Aina L.", consentInForce: false,
+        objection: { id: 12, at: "2026-11-05 10:00:00", by: "Gia", level: "decides" },
+        guardians: [
+          { guardianshipId: 21, name: "Gia", authority: "decides", consentLive: false, note: null, setBy: null, setAt: null },
+          { guardianshipId: 22, name: "Gus", authority: "objects_only", consentLive: false, note: "Shown a contact order", setBy: "Mia Manager", setAt: "2026-11-05 09:00:00" },
+        ],
+      },
+    ];
+    fetchMock.mockImplementation(async (u: string, init?: RequestInit) => {
+      if (init?.method === "POST") return json({ ok: true });
+      if (String(u).includes("safeguarding=4")) return json({ ok: true, group: "Sunday juniors", children });
+      return json({ groups });
+    });
+    render(<YouthGroupsPanel />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.click(screen.getByText("Guardians and holds on messaging"));
+    });
+    expect(screen.getByText(/Messaging is on hold since .*: a guardian \(Gia, decides \(may agree and object\)\) switched it off/)).toBeTruthy();
+    expect(screen.getByText(/Recorded as the venue's word, never verified by the app/)).toBeTruthy();
+    // Settling needs a reason, and says it does not switch messaging on.
+    expect(screen.getByText(/It does not switch messaging on/)).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText(/Reason/)[0], { target: { value: "Settled with both families" } });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Settle the hold"));
+    });
+    expect(bodyOf(posts()[0])).toEqual({ action: "resolve", objectionId: 12, reason: "Settled with both families" });
+    // A level is recorded with its note.
+    fireEvent.change(screen.getAllByLabelText(/What this guardian may do about messaging/)[0], { target: { value: "none" } });
+    await act(async () => {
+      fireEvent.click(screen.getAllByText("Record")[0]);
+    });
+    expect(bodyOf(posts()[1])).toEqual({ action: "authority", guardianshipId: 21, level: "none", note: "" });
+  });
+});
+
+describe("a report in a youth thread is a case (ADR 0049)", () => {
+  const report = {
+    id: 5, createdAt: "2026-11-05 10:00:00", status: "open", outcome: null, reason: "abuse", note: null, kind: "group", contextId: 4, venueId: null, threadId: 8, threadState: "open",
+    urgent: true, linesHeld: true, escalated: false, restricted: true, reporter: { n: "Aina L." }, reported: { userId: 7, label: { n: "Alan", r: "adult" }, suspended: false, reporters: 1 },
+    reviewedBy: null, reviewedAt: null, lines: [],
+  };
+  const caseOut = {
+    id: 5, createdAt: report.createdAt, status: "open", outcome: null, reason: "abuse", note: null, groupId: 4, venueId: null, reporter: { n: "Aina L." },
+    reported: { userId: 7, label: { n: "Alan" }, adult: true }, restricted: true, escalated: null,
+    lines: [{ id: 1, from: { n: "Alan" }, body: "the flagged words", at: "2026-11-05 09:59:00", flagged: true }], notes: [{ id: 1, action: "read", by: "Olive", detail: null, at: "2026-11-05 10:01:00" }],
+  };
+
+  it("holds the evidence back until it is opened, says the restriction is not a finding, and tells the reported adult only in the moderator's words", async () => {
+    fetchMock.mockImplementation(async (u: string, init?: RequestInit) => {
+      if (init?.method === "POST") return json({ ok: true });
+      if (String(u).includes("report=5")) return json({ ok: true, case: caseOut });
+      return json({ reports: [report], suspensions: [], scope: "platform" });
+    });
+    render(<MessageReportsPanel />);
+    await act(async () => {});
+    expect(screen.getByText(/protective and is not a finding of fault/)).toBeTruthy();
+    expect(screen.queryByText("the flagged words")).toBeNull();
+    // Opening it reads the evidence (recorded), and shows what has been done.
+    await act(async () => {
+      fireEvent.click(screen.getByText("Open the case and read the evidence (recorded)"));
+    });
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === "/api/admin/message-moderation?report=5")).toBe(true);
+    expect(screen.getByText("the flagged words")).toBeTruthy();
+    expect(screen.getByText(/Olive · read the evidence/)).toBeTruthy();
+    // The one way the reported adult is told: the moderator's own words.
+    fireEvent.change(screen.getByLabelText(/Tell the reported adult/), { target: { value: "Your access is paused while we review something." } });
+    expect(screen.getByText(/Do not name who reported or repeat what was reported/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Send this to the reported adult"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ action: "case", id: 5, step: "notify", text: "Your access is paused while we review something." });
+    // The review has a third outcome for a report in a youth thread.
+    await act(async () => {
+      fireEvent.click(screen.getByText("Dealt with, restriction continues"));
+    });
+    expect(posts().map(bodyOf)).toContainEqual({ action: "review", id: 5, outcome: "restriction_continues" });
   });
 });

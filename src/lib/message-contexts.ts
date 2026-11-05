@@ -49,6 +49,12 @@ export interface Seat {
   minor?: boolean;
   /** An adult's role in a youth group's thread. */
   role?: "supervisor" | "adult";
+  /**
+   * An adult whose access to a youth group's thread is paused while the venue reviews it (lib/youth-messages.ts, ADR 0049): a hold, never a
+   * finding, and the same whatever the reason. They keep a seat to be shown the neutral line, but count as nobody's reader, are told nothing
+   * of new messages, and have no supervisor's powers.
+   */
+  restricted?: boolean;
 }
 
 export interface ContextInfo {

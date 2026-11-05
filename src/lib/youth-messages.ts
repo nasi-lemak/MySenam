@@ -6,6 +6,7 @@ import { venueZoneOf } from "./zones";
 import { guardianshipOf } from "./participants";
 import { blockPlayer } from "./player-safety";
 import type { Seat, SeatLabel } from "./message-contexts";
+import { consentInForce, consentInForceSql, lockConsentState, needsAgreement, recordSwitchOff, settleObjection, youthGroupsOfMember, type AuthorityLevel } from "./youth-consent";
 
 /**
  * Supervised group messaging for eligible minors (docs/features/player-messages.md#supervised-youth-groups; ADR 0044).
@@ -69,6 +70,11 @@ const REFUSALS = {
   YG_CHILD_NOT_IN: ["They are not a member of that group.", 409],
   YG_MODE: ["Choose how often the notices come: at once, in a digest, daily or not at all.", 400],
   YG_BLOCK_TARGET: ["That person is not in a conversation with them.", 404],
+  YG_NO_SAY: ["Messaging for this child is not yours to change.", 403],
+  YG_OBJECTS_ONLY: ["You can switch messaging off for this child, not on.", 403],
+  YG_LEVEL: ["Choose whether this guardian decides about messaging, may only object, or has no say.", 400],
+  YG_NOTE_ID: ["Say in words what you were shown. Do not enter identity or document numbers.", 400],
+  YG_NO_HOLD: ["There is no hold on this child's messaging in this group.", 404],
 } as const;
 export type YouthRefusalCode = keyof typeof REFUSALS;
 
@@ -145,29 +151,30 @@ export async function youthSeats(groupId: number): Promise<Seat[]> {
   if (!group || group.endedAt) return [];
   const adults = (await db
     .prepare(
-      `SELECT a.user_id, a.role, u.name FROM youth_group_adults a
+      `SELECT a.user_id, a.role, u.name,
+              EXISTS (SELECT 1 FROM youth_thread_mutes t WHERE t.group_id = a.group_id AND t.user_id = a.user_id AND t.lifted_at IS NULL) AS restricted
+         FROM youth_group_adults a
          JOIN group_members m ON m.group_id = a.group_id AND m.user_id = a.user_id AND m.status = 'member'
          JOIN users u ON u.id = a.user_id
         WHERE a.group_id = ? AND a.removed_at IS NULL ORDER BY a.id`
     )
-    .all(groupId)) as { user_id: number; role: "supervisor" | "adult"; name: string }[];
+    .all(groupId)) as { user_id: number; role: "supervisor" | "adult"; name: string; restricted: boolean }[];
   const minors = (await db
     .prepare(
       `SELECT m.user_id, u.name FROM group_members m JOIN users u ON u.id = m.user_id
          JOIN youth_message_optins o ON o.group_id = m.group_id AND o.user_id = m.user_id AND o.revoked_at IS NULL
         WHERE m.group_id = ? AND m.status = 'member'
           AND NOT EXISTS (SELECT 1 FROM player_profiles p WHERE p.user_id = m.user_id AND p.adult = 1)
-          AND EXISTS (SELECT 1 FROM youth_message_consents c
-                        JOIN participants pt ON pt.id = c.participant_id AND pt.linked_user_id = m.user_id
-                        JOIN participant_guardians g ON g.participant_id = pt.id AND g.user_id = c.guardian_user_id
-                       WHERE c.group_id = m.group_id AND c.minor_user_id = m.user_id AND c.revoked_at IS NULL
-                         AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.archived_at IS NULL)
+          AND ${consentInForceSql("m.group_id", "m.user_id")}
         ORDER BY m.id`
     )
     .all(groupId)) as { user_id: number; name: string }[];
   const minorIds = new Set(minors.map((m) => m.user_id));
   return [
-    ...adults.filter((a) => !minorIds.has(a.user_id)).map((a): Seat => ({ userId: a.user_id, role: a.role, from: { n: firstName(a.name), r: a.role } })),
+    // An adult whose access is paused keeps a seat, only to be shown the neutral line: no supervisor's powers, nobody's reader (ADR 0049).
+    ...adults
+      .filter((a) => !minorIds.has(a.user_id))
+      .map((a): Seat => (a.restricted ? { userId: a.user_id, role: "adult", restricted: true, from: { n: firstName(a.name), r: a.role } } : { userId: a.user_id, role: a.role, from: { n: firstName(a.name), r: a.role } })),
     ...minors.map((m): Seat => ({ userId: m.user_id, minor: true, from: { n: shortName(m.name) } })),
   ];
 }
@@ -179,6 +186,9 @@ export async function youthSeats(groupId: number): Promise<Seat[]> {
  */
 export async function lockYouthSeat(groupId: number, userId: number): Promise<void> {
   const db = getDb();
+  // The child's consent state first, before any row below: whoever changes it takes this row `FOR UPDATE` before the others, so neither waits for
+  // the other in a circle, and a message is never written between an objection and what it ends (lib/youth-consent.ts).
+  await db.prepare("SELECT 1 FROM youth_consent_locks WHERE group_id = ? AND minor_user_id = ? FOR SHARE").all(groupId, userId);
   await db.prepare("SELECT 1 FROM youth_message_optins WHERE group_id = ? AND user_id = ? AND revoked_at IS NULL FOR SHARE").all(groupId, userId);
   await db.prepare("SELECT 1 FROM youth_message_consents WHERE group_id = ? AND minor_user_id = ? AND revoked_at IS NULL FOR SHARE").all(groupId, userId);
   await db
@@ -281,10 +291,25 @@ export async function isSupervisor(userId: number, groupId: number): Promise<boo
     await getDb()
       .prepare(
         `SELECT 1 FROM youth_group_adults a JOIN group_members m ON m.group_id = a.group_id AND m.user_id = a.user_id AND m.status = 'member'
-          WHERE a.group_id = ? AND a.user_id = ? AND a.role = 'supervisor' AND a.removed_at IS NULL`
+          WHERE a.group_id = ? AND a.user_id = ? AND a.role = 'supervisor' AND a.removed_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM youth_thread_mutes t WHERE t.group_id = a.group_id AND t.user_id = a.user_id AND t.lifted_at IS NULL)`
       )
       .get(groupId, userId)
   );
+}
+
+/**
+ * Whether this adult's access to the group's thread is paused (a pause by a supervisor or a hold a report placed: the same to them, and never
+ * saying which). While it is, their powers over the group, as a supervisor or as its organiser, are suspended too (ADR 0049).
+ */
+export async function accessPaused(groupId: number, userId: number): Promise<boolean> {
+  return Boolean(await getDb().prepare("SELECT 1 FROM youth_thread_mutes WHERE group_id = ? AND user_id = ? AND lifted_at IS NULL").get(groupId, userId));
+}
+
+/** An organiser-only action: the organiser, and not paused (a paused organiser gets the answer a stranger gets, saying nothing about why). */
+async function organiserRefusal(g: { organiser_id: number }, userId: number, groupId: number): Promise<YouthRefusal | null> {
+  if (g.organiser_id !== userId) return refuseYouth("YG_ORGANISER");
+  return (await accessPaused(groupId, userId)) ? refuseYouth("YG_NOT_FOUND") : null;
 }
 
 /**
@@ -336,6 +361,7 @@ export async function endYouthGroup(actor: { userId: number } | { staffName: str
   if (!g || !y) return refuseYouth("YG_NOT_FOUND");
   if (y.endedAt) return refuseYouth("YG_ENDED");
   if ("userId" in actor ? g.organiser_id !== actor.userId : !actor.allowed) return "userId" in actor ? refuseYouth("YG_ORGANISER") : refuseYouth("YG_NOT_FOUND");
+  if ("userId" in actor && (await accessPaused(groupId, actor.userId))) return refuseYouth("YG_NOT_FOUND");
   const by = "userId" in actor ? "organiser" : actor.staffName;
   return withTransaction(async () => {
     const db = getDb();
@@ -351,7 +377,7 @@ export async function requestVenue(userId: number, groupId: number, venueId: num
   const g = await groupFor(groupId);
   const y = await youthGroupOf(groupId);
   if (!g || !y) return refuseYouth("YG_NOT_FOUND");
-  if (g.organiser_id !== userId) return refuseYouth("YG_ORGANISER");
+  { const no = await organiserRefusal(g, userId, groupId); if (no) return no; }
   if (y.endedAt) return refuseYouth("YG_ENDED");
   if (venueId !== null && !(await getDb().prepare("SELECT 1 FROM venues WHERE id = ?").get(venueId))) return refuseYouth("YG_VENUE");
   await getDb().prepare("UPDATE youth_groups SET venue_requested_id = ? WHERE group_id = ?").run(venueId, groupId);
@@ -389,7 +415,7 @@ export async function setGroupQuiet(userId: number, groupId: number, input: { fr
   const g = await groupFor(groupId);
   const y = await youthGroupOf(groupId);
   if (!g || !y) return refuseYouth("YG_NOT_FOUND");
-  if (g.organiser_id !== userId) return refuseYouth("YG_ORGANISER");
+  { const no = await organiserRefusal(g, userId, groupId); if (no) return no; }
   if (y.endedAt) return refuseYouth("YG_ENDED");
   let from: number | null = null;
   let to: number | null = null;
@@ -411,7 +437,7 @@ export async function setYouthAdult(userId: number, groupId: number, input: { me
   const g = await groupFor(groupId);
   const y = await youthGroupOf(groupId);
   if (!g || !y) return refuseYouth("YG_NOT_FOUND");
-  if (g.organiser_id !== userId) return refuseYouth("YG_ORGANISER");
+  { const no = await organiserRefusal(g, userId, groupId); if (no) return no; }
   if (y.endedAt) return refuseYouth("YG_ENDED");
   const target = input.memberUserId;
   if (!Number.isInteger(target)) return refuseYouth("YG_MEMBER");
@@ -467,7 +493,8 @@ export interface YouthGroupState {
 export async function youthGroupState(userId: number, groupId: number): Promise<YouthGroupState | YouthRefusal> {
   const g = await groupFor(groupId);
   if (!g) return refuseYouth("YG_NOT_FOUND");
-  const organiser = g.organiser_id === userId;
+  // A person whose access is paused has none of an organiser's or a supervisor's powers, and is told nothing of why (ADR 0049).
+  const organiser = g.organiser_id === userId && !(await accessPaused(groupId, userId));
   const supervisor = organiser || (await isSupervisor(userId, groupId));
   if (!supervisor) return refuseYouth("YG_NOT_FOUND");
   const y = await youthGroupOf(groupId);
@@ -495,7 +522,7 @@ export async function youthGroupState(userId: number, groupId: number): Promise<
   const mutes = y
     ? ((await db
         .prepare(
-          `SELECT t.id, t.source, u.name FROM youth_thread_mutes t JOIN users u ON u.id = t.user_id WHERE t.group_id = ? AND t.lifted_at IS NULL ORDER BY t.id`
+          `SELECT t.id, t.source, u.name FROM youth_thread_mutes t JOIN users u ON u.id = t.user_id WHERE t.group_id = ? AND t.lifted_at IS NULL AND t.source = 'supervisor' ORDER BY t.id`
         )
         .all(groupId)) as { id: number; source: "supervisor" | "report"; name: string }[])
     : [];
@@ -514,7 +541,7 @@ export async function youthGroupState(userId: number, groupId: number): Promise<
     adults: adults.map((a) => ({ userId: a.user_id, name: firstName(a.name), role: a.role, declaredRole: a.declared_role })),
     candidates: candidates.map((c) => ({ userId: c.user_id, name: firstName(c.name) })),
     minors: seats.filter((s) => s.minor).length,
-    openSeats: seats.length,
+    openSeats: seats.filter((s) => !s.restricted).length,
     mutes: mutes.map((m) => ({ id: m.id, label: { n: firstName(m.name) }, source: m.source })),
   };
 }
@@ -551,7 +578,7 @@ export async function myYouthGroups(userId: number): Promise<{ eligible: boolean
   const out: MyYouthGroup[] = [];
   for (const r of rows) {
     const sup = (await db
-      .prepare(`SELECT u.name, a.declared_role FROM youth_group_adults a JOIN users u ON u.id = a.user_id WHERE a.group_id = ? AND a.role = 'supervisor' AND a.removed_at IS NULL ORDER BY a.id`)
+      .prepare(`SELECT u.name, a.declared_role FROM youth_group_adults a JOIN users u ON u.id = a.user_id WHERE a.group_id = ? AND a.role = 'supervisor' AND a.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM youth_thread_mutes pm WHERE pm.group_id = a.group_id AND pm.user_id = a.user_id AND pm.lifted_at IS NULL) ORDER BY a.id`)
       .all(r.id)) as { name: string; declared_role: DeclaredRole }[];
     const optedIn = Boolean(await db.prepare("SELECT 1 FROM youth_message_optins WHERE group_id = ? AND user_id = ? AND revoked_at IS NULL").get(r.id, userId));
     const guardianOn = Boolean(await guardianConsentLive(r.id, userId));
@@ -561,17 +588,9 @@ export async function myYouthGroups(userId: number): Promise<{ eligible: boolean
   return { eligible: true, linked, groups: out };
 }
 
+/** The guardians' side is in force: a consent from a guardian who decides, and no objection still waiting for them all (lib/youth-consent.ts). */
 async function guardianConsentLive(groupId: number, minorId: number): Promise<boolean> {
-  return Boolean(
-    await getDb()
-      .prepare(
-        `SELECT 1 FROM youth_message_consents c
-           JOIN participants pt ON pt.id = c.participant_id AND pt.linked_user_id = c.minor_user_id
-           JOIN participant_guardians g ON g.participant_id = pt.id AND g.user_id = c.guardian_user_id
-          WHERE c.group_id = ? AND c.minor_user_id = ? AND c.revoked_at IS NULL AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.archived_at IS NULL LIMIT 1`
-      )
-      .get(groupId, minorId)
-  );
+  return consentInForce(groupId, minorId);
 }
 
 /**
@@ -606,36 +625,53 @@ interface ChildRow {
   participantId: number;
   displayName: string;
   minorId: number;
+  /** This guardian's own link, and what the venue recorded they may do about the child's messaging (lib/youth-consent.ts). */
+  guardianshipId: number;
+  authority: AuthorityLevel;
 }
 
-/** The child this guardian answers for, with their own login's account: only a live guardian, and only a participant with a login linked. */
+/**
+ * The child this guardian answers for, with their own login's account: only a live guardian, and only a participant with a login linked. A guardian
+ * the venue recorded as having no say in messaging (`none`) gets the same refusal for everything here (ADR 0049).
+ */
 export async function guardianChild(guardianId: number, participantId: unknown): Promise<{ child: ChildRow } | YouthRefusal> {
   const mine = await guardianshipOf(guardianId, participantId, { live: true });
   if (!mine) return refuseYouth("YG_GUARDIAN");
   const row = (await getDb().prepare("SELECT linked_user_id FROM participants WHERE id = ?").get(mine.participant.id)) as { linked_user_id: number | null } | undefined;
   if (!row || row.linked_user_id === null) return refuseYouth("YG_CHILD_NO_LOGIN");
-  return { child: { participantId: mine.participant.id, displayName: mine.participant.displayName, minorId: row.linked_user_id } };
+  const level = (await getDb().prepare("SELECT messaging_authority FROM participant_guardians WHERE id = ?").get(mine.guardianship.id)) as { messaging_authority: AuthorityLevel } | undefined;
+  if (!level || level.messaging_authority === "none") return refuseYouth("YG_NO_SAY");
+  return { child: { participantId: mine.participant.id, displayName: mine.participant.displayName, minorId: row.linked_user_id, guardianshipId: mine.guardianship.id, authority: level.messaging_authority } };
 }
 
-/** Other live guardians of the child, told (by the safeguarding notice, never uncapped for anything else) when consent changes, so no guardian is surprised. */
-async function tellOtherGuardians(child: ChildRow, exceptId: number, groupId: number, on: boolean): Promise<void> {
+type ConsentNotice = "on" | "off" | "restored";
+
+/**
+ * The child's other live guardians who have a say are told at once (the safeguarding notice kind), so no guardian is surprised: what they are told
+ * is only that messaging for the child in the group is off and needs agreement from all guardians who decide, that it is on, or that agreement was
+ * reached. Never who objected, never why (ADR 0049).
+ */
+async function tellOtherGuardians(child: ChildRow, exceptId: number, groupId: number, what: ConsentNotice): Promise<void> {
   try {
     const { emailPlayer } = await import("./outbox");
     const { baseUrl } = await import("./outbox");
     const { siteName } = await import("./site");
     const others = (await getDb()
-      .prepare("SELECT DISTINCT user_id FROM participant_guardians WHERE participant_id = ? AND user_id IS NOT NULL AND user_id <> ? AND revoked_at IS NULL AND suspended_at IS NULL AND archived_at IS NULL")
+      .prepare(
+        "SELECT DISTINCT user_id FROM participant_guardians WHERE participant_id = ? AND user_id IS NOT NULL AND user_id <> ? AND revoked_at IS NULL AND suspended_at IS NULL AND archived_at IS NULL AND messaging_authority <> 'none'"
+      )
       .all(child.participantId, exceptId)) as { user_id: number }[];
     const group = (await getDb().prepare("SELECT name FROM community_groups WHERE id = ?").get(groupId)) as { name: string } | undefined;
+    const key = what === "off" ? "pmy.mail.consentOff" : what === "restored" ? "pmy.mail.consentRestored" : "pmy.mail.consentOn";
     for (const o of others)
       await emailPlayer({
         kind: "safeguarding_notice",
         venueId: null,
         userId: o.user_id,
         subject: (t) => t("pmy.mail.subject", { site: siteName() }),
-        body: (t) => t(on ? "pmy.mail.consentOn" : "pmy.mail.consentOff", { child: child.displayName, group: group?.name ?? "" }),
+        body: (t) => t(key, { child: shortName(child.displayName), group: group?.name ?? "" }),
         link: `${baseUrl()}/account`,
-        dedupeKey: `pmy:consent:${groupId}:${child.minorId}:${o.user_id}:${on ? 1 : 0}:${Math.floor(Date.now() / 60_000)}`,
+        dedupeKey: `pmy:consent:${groupId}:${child.minorId}:${o.user_id}:${what}:${Math.floor(Date.now() / 60_000)}`,
       });
   } catch (err) {
     console.error("[mysenam] could not queue a safeguarding notice:", err instanceof Error ? err.message : "unknown error");
@@ -643,47 +679,75 @@ async function tellOtherGuardians(child: ChildRow, exceptId: number, groupId: nu
 }
 
 /**
- * A guardian switches messaging on, or off, for one child in one youth group. Default off; on takes the child to be a member of a marked
- * group and to have their own login linked. Off ends every live consent for that child and group at once (any live guardian's off
- * wins), with no notice to the group beyond the child no longer being there. Other guardians are told.
+ * A guardian switches messaging on, or off, for one child in one youth group (docs/features/player-messages.md#supervised-youth-groups; ADR 0049).
+ *
+ * - **Off** (a guardian who decides, or who may object only): ends every consent for that child and group at once and opens an **objection**
+ *   (once: another guardian's off while one is open is recorded and adds nothing). While it is open **no consent counts** unless every guardian who
+ *   decides has agreed again, so another guardian switching it on records their consent and cannot reverse the restriction.
+ * - **On** (a guardian who decides only; `objects_only` is refused): default off, takes the child to be a member of a marked group with their own
+ *   login linked. With no objection open, one guardian's consent is enough, as before; with one open, it counts once all who decide have given theirs
+ *   (the objector's own switch-on is their withdrawal of the objection), and the objection then closes.
+ * - Everything is read and written under the child-and-group lock, the guardian's level and relationship re-read inside it, so two guardians changing
+ *   consent at the same moment end consistently: an "on" never wins over a concurrent "off", whichever commits first.
  */
-export async function setConsent(guardianId: number, participantId: unknown, groupId: number, on: boolean): Promise<Result> {
+export async function setConsent(guardianId: number, participantId: unknown, groupId: number, on: boolean): Promise<Result<{ restored: boolean; needsAgreement: boolean }>> {
   const found = await guardianChild(guardianId, participantId);
   if ("ok" in found) return found;
   const { child } = found;
+  if (on && child.authority === "objects_only") return refuseYouth("YG_OBJECTS_ONLY");
   const y = await youthGroupOf(groupId);
   if (!y || y.endedAt) return refuseYouth("YG_NOT_YOUTH");
   const member = await getDb().prepare("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND status = 'member'").get(groupId, child.minorId);
   if (!member) return refuseYouth("YG_CHILD_NOT_IN");
-  const result = await withTransaction(async () => {
+  const result = await withTransaction(async (): Promise<Result<{ restored: boolean; needsAgreement: boolean }>> => {
     const db = getDb();
+    await lockConsentState([groupId], child.minorId);
+    // Re-read under the lock: the venue may have changed their level, or the relationship ended, since the first look.
+    const again = await guardianChild(guardianId, participantId);
+    if ("ok" in again) return again;
+    const level = again.child.authority;
+    if (on && level === "objects_only") return refuseYouth("YG_OBJECTS_ONLY");
+    let restored = false;
     if (on) {
       await db
         .prepare("INSERT INTO youth_message_consents (group_id, minor_user_id, guardian_user_id, participant_id) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
         .run(groupId, child.minorId, guardianId, child.participantId);
-      await youthEvent(groupId, "guardian", "consent_on", { actorId: guardianId, minorId: child.minorId });
+      await youthEvent(groupId, "guardian", "consent_on", { actorId: guardianId, minorId: child.minorId, detail: `level ${level}` });
+      restored = await settleObjection(groupId, child.minorId);
     } else {
-      await db.prepare("UPDATE youth_message_consents SET revoked_at = datetime('now'), revoked_by = ? WHERE group_id = ? AND minor_user_id = ? AND revoked_at IS NULL").run(guardianId, groupId, child.minorId);
-      await youthEvent(groupId, "guardian", "consent_off", { actorId: guardianId, minorId: child.minorId });
+      await recordSwitchOff(groupId, child.minorId, { userId: guardianId, participantId: child.participantId, level: level as "decides" | "objects_only" });
+      await youthEvent(groupId, "guardian", "consent_off", { actorId: guardianId, minorId: child.minorId, detail: `level ${level}` });
     }
-    return { ok: true as const };
+    return { ok: true as const, restored, needsAgreement: await needsAgreement(groupId, child.minorId) };
   });
-  await tellOtherGuardians(child, guardianId, groupId, on);
+  if (!result.ok) return result;
+  if (!on) await tellOtherGuardians(child, guardianId, groupId, "off");
+  else if (result.restored) await tellOtherGuardians(child, guardianId, groupId, "restored");
+  else if (!result.needsAgreement) await tellOtherGuardians(child, guardianId, groupId, "on");
   return result;
 }
 
-/** A guardian switches off messaging for a child in every group at once. */
+/**
+ * A guardian switches off messaging for a child in every group at once: every consent ends, the child's own opt-ins are taken back, and an
+ * objection opens in each youth group the child is in (the same as a switch-off in each), all under the locks of those groups.
+ */
 export async function switchOffAll(guardianId: number, participantId: unknown): Promise<Result<{ groups: number }>> {
   const found = await guardianChild(guardianId, participantId);
   if ("ok" in found) return found;
   const { child } = found;
-  return withTransaction(async () => {
+  return withTransaction(async (): Promise<Result<{ groups: number }>> => {
     const db = getDb();
+    const consented = (await db.prepare("SELECT DISTINCT group_id FROM youth_message_consents WHERE minor_user_id = ? AND revoked_at IS NULL").all(child.minorId)) as { group_id: number }[];
+    const inGroups = await youthGroupsOfMember(child.minorId);
+    await lockConsentState([...inGroups, ...consented.map((c) => c.group_id)], child.minorId);
+    const again = await guardianChild(guardianId, participantId);
+    if ("ok" in again) return again;
     const live = (await db
       .prepare("UPDATE youth_message_consents SET revoked_at = datetime('now'), revoked_by = ? WHERE minor_user_id = ? AND revoked_at IS NULL RETURNING group_id")
       .all(guardianId, child.minorId)) as { group_id: number }[];
     await db.prepare("UPDATE youth_message_optins SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(child.minorId);
-    for (const g of new Set(live.map((r) => r.group_id))) await youthEvent(g, "guardian", "consent_off_all", { actorId: guardianId, minorId: child.minorId });
+    for (const g of inGroups) await recordSwitchOff(g, child.minorId, { userId: guardianId, participantId: child.participantId, level: again.child.authority as "decides" | "objects_only" });
+    for (const g of new Set(live.map((r) => r.group_id))) await youthEvent(g, "guardian", "consent_off_all", { actorId: guardianId, minorId: child.minorId, detail: `level ${again.child.authority}` });
     return { ok: true as const, groups: new Set(live.map((r) => r.group_id)).size };
   });
 }
@@ -733,6 +797,8 @@ export interface GuardianChildView {
   /** The child's own login is linked: without one there is nothing to switch on. */
   hasLogin: boolean;
   noticeMode: GuardianNoticeMode;
+  /** What the venue recorded this guardian may do about the child's messaging: `objects_only` may switch it off and never on. */
+  authority: AuthorityLevel;
   groups: {
     groupId: number;
     name: string;
@@ -740,6 +806,10 @@ export interface GuardianChildView {
     /** The adults a supervisor let in, with what they said they are. */
     adults: { name: string; declaredRole: DeclaredRole }[];
     consentOn: boolean;
+    /** This guardian has agreed (a live consent of their own). */
+    myConsent: boolean;
+    /** Messaging is off and needs agreement from all guardians who decide: all anybody is told of an objection (ADR 0049). */
+    needsAgreement: boolean;
     childOptedIn: boolean;
     active: boolean;
     /** People this child has blocked in the group's thread (first names or short names), so a guardian sees what the child sees. */
@@ -754,20 +824,23 @@ export async function guardianOverview(guardianId: number): Promise<GuardianChil
   const { guardianshipsOf } = await import("./participants");
   const db = getDb();
   const out: GuardianChildView[] = [];
-  for (const { participant } of await guardianshipsOf(guardianId)) {
+  for (const { participant, guardianship } of await guardianshipsOf(guardianId)) {
     const row = (await db.prepare("SELECT linked_user_id FROM participants WHERE id = ?").get(participant.id)) as { linked_user_id: number | null } | undefined;
     const minorId = row?.linked_user_id ?? null;
     if (minorId === null) continue;
+    // A guardian the venue recorded as having no say in messaging is shown nothing of it.
+    const level = (await db.prepare("SELECT messaging_authority FROM participant_guardians WHERE id = ?").get(guardianship.id)) as { messaging_authority: AuthorityLevel } | undefined;
+    if (!level || level.messaging_authority === "none") continue;
     const groups = (await db
       .prepare(
         `SELECT g.id, g.name FROM group_members m JOIN community_groups g ON g.id = m.group_id JOIN youth_groups y ON y.group_id = g.id AND y.ended_at IS NULL
           WHERE m.user_id = ? AND m.status = 'member' ORDER BY g.id`
       )
       .all(minorId)) as { id: number; name: string }[];
-    const view: GuardianChildView = { participantId: participant.id, displayName: participant.displayName, hasLogin: true, noticeMode: await guardianNoticeMode(minorId), groups: [] };
+    const view: GuardianChildView = { participantId: participant.id, displayName: participant.displayName, hasLogin: true, noticeMode: await guardianNoticeMode(minorId), authority: level.messaging_authority, groups: [] };
     for (const g of groups) {
       const adults = (await db
-        .prepare(`SELECT u.name, a.role, a.declared_role FROM youth_group_adults a JOIN users u ON u.id = a.user_id WHERE a.group_id = ? AND a.removed_at IS NULL ORDER BY a.id`)
+        .prepare(`SELECT u.name, a.role, a.declared_role FROM youth_group_adults a JOIN users u ON u.id = a.user_id WHERE a.group_id = ? AND a.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM youth_thread_mutes pm WHERE pm.group_id = a.group_id AND pm.user_id = a.user_id AND pm.lifted_at IS NULL) ORDER BY a.id`)
         .all(g.id)) as { name: string; role: "supervisor" | "adult"; declared_role: DeclaredRole }[];
       const seats = await youthSeats(g.id);
       const blockedRows = (await db.prepare("SELECT blocked_id FROM player_blocks WHERE blocker_id = ?").all(minorId)) as { blocked_id: number }[];
@@ -778,10 +851,12 @@ export async function guardianOverview(guardianId: number): Promise<GuardianChil
         supervisors: adults.filter((a) => a.role === "supervisor").map((a) => ({ name: firstName(a.name), declaredRole: a.declared_role })),
         adults: adults.filter((a) => a.role === "adult").map((a) => ({ name: firstName(a.name), declaredRole: a.declared_role })),
         consentOn: await guardianConsentLive(g.id, minorId),
+        myConsent: Boolean(await db.prepare("SELECT 1 FROM youth_message_consents WHERE group_id = ? AND minor_user_id = ? AND guardian_user_id = ? AND revoked_at IS NULL").get(g.id, minorId, guardianId)),
+        needsAgreement: await needsAgreement(g.id, minorId),
         childOptedIn: Boolean(await db.prepare("SELECT 1 FROM youth_message_optins WHERE group_id = ? AND user_id = ? AND revoked_at IS NULL").get(g.id, minorId)),
         active: seats.some((s) => s.userId === minorId),
         blocked: seats.filter((s) => blockedIds.has(s.userId)).map((s) => ({ userId: s.userId, label: s.from })),
-        others: seats.filter((s) => s.userId !== minorId && s.role !== "supervisor" && !blockedIds.has(s.userId)).map((s) => ({ userId: s.userId, label: s.from })),
+        others: seats.filter((s) => s.userId !== minorId && s.role !== "supervisor" && !s.restricted && !blockedIds.has(s.userId)).map((s) => ({ userId: s.userId, label: s.from })),
       });
     }
     out.push(view);

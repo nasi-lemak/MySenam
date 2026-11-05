@@ -3,7 +3,7 @@
 import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { SeatLabel } from "@/lib/message-contexts";
-import type { StaffYouthMessage, YouthGroupForStaff } from "@/lib/youth-safeguarding";
+import type { SafeguardingChild, StaffYouthMessage, YouthGroupForStaff } from "@/lib/youth-safeguarding";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 /**
@@ -20,6 +20,10 @@ export function YouthGroupsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState<{ groupId: number; messages: StaffYouthMessage[] } | null>(null);
   const [reasons, setReasons] = useState<Record<number, string>>({});
+  // The children of a group, their guardians' recorded levels and any hold on their messaging: for safeguarding administrators only (ADR 0049).
+  const [sg, setSg] = useState<{ groupId: number; children: SafeguardingChild[] } | null>(null);
+  const [edits, setEdits] = useState<Record<number, { level?: string; note?: string }>>({});
+  const [holdReasons, setHoldReasons] = useState<Record<number, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +46,24 @@ export function YouthGroupsPanel() {
     if (!res.ok) return setError(t.err(data, t("ysg.actionFailed")));
     setReading(null);
     await load();
+  }
+
+  async function openSafeguarding(groupId: number) {
+    setError(null);
+    const res = await fetch(`/api/admin/youth-groups?safeguarding=${groupId}`, { cache: "no-store" });
+    const data = await readJson(res).catch(() => null);
+    if (!res.ok) return setError(t.err(data, t("ysg.actionFailed")));
+    setSg({ groupId, children: data.children as SafeguardingChild[] });
+  }
+
+  /** Records a guardian's level or settles a hold, then shows the group's guardians again. */
+  async function sgAct(groupId: number, body: Record<string, unknown>) {
+    setError(null);
+    const res = await fetch("/api/admin/youth-groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await readJson(res).catch(() => null);
+    if (!res.ok) return setError(t.err(data, t("ysg.actionFailed")));
+    setEdits({});
+    await openSafeguarding(groupId);
   }
 
   async function read(groupId: number) {
@@ -100,7 +122,85 @@ export function YouthGroupsPanel() {
                       <button className={small} onClick={() => (reading?.groupId === g.groupId ? setReading(null) : void read(g.groupId))}>
                         {reading?.groupId === g.groupId ? t("ysg.hide") : t("ysg.read")}
                       </button>
+                      {g.minors > 0 && (
+                        <button className={small} onClick={() => (sg?.groupId === g.groupId ? setSg(null) : void openSafeguarding(g.groupId))}>
+                          {sg?.groupId === g.groupId ? t("msg3.sg.hide") : t("msg3.sg.open")}
+                        </button>
+                      )}
                     </div>
+                    {sg?.groupId === g.groupId && (
+                      <div className="space-y-2 rounded-md bg-slate-50 p-2" data-testid="youth-safeguarding">
+                        <p className="text-xs text-slate-500">{t("msg3.sg.note")}</p>
+                        {sg.children.length === 0 && <p className="text-slate-500">{t("msg3.sg.none")}</p>}
+                        {sg.children.map((c) => (
+                          <div key={c.participantId} className="space-y-1 rounded border border-slate-200 bg-white p-2">
+                            <p className="font-semibold">{c.child}</p>
+                            {c.objection ? (
+                              <div className="space-y-1">
+                                <p className="text-red-700">{t("msg3.sg.hold", { when: clock.when(c.objection.at), name: c.objection.by ?? "-", level: t(`msg3.sg.level.${c.objection.level}`) })}</p>
+                                <label className="block text-xs font-medium text-slate-600">
+                                  {t("ysg.reasonLabel")}
+                                  <input value={holdReasons[c.objection.id] ?? ""} onChange={(e) => setHoldReasons((had) => ({ ...had, [c.objection!.id]: e.target.value }))} maxLength={300} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+                                </label>
+                                <button className={small} onClick={() => void sgAct(g.groupId, { action: "resolve", objectionId: c.objection!.id, reason: holdReasons[c.objection!.id] ?? "" })}>
+                                  {t("msg3.sg.resolve")}
+                                </button>
+                                <p className="text-xs text-slate-500">{t("msg3.sg.resolveNote")}</p>
+                              </div>
+                            ) : (
+                              <p className="text-slate-600">{c.consentInForce ? t("msg3.sg.on") : t("msg3.sg.off")}</p>
+                            )}
+                            <ul className="space-y-2">
+                              {c.guardians.map((gu) => (
+                                <li key={gu.guardianshipId} className="space-y-1">
+                                  <p>
+                                    {gu.name} · {gu.consentLive ? t("msg3.sg.agreed") : t("msg3.sg.notAgreed")}
+                                    {gu.setBy && <span className="text-xs text-slate-500"> · {t("msg3.sg.setBy", { name: gu.setBy, when: gu.setAt ? clock.when(gu.setAt) : "" })}</span>}
+                                  </p>
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <label className="text-xs font-medium text-slate-600">
+                                      {t("msg3.sg.levelLabel")}
+                                      <select
+                                        value={edits[gu.guardianshipId]?.level ?? gu.authority}
+                                        onChange={(e) => setEdits((had) => ({ ...had, [gu.guardianshipId]: { ...had[gu.guardianshipId], level: e.target.value } }))}
+                                        className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                                      >
+                                        <option value="decides">{t("msg3.sg.level.decides")}</option>
+                                        <option value="objects_only">{t("msg3.sg.level.objects_only")}</option>
+                                        <option value="none">{t("msg3.sg.level.none")}</option>
+                                      </select>
+                                    </label>
+                                    <label className="min-w-48 flex-1 text-xs font-medium text-slate-600">
+                                      {t("msg3.sg.noteLabel")}
+                                      <input
+                                        value={edits[gu.guardianshipId]?.note ?? gu.note ?? ""}
+                                        onChange={(e) => setEdits((had) => ({ ...had, [gu.guardianshipId]: { ...had[gu.guardianshipId], note: e.target.value } }))}
+                                        maxLength={200}
+                                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                                      />
+                                    </label>
+                                    <button
+                                      className={small}
+                                      onClick={() =>
+                                        void sgAct(g.groupId, {
+                                          action: "authority",
+                                          guardianshipId: gu.guardianshipId,
+                                          level: edits[gu.guardianshipId]?.level ?? gu.authority,
+                                          note: edits[gu.guardianshipId]?.note ?? gu.note ?? "",
+                                        })
+                                      }
+                                    >
+                                      {t("msg3.sg.save")}
+                                    </button>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                        <p className="text-xs text-slate-500">{t("msg3.sg.declared")}</p>
+                      </div>
+                    )}
                     {reading?.groupId === g.groupId && (
                       <div className="space-y-1 rounded-md bg-slate-50 p-2">
                         <p className="text-xs text-slate-500">{t("ysg.readNote")}</p>
