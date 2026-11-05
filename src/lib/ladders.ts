@@ -4,7 +4,11 @@ import { flipScore, scoreRefusal } from "./brackets";
 import { categoryOfWho, declaredGender, entrantCategoryRefusal, entrantParticipantId, entrantUserId, entrantVenueRefusal, selfEntrant, type Entrant } from "./competition-entrants";
 import { templateByKey, templateFor, type RubberKind } from "./competition-templates";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { logAction } from "./activity";
 import {
+  abandonedCount,
+  abandonedHolds,
+  carryAgreement,
   confirmHold,
   expiredHoldsToTell,
   extendHold,
@@ -13,6 +17,7 @@ import {
   makeHold,
   markExpiryTold,
   moveHold,
+  previewHold,
   offerFreed,
   releaseHold,
   resolveHoldLimits,
@@ -363,8 +368,13 @@ export interface LadderDetail extends Ladder {
   results: LadderResultView[];
   /** Only for staff: every challenge of the season, in every state. A player's own are `MyPlace.open` and `history`. */
   challenges?: ChallengeView[];
-  /** Only for staff: the caps on held court time that apply to this ladder and where each comes from (ADR 0048). Never shown to players or the public. */
+  /** Only for staff: the limits on held court time that apply to this ladder and where each comes from (ADR 0048, ADR 0050). Never shown to players or the public. */
   holdLimits?: HoldLimitsView;
+  /**
+   * Only for staff: for each place with holds it created and abandoned (expired unconfirmed, or withdrawn while tentative) in the anti-abuse window, how many, when the
+   * latest was, and until when it is cooling down (ADR 0050). Never shown to players or the public.
+   */
+  holdAbandoned?: { playerId: number; name: string; count: number; last: string; coolingUntil: string | null }[];
   /** Only for staff: the ledger of the season, newest last. */
   events?: { id: number; ord: number; kind: EventKind; playerId: number; otherId: number | null; on: string; data: EventData; voided: boolean; voidedReason: string | null; replaces: number | null }[];
 }
@@ -729,7 +739,8 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
       }));
     }
   }
-  return { ...ladder, seasons, viewing, rows, results, ...(opts.forStaff ? { challenges, holdLimits: await resolveHoldLimits(ladder) } : {}), ...(events ? { events } : {}) };
+  const abandoned = opts.forStaff ? (await abandonedHolds(ladder)).map((a) => ({ ...a, name: people.get(a.playerId)?.name ?? "" })) : [];
+  return { ...ladder, seasons, viewing, rows, results, ...(opts.forStaff ? { challenges, holdLimits: await resolveHoldLimits(ladder), holdAbandoned: abandoned } : {}), ...(events ? { events } : {}) };
 }
 
 // ------------------------------------------------------------ setting one up
@@ -946,15 +957,16 @@ export async function changeCourtTime(ladderId: number, change: { on?: unknown; 
 }
 
 /**
- * A manager sets the caps on held court time for a venue (`scope: "venue"`: every ladder of it without its own) or for this ladder (ADR 0048): the most
- * holds live at once on a ladder, and the most one player's challenges may have made in 7 days. Each is a number within the install's bounds (refused with
+ * A manager sets the limits on held court time for a venue (`scope: "venue"`: every ladder of it without its own) or for this ladder (ADR 0048, ADR 0050): the most
+ * holds live at once on a ladder, the most one player's challenges may have live at once (`maxActive`; `maxWeek` is its old name), and how many holds a player may
+ * create and abandon in the window before a cooldown applies to creating new ones (`maxAbandoned`). Each is a number within the install's bounds (refused with
  * them, `LAD3_BOUNDS`), `null` to go back to the default above, or left out to stay. It applies to holds made from now on and never releases one, even if set
  * below what is in use. The route logs it with who, before and after, and the reason if given.
  */
 export async function changeHoldLimits(
   ladderId: number,
   scope: "venue" | "ladder",
-  change: { maxLive?: unknown; maxWeek?: unknown }
+  change: { maxLive?: unknown; maxActive?: unknown; maxWeek?: unknown; maxAbandoned?: unknown }
 ): Promise<LadderResult<{ before: HoldLimitsView; after: HoldLimitsView }>> {
   return withLadder(ladderId, async (ladder) => {
     const done = await setHoldLimits(ladder, scope, change);
@@ -989,8 +1001,8 @@ type Freed = { courtId: number | null; date: string };
 const freedStore = new AsyncLocalStorage<Freed[]>();
 
 /** Let a challenge's hold go (if it has one), once, for `reason`; its court time is offered on afterwards (`withLadder`). */
-export async function letGo(challengeId: number, reason: string, by: string | null = null, note: string | null = null): Promise<boolean> {
-  const out = await releaseHold(challengeId, reason, by, note);
+export async function letGo(challengeId: number, reason: string, by: string | null = null, note: string | null = null, abandonedBy?: number): Promise<boolean> {
+  const out = await releaseHold(challengeId, reason, by, note, abandonedBy);
   if (!out) return false;
   freedStore.getStore()?.push({ courtId: out.courtId, date: out.date });
   return true;
@@ -1386,7 +1398,7 @@ export async function viewOf(ladder: Ladder, challengeId: number): Promise<Chall
 }
 
 export type Answer =
-  | { accept: true; onDate?: string; minute?: number }
+  | { accept: true; onDate?: string; minute?: number; courtId?: number }
   | { decline: true }
   | { propose: true; onDate: string; minute?: number };
 
@@ -1438,15 +1450,16 @@ export async function answer(userId: number, challengeId: number, input: Answer,
     } else {
       const when = proposal(input, today);
       if (!when.ok) return when.refusal;
-      // Accepting a time the other side proposed agrees it; accepting with a day of their own sets that.
-      const on = when.on ?? (ch.proposed_by !== null && ch.proposed_by !== mineId ? ch.proposed_on : null);
-      const min = when.on ? when.min : on === ch.proposed_on ? ch.proposed_min : null;
+      // Accepting a time the other side proposed agrees it; accepting with a day of their own sets that. A fully specified time one player proposed and the other
+      // accepts unchanged is both players' agreement to it (`proposer`, ADR 0050); a time the accepter names themselves is a counter-proposal the proposer has not agreed.
+      const { on, min, proposer } = acceptedTime(ch, mineId, when);
       // A ladder that holds court time holds a court once a day and time are agreed (a day alone is not a time): refused, with the reason and
-      // nothing changed, if nothing is free, so a challenge is never accepted without the court it was promised.
+      // nothing changed, if nothing is free, so a challenge is never accepted without the court it was promised. The court is the one the accepter was shown, if they
+      // were: it is held or nothing is (`LAD4_COURT_CHANGED`).
       let held: HoldView | null = null;
       if (ladder.courtTime.on && on && min !== null) {
         if (on > addDays(today, ladder.settings.playDays)) return ladderRefusal("LAD2_AFTER", { date: addDays(today, ladder.settings.playDays) });
-        const made = await holdFor(ladder, ch, on, min, people, { kind: "players" });
+        const made = await holdFor(ladder, ch, on, min, people, { kind: "players", placeId: mineId }, { agreement: proposer === null ? undefined : { proposer, accepter: mineId }, expectCourtId: input.courtId });
         if (!made.ok) return made;
         held = made.hold;
       }
@@ -1469,6 +1482,7 @@ export async function answer(userId: number, challengeId: number, input: Answer,
               what: tr(on ? "ld.ans.acceptedOn" : "ld.ans.accepted", { date: on ?? "", time: min === null ? "" : fmtMin(min), by: addDays(today, ladder.settings.playDays) }),
             }),
             held && tr("lad2.mail.held", { court: held.court, date: held.date, time: fmtMin(held.startMin) }),
+            held?.agreed && tr("lad4.mail.agreed", { name: me, minutes: ladder.courtTime.matchMinutes }),
             confirmBy && tr("lad3.mail.confirmBy", { by: confirmBy })
           )
       );
@@ -1487,7 +1501,10 @@ export async function withdraw(userId: number, challengeId: number, expected: { 
     if (stale(ch, expected)) return changedRefusal();
     if (ch.status !== "pending" && ch.status !== "accepted") return ladderRefusal("LD_NOT_AWAITING");
     await getDb().prepare("UPDATE ladder_challenges SET status = 'cancelled', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(await venueToday(ladder.venueId), ch.id);
-    await letGo(ch.id, "withdrawn");
+    // A hold the challenger created and withdraws while it is still tentative is abandoned (ADR 0050); one both had confirmed, or agreed, is not.
+    const abandons = (await holdViews([ch.id])).get(ch.id)?.tentative === true;
+    await letGo(ch.id, "withdrawn", null, null, found.myId);
+    if (abandons) await noteAbandonment(ladder, found.myId);
     const people = await playersOf(ladder.id);
     await tellEnd(ladder, ch.challenged, (people.get(ch.challenger)?.shown ?? ""), "withdrawn");
     return { ok: true, value: await viewOf(ladder, ch.id) };
@@ -1972,39 +1989,197 @@ async function dropCancelledBookings(): Promise<void> {
 
 const holdRefusal = (r: HoldRefusal): LadderRefusal => ladderRefusal(r.code, r.vars, r.code === "LAD3_BOUNDS" ? 400 : 409);
 
-/** Hold a court for a challenge at an agreed day and time (inside the ladder's transaction), labelled for the schedule. */
+/**
+ * What accepting a challenge agrees (ADR 0050): the day and time, and who proposed them when the accepter takes them unchanged. A fully specified time (a day and a
+ * start) that the other player proposed and this one accepts, with nothing of their own, is both players' agreement to it (`proposer` is the one who proposed it).
+ * A day alone is not a time; a time the accepter names themselves is a counter-proposal the proposer has not agreed, so `proposer` is null and the hold is tentative.
+ */
+export function acceptedTime(
+  ch: Pick<ChallengeRow, "proposed_on" | "proposed_min" | "proposed_by">,
+  mineId: number,
+  when: { on: string | null; min: number | null }
+): { on: string | null; min: number | null; proposer: number | null } {
+  const proposedByOther = ch.proposed_by !== null && ch.proposed_by !== mineId;
+  const on = when.on ?? (proposedByOther ? ch.proposed_on : null);
+  const min = when.on ? when.min : on === ch.proposed_on ? ch.proposed_min : null;
+  const unchanged = proposedByOther && on !== null && min !== null && on === ch.proposed_on && min === ch.proposed_min;
+  return { on, min, proposer: unchanged ? ch.proposed_by : null };
+}
+
+/**
+ * Hold a court for a challenge at an agreed day and time (inside the ladder's transaction), labelled for the schedule.
+ *
+ * Agreement (ADR 0050): `agreement` names the two places that agreed this exact time, and the hold is made confirmed with each one's agreement kept. Without it a hold
+ * is tentative on a ladder that asks for confirmation, whoever made it: a counter-proposal, and a time a manager chose, are not both players' agreement. A manager's
+ * move that changes nothing material (the day, the start, the minutes and the court, so only a reminder or an extension) keeps the agreement the hold had; any other
+ * change by a manager is tentative again and keeps what it replaced (`changedFrom`), so both players are told what changed and each confirms the new specification.
+ * `expectCourtId` is the court the player was shown, held or nothing; `preview` looks without holding (`previewHold`).
+ */
 export async function holdFor(
   ladder: Ladder,
   ch: Pick<ChallengeRow, "id" | "challenger" | "challenged">,
   on: string,
   min: number,
   people: Map<number, Pick<PlayerRow, "name">>,
-  by: { kind: "players" } | { kind: "staff"; name: string },
-  opts: { courtId?: number | null; replacing?: boolean; reason?: string; byName?: string | null } = {}
+  by: { kind: "players"; placeId?: number } | { kind: "staff"; name: string },
+  opts: { courtId?: number | null; replacing?: boolean; reason?: string; byName?: string | null; agreement?: { proposer: number; accepter: number }; expectCourtId?: number | null; preview?: boolean } = {}
 ): Promise<{ ok: true; hold: HoldView; freed?: { courtId: number | null; date: string } | null } | LadderRefusal> {
-  // A move of a hold that was confirmed is made confirmed: both players (or a manager) have just agreed to it. A hold that was still tentative stays so, with a fresh
-  // window, and a first hold is tentative on a ladder that asks both players to confirm (ADR 0048).
   const before = opts.replacing ? (await holdViews([ch.id])).get(ch.id) : undefined;
+  let courtId = opts.courtId ?? null;
+  let confirmed = false;
+  let changedFrom: { date: string; startMin: number; court: string | null } | null = null;
+  if (by.kind === "staff" && before) {
+    const sameTime = before.date === on && before.startMin === min && before.endMin - before.startMin === ladder.courtTime.matchMinutes;
+    const sameCourt = courtId === null || courtId === before.courtId;
+    if (sameTime && sameCourt && !before.tentative) {
+      // Nothing material changes: the agreement the hold had stands, on the court it had.
+      confirmed = true;
+      courtId = before.courtId;
+    } else if (!(sameTime && sameCourt)) changedFrom = { date: before.date, startMin: before.startMin, court: before.court || null };
+  }
   const req = {
     ladder: { id: ladder.id, venueId: ladder.venueId, sport: ladder.sport, name: ladder.name, needsConfirmation: ladder.courtTime.needsConfirmation },
-    confirmed: before !== undefined && !before.tentative,
+    confirmed,
+    agreement: opts.agreement,
+    expectCourtId: opts.expectCourtId ?? null,
+    changedFrom,
     challengeId: ch.id,
     label: `Ladder match: ${ladder.name}: ${people.get(ch.challenger)?.name ?? ""} v ${people.get(ch.challenged)?.name ?? ""}`.slice(0, 200),
     playerIds: [ch.challenger, ch.challenged] as [number, number],
     date: on,
     startMin: min,
     minutes: ladder.courtTime.matchMinutes,
-    courtId: opts.courtId ?? null,
+    courtId,
     by,
   };
+  if (opts.preview) {
+    const looked = await previewHold({ ...req, replacing: opts.replacing === true });
+    return looked.ok ? looked : holdRefusal(looked);
+  }
   if (opts.replacing) {
     const moved = await moveHold(req, "moved", opts.byName ?? null, opts.reason ?? null);
     if (!moved.ok) return holdRefusal(moved);
     if (moved.freed) freedStore.getStore()?.push(moved.freed);
+    // A change that moves nothing material keeps the agreement the hold had (ADR 0050): the new hold carries its confirmations and what each player agreed.
+    if (confirmed && before) {
+      await carryAgreement(before.id, moved.hold.id);
+      const again = (await holdViews([ch.id])).get(ch.id);
+      if (again) return { ...moved, hold: again };
+    }
     return moved;
   }
   const made = await makeHold(req);
   return made.ok ? made : holdRefusal(made);
+}
+
+/**
+ * Hold counts that matter to the anti-abuse rule (ADR 0050): after a hold a player created was abandoned, say so in the log (by the system) once the player is at or
+ * past the threshold, and for how long they cannot create a new one. It writes only the log: the cooldown itself is read from the history of abandoned holds.
+ */
+async function noteAbandonment(ladder: Pick<Ladder, "id" | "venueId" | "name">, placeId: number): Promise<void> {
+  const limits = await resolveHoldLimits(ladder);
+  const { count, last } = await abandonedCount(placeId, limits.abuse.windowDays);
+  if (count < limits.abandonedThreshold || last === null) return;
+  const who = ((await getDb().prepare("SELECT name FROM ladder_players WHERE id = ?").get(placeId)) as { name: string } | undefined)?.name ?? `place ${placeId}`;
+  await logAction(
+    { id: null, name: "System" },
+    {
+      venueId: ladder.venueId,
+      action: "ladder.hold_cooldown",
+      detail: `${ladder.name}: ${who} has created and abandoned ${count} holds in ${limits.abuse.windowDays} days (limit ${limits.abandonedThreshold}): no new hold for them for ${limits.abuse.cooldownHours} hours after the last`,
+    }
+  );
+}
+
+/** What the acceptance screen shows before the player agrees (ADR 0050): the court that would be held, the time, and what agreeing does. */
+export type HoldPreviewView =
+  | { applies: false }
+  | {
+      applies: true;
+      courtId: number | null;
+      court: string;
+      date: string;
+      startMin: number;
+      endMin: number;
+      minutes: number;
+      /** What the player's act does: the court is confirmed at once (this exact time is both players' agreement), or is held tentatively until the other confirms. */
+      effect: "confirmed" | "tentative";
+      /** The court the challenge holds now, which this would replace. */
+      replaces: { court: string; date: string; startMin: number } | null;
+    };
+
+/**
+ * A non-binding look, for a player on the challenge, at the court that would be held by the act they are about to make: `kind` is `accept` (the other's proposed
+ * time, or the day and time sent), `agree_move` (the time the other asked for) or `propose_move` (the day and time they would ask for, which the other would then
+ * agree). It is the same path as the hold (`holdFor` with `preview`, a rolled-back savepoint under the same limits, hours, buffers and constraints), so the court named
+ * is the one that would be held; it reserves nothing and changes nothing, and it refuses for the reasons the act would, with the same sentences.
+ */
+export async function previewHoldFor(userId: number, challengeId: number, input: { kind: unknown; onDate?: unknown; minute?: unknown }): Promise<LadderResult<HoldPreviewView>> {
+  const found = await challengeFor(userId, challengeId);
+  if (!found) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+  return withLadder<HoldPreviewView>(found.ch.ladder_id, async (ladder, season) => {
+    const db = getDb();
+    const ch = await lockedChallenge(challengeId);
+    if (!ch || ch.season_id !== season.id) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+    const mineId = found.myId;
+    const other = mineId === ch.challenger ? ch.challenged : ch.challenger;
+    const today = await venueToday(ladder.venueId);
+    const people = await playersOf(ladder.id);
+    const had = (await holdViews([ch.id])).get(ch.id);
+    let on: string | null;
+    let min: number | null;
+    let agreement: { proposer: number; accepter: number } | undefined;
+    let replacing = false;
+    if (input.kind === "accept") {
+      const waitingFor = ch.awaiting === "challenged" ? ch.challenged : ch.challenger;
+      if (ch.status !== "pending" || waitingFor !== mineId) return ladderRefusal("LD_NOT_AWAITING");
+      const when = proposal(input, today);
+      if (!when.ok) return when.refusal;
+      const t = acceptedTime(ch, mineId, when);
+      on = t.on;
+      min = t.min;
+      agreement = t.proposer === null ? undefined : { proposer: t.proposer, accepter: mineId };
+      if (!ladder.courtTime.on || !on || min === null) return { ok: true, value: { applies: false } };
+      if (on > addDays(today, ladder.settings.playDays)) return ladderRefusal("LAD2_AFTER", { date: addDays(today, ladder.settings.playDays) });
+    } else if (input.kind === "agree_move") {
+      if (ch.status !== "accepted" || !ch.move_on || ch.move_min === null || ch.move_min === undefined || ch.move_by === null || ch.move_by === undefined) return ladderRefusal("LAD2_NO_MOVE");
+      if (ch.move_by === mineId) return ladderRefusal("LAD2_OWN_MOVE");
+      if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE challenge_id = ? AND dropped_at IS NULL").get(ch.id)) return ladderRefusal("LAD2_HAS_BOOKING");
+      on = ch.move_on;
+      min = ch.move_min;
+      agreement = { proposer: ch.move_by, accepter: mineId };
+      replacing = had !== undefined;
+    } else if (input.kind === "propose_move") {
+      if (!ladder.courtTime.on) return ladderRefusal("LAD2_OFF");
+      if (ch.status !== "accepted") return ladderRefusal("LAD2_NOT_ACCEPTED");
+      if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE challenge_id = ? AND dropped_at IS NULL").get(ch.id)) return ladderRefusal("LAD2_HAS_BOOKING");
+      const when = proposal(input, today);
+      if (!when.ok) return when.refusal;
+      if (!when.on || when.min === null) return ladderRefusal("LAD2_NEED_TIME", {}, 400);
+      if (when.on > (ch.play_by ?? addDays(today, ladder.settings.playDays))) return ladderRefusal("LAD2_AFTER", { date: ch.play_by ?? "" });
+      on = when.on;
+      min = when.min;
+      agreement = { proposer: mineId, accepter: other };
+      replacing = had !== undefined;
+    } else return ladderRefusal("LD_TIME", {}, 400);
+    const looked = await holdFor(ladder, ch, on, min, people, { kind: "players", placeId: mineId }, { replacing, agreement, preview: true });
+    if (!looked.ok) return looked;
+    const h = looked.hold;
+    return {
+      ok: true,
+      value: {
+        applies: true,
+        courtId: h.courtId,
+        court: h.court,
+        date: h.date,
+        startMin: h.startMin,
+        endMin: h.endMin,
+        minutes: h.endMin - h.startMin,
+        effect: h.tentative ? "tentative" : "confirmed",
+        replaces: replacing && had ? { court: had.court, date: had.date, startMin: had.startMin } : null,
+      },
+    };
+  });
 }
 
 /** Holds that lost their court time are marked, and both sides told once that the challenge stands without a court held. */
@@ -2049,9 +2224,11 @@ export async function proposeMove(userId: number, challengeId: number, input: { 
 
 /**
  * The other player agrees the time asked (`agree: true`): the new time is held first, then the old one is let go, in one step, so a time that
- * cannot be held is refused with the reason and the old court stays held. Or either of them turns the request down or takes it back.
+ * cannot be held is refused with the reason and the old court stays held. The time one asked and the other agrees, unchanged, is both players' agreement
+ * to it (ADR 0050): the hold is made confirmed, whatever state the one it replaces was in, and each player's agreement is kept. `expected.courtId` is the court the
+ * agreeing player was shown: held, or nothing is. Or either of them turns the request down or takes it back.
  */
-export async function answerMove(userId: number, challengeId: number, agree: boolean, expected: { version?: number } = {}): Promise<LadderResult<ChallengeView>> {
+export async function answerMove(userId: number, challengeId: number, agree: boolean, expected: { version?: number; courtId?: number } = {}): Promise<LadderResult<ChallengeView>> {
   const found = await challengeFor(userId, challengeId);
   if (!found) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
   return withLadder(found.ch.ladder_id, async (ladder, season) => {
@@ -2067,7 +2244,15 @@ export async function answerMove(userId: number, challengeId: number, agree: boo
       if (ch.move_by === found.myId) return ladderRefusal("LAD2_OWN_MOVE");
       if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE challenge_id = ? AND dropped_at IS NULL").get(ch.id)) return ladderRefusal("LAD2_HAS_BOOKING");
       const had = await holdViews([ch.id]);
-      const made = await holdFor(ladder, ch, ch.move_on, ch.move_min, people, { kind: "players" }, { replacing: had.has(ch.id), reason: "players agreed a new time", byName: me });
+      const made = await holdFor(
+        ladder,
+        ch,
+        ch.move_on,
+        ch.move_min,
+        people,
+        { kind: "players", placeId: found.myId },
+        { replacing: had.has(ch.id), reason: "players agreed a new time", byName: me, agreement: { proposer: ch.move_by, accepter: found.myId }, expectCourtId: expected.courtId }
+      );
       if (!made.ok) return made;
       await db
         .prepare("UPDATE ladder_challenges SET agreed_on = ?, agreed_min = ?, move_on = NULL, move_min = NULL, move_by = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?")
@@ -2077,7 +2262,13 @@ export async function answerMove(userId: number, challengeId: number, agree: boo
         other,
         ladder,
         (tr) => tr("lad2.mail.moved.s", { l: ladder.name }),
-        (tr) => sentences(tr, tr("lad2.mail.moved.b", { l: ladder.name, a: me, court: made.hold.court, date: made.hold.date, time: fmtMin(made.hold.startMin) }), confirmBy && tr("lad3.mail.confirmBy", { by: confirmBy }))
+        (tr) =>
+          sentences(
+            tr,
+            tr("lad2.mail.moved.b", { l: ladder.name, a: me, court: made.hold.court, date: made.hold.date, time: fmtMin(made.hold.startMin) }),
+            made.hold.agreed && tr("lad4.mail.agreed", { name: me, minutes: ladder.courtTime.matchMinutes }),
+            confirmBy && tr("lad3.mail.confirmBy", { by: confirmBy })
+          )
       );
     } else {
       await db.prepare("UPDATE ladder_challenges SET move_on = NULL, move_min = NULL, move_by = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(ch.id);
@@ -2144,13 +2335,34 @@ export async function staffHold(
       await db
         .prepare("UPDATE ladder_challenges SET agreed_on = ?, agreed_min = ?, play_by = ?, move_on = NULL, move_min = NULL, move_by = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?")
         .run(when.on, when.min, playBy, ch.id);
+      // A change the players did not agree is tentative again (ADR 0050): both are told what changed and each confirms the new time. One that moves nothing material
+      // keeps the agreement the hold had, and is told as a move as before.
+      const changed = made.hold.changed;
+      const confirmBy = await confirmByText(ladder.venueId, made.hold);
       for (const id of [ch.challenger, ch.challenged])
         await tellPlayer(
           id,
           ladder,
-          (tr) => tr("lad2.mail.staffMoved.s", { l: ladder.name }),
-          (tr) => tr("lad2.mail.staffMoved.b", { l: ladder.name, court: made.hold.court, date: made.hold.date, time: fmtMin(made.hold.startMin), why })
+          (tr) => tr(changed ? "lad4.mail.changed.s" : "lad2.mail.staffMoved.s", { l: ladder.name }),
+          (tr) =>
+            changed
+              ? sentences(
+                  tr,
+                  tr("lad4.mail.changed.b", {
+                    l: ladder.name,
+                    court: made.hold.court,
+                    date: made.hold.date,
+                    time: fmtMin(made.hold.startMin),
+                    oldCourt: changed.court ?? "",
+                    oldDate: changed.date,
+                    oldTime: fmtMin(changed.startMin),
+                    why,
+                  }),
+                  confirmBy && tr("lad4.mail.changedConfirm", { by: confirmBy })
+                )
+              : tr("lad2.mail.staffMoved.b", { l: ladder.name, court: made.hold.court, date: made.hold.date, time: fmtMin(made.hold.startMin), why })
         );
+
     }
     return { ok: true, value: await viewOf(ladder, ch.id) };
   });
@@ -2215,6 +2427,8 @@ async function tellExpiredHolds(): Promise<number> {
   for (const h of await expiredHoldsToTell()) {
     const done = await withLadder(h.ladderId, async (ladder) => {
       if (!(await markExpiryTold(h.id))) return { ok: true as const, value: false };
+      // A hold a player created that nobody confirmed was abandoned: past the threshold, the log says so (ADR 0050).
+      if (h.abandonedPlace !== null) await noteAbandonment(ladder, h.abandonedPlace);
       const ch = (await db.prepare("SELECT * FROM ladder_challenges WHERE id = ?").get(h.challengeId)) as ChallengeRow | undefined;
       // Only a challenge still waiting on that time: one that has been played, withdrawn or given another hold since is left as it is.
       if (!ch || ch.status !== "accepted" || (await holdViews([ch.id])).has(ch.id)) return { ok: true as const, value: false };

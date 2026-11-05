@@ -266,16 +266,17 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
   const [settings, setSettings] = useState<Record<string, string>>({ ...Object.fromEntries(NUMBERS.map((n) => [n.key, String(l.settings[n.key])])), declineIs: l.settings.declineIs });
   const [counter, setCounter] = useState({ phone: "", name: "", adult: false, partnerName: "" });
   const [court, setCourt] = useState({ on: l.courtTime.on, courtIds: l.courtTime.courtIds, minutes: l.courtTime.minutes === null ? "" : String(l.courtTime.minutes), needsConfirmation: l.courtTime.needsConfirmation });
-  // The caps on held court time (advanced, a manager's; blank: the default above it).
-  const [caps, setCaps] = useState<{ scope: "ladder" | "venue"; live: string; week: string }>({
-    scope: "ladder",
-    live: l.holdLimits?.ladder.maxLivePerLadder == null ? "" : String(l.holdLimits.ladder.maxLivePerLadder),
-    week: l.holdLimits?.ladder.maxPerPlayerWeek == null ? "" : String(l.holdLimits.ladder.maxPerPlayerWeek),
-  });
+  // The limits on held court time (advanced, a manager's; blank: the default above it): holds live at once on the ladder and for each player, and the holds a player may abandon.
   const capsFor = (scope: "ladder" | "venue") => {
     const o = scope === "venue" ? l.holdLimits?.venue : l.holdLimits?.ladder;
-    return { scope, live: o?.maxLivePerLadder == null ? "" : String(o.maxLivePerLadder), week: o?.maxPerPlayerWeek == null ? "" : String(o.maxPerPlayerWeek) };
+    return {
+      scope,
+      live: o?.maxLivePerLadder == null ? "" : String(o.maxLivePerLadder),
+      active: o?.maxActivePerPlayer == null ? "" : String(o.maxActivePerPlayer),
+      abandoned: o?.abandonedThreshold == null ? "" : String(o.abandonedThreshold),
+    };
   };
+  const [caps, setCaps] = useState<{ scope: "ladder" | "venue"; live: string; active: string; abandoned: string }>(capsFor("ladder"));
   const sportCourts = venue.courts.filter((c) => c.sport === l.sport);
   const current = l.viewing?.endedOn === null;
   const names = new Map(l.rows.map((r) => [r.playerId, r.name]));
@@ -428,7 +429,7 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
         <details className="rounded-lg border border-slate-200 p-3">
           <summary className="cursor-pointer text-sm font-medium">{t("lad2.ct.title")}</summary>
           <div className="mt-2 space-y-2 text-sm">
-            <p className="text-xs text-slate-500">{t("lad2.ct.note", { live: DEFAULT_HOLD_LIMITS.maxLivePerLadder, week: DEFAULT_HOLD_LIMITS.maxPerPlayerWeek })}</p>
+            <p className="text-xs text-slate-500">{t("lad2.ct.note", { live: DEFAULT_HOLD_LIMITS.maxLivePerLadder, week: DEFAULT_HOLD_LIMITS.maxActivePerPlayer })}</p>
             <label className="flex items-center gap-1.5 text-slate-600">
               <input type="checkbox" checked={court.on} onChange={(e) => setCourt({ ...court, on: e.target.checked })} />
               {t("lad2.ct.on")}
@@ -468,11 +469,15 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
                   </label>
                   <p className="text-xs text-slate-500">{t("lad3.adv.confirmNote")}</p>
                   <p className="text-xs text-slate-600">
-                    {t("lad3.adv.now", {
+                    {t("lad4.adv.now", {
                       live: l.holdLimits.maxLivePerLadder,
                       liveFrom: t(`lad3.adv.from.${l.holdLimits.from.live}`),
-                      week: l.holdLimits.maxPerPlayerWeek,
-                      weekFrom: t(`lad3.adv.from.${l.holdLimits.from.week}`),
+                      active: l.holdLimits.maxActivePerPlayer,
+                      activeFrom: t(`lad3.adv.from.${l.holdLimits.from.active}`),
+                      abandoned: l.holdLimits.abandonedThreshold,
+                      abandonedFrom: t(`lad3.adv.from.${l.holdLimits.from.abandoned}`),
+                      days: l.holdLimits.abuse.windowDays,
+                      hours: l.holdLimits.abuse.cooldownHours,
                       used: l.holdLimits.inUse,
                     })}
                   </p>
@@ -489,17 +494,46 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
                       <input type="number" min={l.holdLimits.bounds.liveMin} max={l.holdLimits.bounds.liveMax} placeholder={t("lad3.adv.default")} value={caps.live} onChange={(e) => setCaps({ ...caps, live: e.target.value })} className={`w-24 ${input}`} />
                     </label>
                     <label className={label}>
-                      {t("lad3.adv.week", { min: l.holdLimits.bounds.weekMin, max: l.holdLimits.bounds.weekMax })}
-                      <input type="number" min={l.holdLimits.bounds.weekMin} max={l.holdLimits.bounds.weekMax} placeholder={t("lad3.adv.default")} value={caps.week} onChange={(e) => setCaps({ ...caps, week: e.target.value })} className={`w-24 ${input}`} />
+                      {t("lad4.adv.active", { min: l.holdLimits.bounds.activeMin, max: l.holdLimits.bounds.activeMax })}
+                      <input type="number" min={l.holdLimits.bounds.activeMin} max={l.holdLimits.bounds.activeMax} placeholder={t("lad3.adv.default")} value={caps.active} onChange={(e) => setCaps({ ...caps, active: e.target.value })} className={`w-24 ${input}`} />
+                    </label>
+                    <label className={label}>
+                      {t("lad4.adv.abandoned", { min: l.holdLimits.bounds.abandonedMin, max: l.holdLimits.bounds.abandonedMax })}
+                      <input type="number" min={l.holdLimits.bounds.abandonedMin} max={l.holdLimits.bounds.abandonedMax} placeholder={t("lad3.adv.default")} value={caps.abandoned} onChange={(e) => setCaps({ ...caps, abandoned: e.target.value })} className={`w-24 ${input}`} />
                     </label>
                     <button
-                      onClick={() => void act({ action: "hold_limits", scope: caps.scope, maxLive: caps.live === "" ? null : Number(caps.live), maxWeek: caps.week === "" ? null : Number(caps.week), reason })}
+                      onClick={() =>
+                        void act({
+                          action: "hold_limits",
+                          scope: caps.scope,
+                          maxLive: caps.live === "" ? null : Number(caps.live),
+                          maxActive: caps.active === "" ? null : Number(caps.active),
+                          maxAbandoned: caps.abandoned === "" ? null : Number(caps.abandoned),
+                          reason,
+                        })
+                      }
                       className={small}
                     >
                       {t("lad3.adv.save")}
                     </button>
                   </div>
                   <p className="text-xs text-slate-500">{t("lad3.adv.note")}</p>
+                  <p className="text-xs text-slate-500">{t("lad4.adv.note")}</p>
+                  <div className="text-xs text-slate-600">
+                    <p className="font-medium">{t("lad4.adv.abandonedTitle", { days: l.holdLimits.abuse.windowDays })}</p>
+                    {(l.holdAbandoned ?? []).length === 0 ? (
+                      <p>{t("lad4.adv.abandonedNone")}</p>
+                    ) : (
+                      <ul className="list-disc pl-4">
+                        {(l.holdAbandoned ?? []).map((a) => (
+                          <li key={a.playerId}>
+                            {t("lad4.adv.abandonedRow", { name: a.name, n: a.count })}
+                            {a.coolingUntil && ` · ${t("lad4.adv.cooling", { until: new Date(a.coolingUntil).toLocaleString() })}`}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               </details>
             )}
@@ -602,6 +636,8 @@ function Challenge({ t, l, c, names, editable, reason, act, reload, send }: { t:
           {c.hold ? t("lad2.hold.held", { court: c.hold.court, date: c.hold.date, time: clockOf(c.hold.startMin) }) : c.status === "accepted" ? t("lad2.hold.none") : ""}
           {c.hold?.tentative && ` · ${t("lad3.hold.tentative", { by: c.hold.confirmBy ? new Date(c.hold.confirmBy).toLocaleString() : "", a: c.hold.confirmedBy.challenger ? "✓" : "–", b: c.hold.confirmedBy.challenged ? "✓" : "–" })}`}
           {c.hold?.extended && ` · ${t("lad3.hold.extended")}`}
+          {c.hold?.agreed && ` · ${t("lad4.hold.agreed")}`}
+          {c.hold?.changed && c.hold.tentative && ` · ${t("lad4.hold.changed", { court: c.hold.changed.court ?? "", date: c.hold.changed.date, time: clockOf(c.hold.changed.startMin) })}`}
           {c.move && ` · ${t("lad2.hold.moveAsked", { date: c.move.onDate, time: clockOf(c.move.minute) })}`}
         </p>
       ) : null}

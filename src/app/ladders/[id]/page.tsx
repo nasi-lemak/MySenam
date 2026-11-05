@@ -13,6 +13,7 @@ import type { ChallengeView, LadderDetail, MyPlace } from "@/lib/ladders";
 import type { RubberKind } from "@/lib/competition-templates";
 import { CONFIRM_DAYS } from "@/lib/ladders-constants";
 import { MessagesLink } from "@/components/MessagesLink";
+import { AgreeAfterLook } from "@/components/HoldAgreement";
 
 const button = "rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-40";
 const plain = "rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-teal-500";
@@ -323,9 +324,22 @@ function OpenChallenge({ t, x, p, c, post }: { t: T; x: LadderDetail; p: MyPlace
       <div className="flex flex-wrap items-end gap-2">
         {waitingFor === p.playerId && (
           <>
-            <button className={button} onClick={() => void act({ action: "accept" })}>
-              {t("ldp.accept")}
-            </button>
+            {x.courtTime.on && c.status === "pending" && c.proposedBy !== null && c.proposedBy !== p.playerId && c.proposedOn && c.proposedMin !== null ? (
+              // A time the other side proposed, and the venue holds the court: see the court, the time, what it costs and what it means before agreeing it (ADR 0050).
+              <AgreeAfterLook
+                t={t}
+                url={url}
+                kind="accept"
+                name={other}
+                check={t("lad4.ui.check")}
+                go={t("lad4.ui.go")}
+                onGo={(courtId) => act({ action: "accept", ...(courtId === null ? {} : { courtId }) })}
+              />
+            ) : (
+              <button className={button} onClick={() => void act({ action: "accept" })}>
+                {t("ldp.accept")}
+              </button>
+            )}
             {!mineIsChallenger && (
               <button className={plain} onClick={() => void act({ action: "decline" })}>
                 {t("ldp.decline")}
@@ -425,6 +439,8 @@ function HeldCourt({ t, p, c, url, post, other }: { t: T; p: MyPlace; c: MyPlace
   return (
     <div className="space-y-1">
       <p className="font-medium">{c.hold ? t("lad2.ui.held", { court: c.hold.court, date: c.hold.date, time: clock(c.hold.startMin) }) : t("lad2.ui.notHeld", { name: other })}</p>
+      {c.hold?.agreed && !c.hold.tentative && <p className="text-xs text-slate-600">{t("lad4.ui.agreedNote")}</p>}
+      {c.hold?.changed && c.hold.tentative && <p className="text-xs text-amber-800">{t("lad4.ui.changedNote", { oldCourt: c.hold.changed.court ?? "", oldDate: c.hold.changed.date, oldTime: clock(c.hold.changed.startMin) })}</p>}
       {c.hold?.tentative && (
         <div className="flex flex-wrap items-center gap-2">
           <span>
@@ -448,9 +464,15 @@ function HeldCourt({ t, p, c, url, post, other }: { t: T; p: MyPlace; c: MyPlace
             </button>
           ) : (
             <>
-              <button className={button} onClick={() => void act({ action: "agree_move" })}>
-                {t("lad2.ui.agree")}
-              </button>
+              <AgreeAfterLook
+                t={t}
+                url={url}
+                kind="agree_move"
+                name={other}
+                check={t("lad4.ui.checkAgree")}
+                go={t("lad4.ui.goAgree")}
+                onGo={(courtId) => act({ action: "agree_move", ...(courtId === null ? {} : { courtId }) })}
+              />
               <button className={plain} onClick={() => void act({ action: "decline_move" })}>
                 {t("lad2.ui.turnDown")}
               </button>
@@ -461,9 +483,23 @@ function HeldCourt({ t, p, c, url, post, other }: { t: T; p: MyPlace; c: MyPlace
       <div className="flex flex-wrap items-end gap-2">
         <input type="date" aria-label={t("ldp.day")} value={date} onChange={(e) => setDate(e.target.value)} className={input} />
         <input type="time" aria-label={t("ldp.time")} value={time} onChange={(e) => setTime(e.target.value)} className={input} />
-        <button className={plain} disabled={!date || minutes(time) === undefined} onClick={() => void act({ action: "propose_move", onDate: date, minute: minutes(time) })}>
-          {t("lad2.ui.askTime", { name: other })}
-        </button>
+        {date && minutes(time) !== undefined ? (
+          <AgreeAfterLook
+            key={`${date} ${time}`}
+            t={t}
+            url={url}
+            kind="propose_move"
+            name={other}
+            when={{ onDate: date, minute: minutes(time)! }}
+            check={t("lad4.ui.checkAsk", { name: other })}
+            go={t("lad4.ui.goAsk")}
+            onGo={() => act({ action: "propose_move", onDate: date, minute: minutes(time) })}
+          />
+        ) : (
+          <button className={plain} disabled onClick={undefined}>
+            {t("lad2.ui.askTime", { name: other })}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -2115,7 +2115,35 @@ now and never rewrites what was held: a hold already made runs its course. When 
   the challenger made, the time the challenged suggested and the challenger accepted, or one the accepter named), the venue
   **holds a court** for the match. A day alone is not a time: nothing is held until a specific time is agreed, which is done
   by one player asking (`propose_move`) and the other agreeing (`agree_move`), and a time later than the day the match has to be played
-  by (`LAD2_AFTER`) is refused. The hold is **tentative until confirmed** (below).
+  by (`LAD2_AFTER`) is refused. The hold is **confirmed at once when both players agreed that exact time** (next bullet), and otherwise **tentative until
+  confirmed** (below).
+- **Agreeing a time counts as confirming it** ([ADR 0050](../architecture/decisions/0050-ladder-agreement-counts-and-expired-holds-do-not.md), which amends
+  ADR 0048). A **fully specified time (a day and a start) that one player proposed and the other explicitly accepts unchanged** is both players' agreement:
+  the challenger's proposal and the other's acceptance, a counter-proposal and the original proposer's acceptance of it, or `propose_move` and `agree_move`.
+  The hold is made **already confirmed**: no confirm-by window, no second tap, nothing to expire. Each player's agreement is kept as that player's agreement to
+  that exact specification (`ladder_agreed_times`: the day, the start, the minutes and the court shown and held, with who proposed and who accepted). It is
+  **not** an agreement, and the hold stays tentative on a ladder that asks for confirmation, when the accepter names a time of their own (the proposer has not
+  agreed it), when only a day was agreed (nothing is held at all), or when a manager chose the time. **Nothing is bypassed**: an agreement is only a
+  request for the hold, which is still made by the one claim path under the exclusion constraints, the ladder's limits, the venue's hours, closures and
+  set-up times, so if nothing is free the acceptance is refused with the reason (`LAD2_NO_COURT`, `LAD2_CLOSED`, the limits below) and **nothing is
+  reserved**; the challenge stays as it was.
+- **The acceptance screen says everything before the tap.** Accepting a proposed time, asking for a time, and agreeing a time asked for each first offer
+  **Check the court** (`POST /api/ladders/:id/challenges/:challengeId` `{ action: "preview_hold", for: "accept" | "agree_move" | "propose_move", onDate?, minute? }`),
+  a non-binding look that runs the real path in a rolled-back step, so the **court named is the one the deterministic choice would hold**, under the same limits.
+  It shows the **court** (reserved only if the hold then succeeds), the **day, time and duration**, the **charges** (the hold is free and moves no money; the
+  venue's own court hire terms apply if they play there; no price is invented or charged here, and an attached booking is priced as any booking is), and the
+  **implications**: what releases it (either player withdrawing, a result or the day passing, the venue releasing it with notice), that an ordinary booking
+  replaces it, that if the court becomes unavailable both are told and agree a time again, and that a later change they did not both agree asks both to
+  confirm again. It also says what agreeing does (confirmed at once, or tentative and both confirm), and what it would replace. The act then carries the
+  court that was shown (`courtId`): it is **held or nothing is** (`LAD4_COURT_CHANGED`, with the court taken or not allowed), so the court held is the court
+  on the screen. A client that sends no `courtId` gets the deterministic choice as before.
+- **A change both players did not agree needs renewed consent.** *Material* is the day, the start, the minutes held or the court. A change **both players agree
+  in the move flow** is again an exact agreement for the new specification (the earlier one stays as history). A change they did **not** agree (a manager's
+  `hold_move`, whether of an agreed hold, a tentative one or a time chosen where there was none) makes the new hold **tentative again**, with a fresh
+  confirm-by window, keeps what it replaced (`changed_from`, shown to both), and **both are told what changed** (`lad4.mail.changed`) and each confirms the new
+  specification (a manager may confirm for both). A manager's move that changes nothing material (the same day, start and court) keeps the agreement, its
+  confirmations and its history; an extension, a reminder and a repeated confirmation never reset anything. (A court lost to an outage is not re-held by the
+  system: the challenge stands and the players agree a time again, which is an agreement.)
 - **What is held, and where.** The match length (the ladder's *minutes held*, else the sport template's match length; a ladder of teams
   holds its games added up, one court after another as a league does) plus the court's **operational time** (set-up and cleaning) either
   side, as **blocks the hold owns** (`blocks.ladder_hold_id`), the way a team league's fixture holds court time and a tournament's holds its own:
@@ -2140,20 +2168,36 @@ now and never rewrites what was held: a hold already made runs its course. When 
   **a staff block over held time leaves it and unblocking does not take it**, as for a team league's fixture. A **manager** may **release** a hold or **move** it
   (another day, time or court) with a reason of at least three characters, kept with the hold, logged (`ladder.hold_released`, `ladder.hold_moved`) and told to
   both players (`hold_release`, `hold_move` on `POST /api/admin/ladders/:id`; managers only).
-- **Caps**, so a ladder cannot swallow a venue: by default at most **8 holds live at once on a ladder** (`LAD2_CAP_LADDER`), and at most **4 holds made in
-  any 7 days for one player's (or team's) challenges**, released and expired ones and moves included, so withdrawing and asking again cannot churn a court
-  (`LAD2_CAP_PLAYER`). A manager's own release or move is not counted against the second, and a move or re-hold, which replaces a hold and adds none, is
-  not counted against the first. These are **defaults** that a manager may change (next two bullets), and they only ever refuse: no limit, however high,
-  holds a court that is not free, because every hold is still claimed under the database's constraints.
-- **Who may change the caps, and how they are resolved** ([ADR 0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md)). The cap that applies to a
-  ladder is its **own override**, else its **venue's setting**, else the **install default** (`ladder_hold_limits`, seeded 8 and 4); each number resolves on its
-  own, and blank goes back to the default above it. A **manager** (not the desk) sets the venue's and each ladder's from the ladder's *Court time* settings, under
-  *Advanced: confirmation and limits* (collapsed; nothing about it is in the guide's setup path), by `POST /api/admin/ladders/:id`
-  `{ action: "hold_limits", scope: "venue" | "ladder", maxLive?, maxWeek?, reason? }`. A number must be a whole number inside the install's **bounds**
-  (`ladder_hold_limits.live_min`/`live_max`/`week_min`/`week_max`, seeded 1 to 50 live and 1 to 20 per week); outside them it is refused with the bounds
-  (`LAD3_BOUNDS`) and nothing changes. Every change is logged (`ladder.hold_limits`: who, the number before and after, the reason if given). A change applies to
-  holds made from now on and **never releases a hold**: set below what is in use, it only stops new ones (the screen says so and shows the number in use). The desk
-  sees the numbers and where each comes from; players and the public never do.
+- **Two kinds of limit, never mixed up** ([ADR 0050](../architecture/decisions/0050-ladder-agreement-counts-and-expired-holds-do-not.md), which replaced ADR 0048's
+  "holds made in 7 days" quota), so a ladder cannot swallow a venue and nobody is penalised for a match that merely expired:
+  - **Active-hold limits** count holds that are **live now** (tentative or confirmed, not released, not lapsed, not yet past): by default at most **8 on a
+    ladder** (`LAD2_CAP_LADDER`) and at most **4 for one player** (`LAD4_CAP_ACTIVE`; counted over all of a player's places, on every ladder: the same participant, the
+    same persistent team, or the same account for an adult's own, never a phone number or email address; the opponent's live holds count too). A hold that expires
+    or is released (by the venue, withdrawn, played, let go for any reason) **stops counting at that moment**, by the lazy read and by the scheduler, and the
+    court is free at once. A move or re-hold replaces a hold and adds none, so it is counted against neither.
+  - **The anti-abuse limit** is only about *repeatedly creating and abandoning* holds. A hold is **abandoned** when it expired unconfirmed (counted against the
+    player who made it) or was withdrawn by a player while still tentative (counted against the one who withdrew). A hold that was played, moved, forfeited, released
+    by the venue, confirmed and then withdrawn, or made by a manager is **never** counted. At **6 abandoned in a rolling 7 days** (`abuse_limit`,
+    `abuse_window_days`), a **cooldown of 24 hours** (`abuse_cooldown_hours`) applies to creating new holds, counted from the latest abandoned one (`LAD4_COOLDOWN`, with
+    a plain message and the time it ends); it ends by itself, and nothing here ever blocks a player whose proposals merely expired fewer times than that. The
+    threshold is logged by the system when reached (`ladder.hold_cooldown`). Abandoned holds stay in `ladder_court_holds` as history, never deleted; a manager sees each
+    player's count and cooldown in the ladder's staff view (`holdAbandoned`), and players and the public never do.
+  Both only ever refuse: no limit, however high, holds a court that is not free, because every hold is still claimed under the database's constraints.
+- **Who may change the limits, and how they are resolved** ([ADR 0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md), extended by ADR 0050). The
+  limit that applies to a ladder is its **own override**, else its **venue's setting**, else the **install default** (`ladder_hold_limits`, seeded 8 live per ladder, 4
+  live per player, 6 abandoned); each number resolves on its own, and blank goes back to the default above it. A **manager** (not the desk) sets the venue's and each
+  ladder's from the ladder's *Court time* settings, under *Advanced: confirmation and limits* (collapsed; nothing about it is in the guide's setup path), by
+  `POST /api/admin/ladders/:id` `{ action: "hold_limits", scope: "venue" | "ladder", maxLive?, maxActive?, maxAbandoned?, reason? }` (`maxWeek` is the old name of
+  `maxActive`). A number must be a whole number inside the install's **bounds** (`live_min`/`live_max` 1 to 50, `active_min`/`active_max` 1 to 20, `abuse_min`/`abuse_max`
+  2 to 50); outside them it is refused with the bounds (`LAD3_BOUNDS`) and nothing changes. Every change is logged (`ladder.hold_limits`: who, the number before and
+  after, the reason if given). A change applies to holds made from now on and **never releases a hold**: set below what is in use, it only stops new ones (the screen says so
+  and shows the number in use). The desk sees the numbers and where each comes from; players and the public never do.
+- **What was set under the old key.** The old limit was a *creation* quota (holds made in 7 days, released and expired ones included), chosen so that withdrawing and
+  asking again could not churn a court. Once the active limit and the anti-abuse limit exist, a pure creation quota is not justified: it counted a proposal that merely
+  expired, or was played, against the player. What had been set under it (the install default and bounds, a venue's setting, a ladder's override: `max_per_player_week`,
+  `week_min`/`week_max`, `cap_week`) was **carried over, as the same number, to the per-player active limit** by migration 0292 (`max_active_per_player`, `active_min`/`active_max`,
+  `cap_active`); the old columns stay as they were, as history of what was set, and nothing reads them, and the activity log's entries keep their words. The old key
+  `maxWeek` is still accepted and shown (`maxPerPlayerWeek`), meaning the active limit.
 - **A hold is tentative until confirmed, and expires** (a ladder setting, *A held court has to be confirmed by both players*, `needsConfirmation`, **on unless a
   manager turns it off**; with it off every hold is confirmed when made, as in the first version). A tentative hold holds the court exactly as a confirmed one does,
   and is shown as *not yet confirmed*, with who has confirmed and when it lapses. **Both players confirm it** (`{ action: "confirm_hold" }` on the challenge; the
@@ -2161,14 +2205,15 @@ now and never rewrites what was held: a hold already made runs its course. When 
   the install's window after it was made (`ladder_hold_limits.confirm_hours`, 48), but never later than the match's start less the minimum notice
   (`min_notice_minutes`, 120), and a match arranged so late that this has gone lapses at the latest **at its start**. A manager may give it **more time once**, with a
   reason (`hold_extend`, logged `ladder.hold_extended`, by `extend_hours`, 24, never past the start); one that has lapsed is not brought back. A move the
-  players agree keeps the state of the hold it replaces (a confirmed one stays confirmed, a tentative one gets a fresh window), and anything a manager makes
-  is confirmed. A hold made before this existed counts as confirmed and never expires. Confirmed, a hold lasts as before: until it is played, not played in time,
+  players agree is an exact agreement and is confirmed; a time a manager chose, or a change of one, is tentative again (see *A change both players did not agree*
+  above; ADR 0048 had made a manager's hold confirmed and kept the state of a moved one: ADR 0050 amends it). A hold made before this existed counts as confirmed and never expires. Confirmed, a hold lasts as before: until it is played, not played in time,
   withdrawn, forfeited or the rest of the endings above.
 - **What expiry does, and when.** A lapsed hold is **released as `expired`** (by the system, with its blocks and claims gone), both players are told **once** that
   the court is free and the challenge is back to arranging a time (it stays *accepted* with the day and no time; either player can ask for a time again), and the
   time is offered to the waiting list. It is enforced **without waiting for the scheduler**: the hold's claims carry the lapse moment as their expiry, so every availability read
   (the booking page, the counter, the API) already treats it as free, and a booking, staff block or another hold that meets it lets it go on the spot; the scheduler
-  then tidies up and tells the players. It counts towards the player's week, like any hold made. Refusals: `LAD3_EXPIRED` (confirming after it lapsed),
+  then tidies up and tells the players. It stops counting towards the player's active allowance at once; it is kept as history and counts towards the
+  anti-abuse limit only as a hold the player made and abandoned. Refusals: `LAD3_EXPIRED` (confirming after it lapsed),
   `LAD3_NOT_TENTATIVE`, `LAD3_EXTENDED`, `LAD3_NO_EXTENSION`.
 - **No two holds overlap**, however they are made: the court time is claims under the exclusion constraints (so a booking, a class, a tournament or league block, a
   staff block or another ladder's hold cannot overlap it), and the table of holds has its own exclusion constraint on a court's live holds as a backstop

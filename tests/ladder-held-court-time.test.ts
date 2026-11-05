@@ -372,7 +372,7 @@ describe("a hold's life", () => {
 });
 
 describe("caps, so a ladder cannot swallow a venue", () => {
-  it("at most a few held at once on a ladder, and at most a few made for one player in a week; install data", async () => {
+  it("at most a few held at once on a ladder, and at most a few live at once for one player (not the holds ever made, ADR 0050); install data", async () => {
     const limits = (await getDb().prepare("SELECT max_live_per_ladder, max_per_player_week FROM ladder_hold_limits WHERE id = 1").get()) as { max_live_per_ladder: number; max_per_player_week: number };
     expect(limits).toEqual({ max_live_per_ladder: 8, max_per_player_week: 4 });
     try {
@@ -388,15 +388,15 @@ describe("caps, so a ladder cannot swallow a venue", () => {
       await getDb().prepare("UPDATE ladder_hold_limits SET max_live_per_ladder = 8 WHERE id = 1").run();
     }
     try {
-      await getDb().prepare("UPDATE ladder_hold_limits SET max_per_player_week = 1 WHERE id = 1").run();
+      await getDb().prepare("UPDATE ladder_hold_limits SET max_active_per_player = 1 WHERE id = 1").run();
       const s = await ladder({}, 3);
       const [, top, low] = s.people;
       const first = ok(await accept(s.l, low, top, freshDay()));
       ok(await withdraw(low.user.id, first.id));
-      // The hold made, though released, still counts in the week: withdraw-and-ask again cannot churn a court.
-      expect(await accept(s.l, low, top, freshDay())).toMatchObject({ ok: false, code: "LAD2_CAP_PLAYER" });
+      // A hold let go stops counting at once (ADR 0050, which replaced the "made in 7 days" quota): the player's allowance is free again.
+      expect(ok(await accept(s.l, low, top, freshDay())).hold).not.toBeNull();
     } finally {
-      await getDb().prepare("UPDATE ladder_hold_limits SET max_per_player_week = 4 WHERE id = 1").run();
+      await getDb().prepare("UPDATE ladder_hold_limits SET max_active_per_player = 4 WHERE id = 1").run();
     }
   });
 });

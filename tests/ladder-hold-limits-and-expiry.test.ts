@@ -28,7 +28,6 @@ import {
   proposeMove,
   join,
   staffHold,
-  withdraw,
   type LadderInput,
 } from "../src/lib/ladders";
 import { listActivity } from "../src/lib/activity";
@@ -115,10 +114,14 @@ async function ladder(over: Partial<LadderInput> = {}, count = 4) {
   return { l, people };
 }
 
-/** The player lower on the ladder challenges the one above at a day and time; the other accepts (the proposal is the agreed time). */
+/**
+ * The player lower on the ladder challenges the one above for a day; the other accepts it **and names the time** (a counter-proposal: the proposer has not agreed
+ * that time, so the hold is tentative and both confirm it, ADR 0048). A time one proposes and the other accepts unchanged is an agreement and is confirmed
+ * at once (ADR 0050; tests/ladder-agreement-and-active-holds.test.ts).
+ */
 async function accept(l: { id: number }, low: Pl, high: Pl, day: string, minute = START) {
-  const made = ok(await challenge(low.user.id, l.id, low.id, high.id, { onDate: day, minute }));
-  return answer(high.user.id, made.id, { accept: true });
+  const made = ok(await challenge(low.user.id, l.id, low.id, high.id, { onDate: day }));
+  return answer(high.user.id, made.id, { accept: true, onDate: day, minute });
 }
 
 async function held(over: Partial<LadderInput> = {}) {
@@ -185,7 +188,7 @@ async function clean(fn: () => Promise<void>) {
     await fn();
   } finally {
     await db().prepare("DELETE FROM venue_ladder_hold_limits WHERE venue_id = ?").run(venueId);
-    await db().prepare("UPDATE ladder_hold_limits SET max_live_per_ladder = 8, max_per_player_week = 4, live_min = 1, live_max = 50, week_min = 1, week_max = 20, confirm_hours = 48, min_notice_minutes = 120, extend_hours = 24 WHERE id = 1").run();
+    await db().prepare("UPDATE ladder_hold_limits SET max_live_per_ladder = 8, max_per_player_week = 4, live_min = 1, live_max = 50, week_min = 1, week_max = 20, confirm_hours = 48, min_notice_minutes = 120, extend_hours = 24, max_active_per_player = 4, active_min = 1, active_max = 20, abuse_limit = 6, abuse_min = 2, abuse_max = 50, abuse_window_days = 7, abuse_cooldown_hours = 24 WHERE id = 1").run();
   }
 }
 
@@ -224,7 +227,7 @@ describe("the caps are configurable defaults", () => {
       for (const bad of [0, 21]) {
         const r = await send(managerCookie, s.l.id, { action: "hold_limits", scope: "venue", maxWeek: bad });
         expect(r.status).toBe(400);
-        expect(await r.json()).toMatchObject({ code: "LAD3_BOUNDS", vars: { what: "week", min: 1, max: 20 } });
+        expect(await r.json()).toMatchObject({ code: "LAD3_BOUNDS", vars: { what: "active", min: 1, max: 20 } });
       }
       // One good and one bad value change neither.
       expect((await send(managerCookie, s.l.id, { action: "hold_limits", scope: "ladder", maxLive: 5, maxWeek: 99 })).status).toBe(400);
@@ -266,10 +269,10 @@ describe("the caps are configurable defaults", () => {
       const log = (await listActivity([venueId], { limit: 500 })).filter((e) => e.action === "ladder.hold_limits");
       const ladderEntry = log.find((e) => e.detail?.includes("Busy season"))!;
       expect(ladderEntry.adminName).toBe("Mina Manager");
-      expect(ladderEntry.detail).toContain("this ladder's caps");
+      expect(ladderEntry.detail).toContain("this ladder's limits");
       expect(ladderEntry.detail).toContain("live per ladder default to 5");
-      expect(ladderEntry.detail).toContain("per player in 7 days default to 3");
-      const venueEntry = log.find((e) => e.detail?.includes("the venue's caps") && e.detail.includes("to 12"))!;
+      expect(ladderEntry.detail).toContain("live per player default to 3");
+      const venueEntry = log.find((e) => e.detail?.includes("the venue's limits") && e.detail.includes("to 12"))!;
       expect(venueEntry.detail).toContain("live per ladder default to 12");
       // A refused change is not logged.
       const before = log.length;
@@ -278,19 +281,24 @@ describe("the caps are configurable defaults", () => {
     });
   });
 
-  it("a ladder's weekly cap counts the holds made for a player; raising it lets the pending acceptance through, held through the claim as ever", async () => {
+  it("a player's active limit counts the holds that are live now, across their ladders; raising it lets the pending acceptance through, held through the claim as ever", async () => {
     await clean(async () => {
-      const s = await ladder({}, 3);
-      const [, top, low] = s.people;
-      await caps(s.l.id, { maxWeek: 1 });
-      const first = ok(await accept(s.l, low, top, freshDay()));
+      // One player on two ladders, each with a challenge: the live hold on one counts when a hold is wanted on the other (ADR 0050).
+      const one = await ladder({}, 3);
+      const two = await ladder({}, 3);
+      const user = one.people[2].user;
+      const onTwo = { user, id: ok(await join(user, two.l.id, { adult: true })).playerId };
+      // `two` has a place for the same account at the bottom now (4 players: the new one is last).
+      await caps(two.l.id, { maxActive: 1 });
+      const first = ok(await accept(one.l, one.people[2], one.people[1], freshDay()));
       expect(first.hold).not.toBeNull();
-      // Withdrawing and asking again cannot churn a court: the first hold, released, still counts.
-      ok(await withdraw(low.user.id, first.id));
-      expect(await accept(s.l, low, top, freshDay())).toMatchObject({ ok: false, code: "LAD2_CAP_PLAYER", vars: { n: 1 } });
-      await caps(s.l.id, { maxWeek: 2 });
-      const open = (await myPlaces(low.user.id, s.l.id))[0].open[0];
-      expect(ok(await answer(top.user.id, open.id, { accept: true })).hold).toMatchObject({ court: "Limit Court A" });
+      const second = await accept(two.l, onTwo, two.people[1], freshDay());
+      expect(second).toMatchObject({ ok: false, code: "LAD4_CAP_ACTIVE", vars: { n: 1 } });
+      // Nothing was held and the challenge is pending, as ever.
+      expect((await myPlaces(user.id, two.l.id))[0].open[0].status).toBe("pending");
+      await caps(two.l.id, { maxActive: 2 });
+      const open = (await myPlaces(user.id, two.l.id))[0].open[0];
+      expect(ok(await answer(two.people[1].user.id, open.id, { accept: true, onDate: open.proposedOn!, minute: START })).hold).toMatchObject({ court: "Limit Court A" });
     });
   });
 });
@@ -335,7 +343,7 @@ describe("a limit changed never lets go of a hold, and never stops a manager fre
       expect((await myPlaces(p4.user.id, s.l.id))[0].open[0].status).toBe("pending");
       expect((await send(managerCookie, s.l.id, { action: "hold_release", challengeId: first.id, reason: "No longer needed" })).status).toBe(200);
       const open = (await myPlaces(p4.user.id, s.l.id))[0].open[0];
-      expect(ok(await answer(p4.user.id, open.id, { accept: true })).hold).not.toBeNull();
+      expect(ok(await answer(p4.user.id, open.id, { accept: true, onDate: open.proposedOn!, minute: START })).hold).not.toBeNull();
     });
   });
 });
@@ -447,13 +455,13 @@ describe("a hold is tentative until both players, or a manager, confirm it", () 
     expect(await liveBlocks(a.c.id)).toHaveLength(1);
     expect(ok(await confirmHoldAsPlayer(a.top.user.id, a.c.id)).hold).toMatchObject({ tentative: false });
     expect(await mailAbout(a.low.user.email, "Please confirm the court")).toHaveLength(0);
-    // A manager moves it: a confirmed hold stays confirmed.
+    // A manager moves it to another day: the players did not agree that change, so the new hold is tentative (ADR 0050, which amends ADR 0048).
     const day = freshDay();
     expect((await send(managerCookie, a.l.id, { action: "hold_move", challengeId: a.c.id, onDate: day, minute: START, reason: "Re-laid court" })).status).toBe(200);
-    expect((await view(a.l, a.c.id)).hold).toMatchObject({ tentative: false, date: day });
+    expect((await view(a.l, a.c.id)).hold).toMatchObject({ tentative: true, date: day, changed: { date: a.day } });
   });
 
-  it("keeps the confirmed state through a move the players agree, and a manager's hold is always confirmed; a move of a tentative hold stays tentative with a fresh window", async () => {
+  it("a move the players agree is confirmed whatever the hold it replaces was; a manager's material move is tentative again with a fresh window", async () => {
     // Confirmed, then moved by agreement: confirmed (both agreed to the move).
     const a = await held();
     ok(await confirmHoldAsPlayer(a.top.user.id, a.c.id));
@@ -461,30 +469,30 @@ describe("a hold is tentative until both players, or a manager, confirm it", () 
     const day2 = freshDay();
     ok(await proposeMove(a.low.user.id, a.c.id, { onDate: day2, minute: START }));
     expect(ok(await answerMove(a.top.user.id, a.c.id, true)).hold).toMatchObject({ date: day2, tentative: false });
-    // Tentative, then moved: still tentative, a fresh window.
+    // Tentative, then moved by agreement: both agreed the move, so it is confirmed (ADR 0050).
     const b = await held();
-    const first = ms((await lastHold(b.c.id)).confirm_by)!;
-    await new Promise((r) => setTimeout(r, 15));
     const day3 = freshDay();
     ok(await proposeMove(b.low.user.id, b.c.id, { onDate: day3, minute: START }));
     const moved = ok(await answerMove(b.top.user.id, b.c.id, true));
-    expect(moved.hold).toMatchObject({ date: day3, tentative: true });
-    expect(ms((await lastHold(b.c.id)).confirm_by)!).toBeGreaterThan(first);
-    // A manager's move of a tentative hold: confirmed.
+    expect(moved.hold).toMatchObject({ date: day3, tentative: false, agreed: true });
+    expect((await lastHold(b.c.id)).confirm_by).toBeNull();
+    // A manager's move of a hold: nobody agreed it, so it is tentative again with a fresh window, and says what it replaced.
     const c = await held();
+    const before = ms((await lastHold(c.c.id)).confirm_by)!;
+    await new Promise((r) => setTimeout(r, 15));
     expect((await send(managerCookie, c.l.id, { action: "hold_move", challengeId: c.c.id, onDate: freshDay(), minute: START, reason: "Re-laid court" })).status).toBe(200);
-    expect((await view(c.l, c.c.id)).hold).toMatchObject({ tentative: false });
-    expect((await lastHold(c.c.id)).confirm_by).toBeNull();
+    expect((await view(c.l, c.c.id)).hold).toMatchObject({ tentative: true, changed: { date: c.day } });
+    expect(ms((await lastHold(c.c.id)).confirm_by)!).toBeGreaterThan(before);
   });
 
-  it("is tentative too for the first specific time agreed after a day alone, by asking and agreeing", async () => {
+  it("is confirmed at once for the first specific time agreed after a day alone, by asking and agreeing (an exact agreement, ADR 0050)", async () => {
     const s = await ladder({}, 3);
     const [, top, low] = s.people;
     const day = freshDay();
     const made = ok(await challenge(low.user.id, s.l.id, low.id, top.id, { onDate: day }));
     ok(await answer(top.user.id, made.id, { accept: true }));
     ok(await proposeMove(low.user.id, made.id, { onDate: day, minute: START }));
-    expect(ok(await answerMove(top.user.id, made.id, true)).hold).toMatchObject({ tentative: true });
+    expect(ok(await answerMove(top.user.id, made.id, true)).hold).toMatchObject({ tentative: false, agreed: true });
   });
 });
 
@@ -534,9 +542,9 @@ describe("a hold expires", () => {
     await ladderHousekeeping();
     for (const p of [a.low, a.top]) expect(await mailAbout(p.user.email, "Court let go")).toHaveLength(1);
     expect(await holdRows(a.c.id)).toHaveLength(1);
-    // They agree a time again and a court is held (tentative, a fresh window).
+    // They agree a time again and a court is held: confirmed at once, as the exact time one asked and the other agreed (ADR 0050).
     ok(await proposeMove(a.low.user.id, a.c.id, { onDate: a.day, minute: START + 60 }));
-    expect(ok(await answerMove(a.top.user.id, a.c.id, true)).hold).toMatchObject({ startMin: START + 60, tentative: true });
+    expect(ok(await answerMove(a.top.user.id, a.c.id, true)).hold).toMatchObject({ startMin: START + 60, tentative: false, agreed: true });
   });
 
   it("lazily: a lapsed hold is gone to every read before the scheduler has run: availability treats it as free and a booking takes the court", async () => {
@@ -594,17 +602,20 @@ describe("a hold expires", () => {
     expect(await liveBlocks(a.c.id)).toEqual([]);
   });
 
-  it("counts towards the week's cap, so not confirming and asking again cannot churn a court", async () => {
+  it("stops counting towards the player's active allowance at once, so an expired hold never blocks the next (ADR 0050)", async () => {
     await clean(async () => {
       const s = await ladder({}, 3);
       const [, top, low] = s.people;
-      await caps(s.l.id, { maxWeek: 1 });
+      await caps(s.l.id, { maxActive: 1 });
       const day = freshDay();
       const c = ok(await accept(s.l, low, top, day));
+      expect((await limitsOf(s.l)).inUse).toBe(1);
       await lapse(c.id);
+      // Lapsed, not yet swept: the ladder's live count has already dropped.
+      expect((await limitsOf(s.l)).inUse).toBe(0);
       await ladderHousekeeping();
       ok(await proposeMove(low.user.id, c.id, { onDate: day, minute: START + 60 }));
-      expect(await answerMove(top.user.id, c.id, true)).toMatchObject({ ok: false, code: "LAD2_CAP_PLAYER" });
+      expect(ok(await answerMove(top.user.id, c.id, true)).hold).toMatchObject({ startMin: START + 60 });
     });
   });
 
@@ -929,7 +940,7 @@ describe("a limit never bypasses what is free", () => {
       expect(await accept(s.l, p5, p4, freshDay())).toMatchObject({ ok: false, code: "LAD2_CAP_LADDER" });
       await lapse(first.id);
       const open = (await myPlaces(p4.user.id, s.l.id))[0].open[0];
-      expect(ok(await answer(p4.user.id, open.id, { accept: true })).hold).not.toBeNull();
+      expect(ok(await answer(p4.user.id, open.id, { accept: true, onDate: open.proposedOn!, minute: START })).hold).not.toBeNull();
       expect(await lastHold(first.id)).toMatchObject({ released_reason: "expired" });
     });
   });

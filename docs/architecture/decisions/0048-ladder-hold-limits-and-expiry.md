@@ -1,6 +1,6 @@
 # ADR 0048: Ladder court-time holds: configurable limits, tentative holds that expire, no overlap, limits that only refuse
 
-- **Status:** current, decided 2026-11-05 at the owner's request. Built in migration 0290. What managers and players see is in
+- **Status:** current, decided 2026-11-05 at the owner's request, **amended by [ADR 0050](0050-ladder-agreement-counts-and-expired-holds-do-not.md)** (an exact agreement counts as confirmation; the per-player "made in 7 days" cap became an active-hold limit with a separate anti-abuse cooldown). Built in migration 0290. What managers and players see is in
   [court time held by the venue](../../features/tournaments.md#court-time-held-by-the-venue-an-optional-setting-per-ladder).
   **Amends [ADR 0040](0040-ladder-court-time-and-team-ladders.md) Part 1** in three places, listed under *What this changes*. Builds on
   [ADR 0010](0010-interval-booking.md) (court time as claims under exclusion constraints) and [ADR 0002](0002-database-enforced-concurrency.md).
@@ -28,6 +28,7 @@
   blocks new holds (the screen says so and shows the number in use). A move or re-hold **replaces** a hold and adds none, so it is not
   counted against the live cap (a ladder over a lowered cap can still move what it has), and a manager's release is never blocked by a limit.
   Holds that expired, or were released, still count in the player's week: counting made holds, not live ones, is what stops churn.
+  *Amended by [ADR 0050](0050-ladder-agreement-counts-and-expired-holds-do-not.md): the per-player cap now counts holds that are live now, so an expired or released hold stops counting at once; churn is met by a separate anti-abuse cooldown.*
 
 ## Decision 2: a hold is tentative until confirmed, and expires
 
@@ -43,6 +44,7 @@
 - **Moves.** A move the players agree **keeps the state of the hold it replaces**: a confirmed hold moved stays confirmed (both players have just
   agreed the move), a tentative one stays tentative with a fresh window. A hold a manager makes (a move, or a hold where there was none) is
   confirmed. A ladder that does not ask for confirmation makes every hold confirmed, as round 10's were.
+  *Amended by [ADR 0050](0050-ladder-agreement-counts-and-expired-holds-do-not.md): a move the players agree is an exact agreement and is confirmed; a manager's hold or move is tentative again unless it changes nothing material; a hold made when both players agreed the exact time is confirmed from the start.*
 - **A confirmed hold** lasts until the match's end and is then released by the rules that already existed: *played* when the result stands,
   *not played in time* when the play-by day passes, withdrawn, forfeited and the rest (ADR 0040). Nothing about those rules changes; the
   blocks cover only the match and its set-up time, so a hold whose time has passed holds nothing that matters.
