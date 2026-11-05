@@ -903,6 +903,43 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 5 November 2026, commit `82d4cdb` (the owner's six decisions)
+
+The owner's decisions of 5 November 2026, built by five workers and merged: supervised group messaging for eligible
+minors, guardian controls and a real digest (migration 0286, ADR 0044); front-desk class moves with a manager's
+approval for consequential or exceptional ones (0287, ADR 0045); advisory launch and tide windows a manager may
+override with a reason, and qualification levels (0288, ADR 0046); FIDE's Baku acceleration for a chess Swiss
+(0289, ADR 0047); ladder hold limits, confirmation and expiry (0290, ADR 0048); and B76, found by the work and
+fixed (a booking moved to another resource now asks that resource's launch or tide window). Not a launch. Run on one
+cloud container, Node 22, by hand.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 134 passed |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 27 files; 94 of 95 passed (the one failure below) |
+| Suite on PGlite | 488 files (3 skipped); 5917 passed, 12 skipped |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 488 files; 5929 passed; one unhandled `ECONNRESET` (below) |
+| CI | Not run (deferred) |
+| Real services | None checked |
+
+*Guide F* timed out at its first step after 180 seconds in the full acceptance run, with nothing in the server's
+output; run alone against the same build it passed (30 seconds, every step about two seconds). It is recorded as an
+unexplained timeout under the load of the full run, not as passed in the run: a slow page in a long run is worth
+watching, and a rerun of the whole acceptance suite was not made. The Postgres run reported every file and test
+passed, and one unhandled `ECONNRESET` raised while `tests/rating-matchmaking.test.ts` was running, which made the
+command exit non-zero; that file passed twice alone on Postgres (10 tests each). B76 was fixed with its test
+(`tests/advisory-windows.test.ts`) after the browser run had started and is in this commit.
+
+Gaps: no live integration has passed its check (the Xero adapter has never run against Xero, and the staff and
+safeguarding emails went only through the outbox stand-in); no browser scenario covers rosters, windows and overrides,
+messages and youth groups, class moves and desk requests, registers, team ladders, ladder holds or the Xero panel;
+the Malay, Chinese and Tamil of everything added is machine-assisted and awaits native review; the retention periods,
+rest hours, the staff-read exception for youth groups and the wording of consents await legal review; FIDE's text
+for Baku was read through a summariser, and the pairing is not FIDE-certified.
+
 #### 5 November 2026, commit `34c4d86` (fixes after it: `eda648a`, `9cd1437`)
 
 Eight roadmap items, built by eight workers and merged: supervisor rosters (migration 0277, ADR 0036), launch and
