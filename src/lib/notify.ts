@@ -5,7 +5,7 @@ import { coachNames } from "./coaching";
 import { refundLines } from "./refund-text";
 import type { CancelRefund } from "./payments";
 import { getDb } from "./db";
-import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue, venueHours } from "./store";
+import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue, normalisePhone, venueHours } from "./store";
 import { Booking, WAITLIST_OFFER_MINUTES, type ClassSession } from "./types";
 import { isLocale, Locale, translator, type Phrase } from "./i18n";
 import { drainOutbox, enqueue, hourRange, sentences } from "./outbox";
@@ -17,8 +17,8 @@ import { createNotice } from "./urgent";
 import { refundCancelled, takesPaymentOnline } from "./payments";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
-import { money, shortDate } from "./region";
-import { slotStartsAt } from "./time";
+import { clockTime, money, shortDate } from "./region";
+import { localDateOf, slotStartsAt } from "./time";
 import { venueZoneOf } from "./zones";
 import { longEnough } from "./phone";
 import { taxIncluded, venueTax } from "./tax";
@@ -1266,4 +1266,239 @@ export async function notifySeriesMoved(seriesCode: string, moved: { booking: Bo
     },
   });
   return notice.id;
+}
+
+// ------------------------------------------------------------- a class moved
+
+/** One session of a class as it was and as it is, after staff moved it (lib/class-moves.ts). */
+export interface MovedClass {
+  before: ClassSession;
+  after: ClassSession;
+}
+
+/** Somebody a class's move is told to: those enrolled in a moved session, and those waiting for a place in one. */
+export interface ClassMoveRecipient {
+  kind: "enrolled" | "waiting";
+  /** One person, by address (else by number): however many sessions of theirs moved, they are told once. */
+  key: string;
+  /** As on the booking or the waiting-list entry. */
+  name: string;
+  email: string | null;
+  phone: string;
+  locale: Locale;
+  /** The ways they are reached: email where they gave an address; WhatsApp where the venue sends urgent news and they gave a number (enrolled only). */
+  channels: ("email" | "whatsapp")[];
+  /** The moved sessions they are in, or wait for, in date order. */
+  sessions: MovedClass[];
+  /** Their enrolments in those sessions (enrolled). */
+  bookings: Booking[];
+  /** Their waiting-list entry, and the link of its offer where one is live (waiting). */
+  waitId?: number;
+  offerToken?: string | null;
+}
+
+const personKey = (email: string | null | undefined, phone: string) => {
+  const e = email?.trim().toLowerCase();
+  return e ? `e:${e}` : `p:${normalisePhone(phone)}`;
+};
+
+/**
+ * Who a class's move is told to (docs/features/programmes.md#moving-a-class): everybody holding a confirmed place in a
+ * session that moved, once however many of theirs moved, and everybody waiting for, or offered, a place in one. A venue
+ * that has never been live tells nobody. Read the same before the move (the preview, for what each will be told) and
+ * after it (what is sent), so the two cannot differ.
+ */
+export async function classMoveRecipients(moved: MovedClass[]): Promise<ClassMoveRecipient[]> {
+  const first = moved[0];
+  if (!first) return [];
+  const venue = await getVenue(first.after.venueId);
+  if (!venue || !hasBeenLive(venue)) return [];
+  const whatsapp = await whatsappFor(venue.id, "booking_rescheduled");
+  const ordered = [...moved].sort((a, b) => a.after.date.localeCompare(b.after.date) || a.after.startMin - b.after.startMin);
+  const people = new Map<string, ClassMoveRecipient>();
+  for (const m of ordered)
+    for (const b of await getClassRoster(m.after.id)) {
+      if (b.status !== "confirmed") continue;
+      const key = `enrolled:${personKey(b.email, b.phone)}`;
+      const known = people.get(key);
+      if (known) {
+        known.bookings.push(b);
+        if (!known.sessions.some((s) => s.after.id === m.after.id)) known.sessions.push(m);
+        continue;
+      }
+      const channels: ClassMoveRecipient["channels"] = [];
+      if (b.email?.trim()) channels.push("email");
+      if (whatsapp && b.phone.trim()) channels.push("whatsapp");
+      people.set(key, {
+        kind: "enrolled", key, name: b.name, email: b.email?.trim() || null, phone: b.phone, locale: await localeOf(b.id),
+        channels, sessions: [m], bookings: [b],
+      });
+    }
+  const ids = ordered.map((m) => m.after.id);
+  const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
+  const waiting = (await getDb()
+    .prepare(
+      `SELECT id, name, phone, email, locale, class_id, status, offered_at, offer_token FROM waitlist
+        WHERE class_id IN (${ids.map(() => "?").join(",")}) AND status IN ('waiting', 'offered') ORDER BY id`
+    )
+    .all(...ids)) as { id: number; name: string; phone: string; email: string | null; locale: string | null; class_id: number; status: string; offered_at: string | null; offer_token: string | null }[];
+  for (const w of waiting) {
+    const m = ordered.find((x) => x.after.id === w.class_id);
+    if (!m || !w.email?.trim()) continue;
+    const key = `waiting:${personKey(w.email, w.phone)}`;
+    const live = w.status === "offered" && w.offered_at !== null && w.offered_at > since && w.offer_token !== null;
+    const known = people.get(key);
+    if (known) {
+      if (!known.sessions.some((s) => s.after.id === m.after.id)) known.sessions.push(m);
+      if (live && !known.offerToken) known.offerToken = w.offer_token;
+      continue;
+    }
+    people.set(key, {
+      kind: "waiting", key, name: w.name, email: w.email.trim(), phone: w.phone, locale: w.locale && isLocale(w.locale) ? w.locale : "en",
+      channels: ["email"], sessions: [m], bookings: [], waitId: w.id, offerToken: live ? w.offer_token : null,
+    });
+  }
+  return [...people.values()];
+}
+
+/** Where the cancel-with-everything-back link goes, and until when it works: for one recipient's message. */
+export interface ClassMoveLink {
+  token: string;
+  until: Date;
+}
+
+/** What a recipient is told, as the outbox is given it (and, for the staff's preview, as it reads). */
+interface ClassMoveMessage {
+  subject: "msg.rescheduledSubject" | "clsa.msg.waitMovedSubject";
+  body: "msg.rescheduled" | "clsa.msg.waitMoved" | "clsa.msg.waitMovedOffered";
+  vars: Record<string, string | number>;
+}
+
+async function classMoveMessage(
+  r: ClassMoveRecipient,
+  venue: { id: number; name: string },
+  links: { ack: string; refund: string; until: Date | null; offer: string | null }
+): Promise<ClassMoveMessage> {
+  const t = translator(r.locale);
+  const first = r.sessions[0];
+  const zone = (await venueHours(venue.id)).zone;
+  const what = forWhom(r.locale, first.after.name, namesOn(r.bookings));
+  const at = slot(r.locale, `${what} (${first.after.courtName})`, venue.name, first.after);
+  const was = slot(r.locale, first.before.courtName, venue.name, first.before).when;
+  const when = `${r.sessions.length > 1 ? t("msg.seriesWhen", { n: r.sessions.length, from: at.when }) : at.when} ${t("clsa.msg.was", { was: `${was}, ${first.before.courtName}` })}`;
+  if (r.kind === "waiting")
+    return {
+      subject: "clsa.msg.waitMovedSubject",
+      body: links.offer ? "clsa.msg.waitMovedOffered" : "clsa.msg.waitMoved",
+      vars: { name: firstName(r.name), what: first.after.name, venue: venue.name, when, ...(links.offer ? { link: links.offer } : {}) },
+    };
+  const until = links.until ? `${shortDate(localDateOf(links.until.toISOString(), zone), r.locale, true)}, ${clockTime(links.until, zone, r.locale)}` : "";
+  return {
+    subject: "msg.rescheduledSubject",
+    body: "msg.rescheduled",
+    vars: {
+      name: firstName(r.name),
+      venue: venue.name,
+      code: r.bookings[0]?.code ?? "",
+      where: at.where,
+      when,
+      money: links.until ? t("clsa.msg.refund", { until, link: links.refund }) : t("clsa.msg.stays"),
+      ack: links.ack,
+    },
+  };
+}
+
+/** What each recipient will be told, in their own language, for the staff's preview: their links stand as "a private link". */
+export async function classMovePreviewTexts(
+  recipients: ClassMoveRecipient[],
+  until: (r: ClassMoveRecipient) => Date | null
+): Promise<{ name: string; kind: "enrolled" | "waiting"; locale: Locale; channels: string[]; text: string }[]> {
+  const out: { name: string; kind: "enrolled" | "waiting"; locale: Locale; channels: string[]; text: string }[] = [];
+  for (const r of recipients) {
+    const venue = await getVenue(r.sessions[0].after.venueId);
+    if (!venue) continue;
+    const t = translator(r.locale);
+    const link = t("clsa.msg.privateLink");
+    const m = await classMoveMessage(r, venue, { ack: link, refund: link, until: r.kind === "enrolled" ? until(r) : null, offer: r.offerToken ? link : null });
+    out.push({ name: r.name, kind: r.kind, locale: r.locale, channels: r.channels, text: t(m.body, m.vars) });
+  }
+  return out;
+}
+
+/**
+ * Tell everybody a class's move concerns, once per change and person. An enrolled person gets the venue's usual
+ * "booking changed" message (the one with the notice they acknowledge, on WhatsApp where the venue sends urgent news, a
+ * calendar file replacing the old time), listing every session of theirs that moved, with the link to cancel for
+ * everything back until `links` says. Somebody waiting for a place is told by email, with the offer's own link where one
+ * is live. Returns how many messages were written.
+ */
+export async function sendClassMoveNotices(
+  moveId: number,
+  recipients: ClassMoveRecipient[],
+  links: Map<string, ClassMoveLink>
+): Promise<number> {
+  const first = recipients[0]?.sessions[0];
+  if (!first) return 0;
+  const venue = await getVenue(first.after.venueId);
+  if (!venue || !hasBeenLive(venue)) return 0;
+  const base = await venueBaseUrl(venue.id);
+  let written = 0;
+  for (const r of recipients) {
+    const link = links.get(r.key) ?? null;
+    if (r.kind === "waiting") {
+      const m = await classMoveMessage(r, venue, { ack: "", refund: "", until: null, offer: r.offerToken ? linkIn(`${base}/waitlist/${r.offerToken}`, r.locale) : null });
+      const message = await deliver(
+        { phone: "", email: r.email },
+        { venueId: venue.id, kind: "class_changed", locale: r.locale, subject: m.subject, body: m.body, dedupeKey: `classmove:${moveId}:${r.key}`, vars: m.vars },
+        false
+      );
+      if (message) written++;
+      continue;
+    }
+    const firstBooking = r.bookings[0];
+    const there = r.sessions[0].after;
+    const notice = await createNotice({
+      venueId: venue.id,
+      bookingId: firstBooking.id,
+      kind: "moved",
+      name: firstBooking.name,
+      phone: firstBooking.phone,
+      email: firstBooking.email ?? null,
+      date: there.date,
+      startMin: there.startMin,
+      summary: `${venue.name} moved ${there.name} (${r.sessions.length} session(s)) to ${there.courtName}, ${slot(r.locale, there.courtName, venue.name, there).when}.`,
+      summaryPhrase: noticePhrase("srv.urgent.changed", venue.name, firstBooking.code, there.courtName, there),
+    });
+    const m = await classMoveMessage(r, venue, {
+      ack: linkIn(`${base}/ack/${notice.token}`, r.locale),
+      refund: link ? linkIn(`${base}/class-move/${link.token}`, r.locale) : "",
+      until: link ? link.until : null,
+      offer: null,
+    });
+    // The calendar file carries each session of theirs at its new time (the same event, by its booking's code, so it replaces the old one).
+    const after = new Map(r.sessions.map((s) => [s.after.id, s.after]));
+    const sessionOf = (b: Booking) => after.get(b.classId ?? -1);
+    const calendar = calendarFor(
+      r.bookings.map((b) => {
+        const s = sessionOf(b);
+        return s ? { ...b, date: s.date, startMin: s.startMin, endMin: s.endMin, startHour: s.startHour, endHour: s.endHour } : b;
+      }),
+      (b) => `${sessionOf(b)?.name ?? there.name} (${sessionOf(b)?.courtName ?? there.courtName})`,
+      venue
+    );
+    const message = await deliver(firstBooking, {
+      bookingId: firstBooking.id,
+      venueId: venue.id,
+      kind: "booking_rescheduled",
+      locale: r.locale,
+      subject: m.subject,
+      body: m.body,
+      dedupeKey: `classmove:${moveId}:${r.key}`,
+      noticeId: notice.id,
+      calendar,
+      vars: m.vars,
+    });
+    if (message) written++;
+  }
+  return written;
 }

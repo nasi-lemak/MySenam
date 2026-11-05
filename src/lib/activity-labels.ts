@@ -175,6 +175,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "class.scheduled": "Scheduled a class",
   "class.changed": "Changed a class",
   "class.cancelled": "Cancelled a class",
+  "class.moved": "Moved a class to another date, time or court",
   "block.added": "Blocked a court's time",
   "block.removed": "Unblocked a court's time",
   "hire.taken": "Handed out hired kit, holding a deposit",

@@ -6128,16 +6128,20 @@ interface ClassRow {
   enrolled: number;
   who: ClassSession["who"];
   term_off_percent?: number | null;
+  /** The venue's coach teaching it, where its instructor is one (lib/class-coaches.ts); their name is then the instructor's. */
+  coach_id?: number | null;
+  instructor_name?: string | null;
 }
 
 const CLASS_SELECT = `
-  SELECT cl.*, c.name AS court_name,
+  SELECT cl.*, c.name AS court_name, k.name AS instructor_name,
          v.id AS venue_id, v.name AS venue_name, v.area AS venue_area,
          (SELECT COUNT(*) FROM bookings b
             WHERE b.class_id = cl.id AND b.status = 'confirmed') AS enrolled
   FROM classes cl
   JOIN courts c ON c.id = cl.court_id
   JOIN venues v ON v.id = c.venue_id
+  LEFT JOIN coaches k ON k.id = cl.coach_id
 `;
 
 function toClass(r: ClassRow): ClassSession {
@@ -6150,7 +6154,9 @@ function toClass(r: ClassRow): ClassSession {
     venueArea: r.venue_area,
     sport: r.sport,
     name: r.name,
-    instructor: r.instructor,
+    // A coach's own (public) name where the instructor is one of the venue's coaches.
+    instructor: r.instructor_name ?? r.instructor,
+    coachId: r.coach_id ?? null,
     date: r.date,
     startMin: r.start_min,
     endMin: r.end_min,
@@ -6241,6 +6247,8 @@ export async function createClassSessions(input: {
   who?: ClassSession["who"];
   /** A share off each session for joining the whole term at once. */
   termOffPercent?: number | null;
+  /** One of the venue's coaches as the instructor (lib/class-coaches.ts): held for every session, checked like a lesson's coach. */
+  coachId?: number | null;
 }): Promise<CreateClassResult> {
   const { courtId, date } = input;
   const start = minutesFrom(input.start, input.startHour);
@@ -6272,6 +6280,19 @@ export async function createClassSessions(input: {
   const span = { start, end };
   const db = getDb();
   const seriesCode = weeks > 1 ? randomCode("CL-") : null;
+  // An instructor who is one of the venue's coaches: theirs to teach every week, as a lesson's coach is theirs to coach.
+  const coachId = input.coachId ?? null;
+  const classCoaches = coachId !== null ? await import("./class-coaches") : null;
+  if (classCoaches && coachId !== null) {
+    const why = await classCoaches.coachTeachingRefusal(
+      coachId,
+      court.venueId,
+      court.sport,
+      Array.from({ length: weeks }, (_, week) => ({ date: addDays(date, week * 7), startMin: start, endMin: end })),
+      day.zone
+    );
+    if (why) return why;
+  }
 
   try {
     const created = await withTransaction(async () => {
@@ -6280,12 +6301,12 @@ export async function createClassSessions(input: {
         const weekDate = addDays(date, week * 7);
         const row = (await db
           .prepare(
-            `INSERT INTO classes (court_id, name, instructor, date, start_min, end_min, capacity, price, series_code, who, term_off_percent)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+            `INSERT INTO classes (court_id, name, instructor, date, start_min, end_min, capacity, price, series_code, who, term_off_percent, coach_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
           )
           .get(
             courtId, input.name.trim(), input.instructor.trim(), weekDate,
-            start, end, input.capacity, input.price, seriesCode, who, seriesCode ? termOff : null
+            start, end, input.capacity, input.price, seriesCode, who, seriesCode ? termOff : null, coachId
           )) as { id: number };
         try {
           await withTransaction(() =>
@@ -6305,12 +6326,15 @@ export async function createClassSessions(input: {
           const why = whyTaken(held, court, span, policyBuffers(day.policy));
           throw new Error(`${why?.why === "class" ? "CLASH" : "BOOKED"}:${weekDate}`);
         }
+        // The coach, after the court (the order every claim locks in): in a lesson or another class then, and the class is not made.
+        if (classCoaches && coachId !== null) await classCoaches.holdCoach(row.id, coachId, { date: weekDate, startMin: start, endMin: end }, day.zone);
         sessions.push((await getClass(row.id))!);
       }
       return sessions;
     });
     return { ok: true, classes: created, seriesCode };
   } catch (err) {
+    if (classCoaches && err instanceof classCoaches.CoachHeld) return err.refusal;
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith("BOOKED:"))
       return {
@@ -6539,8 +6563,9 @@ export async function cancelClassSession(
   await db.transaction(async () => {
     cancelledIds = [];
     await db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
-    // The court is free again for that time.
+    // The court is free again for that time, and the coach (lib/class-coaches.ts) for any other.
     await release({ kind: "class", classId });
+    await db.prepare("UPDATE coach_claims SET active = false WHERE class_id = ? AND active").run(classId);
     for (const row of enrolments) {
       // Only an enrolment still standing: one its customer cancelled a moment ago was refunded then.
       const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);

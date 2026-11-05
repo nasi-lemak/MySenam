@@ -1,3 +1,5 @@
+import { CoachHeld, coachTeachingRefusal, holdCoach } from "./class-coaches";
+import { coachById } from "./coaching";
 import { getDb, withTransaction } from "./db";
 import { refuse } from "./entitlements";
 import { instantOf } from "./interval";
@@ -24,6 +26,11 @@ import type { ClassSession, Refusal } from "./types";
  *   holding a live offer of a place in one, are told by email, once per
  *   change (lib/notify.ts `notifyClassChanged`). A price or places change
  *   tells nobody: it changes nothing anybody signed up for.
+ * - **The instructor as a coach of the venue** (`coachId`, lib/class-coaches.ts):
+ *   the coach is checked as a lesson's coach is (the venue's, active, coaching
+ *   the activity, working then, in nothing else) and held for every session
+ *   changed, all or none; `coachId: null`, or a typed instructor name in its
+ *   place, makes it a name only again.
  *
  * A session that has started, or is cancelled, is not changed; with
  * `series`, the later sessions of the series that have not started are
@@ -32,6 +39,8 @@ import type { ClassSession, Refusal } from "./types";
 export interface ClassChange {
   name?: unknown;
   instructor?: unknown;
+  /** One of the venue's coaches as the instructor (a number), or null for a name only (lib/class-coaches.ts). */
+  coachId?: unknown;
   capacity?: unknown;
   price?: unknown;
   /** This session and every later one in its series that has not started. */
@@ -67,13 +76,23 @@ export async function changeClass(classId: number, change: ClassChange): Promise
 
   const name = change.name === undefined ? undefined : typeof change.name === "string" ? change.name.trim() : "";
   if (name !== undefined && (name.length < 2 || name.length > 100)) return { ok: false, error: "Class name is required." };
-  const instructor = change.instructor === undefined ? undefined : typeof change.instructor === "string" ? change.instructor.trim() : "";
+  let instructor = change.instructor === undefined ? undefined : typeof change.instructor === "string" ? change.instructor.trim() : "";
   if (instructor !== undefined && (instructor.length < 2 || instructor.length > 100)) return { ok: false, error: "Instructor name is required." };
   const capacity = change.capacity === undefined ? undefined : Number(change.capacity);
   if (capacity !== undefined && (!Number.isInteger(capacity) || capacity < 1)) return { ok: false, error: "Capacity must be at least 1." };
   if (change.price !== undefined && !isAmount(change.price)) return { ok: false, error: `Price must be ${money(0)} or more.` };
   const price = change.price === undefined ? undefined : roundMoney(change.price as number);
-  if (name === undefined && instructor === undefined && capacity === undefined && price === undefined)
+  // The instructor as a coach: a coach's id, null for a name only; a typed name (other than the coach's own) is a name only too.
+  if (change.coachId !== undefined && change.coachId !== null && (typeof change.coachId !== "number" || !Number.isInteger(change.coachId) || change.coachId <= 0))
+    return { ok: false, error: "Choose one of the venue's coaches." };
+  const coach = typeof change.coachId === "number" ? await coachById(change.coachId) : null;
+  if (typeof change.coachId === "number" && (!coach || coach.venueId !== session.venueId)) return refuse("COACH_NOT_FOUND");
+  /** `undefined`: the coach is left as it is; a coach; or null: a name only. */
+  let newCoach: number | null | undefined = change.coachId === undefined ? undefined : (coach?.id ?? null);
+  const newInstructor = coach ? coach.name : instructor;
+  if (newCoach === undefined && instructor !== undefined && session.coachId != null && instructor !== session.instructor) newCoach = null;
+  if (newCoach === undefined && instructor !== undefined && session.coachId != null && instructor === session.instructor) instructor = undefined;
+  if (name === undefined && instructor === undefined && capacity === undefined && price === undefined && newCoach === undefined)
     return { ok: false, error: "Nothing to change." };
   const court = await getCourt(session.courtId);
   if (capacity !== undefined && court && capacity > court.capacity)
@@ -89,6 +108,21 @@ export async function changeClass(classId: number, change: ClassChange): Promise
       const c = await getClass(r.id);
       if (c && !(await startedAlready(c))) ids.push(r.id);
     }
+  }
+
+  const zone = (await venueHours(session.venueId)).zone;
+  // A coach: working through every session and free for it (their own held sessions here do not count against them), before anything is written.
+  const sessions = (await Promise.all(ids.map((id) => getClass(id)))).filter((c): c is ClassSession => c !== null);
+  if (coach) {
+    const why = await coachTeachingRefusal(
+      coach.id,
+      session.venueId,
+      session.sport,
+      sessions.map((c) => ({ date: c.date, startMin: c.startMin, endMin: c.endMin })),
+      zone,
+      ids
+    );
+    if (why) return why;
   }
 
   let changed: { before: ClassSession; after: ClassSession }[];
@@ -109,15 +143,26 @@ export async function changeClass(classId: number, change: ClassChange): Promise
               error: `${before.date}: ${taken} place(s) are taken or offered; the class cannot have fewer than that.`,
             });
         }
+        // The typed name behind a coach is the coach's own name, so it reads right if the class is made a name only again.
         await db
-          .prepare("UPDATE classes SET name = ?, instructor = ?, capacity = ?, price = ? WHERE id = ?")
-          .run(name ?? before.name, instructor ?? before.instructor, capacity ?? before.capacity, price ?? before.price, id);
+          .prepare("UPDATE classes SET name = ?, instructor = ?, capacity = ?, price = ?, coach_id = ? WHERE id = ?")
+          .run(
+            name ?? before.name,
+            newInstructor ?? before.instructor,
+            capacity ?? before.capacity,
+            price ?? before.price,
+            newCoach === undefined ? (before.coachId ?? null) : newCoach,
+            id
+          );
+        if (newCoach === null) await db.prepare("DELETE FROM coach_claims WHERE class_id = ?").run(id);
+        else if (newCoach !== undefined) await holdCoach(id, newCoach, { date: before.date, startMin: before.startMin, endMin: before.endMin }, zone);
         out.push({ before, after: (await getClass(id))! });
       }
       return out;
     });
   } catch (err) {
     if (err instanceof Refused) return err.refusal;
+    if (err instanceof CoachHeld) return err.refusal;
     throw err;
   }
 
@@ -137,6 +182,8 @@ export function classChangeDetail(changed: { before: ClassSession; after: ClassS
   const parts: string[] = [];
   if (before.name !== after.name) parts.push(`name ${before.name} → ${after.name}`);
   if (before.instructor !== after.instructor) parts.push(`instructor ${before.instructor} → ${after.instructor}`);
+  if ((before.coachId ?? null) !== (after.coachId ?? null))
+    parts.push(after.coachId ? `instructor is the venue's coach ${after.instructor}` : `instructor ${after.instructor} is a name only, no longer a coach`);
   if (before.capacity !== after.capacity) parts.push(`places ${before.capacity} → ${after.capacity}`);
   if (before.price !== after.price) parts.push(`price ${money(before.price)} → ${money(after.price)} (new enrolments)`);
   const sessions = changed.length > 1 ? `, ${changed.length} sessions from ${before.date}` : `, ${before.date}`;

@@ -418,7 +418,10 @@ export interface ClassSession {
   venueArea: string;
   sport: Sport;
   name: string;
+  /** The instructor as customers read it: a coach's own name where it is one of the venue's coaches, else the name typed. */
   instructor: string;
+  /** The venue's coach teaching it (lib/class-coaches.ts); null for an instructor that is only a name. */
+  coachId?: number | null;
   date: string;
   /** Minutes of the day it runs, and the same in hours. */
   startMin: number;

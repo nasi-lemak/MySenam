@@ -5,10 +5,12 @@ import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { ALERT_EVERY, crossed, upcomingClassSessions, VENUE_CAPS } from "@/lib/limits";
 import { tellOwnersEach } from "@/lib/owner-alerts";
+import { classCoachConflicts, coachMatching } from "@/lib/class-coaches";
 import { createClassSessions, getCourt, getVenue, listClasses, listClassWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { MAX_CLASS_WEEKS } from "@/lib/types";
 import { money, isAmount } from "@/lib/region";
+import { coachById } from "@/lib/coaching";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +36,16 @@ export async function GET(req: NextRequest) {
     const queue = (await listClassWaitlist(session.id)).length;
     if (queue > 0) waiting[session.id] = queue;
   }
-  return NextResponse.json({ classes, waiting });
+  // A class with a typed instructor whose name is one of the venue's coaches: the one-click link (lib/class-coaches.ts).
+  const coachMatches: Record<number, { id: number; name: string }> = {};
+  for (const session of classes) {
+    if (session.status !== "scheduled" || session.coachId) continue;
+    const match = await coachMatching(session.venueId, session.instructor);
+    if (match) coachMatches[session.id] = match;
+  }
+  // Sessions whose coach can no longer teach them as set: the worklist's (also on the dashboard's attention list).
+  const venueIds = venueId !== undefined ? [venueId] : (admin.venueIds ?? null);
+  return NextResponse.json({ classes, waiting, coachMatches, coachConflicts: await classCoachConflicts(venueIds) });
 }
 
 export async function POST(req: NextRequest) {
@@ -47,7 +58,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { courtId, name, instructor, date, capacity, price, weeks, who, termOffPercent } = (body ?? {}) as Record<string, unknown>;
+  const { courtId, name, instructor, date, capacity, price, weeks, who, termOffPercent, coachId } = (body ?? {}) as Record<string, unknown>;
   // Its time: start and end in minutes of the day or HH:MM (startHour and endHour, the older form).
   const start = readMinute((body ?? {}) as Record<string, unknown>, "start", "startHour");
   const end = readMinute((body ?? {}) as Record<string, unknown>, "end", "endHour");
@@ -61,7 +72,14 @@ export async function POST(req: NextRequest) {
 
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Class name is required." }, { status: 400 });
-  if (typeof instructor !== "string" || instructor.trim().length < 2)
+  if (coachId !== undefined && coachId !== null && (!Number.isInteger(coachId) || (coachId as number) <= 0))
+    return NextResponse.json({ error: "Choose one of the venue's coaches." }, { status: 400 });
+  // A coach's own name is the instructor's; a typed name is for a class with no coach.
+  const coach = typeof coachId === "number" ? await coachById(coachId) : null;
+  if (typeof coachId === "number" && (!coach || coach.venueId !== court.venueId))
+    return NextResponse.json({ error: "Coach not found." }, { status: 404 });
+  const instructorName = coach ? coach.name : instructor;
+  if (typeof instructorName !== "string" || instructorName.trim().length < 2)
     return NextResponse.json({ error: "Instructor name is required." }, { status: 400 });
   if (typeof date !== "string" || !isValidDateString(date))
     return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
@@ -93,7 +111,8 @@ export async function POST(req: NextRequest) {
   const result = await createClassSessions({
     courtId: courtId as number,
     name: name as string,
-    instructor: instructor as string,
+    instructor: instructorName,
+    coachId: coach?.id ?? null,
     date,
     start,
     end,
@@ -103,11 +122,11 @@ export async function POST(req: NextRequest) {
     who: who === "women" || who === "men" ? who : "anyone",
     termOffPercent: termOffPercent === undefined || termOffPercent === null || termOffPercent === "" ? null : Number(termOffPercent),
   });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  if (!result.ok) return NextResponse.json({ error: result.error, code: result.code, vars: result.vars }, { status: 409 });
   await logAction(admin, {
     venueId: court.venueId,
     action: "class.scheduled",
-    detail: `${(name as string).trim()} with ${(instructor as string).trim()}, ${court.name}, ${date} ${formatMinute(start)}–${formatMinute(end)}, ${capacity as number} places at ${money(price as number)}${
+    detail: `${(name as string).trim()} with ${instructorName.trim()}${coach ? " (the venue's coach)" : ""}, ${court.name}, ${date} ${formatMinute(start)}–${formatMinute(end)}, ${capacity as number} places at ${money(price as number)}${
       result.seriesCode ? `, weekly for ${result.classes.length} weeks (${result.seriesCode})` : ""
     }`,
   });

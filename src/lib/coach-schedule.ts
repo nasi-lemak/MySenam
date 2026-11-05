@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { logAction } from "./activity";
 import { hoursOf } from "./interval";
 import { icsText, toUtcStamp } from "./booking-links";
+import { coachClasses } from "./class-coaches";
 import { coachById, type Coach } from "./coaching";
 import { getDb } from "./db";
 import { toCsv } from "./export";
@@ -18,7 +19,9 @@ import { venueZoneOf } from "./zones";
  * A coach's side of their lessons (lib/coaching.ts), without an account:
  *
  * - **Their schedule** at a private link, `/coach/<token>`, and the same as a
- *   calendar feed for their phone. A manager turns it on, which makes the
+ *   calendar feed for their phone, with the classes they teach (`classes.coach_id`,
+ *   lib/class-coaches.ts) beside their lessons: a class's name, court, time and how many
+ *   places are taken, never who is in it. A manager turns it on, which makes the
  *   link, and can replace or withdraw it. It shows the coach's own lessons
  *   only (`bookings.coach_id`), with each student's name (the participants
  *   taking part, a child among them) and the booker's number, so the coach
@@ -204,6 +207,8 @@ export async function coachCalendar(found: CoachByToken, venueId: number, locale
   const t = translator(locale);
   const today = todayISO(found.zone);
   const lessons = await coachLessons(found.coach.id, addDays(today, -DAYS_BACK), addDays(today, DAYS_AHEAD));
+  // The classes they teach, as the venue's coach (lib/class-coaches.ts): the same calendar, never who is in them.
+  const classes = await coachClasses(found.coach.id, addDays(today, -DAYS_BACK), addDays(today, DAYS_AHEAD));
   const host = new URL(await venueBaseUrl(venueId)).host;
   const stamp = toUtcStamp(today, 0, found.zone);
   return [
@@ -223,6 +228,17 @@ export async function coachCalendar(found: CoachByToken, venueId: number, locale
       `DTEND:${toUtcStamp(l.date, l.endHour, found.zone)}`,
       `SUMMARY:${icsText(t("tl7.coachCal.lesson", { student: l.student, court: l.court }))}`,
       `DESCRIPTION:${icsText(`${l.code}, ${formatHour(l.startHour, locale)}–${formatHour(l.endHour, locale)}\n${l.student}, ${l.phone}`)}`,
+      `LOCATION:${icsText(found.venueAddress)}`,
+      "END:VEVENT",
+    ]),
+    ...classes.flatMap((c) => [
+      "BEGIN:VEVENT",
+      `UID:class-${c.id}@${host}`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${toUtcStamp(c.date, c.startMin / 60, found.zone)}`,
+      `DTEND:${toUtcStamp(c.date, c.endMin / 60, found.zone)}`,
+      `SUMMARY:${icsText(t("clsa.cal.class", { name: c.name, court: c.court }))}`,
+      `DESCRIPTION:${icsText(`${c.name}, ${clockRange(c.startMin, c.endMin, locale)}\n${t("clsa.coach.line", { name: c.name, court: c.court, enrolled: c.enrolled, capacity: c.capacity })}`)}`,
       `LOCATION:${icsText(found.venueAddress)}`,
       "END:VEVENT",
     ]),

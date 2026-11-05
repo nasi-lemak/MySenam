@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ClassSession } from "@/lib/types";
 import { currencySymbol } from "@/lib/region";
 import { useStaffT } from "./StaffLanguage";
@@ -10,6 +10,8 @@ import { useStaffT } from "./StaffLanguage";
  * Change a class that has not started (PATCH /api/admin/classes/:id;
  * lib/class-changes.ts): its name, instructor, places and the price for
  * enrolments from now on, for this session or the rest of its weekly series.
+ * The instructor is a name typed, or one of the venue's coaches (lib/class-coaches.ts),
+ * who is checked and held for the session as a lesson's coach is.
  * Only what was changed is sent.
  */
 export function ClassEditor({
@@ -28,9 +30,26 @@ export function ClassEditor({
     capacity: String(session.capacity),
     price: String(session.price),
     series: false,
+    // "" is a name only; otherwise the id of one of the venue's coaches.
+    coach: session.coachId ? String(session.coachId) : "",
   });
+  const [coaches, setCoaches] = useState<{ id: number; name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The venue's active coaches who coach this activity (and the one it has, if retired since).
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const res = await fetch(`/api/admin/coaches?venueId=${session.venueId}`, { cache: "no-store" }).catch(() => null);
+      if (!res?.ok) return;
+      const data = (await readJson(res)) as { coaches: { id: number; name: string; active: boolean; sports: string[] }[] };
+      if (live && Array.isArray(data.coaches)) setCoaches(data.coaches.filter((c) => c.id === session.coachId || (c.active && c.sports.includes(session.sport))).map((c) => ({ id: c.id, name: c.name })));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [session.venueId, session.sport, session.coachId]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -38,7 +57,10 @@ export function ClassEditor({
     setError(null);
     const change: Record<string, unknown> = {};
     if (form.name.trim() !== session.name) change.name = form.name.trim();
-    if (form.instructor.trim() !== session.instructor) change.instructor = form.instructor.trim();
+    // A coach chosen (or changed), or made a name only again; a typed name goes with a name only.
+    const was = session.coachId ? String(session.coachId) : "";
+    if (form.coach !== was) change.coachId = form.coach === "" ? null : Number(form.coach);
+    if (form.coach === "" && form.instructor.trim() !== session.instructor) change.instructor = form.instructor.trim();
     if (Number(form.capacity) !== session.capacity) change.capacity = Number(form.capacity);
     if (Number(form.price) !== session.price) change.price = Number(form.price);
     if (form.series) change.series = true;
@@ -69,10 +91,28 @@ export function ClassEditor({
           {t("cls.namePh")}
           <input required minLength={2} maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
         </label>
-        <label className={label}>
-          {t("cls.col.instructor")}
-          <input required minLength={2} maxLength={100} value={form.instructor} onChange={(e) => setForm({ ...form, instructor: e.target.value })} className={input} />
-        </label>
+        {coaches.length > 0 && (
+          <div>
+            <label className={label}>
+              {t("clsa.coach.label")}
+              <select value={form.coach} onChange={(e) => setForm({ ...form, coach: e.target.value })} className={input}>
+                <option value="">{t("clsa.coach.nameOnly")}</option>
+                {coaches.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {t("clsa.coach.pick", { name: c.name })}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {form.coach !== "" && <p className="mt-1 text-xs text-slate-500">{t("clsa.coach.hint")}</p>}
+          </div>
+        )}
+        {form.coach === "" && (
+          <label className={label}>
+            {t("cls.col.instructor")}
+            <input required minLength={2} maxLength={100} value={form.instructor} onChange={(e) => setForm({ ...form, instructor: e.target.value })} className={input} />
+          </label>
+        )}
         <label className={label}>
           {t("p8c.cls.places")}
           <input required type="number" min={1} value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} className={input} />

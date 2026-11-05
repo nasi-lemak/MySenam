@@ -79,8 +79,9 @@ A manager changes a class that has not started from *Classes → Change*
 (`PATCH /api/admin/classes/:id`; `changeClass` in `src/lib/class-changes.ts`):
 its name, instructor, places and price, for that session or, ticked, for it
 and every later session of its weekly series that has not started. Its time
-and court are not changed here (moving a class is a proposal in the
-[roadmap](../roadmap/roadmap.md)).
+and court are not changed here ([moving a class](#moving-a-class) does that).
+Its instructor is a name typed, or one of the venue's coaches
+([a class's instructor as one of the venue's coaches](#a-classs-instructor-as-one-of-the-venues-coaches)).
 
 - **More places**, up to what the room holds: the first person on the class's
   waiting list is offered a place at once, through the waiting list's own
@@ -115,6 +116,122 @@ and court are not changed here (moving a class is a proposal in the
 Scheduling a class (`class.scheduled`) and cancelling one (`class.cancelled`,
 with a `booking.cancelled` under each enrolment's code) are in the activity
 log too.
+
+### Moving a class
+
+A manager moves a class that has not begun to another date, time or court from
+*Classes → Move* (`POST /api/admin/classes/:id/move`; `moveClasses` and
+`previewClassMove` in `src/lib/class-moves.ts`; migration 0281). Moving is not
+cancelling and enrolling again: everyone keeps their place, their code, what they
+paid and the price they were charged. It is a manager's, as scheduling, changing
+and cancelling a class are (`MANAGER_ONLY`; the preview too, since it names
+everybody enrolled and what each will be told).
+
+- **What moves.** *This session only*; *this session and the later ones of its
+  weekly series*; or *the whole term* (every session of the series not yet begun).
+  The chosen session goes to the new date and start (its length is kept) and, where
+  given, the new court, which must be a shared facility of the same venue that offers
+  the class's activity and holds the class's places. Every other session shifts by the
+  same days and minutes, so a series with exceptions (one week already at another time)
+  keeps them relative to the rest; a court given is every moved session's. A session
+  already begun, one cancelled, and one already where the move would put it are left
+  alone and named in the preview (`skipped`). The chosen session must not have begun
+  (`CLASS_STARTED`).
+- **All or none, the new time held first.** In one transaction under the classes' row
+  locks (the lock every enrolment takes, so an enrolment and a move at the same moment,
+  or two staff moving one class, cannot leave a session half moved): the sessions are
+  read again and refused as changed (`CLSA_MOVE_CHANGED`) if anything moved, was cancelled
+  or begun meanwhile; the old claims are let go (all of them first, so a series moved by a
+  week lands on its own old times) and each new time is claimed in date order, courts
+  before coaches, as a booking is moved (`reclaimBooking`); then the class and each
+  confirmed enrolment's court, date, minutes and moments are updated. A time that is taken
+  rolls everything back: the old times stay, and nothing is ever released without the new
+  time held. The database decides (the exclusion constraints and the capacity trigger on
+  `claims`, and `coach_claims`); the preview and the early refusal read the same rules to
+  say what is in the way.
+- **What is checked for each session**: attendance taken (`CLSA_MOVE_ATTENDANCE`: a session
+  somebody has checked in to is under way whatever its start says; there is no attendance
+  register yet, so this is the check-in), the court (`CLSA_MOVE_COURT`; another venue's court
+  is not said to exist), the venue's hours, closed days and the past (`CLSA_MOVE_HOURS`,
+  `VENUE_CLOSED`, `SLOT_PAST`), what holds the court then, with its buffers (`CLSA_MOVE_CLASS`,
+  `CLSA_MOVE_BOOKED`: a class, a booking, a block, a rained-off or out-of-service time), the
+  instructor where it is one of the venue's coaches (their hours and days off, and any lesson or
+  class of theirs: [below](#a-classs-instructor-as-one-of-the-venues-coaches)), and on a
+  members-only venue that everyone holding a place is still a member on the new date
+  (`membersOnlyRefusal`, ADR 0026: no override goes past it). A refusal names each session in the
+  way (`conflicts`). The **roster check** for a staffed session (a range officer, instructor or
+  lifeguard on the new time) has a seam, `classRosterRefusal` in `src/lib/class-moves.ts`, which
+  checks nothing yet: per-session rosters are another change, and this function is where it is called.
+- **The preview** (`preview: true`) changes nothing: each session from and to, who is enrolled
+  and waiting, who holds a pass entry or a membership's benefit, what is in the way, and the
+  message each person will be told, in their language and on which channels.
+- **Everyone is told once.** Each person holding a place in a moved session gets the venue's
+  usual *booking changed* message (`booking_rescheduled`, the WhatsApp template `msg.rescheduled`,
+  so nothing there changes; email, and WhatsApp where the venue sends urgent news) in their own
+  language, however many sessions of theirs moved (*3 weekly sessions, the first …*, with where it
+  was), with a calendar file carrying every session at its new time under the booking's code, the
+  notice they acknowledge, and a notice on the dashboard's list (*Needs attention*) for the desk to
+  ring, which an address-less person also has. Somebody on the waiting list is told by email, with
+  the offer's own link where one is live; they keep their place. A coach teaching it is told once, in
+  their language. A venue that has never been live tells nobody. Each message is written once
+  (dedupe key `classmove:<move>:<person>`).
+- **A customer who cannot make the new time may cancel for everything back.** The message carries a
+  private link (`/class-move/<token>`, one for a person's places in that move), open until the
+  install's window after the move (`class_move_rules.refund_window_days`, install data, 7 days, no
+  screen) or the session's original start if that is sooner, per place. Opening the page cancels
+  nothing; the customer taps and confirms (`POST /api/class-moves/cancel`, rate limited like the
+  *Seen it* link). It is the venue's own cancellation of an enrolment, the path of a class the venue
+  calls off (`venueCancel`, cause `class`): everything paid goes back as it was paid, a pass entry
+  once (`refundBookingToPass`), credit as credit, what was paid online through the gateway as the venue
+  cancels (`refundCancelled` with `byVenue`, never credit the customer did not choose), a counter payment
+  owed back for staff to settle ([owed back after the venue cancels](payments-and-credit.md#owed-back-after-the-venue-cancels)),
+  the place offered to the waiting list, a customer's confirmation of the cancellation; once (a
+  second tap finds it cancelled). After the window the link says so and the usual terms apply from
+  the booking. Nothing is refunded unless the customer cancels.
+- **Logged.** `class.moved` with the first session from and to, how many moved and how many were told;
+  the cancellation at the link is a `booking.cancelled` under the booking's code by *Customer, at the
+  class-move link*.
+- **Seen at once.** The public classes page, search, the venue's calendar feed and a coach's schedule read
+  the class's row and claim, so they show the move as soon as it is made.
+- **Not here**: moving one booking, a lesson or a weekly series of bookings
+  ([moving a weekly series](booking.md#moving-a-weekly-series)); the attendance register; coach pay.
+
+### A class's instructor as one of the venue's coaches
+
+A class's instructor is a name typed (every class made before this, and any a venue wants), or
+one of the venue's coaches (`classes.coach_id`, `src/lib/class-coaches.ts`; migration 0281). Nothing
+was migrated: a class with a name only stays one, and where its typed name is an active coach's
+(case ignored, one coach of that name) the classes screen offers *Link to coach …*, one click,
+for the session or its series.
+
+- **Choosing.** *Taught by* when scheduling a class (`coachId` on `POST /api/admin/classes`) and in
+  *Change* (`coachId` on `PATCH /api/admin/classes/:id`, `null` or a typed name for a name only again;
+  the typed name behind a coach is the coach's own). Customers read the coach's own name as the
+  instructor (`ClassSession.instructor`, so the classes page, waiting-list offers and every message
+  say it, and a renamed coach is renamed there), and nothing else of them: a coach's contact details
+  are never on a class.
+- **Checked as a lesson's coach is.** An active coach of this venue who coaches the class's activity
+  (`CLSA_COACH_SPORT`), working through each session (their hours that weekday, not on days off:
+  `COACH_NOT_WORKING`; the hours a coach takes lessons are the hours they teach) and in no other
+  commitment: the coach is claimed for the session's exact minutes in `coach_claims` (a claim now belongs to
+  a booking or to a class), under the constraint that already keeps a coach in one lesson at a time, so a
+  class over a lesson (`CLSA_COACH_LESSON`), a lesson over a class (`COACH_TAKEN`) and a class over another
+  class (`CLSA_COACH_CLASS`) are refused to the minute, whatever the rooms, and two asked for at the same
+  moment cannot both have the coach. A series is held all or none. Changing the instructor, the same
+  *Change* as for a name, checks and holds every session it changes; moving a class checks and holds the
+  coach for the new times. A called-off class lets the coach go.
+- **On the coach's schedule.** The coach's private page and calendar feed (`/coach/<token>`,
+  `/api/coach-calendar/<token>.ics`) list the classes they teach with how many places are taken, never who
+  is in them; the venue's staff calendar feed names the coach as the instructor.
+- **Never silently dropped.** A coach retired, on days off over a session, working other hours now, or (should it
+  ever happen) not held for it, leaves the class as it is; the dashboard's *Needs attention* list and the
+  classes screen say which sessions and why (`classCoachConflicts`), until staff change the instructor or
+  the coach's hours. A coach is never deleted by the app (it retires them) and the reference has no cascade, so
+  a coach teaching a class cannot lose it.
+- **Out of scope**: what a coach is paid for a class (coach payouts are for lessons only).
+
+Tests: `tests/class-moves.test.ts` (also on Postgres), `tests/class-move-refunds.test.ts`,
+`tests/class-coaches.test.ts` (also on Postgres), `tests/components/class-move-panel.test.tsx`.
 
 ## One-to-one coaching
 
@@ -445,8 +562,10 @@ with the documents of those applications only (`/api/my/reviews/document`,
 each opening recorded under the coach's name). Not every child at the
 venue, not another coach's students, nothing at another venue, no
 guardian's other records, and no document beyond what the review route
-already allows. Classes name their instructor as text, not a coach record,
-so no class roster reaches a coach; the product holds no emergency or
+already allows. A class the coach teaches reaches their page and calendar as
+its name, court, time and how many places are taken ([a class's instructor as one
+of the venue's coaches](#a-classs-instructor-as-one-of-the-venues-coaches)), but no
+class roster does; the product holds no emergency or
 medical details, and none are collected for coaches. Tests:
 `tests/coach-scope.test.ts` (own lesson's child named, others not; the
 calendar feed, emails and the one-coach file; reviews and documents at the

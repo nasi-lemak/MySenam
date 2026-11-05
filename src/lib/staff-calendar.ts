@@ -180,9 +180,9 @@ export async function staffCalendar(venueId: number, locale: StaffLocale = staff
     .all(venueId, from, until)) as BookingRow[];
   const classes = (await db
     .prepare(
-      `SELECT k.id, k.name, k.instructor, k.date, k.start_min, k.end_min, k.capacity, c.name AS court_name,
+      `SELECT k.id, k.name, COALESCE(co.name, k.instructor) AS instructor, k.date, k.start_min, k.end_min, k.capacity, c.name AS court_name,
               (SELECT COUNT(*)::int FROM bookings e WHERE e.class_id = k.id AND e.status = 'confirmed') AS enrolled
-         FROM classes k JOIN courts c ON c.id = k.court_id
+         FROM classes k JOIN courts c ON c.id = k.court_id LEFT JOIN coaches co ON co.id = k.coach_id
         WHERE c.venue_id = ? AND k.status = 'scheduled' AND k.date BETWEEN ? AND ?
         ORDER BY k.date, k.start_min`
     )
