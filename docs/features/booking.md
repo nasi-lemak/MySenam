@@ -562,6 +562,181 @@ and are listed for the desk to move or let be. The same panel lists each run
 with weeks still to come and *End it* frees the rest from today. The desk can
 do it; it is in the activity log.
 
+## Launch and tide windows for water hire
+
+Hire of kayaks, paddle boards, boats, jet skis and surf gear is limited by a
+**daily window** that is not the venue's opening hours: a launch window (the
+ramp is open, the launch crew is there) and, on tidal water, the stretches of
+the day the water is deep enough to go out and come back. *Courts & rates →
+Launch and tide windows* (a manager's; the desk reads it) gives a resource, or
+one activity on it, a rule that **narrows the bookable hours** to the windows
+it leaves
+([ADR 0037](../architecture/decisions/0037-launch-and-tide-windows.md);
+`src/lib/launch-day.ts` works a day out, `src/lib/launch-windows.ts` keeps the
+rules and the table, `src/lib/launch-worklist.ts` the bookings a change
+leaves outside).
+
+**This is not a safety system.** The window is only the hours the venue's own
+data leave. Whether it is safe to go out stays the venue's decision, on the
+day: the app does not know the weather, the swell or the crowd, and it says so
+on the staff screen and, beside the window, on the venue's page.
+
+### Where a window comes from
+
+A rule has one of three sources, and may say more:
+
+- **A launch window by weekday**: one window, or none, for each day of the week
+  (Sunday first), in whole minutes of the day.
+- **A tide table**: the venue's own list of high and low tides for a station it
+  names, with a rule on it: usable where the tide is **at least *H* metres**, or
+  **within *N* minutes of a high (or low) tide**.
+- **Both**: the intersection of the two.
+
+A rule may also say a **shortest window** (*M* minutes; a window shorter than
+that is not offered at all) and **back before it closes** (minutes: a hire must
+end that long before the window ends). A rule is for one activity on a resource
+or for every activity it offers; one for an activity wins over the resource's.
+
+**No tide service is asked and nothing is fetched.** Tide times are what the
+venue typed or imported, and customers are told so where they see a window:
+*not a forecast*. They never see the table, its station or its heights, only the
+windows it leaves.
+
+### The tide table
+
+Entered by hand (*Add one entry*: a date, a 24-hour time, high or low, a height
+in metres) or **imported as CSV**, pasted or from a file:
+
+```
+date,time,type,height_m
+2026-11-06,05:42,high,3.1
+2026-11-06,11:58,low,0.6
+```
+
+- Dates are `2026-11-06` or `06/11/2026` (day first). Times are 24-hour `HH:MM`
+  on the venue's clock, or in UTC where the import says so (tables published in
+  UTC). Type is `high` or `low` (`H`, `L`, `HW`, `LW` also read).
+- The height column is `height` or `height_m` (metres), `height_cm` or
+  `height_ft`; a figure may carry its own unit (`3.1m`, `10.2ft`, `310cm`), which
+  must agree with its column's. Heights are kept to the centimetre, between
+  -5 and 25 m. The separator may be a comma, semicolon or tab, and columns may be
+  in any order.
+- **Every row is checked and every fault is named by its line** (a date that is
+  not one, a time, a type, a height, a figure in the wrong unit, a row too short,
+  the same moment twice, a time the clocks skip or repeat on a day they change);
+  a table with any fault **stores nothing**. *Check* reports what an import would
+  do (new, changed, already there) without storing it. Up to 5,000 rows at a
+  time.
+- An entry at a moment the table already has **replaces** it, so a corrected
+  table is imported over the old one; entries can also be removed one by one or
+  by dates. Two entries of one kind in a row, or more than 15 hours between
+  entries, are reported as warnings: the stretch between them is not used (below).
+
+### How a window is worked out
+
+For one date, from the court's opening hours and the table, deterministically,
+to the minute:
+
+1. The tide is read **between two entries by half-cosine interpolation**:
+   *h = h₁ + (h₂ − h₁) · (1 − cos(π·f)) / 2*, *f* the fraction of the time between
+   them. It is the entry's own height at an entry. A minute is read at the
+   instant it is on the venue's clock (a day the clocks change is read as it
+   happened).
+2. **Where the table says nothing, the water is not known and the time is
+   closed with the reason "no tide data"**: before its first entry, after its last,
+   between two entries more than 15 hours apart, or between two of one kind (an
+   entry is missing). A date a table does not cover is therefore closed, never
+   open. This holds under either rule.
+3. The *height* rule keeps the minutes at which the interpolated tide is at
+   least *H* (a minute interval is usable where both its ends are); the
+   *event* rule keeps those within *N* minutes of an entry of the chosen kind.
+4. With a launch window too, only what is inside both. The result is cut to the
+   court's opening hours that day, and **a window never crosses midnight**: it is
+   within one date's 00:00 to 24:00, so the business day's minutes after midnight
+   (late hours) are never in a window, and a tide that serves 23:00 to 01:00 is
+   two windows, the evening's on its date and the early morning's on the next.
+5. A window shorter than the shortest is dropped (reason: *window too short*).
+
+The reason a stretch is closed is *outside the launch window*, *low water*, *no
+tide data*, *window too short* or, for the last minutes of a window, *must be
+back before it closes*.
+
+### Where it bites
+
+A booking must **start and end inside one window, and end by the return
+buffer** (the last returns must be back that long before the window closes). On
+every way a booking can be made or changed, refused with a code and text in the
+customer's language: `LAUNCH_WINDOW` (it quotes the day's windows),
+`LAUNCH_RETURN` (it says by when), `LAUNCH_CLOSED` (no window that day) and
+`TIDE_NO_DATA`; `LAUNCH_WEEK` for a class term.
+
+- **The booking form, the counter, the venue's API key, a waiting list (joining
+  it; an offer taken is booked as any booking), an approval request's held slot**: the same check, through
+  `policyBreaches` in `src/lib/booking-rules.ts`, the one the opening hours and
+  the clocks changing are asked in. **No manager's override goes past it** (as
+  none goes past a change of the clocks): the window is the venue's own data, so
+  a manager changes the rule or the table, which is logged, instead.
+- **The quote** says it before a booking is made.
+- **Availability and search**: the board's cells outside a window are shut and
+  say why (a tooltip, *Outside the launch window*, *Low water*, *No tide data*…),
+  not merely missing; they are not queued for. The court's row shows the day's
+  window ("Launch 7:10 AM–10:40 AM, back by 10:10 AM"). Starts offered, and the
+  longest hire from each, stay inside the window and its return buffer; search
+  offers only those starts. A cell not wholly inside a window is shut.
+- **Moving or rescheduling** a booking, including a game's proposed move and a
+  series moved: the new time is held to its day's window.
+- **A weekly series**: each week is checked against its own day's window. With
+  *skip unavailable weeks* a week outside its window is skipped, with the reason
+  (*no tide data*, *outside the launch window*, *back after the last return*);
+  without it the whole series is refused and nothing is made.
+- **Classes**: a class session, and every week of a term, must be inside its day's
+  window (a term with a week outside it is refused, naming the date).
+- **Open games** are bookings, so a game on the resource is held to it.
+- **Adding games to a booking** (by the game) must still end inside the window.
+
+How it composes: **the narrower always wins**. A window is cut to the opening
+hours, so where the hours are narrower they decide (a booking outside them is
+refused as outside the hours, and a manager's override of the hours does not
+go past the window). A closed day, an outage, a rained-off stretch, a block and
+another booking close their time as ever; the window closes more. The **return
+buffer is on the booking's end**, the window's own; the court's **operational
+time and separations** (setup and cleaning, [booking rules](#booking-rules-starts-lengths-buffers))
+are the claim's and may run past the window's close (a hire that ends at the last
+return is cleaned after it), so a window's buffer and a court's buffers add up on
+nobody. Daylight saving works as for every booking: a booking touching a change
+of the clocks is refused (`CLOCK_CHANGE`) whatever the window.
+
+### When a window changes
+
+A table corrected, a rule changed or removed: **nothing already booked is
+cancelled or moved**. Every booking and class session to come that is not wholly
+inside its day's window as it now stands is listed, soonest first, with why, the
+customer's number and the day's windows: under the rule on *Launch and tide
+windows*, and as a line on the desk's *Needs attention* panel (with the first
+eight of each venue). Staff **move or cancel** each through the existing paths on
+the day list, with the existing refunds and customer messages (a cancellation
+from here is any staff cancellation), or **keep it as booked**, which holds until
+the day's window changes again; it is then listed again. A booking that has
+finished is left alone. The list is worked out each time from the rules and the
+table, so it cannot be out of date.
+
+### Customers see the window
+
+The venue's page lists, for each resource with a rule, today's and tomorrow's
+windows in the venue's time ("Tomorrow: Kayaks, launch 7:10 AM–10:40 AM, back by
+10:10 AM"), or that there is none or that tide times are not yet entered, with
+the line *not a forecast; whether it is safe to go out is the venue's call on the
+day*. The booking board shows the window under each court's name. In English,
+Malay, Chinese and Tamil.
+
+*Courts & rates → Launch and tide windows* also has a **month preview**: each
+date's windows as bookings will meet them, or why there is none.
+
+Known limits: a tournament's or league's court time is not held to a window
+(a lesson is, as it is a booking); a venue copied from another does not copy its
+windows; the tide is read from the table at the whole minute, with no allowance
+for a station's distance from the water.
+
 ## Taking some of a shared facility out of service
 
 A court is blocked whole — blocking it *is* taking the unit out, because a

@@ -18,6 +18,7 @@ import { accountPhone, accessSettings, eligible } from "@/lib/access";
 import { aheadFor, hasRules, houseRules, memberAhead } from "@/lib/house-rules";
 import Link from "next/link";
 import { listOutages } from "@/lib/outages";
+import { publishedWindows } from "@/lib/launch-worklist";
 import PinMap from "@/components/PinMap";
 import { VenueFacilities } from "@/components/VenueFacilities";
 import { VenueGallery } from "@/components/VenueGallery";
@@ -183,6 +184,23 @@ export default async function VenuePage({
   const ownCutoffs = (await sportRules(venue.id)).filter(
     (r) => r.cutoffHours !== null && r.cutoffHours !== venue.cancelCutoffHours && sports.includes(r.sport)
   );
+  // Water resources with a launch or tide window: today's and tomorrow's, said in the venue's own time.
+  const launchLines = (await publishedWindows(venue.id)).map((w) => {
+    const when = t(w.when === "today" ? "wtr1.when.today" : "wtr1.when.tomorrow");
+    const last = w.windows[w.windows.length - 1];
+    return {
+      key: `${w.courtId}-${w.date}`,
+      text:
+        w.windows.length === 0
+          ? t(w.why === "no_tide_data" ? "wtr1.venue.nodata" : "wtr1.venue.none", { when, court: w.court })
+          : t("wtr1.venue.line", {
+              when,
+              court: w.court,
+              window: w.windows.map((x) => `${formatMinute(x.start, t.locale)}–${formatMinute(x.end, t.locale)}`).join(", "),
+              back: w.returnBuffer > 0 && last.end - w.returnBuffer > last.start ? `, ${t("wtr1.venue.back", { back: formatMinute(last.end - w.returnBuffer, t.locale) })}` : "",
+            }),
+    };
+  });
   // A weekday's short name in the reader's language: 0 is Sunday.
   const dayName = (day: number) =>
     new Date(Date.UTC(2026, 0, 4 + day)).toLocaleDateString(intlTag(t.locale), { weekday: "short", timeZone: "UTC" });
@@ -320,6 +338,18 @@ export default async function VenuePage({
             )}
           </div>
         ))}
+      {/* Where a water resource's launch or tide window is today and tomorrow, in the venue's own time (ADR 0037): the venue's data, never a forecast. */}
+      {launchLines.length > 0 && (
+        <section className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950" aria-label={t("wtr1.venue.title")}>
+          <h2 className="font-semibold">{t("wtr1.venue.title")}</h2>
+          <ul className="mt-1 space-y-0.5">
+            {launchLines.map((line) => (
+              <li key={line.key}>{line.text}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-sky-900">{t("wtr1.venue.note")}</p>
+        </section>
+      )}
       {/* No booking needed where a resource takes entries with no set time (lib/entries.ts). */}
       <EntryPanel entries={await publicEntries(venue.id)} t={t} />
       {plans.length > 0 && access.access !== "private" && (

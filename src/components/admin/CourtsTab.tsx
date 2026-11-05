@@ -10,6 +10,7 @@ import { BookingPolicyEditor } from "./BookingPolicyEditor";
 import { ApprovalSettings, ApprovalsReview, SupervisedAttendance } from "./ApprovalsPanel";
 import { ApprovalHolds } from "./ApprovalRetention";
 import { OutagesPanel } from "./OutagesPanel";
+import { LaunchWindowsPanel } from "./LaunchWindowsPanel";
 import { useCallback, useEffect, useState } from "react";
 import { ConcessionsEditor } from "./ConcessionsEditor";
 import { ResourceHeadings } from "./ResourceHeadings";
@@ -428,6 +429,12 @@ export function CourtsTab({
       {venue && (
         <ManagerOnly may="outages" note={false}>
           <OutagesPanel key={venue.id} venueId={venue.id} courts={venue.courts} />
+        </ManagerOnly>
+      )}
+
+      {venue && (
+        <ManagerOnly may="launchWindows" note={false}>
+          <LaunchWindowsPanel key={venue.id} venueId={venue.id} courts={venue.courts} />
         </ManagerOnly>
       )}
 

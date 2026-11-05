@@ -10,6 +10,7 @@ import { headedRows, placesPerBooking } from "@/lib/court-activities";
 import { concessionWords } from "@/lib/concessions-shared";
 import { pricedByQuantity } from "@/lib/pricing";
 import { formatMinute, parseClock } from "@/lib/interval";
+import { LAUNCH_REASON_PHRASE } from "@/lib/launch-day";
 import { isPastSlot } from "@/lib/time";
 import { gameHold, gamesUpTo, lengthsUpTo, startLengths, startTakes } from "@/lib/booking-rules";
 import PassAllocation, { passCodesOf } from "@/components/PassAllocation";
@@ -609,7 +610,7 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                   })}
                 </tr>
               )}
-              {!onArrival && headed.map(({ court, slots, heading, under, policy }) => (
+              {!onArrival && headed.map(({ court, slots, heading, under, policy, launch }) => (
                 <Fragment key={court.id}>
                 {heading && (
                   // Kinds of the same thing under one heading: "Kayaks", then each kind.
@@ -640,6 +641,21 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                       {isShared(court) && ` · ${t("board.places", { n: court.capacity })}`}
                       {isHire(court) && ` · ${t("board.depositLine", { amount: court.deposit })}`}
                     </div>
+                    {/* A launch or tide window narrows the day (ADR 0037): where it is, and by when a hire must be back. */}
+                    {launch && (
+                      <div className="text-xs font-normal text-sky-700" data-testid={`launch-${court.id}`}>
+                        {launch.windows.length > 0
+                          ? launch.windows
+                              .map((w) => {
+                                const launchText = t("wtr1.board.launch", { window: `${formatMinute(w.start, t.locale)}–${formatMinute(w.end, t.locale)}` });
+                                return launch.returnBuffer > 0 && w.end - launch.returnBuffer > w.start
+                                  ? `${launchText}, ${t("wtr1.board.back", { back: formatMinute(w.end - launch.returnBuffer, t.locale) })}`
+                                  : launchText;
+                              })
+                              .join(" · ")
+                          : t("wtr1.board.none")}
+                      </div>
+                    )}
                     {/* What its rules ask for first, as search says it. */}
                     {policy.needs && (
                       <NeedsLabel t={t} needs={policy.needs} lines={eligibility?.[policy.needs]} people={people} variant="line" />
@@ -672,7 +688,9 @@ export default function BookingBoard({ venueId, venueName = "", sports, dates, i
                                   ? t("board.queueHint")
                                   : slot.className
                                     ? t("board.reservedFor", { name: slot.className })
-                                    : t("board.unavailable")
+                                    : slot.launchReason
+                                      ? t(LAUNCH_REASON_PHRASE[slot.launchReason])
+                                      : t("board.unavailable")
                                 : shared
                                   ? t("board.sharedSlot", {
                                       time: formatMinute(slot.minute, t.locale),

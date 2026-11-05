@@ -5,13 +5,26 @@ import { closeNoticeTask, guardianReviews, openNoticeTasks } from "@/lib/contact
 import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent";
 import { overdueRefunds } from "@/lib/payments";
 import { jsonObject } from "@/lib/api";
+import { strandedByLaunch } from "@/lib/launch-worklist";
+import { listVenues } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+
+/** Bookings and classes to come outside a launch or tide window at these venues, the first few of each venue (lib/launch-worklist.ts). */
+async function launchStranded(venueIds: number[] | null) {
+  const out: { venueId: number; count: number; items: Awaited<ReturnType<typeof strandedByLaunch>>["stranded"] }[] = [];
+  for (const venueId of venueIds ?? (await listVenues()).map((v) => v.id)) {
+    const { stranded } = await strandedByLaunch(venueId);
+    if (stranded.length > 0) out.push({ venueId, count: stranded.length, items: stranded.slice(0, 8) });
+  }
+  return out;
+}
 
 /**
  * Urgent news not yet known to have reached the customer, what closed this week, and refunds past the date customers were told.
  * And guardians (lib/contact-guardians.ts): `guardianTasks`, guardians recorded by name and number to be told of a change in
  * person; `guardianReviews` (managers only), relationships waiting for a manager's review and exception review dates come.
+ * And `launchStranded`: bookings and classes to come that a launch or tide window now leaves outside it, by venue (ADR 0037).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -22,6 +35,7 @@ export async function GET(req: NextRequest) {
     refundsOverdue: await overdueRefunds(admin.venueIds),
     guardianTasks: await openNoticeTasks(admin.venueIds),
     guardianReviews: admin.role === "desk" ? [] : await guardianReviews(admin.venueIds),
+    launchStranded: await launchStranded(admin.venueIds),
   });
 }
 

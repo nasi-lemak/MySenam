@@ -1,5 +1,6 @@
 import type { HoursChange, WeekHours } from "./week-hours";
 import type { ErrorCode } from "./i18n";
+import type { LaunchReason } from "./launch-day";
 import type { Amenity, CourtFeatures } from "./facilities";
 import type { StaffText } from "./staff-text";
 import { region } from "./region.ts";
@@ -770,6 +771,8 @@ export interface SlotInfo {
   blocked?: boolean;
   /** Outside this court's hours that day (its own, or the venue's). */
   outside?: boolean;
+  /** Inside the hours but shut by the resource's launch or tide window, and why (ADR 0037); set with `outside`. */
+  launchReason?: LaunchReason;
   /**
    * Places out of service while others remain bookable — two kayaks of six in
    * for repair. Absent when the hour is fully blocked, which `blocked` says.
@@ -852,6 +855,8 @@ export interface CourtAvailability {
   slots: SlotInfo[];
   /** Where a booking may start now, free and within the rules. */
   starts: StartOption[];
+  /** The resource's launch or tide windows that day (minutes) and the minutes back before one closes; absent when it has no rule (ADR 0037). */
+  launch?: { windows: { start: number; end: number }[]; returnBuffer: number };
 }
 
 // The outer bounds any venue may trade within. Each venue sets its own

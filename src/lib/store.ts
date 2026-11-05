@@ -114,6 +114,8 @@ import { venueContact, type VenueContact } from "./venue-contact";
 import { hoursOn, parseWeekHours, storedHours, validateUsualHours, validateWeekHours } from "./week-hours";
 import { peakRules, peakRulesFor } from "./peak";
 import { venueZoneOf } from "./zones";
+import { launchDaysFor, rulesForCourts } from "./launch-windows";
+import { bookableWindows, launchOk, launchRefusal, reasonFor, type LaunchDay } from "./launch-day";
 import { utilisationByDay, type UseSplit } from "./reports";
 import { cancelPolicy, cancelPolicyFor, lateCancelTerms } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
@@ -736,6 +738,11 @@ export interface CourtDay {
   zone: string;
   /** The business day these are the hours of. */
   date: string;
+  /**
+   * The resource's launch and tide window that day, where it has a rule (lib/launch-windows.ts, ADR 0037): the hours
+   * narrowed to the windows it leaves. null: nothing narrows the opening hours.
+   */
+  launch: LaunchDay | null;
 }
 
 async function courtDays(courts: Court[], date: string): Promise<Map<number, CourtDay>> {
@@ -767,8 +774,22 @@ async function courtDays(courts: Court[], date: string): Promise<Map<number, Cou
       closed: h.closed || venueClosedWeekday || shut.some((c) => c.venue_id === court.venueId),
       zone: venueZoneOf(v ?? {}),
       date,
+      launch: null,
     });
   }
+  // A launch or tide window narrows the hours further, for the resources that have one (ADR 0037).
+  const launches = await launchDaysFor(
+    date,
+    [...out.values()].map((d) => ({
+      courtId: d.court.id,
+      venueId: d.court.venueId,
+      sport: d.court.sport,
+      zone: d.zone,
+      open: { start: d.openMin, end: d.closeMin },
+      closed: d.closed,
+    }))
+  );
+  for (const [courtId, launch] of launches) out.get(courtId)!.launch = launch;
   return out;
 }
 
@@ -1080,6 +1101,8 @@ export function startOptions(day: CourtDay, occupants: Occupant[], date: string,
       if (start + length > day.closeMin) break;
       // Where the clocks change, no booking touching the change (lib/time.ts); longer ones would too.
       if (crossesClockChange(day.date, start, start + length, day.zone)) break;
+      // Nor one outside the launch or tide window, or back after its last return (ADR 0037); longer ones would be too.
+      if (day.launch && !launchOk(day.launch, { start, end: start + length })) break;
       if (!fits(occupants, court.capacity, { start, end: start + length }, buffers, ignore)) {
         // Fixed lengths need not fit in order, but anything longer than one that does not fit will not either.
         if (wide) continue;
@@ -1171,6 +1194,12 @@ export async function getAvailability(
         slots.push({ minute, hour: hoursOf(minute), rate: 0, booked: 0, capacity: court.capacity, available: false, outside: true });
         continue;
       }
+      // Inside the hours but not wholly inside a launch or tide window: shut, and the cell says why (ADR 0037).
+      if (day.launch && !bookableWindows(day.launch).some((w) => w.start <= cell.start && cell.end <= w.end)) {
+        const why = reasonFor(day.launch, cell.start, cell.end);
+        slots.push({ minute, hour: hoursOf(minute), rate: 0, booked: 0, capacity: court.capacity, available: false, outside: true, ...(why ? { launchReason: why } : {}) });
+        continue;
+      }
       const inCell = shown.filter((o) => overlaps(o.occupied, cell));
       const booked = peakPlaces(inCell.filter((o) => o.kind === "booking" || o.kind === "offer" || o.kind === "move" || o.kind === "approval"), cell);
       const out = peakPlaces(inCell.filter((o) => o.kind === "block" || o.kind === "outage"), cell);
@@ -1207,6 +1236,7 @@ export async function getAvailability(
       policy: publicPolicy(day.policy),
       slots,
       starts: startOptions(day, occupants, date),
+      ...(day.launch ? { launch: { windows: day.launch.windows, returnBuffer: day.launch.returnBuffer } } : {}),
     };
   });
 }
@@ -1772,6 +1802,7 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
       const ahead = minutesUntil(input.date, start, zone);
       if (ahead <= 0 || ahead < day.policy.noticeMinutes) continue;
       const span = { start, end: start + held1 };
+      if (day.launch && !launchOk(day.launch, span)) continue;
       if (!fits(occupants, court.capacity, span, buffers)) continue;
       shownUpTo = start;
       results.push({
@@ -1866,7 +1897,8 @@ export async function searchAvailability(input: SearchInput): Promise<SearchResu
     const occupants = held.get(courtId) ?? [];
     const ahead = minutesUntil(input.date, start, zones.get(court.venueId)!);
     const startsThen =
-      start >= day.openMin && end <= day.closeMin && ahead > 0 && ahead >= day.policy.noticeMinutes && startsWithin(day.policy, start, start + 1).length > 0;
+      start >= day.openMin && end <= day.closeMin && ahead > 0 && ahead >= day.policy.noticeMinutes && startsWithin(day.policy, start, start + 1).length > 0 &&
+      (!day.launch || launchOk(day.launch, span));
     const shared = court.capacity > 1;
     return {
       courtId,
@@ -2042,7 +2074,7 @@ export async function quoteFor(input: {
   }
   const breaches = policyBreaches(day.policy, span, day, minutesUntil(input.date, span.start, day.zone));
   if (day.closed) return { ok: true, span, quote, allowed: false, refusal: refuse("VENUE_CLOSED") };
-  if (breaches.length > 0) return { ok: true, span, quote, allowed: false, refusal: breachRefusal(day.policy, span, breaches[0]) };
+  if (breaches.length > 0) return { ok: true, span, quote, allowed: false, refusal: breachRefusal(day.policy, span, breaches[0], day.launch) };
   return { ok: true, span, quote, allowed: true };
 }
 
@@ -2113,13 +2145,27 @@ export async function createBooking(
   return { ok: true, booking: result.bookings[0] };
 }
 
+/** Why a week of a series is skipped, for the line saying so. */
+function launchWhy(code: ReturnType<typeof launchRefusal>["code"]): string {
+  return code === "TIDE_NO_DATA" ? "no tide data" : code === "LAUNCH_RETURN" ? "back after the last return" : "outside the launch window";
+}
+
+/** The refusal for a span outside a day's launch window, under the code the page translates. */
+export function launchRefused(span: Span, launch?: LaunchDay | null): Refusal {
+  if (!launch) return refuse("LAUNCH_CLOSED");
+  const why = launchRefusal(launch, span);
+  return refuse(why.code, why.vars as Record<string, string | number>);
+}
+
 /** A broken rule said as the customer is told, under the code the page translates. */
-function breachRefusal(policy: BookingPolicy, span: Span, breach: PolicyBreach): Refusal {
+function breachRefusal(policy: BookingPolicy, span: Span, breach: PolicyBreach, launch?: LaunchDay | null): Refusal {
   const length = span.end - span.start;
   if (breach === "LENGTH" && !policy.lengths && length > policy.maxLength) return refuse("MAX_HOURS", { max: hoursOf(policy.maxLength) });
   if (breach === "LENGTH" && !policy.lengths && length < policy.minLength) return refuse("MIN_HOURS", { min: hoursOf(policy.minLength) });
   if (breach === "HOURS") return refuse("HOURS_OUTSIDE_OPENING");
   if (breach === "CLOCK") return refuse("CLOCK_CHANGE");
+  // Outside the launch or tide window, said as the window is: closed that day, no tide data, or back too late (ADR 0037).
+  if (breach === "WINDOW") return launchRefused(span, launch);
   // Checked apart from the court's rules, by who is booking (createBookingSeries).
   if (breach === "SIGN_OFF" || breach === "MEMBERSHIP") throw new Error("A sign-off or a membership is not one of the court's time rules.");
   const code = ({ START: "POLICY_START", LENGTH: "POLICY_LENGTH", NOTICE: "POLICY_NOTICE" } as const)[breach];
@@ -2264,7 +2310,9 @@ export async function createBookingSeries(
   const breaches = input.classId ? [] : policyBreaches(policy, span, day, minutesUntil(date, span.start, zone));
   // A change of the clocks is no rule a manager can waive: the booking would mean two moments, or none.
   if (breaches.includes("CLOCK")) return breachRefusal(policy, span, "CLOCK");
-  if (breaches.length > 0 && !override) return breachRefusal(policy, span, breaches[0]);
+  if (breaches.length > 0 && !override) return breachRefusal(policy, span, breaches[0], day.launch);
+  // Nor is the launch or tide window: it is the venue's own data, which a manager changes rather than goes past (ADR 0037).
+  if (breaches.includes("WINDOW")) return breachRefusal(policy, span, "WINDOW", day.launch);
   if (minutesUntil(date, span.start, zone) <= 0) return refuse("SLOT_PAST");
   // A studio run as classes is booked through its classes; the venue's staff may still hire the room out.
   if (court.classesOnly && !input.classId && (input.by ?? "customer") === "customer" && !override) return refuse("CLASSES_ONLY", { sport: activityName(court.sport) });
@@ -2353,6 +2401,8 @@ export async function createBookingSeries(
   const bookedAt = cancelledHere ? undefined : Date.now();
   const buffers = policyBuffers(policy);
   const offer = input.waitlistId;
+  // A resource with a launch or tide window: each week's own window is checked, as the first week's is above (ADR 0037).
+  const windowed = !input.classId && weeks > 1 && ((await rulesForCourts([court.id])).get(court.id) ?? []).length > 0;
 
   /** What holds the court that week, said as the customer is told. */
   const reasonFor = async (weekDate: string): Promise<string> => {
@@ -2390,6 +2440,10 @@ export async function createBookingSeries(
         const weekDate = addDays(date, week * 7);
         let reason: string | null = null;
         if (week > 0 && (await getVenueClosure(court.venueId, weekDate))) reason = "venue closed";
+        if (!reason && week > 0 && windowed) {
+          const that = (await courtDay(court, weekDate)).launch;
+          if (that && !launchOk(that, span)) reason = launchWhy(launchRefusal(that, span).code);
+        }
         const members = await membersOn(weekDate);
         const member: MemberPricing = members.booking?.level ?? false;
         const quote = quoteBooking(court, policy, weekDate, span, member, rules, bookedAt, players, games);
@@ -3589,8 +3643,10 @@ async function rescheduleBookingOnce(
     // does not sell bookings that long does not take this one either.
     // Managers may go past them, and it is recorded.
     const breaches = policyBreaches(day.policy, span, day, minutesUntil(to.date, span.start, zone));
-    if (breaches.length > 0 && (breaches.includes("CLOCK") || !(by === "staff" && to.override === true))) {
-      firstRefusal ??= breachRefusal(day.policy, span, breaches.includes("CLOCK") ? "CLOCK" : breaches[0]);
+    if (breaches.length > 0 && (breaches.includes("CLOCK") || breaches.includes("WINDOW") || !(by === "staff" && to.override === true))) {
+      // The first it breaks; but where a manager's override is not the reason it stops, the clocks changing and the window are said.
+      const goesPast = by === "staff" && to.override === true;
+      firstRefusal ??= breachRefusal(day.policy, span, breaches.includes("CLOCK") ? "CLOCK" : goesPast ? "WINDOW" : breaches[0], day.launch);
       continue;
     }
     // A sign-off the activity asks for there must still hold on the new date, and be the customer's own.
@@ -4065,6 +4121,8 @@ async function addGamesOnce(code: string, extra: number): Promise<AddGamesResult
   const players = booking.players ?? 1;
   const span = { start: booking.startMin, end: booking.endMin + gameHold(policy, extra, players) };
   if (span.end > day.closeMin) return refuse("HOURS_OUTSIDE_OPENING");
+  // The extension must end inside the launch or tide window too, back by its buffer (ADR 0037).
+  if (day.launch && !launchOk(day.launch, span)) return launchRefused(span, day.launch);
   const rules = await peakRules(court.venueId);
   const member = await memberPricing(court.venueId, booking.phone, booking.date);
   const priceChange = quoteBooking(court, policy, booking.date, { start: booking.endMin, end: span.end }, member, rules, undefined, players, extra).court;
@@ -6261,6 +6319,15 @@ export async function createClassSessions(input: {
     return { ok: false, error: "Class hours are outside operating hours." };
   if (await getVenueClosure(court.venueId, date))
     return refuse("VENUE_CLOSED");
+  // On a resource with a launch or tide window, every session must be inside its own day's window (ADR 0037).
+  if (day.launch && !launchOk(day.launch, { start, end })) return launchRefused({ start, end }, day.launch);
+  if (weeks > 1 && ((await rulesForCourts([court.id])).get(court.id) ?? []).length > 0) {
+    for (let week = 1; week < weeks; week++) {
+      const weekDate = addDays(date, week * 7);
+      const that = (await courtDay(court, weekDate)).launch;
+      if (that && !launchOk(that, { start, end })) return refuse("LAUNCH_WEEK", { date: weekDate });
+    }
+  }
   if (input.capacity < 1 || input.capacity > court.capacity)
     return {
       ok: false,
@@ -9230,7 +9297,7 @@ export async function joinSlotWaitlist(input: {
     // Asked for as a booking would be: the court's rules.
     const breaches = policyBreaches(day.policy, span, day, minutesUntil(date, start, day.zone)).filter((b) => b !== "NOTICE");
     if (breaches.includes("HOURS")) return refuse("THOSE_HOURS_OUTSIDE_OPENING");
-    if (breaches.length > 0) return breachRefusal(day.policy, span, breaches[0]);
+    if (breaches.length > 0) return breachRefusal(day.policy, span, breaches[0], day.launch);
     if (!isBookableDate(date, day.zone, await venueAheadDays(waitCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
     if (minutesUntil(date, start, day.zone) <= 0) return refuse("TIME_PAST");
     const q = queuerOf(input.people);
