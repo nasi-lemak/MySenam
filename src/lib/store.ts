@@ -3077,14 +3077,16 @@ export interface BlockDetails {
   /** A team league's hold for one of its fixtures (lib/team-leagues.ts): the league owns it, so a staff block or unblock leaves it. */
   teamLeagueId?: number | null;
   teamFixtureId?: number | null;
+  /** A ladder's hold of court time for an accepted challenge (lib/ladder-holds.ts): the hold owns it, so a staff block or unblock leaves it. */
+  ladderHoldId?: number | null;
 }
 
 /** Write one block and claim its time. Throws `23P01` when something holds it. */
 async function writeBlock(court: Court, date: string, span: Span, zone: string, details: BlockDetails): Promise<number> {
   const row = (await getDb()
     .prepare(
-      `INSERT INTO blocks (venue_id, court_id, date, start_min, end_min, reason, places, repeat_code, tournament_id, competition_id, team_league_id, team_fixture_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      `INSERT INTO blocks (venue_id, court_id, date, start_min, end_min, reason, places, repeat_code, tournament_id, competition_id, team_league_id, team_fixture_id, ladder_hold_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
     .get(
       court.venueId,
@@ -3098,7 +3100,8 @@ async function writeBlock(court: Court, date: string, span: Span, zone: string, 
       details.tournamentId ?? null,
       details.competitionId ?? null,
       details.teamLeagueId ?? null,
-      details.teamFixtureId ?? null
+      details.teamFixtureId ?? null,
+      details.ladderHoldId ?? null
     )) as { id: number };
   await claim({ court, source: { kind: "block", blockId: row.id }, date, span, zone, places: details.places ?? court.capacity });
   return row.id;
@@ -3113,7 +3116,7 @@ async function carveBlocks(
   date: string,
   span: Span,
   zone: string,
-  only?: (b: { tournament_id: number | null; competition_id: number | null; team_league_id: number | null }) => boolean
+  only?: (b: { tournament_id: number | null; competition_id: number | null; team_league_id: number | null; ladder_hold_id: number | null }) => boolean
 ): Promise<number> {
   const db = getDb();
   const rows = (await db
@@ -3129,13 +3132,14 @@ async function carveBlocks(
     competition_id: number | null;
     team_league_id: number | null;
     team_fixture_id: number | null;
+    ladder_hold_id: number | null;
   }[];
   let freed = 0;
   for (const b of rows) {
     if (only && !only(b)) continue;
     await db.prepare("DELETE FROM blocks WHERE id = ?").run(b.id);
     freed += Math.min(b.end_min, span.end) - Math.max(b.start_min, span.start);
-    const keep = { reason: b.reason, places: b.places, repeatCode: b.repeat_code, tournamentId: b.tournament_id, competitionId: b.competition_id, teamLeagueId: b.team_league_id, teamFixtureId: b.team_fixture_id };
+    const keep = { reason: b.reason, places: b.places, repeatCode: b.repeat_code, tournamentId: b.tournament_id, competitionId: b.competition_id, teamLeagueId: b.team_league_id, teamFixtureId: b.team_fixture_id, ladderHoldId: b.ladder_hold_id };
     if (b.start_min < span.start) await writeBlock(court, date, { start: b.start_min, end: span.start }, zone, keep);
     if (b.end_min > span.end) await writeBlock(court, date, { start: span.end, end: b.end_min }, zone, keep);
   }
@@ -3207,8 +3211,8 @@ export async function blockSlots(
     // Blocking blocked time revises it, rather than stacking a second block. A
     // tournament's hold leaves blocks staff made where they are: that time is
     // simply not the tournament's.
-    if (!details.tournamentId && !details.competitionId && !details.teamLeagueId)
-      for (const span of spans) await carveBlocks(court, date, span, zone, (b) => b.tournament_id === null && b.competition_id === null && b.team_league_id === null);
+    if (!details.tournamentId && !details.competitionId && !details.teamLeagueId && !details.ladderHoldId)
+      for (const span of spans) await carveBlocks(court, date, span, zone, (b) => b.tournament_id === null && b.competition_id === null && b.team_league_id === null && b.ladder_hold_id === null);
     // A block keeps no buffers of its own, so it may go wherever nothing holds or keeps the time (separation included).
     const occupants = asShown((await occupantsOn([court], date, zone)).get(court.id)!);
     for (const span of spans) {
@@ -3296,8 +3300,9 @@ export async function unblockSlots(courtId: number, date: string, when: number[]
     end_min: number;
   }[];
   await withTransaction(async () => {
-    // A team league's hold for a fixture is the league's: a manager moves the fixture, staff do not unblock it.
-    for (const span of spans) await carveBlocks(court, date, span, zone, (b) => b.team_league_id === null);
+    // A team league's hold for a fixture is the league's, and a ladder's hold for a challenge the ladder's: a manager moves the fixture
+    // or the hold, staff do not unblock it.
+    for (const span of spans) await carveBlocks(court, date, span, zone, (b) => b.team_league_id === null && b.ladder_hold_id === null);
   });
   const changed = cells.filter((m) => before.some((b) => b.start_min < Math.min(m + grid, closeMin) && b.end_min > m)).length;
   return { ok: true, changed, blockIds: [] };

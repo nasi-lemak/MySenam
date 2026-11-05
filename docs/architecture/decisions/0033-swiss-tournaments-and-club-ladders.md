@@ -250,7 +250,9 @@
   changes otherwise) and replaces their name in its places by a placeholder.
 - **Not built:** court time held by the app for a challenge (the ladder's matches
   are arranged privately), persistent teams as ladder entrants, a challenge
-  between pairs of different strength, a ladder across venues.
+  between pairs of different strength, a ladder across venues. *(Court time held by the
+  venue is now an optional setting, off by default, and persistent teams enter a ladder of
+  teams: [ADR 0040](0040-ladder-court-time-and-team-ladders.md).)*
 
 ## Consequences
 

@@ -700,8 +700,8 @@ members; it holds no court and no money (`teams`, `team_members`,
   address is never looked up, so the answer is the same whoever holds it
   ([no account enumeration](security.md#no-account-enumeration)).
 - **Events** a team enters keep the roster as it was, by name, in
-  `tournament_entry_members`, `team_league_roster` and `team_fixture_lineups`,
-  with for a young player that they were declared under 18 and when their
+  `tournament_entry_members`, `team_league_roster`, `team_fixture_lineups` and a ladder of
+  teams' `ladder_challenge_lineups`, with for a young player that they were declared under 18 and when their
   guardian agreed; these are the event's record and follow the event's retention.
 - **Export:** an account's places on teams (and the children it acts for) are in
   *Download my data* (`teams`), a participant's in their record; nothing about

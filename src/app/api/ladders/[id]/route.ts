@@ -4,6 +4,8 @@ import { getSessionUser } from "@/lib/auth";
 import { guardianEntrant, isEntrantRefusal } from "@/lib/competition-entrants";
 import { ladderResponse } from "@/lib/ladder-access";
 import { challenge, freeze, join, joinAs, ladderById, ladderDetail, leave, myPlaces, thaw } from "@/lib/ladders";
+import { captainedTeams } from "@/lib/teams";
+import { joinTeam } from "@/lib/team-ladders";
 import { mayShowVenue } from "@/lib/listing";
 import { listManaged } from "@/lib/managed-people";
 import { phoneRefusal } from "@/lib/phone-check";
@@ -32,6 +34,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     ladder: await ladderDetail(ladder.id, { season: raw ? Number(raw) : undefined }),
     mine: user ? await myPlaces(user.id, ladder.id) : [],
     people: user ? (await listManaged(user.id)).map((p) => ({ id: p.id, name: p.displayName })) : [],
+    // A ladder of teams: the teams this account captains for the sport, to enter one.
+    teams: user && ladder.kind === "teams" ? await captainedTeams(user.id, ladder.sport) : [],
     signedIn: user !== null,
   });
 }
@@ -39,7 +43,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 /**
  * `{ action: "join", adult?, partnerName?, partnerGender?, gender? }`: on an adult ladder `adult: true` says they are 18 or over
  * (declared, never verified); `participantId` joins somebody the account acts for (junior ladders only).
- * `{ action: "leave", playerId }`. `{ action: "challenge", playerId, target, onDate?, minute? }`: the player (one of the account's
+ * `{ action: "join_team", teamId }` on a ladder of teams: the captain of the team enters it (`LAD2_*` refusals). `{ action: "leave", playerId }`
+ * (a team's captain takes the team off). `{ action: "challenge", playerId, target, onDate?, minute? }`: the player (one of the account's
  * places) challenges one of the players within reach above. `{ action: "freeze", playerId, until }` and `{ action: "thaw", playerId }`.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -52,6 +57,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const limited = await rateLimit(req, "booking");
   if (limited) return limited;
   const mine = async (playerId: unknown) => (await myPlaces(user.id, ladder.id)).find((p) => p.playerId === Number(playerId)) ?? null;
+  // A ladder of teams: the captain of a persistent team enters it, at the bottom; the captain acts for its place from then on.
+  if (body.action === "join_team") {
+    const noPhone = await phoneRefusal(user.id);
+    if (noPhone) return refusal(noPhone, 403);
+    const result = await joinTeam(user, ladder.id, body.teamId);
+    if (!result.ok) return ladderResponse(result);
+    return NextResponse.json({ mine: await myPlaces(user.id, ladder.id) }, { status: 201 });
+  }
   if (body.action === "join") {
     // Opponents are given this number to arrange matches: it had better be theirs.
     const noPhone = await phoneRefusal(user.id);

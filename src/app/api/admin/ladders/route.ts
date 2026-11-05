@@ -5,7 +5,7 @@ import { readJsonObject } from "@/lib/api";
 import { TEMPLATES } from "@/lib/competition-templates";
 import type { Level } from "@/lib/games";
 import { ladderResponse } from "@/lib/ladder-access";
-import { createLadder, listLadders, type LadderSettings } from "@/lib/ladders";
+import { createLadder, listLadders, type LadderSettings, type TeamSettings } from "@/lib/ladders";
 import type { Sport } from "@/lib/types";
 import type { Who } from "@/lib/who";
 
@@ -25,7 +25,9 @@ export async function GET(req: NextRequest) {
 /**
  * A manager's: a new ladder, its first season begun. `{ venueId, name, sport, teamSize?, who?, audience?: "adults" | "juniors", level?,
  * description?, template?, rules?, settings?: { reach, respondDays, playDays, cooldownDays, inactiveDays, inactiveDrop,
- * freezeMaxDays, declineIs } }`.
+ * freezeMaxDays, declineIs }, kind?: "players" | "teams", team?: { rubbers, rubberMinutes, rosterMin, rosterMax, maxRubbersPerPlayer },
+ * courtTime?: { on, courtIds, minutes } }`. A ladder of teams (`kind: "teams"`) is entered by captains of persistent teams; its games are the template's.
+ * `courtTime.on` makes the venue hold a court for accepted challenges (off by default; no money moves).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -49,6 +51,9 @@ export async function POST(req: NextRequest) {
       template: typeof b.template === "string" && b.template ? b.template : null,
       rules: b.rules ?? undefined,
       settings: b.settings && typeof b.settings === "object" ? (b.settings as Partial<LadderSettings>) : undefined,
+      kind: b.kind === "teams" ? "teams" : b.kind === undefined || b.kind === "players" ? undefined : ("" as never),
+      team: b.team && typeof b.team === "object" ? (b.team as Partial<TeamSettings>) : undefined,
+      courtTime: b.courtTime && typeof b.courtTime === "object" ? (b.courtTime as { on?: boolean; courtIds?: number[]; minutes?: number | null }) : undefined,
     },
     admin.id
   );

@@ -865,6 +865,33 @@ export interface LineupPick {
 }
 
 /**
+ * Whether a lineup is a lineup: one pick per game, a singles game one player, doubles two different players, the whole-team match its squad, only
+ * people on the roster, and nobody in more games than allowed. A ladder of teams checks its challenges' lineups with the same function
+ * (lib/team-ladders.ts), so the rule is one.
+ */
+export function lineupRefusal(
+  list: LineupPick[],
+  sizes: RubberKind[],
+  roster: Map<number, string>,
+  limits: { rosterMax: number; maxRubbersPerPlayer: number },
+  teamName: string
+): TeamRefusal | null {
+  const plays = new Map<number, number>();
+  for (let i = 0; i < sizes.length; i++) {
+    const ids = Array.isArray(list[i]?.memberIds) ? [...new Set(list[i].memberIds.filter((x) => Number.isInteger(x)))] : [];
+    if (list[i]?.rubber !== i + 1) return teamRefusal("TL_LINEUP_COUNT", { n: sizes.length }, 400);
+    const want = sizes[i] === "singles" ? 1 : sizes[i] === "doubles" ? 2 : 0;
+    if ((want > 0 && ids.length !== want) || (want === 0 && (ids.length < 1 || ids.length > limits.rosterMax))) return teamRefusal("TL_LINEUP_SIZE", { n: i + 1, size: want || limits.rosterMax });
+    for (const id of ids) {
+      if (!roster.has(id)) return teamRefusal("TL_LINEUP_NOT_ROSTER", { team: teamName });
+      if (sizes[i] !== "team") plays.set(id, (plays.get(id) ?? 0) + 1);
+    }
+  }
+  for (const [id, n] of plays) if (n > limits.maxRubbersPerPlayer) return teamRefusal("TL_LINEUP_TOO_MANY", { name: roster.get(id) ?? "", n: limits.maxRubbersPerPlayer });
+  return null;
+}
+
+/**
  * The captain of one side picking who plays each game from the league roster:
  * a singles game one player, doubles two different players, the whole-team
  * match its squad; nobody in more games than the league allows; each still
@@ -892,18 +919,8 @@ export async function setLineup(userId: number, fixtureId: number, picks: unknow
     const roster = new Map(
       ((await db.prepare("SELECT team_member_id, name FROM team_league_roster WHERE league_team_id = ? AND team_member_id IS NOT NULL").all(lt.id)) as { team_member_id: number; name: string }[]).map((r) => [r.team_member_id, r.name])
     );
-    const plays = new Map<number, number>();
-    for (let i = 0; i < sizes.length; i++) {
-      const ids = Array.isArray(list[i]?.memberIds) ? [...new Set(list[i].memberIds.filter((x) => Number.isInteger(x)))] : [];
-      if (list[i]?.rubber !== i + 1) return teamRefusal("TL_LINEUP_COUNT", { n: sizes.length }, 400);
-      const want = sizes[i] === "singles" ? 1 : sizes[i] === "doubles" ? 2 : 0;
-      if ((want > 0 && ids.length !== want) || (want === 0 && (ids.length < 1 || ids.length > league.rosterMax))) return teamRefusal("TL_LINEUP_SIZE", { n: i + 1, size: want || league.rosterMax });
-      for (const id of ids) {
-        if (!roster.has(id)) return teamRefusal("TL_LINEUP_NOT_ROSTER", { team: lt.name });
-        if (sizes[i] !== "team") plays.set(id, (plays.get(id) ?? 0) + 1);
-      }
-    }
-    for (const [id, n] of plays) if (n > league.maxRubbersPerPlayer) return teamRefusal("TL_LINEUP_TOO_MANY", { name: roster.get(id) ?? "", n: league.maxRubbersPerPlayer });
+    const bad = lineupRefusal(list, sizes, roster, league, lt.name);
+    if (bad) return bad;
     // Still eligible, by what each declared: the same check as entering.
     const all = [...new Set(list.flatMap((p) => p.memberIds))];
     const eligible = await rosterRefusal(lt.team_id!, all, eventRulesOf(league), await zoneToday(league.venueId), { min: 1, max: 40 });
@@ -955,7 +972,7 @@ export interface RubberInput {
   walkover?: unknown;
 }
 
-interface CheckedRubber {
+export interface CheckedRubber {
   winner: Side | null;
   score: string | null;
   walkover: boolean;
@@ -968,7 +985,7 @@ interface CheckedRubber {
  * level score is a draw only where the rules allow draws; a walkover is a
  * forfeited game, won by the other side with no score.
  */
-function checkRubbers(league: TeamLeague, given: unknown): CheckedRubber[] | TeamRefusal {
+export function checkRubbers(league: Pick<TeamLeague, "rubbers" | "rules">, given: unknown): CheckedRubber[] | TeamRefusal {
   const list = Array.isArray(given) ? (given as RubberInput[]) : [];
   if (list.length !== league.rubbers.length) return teamRefusal("TL_RUBBER_COUNT", { n: league.rubbers.length }, 400);
   const scoring = league.rules.scoring;
@@ -1591,6 +1608,8 @@ export async function withdrawTeamFromEvents(teamId: number): Promise<void> {
     .all(teamId)) as { id: number }[];
   const { withdraw } = await import("./tournaments");
   for (const e of entries) await withdraw(e.id);
+  // And the ladders of teams it is on (lib/team-ladders.ts): its open challenges end with no effect and the teams below move up.
+  await (await import("./team-ladders")).withdrawTeamFromLadders(teamId);
 }
 
 /**

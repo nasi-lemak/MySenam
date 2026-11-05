@@ -482,20 +482,23 @@ async function teamLeagueFacts(id: number): Promise<EventFacts | null> {
  */
 async function ladderFacts(id: number): Promise<EventFacts | null> {
   const db = getDb();
-  const l = (await db.prepare("SELECT id, venue_id, name, sport, team_size, rules, rated FROM ladders WHERE id = ?").get(id)) as
-    | { id: number; venue_id: number; name: string; sport: string; team_size: number; rules: string | null; rated: boolean }
+  const l = (await db.prepare("SELECT id, venue_id, name, sport, team_size, rules, rated, kind FROM ladders WHERE id = ?").get(id)) as
+    | { id: number; venue_id: number; name: string; sport: string; team_size: number; rules: string | null; rated: boolean; kind?: string }
     | undefined;
   if (!l) return null;
   const base = { venueId: l.venue_id, sport: l.sport, name: l.name };
   if (!l.rated) return { ...base, facts: [] };
   const rules = readRules(l.rules);
-  const format: RatingFormat = l.team_size === 2 ? "doubles" : "singles";
+  // A ladder of teams is read as the teams' own results (the team format), as a team league's fixtures are: the match, not each game.
+  const teams = l.kind === "teams";
+  const format: RatingFormat = teams ? "team" : l.team_size === 2 ? "doubles" : "singles";
   const players = new Map(
-    ((await db.prepare("SELECT id, name, user_id, participant_id FROM ladder_players WHERE ladder_id = ?").all(id)) as { id: number; name: string; user_id: number | null; participant_id: number | null }[]).map((p) => [p.id, p])
+    ((await db.prepare("SELECT id, name, user_id, participant_id, team_id FROM ladder_players WHERE ladder_id = ?").all(id)) as { id: number; name: string; user_id: number | null; participant_id: number | null; team_id: number | null }[]).map((p) => [p.id, p])
   );
   const subject = (playerId: number): SubjectRef | null => {
     const p = players.get(playerId);
     if (!p) return null;
+    if (teams) return p.team_id ? { kind: "team", id: p.team_id, label: p.name } : null;
     if (p.participant_id) return { kind: "participant", id: p.participant_id, label: "" };
     return p.user_id ? { kind: "user", id: p.user_id, label: p.name } : null;
   };
@@ -512,8 +515,9 @@ async function ladderFacts(id: number): Promise<EventFacts | null> {
     if (a.length === 0 || b.length === 0) continue;
     const outcome = m.winner === m.challenger ? 1 : 0;
     const kind: ResultKind = m.status === "walkover" || m.forfeit ? "walkover" : "played";
-    if (invalidResult({ kind, outcome, score: m.score, scoring: rules.scoring, drawsAllowed: false, sidesOverlap: overlaps(a, b) })) continue;
-    const margin = rules.scoring.kind === "tally" && kind === "played" ? tallyMargin(m.score) : null;
+    // A team match's score is the games won ("2-1"), which the sport's scoring does not read; its games were checked by the team league's rules when they were entered.
+    if (teams ? overlaps(a, b) : invalidResult({ kind, outcome, score: m.score, scoring: rules.scoring, drawsAllowed: false, sidesOverlap: overlaps(a, b) })) continue;
+    const margin = !teams && rules.scoring.kind === "tally" && kind === "played" ? tallyMargin(m.score) : null;
     facts.push({
       format,
       sourceMatch: m.id,

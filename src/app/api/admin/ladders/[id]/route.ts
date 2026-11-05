@@ -3,7 +3,7 @@ import { logAction } from "@/lib/activity";
 import { readJsonObject, refusal } from "@/lib/api";
 import { getDb } from "@/lib/db";
 import { ladderResponse, staffLadder } from "@/lib/ladder-access";
-import { changeSettings, decide, endSeason, freeze, ladderDetail, leave, moveTo, thaw, type Decision, type LadderSettings } from "@/lib/ladders";
+import { changeCourtTime, changeSettings, decide, endSeason, freeze, ladderDetail, leave, moveTo, staffHold, thaw, type Decision, type LadderSettings } from "@/lib/ladders";
 import { setEventRated } from "@/lib/ratings";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
  * true | clear: true }` decides or corrects a challenge's result (its place in the ledger is kept, every rank after it is replayed);
  * `{ action: "move", playerId, rank, reason }`; `{ action: "remove", playerId, reason }`; `{ action: "freeze", playerId, until }` and
  * `{ action: "thaw", playerId }`. Each is in the activity log, with the reason where it has one.
+ *
+ * Court time (the venue holds a court for an accepted challenge, no money moving; off unless turned on): `{ action: "court_time", on?, courtIds?,
+ * minutes? }`; `{ action: "hold_release", challengeId, reason }` lets a challenge's hold go; `{ action: "hold_move", challengeId, onDate, minute, courtId?,
+ * reason }` moves it (the new time is held first; refused with the reason, the old court staying held, if it cannot be). A ladder of teams decides a
+ * match with `{ action: "decide", challengeId, reason, rubbers: [{ winner: "home" | "away", score?, walkover? }] }` (the challenger's side is `home`).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const found = await staffLadder(req, (await params).id);
@@ -38,7 +43,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return p ?? null;
   };
 
-  if (body.action === "settings") {
+  if (body.action === "court_time") {
+    const done = await changeCourtTime(found.id, { on: body.on, courtIds: body.courtIds, minutes: body.minutes });
+    if (!done.ok) return ladderResponse(done);
+    await log("ladder.court_time", done.value.courtTime.on ? `the venue holds court time for accepted challenges (${done.value.courtTime.matchMinutes} minutes)` : "the venue does not hold court time for challenges");
+  } else if (body.action === "hold_release" || body.action === "hold_move") {
+    const challenge = (before.challenges ?? []).find((c) => c.id === Number(body.challengeId));
+    if (!challenge) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    const done = await staffHold(challenge.id, by, body.action === "hold_release" ? { release: true } : { move: { onDate: body.onDate, minute: body.minute, courtId: body.courtId } }, reason);
+    if (!done.ok) return ladderResponse(done);
+    await log(
+      body.action === "hold_release" ? "ladder.hold_released" : "ladder.hold_moved",
+      `${challenge.challengerName} v ${challenge.challengedName}${body.action === "hold_move" && done.value.hold ? `: now ${done.value.hold.court} on ${done.value.hold.date}` : ""} (${reason.trim().slice(0, 200)})`
+    );
+  } else if (body.action === "settings") {
     const done = await changeSettings(found.id, (body.settings && typeof body.settings === "object" ? body.settings : {}) as Partial<LadderSettings>);
     if (!done.ok) return ladderResponse(done);
     await log("ladder.settings", JSON.stringify(done.value.settings));
@@ -54,7 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const challenge = (before.challenges ?? []).find((c) => c.id === Number(body.challengeId));
     if (!challenge) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const decision: Decision =
-      body.void === true ? { void: true } : body.clear === true ? { clear: true } : { winner: Number(body.winner), score: typeof body.score === "string" ? body.score : undefined, walkover: body.walkover === true };
+      body.void === true ? { void: true } : body.clear === true ? { clear: true } : body.rubbers !== undefined ? { rubbers: body.rubbers } : { winner: Number(body.winner), score: typeof body.score === "string" ? body.score : undefined, walkover: body.walkover === true };
     const done = await decide(challenge.id, by, decision, reason);
     if (!done.ok) return ladderResponse(done);
     await log("ladder.result_decided", `${challenge.challengerName} v ${challenge.challengedName}: ${"void" in decision ? "struck" : "clear" in decision ? "put back to be played" : done.value.forfeit ? "walkover" : done.value.score ?? ""} (${reason.trim().slice(0, 200)})`);

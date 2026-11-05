@@ -700,6 +700,8 @@ async function dropFromRosters(memberId: number, why: "left" | "removed"): Promi
   }
   const { dropFromLeagueRosters } = await import("./team-leagues");
   await dropFromLeagueRosters(memberId, why);
+  // Out of the lineups of ladder challenges not yet played (lib/team-ladders.ts).
+  await (await import("./team-ladders")).dropFromLadderLineups(memberId);
 }
 
 async function endMembership(m: MemberRow, status: "left" | "removed"): Promise<void> {
@@ -797,7 +799,8 @@ async function liveEntries(teamId: number): Promise<string[]> {
         WHERE x.team_id = ? AND x.status = 'entered' AND l.status IN ('forming', 'scheduled')`
     )
     .all(teamId)) as { name: string }[];
-  return [...tournaments, ...leagues].map((r) => r.name);
+  const ladders = await (await import("./team-ladders")).ladderNamesOfTeam(teamId);
+  return [...[...tournaments, ...leagues].map((r) => r.name), ...ladders];
 }
 
 /** The captain archiving the team: not while it is entered in an event still to be played (withdraw it first). Nothing is deleted. */
@@ -1059,6 +1062,7 @@ async function anonymiseHistory(memberIds: number[], anonymous: string): Promise
     }
     await db.prepare("UPDATE team_league_roster SET name = ? WHERE team_member_id = ?").run(anonymous, id);
     await db.prepare("UPDATE team_fixture_lineups SET name = ? WHERE team_member_id = ?").run(anonymous, id);
+    await (await import("./team-ladders")).anonymiseLadderLineups(id, anonymous);
   }
 }
 
