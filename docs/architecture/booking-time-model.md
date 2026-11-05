@@ -58,7 +58,10 @@ time, not of storing it.
   [ADR 0037](decisions/0037-launch-and-tide-windows.md)). It is whole minutes of one
   local date, never across midnight (the business day's minutes after 24:00 are
   never in a window), read at the instants the venue's clock gives them, and a
-  span outside it is the breach `WINDOW`, one no override goes past.
+  span outside it is the breach `WINDOW`, one a court's own override of its booking
+  rules goes past none of. It has its own override, for a window the venue left
+  *advisory* only, by a manager with a recorded reason, and never for a hard one
+  ([ADR 0046](decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)).
 
 ## Spaces: courts and the courts they share a floor with
 

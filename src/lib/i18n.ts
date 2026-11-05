@@ -4999,6 +4999,13 @@ const EN = {
   "pmy.guardian.failed": "That did not work.",
   "pmy.guardian.done": "Done.",
   "pmy.guardian.removed": "removed",
+  "err.SAFE1_WINDOW_MANAGERS": "Only a manager of this venue can book or move outside a launch or tide window.",
+  "err.SAFE1_WINDOW_OFF": "This venue has turned off overriding its launch and tide windows.",
+  "err.SAFE1_WINDOW_REASON": "Say why you are going past the window, in {min} to {max} characters.",
+  "err.SAFE1_WINDOW_HARD": "That window is marked hard by the venue: nothing overrides it. Pick a time inside it, or ask the venue to change its rule.",
+  "err.SAFE1_WINDOW_OFFER": "A manager can book it anyway with a reason of at least {min} characters, kept with the booking.",
+  "safe1.form.offer": "Outside the venue's launch or tide window. A manager can book it anyway: give a reason of at least {min} characters; it is kept with the booking and in the activity log.",
+  "safe1.form.hard": "This window is marked hard by the venue: nothing overrides it.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -9944,6 +9951,13 @@ const MS: Record<Phrase, string> = {
   "pmy.guardian.failed": "Itu tidak berjaya.",
   "pmy.guardian.done": "Selesai.",
   "pmy.guardian.removed": "dialih keluar",
+  "err.SAFE1_WINDOW_MANAGERS": "Hanya pengurus pusat ini boleh menempah atau menukar di luar tetingkap pelancaran atau pasang surut.",
+  "err.SAFE1_WINDOW_OFF": "Pusat ini telah mematikan pengatasan tetingkap pelancaran dan pasang surutnya.",
+  "err.SAFE1_WINDOW_REASON": "Nyatakan sebab anda melepasi tetingkap itu, dalam {min} hingga {max} aksara.",
+  "err.SAFE1_WINDOW_HARD": "Tetingkap itu ditandakan keras oleh pusat: tiada apa yang boleh mengatasinya. Pilih masa di dalamnya, atau minta pusat menukar peraturannya.",
+  "err.SAFE1_WINDOW_OFFER": "Pengurus boleh tetap menempahnya dengan sebab sekurang-kurangnya {min} aksara, disimpan bersama tempahan.",
+  "safe1.form.offer": "Di luar tetingkap pelancaran atau pasang surut pusat. Pengurus boleh tetap menempahnya: berikan sebab sekurang-kurangnya {min} aksara; ia disimpan bersama tempahan dan dalam log aktiviti.",
+  "safe1.form.hard": "Tetingkap ini ditandakan keras oleh pusat: tiada apa yang boleh mengatasinya.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

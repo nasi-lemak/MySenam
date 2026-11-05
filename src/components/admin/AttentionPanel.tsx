@@ -85,6 +85,8 @@ export function AttentionPanel() {
     uncovered?: UncoveredSession[];
     /** Front desk's class moves waiting for a manager, and a desk's own outcomes (lib/class-move-requests.ts). */
     classMoveRequests?: MoveRequestView[];
+    /** A manager's: venues whose overrides of advisory windows in 7 days are past the venue's limit (lib/window-overrides.ts). */
+    windowOverrideAlerts?: { venueId: number; count: number; limit: number }[];
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +116,8 @@ export function AttentionPanel() {
   const coachConflicts = data?.classCoachConflicts ?? [];
   const uncovered = data?.uncovered ?? [];
   const moveRequests = data?.classMoveRequests ?? [];
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0)) return null;
+  const overrideAlerts = data?.windowOverrideAlerts ?? [];
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0)) return null;
 
   /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
   async function guardianTold(taskId: number) {
@@ -141,6 +144,16 @@ export function AttentionPanel() {
       {moveRequests.length > 0 && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="attention-move-requests">
           <ClassMoveRequestList requests={moveRequests} onChanged={() => void load()} />
+        </div>
+      )}
+      {overrideAlerts.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900">
+          {overrideAlerts.map((a) => (
+            <p key={a.venueId}>
+              <strong>{t("safe1.att.alert", { n: a.count, limit: a.limit })}</strong>
+            </p>
+          ))}
+          <p className="mt-0.5 text-xs">{t("safe1.att.help")}</p>
         </div>
       )}
       {uncovered.length > 0 && (
@@ -235,7 +248,7 @@ export function AttentionPanel() {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 || moveRequests.length > 0 ? t("att.title") : t("att.nothing")}
+          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 || moveRequests.length > 0 || overrideAlerts.length > 0 ? t("att.title") : t("att.nothing")}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">

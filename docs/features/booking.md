@@ -673,9 +673,10 @@ customer's language: `LAUNCH_WINDOW` (it quotes the day's windows),
 - **The booking form, the counter, the venue's API key, a waiting list (joining
   it; an offer taken is booked as any booking), an approval request's held slot**: the same check, through
   `policyBreaches` in `src/lib/booking-rules.ts`, the one the opening hours and
-  the clocks changing are asked in. **No manager's override goes past it** (as
-  none goes past a change of the clocks): the window is the venue's own data, so
-  a manager changes the rule or the table, which is logged, instead.
+  the clocks changing are asked in. **A manager's override of a court's booking
+  rules goes past none of it** (as none goes past a change of the clocks); the
+  window has its own override, for an *advisory* window only, with a recorded
+  reason ([below](#advisory-and-hard-windows)).
 - **The quote** says it before a booking is made.
 - **Availability and search**: the board's cells outside a window are shut and
   say why (a tooltip, *Outside the launch window*, *Low water*, *No tide data*…),
@@ -697,7 +698,7 @@ customer's language: `LAUNCH_WINDOW` (it quotes the day's windows),
 How it composes: **the narrower always wins**. A window is cut to the opening
 hours, so where the hours are narrower they decide (a booking outside them is
 refused as outside the hours, and a manager's override of the hours does not
-go past the window). A closed day, an outage, a rained-off stretch, a block and
+go past the window, which has its own, [below](#advisory-and-hard-windows)). A closed day, an outage, a rained-off stretch, a block and
 another booking close their time as ever; the window closes more. The **return
 buffer is on the booking's end**, the window's own; the court's **operational
 time and separations** (setup and cleaning, [booking rules](#booking-rules-starts-lengths-buffers))
@@ -705,6 +706,63 @@ are the claim's and may run past the window's close (a hire that ends at the las
 return is cleaned after it), so a window's buffer and a court's buffers add up on
 nobody. Daylight saving works as for every booking: a booking touching a change
 of the clocks is refused (`CLOCK_CHANGE`) whatever the window.
+
+### Advisory and hard windows
+
+A window is the venue's own judgement, so **every rule is *advisory* unless the
+venue marks it *hard*** (*Launch and tide windows → How firmly it holds*; a rule
+that existed before is advisory). The owner's decision of 5 November 2026
+([ADR 0046](../architecture/decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)): an authorised manager may override an
+advisory window, with a mandatory reason and an audit record; nothing ordinary
+overrides a hard closure, a legal restriction or a mandatory safety requirement.
+
+| Restriction | Strength | A manager's window override |
+| ----------- | -------- | --------------------------- |
+| A launch or tide window (`LAUNCH_WINDOW`, `LAUNCH_RETURN`, `LAUNCH_CLOSED`, `TIDE_NO_DATA`, `LAUNCH_WEEK`), the rule advisory | advisory | Yes, with a reason |
+| The same, the rule marked hard | hard | Never |
+| A change of the clocks (`CLOCK_CHANGE`) | hard | Never |
+| A closure, outage, block or rain-out | hard where the venue marked it a *safety closure*, otherwise venue-required | Never: the database holds that time |
+| Required supervision (`SV1_NO_SUPERVISOR`), the roster's [qualification levels](venue-operations.md#qualification-levels) | venue-required; hard where legally required | Never at booking |
+| The court's booking rules, eligibility, sign-offs, capacity | as before ([manager overrides](#manager-overrides)) | Not by this override |
+
+- **Where it applies**: exactly the paths that refuse a window, for a manager at
+  the counter: a booking (`POST /api/bookings`, a weekly series each week), a
+  booking moved or rescheduled (and each week of a series moved), and a class
+  term (each session). Send `overrideWindow: true` and a `windowReason`.
+  Customers, front desk, the venue's API key, another venue's manager and the
+  platform owner are never offered it and never accepted
+  (`SAFE1_WINDOW_MANAGERS`, 403). There is no owner or platform emergency
+  override.
+- **What the counter says**: a manager refused for an advisory window is told an
+  override is available and how long the reason must be; front desk is told to
+  ask a manager; for a hard rule, that there is none and why. The customer's
+  refusal is unchanged, and a booking made this way is an ordinary booking to
+  them.
+- **The reason** is at least as long as the venue's minimum (15 characters from
+  the install, the venue may change it; 300 at most). Short, `SAFE1_WINDOW_REASON`;
+  the venue having turned the override off, `SAFE1_WINDOW_OFF`; a hard window,
+  `SAFE1_WINDOW_HARD`.
+- **What is kept**, in the booking's own transaction and only for what was
+  actually refused: who, when, why, which rule, which refusal and the day's
+  window as it stood (`booking_window_overrides`), and an entry in the staff
+  activity log (`booking.window_overridden`). A preview, a booking that fails
+  and the loser of a race keep nothing. It is shown on the booking (*Went past the
+  window (…) — Mina: why*) and on the manager's report under *Launch and tide
+  windows* (`GET /api/admin/window-overrides`).
+- **A cap and an alert**: more overrides in 7 days than the venue's limit (5
+  from the install; the venue may change it or set 0 for none) puts a line on
+  the manager's needs-attention panel.
+- **Settings and defaults**: managers may override by default; a venue turns it
+  off, changes the shortest reason or the weekly limit under *Launch and tide
+  windows → Overrides of advisory windows* (a manager's, logged). A venue that has
+  no window sees none of this.
+- **A safety closure**: a closure, outage, block or rain-out may be marked one
+  (`safety: true` on the closure, outage, block and rain-out routes; the
+  rain-out's checkbox is for outdoor safety). It is kept, named in the log and
+  lists, and nothing reaches it; every other block is as it was.
+- **Not covered**: moving a booking to another resource at the same time
+  (`moveBooking`) does not ask the target's window today, so there is nothing
+  there to override (a known gap).
 
 ### When a window changes
 

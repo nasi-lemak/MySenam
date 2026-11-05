@@ -81,13 +81,14 @@ export async function POST(req: NextRequest) {
     reason: typeof body.reason === "string" ? body.reason : undefined,
     adminId: admin.id,
     cancelAffected: body.cancelAffected === true,
+    safety: body.safety === true,
   });
   if (!result.ok)
     return NextResponse.json({ error: result.error, affected: result.affected }, { status: result.affected ? 409 : 400 });
   await logFromRequest(req, {
     venueId: court.venueId,
     action: "settings.changed",
-    detail: `${court.name} out of service ${body.startsOn as string}${body.endsOn ? ` to ${body.endsOn as string}` : ", until further notice"}`,
+    detail: `${court.name} out of service ${body.startsOn as string}${body.endsOn ? ` to ${body.endsOn as string}` : ", until further notice"}${body.safety === true ? " [safety closure]" : ""}`,
   });
   // Each booking and class it called off, under its own code (as a closed day's are).
   const why = `${court.name} out of service`;

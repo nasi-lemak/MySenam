@@ -10,6 +10,7 @@ import { listMoveRequests } from "@/lib/class-move-requests";
 import { jsonObject } from "@/lib/api";
 import { strandedByLaunch } from "@/lib/launch-worklist";
 import { listVenues } from "@/lib/store";
+import { windowOverrideAlert } from "@/lib/window-overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,16 @@ async function launchStranded(venueIds: number[] | null) {
   for (const venueId of venueIds ?? (await listVenues()).map((v) => v.id)) {
     const { stranded } = await strandedByLaunch(venueId);
     if (stranded.length > 0) out.push({ venueId, count: stranded.length, items: stranded.slice(0, 8) });
+  }
+  return out;
+}
+
+/** A manager's needs-attention lines for venues whose overrides of advisory windows in 7 days are past the venue's limit (lib/window-overrides.ts). */
+async function windowOverrideAlerts(venueIds: number[] | null) {
+  const out: NonNullable<Awaited<ReturnType<typeof windowOverrideAlert>>>[] = [];
+  for (const venueId of venueIds ?? (await listVenues()).map((v) => v.id)) {
+    const alert = await windowOverrideAlert(venueId);
+    if (alert) out.push(alert);
   }
   return out;
 }
@@ -33,6 +44,7 @@ async function launchStranded(venueIds: number[] | null) {
  * And `uncovered`: sessions to come with too few qualified people rostered, for a manager to decide (lib/rosters.ts).
  * And `classMoveRequests`: front desk's class moves waiting for a manager's approval (a manager decides them here); a desk is shown those waiting and the outcome of its
  * own in the last three days (lib/class-move-requests.ts, ADR 0045).
+ * And `windowOverrideAlerts` (managers only): venues whose managers overrode advisory windows more often in 7 days than the venue's limit (ADR 0046).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -48,6 +60,7 @@ export async function GET(req: NextRequest) {
     launchStranded: await launchStranded(admin.venueIds),
     uncovered: await uncoveredSessions(admin.venueIds),
     classMoveRequests: await listMoveRequests(admin, { decidedDays: admin.role === "desk" ? 3 : 0, mineOnly: admin.role === "desk" }),
+    windowOverrideAlerts: admin.role === "desk" ? [] : await windowOverrideAlerts(admin.venueIds),
   });
 }
 

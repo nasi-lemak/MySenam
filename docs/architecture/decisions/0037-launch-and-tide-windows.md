@@ -1,6 +1,8 @@
 # ADR 0037: Launch and tide windows narrow the bookable hours of water hire
 
-- **Status:** current, decided 2026-11-05 on the owner's request for a daily window that
+- **Status:** current, decided 2026-11-05. **F1 is superseded by [ADR 0046](0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)**:
+  a manager may go past an advisory window with a reason; a window the venue marks hard, and the clocks changing, are never gone past.
+  Decided on the owner's request for a daily window that
   narrows the hours of water activities (kayaks, paddle boards, boats, jet skis, surf), from a
   launch window, a tide table the venue supplies, or both. What staff and customers see is
   [booking](../../features/booking.md#launch-and-tide-windows-for-water-hire). Migration
@@ -86,7 +88,7 @@
   claim's and unchanged: the claim's `occupied` range may run past the window's close, so the
   last hire's cleaning is after the last return. The two never add up on anyone.
 
-### F. No override
+### F. No override (superseded by [ADR 0046](0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md): an authorised manager may override an advisory window with a recorded reason)
 
 - **F1.** The window is **not a rule a manager can waive** at the desk, as a change of the clocks
   is not: it is the venue's own data, so the venue changes the rule or the table (a logged,
@@ -133,5 +135,5 @@
   their own slot placement); a venue copied from another does not copy its windows; no
   allowance for a station's distance from the water (the venue names a nearby station and may
   type the heights it wants); no live tide service, by decision.
-- Open for the owner: whether a manager may book outside a window with a recorded reason (F1),
+- Open for the owner: whether a manager may book outside a window with a recorded reason (F1; answered yes for an advisory window by [ADR 0046](0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)),
   and whether the worklist should message customers on its own (G1 says no: staff decide).

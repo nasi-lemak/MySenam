@@ -55,7 +55,13 @@ why not TimescaleDB is [ADR 0004](decisions/0004-plain-postgres-not-timescaledb.
   session of who supervised it (rows are deactivated, never deleted). What is covered is worked out from them
   each time and never stored; a booking asks under the venue's roster lock, an advisory transaction lock taken
   before the court locks and the coach's (migration 0277,
-  [ADR 0036](decisions/0036-who-supervises-a-session.md)).
+  [ADR 0036](decisions/0036-who-supervises-a-session.md)). How firmly a role's qualification is asked is
+  `roster_roles.qualification_level` (recommended, required by the venue, legally required) and
+  `qualification_reference`; a manager's override of an advisory launch or tide window is
+  `booking_window_overrides` (written in the booking's transaction), with `launch_rules.strength`,
+  `window_override_defaults` (install data, one row) and `venue_window_override_settings`, and a `safety`
+  flag on closures, outages and blocks (migration 0288,
+  [ADR 0046](decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)).
 - **Court time that is over is archived, not kept in `claims`** (off unless
   `CLAIMS_ARCHIVE_AFTER_DAYS` is set): [below](#archiving-past-claims).
 - **Activities are a table.** Every column naming an activity (`sport`, kept

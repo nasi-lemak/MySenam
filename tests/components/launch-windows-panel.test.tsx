@@ -83,3 +83,46 @@ describe("the launch and tide windows screen", () => {
     expect(posts()[0]).toMatchObject({ action: "import", preview: true, times: "venue" });
   });
 });
+
+describe("how firmly a window holds (ADR 0046)", () => {
+  const rule = (strength: "advisory" | "hard") => ({
+    id: 5,
+    courtId: 7,
+    sport: null,
+    source: "weekly",
+    weekly: Array.from({ length: 7 }, () => ({ from: 430, to: 640 })),
+    station: null,
+    tide: null,
+    minWindowMin: 0,
+    returnBufferMin: 0,
+    strength,
+  });
+  const report = { settings: { enabled: true, reasonMin: 15, weeklyAlert: 5, own: { reasonMin: false, weeklyAlert: false } }, overrides: [], days: 30, alert: null };
+
+  it("says a hard rule is hard, and saves the strength a manager picks (advisory by default)", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url.startsWith("/api/admin/window-overrides")) return json(report);
+      if (url.startsWith("/api/admin/launch-windows") && init?.method === "POST") return json({ rule: rule("hard"), stranded: [], kept: [] }, true, 201);
+      if (url.startsWith("/api/admin/launch-windows")) return json({ rules: [rule("hard")], stations: [], stranded: [], kept: [] });
+      return json({});
+    });
+    render(<LaunchWindowsPanel venueId={3} courts={courts} />);
+    await act(async () => {});
+    expect(screen.getByText(/\(hard\)/)).toBeTruthy();
+    // The overrides of advisory windows are the manager's, shown where the venue has a rule.
+    expect(screen.getByTestId("window-overrides")).toBeTruthy();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Edit the window of Kayaks" })));
+    const strength = screen.getByRole("combobox", { name: /How firmly it holds/ }) as HTMLSelectElement;
+    expect(strength.value).toBe("hard");
+    await act(async () => void fireEvent.change(strength, { target: { value: "advisory" } }));
+    await act(async () => void fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]));
+    const saved = fetchMock.mock.calls.filter((c) => String(c[0]).startsWith("/api/admin/launch-windows") && c[1]?.method === "POST").map((c) => JSON.parse(c[1].body));
+    expect(saved[0]).toMatchObject({ id: 5, strength: "advisory" });
+  });
+
+  it("shows a venue with no rule none of it", async () => {
+    render(<LaunchWindowsPanel venueId={3} courts={courts} />);
+    await act(async () => {});
+    expect(screen.queryByTestId("window-overrides")).toBeNull();
+  });
+});

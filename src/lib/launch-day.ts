@@ -48,6 +48,12 @@ export type WeeklyWindows = ({ from: number; to: number } | null)[];
 
 export type LaunchSource = "weekly" | "tide" | "both";
 
+/**
+ * How firmly a rule holds (ADR 0046). `advisory`, the default, is the venue's own judgement: a manager may book or move through its
+ * window with a reason that is kept. `hard` is one the venue says nobody goes past from the counter.
+ */
+export type LaunchStrength = "advisory" | "hard";
+
 /** A resource's rule, as the day is worked out from it. */
 export interface LaunchRuleSpec {
   source: LaunchSource;
@@ -57,6 +63,8 @@ export interface LaunchRuleSpec {
   minWindowMin: number;
   /** Minutes before the window closes by which a booking must be back. */
   returnBufferMin: number;
+  /** Absent: advisory. */
+  strength?: LaunchStrength;
 }
 
 /** Why a stretch of the day is closed by the window, as customers and staff are told. */
@@ -69,6 +77,8 @@ export interface ClosedStretch extends Span {
 /** What a rule leaves of one date. */
 export interface LaunchDay {
   ruleId: number;
+  /** How firmly the rule holds: a manager may go past an advisory window with a reason, never a hard one (ADR 0046). */
+  strength: LaunchStrength;
   /** The windows, in order, whole minutes within [0, 1440] and the day's opening hours, none shorter than the rule's minimum. */
   windows: Span[];
   /** Minutes before a window closes that a booking must be back by. */
@@ -207,7 +217,7 @@ export function launchDay(
     if (last && last.reason === reason && last.end === m) last.end = m + 1;
     else closed.push({ start: m, end: m + 1, reason });
   }
-  return { ruleId, windows, returnBuffer: spec.returnBufferMin, closed };
+  return { ruleId, strength: spec.strength ?? "advisory", windows, returnBuffer: spec.returnBufferMin, closed };
 }
 
 /** The stretches of a day a booking may be in: each window less the return buffer. */

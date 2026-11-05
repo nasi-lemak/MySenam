@@ -13,6 +13,7 @@ import type { LaunchReason } from "@/lib/launch-day";
 import type { RowFault, RowWarning } from "@/lib/tide-import";
 import type { Stranded } from "@/lib/launch-worklist";
 import { useStaffT } from "./StaffLanguage";
+import { WindowOverridesPanel } from "./WindowOverridesPanel";
 
 /**
  * Launch and tide windows for water hire (lib/launch-windows.ts, ADR 0037): a
@@ -32,6 +33,8 @@ interface Rule {
   tide: { rule: "height"; minHeightCm: number } | { rule: "event"; eventKind: "high" | "low"; eventMinutes: number } | null;
   minWindowMin: number;
   returnBufferMin: number;
+  /** advisory (a manager may go past it with a reason) or hard (nobody does), ADR 0046. */
+  strength?: "advisory" | "hard";
 }
 
 interface Station {
@@ -76,6 +79,7 @@ interface Form {
   eventMinutes: string;
   minWindow: string;
   back: string;
+  strength: "advisory" | "hard";
 }
 
 const DAYS: StaffPhrase[] = ["coach.day.0", "coach.day.1", "coach.day.2", "coach.day.3", "coach.day.4", "coach.day.5", "coach.day.6"];
@@ -105,6 +109,7 @@ const blank = (courtId: number): Form => ({
   eventMinutes: "90",
   minWindow: "30",
   back: "0",
+  strength: "advisory",
 });
 
 const formOf = (r: Rule): Form => ({
@@ -123,6 +128,7 @@ const formOf = (r: Rule): Form => ({
   eventMinutes: r.tide?.rule === "event" ? String(r.tide.eventMinutes) : "90",
   minWindow: String(r.minWindowMin),
   back: String(r.returnBufferMin),
+  strength: r.strength === "hard" ? "hard" : "advisory",
 });
 
 export function LaunchWindowsPanel({ venueId, courts }: { venueId: number; courts: Court[] }) {
@@ -194,6 +200,7 @@ export function LaunchWindowsPanel({ venueId, courts }: { venueId: number; court
                 : { rule: "event", eventKind: form.eventKind, eventMinutes: form.eventMinutes },
           minWindowMin: form.minWindow,
           returnBufferMin: form.back,
+          strength: form.strength,
         }),
       });
       const data = await readJson(res);
@@ -254,6 +261,7 @@ export function LaunchWindowsPanel({ venueId, courts }: { venueId: number; court
                 {r.tide?.rule === "event" && `, ${t("wtrs.sum.event", { n: r.tide.eventMinutes, kind: t(`wtrs.kind.${r.tide.eventKind}` as StaffPhrase), station: r.station ?? "" })}`}
                 {r.minWindowMin > 0 && `, ${t("wtrs.sum.min", { n: r.minWindowMin })}`}
                 {r.returnBufferMin > 0 && `, ${t("wtrs.sum.back", { n: r.returnBufferMin })}`}
+                {r.strength === "hard" && ` (${t("safe1.strength.hardTag")})`}
               </span>
               <span className="flex gap-3">
                 <button type="button" className={link} aria-label={t("wtrs.edit", { court: courtName(r.courtId) })} onClick={() => setForm(formOf(r))}>
@@ -413,6 +421,14 @@ export function LaunchWindowsPanel({ venueId, courts }: { venueId: number; court
               <input type="number" min={0} max={240} value={form.back} onChange={(e) => set({ back: e.target.value })} className={`block w-28 ${input}`} />
               <span className="block max-w-64 text-xs text-slate-400">{t("wtrs.f.backHint")}</span>
             </label>
+            <label className="text-xs text-slate-500">
+              {t("safe1.strength.label")}
+              <select value={form.strength} onChange={(e) => set({ strength: e.target.value as Form["strength"] })} className={`block ${input}`}>
+                <option value="advisory">{t("safe1.strength.advisory")}</option>
+                <option value="hard">{t("safe1.strength.hard")}</option>
+              </select>
+              <span className="block max-w-64 text-xs text-slate-400">{t(form.strength === "hard" ? "safe1.strength.hardHint" : "safe1.strength.advisoryHint")}</span>
+            </label>
           </div>
           <div className="flex gap-2">
             <button type="button" disabled={busy} className={button} onClick={() => void save()}>
@@ -427,6 +443,9 @@ export function LaunchWindowsPanel({ venueId, courts }: { venueId: number; court
 
       {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-sm font-medium text-emerald-700">{notice}</p>}
+
+      {/* Only where the venue has a window: a venue that has not opened this sees none of it. */}
+      {rules.length > 0 && <WindowOverridesPanel venueId={venueId} />}
 
       {stranded.length > 0 || kept.length > 0 ? (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm" data-testid="launch-stranded">

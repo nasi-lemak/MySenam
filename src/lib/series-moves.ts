@@ -6,6 +6,7 @@ import { addDays, dayOfWeek } from "./time";
 import { instantOf } from "./interval";
 import type { Booking, Refusal } from "./types";
 import type { PolicyBreach } from "./booking-rules";
+import type { WindowOverrideRecord } from "./window-overrides";
 
 /**
  * Staff moving the weeks of a weekly series still to be played to another
@@ -30,6 +31,8 @@ export interface SeriesMoveTo {
   courtId?: number;
   /** A manager going past the court's booking rules; recorded by the caller. */
   override?: boolean;
+  /** A manager's override of an advisory launch or tide window, authorised by the route (lib/window-overrides.ts): each week outside its window is moved with it recorded. */
+  windowOverride?: WindowOverrideRecord;
 }
 
 /** One week of the series and what moving it would do. */
@@ -87,6 +90,7 @@ function target(b: Booking, to: SeriesMoveTo) {
     start: to.start,
     ...(to.courtId !== undefined ? { courtId: to.courtId } : {}),
     ...(to.override ? { override: true } : {}),
+    ...(to.windowOverride ? { windowOverride: to.windowOverride } : {}),
   };
 }
 

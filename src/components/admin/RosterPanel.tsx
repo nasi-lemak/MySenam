@@ -2,7 +2,8 @@
 
 import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Qualification, RosterException, RosterFlag, RosterPerson, RosterRole, Shift, SupervisionRule, UncoveredSession } from "@/lib/rosters";
+import type { AdvisorySession, Qualification, RoleChangePreview, RosterException, RosterFlag, RosterPerson, RosterRole, Shift, SupervisionRule, UncoveredSession } from "@/lib/rosters";
+import { QUALIFICATION_LEVELS, type QualificationLevel } from "@/lib/restriction-strength";
 import { sportLabel } from "@/lib/i18n";
 import { clockOf, formatMinute, parseClock } from "@/lib/interval";
 import { todayLocal, type ManagedVenue } from "./shared";
@@ -18,6 +19,8 @@ interface Overview {
   exceptions: RosterException[];
   rules: SupervisionRule[];
   flags: RosterFlag[];
+  /** Supervised, but by somebody a recommended qualification is not recorded for (ADR 0046): advisory. */
+  advisory?: AdvisorySession[];
 }
 
 const field = "rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none";
@@ -33,10 +36,15 @@ export function roleName(t: StaffT, role: { key: string; name: string }): string
 const dayName = (t: StaffT, weekday: number) => t(`coach.day.${weekday}` as StaffPhrase);
 
 /** Who is named on a session, as staff read it: the role and the person, a person named to cover, or the manager's reason to let it stand without. */
-export function supervisorsText(t: StaffT, list: { role: string; roleKey: string; person: string | null; how: "rostered" | "covered" | "override"; reason?: string }[]): string {
+export function supervisorsText(
+  t: StaffT,
+  list: { role: string; roleKey: string; person: string | null; how: "rostered" | "covered" | "override"; reason?: string; qualification?: { why: "not_recorded" | "expired"; qualification: string } }[]
+): string {
   const lines = list.map((s) => {
     const role = t.known(`rs1.role.${s.roleKey}`) ?? s.role;
-    return s.how === "override" ? t("rs1.supStand", { role, reason: s.reason ?? "" }) : s.how === "covered" ? t("rs1.supCovered", { role, person: s.person ?? "" }) : t("rs1.supLine", { role, person: s.person ?? "" });
+    const line = s.how === "override" ? t("rs1.supStand", { role, reason: s.reason ?? "" }) : s.how === "covered" ? t("rs1.supCovered", { role, person: s.person ?? "" }) : t("rs1.supLine", { role, person: s.person ?? "" });
+    // Counted all the same, where the qualification is only recommended (ADR 0046): said, never blocking.
+    return s.qualification ? `${line} (${t(`rs1.sup.${s.qualification.why}` as StaffPhrase)})` : line;
   });
   return t("rs1.supBy", { list: lines.join("; ") });
 }
@@ -131,12 +139,13 @@ export function RosterPanel({ venue }: { venue: ManagedVenue }) {
   const endOf = (from: number, to: number) => (to <= from ? to + 1440 : to);
 
   if (!data) return null;
+  // A flag on a recommended qualification is a reminder, not a block: the shift counts (ADR 0046).
   const flagText = (f: RosterFlag) =>
     f.kind === "gone"
       ? t("rs1.flag.gone")
       : f.kind === "no_qualification"
-        ? t("rs1.flag.no_qualification", { name: nameOf(f.personKind, f.personId), qualification: f.qualification ?? "" })
-        : t("rs1.flag.expires", { name: nameOf(f.personKind, f.personId), qualification: f.qualification ?? "", date: f.expiresOn ?? "" });
+        ? t(f.counts ? "rs1.flag.no_qualification_recommended" : "rs1.flag.no_qualification", { name: nameOf(f.personKind, f.personId), qualification: f.qualification ?? "" })
+        : t(f.counts ? "rs1.flag.expires_recommended" : "rs1.flag.expires", { name: nameOf(f.personKind, f.personId), qualification: f.qualification ?? "", date: f.expiresOn ?? "" });
 
   return (
     <section className="space-y-5 rounded-xl border border-slate-200 bg-white p-4" aria-label={t("rs1.title")}>
@@ -155,9 +164,11 @@ export function RosterPanel({ venue }: { venue: ManagedVenue }) {
             {data.roles.map((r) => (
               <li key={r.id} className="flex flex-wrap items-center gap-2">
                 <span className={r.active ? "font-medium" : "font-medium text-slate-400"}>{roleName(t, r)}</span>
-                <span className="text-xs text-slate-500">{r.qualification ? t("rs1.needsQual", { qualification: r.qualification }) : t("rs1.roleQualNone")}</span>
+                <span className="text-xs text-slate-500">
+                  {r.qualification ? t("rs1.needsQualLevel", { qualification: r.qualification, level: t(`rs1.level.${r.qualificationLevel ?? "venue_required"}` as StaffPhrase) }) : t("rs1.roleQualNone")}
+                </span>
                 {!r.active && <span className="text-xs text-slate-400">{t("rs1.roleOffTag")}</span>}
-                <RoleEdit role={r} busy={busy} onSave={(qualification) => change({ action: "role_save", id: r.id, qualification })} t={t} />
+                <RoleEdit venueId={venue.id} role={r} busy={busy} onSave={(patch) => change({ action: "role_save", id: r.id, ...patch })} t={t} />
                 {r.active && (
                   <button type="button" disabled={busy} className={button} onClick={() => void change({ action: "role_save", id: r.id, active: false })}>
                     {t("rs1.roleOff")}
@@ -517,15 +528,67 @@ export function RosterPanel({ venue }: { venue: ManagedVenue }) {
   );
 }
 
-/** Change a role's qualification in place. */
-function RoleEdit({ role, busy, onSave, t }: { role: RosterRole; busy: boolean; onSave: (qualification: string) => void; t: StaffT }) {
+/**
+ * Change a role's qualification in place: its name, how firmly it is asked (recommended, required by the venue, or declared a legal
+ * requirement with the reference the venue gives; ADR 0046), and a check of what the change would do before it is made.
+ */
+function RoleEdit({ venueId, role, busy, onSave, t }: { venueId: number; role: RosterRole; busy: boolean; onSave: (patch: Record<string, unknown>) => void; t: StaffT }) {
   const [value, setValue] = useState(role.qualification ?? "");
+  const [level, setLevel] = useState<QualificationLevel>(role.qualificationLevel ?? "venue_required");
+  const [reference, setReference] = useState(role.qualificationReference ?? "");
+  const [preview, setPreview] = useState<RoleChangePreview | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const changed = value !== (role.qualification ?? "") || level !== (role.qualificationLevel ?? "venue_required") || (level === "legally_required" && reference !== (role.qualificationReference ?? ""));
+  const patch = { qualification: value, qualificationLevel: level, qualificationReference: level === "legally_required" ? reference : null };
+
+  async function check() {
+    setProblem(null);
+    const res = await fetch("/api/admin/roster", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId, action: "role_preview", id: role.id, ...patch }),
+    });
+    const out = await readJson(res);
+    if (!res.ok) {
+      setPreview(null);
+      setProblem(t.err(out, t("rs1.saveFailed")));
+    } else setPreview(out.preview);
+  }
+
   return (
-    <span className="flex items-center gap-1">
-      <input aria-label={t("rs1.roleQualOf", { role: roleName(t, role) })} value={value} onChange={(e) => setValue(e.target.value)} className={`${field} w-48`} />
-      <button type="button" disabled={busy || value === (role.qualification ?? "")} className={button} onClick={() => onSave(value)}>
+    <span className="flex flex-wrap items-center gap-1">
+      <input aria-label={t("rs1.roleQualOf", { role: roleName(t, role) })} value={value} onChange={(e) => { setValue(e.target.value); setPreview(null); }} className={`${field} w-48`} />
+      <select aria-label={t("rs1.levelOf", { role: roleName(t, role) })} value={level} onChange={(e) => { setLevel(e.target.value as QualificationLevel); setPreview(null); }} className={field}>
+        {QUALIFICATION_LEVELS.map((l) => (
+          <option key={l} value={l}>
+            {t(`rs1.level.${l}` as StaffPhrase)}
+          </option>
+        ))}
+      </select>
+      {level === "legally_required" && (
+        <input aria-label={t("rs1.levelRef")} placeholder={t("rs1.levelRef")} value={reference} onChange={(e) => setReference(e.target.value)} className={`${field} w-56`} />
+      )}
+      <button type="button" disabled={busy || !changed} className={button} onClick={() => void check()}>
+        {t("rs1.levelCheck")}
+      </button>
+      <button type="button" disabled={busy || !changed} className={button} onClick={() => onSave(patch)}>
         {t("rs1.roleSave")}
       </button>
+      <span className="basis-full text-xs text-slate-500">{t(`rs1.levelHelp.${level}` as StaffPhrase)}</span>
+      {problem && <span className="basis-full text-xs text-red-700">{problem}</span>}
+      {preview && (
+        <span className="basis-full text-xs text-slate-700" role="status">
+          {preview.shiftsWithoutIt === 0 && preview.becomeUncovered.length === 0 && preview.becomeCovered.length === 0
+            ? t("rs1.preview.none")
+            : [
+                preview.shiftsWithoutIt > 0 ? t.plural("rs1.preview.shifts", preview.shiftsWithoutIt) : "",
+                preview.becomeUncovered.length > 0 ? t.plural("rs1.preview.uncovered", preview.becomeUncovered.length) : "",
+                preview.becomeCovered.length > 0 ? t.plural("rs1.preview.covered", preview.becomeCovered.length) : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+        </span>
+      )}
     </span>
   );
 }
@@ -535,6 +598,7 @@ export function UncoveredSessions({ venueId }: { venueId: number }) {
   const t = useStaffT();
   const clock = (minute: number) => formatMinute(minute, t.locale);
   const [sessions, setSessions] = useState<UncoveredSession[] | null>(null);
+  const [advisory, setAdvisory] = useState<AdvisorySession[]>([]);
   const [overview, setOverview] = useState<Pick<Overview, "people" | "roles"> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, { person: string; reason: string }>>({});
@@ -542,7 +606,11 @@ export function UncoveredSessions({ venueId }: { venueId: number }) {
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/roster/uncovered?venueId=${venueId}`, { cache: "no-store" });
-    if (res.ok) setSessions((await readJson(res)).sessions);
+    if (res.ok) {
+      const out = await readJson(res);
+      setSessions(out.sessions);
+      setAdvisory(out.advisory ?? []);
+    }
   }, [venueId]);
   useEffect(() => {
     void load();
@@ -625,10 +693,16 @@ export function UncoveredSessions({ venueId }: { venueId: number }) {
                         <button type="button" disabled={busy || !d.person} className={button} onClick={() => void decide(s, r.roleId, "cover")}>
                           {t("rs1.cover")}
                         </button>
-                        <input aria-label={t("rs1.standReason")} placeholder={t("rs1.standReason")} value={d.reason} onChange={(e) => setDraft({ ...draft, [key]: { ...d, reason: e.target.value } })} className={`${field} w-56`} />
-                        <button type="button" disabled={busy || d.reason.trim().length < 3} className={button} onClick={() => void decide(s, r.roleId, "override")}>
-                          {t("rs1.letStand")}
-                        </button>
+                        {roleLabel?.qualification && roleLabel.qualificationLevel === "legally_required" ? (
+                          <span className="basis-full text-xs text-amber-900">{t("rs1.standLegal")}</span>
+                        ) : (
+                          <>
+                            <input aria-label={t("rs1.standReason")} placeholder={t("rs1.standReason")} value={d.reason} onChange={(e) => setDraft({ ...draft, [key]: { ...d, reason: e.target.value } })} className={`${field} w-56`} />
+                            <button type="button" disabled={busy || d.reason.trim().length < 3} className={button} onClick={() => void decide(s, r.roleId, "override")}>
+                              {t("rs1.letStand")}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </ManagerOnly>
                   </div>
@@ -637,6 +711,26 @@ export function UncoveredSessions({ venueId }: { venueId: number }) {
             </li>
           ))}
         </ul>
+      )}
+      {advisory.length > 0 && (
+        <div className="mt-3" data-testid="roster-advisory">
+          <h3 className="text-sm font-semibold">{t("rs1.advisory")}</h3>
+          <p className="mt-0.5 text-xs text-slate-600">{t("rs1.advisoryIntro")}</p>
+          <ul className="mt-1 space-y-1 text-sm">
+            {advisory.map((s) => (
+              <li key={`${s.kind}:${s.id}`} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                <div className="font-medium">
+                  {s.date} {clock(s.startMin)}–{clock(s.endMin)} · {s.courtName} · {s.kind === "booking" ? t("rs1.kindBooking", { code: s.code ?? "", name: s.name }) : t("rs1.kindClass", { name: s.name })}
+                </div>
+                {s.people.map((p) => (
+                  <div key={`${p.roleKey}:${p.personName}`} className="text-xs text-slate-700">
+                    {t(`rs1.advisory.${p.why}` as StaffPhrase, { role: t.known(`rs1.role.${p.roleKey}`) ?? p.roleName, person: p.personName, qualification: p.qualification })}
+                  </div>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

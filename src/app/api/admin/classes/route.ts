@@ -6,6 +6,8 @@ import { logAction } from "@/lib/activity";
 import { ALERT_EVERY, crossed, upcomingClassSessions, VENUE_CAPS } from "@/lib/limits";
 import { tellOwnersEach } from "@/lib/owner-alerts";
 import { classCoachConflicts, coachMatching } from "@/lib/class-coaches";
+import { windowOverrideFromBody, windowRefused } from "@/lib/counter-policy";
+import { isWindowCode } from "@/lib/restriction-strength";
 import { createClassSessions, getCourt, getVenue, listClasses, listClassWaitlist } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
 import { MAX_CLASS_WEEKS } from "@/lib/types";
@@ -70,6 +72,10 @@ export async function POST(req: NextRequest) {
   const denied = denyVenue(admin, court.venueId);
   if (denied) return denied;
 
+  // A manager's override of an advisory launch or tide window, with its reason (lib/window-overrides.ts): a manager of this venue.
+  const windowAsk = await windowOverrideFromBody((body ?? {}) as Record<string, unknown>, admin, court.venueId);
+  if (windowAsk.refuse) return windowAsk.refuse;
+
   if (typeof name !== "string" || name.trim().length < 2)
     return NextResponse.json({ error: "Class name is required." }, { status: 400 });
   if (coachId !== undefined && coachId !== null && (!Number.isInteger(coachId) || (coachId as number) <= 0))
@@ -121,7 +127,9 @@ export async function POST(req: NextRequest) {
     weeks: (weeks as number) ?? 1,
     who: who === "women" || who === "men" ? who : "anyone",
     termOffPercent: termOffPercent === undefined || termOffPercent === null || termOffPercent === "" ? null : Number(termOffPercent),
+    ...(windowAsk.record ? { windowOverride: windowAsk.record } : {}),
   });
+  if (!result.ok && isWindowCode(result.code)) return windowRefused(result, { staff: admin, venueId: court.venueId });
   if (!result.ok) return NextResponse.json({ error: result.error, code: result.code, vars: result.vars }, { status: 409 });
   await logAction(admin, {
     venueId: court.venueId,

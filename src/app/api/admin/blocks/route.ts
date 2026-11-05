@@ -24,6 +24,8 @@ async function parseBody(req: NextRequest) {
       reason: typeof reason === "string" && reason.trim() !== "" ? reason.trim() : undefined,
       // Absent means the whole resource; a number takes that many places out.
       places: Number.isInteger(places) ? (places as number) : undefined,
+      // A safety closure (a hazard, outdoor safety): said so in the record and the log; nothing overrides a block either way (ADR 0046).
+      safety: body.safety === true,
     };
   } catch {
     return null;
@@ -63,12 +65,12 @@ function timeOf(when: RequestedTime): string {
 export async function POST(req: NextRequest) {
   const { error, input, admin, court } = await resolve(req);
   if (error) return error;
-  const result = await blockSlots(input.courtId, input.date, input.when, input.reason, input.places);
+  const result = await blockSlots(input.courtId, input.date, input.when, input.reason, input.places, { safety: input.safety });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   await logAction(admin, {
     venueId: court.venueId,
     action: "block.added",
-    detail: `${court.name}, ${input.date} ${timeOf(input.when)}${input.places ? `, ${input.places} place(s)` : ""}${input.reason ? `: ${input.reason}` : ""}`,
+    detail: `${court.name}, ${input.date} ${timeOf(input.when)}${input.places ? `, ${input.places} place(s)` : ""}${input.safety ? " [safety closure]" : ""}${input.reason ? `: ${input.reason}` : ""}`,
   });
   return NextResponse.json({ changed: result.changed });
 }

@@ -1,6 +1,8 @@
 # ADR 0036: Who supervises a session: rosters, qualifications and supervision rules, asked in the one booking path
 
-- **Status:** current, decided 2026-11-05 (the owner asked for staffing a session, a range officer, a
+- **Status:** current, decided 2026-11-05. **The sentence that until a person's certificate is recorded their shifts count for nothing
+  is superseded by [ADR 0046](0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)**: it holds for a qualification
+  the venue requires or declares a legal requirement, not for a recommended one, which counts and is flagged. Decided (the owner asked for staffing a session, a range officer, a
   lifeguard or an instructor, among eight roadmap items). Built in migration 0277. What staff and customers
   see is [who supervises a session](../../features/venue-operations.md#who-supervises-a-session).
 - **Context:** the catalogue marks pools, open water, ranges and climbing walls as supervised

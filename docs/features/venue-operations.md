@@ -684,16 +684,48 @@ was.
 **Roles** are the venue's own data. Every venue starts with *range officer*,
 *lifeguard* and *instructor*; it can add its own (*pool attendant*) and turn a
 role off (not while a rule still asks for it). A role may name the
-qualification a holder must have: the starters suggest one (*Range officer
-certificate*, and so on), which the venue may change or clear. Until a person's
-is recorded, their shifts in that role count for nothing, and the roster says so.
+qualification a holder is asked to have: the starters suggest one (*Range
+officer certificate*, and so on), which the venue may change or clear, and each
+has a **level** ([below](#qualification-levels)). Whether a person without it
+counts depends on that level.
 
 **Qualifications** are what the venue saw, not a sign-off (a
 [sign-off](activities.md#sign-offs) is a customer's clearance to book): the
 name, a reference (never a document) and the last day it holds, for a member of
-staff or a coach. A shift counts only to the end of that last day; one that
-outlasts it is flagged on the roster ("ends on …, before some shifts to come"),
-never silently valid.
+staff or a coach. Where the venue requires the qualification, a shift counts
+only to the end of that last day; one that outlasts it is flagged on the roster
+("ends on …, before some shifts to come"), never silently valid. Where it is
+only recommended, the flag is a reminder and the shift counts.
+
+### Qualification levels
+
+Each role's qualification is **recommended**, **required by the venue** or
+**legally required**
+([ADR 0046](../architecture/decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md),
+which supersedes round 10's rule that nobody counted until the qualification
+was recorded). The starters are editable templates: the **instructor** is
+*recommended*; the **range officer** and the **lifeguard**, safety roles, are
+*required by the venue* until the venue says otherwise. A role a venue makes
+itself, with a qualification, is *required* unless it says otherwise. Existing
+roles keep what they did (required), except an instructor starter whose suggested
+qualification the venue had not changed, which is now recommended. A venue
+lowers, raises, renames or clears any of them under *Who supervises sessions →
+Roles*, with a **Check the effect** first: how many rostered shifts are held by
+somebody without it recorded, and which sessions to come would lose cover or
+gain it. Nothing is changed by the check.
+
+| Level | Strength | A person without it recorded | A manager |
+| ----- | -------- | ---------------------------- | --------- |
+| Recommended | advisory | Counts as supervising; can be rostered, named on a session and cover. The roster, the list of sessions covered this way and the supervisor line on the booking say *recommended qualification not recorded* (or *has ended*) | Nothing to decide |
+| Required by the venue | venue-required | Counts only recorded and unexpired, as round 10's rule did; a booking needing them is refused (`SV1_NO_SUPERVISOR`) | May let one existing session stand without cover, with a reason; naming a cover needs the qualification |
+| Legally required | hard | As required | **Never** lets a session stand without it (refused; a decision made before it was legal stops covering); may cover with somebody who holds it, move or cancel |
+
+*Legally required* is the **venue's declaration**: the venue gives the
+reference or wording it relies on (a regulation, a licence condition), which is
+kept as given. The app does not judge whether the law requires it, and the
+wording of the notices is provisional and awaits legal review. Changing a level
+is a manager's, in the activity log (`roster.role`). Defaults: the starters'
+levels above; no onboarding step, as the roster stays an advanced setting.
 
 **The roster** is a weekly pattern (a person, a role, a weekday, from and to;
 a shift may run past midnight, 22:00 to 06:00) with dated exceptions: an extra
@@ -746,8 +778,10 @@ out from the roster each time it is read, so a booking made under a shift is
 listed the moment the shift is gone, and leaves the list when somebody is
 rostered again. A manager **covers** a session (names another person: on the
 venue's list, holding the role's qualification through the whole session, not
-teaching then; they need not be rostered), **lets it stand** with a reason
-(required, kept, in the log), or moves or cancels it the usual way; either
+teaching then, and holding the qualification unless it is only recommended; they
+need not be rostered), **lets it stand** with a reason
+(required, kept, in the log; never where the qualification is legally required),
+or moves or cancels it the usual way; either
 decision can be taken back. A booking made under a shift stays valid until a
 manager decides.
 

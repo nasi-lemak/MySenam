@@ -110,6 +110,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0043 Moving a class, and a class's instructor as one of the venue's coaches](architecture/decisions/0043-moving-a-class-and-a-class-coach.md)
 [0045 Front desk may move a class; a consequential or exceptional move waits for a manager](architecture/decisions/0045-front-desk-class-moves-with-approval.md)
 [0047 FIDE's Baku Acceleration Method, an optional pairing for chess Swiss events](architecture/decisions/0047-baku-acceleration-for-chess.md)
+[0046 The strength of a requirement: advisory windows a manager may override with a reason, and qualification levels](architecture/decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)
 [0042 Attendance registers, and a lesson the venue moves](architecture/decisions/0042-attendance-registers-and-lessons-moved-by-the-venue.md)
 [0037 Launch and tide windows narrow the bookable hours of water hire](architecture/decisions/0037-launch-and-tide-windows.md)
 [0041 Live accounting: a venue's sales pushed to Xero, optional, behind a provider interface](architecture/decisions/0041-live-accounting-push-to-xero.md)

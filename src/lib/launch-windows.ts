@@ -1,7 +1,7 @@
 import { getDb, withTransaction } from "./db";
 import { addDays, dayOfWeek, isValidDateString } from "./time";
 import { DAY_MINUTES, instantOf, type Span } from "./interval";
-import { launchDay, type LaunchDay, type LaunchRuleSpec, type LaunchSource, type TideEvent, type TideKind, type TideRuleSpec, type WeeklyWindows } from "./launch-day";
+import { launchDay, type LaunchDay, type LaunchRuleSpec, type LaunchSource, type LaunchStrength, type TideEvent, type TideKind, type TideRuleSpec, type WeeklyWindows } from "./launch-day";
 import { MAX_TIDE_TEXT, parseTideCsv, type RowFault, type RowWarning } from "./tide-import";
 import { venueZoneOf } from "./zones";
 import type { Sport } from "./types";
@@ -30,6 +30,8 @@ export interface LaunchRule {
   tide: TideRuleSpec | null;
   minWindowMin: number;
   returnBufferMin: number;
+  /** How firmly it holds: advisory (a manager may go past it with a reason) or hard (nobody does), ADR 0046. */
+  strength: LaunchStrength;
   updatedAt: string;
 }
 
@@ -47,6 +49,7 @@ interface RuleRow {
   event_minutes: number | null;
   min_window_min: number;
   return_buffer_min: number;
+  strength: LaunchStrength | null;
   updated_at: string;
 }
 
@@ -83,12 +86,13 @@ const toRule = (r: RuleRow): LaunchRule => ({
         : null,
   minWindowMin: r.min_window_min,
   returnBufferMin: r.return_buffer_min,
+  strength: r.strength === "hard" ? "hard" : "advisory",
   updatedAt: r.updated_at,
 });
 
 /** A rule as the day is worked out from it. */
 export function ruleSpec(r: LaunchRule): LaunchRuleSpec {
-  return { source: r.source, weekly: r.weekly, tide: r.tide, minWindowMin: r.minWindowMin, returnBufferMin: r.returnBufferMin };
+  return { source: r.source, weekly: r.weekly, tide: r.tide, minWindowMin: r.minWindowMin, returnBufferMin: r.returnBufferMin, strength: r.strength };
 }
 
 /** The rule that applies to a resource for an activity: one for that activity, else the resource's own for all. */
@@ -180,6 +184,8 @@ export type RuleInput = {
   tide?: unknown;
   minWindowMin?: unknown;
   returnBufferMin?: unknown;
+  /** `advisory` (the default) or `hard` (ADR 0046); absent keeps a rule's own. */
+  strength?: unknown;
 };
 
 /** A station's name as kept: trimmed, runs of spaces made one. */
@@ -278,22 +284,26 @@ export async function saveRule(venueId: number, input: RuleInput, adminId: numbe
     if (own.court_id !== courtId || own.sport !== sport) return { ok: false, error: "A rule stays with its resource and activity: remove it and make another." };
     id = own.id;
   }
+  // How firmly it holds (ADR 0046): advisory unless the venue says hard; left out, a rule keeps its own.
+  if (input.strength !== undefined && input.strength !== null && input.strength !== "advisory" && input.strength !== "hard")
+    return { ok: false, error: "A rule is advisory (a manager may go past it with a reason) or hard (nobody does)." };
+  const strength: LaunchStrength | null = input.strength === "hard" ? "hard" : input.strength === "advisory" ? "advisory" : null;
   const values = [source, weeklyJson, station, tideRule, minHeightCm, eventKind, eventMinutes, minWindow, back, adminId] as const;
   if (id !== undefined) {
     await db
       .prepare(
         `UPDATE launch_rules SET source = ?, weekly = ?, station = ?, tide_rule = ?, min_height_cm = ?, event_kind = ?, event_minutes = ?,
-                min_window_min = ?, return_buffer_min = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?`
+                min_window_min = ?, return_buffer_min = ?, updated_by = ?, strength = COALESCE(?, strength), updated_at = datetime('now') WHERE id = ?`
       )
-      .run(...values, id);
+      .run(...values, strength, id);
   } else {
     const row = (await db
       .prepare(
         `INSERT INTO launch_rules (venue_id, court_id, sport, source, weekly, station, tide_rule, min_height_cm, event_kind, event_minutes,
-                                   min_window_min, return_buffer_min, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                                   min_window_min, return_buffer_min, updated_by, strength)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
       )
-      .get(venueId, courtId, sport, ...values)) as { id: number };
+      .get(venueId, courtId, sport, ...values, strength ?? "advisory")) as { id: number };
     id = row.id;
   }
   return { ok: true, rule: toRule((await db.prepare("SELECT * FROM launch_rules WHERE id = ?").get(id)) as RuleRow) };
