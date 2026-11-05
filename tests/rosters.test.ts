@@ -351,7 +351,7 @@ describe("the one booking path", () => {
 
   it("is asked when a booking is moved to another court", async () => {
     const tue = ahead(2, 16);
-    const made = ok(await book(archery, tue, [10])).booking;
+    const made = ok(await book(archery, tue, [13])).booking;
     // A lane that also needs a lifeguard: nobody is rostered as one.
     const lane3 = await createCourt({ venueId, name: "Lane 3", sport: "archery", offPeakRate: 20, peakRate: 20, capacity: 1 });
     if (!lane3.ok) throw new Error("court");

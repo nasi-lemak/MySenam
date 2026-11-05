@@ -171,7 +171,7 @@ describe("moving a lesson: the coach's week, other lessons and the court", () =>
     // A lesson already under way: its start has passed.
     const nowMin = Math.round((Date.now() - new Date(`${todayISO(ZONE)}T00:00:00+08:00`).getTime()) / 60_000);
     if (nowMin > 40 && nowMin < H(24) - 40) {
-      const today = await lesson(ana, addDays(todayISO(ZONE), 3), 10);
+      const today = await lesson(ana, weekday(30), 10);
       await getDb()
         .prepare("UPDATE bookings SET date = ?, start_min = ?, end_min = ?, starts_at = ?, ends_at = ? WHERE id = ?")
         .run(todayISO(ZONE), nowMin - 30, nowMin + 30, new Date(Date.now() - 30 * 60_000).toISOString(), new Date(Date.now() + 30 * 60_000).toISOString(), today.id);

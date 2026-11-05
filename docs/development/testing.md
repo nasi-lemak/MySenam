@@ -903,6 +903,42 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 5 November 2026, commit `bd47dbc` (the owner's three remaining decisions)
+
+The owner's three decisions, built by two workers and the lead: ladder counter-proposals (the counter-proposer's agreement counts, a stale or superseded
+proposal is refused, a revision counter, a history of hold events; migration 0293), no automatic blame for abandoned or expired ladder holds (only a player's
+own cancellations of holds that really reserved a court count towards a pause that ends by itself), and the youth-messaging interim safeguards pending legal
+review (a launch switch that keeps youth messaging off in production, a recorded decision about each guardian's authority, review and appeal from the neutral
+line, safeguarding escalation, evidence classes and owner-only legal holds, no invented legal period; migration 0294, ADR 0052), with the checklist for a
+lawyer in [legal review: youth messaging](../operations/legal-review-youth-messaging.md). Not a launch, and not a legal conclusion. Run on one cloud
+container, Node 22, by hand.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed |
+| Documentation checks (`npm run docs:check`) | 139 passed |
+| Build (`npm run build`) | Succeeded |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 27 files; 94 of 95 passed (one failure below) |
+| Suite on PGlite | 496 files (3 skipped); 6083 passed, 12 skipped, 4 failed (below) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 496 files; 6096 passed, 3 failed (below); one unhandled `ECONNRESET` |
+| CI | Not run (deferred) |
+| Real services | None checked |
+
+Every failure was in a test, not the app, and is corrected in the commits after this one. *Ladders A* waited for the word "declined" in the challenges list and
+found it first in the new, collapsed explanation of the limits (hidden); it now waits for the visible one, and the scenario passed alone (2 tests). Four unit
+tests depended on the day or the time rather than on the behaviour: in `tests/class-moves.test.ts` a link's window was asserted to be under 3.5 days, which is
+untrue between midnight and 06:00 Malaysian time (the run reached it at about 03:00); and in `tests/lesson-venue-moves.test.ts`, `tests/qualification-levels.test.ts`
+and `tests/rosters.test.ts` two tests picked the same slot on some days of the week ("a Tuesday about 12 days ahead" and "about 13 days ahead" are the same Tuesday
+on a Friday) and the second was refused. Each now uses a slot of its own. After the corrections the four files passed on PGlite and on Postgres (80 tests on
+each); no second full run was made. The Postgres unhandled `ECONNRESET` came from the migration lock's release in one worker (the same kind as in an earlier
+record); every file passed on its own.
+
+Gaps: no live integration has passed its check; no browser scenario covers the counter-proposal screens or the youth-messaging safeguards (the guardian
+authority record, the reported-adult review and appeal, the escalation); every legal question in the checklist is pending legal verification and nothing here
+claims compliance; the youth-messaging notices and their wording await legal review; the Malay, Chinese and Tamil of everything added is machine-assisted and
+awaits native review.
+
 #### 5 November 2026, commit `72286df` (the owner's five remaining decisions)
 
 The owner's decisions on the five questions left open by the previous round, built by two workers and the lead: guardians in

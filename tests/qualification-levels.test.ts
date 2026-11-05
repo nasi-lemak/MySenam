@@ -143,7 +143,7 @@ describe("a recommended qualification never stops anybody counting", () => {
 
   it("stops flagging once the qualification is recorded", async () => {
     const tue = ahead(2, 13);
-    const made = ok(await book(tue, 10));
+    const made = ok(await book(tue, 11));
     ok(await recordQualification(venueId, { personKind: "staff", personId: ann.id, qualification: "instructor certificate" }, by));
     expect((await rosterFlags(venueId)).some((f) => f.personId === ann.id && f.roleId === instructor.id)).toBe(false);
     expect((await recommendedGaps(venueId)).some((g) => g.code === made.booking.code)).toBe(false);
