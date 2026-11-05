@@ -139,7 +139,7 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
     });
   });
 
-  scenario("Guide H: an archery range is told, in English and Malay, that a rostered range officer for each session is available (built, so not among what MySenam does not do), and what is not supported for any venue is still said plainly; gym entry and day passes, built now, are not among it; setup never offers what is not built", async (s) => {
+  scenario("Guide H: an archery range is told, in English and Malay, that rostered range officers are available; what is not supported is still said plainly; gym entry and day passes are not among it; setup never offers what is not built", async (s) => {
     const visitor = await s.actor("Visitor");
     const page = visitor.page;
 

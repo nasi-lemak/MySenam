@@ -709,10 +709,16 @@ describe("tournament formats, run by their organisers", () => {
 async function tableRows(page: Page, heading: string): Promise<{ name: string; points: number; buchholz: number }[]> {
   const table = page.locator("div").filter({ has: page.getByRole("heading", { name: new RegExp(`^${heading}`) }) }).locator("table").first();
   await table.waitFor();
-  return table.locator("tbody tr").evaluateAll((trs) =>
-    trs.map((tr) => {
-      const cells = Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? "");
-      return { name: cells[1].replace(/\(.*\)/, "").trim(), points: Number(cells[cells.length - 2]), buchholz: Number(cells[cells.length - 1]) };
-    })
+  // The columns after Buchholz are the event's other tie-breaks (Cut-1, Sonneborn-Berger, ...): find points and Buchholz by their headings.
+  const heads = (await table.locator("thead th").allTextContents()).map((h) => h.trim());
+  const at = { points: heads.findIndex((h) => h === "Pts"), buchholz: heads.findIndex((h) => h === "Buch.") };
+  if (at.points < 0 || at.buchholz < 0) throw new Error(`The standings have no Pts and Buch. columns: ${heads.join(" | ")}`);
+  return table.locator("tbody tr").evaluateAll(
+    (trs, idx) =>
+      trs.map((tr) => {
+        const cells = Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? "");
+        return { name: cells[1].replace(/\(.*\)/, "").trim(), points: Number(cells[idx.points]), buchholz: Number(cells[idx.buchholz]) };
+      }),
+    at
   );
 }
