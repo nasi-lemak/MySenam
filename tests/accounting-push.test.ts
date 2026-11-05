@@ -370,8 +370,9 @@ describe("what is sent", () => {
     // Money held for customers goes to the liability account, with no tax.
     const voucher = standin.invoices.find((i) => i.lines[0].AccountCode === "800" && i.lines[0].UnitAmount === 30)!;
     expect(voucher.lines[0]).toMatchObject({ TaxType: "NONE", TaxAmount: 0 });
-    const credit = standin.payments.find((p) => p.documentId === standin.invoices.find((i) => i.lines[0].UnitAmount === 21.2 && i.reference.includes("booking"))?.id);
-    expect(credit?.accountCode).toBe("090");
+    // (Several bookings cost 21.20, so which one the stand-in lists first depends on the order they were made in: look at all of them.)
+    const bookingIds = standin.invoices.filter((i) => i.lines[0].UnitAmount === 21.2 && i.reference.includes("booking")).map((i) => i.id);
+    expect(standin.payments.filter((p) => bookingIds.includes(p.documentId)).some((p) => p.accountCode === "090")).toBe(true);
     // A booking paid from stored credit settles against the account chosen for stored credit.
     const paidFromCredit = standin.payments.find((p) => p.accountCode === "800" && !p.forCreditNote);
     expect(paidFromCredit).toBeTruthy();
