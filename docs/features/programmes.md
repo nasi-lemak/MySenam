@@ -120,13 +120,13 @@ log too.
 
 ### Moving a class
 
-A manager moves a class that has not begun to another date, time or court from
+A manager, or front desk at its own venue ([below](#front-desk-moves-and-approval)),
+moves a class that has not begun to another date, time or court from
 *Classes → Move* (`POST /api/admin/classes/:id/move`; `moveClasses` and
 `previewClassMove` in `src/lib/class-moves.ts`; migration 0281). Moving is not
 cancelling and enrolling again: everyone keeps their place, their code, what they
-paid and the price they were charged. It is a manager's, as scheduling, changing
-and cancelling a class are (`MANAGER_ONLY`; the preview too, since it names
-everybody enrolled and what each will be told).
+paid and the price they were charged. Scheduling, changing and cancelling a class
+stay a manager's (`MANAGER_ONLY`).
 
 - **What moves.** *This session only*; *this session and the later ones of its
   weekly series*; or *the whole term* (every session of the series not yet begun).
@@ -198,6 +198,59 @@ everybody enrolled and what each will be told).
   the class's row and claim, so they show the move as soon as it is made.
 - **Not here**: moving one booking, a lesson or a weekly series of bookings
   ([moving a weekly series](booking.md#moving-a-weekly-series)); the attendance register; coach pay.
+
+### Front-desk moves and approval
+
+Front desk moves a class at the venue it works at, through the same route, preview and checks as a manager
+(`moveOrRequest` in `src/lib/class-move-requests.ts`; migration 0287; [ADR 0045](../architecture/decisions/0045-front-desk-class-moves-with-approval.md)).
+Nothing about *what may happen* is relaxed (the hours, closed days, what holds the court, the instructor, a members-only venue, the
+roster, attendance taken, the refund window, the notices); this is who may ask. A class of another venue is not the desk's to move
+(`denyVenue`).
+
+- **The switch.** *Front desk may move classes at this venue* (`venues.desk_may_move_classes`, **on by default**; *Classes → Front desk and
+  class moves (advanced)*, a manager's, collapsed until opened, in the activity log as `settings.changed`). Off, the desk is turned away
+  from the route and its preview exactly as from any manager's route (403 `MANAGER_ONLY`) and the classes screen does not offer *Move*.
+  A manager's move is never asked about.
+- **What needs a manager's approval.** A desk's move that meets any of these is not made but asked for. Each is the venue's number, with
+  the default below; every test is *more than*, so 0 means any, and each is advanced and needs no set-up.
+
+  | Kind | Reason | Default |
+  | ---- | ------ | ------- |
+  | Financial | the new time or court prices differently (court time at the venue's rates, peak included; the class's own price per place never changes, nobody enrolled is repriced) | on (`class_move_price_check`) |
+  | Financial | a term or series of more than one session with paid enrolments | always |
+  | Financial | more people who paid, or hold a pass entry or a membership's benefit, than a number | not asked (`class_move_paid_people`, empty) |
+  | Exceptional | a session moved more days than a number | 14 (`class_move_max_days`) |
+  | Exceptional | more sessions than a number moved at once | 4 (`class_move_max_series`) |
+  | Exceptional | a session that starts, or would start, within a number of hours | 24 (`class_move_within_hours`) |
+  | Exceptional | people waiting for a place of it | always |
+  | Exceptional | a session that was moved before | always |
+
+  A same-price, same-length move with notices, even with people who paid, is not consequential: every move opens the refund window and
+  nobody is refunded unless they cancel. A move across a closed day or outside the venue's hours is refused for everyone, as before: there
+  is no override for a class move, so nothing to approve. The preview a desk sees says whether its move needs approval and why
+  (`approval` in the preview's answer), and the button reads *Send for approval*.
+- **A request.** Not applied: it is stored (`class_move_requests`: who, the class and where, the note the desk added, why it needs approval,
+  the preview as the desk saw it with counts and no person's name, and a fingerprint of what it was computed from) and answers 202. **Nobody
+  enrolled or waiting is told, nothing is claimed or released and no refund window opens until a move is made.** One request waits per class
+  (`CLS3_REQ_OPEN`). Every manager of the venue is emailed in their own staff language; it is in *Needs attention* and at the top of the
+  classes screen.
+- **Approving and declining** (`POST /api/admin/class-move-requests/:id`, a manager's; another venue's request is not found; the desk cannot).
+  *Approve and move* makes the move through `moveClasses`: everything is read again, before the locks and again under the classes' row
+  locks, and if the class, who is enrolled or who is waiting changed since the desk asked it is refused as changed (`CLS3_REQ_CHANGED`) and
+  the request is closed; otherwise the move is made and the request marked approved in the same transaction, so two managers approving at
+  once make one move (the other: `CLS3_REQ_DECIDED`) and an enrolment at that moment is either in the moved class or refused the approval.
+  A move something now stands in the way of is refused with its usual refusal and the request waits for another try or a decline.
+  *Decline* needs a reason (`CLS3_REASON`) and changes nothing. The desk is emailed the outcome and sees it in *Needs attention* for three days.
+- **Closing by itself.** After the venue's days (7, `class_move_request_days`; never past the class's start), or at once, with the reason
+  (`started`, `cancelled`, `changed`), when the class has begun, been cancelled or moved another way. Run on every read and decision.
+- **Telling people.** When a move is actually made, as above: one message per person, in their language, written by the venue and never
+  naming a member of staff.
+- **Audit.** `class.move_requested` (by the desk, with why it needed approval), `class.move_approved` and `class.move_declined` (by the
+  manager, with the reason), `class.move_request_closed` (by *System*), and the applied move as `class.moved` with *requested by …,
+  approved by …; needed approval: …*. The request row keeps the snapshot; the log's detail is cut at 500 characters.
+- **Limits.** The desk cannot withdraw its own request (a manager declines it, or it closes); `staffMay("desk").classMove` is true whatever the
+  venue's switch says (the screen reads the venue's setting and the route enforces it); the thresholds are per venue, with the install's
+  defaults as the column defaults, not one install-wide row.
 
 ### A class's instructor as one of the venue's coaches
 

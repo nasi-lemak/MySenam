@@ -4821,6 +4821,12 @@ const EN = {
   "sv1.role.instructor": "Instructor",
   "sv1.cal.shift": "On shift: {role}",
   "sv1.cal.name": "{venue}: my shifts",
+  "err.CLS3_REQ_OPEN": "A request to move this class is already waiting for a manager.",
+  "err.CLS3_REQ_CHANGED": "The class, who is enrolled or who is waiting changed since this was asked, so it was not moved. Ask for the move again.",
+  "err.CLS3_REQ_DECIDED": "That request has already been decided or has closed.",
+  "err.CLS3_REQ_GONE": "That request was not found.",
+  "err.CLS3_REASON": "Say why you decline it.",
+  "err.CLS3_RULES_RANGE": "Days, sessions and hours must be whole numbers: days 0 to 365, sessions 0 to 52, hours 0 to 720, paying people 0 to 1000 (or empty), and a request waits 1 to 60 days.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -9588,6 +9594,12 @@ const MS: Record<Phrase, string> = {
   "sv1.role.instructor": "Pengajar",
   "sv1.cal.shift": "Bertugas: {role}",
   "sv1.cal.name": "{venue}: syif saya",
+  "err.CLS3_REQ_OPEN": "Satu permintaan untuk memindahkan kelas ini sudah menunggu pengurus.",
+  "err.CLS3_REQ_CHANGED": "Kelas, siapa yang berdaftar atau siapa yang menunggu telah berubah sejak ini diminta, jadi ia tidak dipindahkan. Minta pemindahan itu semula.",
+  "err.CLS3_REQ_DECIDED": "Permintaan itu sudah diputuskan atau telah ditutup.",
+  "err.CLS3_REQ_GONE": "Permintaan itu tidak ditemui.",
+  "err.CLS3_REASON": "Nyatakan sebab anda menolaknya.",
+  "err.CLS3_RULES_RANGE": "Hari, sesi dan jam mestilah nombor bulat: hari 0 hingga 365, sesi 0 hingga 52, jam 0 hingga 720, orang yang membayar 0 hingga 1000 (atau kosong), dan permintaan menunggu 1 hingga 60 hari.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

@@ -20,6 +20,8 @@
   session's original start, whichever is first. The tap is the venue's own cancellation of an enrolment, the one a class
   called off makes, so refunds, credit, pass entries, counter payments owed back and credit notes are the existing machinery,
   never a second one, and a second tap finds it cancelled. A manager decides whether to move; nobody else is asked.
+  (Amended by [ADR 0045](0045-front-desk-class-moves-with-approval.md): front desk may move a class, and a manager approves
+  what is consequential or exceptional.)
 - **Decision 3: a class's coach is claimed in `coach_claims`, the table that keeps a coach in one lesson at a time.** A claim
   belongs to a booking or to a class (a check keeps it to exactly one), and the same exclusion constraint therefore refuses a
   class over a lesson, a lesson over a class and a class over a class, to the minute, whatever the rooms, with no check

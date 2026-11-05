@@ -135,7 +135,7 @@ export interface MovePreview {
   notices: { name: string; kind: "enrolled" | "waiting"; locale: string; channels: string[]; text: string }[];
 }
 
-interface Planned {
+export interface Planned {
   chosen: ClassSession;
   scope: MoveScope;
   items: { session: ClassSession; to: SessionMove["to"]; conflict: Conflict | null; court: Court }[];
@@ -338,6 +338,17 @@ class Refused extends Error {
   }
 }
 
+/**
+ * Where a move made on somebody's say-so (lib/class-move-requests.ts: a manager approving a front-desk request) ties its own record to the
+ * same transaction. Nothing here is used by a move made directly.
+ */
+export interface MoveHooks {
+  /** Under the classes' row locks, before anything is read again or changed: a refusal undoes everything and is what the move answers. */
+  locked?: (planned: Planned) => Promise<Refusal | null>;
+  /** In the same transaction, once the sessions are moved and the move recorded: the request is marked approved in the same commit. */
+  applied?: (moveId: number, moved: MovedClass[]) => Promise<void>;
+}
+
 export type ClassMoveResult =
   | {
       ok: true;
@@ -356,7 +367,13 @@ export type ClassMoveResult =
  * the same moment, or two staff moving one class, never leave a session half moved: the second sees what the first did and is
  * refused as changed.
  */
-export async function moveClasses(admin: { id: number | null; name: string }, classId: number, to: ClassMoveTo, scope?: unknown): Promise<ClassMoveResult> {
+export async function moveClasses(
+  admin: { id: number | null; name: string },
+  classId: number,
+  to: ClassMoveTo,
+  scope?: unknown,
+  hooks?: MoveHooks
+): Promise<ClassMoveResult> {
   const planned = await plan(classId, to, scope);
   if (!("items" in planned)) return planned;
   const blocked = planned.items.filter((i) => i.conflict);
@@ -379,6 +396,8 @@ export async function moveClasses(admin: { id: number | null; name: string }, cl
     outcome = await withTransaction(async () => {
       // The lock every enrolment takes while it counts places (lib/store.ts `enrolPeopleOnce`), in id order.
       for (const id of ids) await db.prepare("SELECT id FROM classes WHERE id = ? FOR UPDATE").get(id);
+      const lockedOut = hooks?.locked ? await hooks.locked(planned) : null;
+      if (lockedOut) throw new Refused(lockedOut);
       // Nothing changed since it was read: not moved, cancelled, begun or attended meanwhile.
       for (const item of planned.items) {
         const now = await getClass(item.session.id);
@@ -454,6 +473,8 @@ export async function moveClasses(admin: { id: number | null; name: string }, cl
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(move.id, m.after.id, m.before.courtId, m.before.date, m.before.startMin, m.before.endMin, m.after.courtId, m.after.date, m.after.startMin, m.after.endMin);
+
+      if (hooks?.applied) await hooks.applied(move.id, moved);
 
       // Each person holding a place: one link, for all their places in this move, to cancel for everything back until the window ends.
       const recipients = await classMoveRecipients(moved);

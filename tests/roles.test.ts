@@ -75,8 +75,10 @@ describe("what front desk may not do", () => {
       expect(desk[name as keyof typeof desk], name).toBe(!managerOnly(method, path));
       expect(manager[name as keyof typeof manager], name).toBe(true);
     }
-    // Every one the dashboard asks about today is a manager's; the desk is offered none of them.
-    expect(Object.values(desk).every((v) => v === false)).toBe(true);
+    // Every one the dashboard asks about is a manager's but moving a class, which the desk may do at its own venue unless a manager turns that off (ADR 0045);
+    // deciding a request to move one, and the settings, stay a manager's.
+    expect(desk.classMove).toBe(true);
+    expect(Object.entries(desk).every(([name, v]) => v === false || name === "classMove")).toBe(true);
   });
 
   it("sends the answers with who is signed in", async () => {

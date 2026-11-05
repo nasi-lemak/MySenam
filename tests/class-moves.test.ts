@@ -128,7 +128,7 @@ describe("moving a session", () => {
     expect(listed.filter((c) => c.id === session.id)).toHaveLength(1);
   });
 
-  it("is logged with what it was and what it is, by a manager's route; the desk is turned away", async () => {
+  it("is logged with what it was and what it is, by a manager's route; the desk is turned away where the venue has turned its moves off", async () => {
     const { classes } = await aClass();
     const [session] = classes;
     const res = await post(session.id, { date: day(9), start: "17:00" });
@@ -139,10 +139,16 @@ describe("moving a session", () => {
     expect(entry?.adminName).toBe("Mona Manager".replace("Manager", "Mover"));
     expect(entry?.detail).toContain(`${day(5)} 6:00 PM–7:00 PM`);
     expect(entry?.detail).toContain(`${day(9)} 5:00 PM–6:00 PM`);
-    const desk = await post(session.id, { date: day(10), start: "17:00" }, deskCookie);
-    expect(desk.status).toBe(403);
-    expect((await desk.json()).code).toBe("MANAGER_ONLY");
-    expect((await getClass(session.id))!.date).toBe(day(9));
+    // Front desk may move a class unless the venue's manager turned that off (ADR 0045; tests/class-move-requests.test.ts): with it off, as before.
+    await getDb().prepare("UPDATE venues SET desk_may_move_classes = FALSE WHERE id = ?").run(venueId);
+    try {
+      const desk = await post(session.id, { date: day(10), start: "17:00" }, deskCookie);
+      expect(desk.status).toBe(403);
+      expect((await desk.json()).code).toBe("MANAGER_ONLY");
+      expect((await getClass(session.id))!.date).toBe(day(9));
+    } finally {
+      await getDb().prepare("UPDATE venues SET desk_may_move_classes = TRUE WHERE id = ?").run(venueId);
+    }
   });
 
   it("refuses a bad request and a class of another venue's court", async () => {

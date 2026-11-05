@@ -6,6 +6,7 @@ import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent"
 import { overdueRefunds } from "@/lib/payments";
 import { classCoachConflicts } from "@/lib/class-coaches";
 import { uncoveredSessions } from "@/lib/rosters";
+import { listMoveRequests } from "@/lib/class-move-requests";
 import { jsonObject } from "@/lib/api";
 import { strandedByLaunch } from "@/lib/launch-worklist";
 import { listVenues } from "@/lib/store";
@@ -30,6 +31,8 @@ async function launchStranded(venueIds: number[] | null) {
  * days off then, works other hours or is not held for it.
  * And `launchStranded`: bookings and classes to come that a launch or tide window now leaves outside it, by venue (ADR 0037).
  * And `uncovered`: sessions to come with too few qualified people rostered, for a manager to decide (lib/rosters.ts).
+ * And `classMoveRequests`: front desk's class moves waiting for a manager's approval (a manager decides them here); a desk is shown those waiting and the outcome of its
+ * own in the last three days (lib/class-move-requests.ts, ADR 0045).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -44,6 +47,7 @@ export async function GET(req: NextRequest) {
     classCoachConflicts: await classCoachConflicts(admin.venueIds),
     launchStranded: await launchStranded(admin.venueIds),
     uncovered: await uncoveredSessions(admin.venueIds),
+    classMoveRequests: await listMoveRequests(admin, { decidedDays: admin.role === "desk" ? 3 : 0, mineOnly: admin.role === "desk" }),
   });
 }
 

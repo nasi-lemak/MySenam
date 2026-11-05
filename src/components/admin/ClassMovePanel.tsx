@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ClockField } from "@/components/ClockField";
 import type { ClassSession } from "@/lib/types";
 import type { MovePreview, MoveScope } from "@/lib/class-moves";
+import type { ApprovalReason } from "@/lib/class-move-requests";
 import { formatMinute } from "@/lib/interval";
 import { shortDate } from "@/lib/region";
 import { useStaffT } from "./StaffLanguage";
@@ -31,7 +32,8 @@ export function ClassMovePanel({
   const [date, setDate] = useState(session.date);
   const [start, setStart] = useState(session.startMin);
   const [courtId, setCourtId] = useState("");
-  const [seen, setSeen] = useState<MovePreview | null>(null);
+  const [seen, setSeen] = useState<(MovePreview & { approval?: { required: boolean; reasons: ApprovalReason[] } }) | null>(null);
+  const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -44,7 +46,7 @@ export function ClassMovePanel({
       const res = await fetch(`/api/admin/classes/${session.id}/move`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body(), ...(preview ? { preview: true } : {}) }),
+        body: JSON.stringify({ ...body(), ...(preview ? { preview: true } : {}), ...(!preview && note.trim() !== "" ? { note: note.trim() } : {}) }),
       });
       const data = await readJson(res);
       if (!res.ok) {
@@ -53,7 +55,9 @@ export function ClassMovePanel({
         const more = Array.isArray(data.conflicts) ? (data.conflicts as { date: string; error: string; code?: string; vars?: Record<string, string | number> }[]).slice(1).map((c) => `${shortDate(c.date, t.locale, true)}: ${t.err(c)}`) : [];
         throw new Error([t.err(data, t("clsa.move.failed")), ...more].join(" "));
       }
-      if (preview) setSeen(data as MovePreview);
+      if (preview) setSeen(data as typeof seen);
+      // A move a manager must approve was asked for, not made: nothing moved and nobody was told (lib/class-move-requests.ts).
+      else if (data.requested === true) onDone(t("cls3.approval.sent"));
       else onDone(t.plural("clsa.move.done", (data.classes as unknown[]).length, { told: data.told }));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("clsa.move.failed"));
@@ -164,13 +168,25 @@ export function ClassMovePanel({
               </details>
             )}
             {seen.blocked && <p className="font-semibold text-red-700">{t("clsa.move.blocked")}</p>}
+            {seen.approval?.required && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" data-testid="move-approval">
+                <p className="font-semibold">{t("cls3.approval.title")}</p>
+                <p className="mt-0.5">
+                  {t("cls3.approval.help", { why: seen.approval.reasons.map((r) => t(`cls3.why.${r.code}`, { n: r.n ?? 0, limit: r.limit ?? 0 })).join("; ") })}
+                </p>
+                <label className="mt-2 block font-medium">
+                  {t("cls3.approval.note")}
+                  <textarea value={note} maxLength={300} rows={2} onChange={(e) => setNote(e.target.value)} className="mt-0.5 block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" />
+                </label>
+              </div>
+            )}
           </div>
         )}
 
         <div className="flex gap-2 pt-1">
           {seen && !seen.blocked ? (
             <button type="button" disabled={busy} onClick={() => void send(false)} className="flex-1 rounded-lg bg-teal-600 py-2 font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
-              {t("clsa.move.confirm")}
+              {seen.approval?.required ? t("cls3.approval.send") : t("clsa.move.confirm")}
             </button>
           ) : (
             <button type="button" disabled={busy} onClick={() => void send(true)} className="flex-1 rounded-lg bg-teal-600 py-2 font-semibold text-white hover:bg-teal-700 disabled:opacity-50">

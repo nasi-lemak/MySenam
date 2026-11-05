@@ -4654,6 +4654,12 @@ export const ZH: Record<Phrase, string> = {
   "sv1.role.instructor": "指导员",
   "sv1.cal.shift": "值班：{role}",
   "sv1.cal.name": "{venue}：我的班次",
+  "err.CLS3_REQ_OPEN": "已有一项调整此课程的申请在等待经理处理。",
+  "err.CLS3_REQ_CHANGED": "自提出申请以来，课程、报名人员或等候人员已发生变化，因此未调整。请重新申请调整。",
+  "err.CLS3_REQ_DECIDED": "该申请已有决定或已关闭。",
+  "err.CLS3_REQ_GONE": "找不到该申请。",
+  "err.CLS3_REASON": "请说明拒绝的原因。",
+  "err.CLS3_RULES_RANGE": "天数、课节数和小时数必须为整数：天数 0 至 365，课节数 0 至 52，小时数 0 至 720，已付费人数 0 至 1000（或留空），申请等待 1 至 60 天。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

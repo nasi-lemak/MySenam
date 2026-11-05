@@ -25,8 +25,11 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/billing$/, methods: ["POST"] },
   { path: /^\/api\/admin\/courts(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/classes(\/\d+)?$/, methods: ["POST", "DELETE"] },
-  // Moving a class (lib/class-moves.ts), its preview too: it tells every person enrolled, as calling a class off does.
-  { path: /^\/api\/admin\/classes\/\d+\/move$/, methods: ["POST"] },
+  // Moving a class (POST /api/admin/classes/:id/move) is not listed: front desk may move a class at its own venue unless a manager turns that off for the
+  // venue (the route asks `venues.desk_may_move_classes` and answers as this list does), and a move that is consequential or exceptional waits for a
+  // manager's approval (lib/class-move-requests.ts, ADR 0045). Deciding a request, and the settings that decide what needs one, are a manager's.
+  { path: /^\/api\/admin\/class-move-requests\/\d+$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/class-move-settings$/, methods: ["POST"] },
   { path: /^\/api\/admin\/go-live$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(hold-policy|house-rules|venue-access|venue-tax|booking-alerts|peak-rules|booking-policies|venue-time-zone|cancel-policy|calendar-feed|court-links|sport-rules)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/holidays$/, methods: ["POST", "DELETE"] },
@@ -148,12 +151,15 @@ export function managerOnly(method: string, path: string): boolean {
   return MANAGER_ONLY.some((r) => r.path.test(path) && (r.methods === "all" || r.methods.includes(method.toUpperCase())));
 }
 
+/** What front desk is told when turned away from something a manager does. */
+export function deskTurnedAway(): NextResponse {
+  return NextResponse.json({ error: "Front-desk accounts cannot change this. Ask a manager.", code: "MANAGER_ONLY" }, { status: 403 });
+}
+
 /** The answer a front-desk account gets for something a manager does. */
 export function deskRefusal(role: StaffRole, method: string, path: string): NextResponse | null {
   if (role !== "desk") return null;
-  return managerOnly(method, path)
-    ? NextResponse.json({ error: "Front-desk accounts cannot change this. Ask a manager.", code: "MANAGER_ONLY" }, { status: 403 })
-    : null;
+  return managerOnly(method, path) ? deskTurnedAway() : null;
 }
 
 /**
@@ -217,7 +223,10 @@ export const STAFF_ACTIONS = {
   classes: "POST /api/admin/classes",
   classChange: "PATCH /api/admin/classes/1",
   classCancel: "DELETE /api/admin/classes/1",
+  // Moving a class is the desk's too, where the venue lets it (classMoveSettings) and with approval for what is consequential; deciding a request is a manager's.
   classMove: "POST /api/admin/classes/1/move",
+  classMoveDecide: "POST /api/admin/class-move-requests/1",
+  classMoveSettings: "POST /api/admin/class-move-settings",
   coaches: "POST /api/admin/coaches",
   // Registers: closing one, the report and the spreadsheet, and the days of the moved-lesson refund window and the register's open days. The desk marks.
   attendanceLock: "POST /api/admin/attendance/lock",

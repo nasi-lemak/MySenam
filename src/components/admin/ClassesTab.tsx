@@ -18,6 +18,7 @@ import { useStaffT } from "./StaffLanguage";
 import { WaitlistJoin, WaitlistQueue } from "./WaitlistJoin";
 import { ClassEditor } from "./ClassEditor";
 import { ClassMovePanel } from "./ClassMovePanel";
+import { ClassMoveRequestsSection, ClassMoveSettings } from "./ClassMoveRequests";
 import type { ClassCoachConflict } from "@/lib/class-coaches";
 import { formatMinute } from "@/lib/interval";
 import { AttendanceReport, LessonSettings, RegisterButton } from "./AttendancePanels";
@@ -41,6 +42,10 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
   const [waiting, setWaiting] = useState<Record<number, number>>({});
   const [editing, setEditing] = useState<ClassSession | null>(null);
   const [moving, setMoving] = useState<ClassSession | null>(null);
+  // Front desk may move a class unless a manager turned that off for the venue (lib/class-move-requests.ts); a move asked for is listed until decided.
+  const [deskMayMove, setDeskMayMove] = useState(true);
+  const [moveRequests, setMoveRequests] = useState(0);
+  const isDesk = !may("classMoveDecide");
   // A typed instructor whose name is a coach of the venue (one click links it), and sessions whose coach cannot teach them (lib/class-coaches.ts).
   const [coachMatches, setCoachMatches] = useState<Record<number, { id: number; name: string }>>({});
   const [coachConflicts, setCoachConflicts] = useState<ClassCoachConflict[]>([]);
@@ -87,6 +92,20 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!isDesk) return;
+    let live = true;
+    void (async () => {
+      const res = await fetch(`/api/admin/class-move-settings?venueId=${venueId}`, { cache: "no-store" }).catch(() => null);
+      if (!res?.ok) return;
+      const data = (await readJson(res)) as { rules?: { deskMayMove?: boolean } };
+      if (live) setDeskMayMove(data.rules?.deskMayMove !== false);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [venueId, isDesk]);
 
   // The venue's active coaches, for a class to be taught by one of them (lib/class-coaches.ts).
   useEffect(() => {
@@ -230,6 +249,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           {notice}
         </div>
       )}
+      <ClassMoveRequestsSection venueId={venueId} refresh={moveRequests} onNotice={setNotice} onDecided={() => void load()} />
 
       {/* Sessions whose coach can no longer teach them as set: the class keeps its instructor until staff change it. */}
       {coachConflicts.length > 0 && (
@@ -337,7 +357,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                         {t("p8c.cls.edit")}
                       </button>
                     )}
-                    {session.status === "scheduled" && may("classMove") && (
+                    {session.status === "scheduled" && may("classMove") && (!isDesk || deskMayMove) && (
                       <button
                         onClick={() => {
                           setNotice(null);
@@ -602,6 +622,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           onDone={(said) => {
             setMoving(null);
             setNotice(said);
+            setMoveRequests((n) => n + 1);
             void load();
           }}
         />
@@ -609,6 +630,11 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
       {venue && (
         <ManagerOnly may="lessonSettings">
           <LessonSettings key={venue.id} venueId={venue.id} />
+        </ManagerOnly>
+      )}
+      {venue && (
+        <ManagerOnly may="classMoveSettings" note={false}>
+          <ClassMoveSettings key={venue.id} venueId={venue.id} />
         </ManagerOnly>
       )}
       {venue && (
