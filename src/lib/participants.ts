@@ -987,6 +987,8 @@ export async function eraseParticipant(id: number, why: string): Promise<void> {
   await db.prepare("UPDATE sign_offs SET managed_person_id = NULL WHERE managed_person_id = ?").run(id);
   await db.prepare("UPDATE inductions SET revoked_at = COALESCE(revoked_at, datetime('now')), participant_id = NULL WHERE participant_id = ?").run(id);
   await db.prepare("UPDATE booking_participants SET participant_id = NULL, name = NULL WHERE participant_id = ?").run(id);
+  // What was marked about them at classes and lessons: kept as counts, naming nobody (lib/attendance.ts).
+  await (await import("./attendance")).forgetAttendanceOfParticipant(id);
   // A waiting-list entry for them is offered to nobody (lib/store.ts entryStillTheirs).
   await db.prepare("UPDATE waitlist_participants SET participant_id = NULL, name = NULL WHERE participant_id = ?").run(id);
   await db.prepare("UPDATE waiver_signatures SET managed_person_id = NULL WHERE managed_person_id = ?").run(id);

@@ -31,6 +31,7 @@ import { AdjustPrice } from "./AdjustPrice";
 import { OwedRefunds } from "./OwedRefunds";
 import { SeriesMovePanel } from "./SeriesMovePanel";
 import { EntryDesk } from "./EntryDesk";
+import { RegisterButton } from "./AttendancePanels";
 
 /* ---------------- Bookings tab ---------------- */
 
@@ -1771,6 +1772,7 @@ function Coach({ b, act }: { b: AdminBookingRow; act: Act }) {
   return (
     <div className="mt-1 text-xs text-indigo-700">
       🎓 {t("bk.lesson", { coach: b.coachName ?? "", fee: money(b.coachFee ?? 0) })}
+      {b.status === "confirmed" && <RegisterButton kind="lesson" id={b.id} className="ml-2 rounded border border-indigo-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-indigo-700" />}
       {b.status === "confirmed" &&
         (b.coachOwed ?? []).map((o) =>
           act.paying === `coach:${o.changeId}` ? (

@@ -27,6 +27,7 @@ import {
 } from "@/lib/store";
 import { attachCoach, coachById, coachWorks, discardBooking, type Coach } from "@/lib/coaching";
 import { assignLessonCoach, coachChoice, coachDifferences, lessonRefusal, lessonSports } from "@/lib/lesson-coaches";
+import { openLessonMove } from "@/lib/lesson-venue-moves";
 import { guestSurge, policyCheck } from "@/lib/limits";
 import { overrideRefusal, policyRefusal, readOverride, type PolicyOverrideRecord } from "@/lib/policy-overrides";
 import { guestHostAt, registerGuest, undoGuestRegistration, type GuestHost, type GuestRegistration } from "@/lib/guest-invites";
@@ -727,5 +728,7 @@ export async function GET(req: NextRequest) {
           .filter((d) => d.state !== "cleared")
           .map((d) => ({ changeId: d.changeId, amount: d.amount, coach: d.toCoach, state: d.state, via: d.via, receiptUrl: d.receipt ? receiptPath(d.receipt) : null }))
       : [],
+    // A lesson the venue moved, while its customer may still cancel it with everything back (lib/lesson-venue-moves.ts).
+    movedLesson: booking.coachId && booking.status === "confirmed" ? await openLessonMove(booking.id) : null,
   });
 }

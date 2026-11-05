@@ -464,7 +464,7 @@ export async function counterPayoutsOn(venueIds: number[] | null, date: string):
  * money was taken at the counter on it, owes it back the same way, with the
  * cause `test` (lib/test-bookings.ts).
  */
-export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api", "class", "test"] as const;
+export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api", "class", "test", "lesson_moved"] as const;
 export type VenueCancelCause = (typeof VENUE_CANCEL_CAUSES)[number];
 export type OwedOutcome = Extract<CancelOutcome, "back" | "credit">;
 export const isOwedOutcome = (v: unknown): v is OwedOutcome => v === "back" || v === "credit";

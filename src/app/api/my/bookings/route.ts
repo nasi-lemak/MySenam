@@ -8,6 +8,7 @@ import { windowFor } from "@/lib/house-rules";
 import { addDays, todayISO } from "@/lib/time";
 import { customerCourtName, laneHidden } from "@/lib/lanes";
 import { currentLocale } from "@/lib/locale";
+import { openLessonMove } from "@/lib/lesson-venue-moves";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,8 @@ export async function GET(req: NextRequest) {
           ? (await holdPolicy(b.venueId)).depositPercent
           : null,
       lastDate: addDays(todayISO(b.venueTimeZone), await windowFor(b.venueId, [b.phone])),
+      // A lesson the venue moved, while its customer may still cancel it with everything back (lib/lesson-venue-moves.ts).
+      movedLesson: b.coachId ? await openLessonMove(b.id) : null,
     });
   }
   // Money paid online and owed back, or refunded, on any of them: for the customer to follow.

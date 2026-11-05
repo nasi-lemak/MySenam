@@ -56,6 +56,11 @@ export const RETENTION = {
   webhookDeliveryDays: 30,
   /** A booking stops naming anybody after this, but its money stays. */
   bookingIdentityDays: 730,
+  /**
+   * Attendance marks (lib/attendance.ts): who came to a class or lesson, a walk-in's name and the instructor's note, with the register's
+   * lock and each correction, after the session's day; the same period as the booking's own names.
+   */
+  attendanceDays: 730,
   /** Withdrawn out-of-hours access, kept a while in case it is disputed. */
   revokedInductionDays: 365,
   /**
@@ -222,6 +227,29 @@ const RULES: Rule[] = [
     // The booking survives — its price is the venue's record. The person in
     // it does not, nor anybody it was booked for.
     set: `name = '${ANONYMOUS}', phone = '', email = NULL, check_in_token = NULL, participant_name = NULL`,
+  },
+  {
+    // A register's marks (lib/attendance.ts): who came, a walk-in's name and a note; each correction goes with its mark.
+    what: said("clsb.ret.attendance"),
+    days: RETENTION.attendanceDays,
+    action: "deleted",
+    table: "attendance_marks",
+    where: "session_date < ?",
+  },
+  {
+    what: said("clsb.ret.attendance"),
+    days: RETENTION.attendanceDays,
+    action: "deleted",
+    table: "attendance_sessions",
+    where: "session_date < ?",
+  },
+  {
+    // A lesson the venue moved (lib/lesson-venue-moves.ts): where it was and is, the price difference and the member of staff who moved it.
+    what: said("clsb.ret.lessonMoves"),
+    days: RETENTION.attendanceDays,
+    action: "deleted",
+    table: "lesson_moves",
+    where: "moved_at < ?::timestamptz",
   },
   {
     what: said("ptc.ret.placeNames"),
@@ -521,6 +549,8 @@ export interface CustomerExport {
   guardianRequests: unknown[];
   /** Its relationships paused while a manager reviews them: the relationship alone. */
   guardianshipsPaused: unknown[];
+  /** What instructors and the desk recorded about it at classes and lessons, and about the people it manages: the day, the session, the mark and the note (lib/attendance.ts). */
+  attendance: unknown[];
   /** People taken off its bookings, the others staying booked (lib/place-withdrawals.ts): what each place cost and what went back. */
   placeWithdrawals: unknown[];
   /** Benefits redeemed for one place of its bookings: a concession or a member's price, and what each took off (lib/entitlements.ts). */
@@ -758,6 +788,7 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         guardianshipsPaused: people.paused,
       };
     })()),
+    attendance: await (await import("./attendance")).attendanceExport(userId),
     placeWithdrawals: await all(
       `SELECT b.code AS booking, v.name AS venue, b.date, w.takes_part_as, w.name, w.places, w.price, w.paid, w.refunded, w.kept, w.late,
               w.units_returned, w.by_kind AS withdrawn_by, w.reason, w.created_at
@@ -1105,6 +1136,8 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
     await (await import("./teams")).forgetTeamsOfUser(userId, ANONYMOUS);
     // Their place in the ratings ledger becomes "(removed)", standing at the rating it had then, and the pools they were in are replayed (lib/ratings.ts).
     await (await import("./ratings")).forgetRatingsOfUser(userId);
+    // What was marked about their own places at classes and lessons: kept as counts, naming nobody (lib/attendance.ts).
+    await (await import("./attendance")).forgetAttendanceOfUser(userId);
     // Their applications to be approved for an activity: answers, documents and any slot held. A sign-off already given stays the venue's record.
     await (await import("./approvals")).eraseApprovals(userId);
     // Their relationships to participants go; one nobody else acts for goes too, a sign-off or induction in force taken back first.

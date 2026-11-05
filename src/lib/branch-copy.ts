@@ -86,6 +86,8 @@ export const VENUE_SETTINGS = [
   "discount_stacking",
   "lesson_coach_choice",
   "review_requests",
+  "lesson_move_refund_days",
+  "attendance_lock_days",
 ] as const;
 
 /** A court's columns never copied: its identity, its door, and what the database keeps from other rows. */

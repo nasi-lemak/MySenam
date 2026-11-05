@@ -134,6 +134,8 @@ export async function logCoachChange(found: CoachByToken, detail: string): Promi
 }
 
 export interface Lesson {
+  /** The booking's id: what the coach's register of the lesson is kept under (lib/attendance.ts). */
+  id: number;
   code: string;
   date: string;
   startHour: number;
@@ -148,12 +150,13 @@ export interface Lesson {
 export async function coachLessons(coachId: number, from: string, until: string): Promise<Lesson[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT b.code, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.phone, b.payment_status, c.name AS court
+      `SELECT b.id, b.code, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.phone, b.payment_status, c.name AS court
          FROM bookings b JOIN courts c ON c.id = b.court_id
         WHERE b.coach_id = ? AND b.status = 'confirmed' AND b.date BETWEEN ? AND ?
         ORDER BY b.date, b.start_min`
     )
     .all(coachId, from, until)) as {
+    id: number;
     code: string;
     date: string;
     start_min: number;
@@ -164,6 +167,7 @@ export async function coachLessons(coachId: number, from: string, until: string)
     court: string;
   }[];
   return rows.map((r) => ({
+    id: r.id,
     code: r.code,
     date: r.date,
     startHour: hoursOf(r.start_min),

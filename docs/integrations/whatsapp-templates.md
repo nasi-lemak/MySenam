@@ -379,7 +379,7 @@ Tamil (`ta`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {
 
 ### `mysenam_booking_rescheduled`
 
-Sent when staff change a booking's date or time (a customer who changes their own is emailed instead).
+Sent when staff change a booking's date or time (a customer who changes their own is emailed instead). For a coached lesson the venue moved, `{{6}}` also carries one sentence saying the price stays and that the customer may cancel for everything back until a stated time, with their booking's link (`clsb.msg.refundOffer`; one line, so the template and its parameters are unchanged).
 
 English (`en`) — {{1}} name, {{2}} venue, {{3}} code, {{4}} where, {{5}} when, {{6}} money, {{7}} ack
 

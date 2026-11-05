@@ -3336,6 +3336,8 @@ export type RescheduleResult =
       priceChange: number;
       /** What the new time costs against the old at today's rates, when the price was left as paid. */
       unchargedDifference: number;
+      /** A lesson the venue moved: its price stays as agreed whatever the new time costs (lib/lesson-venue-moves.ts). */
+      keepsAgreedPrice?: boolean;
       /** The court's rules staff went past, to be recorded. */
       overrides?: PolicyBreach[];
       /** Where it went (or, previewed or held, would go). */
@@ -3527,6 +3529,10 @@ async function rescheduleBookingOnce(
     if (tooLate) return tooLate;
   } else if (minutesUntil(booking.date, booking.endMin, zone) <= 0) {
     return { ok: false, error: "That booking has already finished." };
+  } else if (booking.coachId) {
+    // A lesson already under way, or one the instructor has marked somebody present at, is not moved (lib/lesson-venue-moves.ts).
+    if (minutesUntil(booking.date, booking.startMin, zone) <= 0) return refuse("LESSON_STARTED");
+    if (await (await import("./attendance")).attendanceTaken({ kind: "lesson", id: booking.id })) return refuse("LESSON_ATTENDED");
   }
   if (by === "customer" && !isBookableDate(to.date, zone, await venueAheadDays(fromCourt.venueId))) return refuse("DATE_OUT_OF_WINDOW");
   if (minutesUntil(to.date, span.start, zone) <= 0) return refuse("SLOT_PAST");
@@ -3646,9 +3652,13 @@ async function rescheduleBookingOnce(
     const paid = booking.paymentStatus === "paid";
     let coachChange: import("./lesson-coaches").CoachChange | undefined;
     if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
+    // A lesson the venue moves keeps the price agreed: the new time may price differently, but the customer is not charged more or
+    // given back less without a choice (a manager's price adjustment); only another coach's fee still changes it (lib/lesson-venue-moves.ts).
+    const keepsAgreed = by === "staff" && !!booking.coachId;
+    const chargeDelta = keepsAgreed ? (coachChanging ? feeChange : 0) : delta;
     // A payment page open for the old price would settle it short.
-    if (!paid && delta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
-    const priceChange = paid ? 0 : Math.max(-booking.totalPrice, delta);
+    if (!paid && chargeDelta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
+    const priceChange = paid ? 0 : Math.max(-booking.totalPrice, chargeDelta);
     const from = { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, startHour: booking.startHour, endHour: booking.endHour, courtId: fromCourt.id };
     const where = { date: to.date, startMin: span.start, endMin: span.end, courtId: court.id, courtName: court.name };
     const result = {
@@ -3657,7 +3667,8 @@ async function rescheduleBookingOnce(
       to: where,
       priceChange,
       // A paid lesson's coach fee is settled as the manager chose (lib/lesson-coaches.ts), not left uncharged here.
-      unchargedDifference: paid ? Math.round((delta - (coachChanging ? feeChange : 0)) * 100) / 100 : 0,
+      unchargedDifference: paid || keepsAgreed ? Math.round((delta - (coachChanging ? feeChange : 0)) * 100) / 100 : 0,
+      ...(keepsAgreed ? { keepsAgreedPrice: true } : {}),
       ...(breaches.length > 0 ? { overrides: breaches } : {}),
     };
     try {
@@ -3773,6 +3784,18 @@ async function rescheduleBookingOnce(
           }
           if (breaches.length > 0) await db.prepare("UPDATE bookings SET policy_override = true WHERE id = ?").run(booking.id);
           await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(priceChange, booking.id);
+          // A lesson the venue moved to another day or time: on the record, with its customer's refund window, and its reminders re-armed.
+          if (lesson && by === "staff" && (to.date !== booking.date || span.start !== booking.startMin))
+            await (await import("./lesson-venue-moves")).recordLessonMove({
+              bookingId: booking.id,
+              venueId: fromCourt.venueId,
+              zone,
+              from: { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, courtId: fromCourt.id },
+              to: { date: to.date, startMin: span.start, endMin: span.end, courtId: court.id },
+              priceKept: booking.totalPrice + priceChange,
+              priceDifference: Math.round((delta - (coachChanging ? feeChange : 0)) * 100) / 100,
+              by: to.changedBy ? { adminId: to.changedBy.adminId, name: to.changedBy.name } : null,
+            });
           // A called-off game keeps where and when it was, not where its booking went.
           await db
             .prepare(

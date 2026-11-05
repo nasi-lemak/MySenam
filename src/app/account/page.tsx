@@ -17,6 +17,7 @@ import MyWaitlist from "@/components/MyWaitlist";
 import MyPasses from "@/components/MyPasses";
 import MyMemberships from "@/components/MyMemberships";
 import MyReceipts from "@/components/MyReceipts";
+import MyAttendance from "@/components/MyAttendance";
 import { ChangePassword } from "@/components/ChangePassword";
 import { BookAgain } from "@/components/BookAgain";
 import { MyVenues } from "@/components/MyVenues";
@@ -27,6 +28,8 @@ import { SeriesCancel } from "@/components/SeriesCancel";
 import { BookingPayment, HoldNotice, isHeld } from "@/components/BookingPayment";
 import { ChangeTime } from "@/components/ChangeTime";
 import { WithdrawPeople } from "@/components/WithdrawPeople";
+import { MovedLesson } from "@/components/MovedLesson";
+import type { MovedLessonOffer } from "@/lib/lesson-venue-moves";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
 import type { RefundStatus } from "@/lib/payments";
@@ -38,7 +41,7 @@ import VenueContact from "@/components/VenueContact";
  * One of the account's bookings, with what My Booking says of it while it is
  * still to come (app/api/my/bookings): so this page offers the same.
  */
-type AccountBooking = UserBookingRow & { payOnline?: boolean; depositPercent?: number | null; lastDate?: string };
+type AccountBooking = UserBookingRow & { payOnline?: boolean; depositPercent?: number | null; lastDate?: string; movedLesson?: MovedLessonOffer | null };
 
 /** Past the free-cancellation cutoff, and what cancelling online does then: the share kept, all of it (giving the court back), or nothing to do online. */
 function lateNow(b: UserBookingRow): { late: boolean; keep: number | null; giveBack: boolean } {
@@ -246,6 +249,8 @@ export default function AccountPage() {
       <MyMemberships />
 
       <MyReceipts />
+
+      <MyAttendance />
 
       <MyWaitlist phone={user.phone} />
 
@@ -662,6 +667,15 @@ function BookingCard({
           ⬇️ .ics
         </button>
       </div>
+      {/* A lesson the venue moved: cancelling it with everything back, the customer's own act (lib/lesson-venue-moves.ts). */}
+      {onChanged && b.movedLesson && (
+        <MovedLesson
+          offer={b.movedLesson}
+          zone={b.venueTimeZone}
+          cancel={() => fetch("/api/my/bookings/cancel-moved", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId: b.id }) })}
+          onCancelled={() => onChanged(t("clsb.moved.done"))}
+        />
+      )}
       {/* Another time, as My Booking moves it: by its code and the phone it was booked with. */}
       {onChanged && b.classId === null &&
         (changing ? (

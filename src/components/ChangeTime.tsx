@@ -121,6 +121,18 @@ export function ChangeTime({
         <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-slate-700">
           {p.priceChange > 0 && <li>{t("move.dearer", { amount: money(p.priceChange.toFixed(2)) })}</li>}
           {p.priceChange < 0 && <li>{t("move.cheaper", { amount: money(Math.abs(p.priceChange).toFixed(2)) })}</li>}
+          {/* A lesson the venue moves keeps the price agreed: what the new time comes to is shown, never charged (lib/lesson-venue-moves.ts). */}
+          {p.keepsAgreedPrice && (
+            <li data-testid="keeps-price">
+              {p.unchargedDifference > 0
+                ? t("clsb.move.keepsPrice", { amount: money(p.unchargedDifference.toFixed(2)) })
+                : p.unchargedDifference < 0
+                  ? t("clsb.move.keepsPriceLess", { amount: money(Math.abs(p.unchargedDifference).toFixed(2)) })
+                  : t("clsb.move.keepsPriceSame")}
+            </li>
+          )}
+          {p.keepsAgreedPrice && <li>{t("clsb.move.adjustHint")}</li>}
+          {p.keepsAgreedPrice && <li>{t("clsb.move.told")}</li>}
           {p.players.length > 0 && <li>{t("move.players", { names: p.players.map((x) => x.name).join(", ") })}</li>}
           {pendingCount > 0 && <li>{t("move.pending", { n: pendingCount })}</li>}
           {p.clashes > 0 && <li>{t("move.clashes", { n: p.clashes })}</li>}

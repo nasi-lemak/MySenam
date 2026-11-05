@@ -17,6 +17,7 @@ import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 import { WaitlistJoin, WaitlistQueue } from "./WaitlistJoin";
 import { ClassEditor } from "./ClassEditor";
+import { AttendanceReport, LessonSettings, RegisterButton } from "./AttendancePanels";
 
 const STATUS: Record<ClassStatus, StaffPhrase> = { scheduled: "cls.status.scheduled", cancelled: "cls.status.cancelled" };
 const ONLY: Record<string, StaffPhrase> = { women: "cls.onlyWomen", men: "cls.onlyMen" };
@@ -462,6 +463,13 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                 ))}
               </ul>
             )}
+            {/* The register of this session: marked from its day, never before by the desk (lib/attendance.ts). */}
+            <div className="mt-3">
+              <RegisterButton kind="class" id={roster.session.id} />
+            </div>
+            <ManagerOnly may="attendanceReport">
+              {venue && <AttendanceReport venueId={venue.id} classId={roster.session.id} seriesCode={roster.session.seriesCode} />}
+            </ManagerOnly>
             <button
               onClick={() => setRoster(null)}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2 font-semibold text-white hover:bg-teal-700"
@@ -482,6 +490,11 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
             void load();
           }}
         />
+      )}
+      {venue && (
+        <ManagerOnly may="lessonSettings">
+          <LessonSettings key={venue.id} venueId={venue.id} />
+        </ManagerOnly>
       )}
       {venue && (
         <ManagerOnly may="coaches">

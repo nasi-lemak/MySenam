@@ -103,6 +103,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0032 Consolation draws and double elimination, on the knockout graph](architecture/decisions/0032-consolation-draws-and-double-elimination.md)
 [0034 An advanced feed-in consolation draw, on the knockout graph](architecture/decisions/0034-feed-in-consolation-draws.md)
 [0035 Rating policy: rankings published by choice, a venue's number to be ranked, and which results count](architecture/decisions/0035-rating-policy-published-rankings-and-counted-results.md)
+[0042 Attendance registers, and a lesson the venue moves](architecture/decisions/0042-attendance-registers-and-lessons-moved-by-the-venue.md)
 
 ## Integrations
 

@@ -11,6 +11,8 @@ import { BookAgain } from "@/components/BookAgain";
 import { CoachDifference, type CoachDifferenceItem } from "@/components/CoachDifference";
 import { BookingPayment, HoldNotice } from "@/components/BookingPayment";
 import { WithdrawPeople } from "@/components/WithdrawPeople";
+import { MovedLesson } from "@/components/MovedLesson";
+import type { MovedLessonOffer } from "@/lib/lesson-venue-moves";
 import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { refundLines, refundStatusLine } from "@/lib/refund-text";
@@ -38,6 +40,8 @@ interface Result {
   refunds?: RefundStatus[];
   /** A dearer coach's difference on a paid lesson: owed, being paid, or paid. */
   coachDifferences?: CoachDifferenceItem[];
+  /** A lesson the venue moved, while its customer may still cancel it with everything back (lib/lesson-venue-moves.ts). */
+  movedLesson?: MovedLessonOffer | null;
   /** This booking's own signed link (lib/booking-access.ts): put in the address once it is found. */
   link?: string;
 }
@@ -355,6 +359,19 @@ export default function MyBookingPage() {
               />
               {(result.coachDifferences ?? []).length > 0 && (
                 <CoachDifference items={result.coachDifferences!} source={{ code, phone }} payOnline={!!result.payOnline} />
+              )}
+              {result.movedLesson && (
+                <MovedLesson
+                  offer={result.movedLesson}
+                  zone={result.venue.timeZone ?? region().timeZone}
+                  cancel={() =>
+                    fetch("/api/bookings/cancel-moved", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, phone }) })
+                  }
+                  onCancelled={(booking, refunds) => {
+                    setResult({ ...result, booking, movedLesson: null });
+                    setRefunded(refundLines(t, refunds));
+                  }}
+                />
               )}
               {b.concessionName && b.concessionCheck !== "refused" && (
                 <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
