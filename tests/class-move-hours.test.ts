@@ -22,7 +22,6 @@ import { addDays, todayISO } from "../src/lib/time";
  */
 
 let venueId: number;
-let studioId: number;
 let seq = 0;
 const admin = { id: null as number | null, name: "Mona Mover" };
 const day = (n: number) => addDays(todayISO(), n);
@@ -36,7 +35,6 @@ beforeAll(async () => {
   const made = ok(await createVenue({ name: "Hours Studio", area: "Ipoh", address: "x", phone: "0355550501", openHour: 8, closeHour: 22 }));
   venueId = made.venue.id;
   await getDb().prepare("UPDATE venues SET published_at = datetime('now'), book_ahead_days = 60 WHERE id = ?").run(venueId);
-  studioId = ok(await createCourt({ venueId, name: "Studio 1", sport: "gym", offPeakRate: 5, peakRate: 8, capacity: 10 })).court.id;
 });
 
 const aClass = async (offset = 5, hour = 18, courtId?: number) => {
