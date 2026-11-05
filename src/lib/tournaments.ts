@@ -1046,7 +1046,7 @@ export async function createTournament(input: TournamentInput, adminId: number):
   if (input.format !== "performance" && rules.performance) return { ok: false, error: "That template is for a performance event." };
   if (input.format === "swiss") rules.swiss = rules.swiss ?? { rounds: null, byePoints: null, tiebreaks: null };
   // Swiss settings are for a Swiss event, or (rounds and how the placings add up) for a counted performance event with no final (ADR 0038).
-  const swissRefused = swissRefusal(input.format, rules);
+  const swissRefused = swissRefusal(input.format, rules, template.swissAcceleration ?? []);
   if (swissRefused) return { ok: false, error: swissRefused };
   const bracketRefused = bracketRulesRefusal(input.format, rules.bracket, input.thirdPlace === true);
   if (bracketRefused) return { ok: false, error: bracketRefused };
@@ -1557,7 +1557,7 @@ export async function setRules(tournamentId: number, input: unknown, opts: { con
   if (t.format === "performance" ? !parsed.rules.performance : parsed.rules.performance) return { ok: false, error: "Those rules are for another kind of event." };
   const bracketRefused = bracketRulesRefusal(t.format, parsed.rules.bracket, t.thirdPlace);
   if (bracketRefused) return { ok: false, error: bracketRefused };
-  const swissRefused = swissRefusal(t.format, parsed.rules);
+  const swissRefused = swissRefusal(t.format, parsed.rules, templateByKey(t.template)?.swissAcceleration ?? []);
   if (swissRefused) return { ok: false, error: swissRefused };
   // Choosing the feed-in format (it was not chosen before, or its third-place match changes the count) is confirmed against its consequences.
   if (isFeedIn(parsed.rules.bracket) && (!isFeedIn(t.rules.bracket) || parsed.rules.bracket.consolationThirdPlace !== t.rules.bracket.consolationThirdPlace)) {

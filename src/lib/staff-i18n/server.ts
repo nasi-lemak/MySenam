@@ -290,6 +290,8 @@ const en = {
   "srv.tpl.best_attempt.note": "Three attempts each, the best counts and the next best breaks a tie; a foul is written X.",
   "srv.tpl.custom": "Your own: sets, matches as before",
   "srv.tpl.custom.note": "The general rules: scores as sets, tables by wins, then set and point difference, then who beat whom. Change any of it below.",
+  "srv.tpl.chess_results": "Chess: win, draw, loss (1, 1/2, 0)",
+  "srv.tpl.chess_results.note": "Scores 1-0 for a win, 1-1 for a draw (each side half a point) and 0-1 for a loss; points are kept doubled (2, 1, 0) and shown halved. Tables by points, then who beat whom, then wins. For a Swiss event, FIDE's Baku acceleration can be chosen before the draw; standard pairing is the default. Not a FIDE-certified pairing program: an organiser running a rated event checks the pairings against the federation's rules.",
   // Shared: sentences one after another
   "srv.list.space": "{a} {b}",
   // Tournaments: matches by name (lib/tournaments.ts matchName)
@@ -697,6 +699,8 @@ const ms: Record<keyof typeof en, string> = {
   "srv.tpl.best_attempt.note": "Tiga cubaan setiap orang, yang terbaik dikira dan yang kedua terbaik memutuskan seri; kesalahan ditulis X.",
   "srv.tpl.custom": "Anda sendiri: set, perlawanan seperti sebelum ini",
   "srv.tpl.custom.note": "Peraturan umum: skor mengikut set, kedudukan mengikut kemenangan, kemudian beza set dan mata, kemudian siapa menewaskan siapa. Ubah mana-mana di bawah.",
+  "srv.tpl.chess_results": "Catur: menang, seri, kalah (1, 1/2, 0)",
+  "srv.tpl.chess_results.note": "Skor 1-0 untuk menang, 1-1 untuk seri (setiap pihak setengah mata) dan 0-1 untuk kalah; mata disimpan dua kali ganda (2, 1, 0) dan dipaparkan separuh. Jadual mengikut mata, kemudian siapa mengalahkan siapa, kemudian bilangan kemenangan. Untuk acara Swiss, pecutan Baku FIDE boleh dipilih sebelum cabutan; pemasangan piawai ialah lalai. Bukan program pemasangan yang diperakui FIDE: penganjur acara bertaraf perlu menyemak pasangan dengan peraturan persekutuan.",
   // Shared: sentences one after another
   "srv.list.space": "{a} {b}",
   // Tournaments: matches by name (lib/tournaments.ts matchName)
@@ -1100,6 +1104,8 @@ const zh: Record<keyof typeof en, string> = {
   "srv.tpl.best_attempt.note": "每人三次尝试，取最好成绩，次好成绩用于打破平局；犯规记为 X。",
   "srv.tpl.custom": "自定义：按局记分，比赛如前",
   "srv.tpl.custom.note": "通用规则：按局记分，积分榜先按胜场，再按局差和分差，然后按相互胜负。可在下方修改任何一项。",
+  "srv.tpl.chess_results": "国际象棋：胜、和、负（1、1/2、0）",
+  "srv.tpl.chess_results.note": "胜记 1-0，和棋记 1-1（双方各得半分），负记 0-1；积分按两倍保存（2、1、0），显示时折半。积分榜先按积分，再按相互胜负，再按胜场数。瑞士制赛事可在抽签前选择 FIDE 巴库加速法，默认为标准配对。本系统不是 FIDE 认证的配对程序：举办等级分赛事的组织者须对照协会规则核对配对。",
   // Shared: sentences one after another
   "srv.list.space": "{a}{b}",
   // Tournaments: matches by name (lib/tournaments.ts matchName)

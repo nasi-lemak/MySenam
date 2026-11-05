@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
+import { pairingName } from "@/lib/tournament-rules";
 import { cancelTournament, changeTournament, closeEntries, makeDraw, makeFinal, setRules, tournamentById, tournamentChangeDetail, tournamentDetail } from "@/lib/tournaments";
 import { tickOutbox } from "@/lib/notify";
 import { saveVenueTemplate } from "@/lib/competition-templates";
@@ -175,7 +176,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             : body.action === "final"
               ? "tournament.final_chosen"
               : "tournament.cancelled",
-    detail: t?.name ?? `Tournament ${found.id}`,
+    // Which Swiss pairing the event will use is a rule a manager sets before the draw: say what it was set to.
+    detail: `${t?.name ?? `Tournament ${found.id}`}${body.action === "rules" && t?.format === "swiss" ? `, pairing ${pairingName(t.rules.swiss)}` : ""}`,
   });
   return NextResponse.json({ tournament: await tournamentDetail(found.id, { forStaff: true }) });
 }

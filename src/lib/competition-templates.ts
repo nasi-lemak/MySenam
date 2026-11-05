@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { DEFAULT_RULES, readRules, type CompetitionRules, type PerformanceRules, type ScoringRules } from "./tournament-rules";
+import { DEFAULT_RULES, readRules, type AccelerationMethod, type CompetitionRules, type PerformanceRules, type ScoringRules } from "./tournament-rules";
 
 /**
  * Sport templates for competitions: how a sport's matches are usually
@@ -34,6 +34,11 @@ export interface CompetitionTemplate {
    * the whole team, scored as the template scores a match.
    */
   rubbers?: RubberKind[];
+  /**
+   * The accelerated Swiss pairing methods this template offers beyond standard pairing (ADR 0047): data, so a method is a sport's choice and
+   * never a branch on the sport. Absent: none, and a rule that names one for an event started from this template is refused.
+   */
+  swissAcceleration?: Exclude<AccelerationMethod, "none" | "constant">[];
   /** What the set-up screen says about it. */
   note: string;
   rules: CompetitionRules;
@@ -124,6 +129,18 @@ export const TEMPLATES: CompetitionTemplate[] = [
     matchMinutes: 60,
     note: "Scores as points, \"78-71\"; every match has a winner. 2 points a win, 1 a loss played; then who beat whom, then point difference and points scored.",
     rules: withRules(tally({ draws: false, tablePoints: { win: 2, draw: 0, loss: 1 }, rankBy: ["points", "head_to_head", "point_diff", "points_for"] })),
+  },
+  {
+    key: "chess_results",
+    label: "Chess: win, draw, loss (1, 1/2, 0)",
+    sports: ["chess"],
+    formats: ["swiss", "round_robin", "groups", "knockout"],
+    entryKinds: ["player"],
+    roster: null,
+    matchMinutes: 120,
+    swissAcceleration: ["baku"],
+    note: "Scores 1-0 for a win, 1-1 for a draw (each side half a point) and 0-1 for a loss; points are kept doubled (2, 1, 0) and shown halved. Tables by points, then who beat whom, then wins. For a Swiss event, FIDE's Baku acceleration can be chosen before the draw; standard pairing is the default. Not a FIDE-certified pairing program: an organiser running a rated event checks the pairings against the federation's rules.",
+    rules: withRules(tally({ draws: true, tablePoints: { win: 2, draw: 1, loss: 0 }, rankBy: ["points", "head_to_head", "wins"], walkover: "1-0", pointsInHalves: true })),
   },
   {
     key: "swimming_heats",

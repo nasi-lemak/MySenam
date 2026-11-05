@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { TiebreakPreview } from "@/lib/swiss";
-import { showValue as show, tiebreakValue } from "@/lib/swiss-columns";
+import { showPoints, showValue as show, tiebreakValue } from "@/lib/swiss-columns";
 import { SWISS_TIEBREAKS, defaultSwissTiebreaks, type SwissTiebreak } from "@/lib/tournament-rules";
 import type { TournamentDetail } from "@/lib/tournaments";
 import { ManagerOnly } from "./StaffMay";
@@ -68,12 +68,15 @@ export function SwissTiebreaks({ tn, names, base, call }: { tn: TournamentDetail
   const byId = new Map((s?.standings ?? []).map((l) => [l.entryId, l]));
   const rows = (preview ? preview.after.map((r) => ({ entryId: r.entryId, rank: r.rank, tie: r.tie })) : (s?.standings ?? []).map((l) => ({ entryId: l.entryId, rank: l.rank, tie: l.tie ?? null }))).filter((r) => byId.has(r.entryId));
   const columns = [...draft, ...SWISS_TIEBREAKS.filter((k) => !draft.includes(k))].filter((k) => k !== "head_to_head");
+  // Where points are kept doubled and shown halved (chess), the tie-breaks that add up points are shown halved too.
+  const halves = tn.rules.scoring.pointsInHalves === true;
+  const inPoints = (k: string, v: number | null) => (halves && v !== null && ["buchholz", "median_buchholz", "buchholz_cut1", "sonneborn_berger"].includes(k) ? v / 2 : v);
   const separation = (tie: NonNullable<(typeof rows)[number]["tie"]>) =>
     tie.by === "head_to_head"
       ? t("sw3.tb.sep.h2h", { name: name(tie.above) })
       : tie.by === "seed"
         ? t("sw3.tb.sep.seed", { name: name(tie.above), ahead: show(tie.ahead), behind: show(tie.behind) })
-        : t("sw3.tb.sep.by", { name: name(tie.above), tiebreak: sequenceName(tie.by), ahead: show(tie.ahead), behind: show(tie.behind) });
+        : t("sw3.tb.sep.by", { name: name(tie.above), tiebreak: sequenceName(tie.by), ahead: show(inPoints(tie.by, tie.ahead)), behind: show(inPoints(tie.by, tie.behind)) });
   const small = "rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:border-teal-500 disabled:opacity-40";
 
   return (
@@ -114,10 +117,10 @@ export function SwissTiebreaks({ tn, names, base, call }: { tn: TournamentDetail
                   <tr key={r.entryId} className={`align-top ${l.out ? "text-slate-400" : ""}`}>
                     <td className="py-0.5">{r.rank > 0 ? r.rank : "–"}</td>
                     <td>{name(r.entryId)}</td>
-                    <td className="text-center font-medium">{l.points}</td>
+                    <td className="text-center font-medium">{showPoints(l.points, halves)}</td>
                     {columns.map((k) => (
                       <td key={k} className={`px-1 text-center tabular-nums ${draft.includes(k) ? "" : "text-slate-400"}`}>
-                        {show(tiebreakValue(l, k))}
+                        {show(tiebreakValue(l, k, halves))}
                       </td>
                     ))}
                     <td className={r.tie?.by === "seed" ? "text-amber-800" : "text-slate-600"}>

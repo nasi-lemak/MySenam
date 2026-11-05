@@ -92,6 +92,9 @@
   the later accelerated rounds (a point, then half a point). This is the constant version:
   the same virtual point in every accelerated round, then none. A venue that wants the
   graded one asks for it; it would be a rule on the same stored fields.
+  *Amended by [ADR 0047](0047-baku-acceleration-for-chess.md): the graded method is built, for the
+  chess template only; this constant method is the "legacy" method (a number in the rules), still
+  read, paired and shown as here, and no longer offered for a new event on the set-up screen.*
 
 ## Part 2: The tie-break screen
 
@@ -225,7 +228,8 @@ are never rated), and said plainly: **it forms groups, not pairings.**
 - All three are pure functions of stored results plus stored choices, so a table, a pairing or a grouping
   rebuilt from the record equals the stored one (tested); nothing is nudged in place.
 - Accelerated pairing is the constant virtual point of Part 1, not Baku's graded one; a venue wanting
-  FIDE's exact scheme needs a further rule on the same fields.
+  FIDE's exact scheme needs a further rule on the same fields. (Built since, for chess:
+  [ADR 0047](0047-baku-acceleration-for-chess.md).)
 - A tie-break change after the draw moves the table only, so the screen's "confirm a recompute" is a
   confirmation of the table, not of pairings.
 - A counted event in Swiss rounds is a different shape from a qualification and a final: the court time of

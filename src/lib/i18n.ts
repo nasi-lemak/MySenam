@@ -4844,6 +4844,9 @@ const EN = {
   "lad3.ui.confirmBy": "Confirm this court by {by} or it is let go.",
   "lad3.ui.waitingOther": "You have confirmed. {name} has until {by} to confirm.",
   "lad3.ui.confirm": "Confirm the court",
+  // Swiss: FIDE's Baku acceleration as a chess pairing option (ADR 0047; lib/swiss.ts)
+  "swb.ui.accel": "Baku acceleration (FIDE): the best {group} of the initial order were paired as if they had one point more in round {fullRange} and half a point more in round {halfRange}, so the strongest meet early. Those points are not results: they are in no table, tie-break or rating, and after round {last} everybody is paired on real points.",
+  "swb.ui.accelFull": "Baku acceleration (FIDE): the best {group} of the initial order were paired as if they had one point more in round {fullRange}, so the strongest meet early. That point is not a result: it is in no table, tie-break or rating, and after round {last} everybody is paired on real points.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -9634,6 +9637,9 @@ const MS: Record<Phrase, string> = {
   "lad3.ui.confirmBy": "Sahkan gelanggang ini sebelum {by} atau ia akan dilepaskan.",
   "lad3.ui.waitingOther": "Anda telah mengesahkan. {name} mempunyai masa sehingga {by} untuk mengesahkan.",
   "lad3.ui.confirm": "Sahkan gelanggang",
+  // Swiss: FIDE's Baku acceleration as a chess pairing option (ADR 0047; lib/swiss.ts)
+  "swb.ui.accel": "Pecutan Baku (FIDE): {group} terbaik dalam susunan awal dipasangkan seolah-olah mereka mempunyai satu mata lebih dalam pusingan {fullRange} dan setengah mata lebih dalam pusingan {halfRange}, supaya yang terkuat bertemu awal. Mata itu bukan keputusan: ia tiada dalam sebarang jadual, pemutus seri atau penarafan, dan selepas pusingan {last} semua orang dipasangkan dengan mata sebenar.",
+  "swb.ui.accelFull": "Pecutan Baku (FIDE): {group} terbaik dalam susunan awal dipasangkan seolah-olah mereka mempunyai satu mata lebih dalam pusingan {fullRange}, supaya yang terkuat bertemu awal. Mata itu bukan keputusan: ia tiada dalam sebarang jadual, pemutus seri atau penarafan, dan selepas pusingan {last} semua orang dipasangkan dengan mata sebenar.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

@@ -343,9 +343,8 @@ function Create({
     // A Swiss event: its rounds (blank: the default for the number entered) and what a bye is worth (blank: a win's points).
     swissRounds: "",
     swissByePoints: "",
-    // Accelerated pairing (ADR 0038): off, or the number of rounds paired with a virtual point for the best half.
-    swissAccel: false,
-    swissAccelRounds: "2",
+    // How a Swiss event is paired: standard pairing, or (only where the template offers it, as chess's does) FIDE's Baku acceleration (ADR 0047).
+    swissPairing: "standard" as "standard" | "baku",
   });
   const partOf = competitions.find((c) => String(c.id) === f.competitionId) ?? null;
   const courts = venue.courts.filter((c) => courtOffers(c, f.sport));
@@ -403,7 +402,12 @@ function Create({
                     rounds: f.swissRounds === "" ? null : Number(f.swissRounds),
                     byePoints: f.swissByePoints === "" ? null : Number(f.swissByePoints),
                     tiebreaks: null,
-                    ...(f.swissAccel ? { acceleration: Number(f.swissAccelRounds) || 2 } : {}),
+                    // Baku only where this template offers it; a template carrying the legacy constant method (ADR 0038) keeps it as it was.
+                    ...(f.swissPairing === "baku" && template.swissAcceleration?.includes("baku")
+                      ? { acceleration: { method: "baku" as const } }
+                      : typeof f.rules.swiss?.acceleration === "number"
+                        ? { acceleration: f.rules.swiss.acceleration }
+                        : {}),
                   },
                 }
               : {}),
@@ -565,16 +569,16 @@ function Create({
               {t("sw.setByePoints")}
               <input type="number" min={0} max={10} placeholder={t("sw.setByePointsDefault")} value={f.swissByePoints} onChange={(e) => setF({ ...f, swissByePoints: e.target.value })} className={`w-24 ${input}`} />
             </label>
-            <label className="flex items-center gap-1.5 text-xs text-slate-600">
-              <input type="checkbox" checked={f.swissAccel} onChange={(e) => setF({ ...f, swissAccel: e.target.checked })} />
-              {t("sw3.set.accel")}
-            </label>
-            {f.swissAccel && (
+            {template.swissAcceleration?.includes("baku") && (
               <label className={label}>
-                {t("sw3.set.accelRounds")}
-                <input type="number" min={1} max={126} value={f.swissAccelRounds} onChange={(e) => setF({ ...f, swissAccelRounds: e.target.value })} className={`w-24 ${input}`} />
+                {t("swb.set.pairing")}
+                <select value={f.swissPairing} onChange={(e) => setF({ ...f, swissPairing: e.target.value as "standard" | "baku" })} className={input}>
+                  <option value="standard">{t("swb.set.standard")}</option>
+                  <option value="baku">{t("swb.set.baku")}</option>
+                </select>
               </label>
             )}
+            {typeof f.rules.swiss?.acceleration === "number" && <p className="text-xs text-slate-500">{t("swb.set.legacy", { rounds: f.rules.swiss.acceleration })}</p>}
           </>
         )}
         {f.format === "groups" && (

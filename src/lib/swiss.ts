@@ -3,7 +3,7 @@ import { scheduleTimed, standings, startStep, type Slot, type Standing, type Tak
 import { PERSON_OF } from "./competition-entrants";
 import { formatMinute, instantOf } from "./interval";
 import { said, type StaffText } from "./staff-text";
-import { SWISS_TIEBREAKS, defaultSwissTiebreaks, type OutReason, type OutStage, type ScoringRules, type SwissTiebreak } from "./tournament-rules";
+import { SWISS_TIEBREAKS, accelerationOf, bakuScoringRefusal, defaultSwissTiebreaks, type OutReason, type OutStage, type ScoringRules, type SwissTiebreak } from "./tournament-rules";
 import {
   decide,
   minutesFor,
@@ -374,10 +374,11 @@ export interface SwissDetail {
   /** Why the next round could not be paired, when it could not. */
   blocked: string | null;
   /**
-   * Accelerated pairing (ADR 0038), where the event chose it: the first `rounds` rounds are paired with `points` virtual points
-   * for the `group` best of the initial order. Never in a table or a result. Null: off.
+   * Accelerated pairing, where the event chose it: the first `rounds` rounds are paired with virtual points for the `group` best of the
+   * initial order. `method` "constant" (ADR 0038, also where absent): `points` in each. "baku" (ADR 0047): `points` in the first
+   * `fullRounds` rounds and half of them in the rest. Never in a table or a result. Null: off, standard pairing.
    */
-  acceleration: { rounds: number; group: number; points: number } | null;
+  acceleration: { method?: "constant" | "baku"; rounds: number; group: number; points: number; fullRounds?: number } | null;
 }
 
 interface EventRow {
@@ -390,10 +391,11 @@ interface EventRow {
   accel_rounds: number;
   accel_group: number;
   accel_points: number;
+  accel_method: "none" | "constant" | "baku";
 }
 
 async function eventOf(tournamentId: number): Promise<EventRow | null> {
-  return ((await getDb().prepare("SELECT rounds, planned_rounds, seed, tiebreaks, bye_points, blocked, accel_rounds, accel_group, accel_points FROM swiss_events WHERE tournament_id = ?").get(tournamentId)) as EventRow | undefined) ?? null;
+  return ((await getDb().prepare("SELECT rounds, planned_rounds, seed, tiebreaks, bye_points, blocked, accel_rounds, accel_group, accel_points, accel_method FROM swiss_events WHERE tournament_id = ?").get(tournamentId)) as EventRow | undefined) ?? null;
 }
 
 // ------------------------------------------------------------ arithmetic: acceleration (ADR 0038)
@@ -409,6 +411,34 @@ export function accelerationGroup(n: number): number {
  */
 export function virtualPointsFor(round: number, accelRounds: number, group: number, rank: number, points: number): number {
   return accelRounds > 0 && round <= accelRounds && rank <= group ? points : 0;
+}
+
+/**
+ * FIDE's Baku Acceleration Method (C.04.7, article 1.4; ADR 0047) for an event of `totalRounds`: the accelerated rounds are the first half of
+ * the tournament rounded up; GA gets the virtual points of a win before the first half of them (rounded up) and half of that before the rest.
+ * 9 rounds: 5 accelerated, 3 at the full value and 2 at half. 11: 6, 3 and 3. 2: 1, 1 and 0.
+ */
+export function bakuRounds(totalRounds: number): { accelerated: number; full: number; half: number } {
+  const accelerated = Math.ceil(totalRounds / 2);
+  const full = Math.ceil(accelerated / 2);
+  return { accelerated, full, half: accelerated - full };
+}
+
+/**
+ * The virtual points an entry is paired with in `round` under the Baku method: `win` (a win's table points) for a place in GA (`rank`
+ * within `group` of the initial order) in the first half of the `accelerated` rounds rounded up, half of `win` in the rest of them, and
+ * nothing after the last accelerated round or for GB. They only decide who meets whom; they are in no standing.
+ */
+export function bakuVirtualPoints(round: number, accelerated: number, group: number, rank: number, win: number): number {
+  if (round < 1 || round > accelerated || rank > group) return 0;
+  return round <= Math.ceil(accelerated / 2) ? win : win / 2;
+}
+
+/** The virtual points an entry is paired with in `round` by the method the event was drawn with (none: standard pairing). */
+export function virtualFor(ev: Pick<EventRow, "accel_method" | "accel_rounds" | "accel_group" | "accel_points">, round: number, rank: number): number {
+  if (ev.accel_method === "baku") return bakuVirtualPoints(round, ev.accel_rounds, ev.accel_group, rank, ev.accel_points);
+  if (ev.accel_method === "constant" || ev.accel_rounds > 0) return virtualPointsFor(round, ev.accel_rounds, ev.accel_group, rank, ev.accel_points);
+  return 0;
 }
 
 const readTiebreaks = (raw: string): SwissTiebreak[] => {
@@ -484,7 +514,12 @@ export async function swissOf(
     standings: ordered.map((l, i) => ({ ...l, rank: l.resultsVoid ? 0 : i + 1 })),
     nextRound,
     blocked: ev.blocked,
-    acceleration: ev.accel_rounds > 0 ? { rounds: ev.accel_rounds, group: ev.accel_group, points: ev.accel_points } : null,
+    acceleration:
+      ev.accel_method === "baku"
+        ? { method: "baku", rounds: ev.accel_rounds, group: ev.accel_group, points: ev.accel_points, fullRounds: Math.ceil(ev.accel_rounds / 2) }
+        : ev.accel_rounds > 0
+          ? { rounds: ev.accel_rounds, group: ev.accel_group, points: ev.accel_points }
+          : null,
   };
 }
 
@@ -596,14 +631,22 @@ export async function drawSwiss(t: Tournament, entries: DrawEntry[], random: () 
   const { seed, initial } = drawInitialOrder(entries, random);
   const minutes = minutesFor(t, "group");
   const people = await peopleOf(t.id);
-  // Accelerated pairing (ADR 0038), chosen before the draw: the top half of the initial order carries a virtual point into the first rounds.
-  const accelRounds = settings.acceleration ?? 0;
-  if (accelRounds > 0 && accelRounds >= rounds)
-    return { ok: false, error: `Accelerated pairing for ${accelRounds} round${accelRounds === 1 ? "" : "s"} leaves none paired as usual in an event of ${rounds}: ask for fewer accelerated rounds, or more rounds.` };
-  const accelGroup = accelRounds > 0 ? accelerationGroup(n) : 0;
+  // Accelerated pairing, chosen before the draw: the top half of the initial order carries virtual points into the first rounds, the legacy
+  // constant point (ADR 0038) or FIDE's Baku grading of it (ADR 0047). Standard pairing (none) is the default.
+  const method = accelerationOf(settings);
   const accelPoints = t.rules.scoring.tablePoints.win;
+  if (method.method === "constant" && method.rounds >= rounds)
+    return { ok: false, error: `Accelerated pairing for ${method.rounds} round${method.rounds === 1 ? "" : "s"} leaves none paired as usual in an event of ${rounds}: ask for fewer accelerated rounds, or more rounds.` };
+  if (method.method === "baku") {
+    // The rules were checked when they were set; scoring is checked again here, so a draw never pairs on a virtual point that is not a whole number.
+    const unscored = bakuScoringRefusal(t.rules.scoring);
+    if (unscored) return { ok: false, error: unscored };
+  }
+  const accelRounds = method.method === "constant" ? method.rounds : method.method === "baku" ? bakuRounds(rounds).accelerated : 0;
+  const accelGroup = accelRounds > 0 ? accelerationGroup(n) : 0;
+  const accelStored = { accel_method: method.method, accel_rounds: accelRounds, accel_group: accelGroup, accel_points: accelRounds > 0 ? accelPoints : 0 };
   const first = pairRound(
-    initial.map((id, i) => ({ id, points: 0, rank: i + 1, virtual: virtualPointsFor(1, accelRounds, accelGroup, i + 1, accelPoints) })),
+    initial.map((id, i) => ({ id, points: 0, rank: i + 1, virtual: virtualFor(accelStored, 1, i + 1) })),
     new Set(),
     new Set()
   );
@@ -632,8 +675,8 @@ export async function drawSwiss(t: Tournament, entries: DrawEntry[], random: () 
   await db.transaction(async () => {
     for (let i = 0; i < initial.length; i++) await db.prepare("UPDATE tournament_entries SET swiss_rank = ? WHERE id = ?").run(i + 1, initial[i]);
     await db
-      .prepare("INSERT INTO swiss_events (tournament_id, rounds, planned_rounds, seed, tiebreaks, bye_points, accel_rounds, accel_group, accel_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(t.id, rounds, rounds, seed, JSON.stringify(tiebreaks), byePoints, accelRounds, accelGroup, accelRounds > 0 ? accelPoints : 0);
+      .prepare("INSERT INTO swiss_events (tournament_id, rounds, planned_rounds, seed, tiebreaks, bye_points, accel_rounds, accel_group, accel_points, accel_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(t.id, rounds, rounds, seed, JSON.stringify(tiebreaks), byePoints, accelRounds, accelGroup, accelStored.accel_points, method.method);
     await storeRound(t, 1, first, matches, placed.placed, minutes);
     await db.prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ?").run(t.id);
   })();
@@ -711,7 +754,7 @@ async function pairingFor(d: TournamentDetail, ev: EventRow, round: number, acti
       id: e.id,
       points: points.get(e.id) ?? 0,
       rank: ranks.get(e.id)!,
-      virtual: virtualPointsFor(round, ev.accel_rounds, ev.accel_group, ranks.get(e.id)!, ev.accel_points),
+      virtual: virtualFor(ev, round, ranks.get(e.id)!),
     })),
     met,
     hadBye,
