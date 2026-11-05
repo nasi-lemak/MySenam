@@ -24,6 +24,7 @@ import { ErrorsPanel } from "@/components/admin/ErrorsPanel";
 import { IntegrityCheck } from "@/components/admin/IntegrityCheck";
 import { PlayerReportsPanel } from "@/components/admin/PlayerReportsPanel";
 import { MessageReportsPanel } from "@/components/admin/MessageReportsPanel";
+import { YouthGroupsPanel } from "@/components/admin/YouthGroupsPanel";
 import { VenuesTab } from "@/components/admin/VenuesTab";
 import { GuideTab } from "@/components/admin/guide/GuideTab";
 import type { ManagedVenue } from "@/components/admin/shared";
@@ -297,6 +298,7 @@ export default function AdminPage() {
       {isOwner && <PlayerReportsPanel />}
       {/* Reports of messages between players: a venue's manager for its own conversations, the owner for those with no venue (lib/message-moderation.ts). */}
       {!desk && <MessageReportsPanel />}
+      {!desk && <YouthGroupsPanel />}
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
       {/* One for each branch still being set up; each disappears once its branch is ready. */}
       {/* Each draft branch, until it is live; and any venue taken off for an unpaid invoice. A live one shows only

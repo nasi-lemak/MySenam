@@ -70,6 +70,8 @@ export interface MessageReportOut {
   venueId: number | null;
   threadId: number | null;
   threadState: "open" | "muted" | "closed" | null;
+  /** In a supervised youth group's thread: told at once, a longer copy, the reported person muted until it is reviewed. */
+  urgent: boolean;
   reporter: SeatLabel | null;
   /** The reported person: their account number (to suspend them), how they showed, whether their messaging is stopped here, and how many different people have reported them in the window. */
   reported: { userId: number | null; label: SeatLabel | null; suspended: boolean; reporters: number } | null;
@@ -85,7 +87,7 @@ export async function listMessageReports(admin: Admin, filter: { status?: "open"
   const db = getDb();
   const rows = (await db
     .prepare(
-      `SELECT r.id, r.created_at, r.status, r.outcome, r.reason, r.note, r.context_kind, r.context_id, r.venue_id, r.thread_id, t.staff_state,
+      `SELECT r.id, r.created_at, r.status, r.outcome, r.reason, r.note, r.context_kind, r.context_id, r.venue_id, r.thread_id, t.staff_state, r.urgent,
               r.reporter_label, r.reported_label, r.reported_id, r.reviewed_by_name, r.reviewed_at,
               EXISTS (SELECT 1 FROM player_message_suspensions s WHERE s.user_id = r.reported_id AND s.lifted_at IS NULL AND (s.venue_id IS NULL OR s.venue_id IS NOT DISTINCT FROM r.venue_id)) AS suspended,
               (SELECT COUNT(DISTINCT x.reporter_id)::int FROM player_message_reports x WHERE x.reported_id = r.reported_id AND x.created_at >= ?) AS reporters
@@ -104,7 +106,7 @@ export async function listMessageReports(admin: Admin, filter: { status?: "open"
     )) as {
     id: number; created_at: string; status: "open" | "reviewed"; outcome: "no_action" | "action_taken" | null; reason: string; note: string | null; context_kind: ContextKind;
     context_id: number; venue_id: number | null; thread_id: number | null; staff_state: "open" | "muted" | "closed" | null; reporter_label: string | null; reported_label: string | null;
-    reported_id: number | null; reviewed_by_name: string | null; reviewed_at: string | null; suspended: boolean; reporters: number;
+    reported_id: number | null; reviewed_by_name: string | null; reviewed_at: string | null; suspended: boolean; reporters: number; urgent: number;
   }[];
   const out: MessageReportOut[] = [];
   for (const r of rows) {
@@ -123,6 +125,7 @@ export async function listMessageReports(admin: Admin, filter: { status?: "open"
       venueId: r.venue_id,
       threadId: r.thread_id,
       threadState: r.staff_state,
+      urgent: r.urgent === 1,
       reporter: parseLabel(r.reporter_label),
       reported: r.reported_id === null ? null : { userId: r.reported_id, label: parseLabel(r.reported_label), suspended: r.suspended, reporters: r.reporters },
       reviewedBy: r.reviewed_by_name,
@@ -144,6 +147,9 @@ export async function reviewMessageReport(admin: Admin, id: number, outcome: unk
     )
     .get(outcome, admin.name, id, ...scope.args) as { venue_id: number | null } | undefined;
   if (!done) return no("That report is not here, or it has been dealt with.", 404);
+  // A person a report muted in a supervised youth group's thread is paused only until the report is reviewed: nothing needed lifts it.
+  if (outcome === "no_action")
+    await getDb().prepare("UPDATE youth_thread_mutes SET lifted_at = datetime('now'), lifted_by = ? WHERE report_id = ? AND lifted_at IS NULL").run(admin.name, id);
   await logAction(admin, { venueId: done.venue_id, action: "messages.report_reviewed", detail: `Report ${id}: ${outcome === "no_action" ? "nothing needed" : "action taken"}` });
   return { ok: true };
 }
@@ -156,10 +162,12 @@ export async function setThreadState(admin: Admin, threadId: number, state: unkn
   const reason = reasonOf(reasonRaw);
   if (!reason) return no("Say why, in a few words.");
   const scope = scopeOf(admin);
-  return withTransaction(async () => {
+  const closed: { group: number | null } = { group: null };
+  const result = await withTransaction(async (): Promise<{ ok: true; state: "open" | "muted" | "closed" } | Refused> => {
+    closed.group = null;
     const db = getDb();
-    const t = (await db.prepare("SELECT id, venue_id, staff_state FROM player_message_threads WHERE id = ? FOR UPDATE").get(threadId)) as
-      | { id: number; venue_id: number | null; staff_state: "open" | "muted" | "closed" }
+    const t = (await db.prepare("SELECT id, venue_id, staff_state, youth, context_id FROM player_message_threads WHERE id = ? FOR UPDATE").get(threadId)) as
+      | { id: number; venue_id: number | null; staff_state: "open" | "muted" | "closed"; youth: number; context_id: number }
       | undefined;
     if (!t || !inScope(scope, t.venue_id)) return no("That conversation is not here.", 404);
     if (t.staff_state === "closed") return no("A conversation closed by staff cannot be opened again.", 409);
@@ -167,8 +175,12 @@ export async function setThreadState(admin: Admin, threadId: number, state: unkn
       .prepare("UPDATE player_message_threads SET staff_state = ?, staff_reason = ?, staff_admin_name = ?, staff_at = datetime('now') WHERE id = ?")
       .run(state, reason, admin.name, threadId);
     await logAction(admin, { venueId: t.venue_id, action: "messages.thread_state", detail: `Conversation ${threadId}: ${state}. ${reason}` });
+    if (t.youth === 1 && state === "closed") closed.group = t.context_id;
     return { ok: true as const, state };
   });
+  // Urgent: a youth group's conversation closed is told at once to its supervisors and the minors' guardians (lib/youth-safeguarding.ts).
+  if (result.ok && closed.group !== null) await (await import("./youth-safeguarding")).tellThreadClosed(closed.group).catch(() => undefined);
+  return result;
 }
 
 export interface SuspensionOut {
@@ -219,7 +231,7 @@ export async function suspendMessaging(admin: Admin, input: { userId: unknown; r
   const reason = reasonOf(input.reason);
   if (!reason) return no("Say why, in a few words.");
   const scope = scopeOf(admin);
-  return withTransaction(async () => {
+  const done = await withTransaction(async () => {
     const db = getDb();
     let venueId: number | null = null;
     let reportId: number | null = null;
@@ -243,6 +255,8 @@ export async function suspendMessaging(admin: Admin, input: { userId: unknown; r
     await logAction(admin, { venueId, action: "messages.suspended", detail: `Person ${userId}${reportId ? `, report ${reportId}` : ""}. ${reason}` });
     return { ok: true as const, id: made.id };
   });
+  if (done.ok) await (await import("./youth-safeguarding")).tellSuspended(userId).catch(() => undefined);
+  return done;
 }
 
 /** Lift a suspension, with a reason. A venue lifts its own; the owner lifts platform-wide ones, the automatic ones included. */

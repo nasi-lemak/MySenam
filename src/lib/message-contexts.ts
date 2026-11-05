@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { slotStartsAt, todayISO, addDays } from "./time";
 import { venueZoneOf } from "./zones";
 import { isDeclaredMinor, shortName } from "./public-names";
+import { lockYouthSeat, youthGroupOf, youthSeats } from "./youth-messages";
 
 /**
  * The contexts a message can be written in, and who is in each (docs/features/player-messages.md; ADR 0039).
@@ -33,11 +34,21 @@ export interface SeatLabel {
   n?: string;
   g?: string[];
   c?: string;
+  /** In a supervised youth group's thread: a supervisor, or an adult a supervisor let in (lib/youth-messages.ts). */
+  r?: "supervisor" | "adult";
 }
 
 export interface Seat {
   userId: number;
   from: SeatLabel;
+  /**
+   * A minor's own seat, in a supervised youth group's thread only (lib/youth-messages.ts): the minor opted in, a live guardian consented
+   * for this child and this group, and the group is marked. No other context ever has one, and a seat that is one needs neither the
+   * adult setting nor a declared age.
+   */
+  minor?: boolean;
+  /** An adult's role in a youth group's thread. */
+  role?: "supervisor" | "adult";
 }
 
 export interface ContextInfo {
@@ -56,6 +67,8 @@ export interface ContextInfo {
   ended: boolean;
   /** When it ended, as stored (UTC), where that is known; the thread's own first sight of it stands otherwise. */
   endedAt: string | null;
+  /** A community group marked as a supervised youth group: its thread has supervisors and minors' seats (lib/youth-messages.ts). */
+  youth?: boolean;
 }
 
 export interface Context {
@@ -152,6 +165,18 @@ async function groupContext(id: number): Promise<Context | null> {
   const members = (await db
     .prepare("SELECT u.id, u.name FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ? AND m.status = 'member'")
     .all(id)) as { id: number; name: string }[];
+  // A supervised youth group's thread has its own seats: supervisors, adults a supervisor let in, and minors with every consent live.
+  const youth = await youthGroupOf(id);
+  if (youth) {
+    const venue = youth.venueId === null ? null : ((await db.prepare("SELECT name FROM venues WHERE id = ?").get(youth.venueId)) as { name: string } | undefined);
+    return {
+      info: {
+        kind: "group", id, venueId: youth.venueId, venueName: venue?.name ?? null, name: g.name, sport: g.sport, date: null, startMin: null,
+        ended: g.status !== "active" || youth.endedAt !== null, endedAt: youth.endedAt, youth: true,
+      },
+      seats: youth.endedAt === null ? await youthSeats(id) : [],
+    };
+  }
   return {
     info: { kind: "group", id, venueId: null, venueName: null, name: g.name, sport: g.sport, date: null, startMin: null, ended: g.status !== "active", endedAt: null },
     seats: members.map((m) => ({ userId: m.id, from: { n: firstName(m.name) } })),
@@ -327,6 +352,8 @@ export async function lockSeat(kind: ContextKind, id: number, userId: number): P
     await db.prepare("SELECT 1 FROM team_members WHERE team_id = ? AND (user_id = ? OR acting_user_id = ?) AND status = 'member' FOR SHARE").all(id, userId, userId);
   } else if (kind === "group") {
     await db.prepare("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? FOR SHARE").get(id, userId);
+    // A minor's opt-in, consents and guardians' relationships, so a revocation waits for a message being written or is seen by it.
+    await lockYouthSeat(id, userId);
   }
 }
 

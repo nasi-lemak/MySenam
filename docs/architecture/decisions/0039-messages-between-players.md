@@ -1,6 +1,7 @@
 # ADR 0039: Messages between players: only inside a context they share, adults who opted in, text with no contact details, reported and moderated by the venue that owns the context
 
-- **Status:** current, decided 2026-11-05 (the owner asked for messages between
+- **Status:** current, **amended by [ADR 0044](0044-supervised-group-messaging-for-minors-and-a-digest.md)** (three places, each
+  marked below: minors in a supervised youth group, staff reading such a group's thread, a digest instead of a throttle), decided 2026-11-05 (the owner asked for messages between
   players, safe by design; the choices below are the owner's, made in the brief, and
   the three marked *chosen here* are this record's). Built in migration 0280. What
   people see is [messages between players](../../features/player-messages.md).
@@ -28,7 +29,9 @@
     not in a context gets `404`, the same as for one that does not exist. An ended context
     leaves a thread read-only for 14 days and then closed; the thread is deleted
     `MESSAGE_RETENTION_DAYS` (90) after the context ended.
-  - **Adults' accounts only; children never message.** A seat is an account that has
+  - **Adults' accounts only; children never message.** *(Amended by [ADR 0044](0044-supervised-group-messaging-for-minors-and-a-digest.md):
+    a child's own account can have a seat in a supervised youth group's thread only, under that record's conditions; the guardian's
+    seat below is unchanged.)* A seat is an account that has
     declared it is 18 or over, re-read on every call, and has turned messaging on.
     Where a context holds a child (a team member who is a participant, a tournament,
     league or ladder entry for one), the seat is the **guardian's account**
@@ -37,7 +40,9 @@
     (`shortName`, `isDeclaredMinor` in `lib/public-names.ts`), never the full name and never the
     guardian's own name beside it. A team entry's seat is its captain, by the team name; a
     team's other members have none. A message to a child does not exist.
-  - **How minors are handled, and what was found (*chosen here*).** A *minor's account* does
+  - **How minors are handled, and what was found (*chosen here*).** *(Superseded by
+    [ADR 0044](0044-supervised-group-messaging-for-minors-and-a-digest.md), which allows a declared minor's seat in a supervised youth
+    group, as the owner decided; the text below is what stood until then.)* A *minor's account* does
     exist in the code: a registered user whose profile says `adult = false` (declared under
     18), or who has not said (`NULL`). They may hold a game place, be in a community group
     (groups are the one way a declared minor is invited to a game, ADR 0016) and enter
@@ -64,7 +69,9 @@
     other content scanning, no machine learning. Rate limits per person (30 an hour,
     150 a day), per conversation (20 an hour), new conversations (5 a day), notification
     emails (5 a day, one per conversation per 6 hours), reports (10 a day).
-  - **Notifications carry no message.** An email through the outbox as a kind of its own
+  - **Notifications carry no message.** *(The leading-edge digest below is superseded by
+    [ADR 0044](0044-supervised-group-messaging-for-minors-and-a-digest.md): the scheduler sends a real digest at the end of the period; no
+    text, no sender and no WhatsApp stand.)* An email through the outbox as a kind of its own
     (`player_message`): *you have a message in {place}*, with a link into the signed-in app;
     never the text, never the sender, never WhatsApp. A leading-edge digest: the first
     message after a quiet period tells a person, the ones within the period do not
@@ -85,7 +92,7 @@
     and suspend a person's messaging with a reason: a venue's suspension is scoped to its
     own contexts and needs a report in its scope about that person; the owner's is
     platform-wide. Everything is logged by number and reason, never with message text.
-    There is no staff screen of ordinary messages. The routes are manager-only
+    There is no staff screen of ordinary messages *(except a supervised youth group's thread, [ADR 0044](0044-supervised-group-messaging-for-minors-and-a-digest.md))*. The routes are manager-only
     (`MANAGER_ONLY`).
   - **Repeated reports suspend automatically (published rule).** Three different people's
     reports about one person within 30 days, none yet found to need no action, suspend their

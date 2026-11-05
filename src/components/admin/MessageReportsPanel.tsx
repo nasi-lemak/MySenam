@@ -118,6 +118,7 @@ export function MessageReportsPanel() {
                     <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-medium ${r.status === "open" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-600"}`}>
                       {r.status === "open" ? t("pmg.statusOpen") : t("pmg.statusReviewed")}
                     </span>
+                    {r.urgent && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">{t("ysg.urgent")}</span>}
                   </span>
                   <span className="text-xs text-slate-500">{clock.when(r.createdAt)}</span>
                 </div>

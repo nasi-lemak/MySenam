@@ -9,6 +9,7 @@ import { addManaged } from "../src/lib/managed-people";
 import { contextOf, candidateContexts } from "../src/lib/message-contexts";
 import { saveProfile } from "../src/lib/player-profiles";
 import { messageSettings, myThreads, saveMessageSettings, sendMessage, setContextMute, threadView, LIMITS } from "../src/lib/messages";
+import { sendDueDigests } from "../src/lib/message-digest";
 import { createBooking, listVenues } from "../src/lib/store";
 import { acceptInvitation, createInviteLink, createTeam, type Team } from "../src/lib/teams";
 import { addDays, todayISO } from "../src/lib/time";
@@ -255,8 +256,10 @@ describe("the notice email", () => {
       params: string;
       recipient: string;
     }[];
+  /** The scheduler's tick, seven hours on: every message so far is from a period that is over (the default period is six hours). */
+  const later = () => sendDueDigests({ now: Date.now() + 7 * 3_600_000, force: true });
 
-  it("says where, never what, once per thread per period, to the people who can read it", async () => {
+  it("says where, never what, as one digest per thread after the period, to the people who can read it (ADR 0044 replaced the leading-edge throttle)", async () => {
     const host = await person();
     const a = await person();
     const muted = await person();
@@ -267,12 +270,16 @@ describe("the notice email", () => {
     const secret = "the-secret-word-cardamom";
     expect(await send(a, "game", g.id, `bring ${secret}`)).toMatchObject({ ok: true });
     expect(await send(a, "game", g.id, `and again ${secret}`)).toMatchObject({ ok: true });
+    // Nothing at the moment of writing: the digest is the scheduler's, once the period is over.
+    expect(await notices(host.email)).toHaveLength(0);
+    await later();
     const mail = await notices(host.email);
-    // One email for two messages: the period holds the second.
+    // One email for two messages, with their count.
     expect(mail).toHaveLength(1);
     expect(mail[0]).toMatchObject({ kind: "player_message", channel: "email", venue_id: null });
     // Where it is, and a link into the signed-in app; never what was said.
     expect(mail[0].body).toContain(`/messages?open=game:${g.id}`);
+    expect(mail[0].body).toContain("2 new messages");
     expect(mail[0].body).not.toContain(secret);
     expect(mail[0].params).not.toContain(secret);
     expect(mail[0].subject).not.toContain(secret);
@@ -283,16 +290,16 @@ describe("the notice email", () => {
     // Never WhatsApp.
     const whatsapp = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM messages WHERE kind = 'player_message' AND channel <> 'email'").get()) as { n: number };
     expect(whatsapp.n).toBe(0);
-    // A new period (the claim has aged out) tells them again.
-    // (A real second period has its own key in the outbox, since it starts at least a period after the first.)
-    await getDb().prepare("UPDATE player_message_notices SET sent_at = ? WHERE user_id = ?").run(`${addDays(todayISO(), -1)} 01:00:00`, host.id);
-    await getDb().prepare("UPDATE messages SET dedupe_key = dedupe_key || '-earlier' WHERE kind = 'player_message' AND recipient = ?").run(host.email);
+    // Run again, nothing more: the same messages are never told twice.
+    await later();
+    expect(await notices(host.email)).toHaveLength(1);
+    // A new message in a later period is a digest of its own.
     await send(a, "game", g.id, "one more");
+    await sendDueDigests({ now: Date.now() + 14 * 3_600_000, force: true });
     expect(await notices(host.email)).toHaveLength(2);
   });
 
   it("is held to a few a day for a person", async () => {
-    const a = await person();
     const hosts: User[] = [];
     for (let i = 0; i < LIMITS.emailsPerDay + 1; i++) hosts.push(await person());
     const target = await person();
@@ -301,8 +308,8 @@ describe("the notice email", () => {
       // The target is written to by each host in a thread of its own: the daily cap leaves the last without an email.
       await send(h, "game", g.id, "welcome");
     }
+    await later();
     expect(await notices(target.email)).toHaveLength(LIMITS.emailsPerDay);
-    void a;
   });
 });
 

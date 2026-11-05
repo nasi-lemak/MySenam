@@ -8,6 +8,7 @@ import { translateError } from "@/lib/i18n";
 import { contextTitle } from "@/lib/message-titles";
 import type { MessageSettings, ThreadSummary } from "@/lib/messages";
 import { Thread } from "./Thread";
+import { YouthFirstUse } from "./YouthFirstUse";
 
 const FAMILIES = [
   ["game", ["game"]],
@@ -51,7 +52,7 @@ export default function MessagesPage() {
     return () => clearInterval(timer);
   }, [open, load]);
 
-  async function save(patch: { enabled?: boolean; emailNotices?: boolean }) {
+  async function save(patch: { enabled?: boolean; emailNotices?: boolean; noticeMode?: string }) {
     setError(null);
     const res = await fetch("/api/messages/settings", {
       method: "PUT",
@@ -72,7 +73,7 @@ export default function MessagesPage() {
   if (!data) return null;
   const { settings, threads } = data;
 
-  if (open && settings.enabled)
+  if (open && (settings.enabled || settings.youth))
     return (
       <Thread
         kind={open.kind}
@@ -81,6 +82,17 @@ export default function MessagesPage() {
           setOpen(null);
           window.history.replaceState(null, "", "/messages");
           void load();
+        }}
+      />
+    );
+
+  // An account that has not said it is 18 or over has no messaging of its own: only the supervised youth groups it is in (ADR 0044).
+  if (!settings.enabled && settings.youth)
+    return (
+      <YouthFirstUse
+        onOpen={(groupId) => {
+          setOpen({ kind: "group", id: groupId });
+          window.history.replaceState(null, "", `/messages?open=group:${groupId}`);
         }}
       />
     );
@@ -181,6 +193,23 @@ export default function MessagesPage() {
           <input type="checkbox" checked={settings.emailNotices} onChange={(e) => void save({ emailNotices: e.target.checked })} className="h-5 w-5" />
           {t("pmsg.emailMe")}
         </label>
+        {settings.emailNotices && (
+          <div>
+            <label className="block font-medium text-slate-900">
+              {t("pmy.notice.label")}
+              <select
+                value={settings.noticeMode}
+                onChange={(e) => void save({ noticeMode: e.target.value })}
+                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+              >
+                <option value="immediate">{t("pmy.notice.immediate")}</option>
+                <option value="digest">{t("pmy.notice.digest", { n: settings.digestHours })}</option>
+                <option value="daily">{t("pmy.notice.daily")}</option>
+              </select>
+            </label>
+            <p className="mt-1 text-xs text-slate-500">{t("pmy.notice.help")}</p>
+          </div>
+        )}
         <button onClick={() => void save({ enabled: false })} className="min-h-9 rounded-md px-1 text-slate-600 underline hover:text-teal-700">
           {t("pmsg.turnOff")}
         </button>

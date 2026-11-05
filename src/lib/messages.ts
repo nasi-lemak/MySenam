@@ -2,9 +2,10 @@ import { getDb, withTransaction } from "./db";
 import { declaredAdult } from "./player-profiles";
 import { blockPlayer } from "./player-safety";
 import { candidateContexts, contextOf, lockSeat, kindInUrl, type Context, type ContextInfo, type ContextKind, type Seat, type SeatLabel } from "./message-contexts";
-import { emailPlayer } from "./outbox";
-import { contextTitle } from "./message-titles";
-import { LIMITS, REPORT_REASONS } from "./message-limits";
+import { digestHours, LIMITS, NOTICE_CHOICES, REPORT_REASONS, YOUTH_LIMITS, type NoticeChoice } from "./message-limits";
+import {
+  clockOfMinute, inYouthGroup, mutedInThread, quietFor, quietNow, refuseYouth, youthContactPattern, youthEvent, youthGroupOf, type YouthGroup, type YouthRefusal, type YouthRefusalCode,
+} from "./youth-messages";
 
 /**
  * Messages between players (docs/features/player-messages.md; ADR 0039).
@@ -18,10 +19,10 @@ import { LIMITS, REPORT_REASONS } from "./message-limits";
  * content beyond the contact-detail check, which is a speed bump, not a guarantee.
  */
 
-export { LIMITS, REPORT_REASONS, type MessageReportReason } from "./message-limits";
+export { LIMITS, REPORT_REASONS, YOUTH_LIMITS, type MessageReportReason } from "./message-limits";
 
 const MINUTE = 60_000;
-const nowStamp = (offsetMs = 0): string => new Date(Date.now() + offsetMs).toISOString().slice(0, 19).replace("T", " ");
+export const nowStamp = (offsetMs = 0): string => new Date(Date.now() + offsetMs).toISOString().slice(0, 19).replace("T", " ");
 
 // ------------------------------------------------------------------ refusals
 
@@ -103,20 +104,34 @@ export interface MessageSettings {
   explained: boolean;
   /** Declared 18 or over (their word, not verified): the only people who can turn messaging on. */
   adult: boolean;
+  /** How they are told of unread messages: one email per conversation per period (the default), at once, or daily. Never the text. */
+  noticeMode: NoticeChoice;
+  /** Not declared 18 or over, and in a supervised youth group: the only messaging a minor's account has (lib/youth-messages.ts). */
+  youth: boolean;
+  /** Hours in a digest period on this install (`MESSAGE_DIGEST_HOURS`), for the setting's words. */
+  digestHours: number;
 }
 
 export async function messageSettings(userId: number): Promise<MessageSettings> {
-  const row = (await getDb().prepare("SELECT enabled, email_notices, explained_at FROM player_message_settings WHERE user_id = ?").get(userId)) as
-    | { enabled: number; email_notices: number; explained_at: string | null }
+  const row = (await getDb().prepare("SELECT enabled, email_notices, explained_at, notice_mode FROM player_message_settings WHERE user_id = ?").get(userId)) as
+    | { enabled: number; email_notices: number; explained_at: string | null; notice_mode: NoticeChoice }
     | undefined;
   const adult = (await declaredAdult(userId)) === true;
-  return { enabled: row?.enabled === 1 && adult, emailNotices: row ? row.email_notices === 1 : true, explained: !!row?.explained_at, adult };
+  return {
+    enabled: row?.enabled === 1 && adult,
+    emailNotices: row ? row.email_notices === 1 : true,
+    explained: !!row?.explained_at,
+    adult,
+    noticeMode: row?.notice_mode ?? "digest",
+    youth: !adult && (await inYouthGroup(userId)),
+    digestHours: digestHours(),
+  };
 }
 
 export type SettingsResult = { ok: true; settings: MessageSettings } | Refusal;
 
 /** Turn messaging on or off, or the emails. Turning it on takes a declared adult who has read the first screen (`understood`). */
-export async function saveMessageSettings(userId: number, input: { enabled?: unknown; emailNotices?: unknown; understood?: unknown }): Promise<SettingsResult> {
+export async function saveMessageSettings(userId: number, input: { enabled?: unknown; emailNotices?: unknown; understood?: unknown; noticeMode?: unknown }): Promise<SettingsResult> {
   const had = await messageSettings(userId);
   let enabled = had.enabled;
   if ("enabled" in input && typeof input.enabled === "boolean") {
@@ -127,11 +142,12 @@ export async function saveMessageSettings(userId: number, input: { enabled?: unk
     enabled = input.enabled;
   }
   const emailNotices = "emailNotices" in input && typeof input.emailNotices === "boolean" ? input.emailNotices : had.emailNotices;
+  const noticeMode = typeof input.noticeMode === "string" && (NOTICE_CHOICES as readonly string[]).includes(input.noticeMode) ? (input.noticeMode as NoticeChoice) : had.noticeMode;
   await getDb()
     .prepare(
-      `INSERT INTO player_message_settings (user_id, enabled, email_notices, explained_at, enabled_at)
-       VALUES (?, ?, ?, ${enabled ? "datetime('now')" : "NULL"}, ${enabled ? "datetime('now')" : "NULL"})
-       ON CONFLICT (user_id) DO UPDATE SET enabled = excluded.enabled, email_notices = excluded.email_notices,
+      `INSERT INTO player_message_settings (user_id, enabled, email_notices, notice_mode, explained_at, enabled_at)
+       VALUES (?, ?, ?, '${noticeMode}', ${enabled ? "datetime('now')" : "NULL"}, ${enabled ? "datetime('now')" : "NULL"})
+       ON CONFLICT (user_id) DO UPDATE SET enabled = excluded.enabled, email_notices = excluded.email_notices, notice_mode = excluded.notice_mode,
          explained_at = COALESCE(player_message_settings.explained_at, ${enabled ? "datetime('now')" : "NULL"}),
          enabled_at = CASE WHEN excluded.enabled = 1 AND player_message_settings.enabled = 0 THEN datetime('now') WHEN excluded.enabled = 0 THEN NULL ELSE player_message_settings.enabled_at END,
          updated_at = datetime('now')`
@@ -141,7 +157,7 @@ export async function saveMessageSettings(userId: number, input: { enabled?: unk
 }
 
 /** Which of these people can be written to: messaging on, and declared 18 or over (re-read now, so a later "under 18" ends it). */
-async function eligibleAmong(userIds: number[]): Promise<Set<number>> {
+export async function eligibleAmong(userIds: number[]): Promise<Set<number>> {
   if (userIds.length === 0) return new Set();
   const rows = (await getDb()
     .prepare(
@@ -183,6 +199,8 @@ interface ThreadRow {
   message_count: number;
   ended_at: string | null;
   staff_state: "open" | "muted" | "closed";
+  youth: number;
+  youth_since_id: number;
 }
 
 export type Phase = "open" | "read_only" | "paused" | "closed";
@@ -198,12 +216,28 @@ interface Access {
   reachable: Seat[];
   /** When it ended, as far as is known. */
   endedAt: string | null;
+  /** What makes this a supervised youth group's thread, for the person asking (null for every other context). */
+  youth: YouthAccess | null;
+  /** The three values `VISIBLE` takes: a supervisor sees every message, blocks or not (a thread no supervisor can read is not supervised). */
+  vis: [number, number, number];
+  /** Nothing before this message is shown (a youth thread shows nothing from before the group was marked). */
+  since: number;
+}
+
+interface YouthAccess {
+  role: "supervisor" | "adult" | "minor";
+  supervisor: boolean;
+  group: YouthGroup;
+  /** Fewer people than the minimum can read it, or no supervisor can: a conversation with a minor in it that is private in all but name. */
+  tooFew: boolean;
+  /** Muted in this thread by a supervisor or by a report awaiting review: can read, cannot write. */
+  mutedHere: boolean;
 }
 
 async function threadOf(kind: ContextKind, id: number, lock = false): Promise<ThreadRow | null> {
   return ((await getDb()
     .prepare(
-      `SELECT id, context_kind, context_id, venue_id, created_by, last_message_at, message_count, ended_at, staff_state FROM player_message_threads
+      `SELECT id, context_kind, context_id, venue_id, created_by, last_message_at, message_count, ended_at, staff_state, youth, youth_since_id FROM player_message_threads
         WHERE context_kind = ? AND context_id = ?${lock ? " FOR UPDATE" : ""}`
     )
     .get(kind, id)) ?? null) as ThreadRow | null;
@@ -226,7 +260,8 @@ async function access(userId: number, kind: ContextKind, id: number, opts: { loc
   const ctx = await contextOf(kind, id);
   const seat = ctx?.seats.find((s) => s.userId === userId);
   if (!ctx || !seat) return refuse("PM_NOT_FOUND");
-  if (opts.needOn !== false) {
+  // A minor's seat (a supervised youth group's thread only) is made of the three consents, read live; it needs no adult setting.
+  if (opts.needOn !== false && !seat.minor) {
     const settings = await messageSettings(userId);
     if (!settings.adult) return refuse("PM_ADULTS");
     if (!settings.enabled) return refuse("PM_OFF");
@@ -238,14 +273,31 @@ async function access(userId: number, kind: ContextKind, id: number, opts: { loc
     thread.ended_at = endedAt;
   }
   const others = ctx.seats.filter((s) => s.userId !== userId);
-  const eligible = await eligibleAmong(others.map((s) => s.userId));
-  const eligibleOthers = others.filter((s) => eligible.has(s.userId));
+  const eligible = await eligibleAmong(others.filter((s) => !s.minor).map((s) => s.userId));
+  const eligibleOthers = others.filter((s) => s.minor || eligible.has(s.userId));
   const blocked = await blockedWith(userId, eligibleOthers.map((s) => s.userId));
-  return { ctx, seat, thread, phase: phaseOf(ctx, thread, endedAt), others: eligibleOthers, reachable: eligibleOthers.filter((s) => !blocked.has(s.userId)), endedAt };
+  const reachable = eligibleOthers.filter((s) => !blocked.has(s.userId));
+  let youth: YouthAccess | null = null;
+  const group = ctx.info.youth ? await youthGroupOf(id) : null;
+  if (group) {
+    const supervisor = seat.role === "supervisor";
+    youth = {
+      role: seat.minor ? "minor" : (seat.role ?? "adult"),
+      supervisor,
+      group,
+      tooFew: 1 + reachable.length < YOUTH_LIMITS.minSeats || !(supervisor || reachable.some((s) => s.role === "supervisor")),
+      mutedHere: await mutedInThread(id, userId),
+    };
+  }
+  return {
+    ctx, seat, thread, phase: phaseOf(ctx, thread, endedAt), others: eligibleOthers, reachable, endedAt, youth,
+    vis: [userId, youth?.supervisor ? 0 : userId, youth?.supervisor ? 0 : userId],
+    since: thread?.youth ? thread.youth_since_id : 0,
+  };
 }
 
 /** A message is shown to a reader unless the reader and its sender have blocked one another either way (the sender's own always show). */
-const VISIBLE = `(m.sender_id IS NULL OR m.sender_id = ? OR NOT EXISTS (
+export const VISIBLE = `(m.sender_id IS NULL OR m.sender_id = ? OR NOT EXISTS (
     SELECT 1 FROM player_blocks k WHERE (k.blocker_id = ? AND k.blocked_id = m.sender_id) OR (k.blocker_id = m.sender_id AND k.blocked_id = ?)))`;
 
 const parseLabel = (raw: string | null): SeatLabel | null => {
@@ -263,6 +315,8 @@ const parseLabel = (raw: string | null): SeatLabel | null => {
 export interface MessageOut {
   id: number;
   mine: boolean;
+  /** A supervisor removed it: its words are not shown (to anybody but staff reviewing the group). */
+  removed?: boolean;
   /** How the sender showed in the context; null for one who has left the install. */
   from: SeatLabel | null;
   /** Null once the sender's account was erased. */
@@ -279,16 +333,52 @@ export interface ThreadView {
   people: number;
   canSend: boolean;
   /** Why not, as a refusal code, when `canSend` is false. */
-  whyNot: MessageRefusalCode | null;
+  whyNot: MessageRefusalCode | YouthRefusalCode | null;
   muted: boolean;
   /** The thread's number, for a report or a block. */
   threadId: number | null;
   messages: MessageOut[];
   latestId: number;
+  /** For a supervised youth group's thread only: who is reading, what the rules are, and what a supervisor may do. */
+  youth?: {
+    role: "supervisor" | "adult" | "minor";
+    /** Who supervises, as declared (first names), shown to everybody in the thread. */
+    supervisors: string[];
+    /** The rest hours now in force for minors, when this is one of them. */
+    quiet: { from: string; to: string } | null;
+    /** People a supervisor has muted or a report has: for a supervisor to lift the first kind. */
+    muted?: { id: number; label: SeatLabel; source: "supervisor" | "report" }[];
+    youthMaxLength: number;
+  };
 }
 
-async function isMuted(userId: number, kind: ContextKind, id: number): Promise<boolean> {
+export async function isMuted(userId: number, kind: ContextKind, id: number): Promise<boolean> {
   return Boolean(await getDb().prepare("SELECT 1 FROM player_message_mutes WHERE user_id = ? AND context_kind = ? AND context_id = ?").get(userId, kind, id));
+}
+
+/** The rest-hour window in force right now for a minor in this youth group (its zone, its venue's or the install's), or null. */
+async function quietWindowNow(group: YouthGroup): Promise<{ from: number; to: number } | null> {
+  const q = await quietFor(group);
+  return quietNow(new Date(), q.zone, q.windows);
+}
+
+async function youthView(y: YouthAccess, groupId: number, quiet: { from: number; to: number } | null): Promise<NonNullable<ThreadView["youth"]>> {
+  const db = getDb();
+  const supervisors = (await db
+    .prepare("SELECT u.name FROM youth_group_adults a JOIN users u ON u.id = a.user_id WHERE a.group_id = ? AND a.role = 'supervisor' AND a.removed_at IS NULL ORDER BY a.id")
+    .all(groupId)) as { name: string }[];
+  const muted = y.supervisor
+    ? ((await db
+        .prepare("SELECT t.id, t.source, u.name FROM youth_thread_mutes t JOIN users u ON u.id = t.user_id WHERE t.group_id = ? AND t.lifted_at IS NULL ORDER BY t.id")
+        .all(groupId)) as { id: number; source: "supervisor" | "report"; name: string }[])
+    : undefined;
+  return {
+    role: y.role,
+    supervisors: supervisors.map((s) => s.name.trim().split(/\s+/)[0] ?? s.name),
+    quiet: quiet ? { from: clockOfMinute(quiet.from), to: clockOfMinute(quiet.to) } : null,
+    ...(muted ? { muted: muted.map((m) => ({ id: m.id, label: { n: m.name.trim().split(/\s+/)[0] ?? m.name }, source: m.source })) } : {}),
+    youthMaxLength: YOUTH_LIMITS.maxLength,
+  };
 }
 
 export type ThreadResult = { ok: true; view: ThreadView } | Refusal;
@@ -301,14 +391,14 @@ export async function threadView(userId: number, kind: ContextKind, id: number, 
   const a = await access(userId, kind, id);
   if ("ok" in a) return a;
   if (a.phase === "closed") return refuse("PM_CLOSED");
-  let rows: { id: number; sender_id: number | null; sender_label: string | null; body: string | null; created_at: string }[] = [];
+  let rows: { id: number; sender_id: number | null; sender_label: string | null; body: string | null; created_at: string; hidden_at: string | null }[] = [];
   if (a.thread) {
     rows = (await getDb()
       .prepare(
-        `SELECT m.id, m.sender_id, m.sender_label, m.body, m.created_at FROM player_messages m
+        `SELECT m.id, m.sender_id, m.sender_label, m.body, m.created_at, m.hidden_at FROM player_messages m
           WHERE m.thread_id = ? AND m.id > ? AND ${VISIBLE} ORDER BY m.id DESC LIMIT ${LIMITS.shown}`
       )
-      .all(a.thread.id, opts.after ?? 0, userId, userId, userId)) as typeof rows;
+      .all(a.thread.id, Math.max(opts.after ?? 0, a.since), ...a.vis)) as typeof rows;
     rows.reverse();
   }
   const latestId = rows.length > 0 ? rows[rows.length - 1].id : (opts.after ?? 0);
@@ -322,8 +412,10 @@ export async function threadView(userId: number, kind: ContextKind, id: number, 
   else if (opts.markRead && a.thread)
     await getDb().prepare("INSERT INTO player_message_reads (user_id, thread_id, last_read_id) VALUES (?, ?, 0) ON CONFLICT DO NOTHING").run(userId, a.thread.id);
   const suspended = await suspendedIn(userId, a.ctx.info.venueId);
-  const whyNot: MessageRefusalCode | null =
-    a.phase === "read_only" ? "PM_READ_ONLY" : a.phase === "paused" ? "PM_PAUSED" : suspended ? "PM_SUSPENDED" : a.others.length === 0 ? "PM_NOBODY" : null;
+  const whyNot: MessageRefusalCode | YouthRefusalCode | null =
+    a.phase === "read_only" ? "PM_READ_ONLY" : a.phase === "paused" ? "PM_PAUSED" : suspended ? "PM_SUSPENDED" : a.others.length === 0 ? "PM_NOBODY"
+    : a.youth?.tooFew ? "PM_YOUTH_FEW" : a.youth && !a.thread && !a.youth.supervisor ? "PM_YOUTH_NEW_THREAD" : a.youth?.mutedHere ? "PM_YOUTH_MUTED" : null;
+  const quiet = a.youth?.role === "minor" ? await quietWindowNow(a.youth.group) : null;
   return {
     ok: true,
     view: {
@@ -332,12 +424,15 @@ export async function threadView(userId: number, kind: ContextKind, id: number, 
       info: a.ctx.info,
       phase: a.phase,
       people: a.others.length,
-      canSend: whyNot === null,
-      whyNot,
+      canSend: whyNot === null && !quiet,
+      whyNot: whyNot ?? (quiet ? "PM_YOUTH_QUIET" : null),
       muted: await isMuted(userId, kind, id),
       threadId: a.thread?.id ?? null,
-      messages: rows.map((r) => ({ id: r.id, mine: r.sender_id === userId, from: parseLabel(r.sender_label), body: r.body, at: r.created_at })),
+      messages: rows.map((r) => ({
+        id: r.id, mine: r.sender_id === userId, from: parseLabel(r.sender_label), body: r.hidden_at ? null : r.body, at: r.created_at, ...(r.hidden_at ? { removed: true } : {}),
+      })),
       latestId,
+      ...(a.youth ? { youth: await youthView(a.youth, id, quiet) } : {}),
     },
   };
 }
@@ -359,11 +454,14 @@ export interface ThreadSummary {
  */
 export async function myThreads(userId: number): Promise<{ settings: MessageSettings; threads: ThreadSummary[]; unread: number }> {
   const settings = await messageSettings(userId);
-  if (!settings.enabled) return { settings, threads: [], unread: 0 };
+  // A minor's account has no messaging of its own: only the seats a supervised youth group's conversation gives it (every consent live).
+  if (!settings.enabled && !settings.youth) return { settings, threads: [], unread: 0 };
   const out: ThreadSummary[] = [];
   for (const c of (await candidateContexts(userId)).slice(0, 100)) {
     const a = await access(userId, c.kind, c.id, { needOn: false });
     if ("ok" in a || a.phase === "closed") continue;
+    // A minor's account lists only the supervised youth groups it has a seat in, never the other contexts it is merely part of.
+    if (!settings.enabled && !a.ctx.info.youth) continue;
     let unread = 0;
     let lastAt: string | null = null;
     if (a.thread) {
@@ -371,9 +469,9 @@ export async function myThreads(userId: number): Promise<{ settings: MessageSett
         .prepare(
           `SELECT COUNT(*) FILTER (WHERE m.id > COALESCE(r.last_read_id, 0) AND m.sender_id IS DISTINCT FROM ?)::int AS unread, MAX(m.created_at) AS last_at
              FROM player_messages m LEFT JOIN player_message_reads r ON r.thread_id = m.thread_id AND r.user_id = ?
-            WHERE m.thread_id = ? AND ${VISIBLE}`
+            WHERE m.thread_id = ? AND m.id > ${a.since} AND m.hidden_at IS NULL AND ${VISIBLE}`
         )
-        .get(userId, userId, a.thread.id, userId, userId, userId)) as { unread: number; last_at: string | null };
+        .get(userId, userId, a.thread.id, ...a.vis)) as { unread: number; last_at: string | null };
       unread = r.unread;
       lastAt = r.last_at;
     }
@@ -416,6 +514,7 @@ export async function sendMessage(userId: number, kind: ContextKind, id: number,
   if (!text) return refuse("PM_EMPTY");
   if ([...text].length > LIMITS.maxLength) return refuse("PM_LONG", { n: LIMITS.maxLength });
   let sent: { message: MessageOut; threadId: number; ctx: Context; reachable: Seat[] };
+  // A minor's message is shorter, and checked inside the transaction once the seat is known.
   try {
     sent = await withTransaction(async () => {
       await lockSeat(kind, id, userId);
@@ -423,12 +522,26 @@ export async function sendMessage(userId: number, kind: ContextKind, id: number,
       if ("ok" in a) throw new Refused(a);
       // The text comes after "in the context and on", so a stranger learns nothing from what is refused; before the rest, so an address is
       // never kept even in a conversation that is closed.
-      if (contactDetail(text)) throw new Refused(refuse("PM_CONTACT"));
+      if (contactDetail(text) || (a.youth && youthContactPattern(text))) throw new Refused(refuse("PM_CONTACT"));
+      if (a.youth?.role === "minor" && [...text].length > YOUTH_LIMITS.maxLength) throw new Refused(refuse("PM_LONG", { n: YOUTH_LIMITS.maxLength }));
       if (a.phase === "closed") throw new Refused(refuse("PM_CLOSED"));
       if (a.phase === "read_only") throw new Refused(refuse("PM_READ_ONLY"));
       if (a.phase === "paused") throw new Refused(refuse("PM_PAUSED"));
       if (await suspendedIn(userId, a.ctx.info.venueId)) throw new Refused(refuse("PM_SUSPENDED"));
       if (a.others.length === 0) throw new Refused(refuse("PM_NOBODY"));
+      // A supervised youth group's thread: never private (a supervisor and enough people can read it), started by a supervisor and never by
+      // a minor, a minor's rest hours, and nobody a supervisor or a report has muted.
+      const y = a.youth;
+      if (y) {
+        if (y.tooFew) throw new Refused(refuseYouth("PM_YOUTH_FEW"));
+        if (!a.thread && !y.supervisor) throw new Refused(refuseYouth("PM_YOUTH_NEW_THREAD"));
+        if (y.mutedHere) throw new Refused(refuseYouth("PM_YOUTH_MUTED"));
+        if (y.role === "minor") {
+          const rest = await quietWindowNow(y.group);
+          if (rest) throw new Refused(refuseYouth("PM_YOUTH_QUIET", { from: clockOfMinute(rest.from), to: clockOfMinute(rest.to) }));
+        }
+      }
+      const limits = y?.role === "minor" ? YOUTH_LIMITS : LIMITS;
       const db = getDb();
       const hour = nowStamp(-60 * MINUTE);
       const day = nowStamp(-24 * 60 * MINUTE);
@@ -437,12 +550,12 @@ export async function sendMessage(userId: number, kind: ContextKind, id: number,
           `SELECT COUNT(*) FILTER (WHERE created_at >= ?)::int AS hour, COUNT(*)::int AS day FROM player_messages WHERE sender_id = ? AND created_at >= ?`
         )
         .get(hour, userId, day)) as { hour: number; day: number };
-      if (used.hour >= LIMITS.perHour || used.day >= LIMITS.perDay) throw new Refused(refuse("PM_RATE"));
+      if (used.hour >= limits.perHour || used.day >= limits.perDay) throw new Refused(refuse("PM_RATE"));
       let thread = a.thread;
       if (!thread) {
         const made = await db
-          .prepare("INSERT INTO player_message_threads (context_kind, context_id, venue_id, created_by) VALUES (?, ?, ?, ?) ON CONFLICT (context_kind, context_id) DO NOTHING")
-          .run(kind, id, a.ctx.info.venueId, userId);
+          .prepare("INSERT INTO player_message_threads (context_kind, context_id, venue_id, created_by, youth) VALUES (?, ?, ?, ?, ?) ON CONFLICT (context_kind, context_id) DO NOTHING")
+          .run(kind, id, a.ctx.info.venueId, userId, y ? 1 : 0);
         thread = (await threadOf(kind, id, true))!;
         // Somebody wrote the first message at the same moment: the thread is theirs, and this is one more message in it.
         if (made.changes > 0) {
@@ -452,7 +565,7 @@ export async function sendMessage(userId: number, kind: ContextKind, id: number,
         if (thread.staff_state !== "open") throw new Refused(refuse("PM_PAUSED"));
       }
       const inThread = (await db.prepare("SELECT COUNT(*)::int AS n FROM player_messages WHERE thread_id = ? AND sender_id = ? AND created_at >= ?").get(thread.id, userId, hour)) as { n: number };
-      if (inThread.n >= LIMITS.perThreadPerHour) throw new Refused(refuse("PM_RATE"));
+      if (inThread.n >= limits.perThreadPerHour) throw new Refused(refuse("PM_RATE"));
       const row = (await db
         .prepare("INSERT INTO player_messages (thread_id, sender_id, sender_label, body) VALUES (?, ?, ?, ?) RETURNING id, created_at")
         .get(thread.id, userId, JSON.stringify(a.seat.from), text)) as { id: number; created_at: string };
@@ -474,55 +587,22 @@ export async function sendMessage(userId: number, kind: ContextKind, id: number,
     if (err instanceof Refused) return err.refusal;
     throw err;
   }
-  await tellReaders(sent.threadId, sent.ctx, userId, sent.reachable);
+  await tellReaders(sent.threadId, sent.ctx, userId, sent.reachable, sent.message.id);
   return { ok: true, message: sent.message };
 }
 
 // ------------------------------------------------------------------ telling people
 
 /**
- * An email to each person who can read the message, saying they have one in this place, never what it says. At most one per thread
- * per `digestHours`, at most `emailsPerDay` a person, none to somebody who muted the context or turned the emails off. Not WhatsApp.
- * Errors here are logged without any text of a message and never undo the message.
+ * Who is told about a new message, and when, is lib/message-digest.ts: a person who chose "immediately" is emailed now (within the daily
+ * limit); everybody else is told by the scheduler at the end of the period (a digest: how many new messages, in which conversation, never
+ * what they say). Errors there are logged without any text of a message and never undo the message.
  */
-async function tellReaders(threadId: number, ctx: Context, senderId: number, readers: Seat[]): Promise<void> {
-  const db = getDb();
-  for (const seat of readers) {
-    try {
-      if (seat.userId === senderId) continue;
-      if (await isMuted(seat.userId, ctx.info.kind, ctx.info.id)) continue;
-      const s = (await db.prepare("SELECT email_notices FROM player_message_settings WHERE user_id = ?").get(seat.userId)) as { email_notices: number } | undefined;
-      if (!s || s.email_notices !== 1) continue;
-      const since = (await db
-        .prepare(
-          `SELECT COUNT(*) FILTER (WHERE thread_id = ? AND sent_at >= ?)::int AS here, COUNT(*)::int AS today FROM player_message_notices WHERE user_id = ? AND sent_at >= ?`
-        )
-        .get(threadId, nowStamp(-LIMITS.digestHours * 60 * MINUTE), seat.userId, nowStamp(-24 * 60 * MINUTE))) as { here: number; today: number };
-      if (since.here > 0 || since.today >= LIMITS.emailsPerDay) continue;
-      // The one claim of the period: a second message at the same moment finds it taken.
-      const claimed = await db
-        .prepare(
-          `INSERT INTO player_message_notices (user_id, thread_id)
-           SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM player_message_notices WHERE user_id = ? AND thread_id = ? AND sent_at >= ?)`
-        )
-        .run(seat.userId, threadId, seat.userId, threadId, nowStamp(-LIMITS.digestHours * 60 * MINUTE));
-      if (claimed.changes === 0) continue;
-      const { siteName } = await import("./site");
-      const { baseUrl } = await import("./outbox");
-      const link = `${baseUrl()}/messages?open=${kindInUrl(ctx.info.kind)}:${ctx.info.id}`;
-      await emailPlayer({
-        kind: "player_message",
-        venueId: null,
-        userId: seat.userId,
-        subject: (t) => t("pmsg.mail.subject", { site: siteName() }),
-        body: (t) => t("pmsg.mail.body", { context: contextTitle(t, ctx.info) }),
-        link,
-        dedupeKey: `pmsg:${threadId}:${seat.userId}:${Math.floor(Date.now() / (LIMITS.digestHours * 60 * MINUTE))}`,
-      });
-    } catch (err) {
-      // The mail is a courtesy: the message stands. Nothing of its text is in scope here.
-      console.error("[mysenam] could not queue a message notice:", err instanceof Error ? err.message : "unknown error");
-    }
+async function tellReaders(threadId: number, ctx: Context, senderId: number, readers: Seat[], messageId: number): Promise<void> {
+  try {
+    await (await import("./message-digest")).tellImmediate(threadId, ctx, senderId, readers, messageId);
+  } catch (err) {
+    console.error("[mysenam] could not queue a message notice:", err instanceof Error ? err.message : "unknown error");
   }
 }
 
@@ -534,16 +614,18 @@ export async function blockSender(userId: number, kind: ContextKind, id: number,
   if ("ok" in a) return a;
   const sender = a.thread
     ? ((await getDb()
-        .prepare(`SELECT m.sender_id FROM player_messages m WHERE m.id = ? AND m.thread_id = ? AND ${VISIBLE}`)
-        .get(messageId, a.thread.id, userId, userId, userId)) as { sender_id: number | null } | undefined)
+        .prepare(`SELECT m.sender_id FROM player_messages m WHERE m.id = ? AND m.thread_id = ? AND m.id > ? AND ${VISIBLE}`)
+        .get(messageId, a.thread.id, a.since, ...a.vis)) as { sender_id: number | null } | undefined)
     : undefined;
   if (!sender || sender.sender_id === null) return refuse("PM_NOT_FOUND");
   if (sender.sender_id === userId) return refuse("PM_OWN");
+  // A thread no supervisor can read is not supervised: nobody blocks a supervisor of a youth group's thread (report the message instead).
+  if (a.youth && a.reachable.concat(a.others).some((s) => s.userId === sender.sender_id && s.role === "supervisor")) return refuseYouth("PM_YOUTH_BLOCK_SUPERVISOR");
   const done = await blockPlayer(userId, sender.sender_id, { related: true });
   return done.ok ? { ok: true } : refuse("PM_NOT_FOUND");
 }
 
-export type ReportResult = { ok: true; suspended: boolean } | Refusal;
+export type ReportResult = { ok: true; suspended: boolean } | Refusal | YouthRefusal;
 
 /**
  * Report a message you can read, not your own. It freezes a copy of the thread's last messages as you saw them, with the reported one
@@ -556,15 +638,20 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
   if (!Number.isInteger(input.messageId)) return refuse("PM_NOT_FOUND");
   const messageId = input.messageId as number;
   const note = typeof input.note === "string" ? input.note.trim().slice(0, 1000) || null : null;
+  // A report in a supervised youth group's thread is urgent: told at once to the supervisors, the guardians involved and the venue's
+  // managers (the platform owner where there is no venue), with a longer frozen copy and the reported person muted until it is reviewed.
+  const urgent: { id: number | null; suspendedUser: number | null } = { id: null, suspendedUser: null };
   try {
-    return await withTransaction(async () => {
+    const result = await withTransaction(async () => {
+      urgent.id = null;
+      urgent.suspendedUser = null;
       const a = await access(userId, kind, id, { needOn: false });
       if ("ok" in a) throw new Refused(a);
       if (!a.thread) throw new Refused(refuse("PM_NOT_FOUND"));
       const db = getDb();
       const target = (await db
-        .prepare(`SELECT m.id, m.sender_id, m.sender_label, m.body FROM player_messages m WHERE m.id = ? AND m.thread_id = ? AND ${VISIBLE}`)
-        .get(messageId, a.thread.id, userId, userId, userId)) as { id: number; sender_id: number | null; sender_label: string | null; body: string | null } | undefined;
+        .prepare(`SELECT m.id, m.sender_id, m.sender_label, m.body FROM player_messages m WHERE m.id = ? AND m.thread_id = ? AND m.id > ? AND m.hidden_at IS NULL AND ${VISIBLE}`)
+        .get(messageId, a.thread.id, a.since, ...a.vis)) as { id: number; sender_id: number | null; sender_label: string | null; body: string | null } | undefined;
       if (!target || target.sender_id === null || target.body === null) throw new Refused(refuse("PM_NOT_FOUND"));
       if (target.sender_id === userId) throw new Refused(refuse("PM_OWN"));
       const today = (await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_reports WHERE reporter_id = ? AND created_at >= ?").get(userId, nowStamp(-24 * 60 * MINUTE))) as { n: number };
@@ -580,15 +667,35 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
       const lines = (await db
         .prepare(
           `SELECT m.id, m.sender_id, m.sender_label, m.body, m.created_at FROM player_messages m
-            WHERE m.thread_id = ? AND ${VISIBLE} ORDER BY m.id DESC LIMIT ${LIMITS.reportLines}`
+            WHERE m.thread_id = ? AND m.id > ? AND ${VISIBLE} ORDER BY m.id DESC LIMIT ${a.youth ? YOUTH_LIMITS.reportLines : LIMITS.reportLines}`
         )
-        .all(a.thread.id, userId, userId, userId)) as { id: number; sender_id: number | null; sender_label: string | null; body: string | null; created_at: string }[];
+        .all(a.thread.id, a.since, ...a.vis)) as { id: number; sender_id: number | null; sender_label: string | null; body: string | null; created_at: string }[];
       for (const l of lines.reverse())
         await db
           .prepare("INSERT INTO player_message_report_lines (report_id, message_id, sender_id, sender_label, body, sent_at, flagged) VALUES (?, ?, ?, ?, ?, ?, ?)")
           .run(made.id, l.id, l.sender_id, l.sender_label, l.body, l.created_at, l.id === messageId ? 1 : 0);
-      return { ok: true as const, suspended: await autoSuspend(target.sender_id, made.id) };
+      if (a.youth) {
+        await db.prepare("UPDATE player_message_reports SET urgent = 1 WHERE id = ?").run(made.id);
+        await db
+          .prepare("INSERT INTO youth_thread_mutes (group_id, user_id, source, report_id, reason, muted_by) VALUES (?, ?, 'report', ?, 'A report names this person; paused until it is reviewed.', 'automatic') ON CONFLICT DO NOTHING")
+          .run(id, target.sender_id, made.id);
+        await youthEvent(id, "system", "report_made", { actorId: userId, detail: `report ${made.id}, message ${messageId}` });
+        urgent.id = made.id;
+      }
+      const suspended = await autoSuspend(target.sender_id, made.id);
+      if (suspended) urgent.suspendedUser = target.sender_id;
+      return { ok: true as const, suspended };
     });
+    // A messaging suspension, however it came about, is told at once to the person (and a minor's guardians): an urgent event, never digested.
+    if (urgent.suspendedUser !== null) await (await import("./youth-safeguarding")).tellSuspended(urgent.suspendedUser).catch(() => undefined);
+    if (urgent.id !== null) {
+      try {
+        await (await import("./youth-safeguarding")).tellUrgentReport(urgent.id);
+      } catch (err) {
+        console.error("[mysenam] could not queue a safeguarding notice:", err instanceof Error ? err.message : "unknown error");
+      }
+    }
+    return result;
   } catch (err) {
     if (err instanceof Refused) return err.refusal;
     throw err;

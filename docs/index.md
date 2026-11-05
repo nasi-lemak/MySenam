@@ -44,7 +44,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | Classes and terms, one-to-one coaching, women-only and men-only (for every programme) | [Programmes](features/programmes.md) |
 | Tournaments, competitions with divisions, competition rules and templates, results, corrections, box leagues, teams that persist across events, leagues of teams and fixture lists | [Tournaments and leagues](features/tournaments.md) |
 | Open games, suggested games and players, invitations, private games, weekly games, community groups, blocking and reporting | [Open games and matchmaking](features/matchmaking.md) |
-| Messages between players: the contexts a conversation can be in, adults who opted in, text with no contact details, limits, notices that never carry the message, blocking, reports, moderation by the venue that owns the context | [Messages between players](features/player-messages.md) |
+| Messages between players: the contexts a conversation can be in, adults who opted in, text with no contact details, limits, a digest of notices that never carry the message, blocking, reports, moderation by the venue that owns the context; supervised youth groups (minors, with a guardian's consent, supervisors, never private) | [Messages between players](features/player-messages.md) |
 | Check-in, unstaffed hours, equipment hire, notes, waivers, hire enquiries, booking alerts | [Venue operations](features/venue-operations.md) |
 | Check-in, unstaffed hours, who supervises a session (rosters, qualifications), equipment hire, notes, waivers, hire enquiries, booking alerts | [Venue operations](features/venue-operations.md) |
 | How MySenam fits a kind of venue (public), the adaptive setup journey, the personalised operating playbook, contextual help | [The venue guide](features/venue-guide.md) |
@@ -106,6 +106,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0034 An advanced feed-in consolation draw, on the knockout graph](architecture/decisions/0034-feed-in-consolation-draws.md)
 [0035 Rating policy: rankings published by choice, a venue's number to be ranked, and which results count](architecture/decisions/0035-rating-policy-published-rankings-and-counted-results.md)
 [0039 Messages between players: only inside a context they share, adults who opted in, text with no contact details, moderated by the venue that owns the context](architecture/decisions/0039-messages-between-players.md)
+[0044 Supervised group messaging for eligible minors, guardian controls, and a real notification digest](architecture/decisions/0044-supervised-group-messaging-for-minors-and-a-digest.md)
 [0043 Moving a class, and a class's instructor as one of the venue's coaches](architecture/decisions/0043-moving-a-class-and-a-class-coach.md)
 [0045 Front desk may move a class; a consequential or exceptional move waits for a manager](architecture/decisions/0045-front-desk-class-moves-with-approval.md)
 [0047 FIDE's Baku Acceleration Method, an optional pairing for chess Swiss events](architecture/decisions/0047-baku-acceleration-for-chess.md)

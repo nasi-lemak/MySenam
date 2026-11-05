@@ -647,6 +647,8 @@ export async function tickOutbox(): Promise<DrainResult> {
   // Sign-ups asked for, the same way (lib/registration.ts).
   await (await import("./registration")).processRegistrationRequests();
   await notifyPendingOffers();
+  // Unread messages between players: one digest notice per person per conversation per period, never the text (lib/message-digest.ts).
+  await (await import("./message-digest")).sendDueDigests().catch((err) => console.error("[mysenam] message digests failed:", err instanceof Error ? err.message : "unknown error"));
   // Reminders look over three days of bookings: once a minute is soon enough, not on every request.
   if (Date.now() - remindersLooked.at >= 60_000) {
     remindersLooked.at = Date.now();

@@ -20,6 +20,18 @@ export function reportRetentionDays(): number {
   return Number.isInteger(n) && n >= 30 && n <= 1095 ? n : 365;
 }
 
+/** Days a supervised youth group's conversation is kept after the group ended: YOUTH_MESSAGE_RETENTION_DAYS, 60 by default, within 7 to 365 (shorter than adults'). */
+export function youthThreadRetentionDays(): number {
+  const n = Number(process.env.YOUTH_MESSAGE_RETENTION_DAYS);
+  return Number.isInteger(n) && n >= 7 && n <= 365 ? n : 60;
+}
+
+/** Days a message a supervisor removed keeps its words (for staff review) before they are deleted: YOUTH_REMOVED_RETENTION_DAYS, 30 by default, within 7 to 365. */
+export function youthRemovedRetentionDays(): number {
+  const n = Number(process.env.YOUTH_REMOVED_RETENTION_DAYS);
+  return Number.isInteger(n) && n >= 7 && n <= 365 ? n : 30;
+}
+
 /**
  * Everything messaging holds about this account: its setting, the contexts it muted, each thread it can read with the messages it was
  * shown (its own, and the others' as they showed in the context, never an address or a full name), the reports it made, and the
@@ -30,7 +42,7 @@ export async function messagesExport(userId: number): Promise<unknown> {
   const db = getDb();
   const all = async (sql: string, ...args: unknown[]) => (await db.prepare(sql).all(...args)) as Record<string, unknown>[];
   const threads = await all(
-    `SELECT t.id, t.context_kind, t.context_id, t.created_at, t.ended_at, t.staff_state FROM player_message_threads t
+    `SELECT t.id, t.context_kind, t.context_id, t.created_at, t.ended_at, t.staff_state, t.youth, t.youth_since_id FROM player_message_threads t
       WHERE t.id IN (SELECT thread_id FROM player_messages WHERE sender_id = ?) OR t.id IN (SELECT thread_id FROM player_message_reads WHERE user_id = ?)
       ORDER BY t.id`,
     userId,
@@ -39,13 +51,14 @@ export async function messagesExport(userId: number): Promise<unknown> {
   const out = [];
   for (const t of threads) {
     const messages = await all(
-      `SELECT m.id, (m.sender_id = ?) AS mine, m.sender_label AS from_label, m.body, m.created_at
+      `SELECT m.id, (m.sender_id = ?) AS mine, m.sender_label AS from_label, CASE WHEN m.hidden_at IS NULL THEN m.body END AS body, (m.hidden_at IS NOT NULL) AS removed_by_supervisor, m.created_at
          FROM player_messages m
-        WHERE m.thread_id = ? AND (m.sender_id IS NULL OR m.sender_id = ? OR NOT EXISTS (
+        WHERE m.thread_id = ? AND m.id > ? AND (m.sender_id IS NULL OR m.sender_id = ? OR NOT EXISTS (
                 SELECT 1 FROM player_blocks k WHERE (k.blocker_id = ? AND k.blocked_id = m.sender_id) OR (k.blocker_id = m.sender_id AND k.blocked_id = ?)))
         ORDER BY m.id`,
       userId,
       t.id,
+      t.youth_since_id,
       userId,
       userId,
       userId
@@ -63,6 +76,16 @@ export async function messagesExport(userId: number): Promise<unknown> {
       "SELECT source, reason, created_at, lifted_at, lift_reason FROM player_message_suspensions WHERE user_id = ? ORDER BY id",
       userId
     ),
+    // Supervised youth groups (ADR 0044): what this person did, was asked, or was made for them, and the children's group messages a guardian can export.
+    youthMessaging: {
+      optIns: await all("SELECT group_id, opted_in_at, revoked_at FROM youth_message_optins WHERE user_id = ? ORDER BY id", userId),
+      consentsForYou: await all("SELECT group_id, granted_at, revoked_at FROM youth_message_consents WHERE minor_user_id = ? ORDER BY id", userId),
+      consentsYouGave: await all("SELECT group_id, minor_user_id, participant_id, granted_at, revoked_at FROM youth_message_consents WHERE guardian_user_id = ? ORDER BY id", userId),
+      rolesInGroups: await all("SELECT group_id, role, declared_role, created_at, removed_at FROM youth_group_adults WHERE user_id = ? ORDER BY id", userId),
+      pausedInGroups: await all("SELECT group_id, source, created_at, lifted_at FROM youth_thread_mutes WHERE user_id = ? ORDER BY id", userId),
+      noticeChoiceForChild: await all("SELECT notice_mode FROM youth_guardian_settings WHERE minor_user_id = ?", userId),
+      childrenGroupMessages: await (await import("./youth-safeguarding")).youthExportForGuardian(userId),
+    },
   };
 }
 
@@ -100,7 +123,21 @@ export async function pruneMessages(threadCutoff: string): Promise<void> {
         .prepare("UPDATE player_message_threads SET ended_at = ? WHERE id = ? AND ended_at IS NULL")
         .run(ctx?.info.endedAt ?? new Date().toISOString().slice(0, 19).replace("T", " "), t.id);
   }
-  await db.prepare("DELETE FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ?").run(threadCutoff);
+  // A supervised youth group's conversation has its own, shorter period (pruneYouthMessages).
+  await db.prepare("DELETE FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ? AND youth = 0").run(threadCutoff);
+}
+
+/**
+ * Retention of supervised youth groups' conversations, from the retention job: a conversation is deleted `YOUTH_MESSAGE_RETENTION_DAYS` (60)
+ * after its group ended, and the words of a message a supervisor removed are deleted `YOUTH_REMOVED_RETENTION_DAYS` (30) after it was removed
+ * (the message stays, as "removed", for the thread's own period). Called with the cutoff for the first.
+ */
+export async function pruneYouthMessages(threadCutoff: string): Promise<void> {
+  const db = getDb();
+  await db.prepare("DELETE FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ? AND youth = 1").run(threadCutoff);
+  await db
+    .prepare("UPDATE player_messages SET body = NULL, removed_at = datetime('now') WHERE hidden_at IS NOT NULL AND hidden_at < ? AND body IS NOT NULL")
+    .run(cutoffFor(youthRemovedRetentionDays()));
 }
 
 export async function pruneMessageReports(reportCutoff: string): Promise<void> {
@@ -110,7 +147,7 @@ export async function pruneMessageReports(reportCutoff: string): Promise<void> {
 /** How many threads and reports the next prune removes: the retention screen's count. */
 export async function messagesDue(threadCutoff: string, reportCutoff: string): Promise<{ threads: number; reports: number }> {
   const db = getDb();
-  const threads = (await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ?").get(threadCutoff)) as { n: number };
+  const threads = (await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_threads WHERE ended_at IS NOT NULL AND ended_at < ? AND youth = 0").get(threadCutoff)) as { n: number };
   const reports = (await db.prepare("SELECT COUNT(*)::int AS n FROM player_message_reports WHERE status = 'reviewed' AND reviewed_at < ?").get(reportCutoff)) as { n: number };
   return { threads: threads.n, reports: reports.n };
 }

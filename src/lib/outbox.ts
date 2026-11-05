@@ -92,16 +92,23 @@ export type MessageKind =
   | "team_decision"
   /**
    * By email only, to a player: "you have a message in {place}", never the message itself, with a link into the signed-in app
-   * (lib/messages.ts). Held to the daily limit per recipient like any other.
+   * (lib/messages.ts, lib/message-digest.ts). Held to the daily limit per recipient like any other.
    */
-  | "player_message";
+  | "player_message"
+  /**
+   * By email only, at once: an urgent safety or moderation event in a supervised youth group, or one that concerns a person's own messaging
+   * (a report in its thread, a thread closed, somebody paused, a guardian's consent changed: lib/youth-safeguarding.ts, lib/youth-messages.ts).
+   * Never the text of a message, never WhatsApp, never digested, and not held to the daily limit per recipient: a notice written off for a
+   * busy day's limit is a guardian or supervisor who never learns of it.
+   */
+  | "safeguarding_notice";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
  * daily limit per recipient, which is there to keep the site from being used
  * to flood somebody else's phone. A busy venue takes more bookings than that.
  */
-const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day", "team_decision"];
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day", "team_decision", "safeguarding_notice"];
 
 export interface OutboxMessage {
   id: number;
