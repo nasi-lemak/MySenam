@@ -103,6 +103,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0032 Consolation draws and double elimination, on the knockout graph](architecture/decisions/0032-consolation-draws-and-double-elimination.md)
 [0034 An advanced feed-in consolation draw, on the knockout graph](architecture/decisions/0034-feed-in-consolation-draws.md)
 [0035 Rating policy: rankings published by choice, a venue's number to be ranked, and which results count](architecture/decisions/0035-rating-policy-published-rankings-and-counted-results.md)
+[0041 Live accounting: a venue's sales pushed to Xero, optional, behind a provider interface](architecture/decisions/0041-live-accounting-push-to-xero.md)
 
 ## Integrations
 
@@ -113,6 +114,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Email, WhatsApp and SMS: what is sent when, delivery, costs, marketing email | [Messaging](integrations/messaging.md) |
 | WhatsApp set-up and every template, word for word | [WhatsApp templates](integrations/whatsapp-templates.md) |
 | LHDN MyInvois e-invoicing | [MyInvois](integrations/myinvois.md) |
+| Live accounting: sending a venue's sales to Xero (set-up, mapping, the queue, the reconciliation, verifying against a demo company) | [Xero](integrations/xero.md) |
 | Public API, outgoing webhooks, Reserve with Google feeds | [External API](integrations/external-api.md) |
 | Using MySenam from an AI assistant: the MCP server, its tools, keys, signing in from a connector (OAuth), changing settings, and personal data | [MCP server](integrations/mcp.md) |
 
@@ -183,6 +185,7 @@ The README used to hold everything. Sections it named in passing (*see
 | Stored credit, Whose credit it is, Topping up, Gift vouchers, Splitting the cost, Extras, Counter sales, Company and school accounts | [Payments and credit](features/payments-and-credit.md) |
 | Countries, Tax | [Regions and tax](product/regions-and-tax.md) |
 | E-invoicing (MyInvois) | [MyInvois](integrations/myinvois.md) |
+| Live accounting (Xero) | [Xero](integrations/xero.md) |
 | Public API and webhooks, Reserve with Google | [External API](integrations/external-api.md) |
 | AI assistants (MCP) | [MCP server](integrations/mcp.md) |
 | Audit fixes | [Business rules](product/business-rules.md) |

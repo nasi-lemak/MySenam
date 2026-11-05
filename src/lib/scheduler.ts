@@ -16,6 +16,7 @@ import { issueDueAccountInvoices } from "./accounts";
 import { applyPaymentHolds } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
 import { runEInvoicing } from "./myinvois";
+import { runAccountingPush } from "./accounting-push";
 import { askForReviews } from "./reviews";
 import { notifyCoaches } from "./coach-schedule";
 import { runWebhooks } from "./webhooks";
@@ -317,6 +318,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] e-invoicing failed:", err);
     await raiseAlert("scheduler:e-invoicing-failed", failed("srv.work.eInvoicing"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // A venue's sales pushed to its accounting package, where a manager connected one (lib/accounting-push.ts); off otherwise.
+    await runAccountingPush(now);
+  } catch (err) {
+    console.error("[mysenam] sending sales to the accounting package failed:", err instanceof Error ? err.name : "unknown");
+    await raiseAlert("scheduler:accounting-push-failed", failed("srv.work.accounting"), err instanceof Error ? err.name : "unknown");
   }
 
   try {

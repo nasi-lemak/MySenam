@@ -4,6 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { ActivityGlyph } from "@/components/Glyph";
 import type { CreditPosition } from "@/lib/reports";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AccountingPanel } from "./AccountingPanel";
 import { CoachPayoutsPanel } from "./CoachPayoutsPanel";
 import { CustomerReportPanel } from "./CustomerReportPanel";
 import { formatHour } from "@/lib/time";
@@ -13,6 +14,7 @@ import type { StaffPhrase, StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 import type { VenueReport } from "@/lib/reports";
 import { percent, todayLocal } from "./shared";
+import { placeParam } from "./place";
 import { ActivityPanel } from "./ActivityPanel";
 import type { ManagedVenue } from "./shared";
 import { money, intlTag } from "@/lib/region";
@@ -85,6 +87,12 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Back from Xero's consent screen for a venue: the report opens on that venue (lib/accounting-push.ts).
+  useEffect(() => {
+    const back = Number(placeParam("venue"));
+    if (placeParam("xero") && venues.some((v) => v.id === back)) setVenueId(back);
+  }, [venues]);
 
   // The latest venue and period asked for: an answer for one asked for earlier that arrives later is
   // dropped, so a venue's figures never show under another venue's name.
@@ -539,6 +547,7 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
       </div>
       <CustomerReportPanel venueId={venueId} from={range.from} to={range.to} />
       <CoachPayoutsPanel venueId={venueId} from={range.from} to={range.to} />
+      <AccountingPanel venueId={venueId} from={range.from} to={range.to} />
       <ActivityPanel venueId={venueId} from={range.from} to={range.to} />
     </div>
   );

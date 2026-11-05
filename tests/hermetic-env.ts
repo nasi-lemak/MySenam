@@ -8,7 +8,7 @@
  * tests run in, and out of the server the browser suites start; a test that
  * needs one sets it for itself.
  */
-const PROVIDER = /^(SMTP_|MAIL_FROM$|SES_|WHATSAPP_|SMS_|BILLPLZ_|STRIPE_|OFFSITE_|PHOTOS_S3_|MYINVOIS_|GOOGLE_CLIENT_|SENTRY_|DKIM_|VERIFY_|MYSENAM_ALERT_WEBHOOK$)/;
+const PROVIDER = /^(SMTP_|MAIL_FROM$|SES_|WHATSAPP_|SMS_|BILLPLZ_|STRIPE_|OFFSITE_|PHOTOS_S3_|MYINVOIS_|XERO_|ACCOUNTING_PUSH_|GOOGLE_CLIENT_|SENTRY_|DKIM_|VERIFY_|MYSENAM_ALERT_WEBHOOK$)/;
 
 export function withoutProviderEnv<T extends Record<string, string | undefined>>(env: T): T {
   const out = { ...env };
