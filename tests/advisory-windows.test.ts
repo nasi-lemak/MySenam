@@ -46,6 +46,7 @@ import {
   createVenue,
   listBookingsForDate,
   listVenueClosures,
+  moveBooking,
   rescheduleBooking,
 } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
@@ -285,6 +286,23 @@ describe("booking outside an advisory window", () => {
     ok(await setSupervision(venueId, { courtId: court, roleId: guard.id, needed: 1 }));
     expect(await book(court, day(3), at(12), at(13), { windowOverride: record })).toMatchObject({ ok: false, code: "SV1_NO_SUPERVISOR" });
     expect(await rows(court)).toEqual([]);
+  });
+});
+
+describe("moving a booking to another resource (B76)", () => {
+  it("asks the other resource's launch window: a booking is not moved to a craft whose window it falls outside", async () => {
+    const from = await make();
+    const to = await make();
+    // The first craft has no rule; the second launches 07:10 to 10:40 only.
+    await rule(to);
+    const date = day(3);
+    const booked = ok(await book(from, date, at(12), at(13)));
+    const refused = await moveBooking(booked.booking.code, to);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.code).toMatch(/LAUNCH_/);
+    // Inside the window it moves.
+    const inside = ok(await book(from, date, at(8), at(9)));
+    expect((await moveBooking(inside.booking.code, to)).ok).toBe(true);
   });
 });
 

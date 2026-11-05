@@ -4247,6 +4247,9 @@ async function moveBookingOnce(code: string, toCourtId: number): Promise<MoveRes
     return { ok: false, error: "That booking has already finished." };
 
   const policy = await policyFor(toCourt);
+  // The other resource's launch or tide window that day, where it has a rule (ADR 0037): the booking must still be wholly inside one (B76).
+  const targetDay = await courtDay(toCourt, booking.date);
+  if (targetDay.launch && !launchOk(targetDay.launch, { start: booking.startMin, end: booking.endMin })) return launchRefused({ start: booking.startMin, end: booking.endMin }, targetDay.launch);
   try {
     // Its claims go to the other court in one step; the constraints refuse it there if anything holds that time.
     await withTransaction(async () => {

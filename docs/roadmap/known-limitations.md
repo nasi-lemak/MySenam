@@ -193,8 +193,8 @@ that could be removed, **4** a missing test, **5** a decision, kept on
 purpose, **6** waiting on an outside service, **7** a legal or commercial
 decision needing approval, **8** not needed until a market or customer
 that needs it. Kinds 1 to 4 are worked off; 5 stays unless the reason
-changes; 6 to 8 name what they wait for. As of 29 October 2026: no defect
-(kind 1) is open.
+changes; 6 to 8 name what they wait for. As of 5 November 2026 no defect
+(kind 1) is open (B76, found and fixed on 5 November, is under *fixed since the audit*).
 
 | Limitation | Kind | Who it affects | Next action, or what it waits for |
 | ---------- | ---- | -------------- | --------------------------------- |
@@ -214,13 +214,13 @@ changes; 6 to 8 name what they wait for. As of 29 October 2026: no defect
 | [Staff screens](#languages): records written before migration 0120, and what people, providers and gateways wrote, stay as stored | 5 | Staff reading Malay or Chinese | Kept: data is shown as written |
 | [Benchmark](#booking-and-availability-b) run by hand; CI deferred | 5 | The owner | Re-run with each release ([release records](../development/testing.md#release-records)) |
 | [Ways some activities are sold](#activities): cycling heats, choosing a kind within one fleet | 5 | Venues selling them | [Roadmap](roadmap.md) rows; built when such a venue signs |
-| [Rosters and supervision](#rosters-and-supervision): court time that is not a booking is not asked; no end date on a pattern; no messages; a moved class is not asked | 2 / 5 | Venues with supervised activities | Kept; the owner decides the open questions in the section |
-| [Launch and tide windows](#launch-and-tide-windows): a venue's own table, never a forecast; no override past a window | 5 | Venues hiring on water | Kept; the owner decides whether a manager may book outside a window |
-| [Messages between players](#messages-between-players): declared minors have none; the notice email unverified; no browser scenario | 5 / 6 | Players | The owner decides on minors in an agreed group and a trailing digest; the [email integration](#integrations-awaiting-live-verification-or-a-partner) is checked live |
-| [Moving classes, lessons and registers](#moving-classes-lessons-and-registers): a manager's move; no coach pay for classes; absent does not use a pass entry | 2 / 5 | Venues running classes and lessons | Kept; [roadmap](roadmap.md) proposals for coach pay and for absent as a pass entry |
+| [Rosters and supervision](#rosters-and-supervision): court time that is not a booking is not asked; no end date on a pattern; no messages; a legally required qualification is the venue's declaration, never verified | 2 / 5 | Venues with supervised activities | Kept; the owner decides the open question in the section |
+| [Launch and tide windows](#launch-and-tide-windows): a venue's own table, never a forecast; a manager may override an advisory window with a reason, never a hard one; no owner emergency override | 5 | Venues hiring on water | Kept; the owner decides whether the worklist should message customers; B76 below is a defect in the move path |
+| [Messages between players](#messages-between-players): a minor writes only in a supervised youth group of a community group; guardian consent is a declared word; staff-read exception, retention and rest hours await legal review; the notice email unverified; no browser scenario | 5 / 6 / 7 | Players, guardians | The owner decides how conflicting guardians and a reported adult are handled; a lawyer reviews the youth rules; the [email integration](#integrations-awaiting-live-verification-or-a-partner) is checked live |
+| [Moving classes, lessons and registers](#moving-classes-lessons-and-registers): a manager's move, and the desk's with a manager's approval for a consequential one (the desk cannot withdraw its request); no coach pay for classes; absent does not use a pass entry | 2 / 5 | Venues running classes and lessons | Kept; [roadmap](roadmap.md) proposals for coach pay and for absent as a pass entry |
 | [Live accounting push to Xero](#live-accounting-push): never run against Xero; data goes abroad | 6 / 7 | Venues using Xero | The owner's Xero demo-company check ([Xero](../integrations/xero.md#verifying-against-a-demo-company)); approval of the transfer |
-| [Ladders: court time and teams](#ladders-court-time-and-teams): held time shows as unavailable; no simultaneous courts; lineups do not rate individuals | 5 / 2 | Clubs running ladders | Kept; [roadmap](roadmap.md) proposals |
-| [Swiss: acceleration, tie-breaks and performance events](#swiss-acceleration-tie-breaks-and-performance-events): a constant virtual point, not FIDE's graded; no Swiss for events of marks | 5 / 8 | Organisers | The owner decides on graded acceleration and on marks events |
+| [Ladders: court time and teams](#ladders-court-time-and-teams): held time shows as unavailable; an expired hold still counts to the weekly cap; confirmation only on the ladder screen; no simultaneous courts; lineups do not rate individuals | 5 / 2 | Clubs running ladders | Kept; the owner decides two open questions in the section; [roadmap](roadmap.md) proposals |
+| [Swiss: acceleration, tie-breaks and performance events](#swiss-acceleration-tie-breaks-and-performance-events): Baku acceleration for chess only, FIDE's text unconfirmed; other accelerated systems and Swiss for events of marks not built | 5 / 8 | Organisers | The owner decides on events of marks and on a flagged round once climbing has begun |
 | [Counted performances](#booking-and-availability-b) (bouldering tops and zones) | 8 | Climbing competitions | [Roadmap](roadmap.md) |
 | [Exact shared separation on fungible places](#booking-and-availability-b); [gaps across a change of the clocks](#booking-and-availability-b) | 5 / 8 | Shared facilities; a future country with clock changes | Kept: venues needing it exact turn the facility over whole; checked again when such a country is added |
 | [Taking one person off a booking has limits](#activities); [benefits by scope have gaps](#activities); [changing a lesson's coach has limits](#activities) | 5 / 6 | Families, clubs, coaching venues | Kept: deliberate restrictions with their reasons; the online parts wait on the gateways' live checks |
@@ -256,7 +256,7 @@ list), each narrower than the gap it replaced, with two new decisions for the
 owner, and two gaps in how the suites are run (the date they run on). Closures are recorded with their tests
 under [fixed since the audit](#fixed-since-the-audit) (B11, B17–B75, M16–M31 and
 S12–S34, found and fixed in the same work) and
-[resolved without a number](#resolved-limitations-without-a-number) (124
+[resolved without a number](#resolved-limitations-without-a-number) (132
 rows). Others were narrowed rather than closed (staffed hours, phone
 identity, languages, clock changes, browser coverage, separation on shared
 facilities, approval applications, booking for a child). Some were added,
@@ -289,7 +289,7 @@ messages in the install's first language, and what the counter's policies
 leave (staff moves, the class page's buttons, overrides in the export). The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-Round 10 (5 November 2026) added six sections of accepted restrictions (rosters, launch and tide windows, messages between players, moving classes, lessons and registers, live accounting push, and ladders) and rewrote the Swiss one and one integration row, each beside what the work leaves and none a defect; the count above is as of round 9 and has not been redone. In the table above, no row is a defect; two are partly of kind 3 (staff
+Round 10 (5 November 2026) added six sections of accepted restrictions (rosters, launch and tide windows, messages between players, moving classes, lessons and registers, live accounting push, and ladders) and rewrote the Swiss one and one integration row, each beside what the work leaves and none a defect; the count above is as of round 9 and has not been redone. Round 11 (5 November 2026) rewrote the sections for rosters, launch and tide windows, messages between players, moving classes, ladders and Swiss for what the owner decided, and recorded one defect found on the way (B76). In the table above, one row is a defect (B76); two are partly of kind 3 (staff
 messages in one language; what the counter's policies leave), and the
 e-invoice questions are decisions of kind 7.
 
@@ -865,8 +865,14 @@ Accepted restrictions: a Swiss division of a competition schedules each round
 into the court time free when it is paired, so a later round can fail to fit if
 another division used the time (the round is reported unpaired and the organiser
 decides); the Swiss pairing search is bounded at 400,000 steps and reports
-unpaired rather than looping; accelerated pairing gives a constant virtual point
-for a set number of rounds, not FIDE's graded (Baku) acceleration; the tie-break
+unpaired rather than looping; the constant virtual point stays for events set up
+with it and is not offered for new ones; FIDE's Baku acceleration is built for chess
+only ([ADR 0047](../architecture/decisions/0047-baku-acceleration-for-chess.md)): FIDE's
+text was read through a fetch summariser, not verbatim, so its article numbers as cited are
+unconfirmed; the pairing under it is the app's own Dutch-style engine, not a FIDE-certified
+pairing program; other FIDE accelerated systems and late entries (article 1.3) are not built;
+a draw in chess is entered as 1-1, chess is not in the activity catalogue, and halves show
+only in Swiss tables; the tie-break
 screen changes the table only, never a pairing, and a Swiss tournament's recorded
 seed is shown on no screen; Swiss for counted performance events forms groups and
 not pairings, has no final built from its rounds and no repeat-avoidance, is not
@@ -874,27 +880,37 @@ rated, is not offered to events of marks, has no tournament-day board, and its
 refusal texts are English only; after a correction a flagged later round may stay
 flagged once climbing has begun (the manager keeps it, with a reason, or regroups
 only while nobody has climbed). Pairing messages go through the outbox (the Email
-row: unverified). **For the owner:** whether acceleration should be graded rather
-than constant; whether a flagged round may stay flagged once climbing has begun;
-whether events of marks need Swiss.
+row: unverified). **For the owner:** whether a flagged round may stay flagged once
+climbing has begun; whether events of marks need Swiss.
 
 ### Ladders: court time and teams
 
 ([Club ladders](../features/tournaments.md#club-ladders),
-[ADR 0040](../architecture/decisions/0040-ladder-court-time-and-team-ladders.md).)
+ADRs [0040](../architecture/decisions/0040-ladder-court-time-and-team-ladders.md) and
+[0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md).)
 Accepted restrictions: court time is held for a challenge only where the venue
 turns the setting on (off by default, at the owner's request of 5 November); held
-time shows as unavailable on the grid, not as a ladder match; the caps (8 live
-holds a ladder, 4 for a player in 7 days) are install data with no screen; a hold
-lost to something else is noticed by the scheduler, not at once; cancelling the
-booking a challenge carries does not bring a released hold back, and a held time is
-not held again automatically; a team match on a ladder is played on one court, game
+time shows as unavailable on the grid, not as a ladder match; the default caps (8 live
+holds a ladder, 4 for a player in 7 days) are changed by a manager per venue and per
+ladder within the install's bounds (1 to 50 and 1 to 20), and those bounds, the
+confirmation window (48 hours, never later than 120 minutes before the start), the
+minimum notice and the one extension are install data with no screen; a hold is
+tentative until both players or a manager confirm it, and the confirmation is on the
+ladder screen and API only, with no link in the email; holds made before migration 0290 have
+no `held_during` (their blocks are still held by the claims constraint); a hold that
+expired is not restored (the players arrange again); an expired hold still counts toward
+a player's weekly cap; a hold lost to something else is noticed by the scheduler, not at
+once; cancelling the booking a challenge carries does not bring a released hold back, and a
+held time is not held again automatically; a team match on a ladder is played on one court, game
 after game (simultaneous courts are not built); lineups do not rate individuals
 (individual ratings from lineups are not built); there is no junior ladder of teams;
 a team's eligibility is checked when it joins and when a lineup is named; a ladder
 cannot be restarted empty; forfeits on a team ladder are a manager's, confirmed
 through a request and never given automatically. Pairing and challenge messages go
-through the outbox (the Email row: unverified).
+through the outbox (the Email row: unverified). **For the owner:** whether "both players
+confirm" is read literally even when the challenger and the accepter already agreed (the
+alternative counts each side's own agreement), and whether an expired hold should stop
+counting toward the weekly cap.
 
 ### Counted performances
 
@@ -994,9 +1010,12 @@ person on shift is not a capacity, so one person may be on several sessions at o
 own role name is English in a customer's refusal (the starters are translated); a
 class's instructor who is one of the venue's coaches cannot be named to supervise
 another session at the same time (as a lesson's coach cannot), but a coach already
-teaching a class is not offered as cover for a session then. **For the owner:** whether the
-starter roles keep their suggested qualification, and whether a rule type of one
-officer for each lane is wanted.
+teaching a class is not offered as cover for a session then. Qualification levels ([ADR 0046](../architecture/decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md)):
+an unqualified person counts for nothing only where the venue requires the qualification or the law does, and a
+recommended one counts and is flagged; the level belongs to a role, not to a rule; a *legally required* qualification
+is the venue's declaration, recorded with its reference and never verified by MySenam, and its wording awaits a
+lawyer's review. **For the owner:** whether a
+rule type of one officer for each lane is wanted.
 
 ### Launch and tide windows
 
@@ -1009,25 +1028,46 @@ imported, with station names matched exactly, read at the whole minute with no
 allowance for a station's distance from the water; where the table says nothing the
 time is closed; a tournament's or league's court time is not held to a window (a
 lesson is, as a booking); a venue started from another does not copy its windows;
-the Tamil text is unreviewed. **For the owner:** whether a manager may book outside a
-window with a recorded reason (today no override goes past one), and whether the
-worklist should message customers itself (today staff decide).
+the Tamil text is unreviewed. A window is advisory unless the venue marks it hard: a
+manager of the venue (never the desk, a customer, the venue's API key, another venue's
+manager or the platform owner) may book, move or schedule outside an advisory window
+with a recorded reason, and nothing overrides a hard one ([ADR
+0046](../architecture/decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md));
+an owner's emergency override is not built (out of scope); the safety flag on a
+closure, outage, block or rain-out only names it and changes nothing; the weekly
+count of overrides is an alert panel line, not a message; the Malay, Chinese and
+Tamil text of the override screens is unreviewed. Moving a booking to
+another resource at the same time (`moveBooking`) asks the target's window and refuses
+a booking outside it; there is no override on that path (B76, fixed).
+**For the owner:** whether the worklist should message customers itself (today staff
+decide).
 
 ### Messages between players
 
 ([Messages between players](../features/player-messages.md),
-[ADR 0039](../architecture/decisions/0039-messages-between-players.md).) Accepted
-restrictions: a player who says they are under 18, or says nothing, has no messaging
-at all, even in a group both sides agreed to; the phone and email check is a speed
-bump, not a guarantee; the notice email goes through the outbox (the Email row:
-unverified) and the digest is leading-edge (the first message sends, later ones
-within 6 hours do not); a guardian's label keeps the child's short name until
+ADRs [0039](../architecture/decisions/0039-messages-between-players.md) and
+[0044](../architecture/decisions/0044-supervised-group-messaging-for-minors-and-a-digest.md).)
+Accepted restrictions: a player who says they are under 18, or says nothing, has no
+messaging outside a supervised youth group; inside one a minor writes only with their
+own opt-in, a linked guardian's consent and a supervisor in the thread. Only a
+community group can be a youth group; only its organiser admits or removes adults;
+staff cannot mute a single member; a guardian's consent is a declared word, never
+verified, and any live guardian's *off* wins; an account that says 18 or over but is
+a managed child's linked login is treated as an adult for ordinary messaging; the
+staff-read exception, the retention periods (60 days after a youth group ended, 30 for
+a removed message's words) and the rest hours (22:00 to 07:00) await a lawyer's review.
+The phone and email check is a speed bump, not a guarantee; the notice email goes
+through the outbox (the Email row: unverified) and is a trailing digest (a count only,
+once per period per conversation, `MESSAGE_DIGEST_HOURS`, 6 hours by default); a guardian's label keeps the child's short name until
 retention ends; a team entry's or fixture's seat is the captain's only; reports are
 unseen where a venue has no manager; three accounts can between them trigger an
 automatic suspension; a suspension is deleted with the account; who has messaging on
 can be inferred in a two-person context; there is no browser scenario; the Malay,
-Chinese and Tamil wording is machine-assisted. **For the owner:** whether declared
-minors may message inside an agreed group, and whether a trailing digest is wanted.
+Chinese and Tamil wording is machine-assisted, and the youth wording is a machine-assisted
+check as well as translation. **For the owner:** how conflicting guardians are handled
+(today any live guardian's *off* ends the consent and any can switch it on again, the others
+told), and whether a report in a youth thread should mute and notify the reported adult as
+it does today.
 
 ### Moving classes, lessons and registers
 
@@ -1036,8 +1076,13 @@ minors may message inside an agreed group, and whether a trailing digest is want
 [attendance registers](../features/programmes.md#attendance-registers),
 ADRs [0042](../architecture/decisions/0042-attendance-registers-and-lessons-moved-by-the-venue.md)
 and [0043](../architecture/decisions/0043-moving-a-class-and-a-class-coach.md).)
-Accepted restrictions: moving a class is a manager's, not the desk's (one
-`MANAGER_ONLY` line allows it), and is refused whole where a members-only venue's
+Accepted restrictions: moving a class is a manager's, and the front desk's at its own
+venue unless the venue turns that off, a consequential move (one that prices differently,
+moves a paid term, is far, long or soon, touches a waiting list or is a second move) waiting
+for a manager's approval ([ADR 0045](../architecture/decisions/0045-front-desk-class-moves-with-approval.md));
+the desk cannot withdraw its own request (a manager declines it, or it closes); a move onto
+a closed day or out of hours is refused for everyone, as no override exists for a class; a
+move is refused whole where a members-only venue's
 membership does not cover a new date; the refund window after a move is install data
 with no screen for a class (a lesson's is a number in *Lessons and registers*); a
 waiting-list person's leave link cannot be resent; a class mover counts a check-in, not a register mark, as attendance
@@ -1048,7 +1093,7 @@ manager unless its instructor is one of the venue's coaches; an open game hosted
 staff has no register; an absent mark does not use up a pass entry; guests are grouped
 by name and number in reports; the 730 days a register is kept are provisional. Refunds
 online are the payments integrations (against stand-ins) and notices the Email row.
-**For the owner:** whether the desk may move a class, whether absent should use a pass
+**For the owner:** whether absent should use a pass
 entry (as a setting), whether staff-hosted open games need a register.
 
 ### Live accounting push
@@ -1261,6 +1306,7 @@ IDs are not reused. Each fix came with the test recommended above.
 | B73 | The public team-league table had no cell spacing, so on a phone its columns ran together ("11 002 1") | The cells are spaced | `tests/uat/team-leagues.uat.ts` (seen in the phone screenshot; no unit test, the fault is visual) |
 | B74 | A finished climbing event's dashboard page hid the officials' correction requests, so a manager could not preview, apply or decline one sent in the seven days after the finish | A finished counted event shows the requests, and only them | `tests/components/counted-grid.test.tsx` and the browser scenario *Climbing A* |
 | B75 | Refusing a heat correction that would change a climbing final with results said *arrange a re-swim by hand* | It says *re-climb* for counted events | `tests/counted-performances.test.ts` |
+| B76 | Moving a booking to another resource at the same time (`moveBooking`) did not ask the target resource's launch or tide window, so a booking could be moved onto a resource whose window was closed then, past a hard window too | It asks the target's window and refuses (`LAUNCH_*`); a manager's override is not offered on a move | `tests/advisory-windows.test.ts` |
 
 ### Resolved limitations without a number
 
@@ -1395,6 +1441,11 @@ was resolved. Kept so the register shows what changed, not only what is left.
 | Bookings made to try a venue out before it went live stayed in its reports, exports and cash-up | Marked as tests by the database and left out of performance figures only: their money stays in the journal, the export, the cash-up's own test block and the period report; a manager clears them saying whether real money was taken (declared synthetic, or owed back until a named person settles it) or keeps one as real; real money arriving once live makes it real, and going live is refused with a paid test standing | `tests/test-bookings.test.ts`, `tests/test-bookings-money.test.ts`, `tests/components/test-bookings-panel.test.tsx` |
 | Staff moved a weekly series one week at a time | The weeks left moved in one step, each by the single move's checks, a week that cannot move named with why; the customer and a lesson's coach told once | `tests/series-moves.test.ts` |
 | The day list ran by court, not by time | In time order, then venue and court; the printed day sheet too | `tests/series-moves.test.ts` |
+| Swiss accelerated pairing gave only a constant virtual point, not FIDE's graded (Baku) acceleration (ADR 0038) | FIDE's Baku method as an optional chess pairing, offered only where the template lists it ([ADR 0047](../architecture/decisions/0047-baku-acceleration-for-chess.md), migration 0289); still open for other sports | `tests/swiss-baku.test.ts` (also on Postgres), `tests/components/swiss-baku.test.tsx` |
+| A declared minor had no messaging even in a group both sides agreed to, and the notice email was a leading-edge throttle (an owner decision) | A minor writes in a supervised youth group's shared thread only with their own opt-in, a live guardian's consent and a supervisor present; the notice email is a trailing digest ([ADR 0044](../architecture/decisions/0044-supervised-group-messaging-for-minors-and-a-digest.md), migration 0286) | `tests/youth-messages.test.ts`, `tests/youth-safeguarding.test.ts`, `tests/message-digest.test.ts` |
+| Moving a class was a manager's alone, so the front desk could not reschedule one | The desk moves a class at its own venue; a consequential move waits for a manager's approval ([ADR 0045](../architecture/decisions/0045-front-desk-class-moves-with-approval.md), migration 0287) | `tests/class-move-requests.test.ts` (also on Postgres), `tests/components/class-move-requests.test.tsx` |
+| No override went past a launch or tide window, and an unqualified person counted for nothing whatever the qualification | An advisory window a manager may override with a recorded reason, a hard one never; a qualification is recommended, venue required or legally required ([ADR 0046](../architecture/decisions/0046-strength-of-a-requirement-advisory-windows-and-qualification-levels.md), migration 0288) | `tests/advisory-windows.test.ts`, `tests/advisory-windows-routes.test.ts`, `tests/qualification-levels.test.ts` |
+| Ladder court-time holds were capped by install data with no setting, never expired and could not be confirmed | Limits a manager sets per venue and per ladder within bounds; a hold tentative until confirmed, expiring lazily with both players told ([ADR 0048](../architecture/decisions/0048-ladder-hold-limits-and-expiry.md), migration 0290) | `tests/ladder-hold-limits-and-expiry.test.ts` (also on Postgres) |
 | Cancellations by the venue refunded online payments on some paths only (a court taken out of service and a class called off left them to staff, a tournament called off and shares paid by other players the same) | One policy: back through the gateway wherever it has a refund API, whatever the venue chose for customers' own cancellations, else owed for staff with its due date | `tests/venue-cancel-refunds.test.ts` (also on Postgres) |
 
 ## Production readiness
