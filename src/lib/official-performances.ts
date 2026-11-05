@@ -54,9 +54,17 @@ export type RoundLock = "finalised" | "advanced" | null;
 /** Whether an official may still enter this round: its status, and for a group whether the final has begun. */
 async function lockOf(matchId: number): Promise<RoundLock> {
   const db = getDb();
-  const m = (await db.prepare("SELECT tournament_id, stage, status FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number; stage: string; status: string } | undefined;
+  const m = (await db.prepare("SELECT tournament_id, stage, status, round FROM tournament_matches WHERE id = ?").get(matchId)) as { tournament_id: number; stage: string; status: string; round: number } | undefined;
   if (!m) return null;
   if (m.stage === "heat") {
+    // A counted event played in Swiss rounds (ADR 0038): a round is advanced once anybody has climbed a later one (the groups were formed from it).
+    const later = (await db
+      .prepare(
+        `SELECT 1 FROM tournament_performances p JOIN tournament_matches h ON h.id = p.match_id
+          WHERE h.tournament_id = ? AND h.stage = 'heat' AND h.round > ? AND p.status <> 'pending' AND EXISTS (SELECT 1 FROM swiss_events e WHERE e.tournament_id = h.tournament_id) LIMIT 1`
+      )
+      .get(m.tournament_id, m.round)) as unknown;
+    if (later) return "advanced";
     const final = (await db
       .prepare(
         `SELECT 1 FROM tournament_performances p JOIN tournament_matches f ON f.id = p.match_id

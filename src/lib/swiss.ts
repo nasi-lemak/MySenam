@@ -3,12 +3,13 @@ import { scheduleTimed, standings, startStep, type Slot, type Standing, type Tak
 import { PERSON_OF } from "./competition-entrants";
 import { formatMinute, instantOf } from "./interval";
 import { said, type StaffText } from "./staff-text";
-import type { OutReason, OutStage, ScoringRules, SwissTiebreak } from "./tournament-rules";
+import { SWISS_TIEBREAKS, defaultSwissTiebreaks, type OutReason, type OutStage, type ScoringRules, type SwissTiebreak } from "./tournament-rules";
 import {
   decide,
   minutesFor,
   recordResult,
   releaseUnneeded,
+  setRules,
   siblingMatches,
   tellEntry,
   tournamentById,
@@ -52,7 +53,7 @@ export function maxRounds(n: number): number {
 
 /** What breaks ties after the points unless the event chooses: Buchholz, median Buchholz, then the scoring's own keys but the points. */
 export function defaultTiebreaks(scoring: Pick<ScoringRules, "rankBy">): SwissTiebreak[] {
-  return ["buchholz", "median_buchholz", ...scoring.rankBy.filter((k): k is Exclude<typeof k, "points"> => k !== "points")];
+  return defaultSwissTiebreaks(scoring);
 }
 
 // ------------------------------------------------------------ arithmetic: standings
@@ -66,14 +67,34 @@ export interface SwissResult {
   status: "done" | "walkover" | "retired" | "bye";
 }
 
+/**
+ * What separated an entry from the one ranked just above it when both had the same points (ADR 0038): the first tie-break, in
+ * the event's order, on which they differ, and both values (null for a head-to-head, which has none); "seed" where no tie-break
+ * could, so the initial order (the recorded seed) did. Never present for the leader, or for an entry whose points differ.
+ */
+export interface SwissTie {
+  /** The entry ranked just above. */
+  above: number;
+  by: SwissTiebreak | "seed";
+  /** The value of the one above, and this entry's; for "seed", their places in the initial order. */
+  ahead: number | null;
+  behind: number | null;
+}
+
 export interface SwissLine extends Standing {
   /** 1 for the leader: points, then the tie-breaks, then the initial order. */
   rank: number;
-  /** Swiss points: the table points of the results, and the points of byes. */
+  /** Swiss points: the table points of the results, and the points of byes. Never includes the virtual points of an accelerated pairing. */
   points: number;
   byes: number;
   buchholz: number;
   medianBuchholz: number;
+  /** Buchholz without the lowest opponent's points. */
+  buchholzCut1?: number;
+  /** The points of the opponents beaten, and half those of the opponents drawn with. */
+  sonnebornBerger?: number;
+  /** Why this entry is below the one above, where they are level on points. */
+  tie?: SwissTie | null;
   out: OutReason | null;
   resultsVoid: boolean;
 }
@@ -114,18 +135,34 @@ export function swissStandings(
     const theirs = (opponents.get(id) ?? []).map((o) => points.get(o) ?? 0).sort((x, y) => x - y);
     return theirs.length >= 3 ? theirs.slice(1, -1).reduce((x, y) => x + y, 0) : theirs.reduce((x, y) => x + y, 0);
   };
+  const cut1 = (id: number) => {
+    const theirs = (opponents.get(id) ?? []).map((o) => points.get(o) ?? 0).sort((x, y) => x - y);
+    return theirs.slice(1).reduce((x, y) => x + y, 0);
+  };
+  // The points of the opponents beaten (a win by walkover or retirement too), half those of the opponents drawn with.
+  const sonneborn = (id: number) =>
+    played.reduce((sum, r) => {
+      if (r.winner === null && r.status !== "done") return sum;
+      if (r.a !== id && r.b !== id) return sum;
+      const other = r.a === id ? r.b! : r.a;
+      return sum + (r.winner === id ? (points.get(other) ?? 0) : r.winner === null ? (points.get(other) ?? 0) / 2 : 0);
+    }, 0);
   const headToHead = (x: number, y: number) =>
     played.find((r) => r.winner !== null && ((r.a === x && r.b === y) || (r.a === y && r.b === x)))?.winner;
   const lines = entryIds.map((id): SwissLine => {
     const s = table.get(id)!;
-    return { ...s, points: points.get(id)!, byes: byes.get(id) ?? 0, buchholz: buchholz(id), medianBuchholz: median(id), rank: 0, out: null, resultsVoid: false };
+    return { ...s, points: points.get(id)!, byes: byes.get(id) ?? 0, buchholz: buchholz(id), medianBuchholz: median(id), buchholzCut1: cut1(id), sonnebornBerger: sonneborn(id), rank: 0, out: null, resultsVoid: false };
   });
   const value = (line: SwissLine, key: Exclude<SwissTiebreak, "head_to_head">): number =>
     key === "buchholz"
       ? line.buchholz
       : key === "median_buchholz"
         ? line.medianBuchholz
-        : key === "wins"
+        : key === "buchholz_cut1"
+          ? (line.buchholzCut1 ?? 0)
+          : key === "sonneborn_berger"
+            ? (line.sonnebornBerger ?? 0)
+            : key === "wins"
           ? line.won
           : key === "set_diff"
             ? line.setDiff
@@ -136,21 +173,32 @@ export function swissStandings(
                 : key === "point_ratio"
                   ? ratio(line.pointsFor, line.pointsAgainst)
                   : line.pointsFor;
-  lines.sort((x, y) => {
-    if (x.points !== y.points) return y.points - x.points;
+  // One comparison, used to order the table and to say what separated two entries level on points (the tie-break screen).
+  const compare = (x: SwissLine, y: SwissLine): { order: number; by: SwissTiebreak | "seed" | null; ahead: number | null; behind: number | null } => {
+    if (x.points !== y.points) return { order: y.points - x.points, by: null, ahead: null, behind: null };
     for (const key of rules.tiebreaks) {
       if (key === "head_to_head") {
         const met = headToHead(x.entryId, y.entryId);
-        if (met === x.entryId) return -1;
-        if (met === y.entryId) return 1;
+        if (met === x.entryId) return { order: -1, by: key, ahead: null, behind: null };
+        if (met === y.entryId) return { order: 1, by: key, ahead: null, behind: null };
         continue;
       }
       const [vx, vy] = [value(x, key), value(y, key)];
-      if (vx !== vy) return vy - vx;
+      if (vx !== vy) return { order: vy - vx, by: key, ahead: vx, behind: vy };
     }
-    return (initial.get(x.entryId) ?? Infinity) - (initial.get(y.entryId) ?? Infinity) || x.entryId - y.entryId;
+    const [ix, iy] = [initial.get(x.entryId) ?? Infinity, initial.get(y.entryId) ?? Infinity];
+    return { order: ix - iy || x.entryId - y.entryId, by: "seed", ahead: Number.isFinite(ix) ? ix : null, behind: Number.isFinite(iy) ? iy : null };
+  };
+  lines.sort((x, y) => compare(x, y).order);
+  lines.forEach((l, i) => {
+    l.rank = i + 1;
+    const above = i > 0 ? lines[i - 1] : null;
+    l.tie = null;
+    if (above && above.points === l.points) {
+      const c = compare(above, l);
+      l.tie = { above: above.entryId, by: c.by as SwissTiebreak | "seed", ahead: c.ahead, behind: c.behind };
+    }
   });
-  lines.forEach((l, i) => (l.rank = i + 1));
   return lines;
 }
 
@@ -158,9 +206,15 @@ export function swissStandings(
 
 export interface PairingPlayer {
   id: number;
+  /** Real Swiss points: what the table shows. */
   points: number;
   /** Place in the initial order (1 is first). */
   rank: number;
+  /**
+   * The virtual points of an accelerated pairing (ADR 0038), added to `points` for pairing this round only: they order the
+   * players and make the score groups, and are in no table, result or rating. Absent: none.
+   */
+  virtual?: number;
 }
 
 /** Why one pairing was made, kept and shown: the score groups, a float, the bye. */
@@ -172,6 +226,9 @@ export interface PairNote {
   bPoints: number | null;
   /** The two were not in the same score group: one floated. */
   float: boolean;
+  /** An accelerated round (ADR 0038): the virtual points each side was paired with, on top of `aPoints` and `bPoints`. Absent: none. */
+  aVirtual?: number;
+  bVirtual?: number;
 }
 
 export interface Pairing {
@@ -196,11 +253,13 @@ class TooComplex extends Error {}
  * second bye exists (or the search gave up).
  */
 export function pairRound(players: PairingPlayer[], met: Set<string>, hadBye: Set<number>, firstCount: Map<number, number> = new Map()): Pairing | null {
-  const order = [...players].sort((x, y) => y.points - x.points || x.rank - y.rank || x.id - y.id);
+  // What a round is paired on: the real points and, in an accelerated round, the virtual ones (ADR 0038).
+  const score = (p: PairingPlayer) => p.points + (p.virtual ?? 0);
+  const order = [...players].sort((x, y) => score(y) - score(x) || x.rank - y.rank || x.id - y.id);
   const budget = { left: SEARCH_BUDGET };
   const prefer = (p: PairingPlayer, rest: PairingPlayer[]): PairingPlayer[] => {
-    const same = rest.filter((q) => q.points === p.points);
-    const lower = rest.filter((q) => q.points !== p.points);
+    const same = rest.filter((q) => score(q) === score(p));
+    const lower = rest.filter((q) => score(q) !== score(p));
     const half = Math.floor((same.length + 1) / 2);
     // The group is p and `same`; its lower half starts at index `half` of the group, which is `half - 1` of `same`.
     return half >= 1 ? [...same.slice(half - 1), ...same.slice(0, half - 1), ...lower] : [...same, ...lower];
@@ -236,12 +295,13 @@ export function pairRound(players: PairingPlayer[], met: Set<string>, hadBye: Se
     const made = pairs.map(([p, q]) => {
       const pFirst = first(p.id) < first(q.id) || (first(p.id) === first(q.id) && order.indexOf(p) < order.indexOf(q));
       const [a, b] = pFirst ? [p, q] : [q, p];
-      return { a: a.id, b: b.id, note: { kind: "pair", a: a.id, b: b.id, aPoints: a.points, bPoints: b.points, float: a.points !== b.points } as PairNote, top: Math.min(order.indexOf(p), order.indexOf(q)) };
+      const virtual = (a.virtual ?? 0) > 0 || (b.virtual ?? 0) > 0 ? { aVirtual: a.virtual ?? 0, bVirtual: b.virtual ?? 0 } : {};
+      return { a: a.id, b: b.id, note: { kind: "pair", a: a.id, b: b.id, aPoints: a.points, bPoints: b.points, float: score(a) !== score(b), ...virtual } as PairNote, top: Math.min(order.indexOf(p), order.indexOf(q)) };
     });
     made.sort((x, y) => x.top - y.top);
     return {
       pairs: made.map(({ a, b, note }) => ({ a, b, note })),
-      bye: bye ? { id: bye.id, note: { kind: "bye", a: bye.id, b: null, aPoints: bye.points, bPoints: null, float: false } } : null,
+      bye: bye ? { id: bye.id, note: { kind: "bye", a: bye.id, b: null, aPoints: bye.points, bPoints: null, float: false, ...((bye.virtual ?? 0) > 0 ? { aVirtual: bye.virtual } : {}) } } : null,
     };
   } catch (err) {
     if (err instanceof TooComplex) return null;
@@ -313,6 +373,11 @@ export interface SwissDetail {
   nextRound: number | null;
   /** Why the next round could not be paired, when it could not. */
   blocked: string | null;
+  /**
+   * Accelerated pairing (ADR 0038), where the event chose it: the first `rounds` rounds are paired with `points` virtual points
+   * for the `group` best of the initial order. Never in a table or a result. Null: off.
+   */
+  acceleration: { rounds: number; group: number; points: number } | null;
 }
 
 interface EventRow {
@@ -322,10 +387,28 @@ interface EventRow {
   tiebreaks: string;
   bye_points: number;
   blocked: string | null;
+  accel_rounds: number;
+  accel_group: number;
+  accel_points: number;
 }
 
 async function eventOf(tournamentId: number): Promise<EventRow | null> {
-  return ((await getDb().prepare("SELECT rounds, planned_rounds, seed, tiebreaks, bye_points, blocked FROM swiss_events WHERE tournament_id = ?").get(tournamentId)) as EventRow | undefined) ?? null;
+  return ((await getDb().prepare("SELECT rounds, planned_rounds, seed, tiebreaks, bye_points, blocked, accel_rounds, accel_group, accel_points FROM swiss_events WHERE tournament_id = ?").get(tournamentId)) as EventRow | undefined) ?? null;
+}
+
+// ------------------------------------------------------------ arithmetic: acceleration (ADR 0038)
+
+/** The accelerated group for `n` entries: the top half of the initial order, rounded up to an even number (2⌈n/4⌉), so round 1 pairs it within itself. */
+export function accelerationGroup(n: number): number {
+  return 2 * Math.ceil(n / 4);
+}
+
+/**
+ * The virtual points an entry is paired with in `round`: `points` for each entry of the accelerated group (`rank` within `group` in the
+ * initial order) in the first `accelRounds` rounds, nothing otherwise. They only decide who meets whom; they are in no standing.
+ */
+export function virtualPointsFor(round: number, accelRounds: number, group: number, rank: number, points: number): number {
+  return accelRounds > 0 && round <= accelRounds && rank <= group ? points : 0;
 }
 
 const readTiebreaks = (raw: string): SwissTiebreak[] => {
@@ -354,7 +437,9 @@ export async function swissOf(
   t: Tournament,
   matches: Match[],
   entries: { id: number; out: { reason: OutReason; stage: OutStage | null } | null }[],
-  voided: Set<number>
+  voided: Set<number>,
+  /** The table as it would be under another tie-break order: the tie-break screen's preview. Absent: the event's own. */
+  tiebreaksOverride?: SwissTiebreak[]
 ): Promise<SwissDetail | null> {
   if (t.format !== "swiss") return null;
   const ev = await eventOf(t.id);
@@ -363,7 +448,7 @@ export async function swissOf(
   const ranks = new Map(
     ((await db.prepare("SELECT id, swiss_rank FROM tournament_entries WHERE tournament_id = ? AND swiss_rank IS NOT NULL").all(t.id)) as { id: number; swiss_rank: number }[]).map((r) => [r.id, r.swiss_rank])
   );
-  const tiebreaks = readTiebreaks(ev.tiebreaks);
+  const tiebreaks = tiebreaksOverride ?? readTiebreaks(ev.tiebreaks);
   const inDraw = [...ranks.keys()];
   const lines = swissStandings(inDraw, ranks, countedResults(matches, voided), t.rules.scoring, { byePoints: ev.bye_points, tiebreaks });
   const outOf = new Map(entries.filter((e) => e.out).map((e) => [e.id, e.out!.reason]));
@@ -371,6 +456,9 @@ export async function swissOf(
     l.out = outOf.get(l.entryId) ?? null;
     l.resultsVoid = voided.has(l.entryId);
   }
+  // A line's tie is explained against the line above it; one whose results are void is listed apart, so what it was level with is not shown.
+  for (const l of lines) if (l.tie && voided.has(l.tie.above)) l.tie = null;
+  if (voided.size > 0) for (const l of lines) if (l.resultsVoid) l.tie = null;
   // Those whose results are void are listed after everybody whose results count, unranked as in a group's table.
   const ordered = [...lines.filter((l) => !l.resultsVoid), ...lines.filter((l) => l.resultsVoid)];
   const roundRows = (await db.prepare("SELECT round, paired_at, notes FROM swiss_rounds WHERE tournament_id = ? ORDER BY round").all(t.id)) as { round: number; paired_at: string; notes: string }[];
@@ -396,6 +484,7 @@ export async function swissOf(
     standings: ordered.map((l, i) => ({ ...l, rank: l.resultsVoid ? 0 : i + 1 })),
     nextRound,
     blocked: ev.blocked,
+    acceleration: ev.accel_rounds > 0 ? { rounds: ev.accel_rounds, group: ev.accel_group, points: ev.accel_points } : null,
   };
 }
 
@@ -408,7 +497,7 @@ interface DrawEntry {
 }
 
 /** The windows of the time a tournament holds, within its hours each day, around what the competition's other divisions use. */
-async function windowsOf(t: Tournament): Promise<Window[]> {
+export async function windowsOf(t: Tournament): Promise<Window[]> {
   const holds = (await getDb()
     .prepare("SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ? OR (competition_id IS NOT NULL AND competition_id = ?) ORDER BY date, start_min")
     .all(t.id, t.competition?.id ?? null)) as { court_id: number; date: string; start_min: number; end_min: number }[];
@@ -418,13 +507,13 @@ async function windowsOf(t: Tournament): Promise<Window[]> {
     .filter((w) => w.end > w.start);
 }
 
-type Placed = Map<string, Slot & { end: number }>;
+export type Placed = Map<string, Slot & { end: number }>;
 
 /**
  * Where a round's matches go: into the time held, each on a court and not twice for a side, after the previous round's
  * last match and after now, around what is on the courts already (this event's earlier rounds, another division's).
  */
-async function placeRound(
+export async function placeRound(
   t: Tournament,
   matches: { key: string; sides: number[]; minutes: number }[],
   people: Map<number, number | null>
@@ -468,9 +557,27 @@ async function placeRound(
 }
 
 /** The account each entry is played by (a participant is told apart from the guardian's own entry). */
-async function peopleOf(tournamentId: number): Promise<Map<number, number | null>> {
+export async function peopleOf(tournamentId: number): Promise<Map<number, number | null>> {
   const rows = (await getDb().prepare(`SELECT id, ${PERSON_OF("tournament_entries")} AS person FROM tournament_entries WHERE tournament_id = ?`).all(tournamentId)) as { id: number; person: number | null }[];
   return new Map(rows.map((r) => [r.id, r.person]));
+}
+
+/**
+ * The initial order of a draw and the seed it was drawn from: the staff-set seeds in seed order, then everybody else in an order
+ * drawn from the recorded seed (the only randomness there is; the same seed gives the same order). Shared by a Swiss event and a
+ * counted performance event played in Swiss rounds (lib/swiss-performances.ts).
+ */
+export function drawInitialOrder(entries: { id: number; seed: number | null }[], random: () => number): { seed: number; initial: number[] } {
+  const seed = Math.floor(random() * 4294967296);
+  const drawn = seededRandom(seed);
+  const seeded = entries.filter((e) => e.seed !== null).sort((x, y) => x.seed! - y.seed! || x.id - y.id);
+  const unseeded = entries.filter((e) => e.seed === null).sort((x, y) => x.id - y.id);
+  const shuffled = [...unseeded];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(drawn() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return { seed, initial: [...seeded, ...shuffled].map((e) => e.id) };
 }
 
 /**
@@ -486,21 +593,17 @@ export async function drawSwiss(t: Tournament, entries: DrawEntry[], random: () 
   const rounds = settings.rounds ?? defaultRounds(n);
   if (rounds > maxRounds(n))
     return { ok: false, error: `${n} entries can play at most ${maxRounds(n)} rounds without anybody meeting twice: ask for fewer rounds.` };
-  const seed = Math.floor(random() * 4294967296);
-  const drawn = seededRandom(seed);
-  // Seeds first, in seed order; the rest in an order drawn from the recorded seed (the only randomness there is).
-  const seeded = entries.filter((e) => e.seed !== null).sort((x, y) => x.seed! - y.seed! || x.id - y.id);
-  const unseeded = entries.filter((e) => e.seed === null).sort((x, y) => x.id - y.id);
-  const shuffled = [...unseeded];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(drawn() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  const initial = [...seeded, ...shuffled].map((e) => e.id);
+  const { seed, initial } = drawInitialOrder(entries, random);
   const minutes = minutesFor(t, "group");
   const people = await peopleOf(t.id);
+  // Accelerated pairing (ADR 0038), chosen before the draw: the top half of the initial order carries a virtual point into the first rounds.
+  const accelRounds = settings.acceleration ?? 0;
+  if (accelRounds > 0 && accelRounds >= rounds)
+    return { ok: false, error: `Accelerated pairing for ${accelRounds} round${accelRounds === 1 ? "" : "s"} leaves none paired as usual in an event of ${rounds}: ask for fewer accelerated rounds, or more rounds.` };
+  const accelGroup = accelRounds > 0 ? accelerationGroup(n) : 0;
+  const accelPoints = t.rules.scoring.tablePoints.win;
   const first = pairRound(
-    initial.map((id, i) => ({ id, points: 0, rank: i + 1 })),
+    initial.map((id, i) => ({ id, points: 0, rank: i + 1, virtual: virtualPointsFor(1, accelRounds, accelGroup, i + 1, accelPoints) })),
     new Set(),
     new Set()
   );
@@ -529,8 +632,8 @@ export async function drawSwiss(t: Tournament, entries: DrawEntry[], random: () 
   await db.transaction(async () => {
     for (let i = 0; i < initial.length; i++) await db.prepare("UPDATE tournament_entries SET swiss_rank = ? WHERE id = ?").run(i + 1, initial[i]);
     await db
-      .prepare("INSERT INTO swiss_events (tournament_id, rounds, planned_rounds, seed, tiebreaks, bye_points) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(t.id, rounds, rounds, seed, JSON.stringify(tiebreaks), byePoints);
+      .prepare("INSERT INTO swiss_events (tournament_id, rounds, planned_rounds, seed, tiebreaks, bye_points, accel_rounds, accel_group, accel_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(t.id, rounds, rounds, seed, JSON.stringify(tiebreaks), byePoints, accelRounds, accelGroup, accelRounds > 0 ? accelPoints : 0);
     await storeRound(t, 1, first, matches, placed.placed, minutes);
     await db.prepare("UPDATE tournaments SET status = 'drawn' WHERE id = ?").run(t.id);
   })();
@@ -588,6 +691,70 @@ export async function competitionHasUnpaired(competitionId: number): Promise<boo
 }
 
 /**
+ * What `round` would be: everybody in `active` paired from the standings of `d` as they are, under the published rules, with the
+ * virtual points of an accelerated event while its accelerated rounds last. Reads and writes nothing; null if no pairing without
+ * a rematch or a second bye exists.
+ */
+async function pairingFor(d: TournamentDetail, ev: EventRow, round: number, active: { id: number }[]): Promise<Pairing | null> {
+  const points = new Map(d.swiss!.standings.map((l) => [l.entryId, l.points]));
+  const ranks = new Map(((await getDb().prepare("SELECT id, swiss_rank FROM tournament_entries WHERE tournament_id = ?").all(d.id)) as { id: number; swiss_rank: number | null }[]).map((r) => [r.id, r.swiss_rank ?? 9999]));
+  const pairsPlayed = d.matches.filter((m) => m.stage === "group" && m.a !== null && m.b !== null);
+  const met = new Set(pairsPlayed.map((m) => metKey(m.a!, m.b!)));
+  const hadBye = new Set(d.matches.filter((m) => m.stage === "group" && m.status === "bye" && m.b === null && m.a !== null).map((m) => m.a!));
+  const firstCount = new Map<number, number>();
+  for (const m of pairsPlayed) {
+    firstCount.set(m.a!, (firstCount.get(m.a!) ?? 0) + 1);
+    firstCount.set(m.b!, (firstCount.get(m.b!) ?? 0) - 1);
+  }
+  return pairRound(
+    active.map((e) => ({
+      id: e.id,
+      points: points.get(e.id) ?? 0,
+      rank: ranks.get(e.id)!,
+      virtual: virtualPointsFor(round, ev.accel_rounds, ev.accel_group, ranks.get(e.id)!, ev.accel_points),
+    })),
+    met,
+    hadBye,
+    firstCount
+  );
+}
+
+/** The next round as it would be paired now, shown to staff before it is: each pairing with its reason, and whether it fits the court time held. */
+export interface RoundPreview {
+  round: number;
+  pairs: { a: number; b: number; note: PairNote }[];
+  bye: { id: number; note: PairNote } | null;
+  /** The matches that would find no court time (0: it fits). */
+  unplaced: number;
+}
+
+/**
+ * Staff's look at the round that is due, before it is paired (ADR 0038): each pairing with the reason it would be made, the bye, and
+ * whether the court time held takes it. Changes nothing. Only where the round before is decided and the next is not yet paired (a
+ * round normally pairs by itself the moment the one before is decided; this is for the one that could not, or that a manager is
+ * asked to pair again).
+ */
+export async function previewNextRound(tournamentId: number): Promise<{ ok: true; value: RoundPreview } | { ok: false; error: string; code: "NOT_READY" | "NO_PAIRING" | "FEW_PLAYERS" }> {
+  const t = await tournamentById(tournamentId);
+  const ev = await eventOf(tournamentId);
+  if (!t || !ev || t.format !== "swiss" || t.status !== "drawn") return { ok: false, error: "No round is due.", code: "NOT_READY" };
+  const db = getDb();
+  const latest = (await db.prepare("SELECT MAX(round)::int AS n FROM swiss_rounds WHERE tournament_id = ?").get(tournamentId)) as { n: number | null };
+  const round = (latest.n ?? 0) + 1;
+  if (round > ev.rounds) return { ok: false, error: "Every round is paired.", code: "NOT_READY" };
+  if (await db.prepare("SELECT 1 FROM tournament_matches WHERE tournament_id = ? AND stage = 'group' AND round = ? AND status = 'scheduled' LIMIT 1").get(tournamentId, round - 1))
+    return { ok: false, error: "The round before is not decided yet.", code: "NOT_READY" };
+  const d = (await tournamentDetail(tournamentId))!;
+  const active = d.entries.filter((e) => e.status === "entered");
+  if (active.length < 2) return { ok: false, error: "Too few players are left to pair another round.", code: "FEW_PLAYERS" };
+  const pairing = await pairingFor(d, ev, round, active);
+  if (!pairing) return { ok: false, error: `Round ${round} cannot be paired without a rematch or a second bye.`, code: "NO_PAIRING" };
+  const minutes = minutesFor(t, "group");
+  const placed = await placeRound(t, pairing.pairs.map((p, i) => ({ key: `r${round}-${i + 1}`, sides: [p.a, p.b], minutes })), await peopleOf(tournamentId));
+  return { ok: true, value: { round, pairs: pairing.pairs, bye: pairing.bye, unplaced: placed.ok ? 0 : placed.unplaced } };
+}
+
+/**
  * Pair the next round if the one before it is decided, from the standings as they are: everybody still in, nobody
  * against somebody they have met, a bye to the lowest-ranked without one. Where it cannot be done, the round is left
  * unpaired and the reason kept for the organiser (`swiss_events.blocked`); nothing is paired against the rules. Safe to
@@ -599,7 +766,7 @@ export async function pairNextRound(tournamentId: number): Promise<PairOutcome> 
   await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(tournamentId);
   const t = await tournamentById(tournamentId);
   const ev = await eventOf(tournamentId);
-  if (!t || !ev || t.status !== "drawn") return { ok: false, error: "No round is due.", code: "NOT_READY" };
+  if (!t || !ev || t.format !== "swiss" || t.status !== "drawn") return { ok: false, error: "No round is due.", code: "NOT_READY" };
   const latest = (await db.prepare("SELECT MAX(round)::int AS n FROM swiss_rounds WHERE tournament_id = ?").get(tournamentId)) as { n: number | null };
   const round = (latest.n ?? 0) + 1;
   if (round > ev.rounds) return { ok: true, paired: null };
@@ -612,23 +779,7 @@ export async function pairNextRound(tournamentId: number): Promise<PairOutcome> 
     await db.prepare("UPDATE swiss_events SET rounds = ?, blocked = NULL WHERE tournament_id = ?").run(round - 1, tournamentId);
     return { ok: false, error: "Too few players are left to pair another round: the event ends here.", code: "FEW_PLAYERS" };
   }
-  const swiss = d.swiss!;
-  const points = new Map(swiss.standings.map((l) => [l.entryId, l.points]));
-  const ranks = new Map(((await db.prepare("SELECT id, swiss_rank FROM tournament_entries WHERE tournament_id = ?").all(tournamentId)) as { id: number; swiss_rank: number | null }[]).map((r) => [r.id, r.swiss_rank ?? 9999]));
-  const pairsPlayed = d.matches.filter((m) => m.stage === "group" && m.a !== null && m.b !== null);
-  const met = new Set(pairsPlayed.map((m) => metKey(m.a!, m.b!)));
-  const hadBye = new Set(d.matches.filter((m) => m.stage === "group" && m.status === "bye" && m.b === null && m.a !== null).map((m) => m.a!));
-  const firstCount = new Map<number, number>();
-  for (const m of pairsPlayed) {
-    firstCount.set(m.a!, (firstCount.get(m.a!) ?? 0) + 1);
-    firstCount.set(m.b!, (firstCount.get(m.b!) ?? 0) - 1);
-  }
-  const pairing = pairRound(
-    active.map((e) => ({ id: e.id, points: points.get(e.id) ?? 0, rank: ranks.get(e.id)! })),
-    met,
-    hadBye,
-    firstCount
-  );
+  const pairing = await pairingFor(d, ev, round, active);
   const stop = async (error: string, code: "NO_PAIRING" | "NO_TIME"): Promise<PairOutcome> => {
     await db.prepare("UPDATE swiss_events SET blocked = ? WHERE tournament_id = ?").run(`${code}:${round}`, tournamentId);
     return { ok: false, error, code };
@@ -735,6 +886,110 @@ export async function endSwiss(tournamentId: number): Promise<Result<TournamentD
   });
   await releaseUnneeded(tournamentId);
   return { ok: true, value: (await tournamentDetail(tournamentId, { forStaff: true }))! };
+}
+
+// ------------------------------------------------------------ the tie-break sequence (ADR 0038)
+
+/** What a change of the tie-break sequence would do to the table, shown to a manager before it is made. */
+export interface TiebreakPreview {
+  current: SwissTiebreak[];
+  proposed: SwissTiebreak[];
+  /** Round 1 is paired: the sequence is locked, and a change is made only as confirmed against this preview, with a reason. */
+  locked: boolean;
+  before: { entryId: number; rank: number }[];
+  after: { entryId: number; rank: number; tie: SwissTie | null }[];
+  moved: { entryId: number; from: number; to: number }[];
+  /** Entries level with the one above on points and on every tie-break of the proposed sequence: only the seed puts them in order. */
+  bySeed: number[];
+  token: string;
+}
+
+/** Is this a tie-break sequence an event may use: some of the published ones, each once? */
+export function tiebreakRefusal(raw: unknown): string | null {
+  if (!Array.isArray(raw) || raw.length === 0) return "Choose at least one tie-break, in the order they are applied.";
+  if (raw.some((k) => !SWISS_TIEBREAKS.includes(k as SwissTiebreak))) return `Break ties by some of: ${SWISS_TIEBREAKS.join(", ")}.`;
+  if (new Set(raw).size !== raw.length) return "Each tie-break once.";
+  return null;
+}
+
+const sameSequence = (a: SwissTiebreak[], b: SwissTiebreak[]) => a.length === b.length && a.every((k, i) => k === b[i]);
+
+/**
+ * The table under a proposed tie-break sequence beside the table now (nothing is changed): who moves, which tie-break separates each
+ * pair level on points and by how much, and who only the seed can order. The token fingerprints what was shown, so a change is made
+ * only against it. Pairings never depend on the tie-breaks (a round is paired on points and the initial order), so a change moves the
+ * table and nothing else.
+ */
+export async function previewTiebreaks(tournamentId: number, proposed: unknown): Promise<Result<TiebreakPreview>> {
+  const why = tiebreakRefusal(proposed);
+  if (why) return { ok: false, error: why };
+  const next = proposed as SwissTiebreak[];
+  const d = await tournamentDetail(tournamentId, { forStaff: true });
+  if (!d || d.format !== "swiss") return { ok: false, error: "That is not a Swiss event." };
+  const settings = d.rules.swiss;
+  if (!d.swiss) {
+    // Not drawn: nothing is locked and no result depends on it.
+    const current = settings?.tiebreaks ?? defaultTiebreaks(d.rules.scoring);
+    return { ok: true, value: { current, proposed: next, locked: false, before: [], after: [], moved: [], bySeed: [], token: "" } };
+  }
+  const voided = new Set(d.swiss.standings.filter((l) => l.resultsVoid).map((l) => l.entryId));
+  const alt = (await swissOf(d, d.matches, d.entries, voided, next))!;
+  const was = new Map(d.swiss.standings.map((l) => [l.entryId, l.rank]));
+  const crypto = await import("crypto");
+  const token = crypto
+    .createHash("sha256")
+    .update(JSON.stringify({ id: tournamentId, current: d.swiss.tiebreaks, next, order: d.swiss.standings.map((l) => [l.entryId, l.points]), done: d.matches.filter((m) => m.status !== "scheduled").length }))
+    .digest("hex")
+    .slice(0, 32);
+  return {
+    ok: true,
+    value: {
+      current: d.swiss.tiebreaks,
+      proposed: next,
+      locked: true,
+      before: d.swiss.standings.map((l) => ({ entryId: l.entryId, rank: l.rank })),
+      after: alt.standings.map((l) => ({ entryId: l.entryId, rank: l.rank, tie: l.tie ?? null })),
+      moved: alt.standings.filter((l) => l.rank > 0 && was.get(l.entryId) !== l.rank).map((l) => ({ entryId: l.entryId, from: was.get(l.entryId) ?? 0, to: l.rank })),
+      bySeed: alt.standings.filter((l) => l.tie?.by === "seed").map((l) => l.entryId),
+      token,
+    },
+  };
+}
+
+/**
+ * The organiser's choice of tie-break sequence. Before the draw it is a rule like any other (`setRules`). From the first round's pairing it
+ * is locked: a manager makes the change only with a reason and the token of the preview they looked at, and it is made under the
+ * tournament's row lock, so it applies to the table they saw. The event's table is a pure function of its results and this sequence, so a
+ * change recomputes it and nothing else (no pairing, result or rating reads it).
+ */
+export async function setTiebreaks(tournamentId: number, proposed: unknown, confirm?: { token: string; reason: string }): Promise<Result<{ before: SwissTiebreak[]; after: SwissTiebreak[]; detail: TournamentDetail }>> {
+  const why = tiebreakRefusal(proposed);
+  if (why) return { ok: false, error: why };
+  const next = proposed as SwissTiebreak[];
+  const t = await tournamentById(tournamentId);
+  if (!t || t.format !== "swiss") return { ok: false, error: "That is not a Swiss event." };
+  if (t.status === "cancelled") return { ok: false, error: "That event was called off." };
+  if (t.status === "open" || t.status === "closed") {
+    const before = t.rules.swiss?.tiebreaks ?? defaultTiebreaks(t.rules.scoring);
+    const done = await setRules(tournamentId, { swiss: { tiebreaks: next } });
+    if (!done.ok) return done;
+    return { ok: true, value: { before, after: next, detail: (await tournamentDetail(tournamentId, { forStaff: true }))! } };
+  }
+  const reason = (confirm?.reason ?? "").trim();
+  if (!confirm || reason.length < 3) return { ok: false, error: "The sequence is locked once round 1 is paired: preview the change and confirm it with a reason.", code: "TIEBREAKS_LOCKED" };
+  return withTransaction(async (): Promise<Result<{ before: SwissTiebreak[]; after: SwissTiebreak[]; detail: TournamentDetail }>> => {
+    const db = getDb();
+    await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(tournamentId);
+    const preview = await previewTiebreaks(tournamentId, next);
+    if (!preview.ok) return preview;
+    if (preview.value.token !== confirm.token) return { ok: false, error: "The event has changed since you looked. Review it again.", code: "CHANGED" };
+    if (sameSequence(preview.value.current, next)) return { ok: false, error: "That is the sequence the event uses already." };
+    // The event's table reads `swiss_events`; the rules keep the same list so that what they say is what is used.
+    await db.prepare("UPDATE swiss_events SET tiebreaks = ? WHERE tournament_id = ?").run(JSON.stringify(next), tournamentId);
+    const rules = { ...t.rules, swiss: { ...(t.rules.swiss ?? { rounds: null, byePoints: null, tiebreaks: null }), tiebreaks: next } };
+    await db.prepare("UPDATE tournaments SET rules = ? WHERE id = ?").run(JSON.stringify(rules), tournamentId);
+    return { ok: true, value: { before: preview.value.current, after: next, detail: (await tournamentDetail(tournamentId, { forStaff: true }))! } };
+  });
 }
 
 // ------------------------------------------------------------ corrections

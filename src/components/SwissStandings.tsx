@@ -1,5 +1,6 @@
 import type { T } from "@/lib/i18n";
 import { formatMinute } from "@/lib/interval";
+import { showValue, tiebreakValue } from "@/lib/swiss-columns";
 import type { Match, TournamentDetail } from "@/lib/tournaments";
 
 /**
@@ -12,6 +13,10 @@ export function SwissStandings({ t, x, names }: { t: T; x: TournamentDetail; nam
   if (!s) return null;
   const played = s.rounds.filter((r) => r.complete).length;
   const tally = x.rules.scoring.kind === "tally";
+  /** A pairing's points as it was made: the real points, and the virtual ones of an accelerated round where there were any. */
+  const pts = (real: number | null, virtual?: number) => (virtual ? `${real ?? 0} + ${virtual} ${t("swiss.ui.accelShort")}` : String(real ?? 0));
+  // The event's other tie-breaks as columns, in the order they are applied (Buchholz and wins are columns already; who beat whom has no number).
+  const extra = s.tiebreaks.filter((k) => k !== "buchholz" && k !== "wins" && k !== "head_to_head");
   const result = (m: Match) =>
     m.status === "walkover"
       ? t("tour.walkover")
@@ -41,6 +46,11 @@ export function SwissStandings({ t, x, names }: { t: T; x: TournamentDetail; nam
                 <th className="w-8 font-medium">{t("tour.lost")}</th>
                 <th className="w-12 font-medium">{t("swiss.ui.points")}</th>
                 <th className="w-12 font-medium">{t("swiss.ui.buchholz")}</th>
+                {extra.map((k) => (
+                  <th key={k} scope="col" className="px-1 font-medium" title={t(`swiss.ui.tb.${k}`)}>
+                    {t(`swiss.ui.tbs.${k}`)}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -63,11 +73,17 @@ export function SwissStandings({ t, x, names }: { t: T; x: TournamentDetail; nam
                   <td className="text-center">{l.lost}</td>
                   <td className="text-center font-medium">{l.points}</td>
                   <td className="text-center">{l.buchholz}</td>
+                  {extra.map((k) => (
+                    <td key={k} className="px-1 text-center tabular-nums">
+                      {showValue(tiebreakValue(l, k))}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {s.acceleration && <p className="mt-2 text-xs text-slate-500">{t("swiss.ui.accel", { rounds: s.acceleration.rounds, group: s.acceleration.group })}</p>}
         {s.nextRound !== null && <p className="mt-2 text-xs text-slate-500">{t("swiss.ui.next", { n: s.nextRound })}</p>}
       </div>
       {[...s.rounds].reverse().map((r) => {
@@ -93,7 +109,7 @@ export function SwissStandings({ t, x, names }: { t: T; x: TournamentDetail; nam
                           {names.get(m.a!)} v {names.get(m.b!)}
                           {note && (
                             <span className="ml-1 text-xs text-slate-500">
-                              ({note.aPoints}–{note.bPoints}
+                              ({pts(note.aPoints, note.aVirtual)}–{pts(note.bPoints, note.bVirtual)}
                               {note.float ? `, ${t("swiss.ui.float")}` : ""})
                             </span>
                           )}

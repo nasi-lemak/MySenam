@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { formatMinute } from "@/lib/interval";
+import type { RoundPreview } from "@/lib/swiss";
 import type { TournamentDetail } from "@/lib/tournaments";
 import { useStaffMay, ManagerOnly } from "./StaffMay";
 import { useStaffT } from "./StaffLanguage";
+import { SwissTiebreaks } from "./SwissTiebreaks";
 
 type Call = (url: string, body: object) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
 
@@ -20,6 +22,8 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
   const s = tn.swiss;
   const [closing, setClosing] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // The next round as it would be paired (ADR 0038): each pairing with its reason, before it is made.
+  const [preview, setPreview] = useState<RoundPreview | null>(null);
   if (!s) return null;
   const latest = s.rounds[s.rounds.length - 1];
   const open = latest ? tn.matches.filter((m) => m.stage === "group" && m.round === latest.round && m.status === "scheduled" && m.a !== null && m.b !== null) : [];
@@ -29,7 +33,16 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
     setError(null);
     const done = await call(base, body);
     if (!done.ok) setError(String(done.data.error ?? ""));
+    else setPreview(null);
   }
+  async function look() {
+    setError(null);
+    const done = await call(base, { action: "swiss_preview" });
+    if (!done.ok) setError(String(done.data.error ?? ""));
+    else setPreview(done.data.preview as RoundPreview);
+  }
+  /** A pairing's points as it was made: the real points, and the virtual ones of an accelerated round where there were any. */
+  const pts = (real: number | null, virtual?: number) => (virtual ? `${real ?? 0} + ${virtual} ${t("sw3.accelShort")}` : String(real ?? 0));
   const blockedWhy = s.blocked?.startsWith("NO_TIME") ? t("sw.blocked.noTime") : s.blocked?.startsWith("NO_PAIRING") ? t("sw.blocked.noPairing") : null;
   const complete = latest?.complete ?? false;
   return (
@@ -40,6 +53,7 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
       </div>
       <p className="text-xs text-slate-500">{t("sw.rulesNote", { list: s.tiebreaks.map((k) => t(`sw.tb.${k}`)).join(", "), bye: s.byePoints })}</p>
       <p className="text-xs text-slate-500">{t("sw.pairingNote")}</p>
+      {s.acceleration && <p className="text-xs text-slate-500">{t("sw3.accel", { rounds: s.acceleration.rounds, group: s.acceleration.group, points: s.acceleration.points })}</p>}
       {error && <p className="text-red-700">{error}</p>}
       {blockedWhy && tn.status === "drawn" && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
@@ -47,6 +61,9 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
           <p className="mt-1 text-xs text-amber-900">{blockedWhy}</p>
           <ManagerOnly may="tournamentRun">
             <div className="mt-2 flex flex-wrap gap-2">
+              <button onClick={() => void look()} className={button}>
+                {t("sw3.preview.button", { n: (latest?.round ?? 0) + 1 })}
+              </button>
               <button onClick={() => void run({ action: "swiss_pair" })} className={button}>
                 {t("sw.pairAgain", { n: (latest?.round ?? 0) + 1 })}
               </button>
@@ -92,6 +109,7 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
           </tbody>
         </table>
       </div>
+      <SwissTiebreaks tn={tn} names={names} base={base} call={call} />
       {[...s.rounds].reverse().map((r) => {
         const matches = tn.matches.filter((m) => m.stage === "group" && m.round === r.round).sort((a, b) => a.position - b.position);
         return (
@@ -116,7 +134,7 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
                         <span className={m.winner === m.b ? "font-semibold" : ""}>{name(m.b)}</span>
                         {note && (
                           <span className="text-xs text-slate-500">
-                            ({note.aPoints}–{note.bPoints}
+                            ({pts(note.aPoints, note.aVirtual)}–{pts(note.bPoints, note.bVirtual)}
                             {note.float ? `, ${t("sw.float")}` : ""})
                           </span>
                         )}
@@ -170,10 +188,40 @@ export function SwissPanel({ tn, names, base, call }: { tn: TournamentDetail; na
           </button>
         </details>
       )}
+      {preview && (
+        <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs" aria-live="polite">
+          <p className="font-medium text-teal-900">{t("sw3.preview.title", { n: preview.round })}</p>
+          <ul className="mt-1 space-y-0.5">
+            {preview.pairs.map((p) => (
+              <li key={`${p.a}-${p.b}`}>
+                {name(p.a)} {t("tn.versus")} {name(p.b)}{" "}
+                <span className="text-slate-500">
+                  ({pts(p.note.aPoints, p.note.aVirtual)}–{pts(p.note.bPoints, p.note.bVirtual)}
+                  {p.note.float ? `, ${t("sw.float")}` : ""})
+                </span>
+              </li>
+            ))}
+            {preview.bye && (
+              <li>
+                {t("sw3.preview.bye", { name: name(preview.bye.id) })} <span className="text-slate-500">{t("sw.byeWhy", { pts: preview.bye.note.aPoints })}</span>
+              </li>
+            )}
+          </ul>
+          <p className={`mt-1 ${preview.unplaced > 0 ? "text-amber-900" : "text-slate-600"}`}>{preview.unplaced > 0 ? t("sw3.preview.unplaced", { n: preview.unplaced }) : t("sw3.preview.fits")}</p>
+          <button onClick={() => setPreview(null)} className={`mt-2 ${button}`}>
+            {t("sw3.preview.close")}
+          </button>
+        </div>
+      )}
       {runs && tn.status === "drawn" && s.nextRound !== null && !blockedWhy && complete && (
-        <button onClick={() => void run({ action: "swiss_pair" })} className={button}>
-          {t("sw.pairAgain", { n: s.nextRound })}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => void look()} className={button}>
+            {t("sw3.preview.button", { n: s.nextRound })}
+          </button>
+          <button onClick={() => void run({ action: "swiss_pair" })} className={button}>
+            {t("sw.pairAgain", { n: s.nextRound })}
+          </button>
+        </div>
       )}
     </section>
   );

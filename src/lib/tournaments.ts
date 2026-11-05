@@ -45,9 +45,10 @@ import { type CounterMethod, type Sport } from "./types";
 import type { Level } from "./games";
 import { isCategory, isPartnerGender, type Category } from "./who";
 import { money } from "./region";
-import { groupResultsVoid, isFeedIn, parseRules, readRules, type CompetitionRules, type OutReason, type OutStage } from "./tournament-rules";
+import { groupResultsVoid, isFeedIn, parseRules, readRules, swissRefusal, type CompetitionRules, type OutReason, type OutStage } from "./tournament-rules";
 import { clockValue, englishOf, joinSaid, readStaffText, said, type StaffText, type StaffValue } from "./staff-text";
 import type { SwissDetail } from "./swiss";
+import type { PerformanceSwiss } from "./swiss-performances";
 
 /**
  * Tournaments run by venues.
@@ -243,6 +244,12 @@ export interface PerformanceDetail {
   field?: { heat: UnitStat[]; final: UnitStat[] };
   /** Level for the last place in the final: the organiser chooses (makeFinal). */
   tieForFinal: number[] | null;
+  /**
+   * A counted event played in Swiss rounds (lib/swiss-performances.ts, ADR 0038): the rounds' groups and why, the standing across them, and
+   * what to review after a correction. Then `ranking` and `heatRanking` are that standing, and a line's rank is its place in its round
+   * across all the round's groups. Absent for any other event.
+   */
+  swiss?: PerformanceSwiss;
 }
 
 /** A correction that left the wrong competitor in matches already played (lib/tournaments.ts, `openIssues`). */
@@ -596,7 +603,14 @@ async function performanceOf(t: Tournament, matches: Match[], out: Map<number, {
   });
   const heatIds = new Set(matches.filter((m) => m.stage === "heat").map((m) => m.id));
   const finalMatch = matches.find((m) => m.stage === "final") ?? null;
-  const heatRanked = rankPerformances(rows.filter((r) => heatIds.has(r.match_id)).map(asPerformer), rules);
+  // A counted event played in Swiss rounds (ADR 0038): each round is ranked across all its groups; the groups of the rounds are not one set of heats.
+  const swissRounds = t.format === "performance" && t.rules.swiss ? new Map<number, Ranked[]>() : null;
+  if (swissRounds)
+    for (const r of new Set(matches.filter((m) => m.stage === "heat").map((m) => m.round))) {
+      const ids = new Set(matches.filter((m) => m.stage === "heat" && m.round === r).map((m) => m.id));
+      swissRounds.set(r, rankPerformances(rows.filter((x) => ids.has(x.match_id)).map(asPerformer), rules));
+    }
+  const heatRanked = swissRounds ? [] : rankPerformances(rows.filter((r) => heatIds.has(r.match_id)).map(asPerformer), rules);
   // The countback rule: level in the final on every count, the better placing in the heats decides (lib/counted-performances.ts).
   const heatPlace = new Map(heatRanked.map((r) => [r.entryId, r.rank]));
   const finalRanked = finalMatch ? rankPerformances(rows.filter((r) => r.match_id === finalMatch.id).map(asPerformer), rules, heatPlace) : [];
@@ -604,7 +618,7 @@ async function performanceOf(t: Tournament, matches: Match[], out: Map<number, {
   const lines: Record<number, PerformanceLine[]> = {};
   for (const m of matches.filter((x) => x.stage === "heat" || x.stage === "final")) {
     const mine = rows.filter((r) => r.match_id === m.id);
-    const ranked = m.stage === "final" ? finalRanked : rankPerformances(mine.map(asPerformer), rules);
+    const ranked = swissRounds ? swissRounds.get(m.round)! : m.stage === "final" ? finalRanked : rankPerformances(mine.map(asPerformer), rules);
     lines[m.id] = mine.map((r) => {
       const k = ranked.find((x) => x.entryId === r.entry_id)!;
       return {
@@ -618,6 +632,19 @@ async function performanceOf(t: Tournament, matches: Match[], out: Map<number, {
         ...(counted ? { counts: k.counts ?? [], tally: k.tally } : {}),
       };
     });
+  }
+  if (swissRounds) {
+    const swiss = await (await import("./swiss-performances")).swissPerformanceOf(t, matches, swissRounds, voided, out);
+    // The standing across the rounds: shown as the total of the placings that count, with the placings.
+    const ranking = (swiss?.standings ?? []).map((l) => ({
+      entryId: l.entryId,
+      rank: l.rank,
+      result: l.rank === null ? null : l.total,
+      shown: l.rank === null || l.placings.length === 0 ? null : `${l.total} (${l.placings.join(", ")})`,
+      status: (l.resultsVoid ? "dq" : "ok") as PerformanceLine["status"],
+      stage: "heat" as const,
+    }));
+    return { lines, ranking, heatRanking: ranking.map((r) => ({ entryId: r.entryId, rank: r.rank })), tieForFinal: null, ...(swiss ? { swiss } : {}) };
   }
   const finalists = new Set(finalRanked.map((r) => r.entryId));
   const ranking: PerformanceDetail["ranking"] = [];
@@ -1017,8 +1044,10 @@ export async function createTournament(input: TournamentInput, adminId: number):
   const rules = { ...parsedRules.rules };
   if (input.format === "performance" && !rules.performance) return { ok: false, error: "A performance event needs what is measured: choose a performance template." };
   if (input.format !== "performance" && rules.performance) return { ok: false, error: "That template is for a performance event." };
-  if (input.format !== "swiss" && rules.swiss) return { ok: false, error: "Swiss settings are for a Swiss event." };
   if (input.format === "swiss") rules.swiss = rules.swiss ?? { rounds: null, byePoints: null, tiebreaks: null };
+  // Swiss settings are for a Swiss event, or (rounds and how the placings add up) for a counted performance event with no final (ADR 0038).
+  const swissRefused = swissRefusal(input.format, rules);
+  if (swissRefused) return { ok: false, error: swissRefused };
   const bracketRefused = bracketRulesRefusal(input.format, rules.bracket, input.thirdPlace === true);
   if (bracketRefused) return { ok: false, error: bracketRefused };
   const entryKind: EntryKind = input.entryKind ?? (input.teamSize === 2 ? "pair" : "player");
@@ -1528,6 +1557,8 @@ export async function setRules(tournamentId: number, input: unknown, opts: { con
   if (t.format === "performance" ? !parsed.rules.performance : parsed.rules.performance) return { ok: false, error: "Those rules are for another kind of event." };
   const bracketRefused = bracketRulesRefusal(t.format, parsed.rules.bracket, t.thirdPlace);
   if (bracketRefused) return { ok: false, error: bracketRefused };
+  const swissRefused = swissRefusal(t.format, parsed.rules);
+  if (swissRefused) return { ok: false, error: swissRefused };
   // Choosing the feed-in format (it was not chosen before, or its third-place match changes the count) is confirmed against its consequences.
   if (isFeedIn(parsed.rules.bracket) && (!isFeedIn(t.rules.bracket) || parsed.rules.bracket.consolationThirdPlace !== t.rules.bracket.consolationThirdPlace)) {
     const unconfirmed = feedInUnconfirmed(feedInPreview(t, parsed.rules.bracket.consolationThirdPlace), opts.confirmFeedIn);
@@ -1636,6 +1667,7 @@ async function takeOutOnce(entryId: number, reason: OutReason, note?: string): P
       if (left.n === 0) await db.prepare("UPDATE tournament_matches SET status = 'done' WHERE id = ?").run(m.match_id);
     }
     await fillFinal(t.id, null);
+    if (t.rules.swiss) await (await import("./swiss-performances")).afterPerformanceChange(t.id);
     await finishIfDone(t.id);
     await releaseUnneeded(t.id);
     return { ok: true, value: (await entryById(entryId))! };
@@ -2092,6 +2124,15 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
     .all(tournamentId)) as { id: number; seed: number | null; entry_mark: number | string | null; user_id: number | null }[];
   const minimum = t.format === "groups" || t.format === "double_elimination" ? 3 : t.format === "swiss" ? 4 : 2;
   if (entries.length < minimum) return { ok: false, error: `At least ${minimum} entries are needed.` };
+  if (t.format === "performance" && t.rules.swiss) {
+    // A counted event played in Swiss rounds forms each round's groups from the standing (lib/swiss-performances.ts): its draw is the initial order and round 1.
+    const made = await (await import("./swiss-performances")).drawSwissPerformance(t, entries, random);
+    if (!made.ok) return made;
+    await releaseUnneeded(tournamentId);
+    const detail = (await tournamentDetail(tournamentId))!;
+    await tellFirstMatches(detail);
+    return { ok: true, value: detail };
+  }
   if (t.format === "swiss") {
     // A Swiss event pairs one round at a time (lib/swiss.ts): its draw is the initial order and round 1.
     const made = await (await import("./swiss")).drawSwiss(t, entries, random);
@@ -2729,6 +2770,10 @@ async function recordPerformancesOnce(matchId: number, lines: PerformanceInput[]
     | { id: number; tournament_id: number; stage: string }
     | undefined;
   if (!m || (m.stage !== "heat" && m.stage !== "final")) return { ok: false, error: "That is not a heat or a final." };
+  // An event played in Swiss rounds takes its results one at a time (ADR 0038): the one that completes a round groups the next, and two
+  // completing it at once would each see the other's group still to come and group nothing.
+  if (await db.prepare("SELECT 1 FROM swiss_events WHERE tournament_id = ?").get(m.tournament_id))
+    await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(m.tournament_id);
   const t = (await tournamentById(m.tournament_id))!;
   if (t.status !== "drawn" && t.status !== "finished") return { ok: false, error: "The draw is not made." };
   const rules = t.rules.performance!;
@@ -2789,6 +2834,8 @@ async function recordPerformancesOnce(matchId: number, lines: PerformanceInput[]
     }
     await fillFinal(t.id, null);
   }
+  // A counted event played in Swiss rounds groups the next round as soon as every group of the one before is in (never moving anybody already grouped).
+  if (t.rules.swiss) await (await import("./swiss-performances")).afterPerformanceChange(t.id);
   await finishIfDone(t.id);
   await releaseUnneeded(t.id);
   return { ok: true, value: (await tournamentDetail(t.id, { forStaff: true }))! };
@@ -2867,6 +2914,9 @@ function performanceChanges(before: TournamentDetail, after: TournamentDetail, m
   const consequential = fromField.length > 0 && fromField.join() !== toField.join();
   // Nobody left in it: those level for the last place are to be chosen between again.
   if (consequential) phrases.push(said(toField.length === 0 ? "srv.pf.finalOpen" : "srv.pf.final", { now: namesAnd(after, toField), was: namesAnd(after, fromField) }));
+  // A counted event played in Swiss rounds: a later round whose groups the corrected standings would form differently is flagged for review, never moved (ADR 0038).
+  const flagged = new Set((before.performance!.swiss?.review ?? []).map((r) => r.round));
+  for (const r of after.performance!.swiss?.review ?? []) if (!flagged.has(r.round)) phrases.push(said("srv.pf.swissReview", { round: r.round, n: r.moves.length }));
   return { phrases, consequential };
 }
 
@@ -3708,7 +3758,7 @@ export async function releaseUnneeded(tournamentId: number): Promise<number> {
   // Before the draw nobody knows which time will be needed.
   if (!t || (t.status !== "drawn" && t.status !== "finished")) return 0;
   // A Swiss event's later rounds are not paired yet, so nobody knows which time they will need.
-  if (t.format === "swiss" && !(await (await import("./swiss")).allRoundsPaired(tournamentId))) return 0;
+  if (!(await (await import("./swiss")).allRoundsPaired(tournamentId))) return 0;
   return releaseHeld(
     { tournamentId },
     "SELECT court_id, date, start_min, end_min FROM blocks WHERE tournament_id = ?",

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
-import { cancelTournament, changeTournament, closeEntries, makeDraw, makeFinal, setRules, tournamentChangeDetail, tournamentDetail } from "@/lib/tournaments";
+import { cancelTournament, changeTournament, closeEntries, makeDraw, makeFinal, setRules, tournamentById, tournamentChangeDetail, tournamentDetail } from "@/lib/tournaments";
 import { tickOutbox } from "@/lib/notify";
 import { saveVenueTemplate } from "@/lib/competition-templates";
 import { staffTournament } from "@/lib/tournament-access";
@@ -74,6 +74,53 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 400 });
     return NextResponse.json({ template: saved.value });
   }
+  // A Swiss event's next round as it would be paired (lib/swiss.ts `previewNextRound`): each pairing with its reason; nothing is changed.
+  if (body.action === "swiss_preview") {
+    const preview = await (await import("@/lib/swiss")).previewNextRound(found.id);
+    if (!preview.ok) return NextResponse.json({ error: preview.error, code: preview.code }, { status: 409 });
+    return NextResponse.json({ preview: preview.value });
+  }
+  // A Swiss event's tie-break order (lib/swiss.ts, ADR 0038): `{ action: "swiss_tiebreaks", tiebreaks, preview: true }` shows what the table would
+  // become; without `preview` it is saved: freely before the draw, from round 1's pairing only with `reason` and the preview's `token` (409 `TIEBREAKS_LOCKED`).
+  if (body.action === "swiss_tiebreaks") {
+    const swiss = await import("@/lib/swiss");
+    if (body.preview === true) {
+      const preview = await swiss.previewTiebreaks(found.id, body.tiebreaks);
+      if (!preview.ok) return NextResponse.json({ error: preview.error }, { status: 409 });
+      return NextResponse.json({ preview: preview.value });
+    }
+    const saved = await swiss.setTiebreaks(found.id, body.tiebreaks, typeof body.token === "string" ? { token: body.token, reason: String(body.reason ?? "") } : undefined);
+    if (!saved.ok) return NextResponse.json({ error: saved.error, ...(saved.code ? { code: saved.code } : {}) }, { status: 409 });
+    const t = saved.value.detail;
+    await logAction(found.admin, {
+      venueId: t.venueId,
+      action: "tournament.swiss_tiebreaks",
+      detail: `${t.name}: ${saved.value.before.join(", ")} -> ${saved.value.after.join(", ")}${typeof body.token === "string" ? `: ${String(body.reason ?? "").trim().slice(0, 300)}` : ""}`,
+    });
+    return NextResponse.json({ tournament: t });
+  }
+  // A counted event played in Swiss rounds (lib/swiss-performances.ts, ADR 0038): a round whose groups a correction put in doubt is grouped again
+  // (`swiss_regroup`, previewed with `preview: true`, then confirmed with `token` and `reason`) or kept as it is (`swiss_keep_grouping`, with `reason`).
+  if (body.action === "swiss_regroup" || body.action === "swiss_keep_grouping") {
+    const perf = await import("@/lib/swiss-performances");
+    const round = Number(body.round);
+    if (body.action === "swiss_regroup" && body.preview === true) {
+      const preview = await perf.previewRegroup(found.id, round);
+      if (!preview.ok) return NextResponse.json({ error: preview.error, ...(preview.code ? { code: preview.code } : {}) }, { status: 409 });
+      return NextResponse.json({ preview: preview.value });
+    }
+    const done =
+      body.action === "swiss_regroup"
+        ? await perf.regroupFrom(found.id, round, { token: String(body.token ?? ""), reason: String(body.reason ?? "") })
+        : await perf.keepGrouping(found.id, round, String(body.reason ?? ""));
+    if (!done.ok) return NextResponse.json({ error: done.error, ...(done.code ? { code: done.code } : {}) }, { status: 409 });
+    await logAction(found.admin, {
+      venueId: done.value.venueId,
+      action: body.action === "swiss_regroup" ? "tournament.swiss_regrouped" : "tournament.swiss_grouping_kept",
+      detail: `${done.value.name}, round ${round}: ${String(body.reason ?? "").trim().slice(0, 300)}`,
+    });
+    return NextResponse.json({ tournament: done.value });
+  }
   // A Swiss event's rounds (lib/swiss.ts): paired again where one could not be, closed with matches undecided, or ended early.
   if (body.action === "swiss_pair" || body.action === "swiss_close_round" || body.action === "swiss_end") {
     const swiss = await import("@/lib/swiss");
@@ -83,8 +130,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const done =
       body.action === "swiss_pair"
         ? await (async () => {
-            const paired = await swiss.pairNextRound(found.id);
-            return paired.ok ? ({ ok: true as const, value: paired.paired }) : ({ ok: false as const, error: paired.error });
+            // A counted event played in Swiss rounds groups its next round (lib/swiss-performances.ts); a head-to-head one pairs it.
+            const grouping = (await tournamentById(found.id))?.format === "performance";
+            const paired = grouping ? await (await import("@/lib/swiss-performances")).groupNextRound(found.id) : await swiss.pairNextRound(found.id);
+            const round = "grouped" in paired ? paired.grouped : "paired" in paired ? paired.paired : null;
+            return paired.ok ? ({ ok: true as const, value: round }) : ({ ok: false as const, error: paired.error });
           })()
         : body.action === "swiss_close_round"
           ? await swiss.closeRound(found.id, Number(body.round), resolutions)

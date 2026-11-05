@@ -142,9 +142,11 @@
 - **Ratings.** Every decided two-sided match counts as in a group (a walkover
   moves nothing, a win by retirement counts half); a bye is not a result and is
   not rated; a correction replays through the ledger as for any tournament.
-- **Not built:** accelerated pairings, a Monrad or Burstein pairing, pairing by
-  rating inside a score group other than through seeds, colours for sports with
-  sides other than the first-named rule, and Swiss for performance events.
+- **Not built:** a Monrad or Burstein pairing, pairing by
+  rating inside a score group other than through seeds, and colours for sports with
+  sides other than the first-named rule. (Accelerated pairings, a tie-break screen
+  and Swiss for performance events were built after this was decided:
+  [ADR 0038](0038-swiss-acceleration-tie-break-screen-and-performance-swiss.md).)
 
 ## Part 2: Ladders
 

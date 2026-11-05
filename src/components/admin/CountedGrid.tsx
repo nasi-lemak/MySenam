@@ -75,7 +75,8 @@ export function CountedGridCore({
   saveLabel?: string;
 }) {
   const rules = tn.rules.performance!.counted!;
-  const unitName = m.stage === "final" ? t("final") : t("group", { n: m.position });
+  // A counted event played in Swiss rounds numbers a group by its round too: "Group 2.3" is round 2, group 3 (ADR 0038).
+  const unitName = m.stage === "final" ? t("final") : t("group", { n: tn.rules.swiss ? `${m.round}.${m.position}` : m.position });
   const [rows, setRows] = useState<Record<number, Row>>(() => Object.fromEntries(lines.map((l) => [l.entryId, rowOf(l)])));
   const [view, setView] = useState<number | "all">("all");
   const [busy, setBusy] = useState(false);

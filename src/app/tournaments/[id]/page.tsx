@@ -17,6 +17,7 @@ import { matchLabel, roundsByBracket, type BracketKind } from "@/lib/brackets";
 import type { MatchReport } from "@/lib/match-reports";
 import { MatchResultForm } from "@/components/MatchResultForm";
 import { SwissStandings } from "@/components/SwissStandings";
+import { SwissPerformanceStandings } from "@/components/SwissPerformanceStandings";
 import { resultSentence, scoreExample } from "@/lib/result-text";
 
 /**
@@ -377,7 +378,7 @@ function MyResult({
 function Performances({ t, x, names }: { t: T; x: TournamentDetail; names: Map<number, string> }) {
   const p = x.performance!;
   const status = (s: string) => (s === "dns" ? t("tour.dns") : s === "dnf" ? t("tour.dnf") : s === "dq" ? t("tour.dq") : t("tour.pending"));
-  const units = x.matches.filter((m) => m.stage === "heat" || m.stage === "final").sort((a, b) => (a.stage === "final" ? 1 : 0) - (b.stage === "final" ? 1 : 0) || a.position - b.position);
+  const units = x.matches.filter((m) => m.stage === "heat" || m.stage === "final").sort((a, b) => (a.stage === "final" ? 1 : 0) - (b.stage === "final" ? 1 : 0) || a.round - b.round || a.position - b.position);
   if (x.rules.performance?.counted) return <CountedPerformances t={t} x={x} names={names} units={units} status={status} />;
   return (
     <section className="space-y-3">
@@ -512,7 +513,8 @@ function CountedPerformances({
   };
   return (
     <section className="space-y-3">
-      {p.ranking.some((r) => r.rank !== null) && (
+      {p.swiss && <SwissPerformanceStandings t={t} x={x} names={names} />}
+      {!p.swiss && p.ranking.some((r) => r.rank !== null) && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-semibold">{t("tour.results")}</h2>
           <div className="overflow-x-auto">
@@ -538,7 +540,7 @@ function CountedPerformances({
         {units.map((m) => (
           <div key={m.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
             <h3 className="font-semibold">
-              {m.stage === "final" ? t("tour.final") : t("ctp.group", { n: m.position })}
+              {m.stage === "final" ? t("tour.final") : p.swiss ? t("swpf.ui.group", { round: m.round, n: m.position }) : t("ctp.group", { n: m.position })}
               <span className="ml-2 text-xs font-normal text-slate-500">
                 {m.date} {m.minute !== null && formatMinute(m.minute, t.locale)}, {m.courtName}
               </span>

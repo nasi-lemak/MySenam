@@ -740,7 +740,8 @@ reads, never a branch on the sport
 `src/lib/counted-performances.ts`, `src/lib/tournament-rules.ts`). The groups
 and final are the performance event's heats and final, and the results go in
 through the same path as any performance result (`recordPerformances`), not a
-second one.
+second one. A counted event can instead be played in rounds, each grouped from the
+standing the rounds before left: [Swiss for performance events](#swiss-for-performance-events).
 
 | Template | Offered for | What it is |
 | -------- | ----------- | ---------- |
@@ -1741,9 +1742,10 @@ same rules, with results entered only through `recordResult`.
 - **Format: Swiss** under *Set up a tournament* (staff; the template's scoring and
   tables are the event's). It takes at least 4 entries. Its settings are in the
   rules (`rules.swiss`): the **rounds** (blank: the default, below), the **points
-  for a bye** (blank: what a win is worth) and the order of **tie-breaks** (blank:
-  the default, below; set by the API, shown on the pages). The match length is the
-  group stage's.
+  for a bye** (blank: what a win is worth), **accelerated pairing** (off unless
+  chosen, [below](#accelerated-pairing)) and the order of **tie-breaks** (blank: the
+  default, below; chosen on [the tie-break screen](#the-tie-break-screen)). The match
+  length is the group stage's.
 - **Rounds.** The default is ⌈log₂ n⌉ for n entries at the draw (4 entries 2, 8 → 3,
   16 → 4, 32 → 5), at least 1. At most n − 1 for an even number, n for an odd one:
   more could not be played without somebody meeting twice, and the draw says so.
@@ -1804,10 +1806,12 @@ nothing is left to chance and a table rebuilt from the results is the same.
 | --------- | ------- |
 | Buchholz | the sum of the Swiss points of the opponents actually played (a bye adds nothing) |
 | Median Buchholz | Buchholz without the highest and the lowest opponent's points, for a player with three opponents or more (else Buchholz) |
+| Buchholz without the lowest opponent (Cut-1) | Buchholz less the lowest opponent's points |
+| Sonneborn-Berger | the points of the opponents beaten, and half those of the opponents drawn with (a win by walkover or retirement counts as a win) |
 | Wins, set difference, set ratio, point difference, point ratio, points scored, who beat whom | exactly as a table ranks by them ([results](#results)) |
 
 The default is Buchholz, median Buchholz, then the template's own ranking keys without
-the points (`defaultTiebreaks`). Table points are the template's (3-1-0 for goals, set
+the points (`defaultTiebreaks`); Cut-1 and Sonneborn-Berger are chosen, never default. Table points are the template's (3-1-0 for goals, set
 points for volleyball, and so on), a walkover counts at the rules' walkover score, a
 drawn match (where the sport has them) is a point for each. Results of somebody out stand or
 are void by the event's [rules for leavers](#somebody-leaving) (the stage is *groups*),
@@ -1854,8 +1858,9 @@ and, as "a correction was made", to the public.
 
 ### What people see, and the day
 
-- **The public page** shows the table with the tie-breaks that rank it, and every round
-  with its pairings, why each was made (the two's points, a float), results and byes, by the
+- **The public page** shows the table with the tie-breaks that rank it (each of the event's own,
+  in the order they are applied, as a column), and every round
+  with its pairings, why each was made (the two's points, the virtual points of an accelerated round, a float), results and byes, by the
   names the page shows (a declared minor by first name and initial; a round's notice to the other family names them so too).
 - **Tournament day** works as for any group stage: the board, announcements, calls, rest,
   the live page and officials' links show Swiss fixtures labelled *Round n*; a round's
@@ -1864,12 +1869,100 @@ and, as "a correction was made", to the public.
   win by retirement half); a **bye is not a result and is not rated**; a correction replays
   ([ratings](#ratings-and-rankings)).
 
+### Accelerated pairing
+
+An option on a Swiss event (`rules.swiss.acceleration`, [ADR 0038](../architecture/decisions/0038-swiss-acceleration-tie-break-screen-and-performance-swiss.md);
+`src/lib/swiss.ts`), **off unless chosen, and chosen before the draw** (*Accelerated pairing* and its
+number of rounds, default 2, on the set-up screen). For the first *R* rounds the **top half of the
+initial order**, rounded up to an even number (the best 2⌈n/4⌉: 4 of 8, 6 of 9 or 10), is paired as if each
+had **one virtual point** (what a win is worth in table points) more, so the strongest meet early.
+
+- **The virtual points only decide who meets whom.** They are in no table, result, tie-break (Buchholz
+  sums real points), rating or public standing, and stop after round *R*: from round *R* + 1 the
+  pairing reads real points alone. They are never stored for a player: each pairing works them out from
+  the event's stored acceleration (rounds, group size and value, fixed at the draw) and the place in the initial order.
+- **The pairing is otherwise the rules above:** the Dutch method within a score group, here of the points a
+  pairing is made on; nobody twice; a bye to the lowest-ranked without one (in round 1 a player of the second
+  half, with no virtual point), worth the event's bye points and nothing virtual. *R* must leave at least one
+  round paired as usual (refused at creation where the rounds are set, at the draw where they are the default).
+- **Each pairing says why**, on the staff panel and the public page: the two real points, and *+ 1 accelerated*
+  beside the ones that carried a virtual point, so a pairing is explained and a point is never read as a result.
+- **Group size is fixed at the draw.** Somebody leaving does not move anybody in or out of the group; a group
+  that has lost a member pairs with a float or a bye like any odd group, and the leaver's opponent has the walkover
+  and its real point.
+- **Corrections and replay.** A correction that pairs the next round again calls the same pairing on the corrected
+  results, virtual points included; a correction that keeps the pairings changes only the table. Every pairing can be
+  made again from the recorded seed, the stored acceleration and the results.
+- **Preview.** *Preview round n* on the staff panel shows the round that is due as it would be paired now, each
+  pairing with its reason, the bye, and whether the court time held takes it, and changes nothing. A round pairs by
+  itself as soon as the one before is decided, so the preview is for the one that could not be paired (no court time) or
+  that a manager is asked to pair; round 1 is paired at the draw and its reasons are on the page at once.
+- **What it is not:** FIDE's Baku scheme lowers the virtual point in the later accelerated rounds. This is the constant version.
+
+### The tie-break screen
+
+On the Swiss panel (staff, English, Malay and Chinese; before the draw, on the event's own card),
+**Tie-breaks** shows the table with **every published tie-break as a column** (the event's own first, in the
+order they are applied), and, for each entry level on points with the one above it, **which tie-break
+separated them and by how much** ("ahead of Aina on set difference: 4 against 2"; "won their match"), or, where no
+tie-break can, that **only the initial order (the stored seed) does**, marked and said in words.
+
+- **Choosing the order** is a manager's: reorder, add and remove tie-breaks with named buttons, and the table
+  it would make is shown **as it is built** (who moves, who only the seed orders) without saving anything.
+- **Locked once round 1 is paired**, which is at the draw. Before the draw it is saved at once. After it, a change needs
+  **a reason (3 characters or more) and the token of the preview** the manager looked at, and is made against that table (a result
+  that arrived since refuses it, `CHANGED`; the sequence the event has already is refused). It is also possible for a finished event.
+- **What a change does:** the table is worked out again from the recorded results in the new order. **Nothing else
+  moves**: a round is paired on points and the initial order, never on a tie-break, so no pairing, result or rating changes.
+- **Audit:** `tournament.swiss_tiebreaks` in the activity log with the sequence before and after and the reason.
+- **Public:** the standings show the event's own tie-breaks as columns; minors' names as everywhere.
+
+### Swiss for performance events
+
+A **counted performance event** (bouldering, climbing by height: [counted performances](#counted-performances)) can be
+played in **Swiss rounds** ([ADR 0038](../architecture/decisions/0038-swiss-acceleration-tie-break-screen-and-performance-swiss.md);
+`src/lib/swiss-performances.ts`; migration 0279). Climbers are ranked by what they did, so there is **nothing to pair: it
+forms groups**. It is data: tick *Play in rounds* on the set-up screen (`rules.swiss` beside the counted rules; the event has
+**no final**, its final size is 0).
+
+- **Rounds and groups.** Every round is the same boulders for everybody and is **ranked across all its groups together** by the
+  event's own counted ranking. Round 1's groups are the initial order (staff seeds, then an order drawn from the recorded seed).
+  **Each later round's groups are formed from the standing, as soon as every group of the round before is in:
+  adjacent places climb together.** Group sizes are as even as can be (the size the event sets, or one more where the alternative is
+  a group of one: 3 climbers with a size of 2 are one group of 3), **nobody sits out, no bye**; the best group climbs last and each group
+  starts worst first (the event's order of start). Climbers are told their group, number and time. The groups are `heat` matches, so the
+  day, officials and the live page work unchanged; they are numbered by round (*Group 2.3* is round 2, group 3).
+- **Repeat groups are not avoided, and why:** climbers sharing a group are not ranked against each other any more than against the
+  rest of the wall, so who shares a group changes nobody's placing.
+- **The cumulative rule** is data (`rules.swiss.cumulative`, fixed at the draw): `sum_of_placings` (add every round's placing) or `best_n`
+  (add the best *N*, `bestN`); **the fewest points wins**. Only rounds with every group in count. A climber with no result in a round (did not
+  start or finish, disqualified, left) is placed one behind the last who has one. **Level**, the better placings decide (the best, then the next,
+  over every round), then the initial order; a **place is shared only where nothing but the initial order separates two**, and the staff table says which
+  and by how much, as the tie-break screen does.
+- **Results** go in only through `recordPerformances` (staff and officials, as for any counted event), one at a time under the event's lock, so two
+  groups completing a round at once form the next once. Every placing and total is worked out from the counts on every reading.
+- **Corrections are flagged, never reshuffled.** A count put right is made at once. **Nobody already grouped is ever moved by it.** Where the corrected
+  standing would form a later round's groups differently, that round is **flagged for review**: the panel lists who would change group, and the
+  correction's preview says so. A manager then **keeps the groups** (with a reason; the flag clears for exactly that, and returns if a later correction
+  changes it) or **groups the round again**, previewed and confirmed with a reason and the preview's token, which clears that round's and every later
+  round's groups and forms it afresh from the corrected standing in the time held, the climbers told. That is **possible only while nobody has climbed that
+  round or a later one** (refused otherwise: a round climbed is never rewritten) and is whole or nothing. An official's round is *advanced*, so a correction
+  to it is a request, once anybody has climbed a later one.
+- **Somebody leaving:** not grouped in a round not yet formed; their lines in a round already formed did not start; what they climbed stands or is void
+  by the event's rules; no flag rises for a group they were in. If fewer than two are left, the event ends with the rounds it has.
+- **Not rated** (a counted result has no two-sided result, [ADR 0035](../architecture/decisions/0035-rating-policy-published-rankings-and-counted-results.md)); minors by first name and initial.
+- **Court time.** All the rounds must fit the time held at the draw (refused, changing nothing, if not); the time stays held until the last round is grouped; a round
+  that cannot be placed is left ungrouped with the reason and *Group round n* tries again.
+- **Not built:** a final from the rounds, a geometric-mean or other combined rule, grouping that avoids repeats, and Swiss for events of marks.
+
 ### What Swiss does not do
 
-- No accelerated pairings, no other pairing method, and the colours of a sport with sides are
-  only the first-named rule above.
-- The tie-break order is set through the API (`rules.swiss.tiebreaks`), not a screen.
-- Swiss for a performance event is not built; a Swiss division of a competition schedules
+- No other pairing method, and the colours of a sport with sides are
+  only the first-named rule above. Accelerated pairing is the constant virtual point below,
+  not FIDE's graded Baku scheme.
+- A tie-break order that decided pairings is not built: pairings never read a tie-break.
+- Swiss for a performance event of marks (times, distances) is not built (a counted event can be played in
+  [Swiss rounds](#swiss-for-performance-events)); a Swiss division of a competition schedules
   each round into the time free when it is paired, so a later round may not fit if another
   division has taken the time meanwhile (it says so and the organiser decides).
 - The pairing search is bounded: with very many players after very many withdrawals it
@@ -2095,6 +2188,9 @@ declared, never verified, and no identity document is asked for.
 | Ratings from results: the rule, the ledger, replay, corrections, voids, walkovers, exclusions and restarts, rankings, seeding proposal, privacy | `src/lib/rating-math.ts`, `src/lib/ratings.ts`, `db/migrations/0270_ratings_from_results.sql`, `src/app/api/admin/ratings/route.ts`, `src/app/api/my/ratings/route.ts`, `src/app/api/venues/[id]/rankings/route.ts`, `src/app/ratings/page.tsx`, `src/app/venue/[id]/rankings/page.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/rating-math.test.ts`, `tests/ratings.test.ts` (PGlite and Postgres) |
 | Rating policy: rankings published by choice (404 while off, on the page, API, MCP tool, venue link and sitemap), a venue's number of counted results before a player is ranked, the separate provisional section, which results count (the treatment table, run row by row), replay equality after amendments and policy changes, determinism, pool separation, the audit log and the ledger CSV | `src/lib/rating-eligibility.ts`, `src/lib/ratings.ts` (`rankingPolicy`, `setRankingPolicy`, `ledgerCsv`), `db/migrations/0275_ranking_policy.sql`, `src/app/venue/[id]/rankings/layout.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/ranking-policy.test.ts`, `tests/rating-eligibility.test.ts` (PGlite), `tests/components/ranking-policy-ui.test.tsx`, `tests/mcp.test.ts` (the tool) |
 | Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
+| Swiss: accelerated pairing (the group, virtual points that never reach a table or rating, byes, leavers, corrections, the seed, the preview) | `src/lib/swiss.ts` (`accelerationGroup`, `virtualPointsFor`, `pairRound`, `previewNextRound`), `db/migrations/0279_swiss_acceleration_and_performance_swiss.sql`, `src/components/admin/SwissPanel.tsx`, `src/components/SwissStandings.tsx` | `tests/swiss-acceleration.test.ts` (PGlite and Postgres), `tests/components/swiss-tiebreaks.test.tsx` |
+| Swiss: the tie-break screen (every tie-break as a column, what separated each tie, the order chosen with a live preview, locked from round 1 and changed with a reason and the preview's token, audit) | `src/lib/swiss.ts` (`previewTiebreaks`, `setTiebreaks`, `SwissTie`), `src/lib/swiss-columns.ts`, `src/components/admin/SwissTiebreaks.tsx`, `src/app/api/admin/tournaments/[id]/route.ts`, `src/components/SwissStandings.tsx` | `tests/swiss-tiebreaks.test.ts`, `tests/components/swiss-tiebreaks.test.tsx` |
+| Swiss for counted performance events: groups formed from the standing, the cumulative rule, corrections flagged and regrouped with a preview, leavers, court time, the day, names, never rated | `src/lib/swiss-performances.ts`, `src/lib/tournaments.ts` (`performanceOf`, `recordPerformancesOnce`, `makeDraw`), `src/lib/tournament-rules.ts` (`swissRefusal`), `src/lib/official-performances.ts`, `src/components/admin/SwissPerformancePanel.tsx`, `src/components/SwissPerformanceStandings.tsx`, `src/components/admin/CountedGrid.tsx`, `db/migrations/0279_swiss_acceleration_and_performance_swiss.sql` | `tests/swiss-performances.test.ts` (PGlite and Postgres), `tests/components/swiss-tiebreaks.test.tsx` |
 | Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts`, `tests/ladder-public.test.ts` (what the public is and is not shown) |
 | A ladder challenge holds no court time; the ordinary booking it may carry (attach, drop on cancellation) | `src/lib/ladders.ts` (`attachBooking`, `detachBooking`, `ladderBookingCancelled`), `src/lib/store.ts` (the hook), `src/app/api/ladders/[id]/challenges/[challengeId]/route.ts`, `src/app/ladders/[id]/page.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/ladder-court-time.test.ts` |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |

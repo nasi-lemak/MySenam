@@ -393,6 +393,8 @@ const en = {
   "srv.tn.swiss.unpaired": "{match}, {sides}, is taken off: the round is paired again.",
   "srv.tn.swiss.paired": "{match} is now {sides}.",
   "srv.tn.swiss.bye": "{match}: {name} has the bye.",
+  // Swiss performance events (lib/swiss-performances.ts, ADR 0038): a correction that would group a later round differently
+  "srv.pf.swissReview": "Round {round}'s groups are flagged for review: with this correction the standings would put {n} competitor(s) in a different group. Nobody is moved.",
   // Consolation draws and double elimination: what a match in those brackets is called (lib/tournaments.ts, ADR 0032)
   "srv.round.winnersRound": "Winners' round {round}, match {n}",
   "srv.round.winnersFinal": "Winners' final",
@@ -792,6 +794,7 @@ const ms: Record<keyof typeof en, string> = {
   "srv.tn.swiss.unpaired": "{match}, {sides}, dibatalkan: pusingan dipasangkan semula.",
   "srv.tn.swiss.paired": "{match} kini {sides}.",
   "srv.tn.swiss.bye": "{match}: {name} mendapat bye.",
+  "srv.pf.swissReview": "Kumpulan pusingan {round} ditandakan untuk semakan: dengan pembetulan ini kedudukan akan meletakkan {n} peserta dalam kumpulan yang berbeza. Tiada sesiapa dipindahkan.",
   "srv.round.winnersRound": "Pusingan pemenang {round}, perlawanan {n}",
   "srv.round.winnersFinal": "Akhir pemenang",
   "srv.round.losersRound": "Pusingan pihak kalah {round}, perlawanan {n}",
@@ -1190,6 +1193,7 @@ const zh: Record<keyof typeof en, string> = {
   "srv.tn.swiss.unpaired": "{match}，{sides}，被取消：该轮重新配对。",
   "srv.tn.swiss.paired": "{match} 现为 {sides}。",
   "srv.tn.swiss.bye": "{match}：{name} 轮空。",
+  "srv.pf.swissReview": "第 {round} 轮的分组已标记待复核：按此更正，排名会使 {n} 名选手分到不同的组。无人被调动。",
   "srv.round.winnersRound": "胜者组第 {round} 轮第 {n} 场",
   "srv.round.winnersFinal": "胜者组决赛",
   "srv.round.losersRound": "败者组第 {round} 轮第 {n} 场",
