@@ -57,8 +57,14 @@ export default async function LaddersPage({ searchParams }: { searchParams: Prom
                 {x.venueName} · 📍 {x.area}
               </div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <span className="rounded-full bg-slate-100 px-2 py-0.5">{x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")}</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5">{t(`ldp.audience.${x.audience}`)}</span>
+                {x.kind === "teams" ? (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{t("lad2.ui.audienceTeams")}</span>
+                ) : (
+                  <>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5">{x.teamSize === 2 ? t("tour.doubles") : t("tour.singles")}</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5">{t(`ldp.audience.${x.audience}`)}</span>
+                  </>
+                )}
                 {x.who !== "anyone" && <span className="rounded-full bg-fuchsia-50 px-2 py-0.5 font-medium text-fuchsia-800">{t(`who.badge.${x.who}`)}</span>}
                 {x.level && <span className="rounded-full bg-slate-100 px-2 py-0.5">{t(`games.level.${x.level}`)}</span>}
                 <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">{t("ldp.players", { n: x.players })}</span>

@@ -4,6 +4,7 @@ import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import { activityKeys } from "@/lib/activity-registry";
 import { sportLabel } from "@/lib/i18n";
+import { DEFAULT_HOLD_LIMITS } from "@/lib/ladder-holds-constants";
 import type { ChallengeView, LadderDetail, Ladder, LadderSettings } from "@/lib/ladders";
 import { LoadFailed } from "./place";
 import type { ManagedVenue } from "./shared";
@@ -87,7 +88,7 @@ function LaddersBody({ venue }: { venue: ManagedVenue }) {
         </div>
       )}
       {open ? (
-        <Manage t={t} l={open} send={send} close={() => setOpen(null)} reload={() => show(open.id)} />
+        <Manage t={t} l={open} venue={venue} send={send} close={() => setOpen(null)} reload={() => show(open.id)} />
       ) : (
         <>
           {loadError ? (
@@ -135,6 +136,7 @@ function Create({ t, venue, send }: { t: StaffT; venue: ManagedVenue; send: Send
     sport: sports[0] ?? "badminton",
     audience: "adults",
     teamSize: "1",
+    kind: "players",
     description: "",
     reach: "3",
     respondDays: "3",
@@ -145,6 +147,7 @@ function Create({ t, venue, send }: { t: StaffT; venue: ManagedVenue; send: Send
     freezeMaxDays: "60",
     declineIs: "free",
   });
+  const [ct, setCt] = useState({ on: false, minutes: "" });
   return (
     <form
       onSubmit={async (e) => {
@@ -153,8 +156,10 @@ function Create({ t, venue, send }: { t: StaffT; venue: ManagedVenue; send: Send
           venueId: venue.id,
           name: f.name,
           sport: f.sport,
-          audience: f.audience,
-          teamSize: Number(f.teamSize),
+          audience: f.kind === "teams" ? "adults" : f.audience,
+          teamSize: f.kind === "teams" ? 1 : Number(f.teamSize),
+          kind: f.kind,
+          courtTime: { on: ct.on, minutes: ct.minutes ? Number(ct.minutes) : null },
           description: f.description,
           settings: { ...Object.fromEntries(NUMBERS.map((n) => [n.key, Number(f[n.key as keyof typeof f])])), declineIs: f.declineIs },
         });
@@ -179,19 +184,43 @@ function Create({ t, venue, send }: { t: StaffT; venue: ManagedVenue; send: Send
           </select>
         </label>
         <label className={label}>
-          {t("lds.audienceLabel")}
-          <select value={f.audience} onChange={(e) => setF({ ...f, audience: e.target.value })} className={input}>
-            <option value="adults">{t("lds.audience.adults")}</option>
-            <option value="juniors">{t("lds.audience.juniors")}</option>
+          {t("lad2.kind")}
+          <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} className={input}>
+            <option value="players">{t("lad2.kind.players")}</option>
+            <option value="teams">{t("lad2.kind.teams")}</option>
           </select>
         </label>
-        <label className={label}>
-          {t("lds.entrants")}
-          <select value={f.teamSize} onChange={(e) => setF({ ...f, teamSize: e.target.value })} className={input}>
-            <option value="1">{t("tn.kind.singles")}</option>
-            <option value="2">{t("tn.kind.doubles")}</option>
-          </select>
+        {f.kind !== "teams" && (
+          <>
+            <label className={label}>
+              {t("lds.audienceLabel")}
+              <select value={f.audience} onChange={(e) => setF({ ...f, audience: e.target.value })} className={input}>
+                <option value="adults">{t("lds.audience.adults")}</option>
+                <option value="juniors">{t("lds.audience.juniors")}</option>
+              </select>
+            </label>
+            <label className={label}>
+              {t("lds.entrants")}
+              <select value={f.teamSize} onChange={(e) => setF({ ...f, teamSize: e.target.value })} className={input}>
+                <option value="1">{t("tn.kind.singles")}</option>
+                <option value="2">{t("tn.kind.doubles")}</option>
+              </select>
+            </label>
+          </>
+        )}
+      </div>
+      {f.kind === "teams" && <p className="text-xs text-slate-500">{t("lad2.teamNote")}</p>}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex items-center gap-1.5 text-sm text-slate-600">
+          <input type="checkbox" checked={ct.on} onChange={(e) => setCt({ ...ct, on: e.target.checked })} />
+          {t("lad2.ct.on")}
         </label>
+        {ct.on && (
+          <label className={label}>
+            {t("lad2.ct.minutes", { default: "" })}
+            <input type="number" min={10} max={480} value={ct.minutes} onChange={(e) => setCt({ ...ct, minutes: e.target.value })} className={`w-24 ${input}`} />
+          </label>
+        )}
       </div>
       <Settings t={t} values={f} onChange={(v) => setF({ ...f, ...v })} />
       <label className={label}>
@@ -227,7 +256,7 @@ function Settings({ t, values, onChange }: { t: StaffT; values: Record<string, s
   );
 }
 
-function Manage({ t, l, send, close, reload }: { t: StaffT; l: LadderDetail; send: Send; close: () => void; reload: () => Promise<void> }) {
+function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDetail; venue: ManagedVenue; send: Send; close: () => void; reload: () => Promise<void> }) {
   const manages = useStaffMay()("ladderRun");
   const base = `/api/admin/ladders/${l.id}`;
   // Every override has a reason, kept and logged: one box for the next change.
@@ -236,6 +265,8 @@ function Manage({ t, l, send, close, reload }: { t: StaffT; l: LadderDetail; sen
   const [until, setUntil] = useState<Record<number, string>>({});
   const [settings, setSettings] = useState<Record<string, string>>({ ...Object.fromEntries(NUMBERS.map((n) => [n.key, String(l.settings[n.key])])), declineIs: l.settings.declineIs });
   const [counter, setCounter] = useState({ phone: "", name: "", adult: false, partnerName: "" });
+  const [court, setCourt] = useState({ on: l.courtTime.on, courtIds: l.courtTime.courtIds, minutes: l.courtTime.minutes === null ? "" : String(l.courtTime.minutes) });
+  const sportCourts = venue.courts.filter((c) => c.sport === l.sport);
   const current = l.viewing?.endedOn === null;
   const names = new Map(l.rows.map((r) => [r.playerId, r.name]));
   const act = async (body: object) => {
@@ -252,7 +283,7 @@ function Manage({ t, l, send, close, reload }: { t: StaffT; l: LadderDetail; sen
             {l.name} <span className="text-sm font-normal text-slate-500">· {t(`lds.status.${l.status}`)}</span>
           </h3>
           <p className="text-sm text-slate-500">
-            {t(`lds.audience.${l.audience}`)} · {t("lds.season", { n: l.season?.number ?? l.viewing?.number ?? 1 })} · {t("lds.playersCount", { n: l.players })} ·{" "}
+            {l.kind === "teams" ? t("lad2.teamBadge", { games: (l.team?.rubbers ?? []).map((k) => t(`lad2.team.kind.${k}`)).join(", ") }) : t(`lds.audience.${l.audience}`)} · {t("lds.season", { n: l.season?.number ?? l.viewing?.number ?? 1 })} · {t("lds.playersCount", { n: l.players })} ·{" "}
             <a href={`/ladders/${l.id}`} target="_blank" rel="noopener" className="underline">
               {t("tn.publicPage")}
             </a>
@@ -385,6 +416,44 @@ function Manage({ t, l, send, close, reload }: { t: StaffT; l: LadderDetail; sen
 
       {manages && current && l.status === "open" && (
         <details className="rounded-lg border border-slate-200 p-3">
+          <summary className="cursor-pointer text-sm font-medium">{t("lad2.ct.title")}</summary>
+          <div className="mt-2 space-y-2 text-sm">
+            <p className="text-xs text-slate-500">{t("lad2.ct.note", { live: DEFAULT_HOLD_LIMITS.maxLivePerLadder, week: DEFAULT_HOLD_LIMITS.maxPerPlayerWeek })}</p>
+            <label className="flex items-center gap-1.5 text-slate-600">
+              <input type="checkbox" checked={court.on} onChange={(e) => setCourt({ ...court, on: e.target.checked })} />
+              {t("lad2.ct.on")}
+            </label>
+            <fieldset>
+              <legend className="text-xs font-medium text-slate-500">{t("lad2.ct.courts")}</legend>
+              <div className="flex flex-wrap gap-3 pt-1">
+                {sportCourts.map((c) => (
+                  <label key={c.id} className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={court.courtIds.includes(c.id)}
+                      onChange={(e) => setCourt({ ...court, courtIds: e.target.checked ? [...court.courtIds, c.id] : court.courtIds.filter((id) => id !== c.id) })}
+                    />
+                    {c.name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className={label}>
+              {t("lad2.ct.minutes", { default: String(l.courtTime.matchMinutes) })}
+              <input type="number" min={10} max={480} value={court.minutes} onChange={(e) => setCourt({ ...court, minutes: e.target.value })} className={`w-24 ${input}`} />
+            </label>
+            <button
+              onClick={() => void act({ action: "court_time", on: court.on, courtIds: court.courtIds, minutes: court.minutes ? Number(court.minutes) : null })}
+              className={small}
+            >
+              {t("lad2.ct.save")}
+            </button>
+          </div>
+        </details>
+      )}
+
+      {manages && current && l.status === "open" && (
+        <details className="rounded-lg border border-slate-200 p-3">
           <summary className="cursor-pointer text-sm font-medium">{t("lds.settings")}</summary>
           <div className="mt-2 space-y-2">
             <Settings t={t} values={settings} onChange={(v) => setSettings({ ...settings, ...v })} />
@@ -405,7 +474,7 @@ function Manage({ t, l, send, close, reload }: { t: StaffT; l: LadderDetail; sen
         ) : (
           <ul className="mt-1 divide-y divide-slate-100 text-sm">
             {(l.challenges ?? []).map((c) => (
-              <Challenge key={c.id} t={t} c={c} names={names} editable={manages && current && l.status === "open"} reason={reason} act={act} reload={reload} />
+              <Challenge key={c.id} t={t} l={l} c={c} names={names} editable={manages && current && l.status === "open"} reason={reason} act={act} reload={reload} send={send} />
             ))}
           </ul>
         )}
@@ -446,11 +515,21 @@ function Manage({ t, l, send, close, reload }: { t: StaffT; l: LadderDetail; sen
 }
 
 /** One challenge, and for a manager the decision on its result. */
-function Challenge({ t, c, names, editable, reason, act, reload }: { t: StaffT; c: ChallengeView; names: Map<number, string>; editable: boolean; reason: string; act: (body: object) => Promise<void>; reload: () => Promise<void> }) {
+function Challenge({ t, l, c, names, editable, reason, act, reload, send }: { t: StaffT; l: LadderDetail; c: ChallengeView; names: Map<number, string>; editable: boolean; reason: string; act: (body: object) => Promise<void>; reload: () => Promise<void>; send: Send }) {
   const [winner, setWinner] = useState(String(c.challenger));
   const [score, setScore] = useState(c.score ?? "");
   const [walkover, setWalkover] = useState(false);
+  const [games, setGames] = useState<{ winner: string; score: string }[]>(() => (l.team?.rubbers ?? []).map(() => ({ winner: "home", score: "" })));
+  const [move, setMove] = useState({ date: "", time: "", court: "" });
+  const [ask, setAsk] = useState({ team: "", reason: "no_show", note: "" });
+  const [why, setWhy] = useState("");
   const decide = (extra: object) => act({ action: "decide", challengeId: c.id, reason, ...extra }).then(reload);
+  const clockOf = (m: number | null | undefined) => (m === null || m === undefined ? "" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+  const minutesOf = (v: string) => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(v);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : undefined;
+  };
+  const forfeitUrl = `/api/admin/ladders/${l.id}/forfeit-requests`;
   return (
     <li className="py-2">
       <div className="flex flex-wrap items-center gap-x-2">
@@ -463,10 +542,137 @@ function Challenge({ t, c, names, editable, reason, act, reload }: { t: StaffT; 
         </span>
         {c.disputeNote && <span className="text-xs text-amber-800">{t("lds.disputeNote", { note: c.disputeNote })}</span>}
       </div>
+      {l.courtTime.on || c.hold ? (
+        <p className="text-xs text-slate-600">
+          {c.hold ? t("lad2.hold.held", { court: c.hold.court, date: c.hold.date, time: clockOf(c.hold.startMin) }) : c.status === "accepted" ? t("lad2.hold.none") : ""}
+          {c.move && ` · ${t("lad2.hold.moveAsked", { date: c.move.onDate, time: clockOf(c.move.minute) })}`}
+        </p>
+      ) : null}
+      {c.team && c.team.rubbers.length > 0 && (
+        <p className="text-xs text-slate-600">
+          {t("lad2.team.games")}:{" "}
+          {c.team.rubbers
+            .map((r) => t("lad2.team.game", { n: r.no, kind: t(`lad2.team.kind.${r.kind}`), score: r.walkover ? t("tn.st.walkover") : (r.score ?? ""), winner: r.winner === "home" ? t("lad2.team.sideHome") : r.winner === "away" ? t("lad2.team.sideAway") : "" }))
+            .join(" · ")}
+        </p>
+      )}
+      {(c.forfeitRequests ?? []).length > 0 && (
+        <div className="mt-1 text-xs">
+          <span className="font-medium">{t("lad2.fr.title")}</span>
+          <ul className="mt-0.5 space-y-1">
+            {(c.forfeitRequests ?? []).map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-2">
+                <span>
+                  {t("lad2.fr.line", { by: r.by, team: r.forfeitTeam.name, reason: t(`ofs1.fr.reason.${r.reason}`) })} · {t(`lad2.fr.status.${r.status}`)}
+                </span>
+                {r.status === "open" && editable && (
+                  <ManagerOnly may="ladderForfeitDecide">
+                    <button onClick={() => void send(`${forfeitUrl}/${r.id}`, { confirm: true })} className={small}>
+                      {t("lad2.fr.confirm")}
+                    </button>
+                    <input aria-label={t("lad2.fr.declineWhy")} placeholder={t("lad2.fr.declineWhy")} value={why} onChange={(e) => setWhy(e.target.value)} className="rounded border border-slate-300 px-1 text-xs" />
+                    <button disabled={why.trim().length < 3} onClick={() => void send(`${forfeitUrl}/${r.id}`, { decline: true, reason: why })} className={small}>
+                      {t("lad2.fr.decline")}
+                    </button>
+                  </ManagerOnly>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {l.kind === "teams" && c.status === "accepted" && (
+        <details className="mt-1">
+          <summary className="cursor-pointer text-xs text-teal-700">{t("lad2.fr.ask")}</summary>
+          <div className="mt-1 flex flex-wrap items-end gap-2">
+            <label className={label}>
+              {t("lad2.fr.team")}
+              <select value={ask.team} onChange={(e) => setAsk({ ...ask, team: e.target.value })} className={input}>
+                <option value="" />
+                <option value={c.challenger}>{c.challengerName}</option>
+                <option value={c.challenged}>{c.challengedName}</option>
+              </select>
+            </label>
+            <label className={label}>
+              {t("ofs1.fr.reason")}
+              <select value={ask.reason} onChange={(e) => setAsk({ ...ask, reason: e.target.value })} className={input}>
+                {(["no_show", "short_handed", "told_us", "other"] as const).map((r) => (
+                  <option key={r} value={r}>
+                    {t(`ofs1.fr.reason.${r}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={label}>
+              {t("lad2.fr.note")}
+              <input maxLength={300} value={ask.note} onChange={(e) => setAsk({ ...ask, note: e.target.value })} className={input} />
+            </label>
+            <button disabled={!ask.team} onClick={() => void send(forfeitUrl, { challengeId: c.id, forfeitPlayer: Number(ask.team), reason: ask.reason, note: ask.note || undefined })} className={small}>
+              {t("lad2.fr.send")}
+            </button>
+          </div>
+        </details>
+      )}
+      {editable && c.status === "accepted" && (c.hold || l.courtTime.on) && (
+        <details className="mt-1">
+          <summary className="cursor-pointer text-xs text-teal-700">{t("lad2.ct.title")}</summary>
+          <div className="mt-1 flex flex-wrap items-end gap-2">
+            <label className={label}>
+              {t("lad2.hold.day")}
+              <input type="date" value={move.date} onChange={(e) => setMove({ ...move, date: e.target.value })} className={input} />
+            </label>
+            <label className={label}>
+              {t("lad2.hold.time")}
+              <input type="time" value={move.time} onChange={(e) => setMove({ ...move, time: e.target.value })} className={input} />
+            </label>
+            <label className={label}>
+              {t("lad2.hold.court")}
+              <select value={move.court} onChange={(e) => setMove({ ...move, court: e.target.value })} className={input}>
+                <option value="">{t("lad2.hold.anyCourt")}</option>
+                {l.courtTime.courtIds.map((id) => (
+                  <option key={id} value={id}>
+                    #{id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              disabled={reason.trim().length < 3 || !move.date || minutesOf(move.time) === undefined}
+              onClick={() => void act({ action: "hold_move", challengeId: c.id, onDate: move.date, minute: minutesOf(move.time), courtId: move.court ? Number(move.court) : undefined, reason }).then(reload)}
+              className={small}
+            >
+              {t("lad2.hold.move")}
+            </button>
+            {c.hold && (
+              <button disabled={reason.trim().length < 3} onClick={() => void act({ action: "hold_release", challengeId: c.id, reason }).then(reload)} className={small}>
+                {t("lad2.hold.release")}
+              </button>
+            )}
+          </div>
+        </details>
+      )}
       {editable && c.status !== "declined" && c.status !== "cancelled" && c.status !== "lapsed" && (
         <details className="mt-1">
           <summary className="cursor-pointer text-xs text-teal-700">{t("lds.decide")}</summary>
           <div className="mt-1 flex flex-wrap items-end gap-2">
+            {l.kind === "teams" && l.team && (
+              <fieldset className="w-full space-y-1">
+                <legend className="text-xs font-medium text-slate-500">{t("lad2.team.decideGames")}</legend>
+                {l.team.rubbers.map((k, i) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <span className="w-36 text-xs text-slate-500">{t("lad2.team.game", { n: i + 1, kind: t(`lad2.team.kind.${k}`), score: "", winner: "" }).trim()}</span>
+                    <select aria-label={`${i + 1}: ${t("lds.winner")}`} value={games[i]?.winner} onChange={(e) => setGames(games.map((g, j) => (j === i ? { ...g, winner: e.target.value } : g)))} className={input}>
+                      <option value="home">{c.challengerName}</option>
+                      <option value="away">{c.challengedName}</option>
+                    </select>
+                    <input aria-label={`${i + 1}: ${t("q8b.l.score")}`} value={games[i]?.score} onChange={(e) => setGames(games.map((g, j) => (j === i ? { ...g, score: e.target.value } : g)))} placeholder="21-15, 18-21, 21-10" className={`w-44 ${input}`} />
+                  </div>
+                ))}
+                <button disabled={reason.trim().length < 3} onClick={() => void decide({ rubbers: games })} className={small}>
+                  {t("lds.decideSave")}
+                </button>
+              </fieldset>
+            )}
             <label className={label}>
               {t("lds.winner")}
               <select value={winner} onChange={(e) => setWinner(e.target.value)} className={input}>
@@ -474,17 +680,21 @@ function Challenge({ t, c, names, editable, reason, act, reload }: { t: StaffT; 
                 <option value={c.challenged}>{c.challengedName}</option>
               </select>
             </label>
-            <label className={label}>
-              {t("q8b.l.score")}
-              <input value={score} onChange={(e) => setScore(e.target.value)} placeholder="21-15, 18-21, 21-10" className={`w-44 ${input}`} />
-            </label>
+            {l.kind !== "teams" && (
+              <label className={label}>
+                {t("q8b.l.score")}
+                <input value={score} onChange={(e) => setScore(e.target.value)} placeholder="21-15, 18-21, 21-10" className={`w-44 ${input}`} />
+              </label>
+            )}
             <label className="flex items-center gap-1 text-xs text-slate-600">
               <input type="checkbox" checked={walkover} onChange={(e) => setWalkover(e.target.checked)} />
               {t("tn.st.walkover")}
             </label>
-            <button disabled={reason.trim().length < 3} onClick={() => void decide({ winner: Number(winner), score: walkover ? undefined : score, walkover })} className={small}>
-              {t("lds.decideSave")}
-            </button>
+            {(l.kind !== "teams" || walkover) && (
+              <button disabled={reason.trim().length < 3} onClick={() => void decide({ winner: Number(winner), score: walkover ? undefined : score, walkover })} className={small}>
+                {t("lds.decideSave")}
+              </button>
+            )}
             <button disabled={reason.trim().length < 3} onClick={() => void decide({ void: true })} className={small}>
               {t("lds.strike")}
             </button>

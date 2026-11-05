@@ -12,7 +12,9 @@ Design: [ADR 0012](../architecture/decisions/0012-competition-rules-and-correcti
 [ADR 0032](../architecture/decisions/0032-consolation-draws-and-double-elimination.md)
 (consolation draws and double elimination, specified rule by rule) and
 [ADR 0033](../architecture/decisions/0033-swiss-tournaments-and-club-ladders.md)
-(Swiss and ladders).
+(Swiss and ladders) and
+[ADR 0040](../architecture/decisions/0040-ladder-court-time-and-team-ladders.md)
+(court time held for ladder challenges, and ladders of teams).
 
 ## Scope and roles
 
@@ -1114,7 +1116,8 @@ A **team** (`src/lib/teams.ts`, `/teams`; migration 0269) is a name your
 players share from event to event: a sport, a captain, and members who joined
 with their own accounts. It holds no court and no money. A tournament entry or
 a team league can **name a team**, and the roster for that event is picked from
-its members and checked member by member. Teams are not community groups
+its members and checked member by member; a [ladder of teams](#team-ladders) takes a team as its entrant,
+and its lineup for each challenge is picked from the members the same way. Teams are not community groups
 ([open games and matchmaking](matchmaking.md#community-groups)): a group is
 people who invite each other to games, a team is who plays for what name in an
 event. A team may carry a group's name and a venue as labels (`group_id`,
@@ -1894,8 +1897,8 @@ the *Leagues* tab (*Club ladders*); players find ladders at `/ladders`.
   challenge never reaches a child, and no contact of a child is shown to anybody.
 - Entrants are **players or pairs** (a pair named by the player who joins), through the same
   checks as a box league: the venue's rule on who it is for, and in a women's or men's ladder the
-  player and a pair's partner as declared. Persistent teams are not ladder entrants (they play in
-  [leagues of teams](#team-leagues)).
+  player and a pair's partner as declared. **Persistent teams** enter a separate kind of ladder, a
+  [ladder of teams](#team-ladders).
 - New players join **at the bottom**; staff may add somebody at the counter. A player rejoining
   after leaving joins at the bottom.
 
@@ -1925,7 +1928,8 @@ effect. **A challenged player who ignores a challenge forfeits** when the days a
 records a walkover for the challenger, once, however often it runs. *Accepted:* the two **arrange the
 match privately** (the day suggested is shown; on an adult ladder each sees the other's number and
 WhatsApp link for this challenge only, never on a junior ladder) and play it within the days given, or
-it **lapses** with no effect on the ranks. **No court time is held for a challenge** (see
+it **lapses** with no effect on the ranks. **By default no court time is held for a challenge**; a
+ladder's manager may switch on *the venue holds court time for accepted challenges* (see
 [court time and booking](#court-time-and-booking-for-a-challenge)). *Reported:* either side says who won and the score, their own
 games first (checked by the ladder's scoring rules, `scoreRefusal`, and kept with the challenger's
 first); the other side **confirms** it, or **says it is wrong** and a manager decides; a result nobody
@@ -1936,8 +1940,9 @@ language at each step (a guardian, for a child, opening with whose place it is).
 
 ### Court time and booking for a challenge
 
-**Creating, accepting, proposing a time, withdrawing, reporting, confirming or deciding a challenge
-reserves no court time**: no claim, block, hold or booking is written by any ladder function
+**By default** (the owner's decision of 4 November 2026) **creating, accepting, proposing a time, withdrawing,
+reporting, confirming or deciding a challenge reserves no court time**: no claim, block, hold or booking is
+written by any ladder function for a ladder that has not turned the setting below on
 (`tests/ladder-court-time.test.ts` counts them across a whole challenge's life, and no ladder table has a
 column that refers to one). A day and time suggested or agreed is a note. Another customer may book that
 court at that time, and the challenger then meets the booking path's ordinary refusal. Nothing is held
@@ -1967,6 +1972,50 @@ player may take it off (`detach_booking`; the booking is untouched). If the book
 players are told that the challenge stands and a court is to be booked again; `ladderBookingCancelled`
 runs where bookings are cancelled and the scheduler sweeps any that a path missed, so running it again
 changes and tells nobody. A booking moved to another time shows its new time; nothing else follows.
+
+#### Court time held by the venue (an optional setting per ladder)
+
+*Default stands, an optional setting added at the owner's request of 5 November 2026.* A manager may switch on
+**The venue holds court time for accepted challenges** for one ladder (*Court time* in its settings, or when
+setting it up; `POST /api/admin/ladders/:id` `{ action: "court_time" }`, logged `ladder.court_time`). It is **off for
+every ladder until then**, and everything above is true of a ladder that has not. Turning it on or off applies from
+now and never rewrites what was held: a hold already made runs its course. When it is on:
+
+- **When a hold is made.** When a challenge is **accepted at an agreed day and a specific time** (the proposal
+  the challenger made, the time the challenged suggested and the challenger accepted, or one the accepter named), the venue
+  **holds a court** for the match. A day alone is not a time: nothing is held until a specific time is agreed, which is done
+  by one player asking (`propose_move`) and the other agreeing (`agree_move`), and a time later than the day the match has to be played
+  by (`LAD2_AFTER`) is refused.
+- **What is held, and where.** The match length (the ladder's *minutes held*, else the sport template's match length; a ladder of teams
+  holds its games added up, one court after another as a league does) plus the court's **operational time** (set-up and cleaning) either
+  side, as **blocks the hold owns** (`blocks.ladder_hold_id`), the way a team league's fixture holds court time and a tournament's holds its own:
+  claims under the exclusion constraints and the capacity trigger, so no booking path, waiting-list offer or staff block can take it. The court is
+  chosen **deterministically** from the courts the ladder names (none named: any court of the venue for the sport that holds one match at a time):
+  those free for the whole time; of them the one that sits against something already on the court that day (the least fragmenting), then the one
+  busiest that day (so emptier courts stay open to customers), then the lowest id.
+- **No money moves.** A hold is a reservation, not a sale: no price, no booking, no payment, no credit. A venue that wants players to pay for court
+  hire has them book the ordinary way and add the booking (above); a ladder with the setting off, or a challenge whose players do, works as before.
+- **When nothing is free** the **acceptance is refused with the reason** (`LAD2_NO_COURT`, `LAD2_CLOSED`, `LAD2_PAST`, or a cap below) and the challenge stays
+  *pending*: the players pick another time. A challenge is never accepted without the court it was promised. A hold is all of its time or none of it.
+- **Released**, once, with its reason kept (`ladder_court_holds`): the challenge **withdrawn**, **forfeited** (a manager's walkover), **struck** or
+  **put back to be played**, **played** (the result confirmed or decided), **lapsed** or **not played in time** (the scheduler), a player **leaving** or
+  **freezing**, the **season ending**, a manager **releasing** it, or the players attaching an **ordinary booking**: *the booking is the court time*, so the hold
+  is let go in its favour, and while a booking is attached asking for a time to hold is refused (`LAD2_HAS_BOOKING`). Time freed is offered to the waiting list.
+  A hold whose court time was lost (a court taken out of service lets go of the blocks on it, as it does a tournament's) is marked *lost* by the scheduler,
+  both players told once, and the challenge stands for them to agree a time again. A hold whose time has passed without a result follows the existing
+  *not played* rules above.
+- **Moved** when the players agree a new time: one asks, the other agrees, and **the new time is held first, then the old one let go**, in one step,
+  so a time that overlaps the old one works and a time that cannot be held is refused with the reason and leaves the old court held.
+- **Staff** see the held court on the challenge in the ladder's dashboard and as a block labelled *Ladder match: ladder: A v B* on the court schedule;
+  **a staff block over held time leaves it and unblocking does not take it**, as for a team league's fixture. A **manager** may **release** a hold or **move** it
+  (another day, time or court) with a reason of at least three characters, kept with the hold, logged (`ladder.hold_released`, `ladder.hold_moved`) and told to
+  both players (`hold_release`, `hold_move` on `POST /api/admin/ladders/:id`; managers only).
+- **Caps**, so a ladder cannot swallow a venue (install data, `ladder_hold_limits`, seeded with these numbers): at most **8 holds live at once on a ladder**
+  (`LAD2_CAP_LADDER`), and at most **4 holds made in any 7 days for one player's (or team's) challenges**, released ones and moves included, so
+  withdrawing and asking again cannot churn a court (`LAD2_CAP_PLAYER`). A manager's own release or move is not counted against the second.
+- **Notices and privacy.** The players' notices carry the court and time. The public ladder page and `GET /api/ladders/:id` show **no challenge, no court and no
+  time**, as before; a hold is seen by the two sides and staff only, and another family never sees a child's challenge.
+- The booking page shows held time as unavailable, as it does a tournament's or a team league's; it does not say what it is held for.
 
 ### The rank rule
 
@@ -2040,11 +2089,55 @@ export lists the ladders a person joined; erasing an account takes the person of
 their name in its places, without moving anybody else beyond the gap closing. Ages and guardianship are
 declared, never verified, and no identity document is asked for.
 
+### Team ladders
+
+A **ladder of teams** (`kind: "teams"`; `src/lib/team-ladders.ts`; migration 0283; [ADR 0040](../architecture/decisions/0040-ladder-court-time-and-team-ladders.md)) is a
+club ladder whose places are [teams that persist](#teams). Everything about the ladder is the ladder's own: the ledger, the rank rule, reach, freezes,
+inactivity, seasons, corrections and the managers' overrides. What differs is below. A venue sets one up from *Club ladders* by choosing *Teams that persist*;
+it is for adults' teams (a ladder of teams is never a junior ladder; a team may still have children as members, see below).
+
+- **Entering.** The **captain** of a team enters it (`{ action: "join_team", teamId }`), at the bottom: the team's own sport, the team active, a place **once for the
+  team** and **once for the captain** on a ladder (`LAD2_CAPTAIN_TWICE`), the team's name not already on the ladder (`LAD2_NAME_TAKEN`), and **enough of its members still
+  eligible** by the ladder's category (women's or men's, by what each declared, never verified; `LAD2_TEAM_SHORT`). A ladder is for teams of the size its settings name
+  (*fewest and most on a team*, defaulted from the sport's template as a team league's are). The **captain acts for the place from then on, whoever the captain is
+  now**: handing the team to a new captain (`transferCaptain`) hands the place too. A team **leaves** (the captain, or a manager, with a reason) at any time and can
+  rejoin at the bottom. The team's name is shown on the ladder: entering publishes the name the captain gave it, as entering a league does.
+- **Challenging.** Captain to captain, within *k* places above, exactly as for players; a member who is not the captain cannot. An accepted challenge's captains
+  see each other's number to arrange it (adult accounts: the captains).
+- **A team match is made of games from the sport's template** (a team league's *rubbers*: singles, doubles, or one whole-team match) and **scored by the team league's own
+  checks** (`checkRubbers` in `src/lib/team-leagues.ts`: each game's score through `scoreRefusal`, a walkover only as a forfeit, a level result only where the scoring allows a
+  draw). The match is won by the side that won more games (`fixtureOutcome`). Nothing in a ladder scores a match. **A challenge has to have a winner**, so a ladder's games
+  are an odd number (or the one whole-team match) and a level result is refused (`LAD2_DRAW`).
+- **The lineup.** Each captain names, before the match, who plays each game **from the team's members** (`{ action: "set_lineup", picks }`): one function for leagues and
+  ladders (`lineupRefusal`: a singles game one player, doubles two, the whole-team match its squad, only members of the team, nobody in more games than the ladder
+  allows), each still eligible by what they declared. It is open until a result is in. Those newly picked are told (a child's guardian, naming the child). **A child is shown only to
+  the venue's staff and the captain of their own side**, never to the other side or the public, and the guardian is told by email; an adult is shown by first name to the other
+  side once a result is in. The other side's lineup is seen only once a result is reported.
+- **Reporting.** One captain reports the games (`{ action: "report_team", rubbers }`, the challenger's side `home`); the other **confirms** or **disputes** it as on any ladder, and a
+  manager decides a dispute **by the games** (`decide` with `rubbers`; a plain winner and score is refused on a ladder of teams, a walkover given as a forfeit is allowed). A report nobody
+  answers stands after 3 days. A whole match given by walkover is a forfeit, and a forfeit is a manager's (next).
+- **Forfeits are a manager's, as in a [team league](#team-leagues)** (`src/lib/team-forfeits.ts`, the same table and reasons). A captain of one of the two teams, or a member of staff (the
+  desk too), **asks** (`request_forfeit`; `POST /api/admin/ladders/:id/forfeit-requests`): which team is asked to forfeit, a reason from the short list and up to 300 characters. It
+  changes nothing else. A manager **confirms** it (the other team wins by default and takes the place; the ledger, ratings and any held court follow) or **declines** it with a reason
+  (`POST /api/admin/ladders/:id/forfeit-requests/:requestId`, `MANAGER_ONLY`; logged `ladder.forfeit_confirmed`, `ladder.forfeit_declined`). It expires after 14 days, closes by
+  itself once the challenge ends another way, and its asker may withdraw it. **So the scheduler never forfeits a team**: a challenge nobody answers **lapses with no effect**, and
+  declining is always free (`declineIs` is *free* on a ladder of teams, `LAD2_TEAM_DECLINE`).
+- **Court time.** With the setting on, a team challenge's hold is the template's games added up, **one court** after another, as a team league holds a fixture; if nothing is free for
+  all of it the acceptance is refused. (No sport template names games played at once on several courts, so none is held that way.)
+- **A team leaving, dissolving or losing its captain** follows the team-league rules: the captain withdrawing the team ends its open challenges **with no effect** (the other
+  side told, no penalty) and the teams below move up; **a team cannot be archived while it is on an open ladder** (`TM_ARCHIVE_ENTERED`); a captain whose account is erased with nobody
+  adult to hand the team to takes the team off its ladders. A member who leaves the team comes out of lineups still to be played; the name a lineup kept for somebody erased is replaced.
+- **Ratings.** A ladder of teams may be marked rated (the existing switch, until its first result). It reads as the **teams' own results** (the *team* format, as a team league's fixtures
+  are), through the same ledger hook (`ratedAfter`): a confirmed match is a played result between the two teams, a forfeit a walkover (it moves nothing), a corrected result replays. Each
+  game is **not** a result of the people who played it (a lineup on a ladder does not rate individuals), and a ladder rank is still not a rating.
+- **What the public sees.** The ranks by team name and the season's confirmed results by team name (winner, other side, the games won as a score, the day); never a challenge, a court
+  held, the roster, a lineup, a game's score or a member's name. A player's own view (`mine`) carries the games, the lineups they may see and the forfeit requests on their challenges.
+
 ### What ladders do not do
 
-- No court time held for a challenge, and no tournament-style scheduling: players arrange it and book it through the ordinary booking page ([above](#court-time-and-booking-for-a-challenge)); a booking attached to a challenge is only shown on it.
-- No persistent teams, no ladder across venues, and no empty restart of a season (the next season always
-  carries the order over).
+- Unless a manager turns on [court time held by the venue](#court-time-held-by-the-venue-an-optional-setting-per-ladder), no court time is held for a challenge, and no tournament-style scheduling: players arrange it and book it through the ordinary booking page ([above](#court-time-and-booking-for-a-challenge)); a booking attached to a challenge is only shown on it.
+- No ladder across venues, and no empty restart of a season (the next season always carries the order over). Teams that persist are on a
+  [ladder of teams](#team-ladders); a ladder is of players or of teams, not both.
 - A ladder's rank is the venue's own list; it is not shown on a player's profile and is not used to suggest
   games.
 
@@ -2096,7 +2189,9 @@ declared, never verified, and no identity document is asked for.
 | Rating policy: rankings published by choice (404 while off, on the page, API, MCP tool, venue link and sitemap), a venue's number of counted results before a player is ranked, the separate provisional section, which results count (the treatment table, run row by row), replay equality after amendments and policy changes, determinism, pool separation, the audit log and the ledger CSV | `src/lib/rating-eligibility.ts`, `src/lib/ratings.ts` (`rankingPolicy`, `setRankingPolicy`, `ledgerCsv`), `db/migrations/0275_ranking_policy.sql`, `src/app/venue/[id]/rankings/layout.tsx`, `src/components/admin/RatingsPanel.tsx` | `tests/ranking-policy.test.ts`, `tests/rating-eligibility.test.ts` (PGlite), `tests/components/ranking-policy-ui.test.tsx`, `tests/mcp.test.ts` (the tool) |
 | Swiss events: the pairing rules, standings and tie-breaks, the draw and recorded seed, rounds, byes, leavers, closing a round, corrections (keep the pairings or pair again), replay equality, ratings, the day | `src/lib/swiss.ts`, `src/lib/tournaments.ts` (hooks), `src/lib/tournament-rules.ts` (`rules.swiss`), `db/migrations/0272_swiss_and_ladders.sql`, `src/components/SwissStandings.tsx`, `src/components/admin/SwissPanel.tsx` | `tests/swiss-math.test.ts`, `tests/swiss.test.ts` (PGlite and Postgres), `tests/components/swiss-panel.test.tsx`, `tests/ladder-routes.test.ts` (the rounds' route) |
 | Club ladders: the replay and rank rule, who may challenge, the life of a challenge, the scheduler's forfeits, lapses, thaws and drops, freezes, overrides and corrections, seasons, minors, ratings, privacy | `src/lib/ladders.ts`, `src/lib/ladder-access.ts`, `src/lib/ladders-constants.ts`, `src/app/api/ladders`, `src/app/api/admin/ladders`, `src/app/ladders`, `src/components/admin/LaddersPanel.tsx`, `src/lib/ratings.ts` (the `ladder` source) | `tests/ladder-math.test.ts`, `tests/ladders.test.ts` (PGlite and Postgres), `tests/ladder-routes.test.ts`, `tests/ladder-public.test.ts` (what the public is and is not shown) |
-| A ladder challenge holds no court time; the ordinary booking it may carry (attach, drop on cancellation) | `src/lib/ladders.ts` (`attachBooking`, `detachBooking`, `ladderBookingCancelled`), `src/lib/store.ts` (the hook), `src/app/api/ladders/[id]/challenges/[challengeId]/route.ts`, `src/app/ladders/[id]/page.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/ladder-court-time.test.ts` |
+| A ladder challenge holds no court time by default; the ordinary booking it may carry (attach, drop on cancellation) | `src/lib/ladders.ts` (`attachBooking`, `detachBooking`, `ladderBookingCancelled`), `src/lib/store.ts` (the hook), `src/app/api/ladders/[id]/challenges/[challengeId]/route.ts`, `src/app/ladders/[id]/page.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/ladder-court-time.test.ts` |
+| Court time held by the venue for accepted ladder challenges (optional, off by default): the hold, court choice, refusal, release in every ending, move, attached booking, loss, caps, races, staff release and move | `src/lib/ladder-holds.ts`, `src/lib/ladder-holds-constants.ts`, `src/lib/ladders.ts` (`holdFor`, `proposeMove`, `answerMove`, `staffHold`, `changeCourtTime`, `letGo`), `src/lib/store.ts` (`ladderHoldId` on blocks), `src/app/api/admin/ladders/[id]/route.ts`, `src/app/ladders/[id]/page.tsx`, `src/components/admin/LaddersPanel.tsx`, `db/migrations/0283_ladder_court_time_and_team_ladders.sql` | `tests/ladder-held-court-time.test.ts` (PGlite and Postgres), `tests/ladder-court-time.test.ts` (the default) |
+| Ladders of persistent teams: entering by the captain, challenges between teams, lineups, games reported and confirmed by the team league's checks, forfeits asked for and decided by a manager, a team leaving, privacy, ratings, held court time for a team match | `src/lib/team-ladders.ts`, `src/lib/team-forfeits.ts` (the ladder's requests), `src/lib/team-leagues.ts` (`checkRubbers`, `lineupRefusal`), `src/lib/ladders.ts`, `src/lib/ratings.ts` (the *team* facts of a ladder), `src/app/api/admin/ladders/[id]/forfeit-requests`, `src/app/ladders/[id]/page.tsx`, `src/components/admin/LaddersPanel.tsx`, `db/migrations/0283_ladder_court_time_and_team_ladders.sql` | `tests/team-ladders.test.ts` (PGlite and Postgres), `tests/team-leagues.test.ts` (the shared lineup and result checks) |
 | Visual acceptance | | `tests/uat/tournament.uat.ts`, `tests/uat/competition.uat.ts` |
 
 Which parts are verified, and how, is in

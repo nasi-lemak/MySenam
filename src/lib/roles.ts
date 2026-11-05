@@ -61,6 +61,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   // Ladders (lib/ladders.ts): setting one up, its settings and seasons, deciding or correcting a result, moving or taking somebody off, a freeze: a manager's. The desk reads, and adds players at the counter (POST /players).
   { path: /^\/api\/admin\/ladders$/, methods: ["POST"] },
   { path: /^\/api\/admin\/ladders\/\d+$/, methods: ["POST"] },
+  // A forfeit on a ladder of teams changes the ranks, so deciding a request for one is a manager's, as in a team league; the desk may ask for one (POST .../forfeit-requests) and take its own request back (DELETE).
+  { path: /^\/api\/admin\/ladders\/\d+\/forfeit-requests\/\d+$/, methods: ["POST"] },
   // Ratings from results (lib/ratings.ts): which events count, leaving a result out, restarting a rating and seeding a draw from ratings shape what people are ranked by.
   { path: /^\/api\/admin\/ratings$/, methods: "all" },
   // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.
@@ -243,6 +245,7 @@ export const STAFF_ACTIONS = {
   // Ladders: setting up, settings, seasons, deciding a result, overrides. The desk reads and adds players at the counter.
   ladders: "POST /api/admin/ladders",
   ladderRun: "POST /api/admin/ladders/1",
+  ladderForfeitDecide: "POST /api/admin/ladders/1/forfeit-requests/1",
   // Ratings from results: which events count, leaving a result out, restarting a rating, seeding a draw from ratings.
   ratings: "POST /api/admin/ratings",
   // The venue guide's setup journey and discoveries (lib/guide); the playbook is every role's own.

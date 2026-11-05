@@ -3,6 +3,7 @@ import { getDb, withTransaction } from "./db";
 import { tellVenueStaffEach } from "./owner-alerts";
 import { baseUrl, sentences } from "./outbox";
 import { teamRefusal, type TeamRefusal, type TeamResult } from "./teams";
+import { challengeFor, decide, ladderById, ladderRefusal, tellPlayer, type ChallengeRow, type LadderResult } from "./ladders";
 import {
   decideFixture,
   fixtureRow,
@@ -395,7 +396,7 @@ export async function closeSettledForfeitRequests(leagueId: number): Promise<voi
 /** The scheduler's: requests past their 14 days expire, and the captain who asked is told. Returns how many. */
 export async function expireForfeitRequests(): Promise<number> {
   const db = getDb();
-  const due = (await db.prepare("SELECT id FROM team_forfeit_requests WHERE status = 'open' AND expires_at <= datetime('now') ORDER BY id").all()) as { id: number }[];
+  const due = (await db.prepare("SELECT id FROM team_forfeit_requests WHERE status = 'open' AND ladder_challenge_id IS NULL AND expires_at <= datetime('now') ORDER BY id").all()) as { id: number }[];
   let n = 0;
   for (const d of due) {
     const r = await withTransaction(async () => {
@@ -414,6 +415,304 @@ export async function expireForfeitRequests(): Promise<number> {
           r.requested_by_team,
           (tr) => tr("ofc1.fr.mail.expired.s", { league: league.name }),
           (tr) => tr("ofc1.fr.mail.expired.b", { league: league.name, days: FORFEIT_REQUEST_DAYS, date: f.date })
+        );
+    }
+  }
+  return n;
+}
+
+// ------------------------------------------------------------ a ladder of teams
+
+/**
+ * The same request for a challenge on a **ladder of teams** (ADR 0040; migration 0283): a forfeit there changes the ranks, so giving one is a
+ * manager's act, as it is in a league. A team's captain, or a member of staff, may ask; the request records who asked, which of the
+ * challenge's two teams is asked to forfeit, a reason from the same short list and up to 300 characters of free text, and changes nothing else.
+ * A manager confirms it (the ladder's own `decide` with a walkover: the other team wins by default and takes the place, the ledger and the ratings
+ * follow, any court held is let go) or declines it with a reason. It expires after 14 days and closes by itself once the challenge ends any other way.
+ * The same table, the same reasons, the same constants; only the subject is a ladder challenge and the places in it.
+ */
+interface LadderRequestRow {
+  id: number;
+  ladder_challenge_id: number;
+  forfeit_player: number;
+  requester_key: string;
+  requester_kind: "captain" | "staff";
+  requested_by_player: number | null;
+  requested_by_name: string;
+  reason: ForfeitReason;
+  note: string | null;
+  status: RequestStatus;
+  created_at: string;
+  expires_at: string;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  closed_reason: string | null;
+  lapsed?: boolean;
+}
+
+export interface LadderForfeitRequestView {
+  id: number;
+  challengeId: number;
+  /** The team asked to forfeit, by the name it is on the ladder under. */
+  forfeitTeam: { id: number; name: string };
+  by: string;
+  byKind: "captain" | "staff";
+  reason: ForfeitReason;
+  note: string | null;
+  status: RequestStatus;
+  createdAt: string;
+  expiresAt: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  closedReason: string | null;
+  mine: boolean;
+}
+
+const LSELECT = "SELECT r.*, (r.status = 'open' AND r.expires_at <= datetime('now')) AS lapsed FROM team_forfeit_requests r";
+
+async function ladderView(rows: LadderRequestRow[], viewerKey: string | null): Promise<LadderForfeitRequestView[]> {
+  const names = new Map<number, string>();
+  for (const id of new Set(rows.map((r) => r.forfeit_player))) names.set(id, ((await getDb().prepare("SELECT name FROM ladder_players WHERE id = ?").get(id)) as { name: string } | undefined)?.name ?? "");
+  return rows.map((r) => ({
+    id: r.id,
+    challengeId: r.ladder_challenge_id,
+    forfeitTeam: { id: r.forfeit_player, name: names.get(r.forfeit_player) ?? "" },
+    by: r.requested_by_name,
+    byKind: r.requester_kind,
+    reason: r.reason,
+    note: r.note,
+    status: r.status === "open" && r.lapsed === true ? "expired" : r.status,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+    decidedBy: r.decided_by_name,
+    decidedAt: r.decided_at,
+    decisionNote: r.decision_note,
+    closedReason: r.closed_reason,
+    mine: viewerKey !== null && r.requester_key === viewerKey,
+  }));
+}
+
+/** Requests by challenge: staff see every one, a captain those on their own challenges (the ones asked for them to see), nobody else any. */
+export async function ladderForfeitRequests(challengeIds: number[], viewer: { forStaff: boolean; viewerId: number | null }): Promise<Map<number, LadderForfeitRequestView[]>> {
+  const out = new Map<number, LadderForfeitRequestView[]>();
+  if (challengeIds.length === 0 || (!viewer.forStaff && viewer.viewerId === null)) return out;
+  const rows = (await getDb()
+    .prepare(`${LSELECT} WHERE r.ladder_challenge_id IN (${challengeIds.map(() => "?").join(",")}) ORDER BY r.id DESC`)
+    .all(...challengeIds)) as LadderRequestRow[];
+  for (const v of await ladderView(rows, viewer.viewerId === null ? null : `u:${viewer.viewerId}`)) out.set(v.challengeId, [...(out.get(v.challengeId) ?? []), v]);
+  return out;
+}
+
+async function oneLadderView(id: number, viewerKey: string | null): Promise<LadderForfeitRequestView | null> {
+  const row = (await getDb().prepare(`${LSELECT} WHERE r.id = ?`).get(id)) as LadderRequestRow | undefined;
+  return row ? (await ladderView([row], viewerKey))[0] : null;
+}
+
+/** A captain of one of the challenge's two teams, or a member of staff, asks the venue to call a forfeit. It changes nothing but the request. */
+export async function requestLadderForfeit(by: Requester, challengeId: number, input: { forfeitPlayer: unknown; reason: unknown; note?: unknown }): Promise<LadderResult<LadderForfeitRequestView>> {
+  const reason = FORFEIT_REASONS.find((r) => r === input.reason);
+  if (!reason) return ladderRefusal("TL_FR_REASON", {}, 400);
+  const note = readNote(reason, input.note);
+  if (!note.ok) return { ...note.refusal, status: note.refusal.status ?? 400 };
+  const asked: { ch?: ChallengeRow; row?: LadderRequestRow; ladderId?: number } = {};
+  const made = await withTransaction(async (): Promise<LadderResult<number>> => {
+    const db = getDb();
+    const first = (await db.prepare("SELECT ladder_id FROM ladder_challenges WHERE id = ?").get(challengeId)) as { ladder_id: number } | undefined;
+    if (!first) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+    await db.prepare("SELECT id FROM ladders WHERE id = ? FOR UPDATE").get(first.ladder_id);
+    const ch = (await db.prepare("SELECT * FROM ladder_challenges WHERE id = ? FOR UPDATE").get(challengeId)) as ChallengeRow;
+    const ladder = (await ladderById(ch.ladder_id))!;
+    if (ladder.kind !== "teams") return ladderRefusal("LAD2_NOT_TEAMS", {}, 400);
+    let asker: string;
+    let askerPlace: number | null = null;
+    if ("userId" in by) {
+      const found = await challengeFor(by.userId, challengeId);
+      if (!found) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+      askerPlace = found.myId;
+      asker = ((await db.prepare("SELECT name FROM ladder_players WHERE id = ?").get(found.myId)) as { name: string }).name;
+    } else asker = by.admin.name;
+    if (ch.status !== "accepted") return ladderRefusal("LAD2_NOT_ACCEPTED");
+    const team = Number(input.forfeitPlayer);
+    if (team !== ch.challenger && team !== ch.challenged) return ladderRefusal("LAD2_FR_TEAM", {}, 400);
+    const key = keyOf(by);
+    await db.prepare("UPDATE team_forfeit_requests SET status = 'expired' WHERE ladder_challenge_id = ? AND requester_key = ? AND status = 'open' AND expires_at <= datetime('now')").run(ch.id, key);
+    if (await db.prepare("SELECT 1 FROM team_forfeit_requests WHERE ladder_challenge_id = ? AND requester_key = ? AND status = 'open'").get(ch.id, key)) return ladderRefusal("LAD2_FR_OPEN");
+    const row = (await db
+      .prepare(
+        `INSERT INTO team_forfeit_requests (ladder_challenge_id, forfeit_player, requester_key, requester_kind, requested_by_user_id, requested_by_player, requested_by_admin_id, requested_by_name, reason, note, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+${FORFEIT_REQUEST_DAYS} days')) RETURNING *`
+      )
+      .get(ch.id, team, key, "userId" in by ? "captain" : "staff", "userId" in by ? by.userId : null, askerPlace, "admin" in by ? by.admin.id : null, asker, reason, note.note)) as LadderRequestRow;
+    const names = new Map(((await db.prepare("SELECT id, name FROM ladder_players WHERE id IN (?, ?)").all(ch.challenger, ch.challenged)) as { id: number; name: string }[]).map((r) => [r.id, r.name]));
+    await logAction("admin" in by ? by.admin : { id: null, name: `Captain of ${asker}` }, {
+      venueId: ladder.venueId,
+      action: "ladder.forfeit_requested",
+      detail: `${ladder.name}: ${names.get(ch.challenger) ?? ""} v ${names.get(ch.challenged) ?? ""}: ${names.get(team) ?? ""} asked to forfeit (${reason}) by ${asker}`,
+    });
+    asked.ch = ch;
+    asked.row = row;
+    asked.ladderId = ladder.id;
+    return { ok: true, value: row.id };
+  });
+  if (!made.ok) return made;
+  const ladder = (await ladderById(asked.ladderId!))!;
+  const ch = asked.ch!;
+  const row = asked.row!;
+  const names = new Map(((await getDb().prepare("SELECT id, name FROM ladder_players WHERE id IN (?, ?)").all(ch.challenger, ch.challenged)) as { id: number; name: string }[]).map((r) => [r.id, r.name]));
+  await tellVenueStaffEach(
+    ladder.venueId,
+    (t) => ({
+      subject: t("lad2.fr.alert.s", { ladder: ladder.name }),
+      body: t("lad2.fr.alert.b", {
+        ladder: ladder.name,
+        a: names.get(ch.challenger) ?? "",
+        b: names.get(ch.challenged) ?? "",
+        team: names.get(row.forfeit_player) ?? "",
+        by: row.requested_by_name,
+        reason: t(`ofs1.fr.reason.${row.reason}`),
+        note: row.note ? ` "${row.note}"` : "",
+        place: t("sh.tab.leagues"),
+        url: `${baseUrl()}/admin`,
+      }),
+    }),
+    { managersOnly: true }
+  );
+  // A captain asked: the other captain is told. Staff asked: the venue's own matter until a manager decides.
+  if (row.requester_kind === "captain" && row.requested_by_player !== null) {
+    const other = row.requested_by_player === ch.challenger ? ch.challenged : ch.challenger;
+    await tellPlayer(
+      other,
+      ladder,
+      (tr) => tr("lad2.fr.mail.asked.s", { l: ladder.name }),
+      (tr) =>
+        sentences(
+          tr,
+          tr("lad2.fr.mail.asked.b", { l: ladder.name, a: names.get(ch.challenger) ?? "", b: names.get(ch.challenged) ?? "", by: row.requested_by_name, team: names.get(row.forfeit_player) ?? "", reason: tr(`ofc1.fr.reason.${row.reason}`) }),
+          row.note && tr("ofc1.fr.mail.note", { note: row.note }),
+          tr("ofc1.fr.mail.asked.ask")
+        )
+    );
+  }
+  return { ok: true, value: (await oneLadderView(made.value, "userId" in by ? `u:${by.userId}` : `a:${by.admin.id}`))! };
+}
+
+/** The requester takes it back. Nothing else changes. */
+export async function withdrawLadderForfeitRequest(by: Requester, requestId: number): Promise<LadderResult<null>> {
+  return withTransaction(async (): Promise<LadderResult<null>> => {
+    const db = getDb();
+    const first = (await db.prepare("SELECT r.ladder_challenge_id, c.ladder_id FROM team_forfeit_requests r JOIN ladder_challenges c ON c.id = r.ladder_challenge_id WHERE r.id = ?").get(requestId)) as { ladder_id: number } | undefined;
+    if (!first) return ladderRefusal("TL_NOT_FOUND", {}, 404);
+    await db.prepare("SELECT id FROM ladders WHERE id = ? FOR UPDATE").get(first.ladder_id);
+    const r = (await db.prepare(`${LSELECT} WHERE r.id = ? FOR UPDATE OF r`).get(requestId)) as LadderRequestRow | undefined;
+    if (!r || r.requester_key !== keyOf(by)) return ladderRefusal("TL_NOT_FOUND", {}, 404);
+    if (r.status !== "open" || r.lapsed === true) return ladderRefusal("TL_FR_GONE");
+    await db.prepare("UPDATE team_forfeit_requests SET status = 'withdrawn', decided_at = datetime('now') WHERE id = ? AND status = 'open'").run(r.id);
+    const ladder = (await ladderById(first.ladder_id))!;
+    await logAction("admin" in by ? by.admin : { id: null, name: `Captain of ${r.requested_by_name}` }, {
+      venueId: ladder.venueId,
+      action: "ladder.forfeit_request_withdrawn",
+      detail: `${ladder.name}: request withdrawn by ${r.requested_by_name}`,
+    });
+    return { ok: true, value: null };
+  });
+}
+
+class LadderRolled extends Error {
+  constructor(readonly refusal: Exclude<LadderResult<unknown>, { ok: true }>) {
+    super(refusal.error);
+  }
+}
+
+/**
+ * A manager decides a request. **Confirm** is the ladder's own `decide` with a walkover to the other team, made in the same transaction as the
+ * request being marked confirmed, so the two stand or fall together. **Decline** needs a reason (3 to 300 characters), and both captains are told.
+ */
+export async function decideLadderForfeitRequest(requestId: number, admin: { id: number; name: string }, decision: ForfeitDecision): Promise<LadderResult<LadderForfeitRequestView>> {
+  const why = "decline" in decision ? (typeof decision.reason === "string" ? decision.reason.trim() : "") : "";
+  if ("decline" in decision && (why.length < 3 || why.length > NOTE_MAX)) return ladderRefusal("TL_FR_WHY", { max: NOTE_MAX }, 400);
+  const after: { r?: LadderRequestRow; ch?: ChallengeRow; ladderId?: number } = {};
+  const done = await withTransaction(async (): Promise<LadderResult<null>> => {
+    const db = getDb();
+    const first = (await db.prepare("SELECT r.ladder_challenge_id, c.ladder_id FROM team_forfeit_requests r JOIN ladder_challenges c ON c.id = r.ladder_challenge_id WHERE r.id = ?").get(requestId)) as { ladder_challenge_id: number; ladder_id: number } | undefined;
+    if (!first) return ladderRefusal("TL_NOT_FOUND", {}, 404);
+    await db.prepare("SELECT id FROM ladders WHERE id = ? FOR UPDATE").get(first.ladder_id);
+    const r = (await db.prepare(`${LSELECT} WHERE r.id = ? FOR UPDATE OF r`).get(requestId)) as LadderRequestRow;
+    if (r.status !== "open" || r.lapsed === true) return ladderRefusal("TL_FR_GONE");
+    const ladder = (await ladderById(first.ladder_id))!;
+    const ch = (await db.prepare("SELECT * FROM ladder_challenges WHERE id = ? FOR UPDATE").get(first.ladder_challenge_id)) as ChallengeRow;
+    const names = new Map(((await db.prepare("SELECT id, name FROM ladder_players WHERE id IN (?, ?)").all(ch.challenger, ch.challenged)) as { id: number; name: string }[]).map((x) => [x.id, x.name]));
+    const text = `${names.get(ch.challenger) ?? ""} v ${names.get(ch.challenged) ?? ""}`;
+    after.r = r;
+    after.ch = ch;
+    after.ladderId = ladder.id;
+    if ("decline" in decision) {
+      await db.prepare("UPDATE team_forfeit_requests SET status = 'declined', decided_by_admin_id = ?, decided_by_name = ?, decided_at = datetime('now'), decision_note = ? WHERE id = ? AND status = 'open'").run(admin.id, admin.name, why, r.id);
+      await logAction(admin, { venueId: ladder.venueId, action: "ladder.forfeit_declined", detail: `${ladder.name}: ${text}: request by ${r.requested_by_name} declined: ${why}` });
+      return { ok: true, value: null };
+    }
+    // Marked first, so settling the challenge below does not close it as "decided otherwise".
+    await db.prepare("UPDATE team_forfeit_requests SET status = 'confirmed', decided_by_admin_id = ?, decided_by_name = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open'").run(admin.id, admin.name, r.id);
+    const winner = r.forfeit_player === ch.challenger ? ch.challenged : ch.challenger;
+    const decided = await decide(ch.id, { adminId: admin.id, name: admin.name }, { winner, walkover: true }, `Forfeit asked for by ${r.requested_by_name} (${r.reason}), confirmed`);
+    if (!decided.ok) throw new LadderRolled(decided);
+    await logAction(admin, { venueId: ladder.venueId, action: "ladder.forfeit_confirmed", detail: `${ladder.name}: ${text}: ${names.get(r.forfeit_player) ?? ""} forfeit, asked by ${r.requested_by_name} (${r.reason})` });
+    return { ok: true, value: null };
+  }).catch((err) => {
+    if (err instanceof LadderRolled) return err.refusal;
+    throw err;
+  });
+  if (!done.ok) return done;
+  if ("decline" in decision) {
+    const r = after.r!;
+    const ch = after.ch!;
+    const ladder = (await ladderById(after.ladderId!))!;
+    const names = new Map(((await getDb().prepare("SELECT id, name FROM ladder_players WHERE id IN (?, ?)").all(ch.challenger, ch.challenged)) as { id: number; name: string }[]).map((x) => [x.id, x.name]));
+    for (const id of [ch.challenger, ch.challenged])
+      await tellPlayer(
+        id,
+        ladder,
+        (tr) => tr("lad2.fr.mail.declined.s", { l: ladder.name }),
+        (tr) => tr("lad2.fr.mail.declined.b", { l: ladder.name, a: names.get(ch.challenger) ?? "", b: names.get(ch.challenged) ?? "", by: r.requested_by_name, why })
+      );
+  }
+  return { ok: true, value: (await oneLadderView(requestId, null))! };
+}
+
+/**
+ * The scheduler's: requests on challenges that ended any other way are closed, and those past their 14 days expire, the captain who asked told.
+ * Running it again changes nothing it has done.
+ */
+export async function housekeepLadderForfeits(): Promise<number> {
+  const db = getDb();
+  await db
+    .prepare(
+      `UPDATE team_forfeit_requests SET status = 'closed', closed_reason = 'decided', decided_at = datetime('now')
+        WHERE ladder_challenge_id IS NOT NULL AND status = 'open'
+          AND ladder_challenge_id IN (SELECT id FROM ladder_challenges WHERE status NOT IN ('accepted'))`
+    )
+    .run();
+  const due = (await db.prepare("SELECT id FROM team_forfeit_requests WHERE status = 'open' AND ladder_challenge_id IS NOT NULL AND expires_at <= datetime('now') ORDER BY id").all()) as { id: number }[];
+  let n = 0;
+  for (const d of due) {
+    const r = await withTransaction(async () => {
+      const row = (await db.prepare("SELECT * FROM team_forfeit_requests WHERE id = ? FOR UPDATE").get(d.id)) as LadderRequestRow | undefined;
+      if (!row || row.status !== "open") return null;
+      await db.prepare("UPDATE team_forfeit_requests SET status = 'expired', decided_at = datetime('now') WHERE id = ? AND status = 'open'").run(row.id);
+      return row;
+    });
+    if (!r) continue;
+    n++;
+    if (r.requester_kind === "captain" && r.requested_by_player !== null) {
+      const ch = (await db.prepare("SELECT ladder_id FROM ladder_challenges WHERE id = ?").get(r.ladder_challenge_id)) as { ladder_id: number } | undefined;
+      const ladder = ch ? await ladderById(ch.ladder_id) : null;
+      if (ladder)
+        await tellPlayer(
+          r.requested_by_player,
+          ladder,
+          (tr) => tr("lad2.fr.mail.expired.s", { l: ladder.name }),
+          (tr) => tr("lad2.fr.mail.expired.b", { l: ladder.name, days: FORFEIT_REQUEST_DAYS })
         );
     }
   }

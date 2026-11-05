@@ -2,7 +2,9 @@ import { isActivity } from "./activities";
 import { getDb, isBusy, withTransaction } from "./db";
 import { flipScore, scoreRefusal } from "./brackets";
 import { categoryOfWho, declaredGender, entrantCategoryRefusal, entrantParticipantId, entrantUserId, entrantVenueRefusal, selfEntrant, type Entrant } from "./competition-entrants";
-import { templateByKey, templateFor } from "./competition-templates";
+import { templateByKey, templateFor, type RubberKind } from "./competition-templates";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { holdViews, ladderCourts, makeHold, moveHold, offerFreed, releaseHold, type HoldRefusal, type HoldView } from "./ladder-holds";
 import { errorText, translator, type ErrorCode } from "./i18n";
 import { LEVELS, type Level } from "./games";
 import { listRule, OPEN_TO_CUSTOMERS } from "./listing";
@@ -228,9 +230,35 @@ export interface Ladder {
   template: string | null;
   rated: boolean;
   settings: LadderSettings;
+  /** Singles or pairs ('players'), or persistent teams entered by their captains ('teams', docs/features/tournaments.md#team-ladders). */
+  kind: "players" | "teams";
+  /** Whether the venue holds court time for accepted challenges (off unless a manager turned it on), and where and for how long. */
+  courtTime: CourtTimeSettings;
+  /** A ladder of teams: what a team match is made of. */
+  team: TeamSettings | null;
   /** On the ladder now. */
   players: number;
   season: { id: number; number: number; startedOn: string } | null;
+}
+
+/** Court time held by the venue for accepted challenges (lib/ladder-holds.ts). Off by default: a challenge then holds nothing. */
+export interface CourtTimeSettings {
+  on: boolean;
+  /** The courts it may use; none: any court of the venue for the sport. */
+  courtIds: number[];
+  /** Minutes held for a match when the manager set them; otherwise the template's (a team ladder's: its games added up). */
+  minutes: number | null;
+  /** The minutes a hold is for now, whichever way they are known. */
+  matchMinutes: number;
+}
+
+/** What a team match on a ladder of teams is made of and who may play (the same shape as a team league's). */
+export interface TeamSettings {
+  rubbers: RubberKind[];
+  rubberMinutes: number;
+  rosterMin: number;
+  rosterMax: number;
+  maxRubbersPerPlayer: number;
 }
 
 export interface LadderRowView {
@@ -246,6 +274,8 @@ export interface LadderRowView {
   participantId?: number | null;
   atCounter?: { by: string; phone: string | null } | null;
   activeOn?: string;
+  /** Only for staff, on a ladder of teams. */
+  teamId?: number | null;
 }
 
 export interface ChallengeView {
@@ -275,6 +305,13 @@ export interface ChallengeView {
   resolvedOn: string | null;
   /** Only for staff. */
   disputeNote?: string | null;
+  /** The court the venue holds for it, when the ladder holds court time and one is held (staff and the two sides only). */
+  hold?: HoldView | null;
+  /** A ladder of teams: the games and lineups the viewer may see, and the forfeit requests on it (staff, and the captain of each side). */
+  team?: import("./team-ladders").TeamChallengeView;
+  forfeitRequests?: import("./team-forfeits").LadderForfeitRequestView[];
+  /** A time one side has asked the other to agree (a move, or the first specific time) (staff and the two sides only). */
+  move?: { onDate: string; minute: number | null; by: number } | null;
 }
 
 export interface SeasonView {
@@ -360,9 +397,17 @@ interface LRow {
   freeze_max_days: number;
   decline_is: "free" | "forfeit";
   player_count: number;
+  court_time_on?: boolean | null;
+  match_minutes?: number | null;
+  kind?: "players" | "teams" | null;
+  rubbers?: string | null;
+  rubber_minutes?: number | null;
+  roster_min?: number | null;
+  roster_max?: number | null;
+  max_rubbers_per_player?: number | null;
 }
 
-interface SeasonRow {
+export interface SeasonRow {
   id: number;
   ladder_id: number;
   number: number;
@@ -382,12 +427,28 @@ const settingsOf = (r: LRow): LadderSettings => ({
   declineIs: r.decline_is,
 });
 
-async function currentSeason(ladderId: number): Promise<SeasonRow | undefined> {
+export async function currentSeason(ladderId: number): Promise<SeasonRow | undefined> {
   return (await getDb().prepare("SELECT * FROM ladder_seasons WHERE ladder_id = ? AND ended_on IS NULL ORDER BY number DESC LIMIT 1").get(ladderId)) as SeasonRow | undefined;
+}
+
+/** The games a team match on a ladder of teams is made of, from what was stored. */
+function readRubbers(raw: string | null | undefined): RubberKind[] {
+  try {
+    const v = JSON.parse(raw ?? "") as RubberKind[];
+    if (Array.isArray(v) && v.length > 0) return v;
+  } catch {
+    /* the default */
+  }
+  return ["team"];
 }
 
 async function toLadder(r: LRow): Promise<Ladder> {
   const season = await currentSeason(r.id);
+  const teams = r.kind === "teams";
+  const team: TeamSettings | null = teams
+    ? { rubbers: readRubbers(r.rubbers), rubberMinutes: r.rubber_minutes ?? 40, rosterMin: r.roster_min ?? 2, rosterMax: r.roster_max ?? 12, maxRubbersPerPlayer: r.max_rubbers_per_player ?? 2 }
+    : null;
+  const matchMinutes = r.match_minutes ?? (team ? team.rubbers.length * team.rubberMinutes : (templateByKey(r.template ?? "")?.matchMinutes ?? templateFor(r.sport).matchMinutes));
   return {
     id: r.id,
     venueId: r.venue_id,
@@ -405,6 +466,9 @@ async function toLadder(r: LRow): Promise<Ladder> {
     template: r.template,
     rated: r.rated === true,
     settings: settingsOf(r),
+    kind: teams ? "teams" : "players",
+    courtTime: { on: r.court_time_on === true, courtIds: await ladderCourts(r.id), minutes: r.match_minutes ?? null, matchMinutes },
+    team,
     players: r.player_count,
     season: season ? { id: season.id, number: season.number, startedOn: season.started_on } : null,
   };
@@ -441,10 +505,13 @@ export async function publicLadders(filter: { sport?: Sport; venueIds?: number[]
   return Promise.all(rows.map(toLadder));
 }
 
-interface PlayerRow {
+export interface PlayerRow {
   id: number;
   ladder_id: number;
   user_id: number | null;
+  team_id?: number | null;
+  /** A team's captain now: the account that acts for the place. */
+  captain_user_id?: number | null;
   name: string;
   participant_id: number | null;
   contact_phone: string | null;
@@ -454,9 +521,9 @@ interface PlayerRow {
   shown: string;
 }
 
-async function playersOf(ladderId: number): Promise<Map<number, PlayerRow>> {
+export async function playersOf(ladderId: number): Promise<Map<number, PlayerRow>> {
   const db = getDb();
-  const rows = (await db.prepare("SELECT id, ladder_id, user_id, name, participant_id, contact_phone, entered_by_name, status FROM ladder_players WHERE ladder_id = ?").all(ladderId)) as Omit<PlayerRow, "shown">[];
+  const rows = (await db.prepare("SELECT id, ladder_id, user_id, team_id, (SELECT t.captain_user_id FROM teams t WHERE t.id = ladder_players.team_id) AS captain_user_id, name, participant_id, contact_phone, entered_by_name, status FROM ladder_players WHERE ladder_id = ?").all(ladderId)) as Omit<PlayerRow, "shown">[];
   const ladder = (await db.prepare("SELECT venue_id, audience FROM ladders WHERE id = ?").get(ladderId)) as { venue_id: number; audience: "adults" | "juniors" } | undefined;
   const juniors = ladder?.audience === "juniors";
   const authorised = juniors && ladder ? await authorisedParticipants({ kind: "ladder", id: ladderId, venueId: ladder.venue_id }, rows.map((r) => r.participant_id)) : new Set<number>();
@@ -503,7 +570,7 @@ export async function ranksOf(seasonId: number): Promise<ReplayRow[]> {
   return replay(await liveEvents(seasonId));
 }
 
-const toChallenge = (c: ChallengeRow, names: Map<number, string>, forStaff: boolean): ChallengeView => ({
+const toChallenge = (c: ChallengeRow, names: Map<number, string>, forStaff: boolean, holds?: Map<number, HoldView>): ChallengeView => ({
   id: c.id,
   challenger: c.challenger,
   challenged: c.challenged,
@@ -528,9 +595,10 @@ const toChallenge = (c: ChallengeRow, names: Map<number, string>, forStaff: bool
   version: Number(c.version),
   resolvedOn: c.resolved_on,
   ...(forStaff ? { disputeNote: c.dispute_note } : {}),
+  ...(holds ? { hold: holds.get(c.id) ?? null, move: c.move_on ? { onDate: c.move_on, minute: c.move_min ?? null, by: c.move_by! } : null } : {}),
 });
 
-interface ChallengeRow {
+export interface ChallengeRow {
   id: number;
   ladder_id: number;
   season_id: number;
@@ -557,6 +625,9 @@ interface ChallengeRow {
   decided_by: number | null;
   resolved_on: string | null;
   version: number | string;
+  move_on?: string | null;
+  move_min?: number | null;
+  move_by?: number | null;
 }
 
 export async function ladderDetail(id: number, opts: { season?: number; forStaff?: boolean } = {}): Promise<LadderDetail | null> {
@@ -592,7 +663,7 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
         name: names.get(r.playerId) ?? "",
         frozenUntil: r.frozenUntil,
         ...(opts.forStaff
-          ? { inChallenge: open.has(r.playerId), userId: p.user_id, participantId: p.participant_id, atCounter: p.entered_by_name ? { by: p.entered_by_name, phone: p.contact_phone } : null, activeOn: r.activeOn }
+          ? { inChallenge: open.has(r.playerId), userId: p.user_id, participantId: p.participant_id, teamId: p.team_id ?? null, atCounter: p.entered_by_name ? { by: p.entered_by_name, phone: p.contact_phone } : null, activeOn: r.activeOn }
           : {}),
       };
     });
@@ -611,7 +682,17 @@ export async function ladderDetail(id: number, opts: { season?: number; forStaff
     }));
     if (opts.forStaff) {
       const cs = (await db.prepare("SELECT * FROM ladder_challenges WHERE season_id = ? ORDER BY id DESC LIMIT 200").all(viewing.id)) as ChallengeRow[];
-      challenges = cs.map((c) => toChallenge(c, names, true));
+      const holds = ladder.courtTime.on || cs.length > 0 ? await holdViews(cs.map((c) => c.id)) : new Map<number, HoldView>();
+      challenges = cs.map((c) => toChallenge(c, names, true, holds));
+      if (ladder.kind === "teams") {
+        const ids = cs.map((c) => c.id);
+        const teams = await (await import("./team-ladders")).teamViews(ladder, ids, { staff: true });
+        const requests = await (await import("./team-forfeits")).ladderForfeitRequests(ids, { forStaff: true, viewerId: null });
+        for (const c of challenges) {
+          if (teams.has(c.id)) c.team = teams.get(c.id);
+          if (requests.has(c.id)) c.forfeitRequests = requests.get(c.id);
+        }
+      }
       events = ((await db.prepare("SELECT * FROM ladder_events WHERE season_id = ? ORDER BY ord, id").all(viewing.id)) as EventRow[]).map((e) => ({
         id: e.id,
         ord: e.ord,
@@ -643,7 +724,31 @@ export interface LadderInput {
   template?: string | null;
   rules?: unknown;
   settings?: Partial<LadderSettings>;
+  /** 'teams': a ladder of persistent teams (docs/features/tournaments.md#team-ladders). Default 'players'. */
+  kind?: "players" | "teams";
+  /** A ladder of teams: what a team match is made of; the template's games and a team league's defaults where not given. */
+  team?: Partial<TeamSettings>;
+  /** Whether the venue holds court time for accepted challenges (off unless given), the courts it may use and the minutes held. */
+  courtTime?: { on?: boolean; courtIds?: number[]; minutes?: number | null };
 }
+
+const RUBBER_KINDS: RubberKind[] = ["singles", "doubles", "team"];
+const MAX_RUBBERS = 9;
+
+/** The courts of a venue for a sport that can hold a match: one place each, for that sport. Or why not. */
+async function courtsRefusal(venueId: number, sport: string, raw: unknown): Promise<number[] | LadderRefusal> {
+  const ids = Array.isArray(raw) ? [...new Set(raw.map(Number).filter((n) => Number.isInteger(n)))] : [];
+  if (Array.isArray(raw) && raw.length > 0 && ids.length === 0) return ladderRefusal("LAD2_COURTS", {}, 400);
+  for (const id of ids) {
+    const ok = await getDb()
+      .prepare("SELECT 1 FROM courts c WHERE c.id = ? AND c.venue_id = ? AND c.capacity = 1 AND EXISTS (SELECT 1 FROM court_activities ca WHERE ca.court_id = c.id AND ca.sport = ?)")
+      .get(id, venueId, sport);
+    if (!ok) return ladderRefusal("LAD2_COURTS", {}, 400);
+  }
+  return ids;
+}
+
+const minutesOk = (v: unknown): number | null | LadderRefusal => (v === undefined || v === null || v === "" ? null : Number.isInteger(Number(v)) && Number(v) >= 10 && Number(v) <= 480 ? Number(v) : ladderRefusal("LAD2_MINUTES", {}, 400));
 
 const intIn = (v: unknown, lo: number, hi: number): number | null => (typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi ? v : null);
 
@@ -680,7 +785,7 @@ export function readSettings(input: Partial<LadderSettings> | undefined, base: L
 }
 
 /** The day it is at a venue. */
-async function venueToday(venueId: number): Promise<string> {
+export async function venueToday(venueId: number): Promise<string> {
   return todayISO((await venueHours(venueId)).zone);
 }
 
@@ -696,6 +801,11 @@ export async function createLadder(input: LadderInput, adminId: number): Promise
   if (audience !== "adults" && audience !== "juniors") return { ...ladderRefusal("LD_AUDIENCE", {}, 400) };
   const parsedSettings = readSettings(input.settings);
   if (!parsedSettings.ok) return { ok: false, error: parsedSettings.error, status: 400 };
+  if (input.kind !== undefined && input.kind !== "players" && input.kind !== "teams") return ladderRefusal("LAD2_KIND", {}, 400);
+  const teams = input.kind === "teams";
+  // A ladder of teams: a forfeit changes the ranks, so (as in a team league) it is a manager's to give: declining is free, and a challenge nobody answers lapses.
+  if (teams && parsedSettings.settings.declineIs === "forfeit") return ladderRefusal("LAD2_TEAM_DECLINE", {}, 400);
+  if (teams && audience !== "adults") return ladderRefusal("LAD2_TEAM_AUDIENCE", {}, 400);
   if (!(await db.prepare("SELECT 1 FROM court_activities ca JOIN courts c ON c.id = ca.court_id WHERE c.venue_id = ? AND ca.sport = ?").get(input.venueId, input.sport)))
     return ladderRefusal("LD_NO_COURTS", {}, 400);
   // Scored as a head-to-head competition: the sport's template unless another is chosen.
@@ -705,6 +815,30 @@ export async function createLadder(input: LadderInput, adminId: number): Promise
   const parsed = parseRules(input.rules ?? null, template.rules);
   if (!parsed.ok) return { ok: false, error: parsed.error, status: 400 };
   if (parsed.rules.performance) return ladderRefusal("LD_TEMPLATE", {}, 400);
+  // A ladder of teams: the games of a team match, as the sport's template has them and a team league's defaults for the rest.
+  let team: TeamSettings | null = null;
+  if (teams) {
+    let rubbers: RubberKind[] = template.rubbers ? [...template.rubbers] : ["team"];
+    if (input.team?.rubbers !== undefined) {
+      const given = Array.isArray(input.team.rubbers) ? input.team.rubbers : [];
+      if (given.length < 1 || given.length > MAX_RUBBERS || given.some((k) => !RUBBER_KINDS.includes(k)) || (given.includes("team") && given.length !== 1)) return ladderRefusal("LAD2_RUBBERS", { n: MAX_RUBBERS }, 400);
+      rubbers = given;
+    }
+    // A challenge has to have a winner: an even number of games could end level.
+    if (rubbers.length > 1 && rubbers.length % 2 === 0) return ladderRefusal("LAD2_RUBBERS_ODD", {}, 400);
+    const whole = (v: unknown, lo: number, hi: number, fallback: number): number | null => (v === undefined || v === null || v === "" ? fallback : Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi ? Number(v) : null);
+    const rubberMinutes = whole(input.team?.rubberMinutes, 5, 300, template.matchMinutes);
+    const rosterMin = whole(input.team?.rosterMin, 1, 40, Math.max(2, rubbers.includes("team") ? (template.roster?.min ?? 5) : 2));
+    const rosterMax = whole(input.team?.rosterMax, 1, 40, rubbers.includes("team") ? (template.roster?.max ?? 14) : 12);
+    const cap = whole(input.team?.maxRubbersPerPlayer, 1, 10, 2);
+    if (rubberMinutes === null || rosterMin === null || rosterMax === null || cap === null || rosterMin > rosterMax) return ladderRefusal("LAD2_TEAM_NUMBERS", {}, 400);
+    team = { rubbers, rubberMinutes, rosterMin, rosterMax, maxRubbersPerPlayer: cap };
+  }
+  const courtTime = input.courtTime ?? {};
+  const courtIds = await courtsRefusal(input.venueId, input.sport, courtTime.courtIds ?? []);
+  if (!Array.isArray(courtIds)) return courtIds;
+  const matchMinutes = minutesOk(courtTime.minutes);
+  if (typeof matchMinutes === "object" && matchMinutes !== null) return matchMinutes;
   const today = await venueToday(input.venueId);
   const s = parsedSettings.settings;
   let id = 0;
@@ -712,14 +846,15 @@ export async function createLadder(input: LadderInput, adminId: number): Promise
     const info = await db
       .prepare(
         `INSERT INTO ladders (venue_id, name, sport, team_size, who, audience, level, description, rules, template, reach, respond_days, play_days, cooldown_days,
-                              inactive_days, inactive_drop, freeze_max_days, decline_is, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                              inactive_days, inactive_drop, freeze_max_days, decline_is, created_by, court_time_on, match_minutes, kind, rubbers, rubber_minutes,
+                              roster_min, roster_max, max_rubbers_per_player)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.venueId,
         name,
         input.sport,
-        input.teamSize === 2 ? 2 : 1,
+        teams ? 1 : input.teamSize === 2 ? 2 : 1,
         who,
         audience,
         input.level,
@@ -734,9 +869,18 @@ export async function createLadder(input: LadderInput, adminId: number): Promise
         s.inactiveDrop,
         s.freezeMaxDays,
         s.declineIs,
-        adminId
+        adminId,
+        courtTime.on === true,
+        matchMinutes,
+        teams ? "teams" : "players",
+        team ? JSON.stringify(team.rubbers) : null,
+        team?.rubberMinutes ?? null,
+        team?.rosterMin ?? null,
+        team?.rosterMax ?? null,
+        team?.maxRubbersPerPlayer ?? null
       );
     id = info.lastInsertRowid as number;
+    for (const c of courtIds) await db.prepare("INSERT INTO ladder_courts (ladder_id, court_id) VALUES (?, ?)").run(id, c);
     await db.prepare("INSERT INTO ladder_seasons (ladder_id, number, started_on) VALUES (?, 1, ?)").run(id, today);
   })();
   return { ok: true, value: (await ladderById(id))! };
@@ -757,27 +901,62 @@ export async function changeSettings(ladderId: number, change: Partial<LadderSet
   });
 }
 
+/**
+ * A manager turns the venue's holding of court time for accepted challenges on or off, names the courts it may use and the minutes held
+ * (their reason is in the log). It applies from now and never rewrites what was held or agreed: a hold already made runs its course.
+ */
+export async function changeCourtTime(ladderId: number, change: { on?: unknown; courtIds?: unknown; minutes?: unknown }): Promise<LadderResult<Ladder>> {
+  return withLadder(ladderId, async (ladder) => {
+    const db = getDb();
+    if (change.on !== undefined && typeof change.on !== "boolean") return ladderRefusal("LAD2_COURTS", {}, 400);
+    const courtIds = change.courtIds === undefined ? ladder.courtTime.courtIds : await courtsRefusal(ladder.venueId, ladder.sport, change.courtIds);
+    if (!Array.isArray(courtIds)) return courtIds;
+    const minutes = change.minutes === undefined ? ladder.courtTime.minutes : minutesOk(change.minutes);
+    if (typeof minutes === "object" && minutes !== null) return minutes;
+    await db.prepare("UPDATE ladders SET court_time_on = ?, match_minutes = ? WHERE id = ?").run((change.on as boolean | undefined) ?? ladder.courtTime.on, minutes, ladderId);
+    await db.prepare("DELETE FROM ladder_courts WHERE ladder_id = ?").run(ladderId);
+    for (const c of courtIds) await db.prepare("INSERT INTO ladder_courts (ladder_id, court_id) VALUES (?, ?)").run(ladderId, c);
+    return { ok: true, value: (await ladderById(ladderId))! };
+  });
+}
+
 /** Run `fn` in a transaction under the ladder's row lock: nothing else changes the ladder meanwhile. */
-async function withLadder<T>(ladderId: number, fn: (ladder: Ladder, season: SeasonRow) => Promise<LadderResult<T>>): Promise<LadderResult<T>> {
+export async function withLadder<T>(ladderId: number, fn: (ladder: Ladder, season: SeasonRow) => Promise<LadderResult<T>>): Promise<LadderResult<T>> {
+  const freed: Freed[] = [];
   try {
-    return await withTransaction(async () => {
+    const done = await withTransaction(async () => {
+      freed.length = 0;
       await getDb().prepare("SELECT id FROM ladders WHERE id = ? FOR UPDATE").get(ladderId);
       const ladder = await ladderById(ladderId);
       if (!ladder) return ladderRefusal("LD_NOT_FOUND", {}, 404);
       const season = await currentSeason(ladderId);
       if (!season) return ladderRefusal("LD_CLOSED");
-      return fn(ladder, season);
+      return freedStore.run(freed, () => fn(ladder, season));
     });
+    // Court time a hold let go goes to whoever is waiting for it, once the change is committed.
+    if (freed.length > 0) await offerFreed(freed);
+    return done;
   } catch (err) {
     if (isBusy(err)) return ladderRefusal("LD_BUSY", {}, 503);
     throw err;
   }
 }
 
+type Freed = { courtId: number | null; date: string };
+const freedStore = new AsyncLocalStorage<Freed[]>();
+
+/** Let a challenge's hold go (if it has one), once, for `reason`; its court time is offered on afterwards (`withLadder`). */
+export async function letGo(challengeId: number, reason: string, by: string | null = null, note: string | null = null): Promise<boolean> {
+  const out = await releaseHold(challengeId, reason, by, note);
+  if (!out) return false;
+  freedStore.getStore()?.push({ courtId: out.courtId, date: out.date });
+  return true;
+}
+
 // ------------------------------------------------------------ writing the ledger
 
 /** Rewrite the cached ranks of a season from the replay of its ledger. */
-async function settle(seasonId: number): Promise<ReplayRow[]> {
+export async function settle(seasonId: number): Promise<ReplayRow[]> {
   const db = getDb();
   const ranks = await ranksOf(seasonId);
   await db.prepare("DELETE FROM ladder_ranks WHERE season_id = ?").run(seasonId);
@@ -785,7 +964,7 @@ async function settle(seasonId: number): Promise<ReplayRow[]> {
   return ranks;
 }
 
-async function addEvent(
+export async function addEvent(
   ladderId: number,
   seasonId: number,
   kind: EventKind,
@@ -808,7 +987,7 @@ async function addEvent(
  * voids it with why and writes its replacement in the same place in the order, so every event after it is replayed on top
  * of the corrected one. `challengerWon: null` voids it and writes nothing.
  */
-async function writeResult(
+export async function writeResult(
   ladderId: number,
   seasonId: number,
   ch: Pick<ChallengeRow, "id" | "challenger" | "challenged">,
@@ -857,6 +1036,7 @@ export async function joinAs(entrant: Entrant, ladderId: number, input: JoinInpu
   return withLadder(ladderId, async (ladder, season) => {
     const db = getDb();
     if (ladder.status !== "open") return ladderRefusal("LD_CLOSED");
+    if (ladder.kind === "teams") return ladderRefusal("LAD2_TEAMS_ONLY", {}, 403);
     const open = (await db.prepare(`SELECT (${OPEN_TO_CUSTOMERS}) AS open FROM venues v WHERE v.id = ?`).get(ladder.venueId)) as { open: boolean };
     if (!open.open) return ladderRefusal("LD_VENUE_CLOSED");
     const today = await venueToday(ladder.venueId);
@@ -923,14 +1103,15 @@ export async function joinAs(entrant: Entrant, ladderId: number, input: JoinInpu
 }
 
 /** The row of a place this account holds and acts for now, or null: its own, or one it entered for somebody it still acts for. */
-async function myPlayer(userId: number, playerId: number): Promise<PlayerRow | null> {
+export async function myPlayer(userId: number, playerId: number): Promise<PlayerRow | null> {
   const row = (await getDb()
     .prepare(
-      `SELECT lp.id, lp.ladder_id, lp.user_id, lp.name, lp.participant_id, lp.contact_phone, lp.entered_by_name, lp.status
-         FROM ladder_players lp LEFT JOIN participants p ON p.id = lp.participant_id
-        WHERE lp.id = ? AND lp.user_id = ? AND lp.status = 'active' AND (lp.participant_id IS NULL OR ${ACTS_FOR("p")})`
+      `SELECT lp.id, lp.ladder_id, lp.user_id, lp.team_id, lp.name, lp.participant_id, lp.contact_phone, lp.entered_by_name, lp.status
+         FROM ladder_players lp LEFT JOIN participants p ON p.id = lp.participant_id LEFT JOIN teams tm ON tm.id = lp.team_id
+        WHERE lp.id = ? AND lp.status = 'active'
+          AND ((lp.user_id = ? AND (lp.participant_id IS NULL OR ${ACTS_FOR("p")})) OR (lp.team_id IS NOT NULL AND tm.captain_user_id = ? AND tm.status = 'active'))`
     )
-    .get(playerId, userId, userId, userId)) as PlayerRow | undefined;
+    .get(playerId, userId, userId, userId, userId)) as PlayerRow | undefined;
   return row ?? null;
 }
 
@@ -940,16 +1121,17 @@ export async function myPlaces(userId: number, ladderId: number): Promise<MyPlac
   if (!ladder?.season) return [];
   const rows = (await getDb()
     .prepare(
-      `SELECT lp.id FROM ladder_players lp LEFT JOIN participants p ON p.id = lp.participant_id
-        WHERE lp.ladder_id = ? AND lp.user_id = ? AND lp.status = 'active' AND (lp.participant_id IS NULL OR ${ACTS_FOR("p")}) ORDER BY lp.id`
+      `SELECT lp.id FROM ladder_players lp LEFT JOIN participants p ON p.id = lp.participant_id LEFT JOIN teams tm ON tm.id = lp.team_id
+        WHERE lp.ladder_id = ? AND lp.status = 'active'
+          AND ((lp.user_id = ? AND (lp.participant_id IS NULL OR ${ACTS_FOR("p")})) OR (lp.team_id IS NOT NULL AND tm.captain_user_id = ? AND tm.status = 'active')) ORDER BY lp.id`
     )
-    .all(ladderId, userId, userId, userId)) as { id: number }[];
+    .all(ladderId, userId, userId, userId, userId)) as { id: number }[];
   const out: MyPlace[] = [];
-  for (const r of rows) out.push(await placeOf(ladder, r.id));
+  for (const r of rows) out.push(await placeOf(ladder, r.id, userId));
   return out;
 }
 
-async function placeOf(ladder: Ladder, playerId: number): Promise<MyPlace> {
+async function placeOf(ladder: Ladder, playerId: number, viewerId: number): Promise<MyPlace> {
   const db = getDb();
   const season = ladder.season!;
   const people = await playersOf(ladder.id);
@@ -969,20 +1151,32 @@ async function placeOf(ladder: Ladder, playerId: number): Promise<MyPlace> {
         .map((r) => ({ playerId: r.playerId, name: names.get(r.playerId) ?? "", rank: r.rank, not: mayChallenge(ranks, ladder.settings, playerId, r.playerId, { today, busy, lastTogether: together, names }) }))
     : [];
   const open: MyPlace["open"] = [];
+  const holdsOf = await holdViews(challenges.map((c) => c.id));
   for (const c of challenges.filter((x) => OPEN.includes(x.status))) {
     const otherId = c.challenger === playerId ? c.challenged : c.challenger;
     const other = people.get(otherId);
     // An adult ladder's accepted challenge shows the other side's number, for arranging it, to them alone; a junior ladder's never.
     let contact: { name: string; phone: string; whatsapp: string } | null = null;
     if (ladder.audience === "adults" && other && c.status !== "pending") {
-      const phone = ((await db.prepare("SELECT COALESCE(u.phone, ?) AS phone FROM (SELECT 1) x LEFT JOIN users u ON u.id = ?").get(other.contact_phone, other.user_id)) as { phone: string | null }).phone;
+      const phone = ((await db.prepare("SELECT COALESCE(u.phone, ?) AS phone FROM (SELECT 1) x LEFT JOIN users u ON u.id = ?").get(other.contact_phone, other.user_id ?? other.captain_user_id ?? null)) as { phone: string | null }).phone;
       if (phone) contact = { name: names.get(otherId) ?? "", phone, whatsapp: toWhatsAppNumber(phone) };
     }
-    open.push({ ...toChallenge(c, names, false), contact, booking: null });
+    open.push({ ...toChallenge(c, names, false, holdsOf), contact, booking: null });
   }
   // The ordinary booking each challenge carries, if its players attached one (`attachBooking`); nothing about it is held by the ladder.
   const carried = await liveBookings(challenges.map((c) => c.id));
   for (const o of open) o.booking = carried.get(o.id) ?? null;
+  const history = challenges.filter((x) => !OPEN.includes(x.status)).slice(0, 20).map((c) => ({ ...toChallenge(c, names, false, holdsOf), booking: carried.get(c.id) ?? null }));
+  // A ladder of teams: the games and the lineups this captain may see, and the forfeit requests on their challenges.
+  if (ladder.kind === "teams") {
+    const ids = [...open.map((o) => o.id), ...history.map((h) => h.id)];
+    const teams = await (await import("./team-ladders")).teamViews(ladder, ids, { userId: viewerId });
+    const requests = await (await import("./team-forfeits")).ladderForfeitRequests(ids, { forStaff: false, viewerId });
+    for (const c of [...open, ...history]) {
+      if (teams.has(c.id)) c.team = teams.get(c.id);
+      if (requests.has(c.id)) c.forfeitRequests = requests.get(c.id);
+    }
+  }
   return {
     playerId,
     name: names.get(playerId) ?? "",
@@ -991,7 +1185,7 @@ async function placeOf(ladder: Ladder, playerId: number): Promise<MyPlace> {
     frozenUntil: me?.frozenUntil ?? null,
     targets,
     open,
-    history: challenges.filter((x) => !OPEN.includes(x.status)).slice(0, 20).map((c) => ({ ...toChallenge(c, names, false), booking: carried.get(c.id) ?? null })),
+    history,
     bookingPage: `/venue/${ladder.venueId}?sport=${ladder.sport}`,
   };
 }
@@ -1036,12 +1230,13 @@ export async function leave(playerId: number, by: { name: string; reason?: strin
 }
 
 /** Cancel every open challenge a player is in, with no effect on the ranks, telling the other side. */
-async function cancelOpenFor(ladder: Ladder, season: SeasonRow, playerId: number, why: "left" | "frozen" | "season"): Promise<void> {
+export async function cancelOpenFor(ladder: Ladder, season: SeasonRow, playerId: number, why: "left" | "frozen" | "season"): Promise<void> {
   const db = getDb();
   const today = await venueToday(ladder.venueId);
   const open = (await db.prepare(`SELECT * FROM ladder_challenges WHERE season_id = ? AND (challenger = ? OR challenged = ?) AND status IN (${OPEN_SQL})`).all(season.id, playerId, playerId)) as ChallengeRow[];
   for (const c of open) {
     await db.prepare("UPDATE ladder_challenges SET status = 'cancelled', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, c.id);
+    await letGo(c.id, why);
     const other = c.challenger === playerId ? c.challenged : c.challenger;
     const people = await playersOf(ladder.id);
     const me = (people.get(playerId)?.shown ?? "");
@@ -1122,10 +1317,10 @@ export async function challenge(userId: number, ladderId: number, mine: number, 
   });
 }
 
-const fmtMin = (m: number): string => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+export const fmtMin = (m: number): string => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 /** The challenge, its ladder and the season it was in, with the places the account holds in it. */
-async function challengeFor(userId: number, challengeId: number): Promise<{ ch: ChallengeRow; myId: number } | null> {
+export async function challengeFor(userId: number, challengeId: number): Promise<{ ch: ChallengeRow; myId: number } | null> {
   const ch = (await getDb().prepare("SELECT * FROM ladder_challenges WHERE id = ?").get(challengeId)) as ChallengeRow | undefined;
   if (!ch) return null;
   const mine = (await myPlayer(userId, ch.challenger)) ? ch.challenger : (await myPlayer(userId, ch.challenged)) ? ch.challenged : null;
@@ -1134,17 +1329,17 @@ async function challengeFor(userId: number, challengeId: number): Promise<{ ch: 
   return { ch, myId: mine };
 }
 
-const stale = (c: ChallengeRow, expected: { version?: number }) => expected.version !== undefined && expected.version !== Number(c.version);
-const changedRefusal = () => ladderRefusal("LD_CHANGED");
+export const stale = (c: ChallengeRow, expected: { version?: number }) => expected.version !== undefined && expected.version !== Number(c.version);
+export const changedRefusal = () => ladderRefusal("LD_CHANGED");
 
-async function lockedChallenge(challengeId: number): Promise<ChallengeRow | undefined> {
+export async function lockedChallenge(challengeId: number): Promise<ChallengeRow | undefined> {
   return (await getDb().prepare("SELECT * FROM ladder_challenges WHERE id = ? FOR UPDATE").get(challengeId)) as ChallengeRow | undefined;
 }
 
-async function viewOf(ladder: Ladder, challengeId: number): Promise<ChallengeView> {
+export async function viewOf(ladder: Ladder, challengeId: number): Promise<ChallengeView> {
   const people = await playersOf(ladder.id);
   const row = (await getDb().prepare("SELECT * FROM ladder_challenges WHERE id = ?").get(challengeId)) as ChallengeRow;
-  return toChallenge(row, new Map([...people].map(([id, p]) => [id, p.shown])), false);
+  return toChallenge(row, new Map([...people].map(([id, p]) => [id, p.shown])), false, await holdViews([challengeId]));
 }
 
 export type Answer =
@@ -1203,6 +1398,15 @@ export async function answer(userId: number, challengeId: number, input: Answer,
       // Accepting a time the other side proposed agrees it; accepting with a day of their own sets that.
       const on = when.on ?? (ch.proposed_by !== null && ch.proposed_by !== mineId ? ch.proposed_on : null);
       const min = when.on ? when.min : on === ch.proposed_on ? ch.proposed_min : null;
+      // A ladder that holds court time holds a court once a day and time are agreed (a day alone is not a time): refused, with the reason and
+      // nothing changed, if nothing is free, so a challenge is never accepted without the court it was promised.
+      let held: HoldView | null = null;
+      if (ladder.courtTime.on && on && min !== null) {
+        if (on > addDays(today, ladder.settings.playDays)) return ladderRefusal("LAD2_AFTER", { date: addDays(today, ladder.settings.playDays) });
+        const made = await holdFor(ladder, ch, on, min, people, { kind: "players" });
+        if (!made.ok) return made;
+        held = made.hold;
+      }
       await db
         .prepare(
           `UPDATE ladder_challenges SET status = 'accepted', agreed_on = ?, agreed_min = ?, play_by = ?, respond_by = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?`
@@ -1213,11 +1417,15 @@ export async function answer(userId: number, challengeId: number, input: Answer,
         ladder,
         (tr) => tr("ld.mail.answered.s", { l: ladder.name, a: me }),
         (tr) =>
-          tr("ld.mail.answered.b", {
-            l: ladder.name,
-            a: me,
-            what: tr(on ? "ld.ans.acceptedOn" : "ld.ans.accepted", { date: on ?? "", time: min === null ? "" : fmtMin(min), by: addDays(today, ladder.settings.playDays) }),
-          })
+          sentences(
+            tr,
+            tr("ld.mail.answered.b", {
+              l: ladder.name,
+              a: me,
+              what: tr(on ? "ld.ans.acceptedOn" : "ld.ans.accepted", { date: on ?? "", time: min === null ? "" : fmtMin(min), by: addDays(today, ladder.settings.playDays) }),
+            }),
+            held && tr("lad2.mail.held", { court: held.court, date: held.date, time: fmtMin(held.startMin) })
+          )
       );
     }
     return { ok: true, value: await viewOf(ladder, ch.id) };
@@ -1234,6 +1442,7 @@ export async function withdraw(userId: number, challengeId: number, expected: { 
     if (stale(ch, expected)) return changedRefusal();
     if (ch.status !== "pending" && ch.status !== "accepted") return ladderRefusal("LD_NOT_AWAITING");
     await getDb().prepare("UPDATE ladder_challenges SET status = 'cancelled', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(await venueToday(ladder.venueId), ch.id);
+    await letGo(ch.id, "withdrawn");
     const people = await playersOf(ladder.id);
     await tellEnd(ladder, ch.challenged, (people.get(ch.challenger)?.shown ?? ""), "withdrawn");
     return { ok: true, value: await viewOf(ladder, ch.id) };
@@ -1242,7 +1451,7 @@ export async function withdraw(userId: number, challengeId: number, expected: { 
 
 type EndWhat = "left" | "frozen" | "season" | "declined" | "declinedForfeit" | "withdrawn" | "ignored" | "lapsed" | "notPlayed";
 
-async function tellEnd(ladder: Ladder, toPlayer: number, who: string, what: EndWhat): Promise<void> {
+export async function tellEnd(ladder: Ladder, toPlayer: number, who: string, what: EndWhat): Promise<void> {
   await tellPlayer(toPlayer, ladder, (tr) => tr("ld.mail.ended.s", { l: ladder.name }), (tr) => tr("ld.mail.ended.b", { l: ladder.name, a: who, what: tr(`ld.end.${what}`) }));
 }
 
@@ -1254,6 +1463,7 @@ async function decideForfeit(ladder: Ladder, season: SeasonRow, ch: ChallengeRow
     .prepare("UPDATE ladder_challenges SET status = 'walkover', winner = ?, score = NULL, forfeit = true, resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?")
     .run(winner, today, ch.id);
   await writeResult(ladder.id, season.id, ch, { challengerWon: challengedForfeits, forfeit: true }, today, null);
+  await letGo(ch.id, "forfeited");
   void why;
   await settleAndTell(ladder, season, ch.id);
 }
@@ -1298,6 +1508,7 @@ export async function report(userId: number, challengeId: number, input: { winne
     if (!ch || ch.season_id !== season.id) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
     if (stale(ch, expected)) return changedRefusal();
     const mine = found.myId;
+    if (ladder.kind === "teams") return ladderRefusal("LAD2_TEAM_REPORT", {}, 400);
     if (ch.status === "reported" && ch.reported_by !== mine) return ladderRefusal("LD_THEY_REPORTED");
     if (ch.status === "disputed") return ladderRefusal("LD_DISPUTED");
     if (ch.status === "pending") return ladderRefusal("LD_NOT_ACCEPTED");
@@ -1341,8 +1552,9 @@ export async function confirm(userId: number, challengeId: number, expected: { v
 }
 
 /** A reported result becomes the result (confirmed, or standing unanswered): a ledger event, the ranks rewritten. */
-async function standResult(ladder: Ladder, season: SeasonRow, ch: ChallengeRow, today: string): Promise<void> {
+export async function standResult(ladder: Ladder, season: SeasonRow, ch: ChallengeRow, today: string): Promise<void> {
   await getDb().prepare("UPDATE ladder_challenges SET status = 'confirmed', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, ch.id);
+  await letGo(ch.id, "played");
   await writeResult(ladder.id, season.id, ch, { challengerWon: ch.winner === ch.challenger, forfeit: false }, today, null);
   await settleAndTell(ladder, season, ch.id);
 }
@@ -1368,7 +1580,7 @@ export async function dispute(userId: number, challengeId: number, note: string,
  * confirmed), a walkover, void (it never counts) or clear (to be played again). The result's place in the ledger is kept, so the
  * ranks are the replay of everything with this result as decided.
  */
-export type Decision = { winner: number; score?: string; walkover?: boolean } | { void: true } | { clear: true };
+export type Decision = { winner: number; score?: string; walkover?: boolean } | { rubbers: unknown } | { void: true } | { clear: true };
 
 export async function decide(challengeId: number, by: { adminId: number | null; name: string }, decision: Decision, reason: string): Promise<LadderResult<ChallengeView>> {
   const row = (await getDb().prepare("SELECT ladder_id FROM ladder_challenges WHERE id = ?").get(challengeId)) as { ladder_id: number } | undefined;
@@ -1383,23 +1595,42 @@ export async function decide(challengeId: number, by: { adminId: number | null; 
     if ("void" in decision) {
       await db.prepare("UPDATE ladder_challenges SET status = 'void', winner = NULL, score = NULL, forfeit = false, resolved_on = ?, decided_by = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, by.adminId, ch.id);
       await writeResult(ladder.id, season.id, ch, null, today, { reason: why, by: by.name });
+      await letGo(ch.id, "void", by.name, why);
+      await db.prepare("DELETE FROM ladder_challenge_rubbers WHERE challenge_id = ?").run(ch.id);
     } else if ("clear" in decision) {
       await db
         .prepare("UPDATE ladder_challenges SET status = 'accepted', winner = NULL, score = NULL, forfeit = false, reported_by = NULL, reported_at = NULL, dispute_note = NULL, play_by = ?, resolved_on = NULL, decided_by = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?")
         .run(addDays(today, ladder.settings.playDays), by.adminId, ch.id);
       await writeResult(ladder.id, season.id, ch, null, today, { reason: why, by: by.name });
+      await letGo(ch.id, "cleared", by.name, why);
+      await db.prepare("DELETE FROM ladder_challenge_rubbers WHERE challenge_id = ?").run(ch.id);
     } else {
-      if (decision.winner !== ch.challenger && decision.winner !== ch.challenged) return ladderRefusal("LD_WINNER", {}, 400);
-      const score = decision.score?.trim() || null;
+      // A ladder of teams is decided by its games (the team league's checks and its winner); a walkover is a forfeit, given as one.
+      let given: { winner: number; score?: string | null; walkover?: boolean };
+      let teamGames: Awaited<ReturnType<typeof import("./team-ladders").teamOutcome>> | null = null;
+      if ("rubbers" in decision) {
+        const teams = await import("./team-ladders");
+        teamGames = teams.teamOutcome(ladder, ch, decision.rubbers);
+        if (!teamGames.ok) return teamGames;
+        given = teamGames.value.walkover ? { winner: teamGames.value.winner, walkover: true } : { winner: teamGames.value.winner, score: teamGames.value.score };
+      } else {
+        if (ladder.kind === "teams" && !decision.walkover) return ladderRefusal("LAD2_TEAM_REPORT", {}, 400);
+        given = decision;
+      }
+      if (given.winner !== ch.challenger && given.winner !== ch.challenged) return ladderRefusal("LD_WINNER", {}, 400);
+      const score = given.score?.trim() || null;
       if (score) {
-        const wrong = checkScore(decision.winner === ch.challenger, score, ladder.rules.scoring);
+        const wrong = teamGames ? null : checkScore(given.winner === ch.challenger, score, ladder.rules.scoring);
         if (wrong) return { ok: false, error: wrong, status: 400 };
-      } else if (!decision.walkover) return ladderRefusal("LD_SCORE_OR_WALKOVER", {}, 400);
+      } else if (!given.walkover) return ladderRefusal("LD_SCORE_OR_WALKOVER", {}, 400);
       await db
         .prepare("UPDATE ladder_challenges SET status = ?, winner = ?, score = ?, forfeit = ?, resolved_on = COALESCE(resolved_on, ?), decided_by = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?")
-        .run(score ? "confirmed" : "walkover", decision.winner, score, !score, today, by.adminId, ch.id);
+        .run(score ? "confirmed" : "walkover", given.winner, score, !score, today, by.adminId, ch.id);
+      if (teamGames?.ok && !teamGames.value.walkover && ladder.team) await (await import("./team-ladders")).writeRubbers(ch.id, ladder.team.rubbers, teamGames.value.checked);
+      else if (!score) await db.prepare("DELETE FROM ladder_challenge_rubbers WHERE challenge_id = ?").run(ch.id);
       const fresh = (await db.prepare("SELECT * FROM ladder_challenges WHERE id = ?").get(ch.id)) as ChallengeRow;
-      await writeResult(ladder.id, season.id, fresh, { challengerWon: decision.winner === ch.challenger, forfeit: !score }, fresh.resolved_on ?? today, { reason: why, by: by.name });
+      await writeResult(ladder.id, season.id, fresh, { challengerWon: given.winner === ch.challenger, forfeit: !score }, fresh.resolved_on ?? today, { reason: why, by: by.name });
+      await letGo(ch.id, score ? "played" : "forfeited", by.name, why);
     }
     const ranks = await settle(season.id);
     await ratingsAfter(ladder.id);
@@ -1482,6 +1713,7 @@ export async function endSeason(ladderId: number, opts: { close?: boolean } = {}
     const open = (await db.prepare(`SELECT * FROM ladder_challenges WHERE season_id = ? AND status IN (${OPEN_SQL})`).all(season.id)) as ChallengeRow[];
     for (const c of open) {
       await db.prepare("UPDATE ladder_challenges SET status = 'cancelled', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, c.id);
+      await letGo(c.id, "season");
       for (const id of [c.challenger, c.challenged]) await tellEnd(ladder, id, (people.get(id === c.challenger ? c.challenged : c.challenger)?.shown ?? ""), "season");
     }
     const finalRanks = ranks.map((r) => ({ rank: r.rank, playerId: r.playerId, name: shown(ladder, people.get(r.playerId)?.name ?? "") }));
@@ -1508,6 +1740,10 @@ export async function ladderHousekeeping(): Promise<{ confirmed: number; forfeit
   const db = getDb();
   // A booking cancelled by a path that did not say so: the attachment goes, the players are told (idempotent).
   await dropCancelledBookings();
+  // Court time a hold lost (a court taken out of service lets go of the blocks on it): the hold is marked lost, once, and both sides are told.
+  await tellLostHolds();
+  // A forfeit asked for on a ladder of teams: closed once the challenge ended another way, expired after 14 days (lib/team-forfeits.ts).
+  await (await import("./team-forfeits")).housekeepLadderForfeits();
   const total = { confirmed: 0, forfeited: 0, lapsed: 0, thawed: 0, dropped: 0 };
   const ladders = (await db.prepare("SELECT id FROM ladders WHERE status = 'open' ORDER BY id").all()) as { id: number }[];
   for (const l of ladders) {
@@ -1521,17 +1757,21 @@ export async function ladderHousekeeping(): Promise<{ confirmed: number; forfeit
           await standResult(ladder, season, c, today);
           out.confirmed++;
         } else if (c.status === "pending" && c.respond_by !== null && today > c.respond_by) {
-          if (c.awaiting === "challenged") {
+          // A challenge nobody on a ladder of teams answered lapses with no effect: a forfeit changes the ranks, and on a team ladder
+          // giving one is a manager's (the captain asks for it), as in a team league.
+          if (c.awaiting === "challenged" && ladder.kind !== "teams") {
             await decideForfeit(ladder, season, c, true, today, { reason: "ignored", by: "" });
             await tellEnd(ladder, c.challenger, (people.get(c.challenged)?.shown ?? ""), "ignored");
             out.forfeited++;
           } else {
             await db.prepare("UPDATE ladder_challenges SET status = 'lapsed', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, c.id);
-            await tellEnd(ladder, c.challenged, (people.get(c.challenger)?.shown ?? ""), "lapsed");
+            await letGo(c.id, "lapsed");
+            await tellEnd(ladder, c.awaiting === "challenged" ? c.challenger : c.challenged, (people.get(c.awaiting === "challenged" ? c.challenged : c.challenger)?.shown ?? ""), "lapsed");
             out.lapsed++;
           }
         } else if (c.status === "accepted" && c.play_by !== null && today > c.play_by) {
           await db.prepare("UPDATE ladder_challenges SET status = 'lapsed', resolved_on = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(today, c.id);
+          await letGo(c.id, "notPlayed");
           for (const id of [c.challenger, c.challenged]) await tellEnd(ladder, id, (people.get(id === c.challenger ? c.challenged : c.challenger)?.shown ?? ""), "notPlayed");
           out.lapsed++;
         }
@@ -1623,13 +1863,18 @@ export async function attachBooking(userId: number, challengeId: number, code: u
            FROM bookings b JOIN courts c ON c.id = b.court_id WHERE UPPER(b.code) = ? FOR UPDATE OF b`
       )
       .get(typed)) as { id: number; user_id: number | null; status: string; date: string; sport: string; class_id: number | null; code: string; start_min: number; end_min: number; court: string; venue_id: number } | undefined;
-    const accounts = (await db.prepare("SELECT user_id FROM ladder_players WHERE id IN (?, ?)").all(ch.challenger, ch.challenged)) as { user_id: number | null }[];
+    const accounts = (await db
+      .prepare("SELECT COALESCE(lp.user_id, t.captain_user_id) AS user_id FROM ladder_players lp LEFT JOIN teams t ON t.id = lp.team_id WHERE lp.id IN (?, ?)")
+      .all(ch.challenger, ch.challenged)) as { user_id: number | null }[];
     if (!b || b.user_id === null || !accounts.some((a) => a.user_id === b.user_id)) return ladderRefusal("LD_BK_NOT_FOUND", {}, 404);
     if (b.status !== "confirmed" || b.date < (await venueToday(ladder.venueId))) return ladderRefusal("LD_BK_STATE");
     if (b.venue_id !== ladder.venueId) return ladderRefusal("LD_BK_VENUE");
     if (b.sport !== ladder.sport || b.class_id !== null) return ladderRefusal("LD_BK_SPORT");
     if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE booking_id = ? AND dropped_at IS NULL").get(b.id)) return ladderRefusal("LD_BK_TAKEN");
     await db.prepare("INSERT INTO ladder_challenge_bookings (challenge_id, booking_id, attached_by) VALUES (?, ?, ?)").run(ch.id, b.id, found.myId);
+    // The booking is the court time: no second court is kept for the same match.
+    await letGo(ch.id, "booking");
+    await db.prepare("UPDATE ladder_challenges SET move_on = NULL, move_min = NULL, move_by = NULL WHERE id = ?").run(ch.id);
     const other = found.myId === ch.challenger ? ch.challenged : ch.challenger;
     const people = await playersOf(ladder.id);
     const me = shown(ladder, people.get(found.myId)?.name ?? "");
@@ -1676,12 +1921,180 @@ async function dropCancelledBookings(): Promise<void> {
   for (const r of rows) await ladderBookingCancelled(r.booking_id);
 }
 
+// ------------------------------------------------------------ court time held for an accepted challenge
+
+const holdRefusal = (r: HoldRefusal): LadderRefusal => ladderRefusal(r.code, r.vars);
+
+/** Hold a court for a challenge at an agreed day and time (inside the ladder's transaction), labelled for the schedule. */
+export async function holdFor(
+  ladder: Ladder,
+  ch: Pick<ChallengeRow, "id" | "challenger" | "challenged">,
+  on: string,
+  min: number,
+  people: Map<number, Pick<PlayerRow, "name">>,
+  by: { kind: "players" } | { kind: "staff"; name: string },
+  opts: { courtId?: number | null; replacing?: boolean; reason?: string; byName?: string | null } = {}
+): Promise<{ ok: true; hold: HoldView; freed?: { courtId: number | null; date: string } | null } | LadderRefusal> {
+  const req = {
+    ladder: { id: ladder.id, venueId: ladder.venueId, sport: ladder.sport, name: ladder.name },
+    challengeId: ch.id,
+    label: `Ladder match: ${ladder.name}: ${people.get(ch.challenger)?.name ?? ""} v ${people.get(ch.challenged)?.name ?? ""}`.slice(0, 200),
+    playerIds: [ch.challenger, ch.challenged] as [number, number],
+    date: on,
+    startMin: min,
+    minutes: ladder.courtTime.matchMinutes,
+    courtId: opts.courtId ?? null,
+    by,
+  };
+  if (opts.replacing) {
+    const moved = await moveHold(req, "moved", opts.byName ?? null, opts.reason ?? null);
+    if (!moved.ok) return holdRefusal(moved);
+    if (moved.freed) freedStore.getStore()?.push(moved.freed);
+    return moved;
+  }
+  const made = await makeHold(req);
+  return made.ok ? made : holdRefusal(made);
+}
+
+/** Holds that lost their court time are marked, and both sides told once that the challenge stands without a court held. */
+async function tellLostHolds(): Promise<void> {
+  const { reconcileHolds } = await import("./ladder-holds");
+  for (const l of await reconcileHolds()) {
+    const ladder = await ladderById(l.ladderId);
+    const ch = (await getDb().prepare("SELECT * FROM ladder_challenges WHERE id = ?").get(l.challengeId)) as ChallengeRow | undefined;
+    if (!ladder || !ch) continue;
+    for (const id of [ch.challenger, ch.challenged]) await tellPlayer(id, ladder, (tr) => tr("lad2.mail.lost.s", { l: ladder.name }), (tr) => tr("lad2.mail.lost.b", { l: ladder.name }));
+  }
+}
+
+/**
+ * Either player asks the other to agree a day and time for an accepted challenge on a ladder that holds court time: the first specific time
+ * (when only a day was agreed) or a move. Nothing is held until the other agrees (`answerMove`).
+ */
+export async function proposeMove(userId: number, challengeId: number, input: { onDate?: unknown; minute?: unknown }, expected: { version?: number } = {}): Promise<LadderResult<ChallengeView>> {
+  const found = await challengeFor(userId, challengeId);
+  if (!found) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+  return withLadder(found.ch.ladder_id, async (ladder, season) => {
+    const db = getDb();
+    const ch = await lockedChallenge(challengeId);
+    if (!ch || ch.season_id !== season.id) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+    if (stale(ch, expected)) return changedRefusal();
+    if (!ladder.courtTime.on) return ladderRefusal("LAD2_OFF");
+    if (ch.status !== "accepted") return ladderRefusal("LAD2_NOT_ACCEPTED");
+    if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE challenge_id = ? AND dropped_at IS NULL").get(ch.id)) return ladderRefusal("LAD2_HAS_BOOKING");
+    const today = await venueToday(ladder.venueId);
+    const when = proposal(input, today);
+    if (!when.ok) return when.refusal;
+    if (!when.on || when.min === null) return ladderRefusal("LAD2_NEED_TIME", {}, 400);
+    if (when.on > (ch.play_by ?? addDays(today, ladder.settings.playDays))) return ladderRefusal("LAD2_AFTER", { date: ch.play_by ?? "" });
+    await db.prepare("UPDATE ladder_challenges SET move_on = ?, move_min = ?, move_by = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(when.on, when.min, found.myId, ch.id);
+    const people = await playersOf(ladder.id);
+    const me = people.get(found.myId)?.shown ?? "";
+    const other = found.myId === ch.challenger ? ch.challenged : ch.challenger;
+    await tellPlayer(other, ladder, (tr) => tr("lad2.mail.moveAsked.s", { l: ladder.name, a: me }), (tr) => tr("lad2.mail.moveAsked.b", { l: ladder.name, a: me, date: when.on!, time: fmtMin(when.min!) }));
+    return { ok: true, value: await viewOf(ladder, ch.id) };
+  });
+}
+
+/**
+ * The other player agrees the time asked (`agree: true`): the new time is held first, then the old one is let go, in one step, so a time that
+ * cannot be held is refused with the reason and the old court stays held. Or either of them turns the request down or takes it back.
+ */
+export async function answerMove(userId: number, challengeId: number, agree: boolean, expected: { version?: number } = {}): Promise<LadderResult<ChallengeView>> {
+  const found = await challengeFor(userId, challengeId);
+  if (!found) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+  return withLadder(found.ch.ladder_id, async (ladder, season) => {
+    const db = getDb();
+    const ch = await lockedChallenge(challengeId);
+    if (!ch || ch.season_id !== season.id) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+    if (stale(ch, expected)) return changedRefusal();
+    if (ch.status !== "accepted" || !ch.move_on || ch.move_min === null || ch.move_min === undefined || ch.move_by === null || ch.move_by === undefined) return ladderRefusal("LAD2_NO_MOVE");
+    const people = await playersOf(ladder.id);
+    const me = people.get(found.myId)?.shown ?? "";
+    const other = found.myId === ch.challenger ? ch.challenged : ch.challenger;
+    if (agree) {
+      if (ch.move_by === found.myId) return ladderRefusal("LAD2_OWN_MOVE");
+      if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE challenge_id = ? AND dropped_at IS NULL").get(ch.id)) return ladderRefusal("LAD2_HAS_BOOKING");
+      const had = await holdViews([ch.id]);
+      const made = await holdFor(ladder, ch, ch.move_on, ch.move_min, people, { kind: "players" }, { replacing: had.has(ch.id), reason: "players agreed a new time", byName: me });
+      if (!made.ok) return made;
+      await db
+        .prepare("UPDATE ladder_challenges SET agreed_on = ?, agreed_min = ?, move_on = NULL, move_min = NULL, move_by = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?")
+        .run(ch.move_on, ch.move_min, ch.id);
+      await tellPlayer(
+        other,
+        ladder,
+        (tr) => tr("lad2.mail.moved.s", { l: ladder.name }),
+        (tr) => tr("lad2.mail.moved.b", { l: ladder.name, a: me, court: made.hold.court, date: made.hold.date, time: fmtMin(made.hold.startMin) })
+      );
+    } else {
+      await db.prepare("UPDATE ladder_challenges SET move_on = NULL, move_min = NULL, move_by = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?").run(ch.id);
+      await tellPlayer(other, ladder, (tr) => tr("lad2.mail.moveNo.s", { l: ladder.name }), (tr) => tr("lad2.mail.moveNo.b", { l: ladder.name, a: me }));
+    }
+    return { ok: true, value: await viewOf(ladder, ch.id) };
+  });
+}
+
+/**
+ * A manager releases a challenge's hold, or moves it to another time (and court), with a reason (kept with the hold, in the log, told to both
+ * players). A move holds the new time first and refuses, with the reason, leaving the old court held, if it cannot. Managers only (the route).
+ */
+export async function staffHold(
+  challengeId: number,
+  by: { adminId: number | null; name: string },
+  action: { release: true } | { move: { onDate: unknown; minute: unknown; courtId?: unknown } },
+  reason: string
+): Promise<LadderResult<ChallengeView>> {
+  const row = (await getDb().prepare("SELECT ladder_id FROM ladder_challenges WHERE id = ?").get(challengeId)) as { ladder_id: number } | undefined;
+  if (!row) return ladderRefusal("LD_NO_CHALLENGE", {}, 404);
+  const why = reason.trim();
+  if (why.length < 3) return ladderRefusal("LD_REASON", {}, 400);
+  return withLadder(row.ladder_id, async (ladder, season) => {
+    const db = getDb();
+    const ch = await lockedChallenge(challengeId);
+    if (!ch || ch.season_id !== season.id) return ladderRefusal("LD_SEASON_OVER");
+    if (ch.status !== "accepted") return ladderRefusal("LAD2_NOT_ACCEPTED");
+    const people = await playersOf(ladder.id);
+    if ("release" in action) {
+      if (!(await letGo(ch.id, "staff", by.name, why))) return ladderRefusal("LAD2_NO_HOLD");
+      await db.prepare("UPDATE ladder_challenges SET version = version + 1, updated_at = datetime('now') WHERE id = ?").run(ch.id);
+      for (const id of [ch.challenger, ch.challenged]) await tellPlayer(id, ladder, (tr) => tr("lad2.mail.released.s", { l: ladder.name }), (tr) => tr("lad2.mail.released.b", { l: ladder.name, why }));
+    } else {
+      if (!ladder.courtTime.on) return ladderRefusal("LAD2_OFF");
+      const today = await venueToday(ladder.venueId);
+      const when = proposal(action.move, today);
+      if (!when.ok) return when.refusal;
+      if (!when.on || when.min === null) return ladderRefusal("LAD2_NEED_TIME", {}, 400);
+      const courtId = action.move.courtId === undefined || action.move.courtId === null || action.move.courtId === "" ? null : Number(action.move.courtId);
+      if (await db.prepare("SELECT 1 FROM ladder_challenge_bookings WHERE challenge_id = ? AND dropped_at IS NULL").get(ch.id)) return ladderRefusal("LAD2_HAS_BOOKING");
+      const had = await holdViews([ch.id]);
+      const made = await holdFor(ladder, ch, when.on, when.min, people, { kind: "staff", name: by.name }, { courtId, replacing: had.has(ch.id), reason: why, byName: by.name });
+      if (!made.ok) return made;
+      // The play-by day moves with a time later than it.
+      const playBy = ch.play_by !== null && when.on > ch.play_by ? when.on : ch.play_by;
+      await db
+        .prepare("UPDATE ladder_challenges SET agreed_on = ?, agreed_min = ?, play_by = ?, move_on = NULL, move_min = NULL, move_by = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?")
+        .run(when.on, when.min, playBy, ch.id);
+      for (const id of [ch.challenger, ch.challenged])
+        await tellPlayer(
+          id,
+          ladder,
+          (tr) => tr("lad2.mail.staffMoved.s", { l: ladder.name }),
+          (tr) => tr("lad2.mail.staffMoved.b", { l: ladder.name, court: made.hold.court, date: made.hold.date, time: fmtMin(made.hold.startMin), why })
+        );
+    }
+    return { ok: true, value: await viewOf(ladder, ch.id) };
+  });
+}
+
 // ------------------------------------------------------------ telling people
 
 /** An email to the account that holds a place, in its language; one for somebody the account acts for says whose it is first. */
-async function tellPlayer(playerId: number, ladder: Pick<Ladder, "id" | "venueId">, subject: Written, body: Written): Promise<void> {
+export async function tellPlayer(playerId: number, ladder: Pick<Ladder, "id" | "venueId">, subject: Written, body: Written): Promise<void> {
   const p = (await getDb()
-    .prepare("SELECT lp.user_id, lp.participant_id, pa.display_name FROM ladder_players lp LEFT JOIN participants pa ON pa.id = lp.participant_id WHERE lp.id = ?")
+    .prepare(
+      "SELECT COALESCE(lp.user_id, tm.captain_user_id) AS user_id, lp.participant_id, pa.display_name FROM ladder_players lp LEFT JOIN participants pa ON pa.id = lp.participant_id LEFT JOIN teams tm ON tm.id = lp.team_id WHERE lp.id = ?"
+    )
     .get(playerId)) as { user_id: number | null; participant_id: number | null; display_name: string | null } | undefined;
   if (!p?.user_id) return;
   const forName = p.participant_id !== null ? p.display_name : null;
@@ -1695,7 +2108,7 @@ async function tellPlayer(playerId: number, ladder: Pick<Ladder, "id" | "venueId
 }
 
 /** After a result changes: read the ladder into the ratings if it is rated (lib/ratings.ts); never fails the change that caused it. */
-async function ratingsAfter(ladderId: number): Promise<void> {
+export async function ratingsAfter(ladderId: number): Promise<void> {
   await (await import("./ratings")).ratedAfter("ladder", ladderId);
 }
 
