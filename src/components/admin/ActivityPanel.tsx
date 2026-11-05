@@ -166,6 +166,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "class.scheduled": "p8c.act.classScheduled",
   "class.changed": "p8c.act.classChanged",
   "class.cancelled": "p8c.act.classCancelled",
+  "class.moved": "clsa.act.classMoved",
   "block.added": "p8c.act.blockAdded",
   "block.removed": "p8c.act.blockRemoved",
   "hire.taken": "p8c.act.hireTaken",

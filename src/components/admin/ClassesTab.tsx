@@ -17,6 +17,9 @@ import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 import { WaitlistJoin, WaitlistQueue } from "./WaitlistJoin";
 import { ClassEditor } from "./ClassEditor";
+import { ClassMovePanel } from "./ClassMovePanel";
+import type { ClassCoachConflict } from "@/lib/class-coaches";
+import { formatMinute } from "@/lib/interval";
 
 const STATUS: Record<ClassStatus, StaffPhrase> = { scheduled: "cls.status.scheduled", cancelled: "cls.status.cancelled" };
 const ONLY: Record<string, StaffPhrase> = { women: "cls.onlyWomen", men: "cls.onlyMen" };
@@ -36,6 +39,10 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
   } | null>(null);
   const [waiting, setWaiting] = useState<Record<number, number>>({});
   const [editing, setEditing] = useState<ClassSession | null>(null);
+  const [moving, setMoving] = useState<ClassSession | null>(null);
+  // A typed instructor whose name is a coach of the venue (one click links it), and sessions whose coach cannot teach them (lib/class-coaches.ts).
+  const [coachMatches, setCoachMatches] = useState<Record<number, { id: number; name: string }>>({});
+  const [coachConflicts, setCoachConflicts] = useState<ClassCoachConflict[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -51,7 +58,10 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
     weeks: "1",
     termOff: "0",
     who: "anyone",
+    // One of the venue's coaches as the instructor; "" is a name typed.
+    coachId: "",
   });
+  const [venueCoaches, setVenueCoaches] = useState<{ id: number; name: string; sports: string[] }[]>([]);
 
   const venue = venues.find((v) => v.id === venueId);
   // Only shared facilities can host a class; a single court has one place.
@@ -65,6 +75,8 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
       if (!res.ok) throw new Error(t.err(data, t("cls.loadFailed")));
       setClasses(data.classes);
       setWaiting(data.waiting ?? {});
+      setCoachMatches(data.coachMatches ?? {});
+      setCoachConflicts(data.coachConflicts ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cls.loadFailed"));
       setClasses(null);
@@ -74,6 +86,20 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // The venue's active coaches, for a class to be taught by one of them (lib/class-coaches.ts).
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const res = await fetch(`/api/admin/coaches?venueId=${venueId}`, { cache: "no-store" }).catch(() => null);
+      if (!res?.ok) return;
+      const data = (await readJson(res)) as { coaches: { id: number; name: string; active: boolean; sports: string[] }[] };
+      if (live && Array.isArray(data.coaches)) setVenueCoaches(data.coaches.filter((c) => c.active));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [venueId]);
 
   async function schedule(e: React.FormEvent) {
     e.preventDefault();
@@ -87,6 +113,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           courtId: Number(form.courtId),
           name: form.name,
           instructor: form.instructor,
+          ...(form.coachId !== "" ? { coachId: Number(form.coachId) } : {}),
           date: form.date,
           start: form.start,
           end: form.end,
@@ -104,7 +131,7 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           ? t("cls.scheduledSeries", { n: data.classes.length, code: data.seriesCode })
           : t("cls.scheduledOne", { name: form.name })
       );
-      setForm({ ...form, name: "", instructor: "" });
+      setForm({ ...form, name: "", instructor: "", coachId: "" });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cls.scheduleFailed"));
@@ -123,6 +150,25 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("cls.cancelFailed"));
+    }
+  }
+
+  /** The one-click link: this class's typed instructor is the venue's coach of that name (checked and held as a lesson's coach is). */
+  async function linkCoach(session: ClassSession, coach: { id: number; name: string }) {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/classes/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coachId: coach.id, ...(session.seriesCode ? { series: true } : {}) }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("p8c.cls.saveFailed")));
+      setNotice(t("clsa.coach.linked"));
+      void load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("p8c.cls.saveFailed"));
     }
   }
 
@@ -184,6 +230,28 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
         </div>
       )}
 
+      {/* Sessions whose coach can no longer teach them as set: the class keeps its instructor until staff change it. */}
+      {coachConflicts.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" data-testid="coach-conflicts">
+          <strong>{t("clsa.conf.title", { n: coachConflicts.length })}</strong>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {coachConflicts.map((c) => (
+              <li key={c.classId}>
+                {t("clsa.conf.line", {
+                  name: c.name,
+                  date: c.date,
+                  time: `${formatMinute(c.startMin, t.locale)}–${formatMinute(c.endMin, t.locale)}`,
+                  venue: c.venueName,
+                  coach: c.coachName,
+                  reasons: c.reasons.map((r) => t(`clsa.conf.${r}`)).join(", "),
+                })}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs">{t("clsa.conf.help")}</p>
+        </div>
+      )}
+
       {classes && classes.length > 0 ? (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full min-w-[820px] text-sm">
@@ -207,7 +275,15 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2">{session.instructor}</td>
+                  <td className="px-3 py-2">
+                    {session.instructor}
+                    {session.coachId ? <span className="ml-1" aria-hidden="true">🎓</span> : null}
+                    {session.status === "scheduled" && coachMatches[session.id] && may("classChange") && (
+                      <button onClick={() => void linkCoach(session, coachMatches[session.id])} className="ml-2 text-xs font-medium text-teal-700 underline">
+                        {t("clsa.coach.link", { name: coachMatches[session.id].name })}
+                      </button>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     <ActivityGlyph sport={session.sport} /> {session.courtName}
                   </td>
@@ -260,6 +336,17 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                         {t("p8c.cls.edit")}
                       </button>
                     )}
+                    {session.status === "scheduled" && may("classMove") && (
+                      <button
+                        onClick={() => {
+                          setNotice(null);
+                          setMoving(session);
+                        }}
+                        className="mr-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-teal-500"
+                      >
+                        {t("clsa.move.button")}
+                      </button>
+                    )}
                     {session.status === "scheduled" && may("classCancel") && (
                       <button
                         onClick={() => cancelClass(session)}
@@ -302,14 +389,29 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
               className={`w-40 ${inputClass}`}
             />
           </label>
-          <label className={fieldClass}>
-            {t("cls.col.instructor")}
-            <input
-              required minLength={2} value={form.instructor}
-              onChange={(e) => setForm({ ...form, instructor: e.target.value })}
-              className={`w-36 ${inputClass}`}
-            />
-          </label>
+          {venueCoaches.length > 0 && (
+            <label className={fieldClass}>
+              {t("clsa.coach.label")}
+              <select value={form.coachId} onChange={(e) => setForm({ ...form, coachId: e.target.value })} className={inputClass}>
+                <option value="">{t("clsa.coach.nameOnly")}</option>
+                {venueCoaches.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {t("clsa.coach.pick", { name: c.name })}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {form.coachId === "" && (
+            <label className={fieldClass}>
+              {t("cls.col.instructor")}
+              <input
+                required minLength={2} value={form.instructor}
+                onChange={(e) => setForm({ ...form, instructor: e.target.value })}
+                className={`w-36 ${inputClass}`}
+              />
+            </label>
+          )}
           <label className={fieldClass}>
             {t("cls.col.where")}
             <select
@@ -478,6 +580,19 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
           onClose={() => setEditing(null)}
           onDone={(said) => {
             setEditing(null);
+            setNotice(said);
+            void load();
+          }}
+        />
+      )}
+      {moving && (
+        <ClassMovePanel
+          key={moving.id}
+          session={moving}
+          courts={hostable.map((c) => ({ id: c.id, name: c.name, capacity: c.capacity }))}
+          onClose={() => setMoving(null)}
+          onDone={(said) => {
+            setMoving(null);
             setNotice(said);
             void load();
           }}

@@ -4,6 +4,8 @@ import { translator } from "@/lib/i18n";
 import { LanguageProvider } from "@/components/Language";
 import CoachLanguage from "@/components/CoachLanguage";
 import { coachForToken, coachLessons } from "@/lib/coach-schedule";
+import { coachClasses } from "@/lib/class-coaches";
+import { clockRange } from "@/lib/region";
 import { addDays, formatHour, todayISO } from "@/lib/time";
 import CoachSelfService from "@/components/CoachSelfService";
 import Link from "next/link";
@@ -25,7 +27,8 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
   const t = translator(found.locale ?? (await currentLocale()), site);
   const today = todayISO(found.zone);
   const lessons = await coachLessons(found.coach.id, today, addDays(today, 30));
-  const days = [...new Set(lessons.map((l) => l.date))];
+  const classes = await coachClasses(found.coach.id, today, addDays(today, 30));
+  const days = [...new Set([...lessons.map((l) => l.date), ...classes.map((c) => c.date)])].sort();
   return (
     <LanguageProvider locale={t.locale} site={site}>
     <div className="mx-auto max-w-xl space-y-4">
@@ -50,7 +53,7 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
       </p>
       <CoachLanguage token={token} chosen={found.locale} />
       <CoachSelfService token={token} hours={found.coach.hours} timeOff={found.coach.timeOff} />
-      {lessons.length === 0 ? (
+      {lessons.length === 0 && classes.length === 0 ? (
         <p className="text-sm text-slate-600">{t("coachpage.none")}</p>
       ) : (
         days.map((d) => (
@@ -71,6 +74,14 @@ export default async function CoachSchedulePage({ params }: { params: Promise<{ 
                     <a href={`tel:${l.phone}`} className="text-teal-700 underline">
                       {l.phone}
                     </a>
+                  </li>
+                ))}
+              {classes
+                .filter((c) => c.date === d)
+                .map((c) => (
+                  <li key={`class-${c.id}`}>
+                    <span className="font-medium">{clockRange(c.startMin, c.endMin, t.locale)}</span> ·{" "}
+                    {t("clsa.coach.line", { name: c.name, court: c.court, enrolled: c.enrolled, capacity: c.capacity })}
                   </li>
                 ))}
             </ul>

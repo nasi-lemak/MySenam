@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { UrgentNotice } from "@/lib/urgent";
 import type { OverdueRefunds } from "@/lib/payments";
 import type { GuardianReviews, NoticeTask } from "@/lib/contact-guardians";
+import type { ClassCoachConflict } from "@/lib/class-coaches";
 import { money } from "@/lib/region";
 import { formatHour } from "@/lib/time";
 import type { StaffT } from "@/lib/staff-i18n";
@@ -73,6 +74,7 @@ export function AttentionPanel() {
     refundsOverdue?: OverdueRefunds[];
     guardianTasks?: NoticeTask[];
     guardianReviews?: GuardianReviews[];
+    classCoachConflicts?: ClassCoachConflict[];
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +99,8 @@ export function AttentionPanel() {
   const tasks = data?.guardianTasks ?? [];
   const reviews = data?.guardianReviews ?? [];
   const guardians = tasks.length + reviews.length > 0;
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians)) return null;
+  const coachConflicts = data?.classCoachConflicts ?? [];
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0)) return null;
 
   /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
   async function guardianTold(taskId: number) {
@@ -142,6 +145,26 @@ export function AttentionPanel() {
           </ul>
         </div>
       )}
+      {coachConflicts.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="attention-coach-conflicts">
+          <strong>{t("clsa.conf.title", { n: coachConflicts.length })}</strong>
+          <ul className="mt-1 space-y-1 text-xs">
+            {coachConflicts.map((c) => (
+              <li key={c.classId}>
+                {t("clsa.conf.line", {
+                  name: c.name,
+                  date: c.date,
+                  time: `${formatHour(c.startMin / 60, t.locale)}–${formatHour(c.endMin / 60, t.locale)}`,
+                  venue: c.venueName,
+                  coach: c.coachName,
+                  reasons: c.reasons.map((r) => t(`clsa.conf.${r}`)).join(", "),
+                })}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs">{t("clsa.conf.help")}</p>
+        </div>
+      )}
       {overdue.length > 0 && (
         <div className="mb-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-800">
           <strong>{t("att.refundsOverdue")}</strong>{" "}
@@ -154,7 +177,7 @@ export function AttentionPanel() {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians ? t("att.title") : t("att.nothing")}
+          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 ? t("att.title") : t("att.nothing")}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">

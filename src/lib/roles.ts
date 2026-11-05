@@ -25,6 +25,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/billing$/, methods: ["POST"] },
   { path: /^\/api\/admin\/courts(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/classes(\/\d+)?$/, methods: ["POST", "DELETE"] },
+  // Moving a class (lib/class-moves.ts), its preview too: it tells every person enrolled, as calling a class off does.
+  { path: /^\/api\/admin\/classes\/\d+\/move$/, methods: ["POST"] },
   { path: /^\/api\/admin\/go-live$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(hold-policy|house-rules|venue-access|venue-tax|booking-alerts|peak-rules|booking-policies|venue-time-zone|cancel-policy|calendar-feed|court-links|sport-rules)$/, methods: ["POST"] },
   { path: /^\/api\/admin\/holidays$/, methods: ["POST", "DELETE"] },
@@ -198,6 +200,7 @@ export const STAFF_ACTIONS = {
   classes: "POST /api/admin/classes",
   classChange: "PATCH /api/admin/classes/1",
   classCancel: "DELETE /api/admin/classes/1",
+  classMove: "POST /api/admin/classes/1/move",
   coaches: "POST /api/admin/coaches",
   // Credit & passes
   passVoid: "POST /api/admin/passes/1/void",

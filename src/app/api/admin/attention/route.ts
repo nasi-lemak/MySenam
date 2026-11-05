@@ -4,6 +4,7 @@ import { logAction } from "@/lib/activity";
 import { closeNoticeTask, guardianReviews, openNoticeTasks } from "@/lib/contact-guardians";
 import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent";
 import { overdueRefunds } from "@/lib/payments";
+import { classCoachConflicts } from "@/lib/class-coaches";
 import { jsonObject } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ export const dynamic = "force-dynamic";
  * Urgent news not yet known to have reached the customer, what closed this week, and refunds past the date customers were told.
  * And guardians (lib/contact-guardians.ts): `guardianTasks`, guardians recorded by name and number to be told of a change in
  * person; `guardianReviews` (managers only), relationships waiting for a manager's review and exception review dates come.
+ * And `classCoachConflicts`: upcoming sessions of classes taught by one of the venue's coaches who has since been retired, is on
+ * days off then, works other hours or is not held for it.
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -22,6 +25,8 @@ export async function GET(req: NextRequest) {
     refundsOverdue: await overdueRefunds(admin.venueIds),
     guardianTasks: await openNoticeTasks(admin.venueIds),
     guardianReviews: admin.role === "desk" ? [] : await guardianReviews(admin.venueIds),
+    // Upcoming class sessions whose coach cannot teach them as set (lib/class-coaches.ts): never silently dropped.
+    classCoachConflicts: await classCoachConflicts(admin.venueIds),
   });
 }
 

@@ -228,7 +228,7 @@ async function coachBusy(coachId: number, date: string, zone: string, except?: n
   const day = `[${instantOf(date, -24 * 60, zone).toISOString()},${instantOf(date, LATEST_MINUTE + 24 * 60, zone).toISOString()})`;
   const rows = (await getDb()
     .prepare(
-      `SELECT lower(during) AS lo, upper(during) AS hi FROM coach_claims WHERE coach_id = ? AND active AND during && ?::tstzrange${except === undefined ? "" : " AND booking_id <> ?"}`
+      `SELECT lower(during) AS lo, upper(during) AS hi FROM coach_claims WHERE coach_id = ? AND active AND during && ?::tstzrange${except === undefined ? "" : " AND booking_id IS DISTINCT FROM ?"}`
     )
     .all(coachId, day, ...(except === undefined ? [] : [except]))) as { lo: Date; hi: Date }[];
   return rows.map((r) => ({ start: minuteOfDay(new Date(r.lo), date, zone), end: minuteOfDay(new Date(r.hi), date, zone) }));

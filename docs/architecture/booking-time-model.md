@@ -116,8 +116,10 @@ time, not of storing it.
   constraints keyed by the court, like `claim_gaps_apart`, refuse anyone's
   time where a facility-wide claim keeps the facility clear, and setup on top
   of cleaning ([shared facilities](#shared-facilities-how-they-are-turned-over)).
-- **Coaches**: `coach_claims(coach_id, booking_id, during)` with the same
-  exclusion on `coach_id`, so a coach is never in two lessons at once.
+- **Coaches**: `coach_claims(coach_id, booking_id | class_id, during)` with the same
+  exclusion on `coach_id`, so a coach is never in two lessons at once, nor in a lesson
+  and a class, nor two classes (a claim belongs to a booking or to a class, never both:
+  [ADR 0043](decisions/0043-moving-a-class-and-a-class-coach.md)).
 - **Outages** claim whole business days: from the end of the previous day's
   late hours to the end of the last day's (or open-ended, for *until further
   notice*), so a court out of service is out for every minute it could have

@@ -43,11 +43,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 /**
- * `{ name?, instructor?, capacity?, price?, series? }` — change a class
+ * `{ name?, instructor?, coachId?, capacity?, price?, series? }` — change a class
  * that has not started (lib/class-changes.ts): more places are offered to
  * its waiting list, fewer never below those taken or offered, a new price
  * for enrolments from now on; `series: true` changes the later sessions of
- * its weekly series too. Answers each session as it is now.
+ * its weekly series too. `coachId` makes one of the venue's coaches the
+ * instructor (checked and held as a lesson's coach is; all or none for a
+ * series), `coachId: null` a name only again. Answers each session as it is now.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { error, admin, session } = await resolve(req, params);
@@ -62,6 +64,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const result = await changeClass(session.id, {
     name: body.name,
     instructor: body.instructor,
+    coachId: body.coachId,
     capacity: body.capacity,
     price: body.price,
     series: body.series,
