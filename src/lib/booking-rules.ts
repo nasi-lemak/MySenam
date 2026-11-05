@@ -3,6 +3,7 @@ import { formatLength, formatMinute, type Span } from "./interval";
 import type { Sport } from "./types";
 import { hoursFor, hoursOn, type DatedHours, type WeekHours } from "./week-hours";
 import { crossesClockChange } from "./time";
+import { launchOk, type LaunchDay } from "./launch-day";
 
 /**
  * What may be booked, kept apart from what can be stored (ADR 0010). The
@@ -505,7 +506,7 @@ export function policyHoursOn(policy: BookingPolicy, venue: DatedHours, date: st
 }
 
 /** One rule a request does not keep to. */
-export type PolicyBreach = "START" | "LENGTH" | "HOURS" | "NOTICE" | "SIGN_OFF" | "CLOCK" | "MEMBERSHIP";
+export type PolicyBreach = "START" | "LENGTH" | "HOURS" | "NOTICE" | "SIGN_OFF" | "CLOCK" | "MEMBERSHIP" | "WINDOW";
 
 /**
  * The rules a booking from `start` to `end` breaks. Customers are refused on
@@ -515,7 +516,7 @@ export function policyBreaches(
   policy: BookingPolicy,
   span: Span,
   /** The day's hours, and where they are kept: a booking touching a change of the clocks there is refused ("CLOCK"). */
-  hours: { openMin: number; closeMin: number; closed: boolean; date?: string; zone?: string },
+  hours: { openMin: number; closeMin: number; closed: boolean; date?: string; zone?: string; launch?: LaunchDay | null },
   /** Minutes from now until it starts. */
   minutesAhead: number
 ): PolicyBreach[] {
@@ -526,6 +527,10 @@ export function policyBreaches(
   if (hours.closed || span.start < hours.openMin || span.end > hours.closeMin) out.push("HOURS");
   if (minutesAhead < policy.noticeMinutes) out.push("NOTICE");
   if (hours.date && hours.zone && crossesClockChange(hours.date, span.start, span.end, hours.zone)) out.push("CLOCK");
+  // The day's launch or tide window, where the resource has one: the span must be inside one window (ADR 0037). Counted
+  // beside HOURS, not instead of it: a manager going past the opening hours does not go past the window.
+  // No rule a manager can waive, as the clocks changing is none: the venue changes the window's data instead.
+  if (hours.launch && !hours.closed && !launchOk(hours.launch, span)) out.push("WINDOW");
   return out;
 }
 
@@ -550,6 +555,8 @@ export function breachMessage(policy: BookingPolicy, breach: PolicyBreach): stri
       return policy.certification ? "This needs a recorded certification." : "This needs a staff sign-off.";
     case "CLOCK":
       return "The clocks change during that time: pick a time before or after.";
+    case "WINDOW":
+      return "That is outside the launch window.";
     case "MEMBERSHIP":
       return "A place on this session is for members, each their own.";
   }

@@ -8,6 +8,8 @@ import type { GuardianReviews, NoticeTask } from "@/lib/contact-guardians";
 import type { ClassCoachConflict } from "@/lib/class-coaches";
 import { money } from "@/lib/region";
 import { formatHour } from "@/lib/time";
+import { formatMinute } from "@/lib/interval";
+import type { Stranded } from "@/lib/launch-worklist";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 
@@ -75,6 +77,7 @@ export function AttentionPanel() {
     guardianTasks?: NoticeTask[];
     guardianReviews?: GuardianReviews[];
     classCoachConflicts?: ClassCoachConflict[];
+    launchStranded?: { venueId: number; count: number; items: Stranded[] }[];
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,8 +102,10 @@ export function AttentionPanel() {
   const tasks = data?.guardianTasks ?? [];
   const reviews = data?.guardianReviews ?? [];
   const guardians = tasks.length + reviews.length > 0;
+  // Booked time a launch or tide window now leaves outside it (ADR 0037): nothing was cancelled.
+  const stranded = data?.launchStranded ?? [];
   const coachConflicts = data?.classCoachConflicts ?? [];
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0)) return null;
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0)) return null;
 
   /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
   async function guardianTold(taskId: number) {
@@ -165,6 +170,26 @@ export function AttentionPanel() {
           <p className="mt-1 text-xs">{t("clsa.conf.help")}</p>
         </div>
       )}
+      {stranded.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="attention-launch">
+          <strong>{t("wtrs.att", { n: stranded.reduce((n, v) => n + v.count, 0) })}</strong>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {stranded.flatMap((v) =>
+              v.items.map((s) => (
+                <li key={`${v.venueId}-${s.kind}-${s.ref}`}>
+                  {t("wtrs.wl.line", {
+                    date: s.date,
+                    time: formatMinute(s.startMin, t.locale),
+                    end: formatMinute(s.endMin, t.locale),
+                    court: s.court,
+                    name: s.kind === "class" ? t("wtrs.wl.class", { name: s.name }) : s.name,
+                  })}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
       {overdue.length > 0 && (
         <div className="mb-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-800">
           <strong>{t("att.refundsOverdue")}</strong>{" "}
@@ -177,7 +202,7 @@ export function AttentionPanel() {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 ? t("att.title") : t("att.nothing")}
+          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 ? t("att.title") : t("att.nothing")}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">

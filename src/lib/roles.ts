@@ -89,6 +89,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/notices(\/\d+)?$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/online-payments$/, methods: ["POST"] },
   { path: /^\/api\/admin\/outages$/, methods: ["POST", "DELETE"] },
+  // A resource's launch and tide windows and the tide table behind them narrow what customers may book (lib/launch-windows.ts, ADR 0037); the desk reads them.
+  { path: /^\/api\/admin\/launch-windows$/, methods: ["POST", "DELETE"] },
+  { path: /^\/api\/admin\/tides$/, methods: ["POST"] },
   { path: /^\/api\/admin\/reports(\/customers)?$/, methods: "all" },
   { path: /^\/api\/admin\/activity$/, methods: "all" },
   { path: /^\/api\/admin\/export$/, methods: "all" },
@@ -195,6 +198,8 @@ export const STAFF_ACTIONS = {
   sportRules: "POST /api/admin/sport-rules",
   concessions: "POST /api/admin/concessions",
   outages: "POST /api/admin/outages",
+  launchWindows: "POST /api/admin/launch-windows",
+  tides: "POST /api/admin/tides",
   inductionDecide: "PATCH /api/admin/inductions/1",
   approvalSettings: "POST /api/admin/approvals/settings",
   approvalReviewers: "POST /api/admin/approvals/reviewers",

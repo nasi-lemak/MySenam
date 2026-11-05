@@ -38,7 +38,7 @@ where something new belongs, is in [documentation](development/documentation.md)
 | Who uses MySenam, their roles as the code has them, and the main journeys through it | [Users and journeys](product/users-and-journeys.md) |
 | Rules that span features and must not break | [Business rules](product/business-rules.md) |
 | What can be booked: the activity catalogue, resource templates, operators' own activities, resources offering several, quantity, sign-offs and registering online for approval, localised names, and which activities are fully supported | [Activities](features/activities.md) |
-| Booking rules (starts, lengths, buffers, notice), availability, capacity, linked courts, waitlists, moving, cancelling, opening hours, outages, who may book | [Booking](features/booking.md) |
+| Booking rules (starts, lengths, buffers, notice), availability, capacity, linked courts, waitlists, moving, cancelling, opening hours, outages, launch and tide windows for water hire, who may book | [Booking](features/booking.md) |
 | Prices to the minute, fees, peak bands, holidays, last-minute prices, concessions, promo codes, memberships, passes | [Pricing](features/pricing.md) |
 | Paying online, holds and deposits, stored credit and its ownership, gift vouchers, split costs, extras, counter sales, company accounts | [Payments and credit](features/payments-and-credit.md) |
 | Classes and terms, one-to-one coaching, women-only and men-only (for every programme) | [Programmes](features/programmes.md) |
@@ -107,6 +107,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0039 Messages between players: only inside a context they share, adults who opted in, text with no contact details, moderated by the venue that owns the context](architecture/decisions/0039-messages-between-players.md)
 [0043 Moving a class, and a class's instructor as one of the venue's coaches](architecture/decisions/0043-moving-a-class-and-a-class-coach.md)
 [0042 Attendance registers, and a lesson the venue moves](architecture/decisions/0042-attendance-registers-and-lessons-moved-by-the-venue.md)
+[0037 Launch and tide windows narrow the bookable hours of water hire](architecture/decisions/0037-launch-and-tide-windows.md)
 
 ## Integrations
 

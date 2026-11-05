@@ -6,8 +6,20 @@ import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent"
 import { overdueRefunds } from "@/lib/payments";
 import { classCoachConflicts } from "@/lib/class-coaches";
 import { jsonObject } from "@/lib/api";
+import { strandedByLaunch } from "@/lib/launch-worklist";
+import { listVenues } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+
+/** Bookings and classes to come outside a launch or tide window at these venues, the first few of each venue (lib/launch-worklist.ts). */
+async function launchStranded(venueIds: number[] | null) {
+  const out: { venueId: number; count: number; items: Awaited<ReturnType<typeof strandedByLaunch>>["stranded"] }[] = [];
+  for (const venueId of venueIds ?? (await listVenues()).map((v) => v.id)) {
+    const { stranded } = await strandedByLaunch(venueId);
+    if (stranded.length > 0) out.push({ venueId, count: stranded.length, items: stranded.slice(0, 8) });
+  }
+  return out;
+}
 
 /**
  * Urgent news not yet known to have reached the customer, what closed this week, and refunds past the date customers were told.
@@ -15,6 +27,7 @@ export const dynamic = "force-dynamic";
  * person; `guardianReviews` (managers only), relationships waiting for a manager's review and exception review dates come.
  * And `classCoachConflicts`: upcoming sessions of classes taught by one of the venue's coaches who has since been retired, is on
  * days off then, works other hours or is not held for it.
+ * And `launchStranded`: bookings and classes to come that a launch or tide window now leaves outside it, by venue (ADR 0037).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -27,6 +40,7 @@ export async function GET(req: NextRequest) {
     guardianReviews: admin.role === "desk" ? [] : await guardianReviews(admin.venueIds),
     // Upcoming class sessions whose coach cannot teach them as set (lib/class-coaches.ts): never silently dropped.
     classCoachConflicts: await classCoachConflicts(admin.venueIds),
+    launchStranded: await launchStranded(admin.venueIds),
   });
 }
 

@@ -52,6 +52,13 @@ time, not of storing it.
   country MySenam is sold in changes its clocks
   (`tests/clock-changes.test.ts` checks London, New York and Sydney on their
   2026 changes).
+- **A resource's daily window.** A water resource may be limited to a launch
+  window or the hours a tide table serves, narrower than its opening hours
+  (`CourtDay.launch`, `src/lib/launch-day.ts`,
+  [ADR 0037](decisions/0037-launch-and-tide-windows.md)). It is whole minutes of one
+  local date, never across midnight (the business day's minutes after 24:00 are
+  never in a window), read at the instants the venue's clock gives them, and a
+  span outside it is the breach `WINDOW`, one no override goes past.
 
 ## Spaces: courts and the courts they share a floor with
 
