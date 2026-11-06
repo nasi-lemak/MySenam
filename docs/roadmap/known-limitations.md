@@ -1339,6 +1339,15 @@ the decision record that states it.
 | audit G15 | A consolidated e-invoice made after day 7 of the month: LHDN's timing is unverified, and what a late one means is for the adviser; the retry and catch-up are tested against the stand-in only (ADR 0055) | P3, 6 |
 | audit D12 | A membership suspension does not pause collection at the gateway, tell the member at suspension that charges continue, or extend a dated suspension by default (ADR 0062) | P3 |
 
+### Found by release verification, 6 November 2026
+
+The first full release run on the AI VM ([testing](../development/testing.md#release-records)) failed two tests, and both were real defects. Fixed; the release was then run again.
+
+| Defect | Fixed by | Test |
+| ------ | -------- | ---- |
+| The add-resources form (courts, lanes, pitches from an activity's template) overwrote what the operator had typed, "How many" included, when the list of activities finished loading afterwards or was loaded again; a slow connection made three courts into one | The template is applied once per activity, and only to fields the operator has not changed | `tests/components/activities-ui.test.tsx` (failed before the fix); `tests/guide-setup-ui.test.tsx` |
+| Two ticks that found Xero's access token expired, or refused with a 401, at the same moment could each refresh it: the second saw the old state it had read before the first finished, and took the lease after the first let go | After taking the lease the connection is read again and the token the first tick stored is used; after a 401 the stored token is compared with the one that was refused | `tests/accounting-push.test.ts` (on Postgres it failed in about half of whole-file runs before the fix, 0 of 15 after) |
+
 ### Fixed since the audit
 
 IDs are not reused. Each fix came with the test recommended above.
