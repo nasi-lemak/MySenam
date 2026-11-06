@@ -980,4 +980,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "A decision is recorded about a reported adult only. A minor's guardians follow the usual notices.": { ms: "Keputusan hanya direkodkan tentang orang dewasa yang dilaporkan. Penjaga seorang kanak-kanak mengikut pemberitahuan biasa.", zh: "决定只针对被举报的成年人记录。未成年人的监护人按通常的通知处理。" },
   "A decision has already been recorded for this restriction.": { ms: "Satu keputusan telah pun direkodkan untuk sekatan ini.", zh: "该限制已记录过决定。" },
   "Choose why: suspected abuse, imminent danger, a possibly reportable incident, or other.": { ms: "Pilih sebabnya: disyaki penderaan, bahaya yang hampir berlaku, insiden yang mungkin perlu dilaporkan, atau lain-lain.", zh: "请选择原因：疑似虐待、迫在眉睫的危险、可能须报告的事件，或其他。" },
+  "This class is over, so it cannot be called off.": { ms: "Kelas ini sudah tamat, jadi ia tidak boleh dibatalkan.", zh: "此课程已结束，无法取消。" },
+  "That day has bookings or classes in it now. Look at it again.": { ms: "Hari itu kini mempunyai tempahan atau kelas. Lihat semula.", zh: "该日现已有预订或课程。请重新查看。" },
+  "The kit for booking {0} is still out. Take it back in first, then try again. Nothing was changed.": { ms: "Peralatan bagi tempahan {0} masih belum dipulangkan. Terima pemulangannya dahulu, kemudian cuba lagi. Tiada apa yang diubah.", zh: "预订 {0} 的装备尚未归还。请先办理归还，然后重试。未作任何更改。" },
+  "Booking {0} could not be cancelled just now. Nothing was changed; try again.": { ms: "Tempahan {0} tidak dapat dibatalkan sekarang. Tiada apa yang diubah; cuba lagi.", zh: "预订 {0} 暂时无法取消。未作任何更改；请重试。" },
 };

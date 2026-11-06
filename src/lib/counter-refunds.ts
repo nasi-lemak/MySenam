@@ -470,8 +470,16 @@ export type OwedOutcome = Extract<CancelOutcome, "back" | "credit">;
 export const isOwedOutcome = (v: unknown): v is OwedOutcome => v === "back" || v === "credit";
 
 /** The venue cancels a booking as part of a closure, an outage, a rain-out or through its API: all of it back, a counter payment owed. */
-export async function venueCancel(code: string, cause: VenueCancelCause): Promise<CancelResult> {
-  return adminCancelBooking(code, async () => ({ share: 1, owe: (bookingId) => oweCounter(bookingId, cause) }));
+export async function venueCancel(
+  code: string,
+  cause: VenueCancelCause,
+  /**
+   * `offer: false` where the venue is taking the time away (a closed day, a rain-out, a court out of service): the freed
+   * place is offered to nobody. `within` is written in the cancellation's transaction (a closure taking the freed time).
+   */
+  opts: { offer?: boolean; within?: (booking: Booking) => Promise<void> } = {}
+): Promise<CancelResult> {
+  return adminCancelBooking(code, async () => ({ share: 1, owe: (bookingId) => oweCounter(bookingId, cause) }), opts);
 }
 
 /** The counter payment on a booking that cancelling it would give back (the rule `oweCounter` and settling use), or null where there is none. */

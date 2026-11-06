@@ -1,11 +1,11 @@
 import { getDb, withTransaction } from "./db";
-import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "./notify";
-import { courtDaysFor, courtZone, getCourt, releaseBlockTime } from "./store";
+import { notifyVenueCancelled, tellClassCancelled, tickOutbox, type ClassCancelled } from "./notify";
+import { cancelClassSession, courtDaysFor, courtZone, getClass, getCourt, releaseBlockTime, withdrawOffers } from "./store";
 import { venueCancel } from "./counter-refunds";
 import { refundCancelled } from "./payments";
 import { addDays, isValidDateString, todayISO } from "./time";
 import { claim, isConflict, lockCourts, occupantsOn, unclaim, type Occupant } from "./claims";
-import { DAY_MINUTES, freeWithin, hoursOf, merge, overlaps, type Span } from "./interval";
+import { DAY_MINUTES, freeWithin, hoursOf, instantOf, merge, minuteOfDay, overlaps, type Span } from "./interval";
 import type { Booking, ClassSession } from "./types";
 
 /**
@@ -92,31 +92,38 @@ export async function outageById(id: number): Promise<Outage | null> {
   return row ? toOutage(row) : null;
 }
 
-/** What is booked on this court from one day to another (or on, for ever). */
+/**
+ * What is booked on this court from one day to another (or on, for ever), still to be played: what has finished is
+ * history, as it is for every cancellation the venue makes (a booking over cannot be cancelled), and never in the way.
+ * One under way is listed: it can be called off.
+ */
 export async function affectedBy(courtId: number, startsOn: string, endsOn: string | null): Promise<Affected[]> {
   const db = getDb();
   const from = startsOn < todayISO() ? todayISO() : startsOn;
   const to = endsOn ?? "9999-12-31";
+  const zone = await courtZone(courtId);
+  const now = Date.now();
   // Whatever holds the court's spaces: its own bookings and classes, and those
   // of courts sharing its floor (lib/court-links.ts), which the outage closes too.
   const holding = `(c.space_id IN (SELECT space_id FROM court_spaces WHERE court_id = ?) OR (c.space_id IS NULL AND c.court_id = ?))`;
   const bookings = (await db
     .prepare(
-      `SELECT DISTINCT b.code, b.date, b.start_min, b.name FROM claims c JOIN bookings b ON b.id = c.booking_id
+      `SELECT DISTINCT b.code, b.date, b.start_min, b.end_min, b.name FROM claims c JOIN bookings b ON b.id = c.booking_id
         WHERE c.active AND ${holding} AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
         ORDER BY b.date, b.start_min`
     )
-    .all(courtId, courtId, from, to)) as { code: string; date: string; start_min: number; name: string }[];
+    .all(courtId, courtId, from, to)) as { code: string; date: string; start_min: number; end_min: number; name: string }[];
   const classes = (await db
     .prepare(
-      `SELECT DISTINCT k.id, k.date, k.start_min, k.name FROM claims c JOIN classes k ON k.id = c.class_id
+      `SELECT DISTINCT k.id, k.date, k.start_min, k.end_min, k.name FROM claims c JOIN classes k ON k.id = c.class_id
         WHERE c.active AND ${holding} AND k.date >= ? AND k.date <= ? AND k.status = 'scheduled'
         ORDER BY k.date, k.start_min`
     )
-    .all(courtId, courtId, from, to)) as { id: number; date: string; start_min: number; name: string }[];
+    .all(courtId, courtId, from, to)) as { id: number; date: string; start_min: number; end_min: number; name: string }[];
+  const notOver = (r: { date: string; end_min: number }) => instantOf(r.date, r.end_min, zone).getTime() > now;
   return [
-    ...bookings.map((b) => ({ kind: "booking" as const, ref: b.code, date: b.date, startMin: b.start_min, startHour: hoursOf(b.start_min), name: b.name })),
-    ...classes.map((c) => ({ kind: "class" as const, ref: String(c.id), date: c.date, startMin: c.start_min, startHour: hoursOf(c.start_min), name: c.name })),
+    ...bookings.filter(notOver).map((b) => ({ kind: "booking" as const, ref: b.code, date: b.date, startMin: b.start_min, startHour: hoursOf(b.start_min), name: b.name })),
+    ...classes.filter(notOver).map((c) => ({ kind: "class" as const, ref: String(c.id), date: c.date, startMin: c.start_min, startHour: hoursOf(c.start_min), name: c.name })),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin);
 }
 
@@ -138,7 +145,12 @@ async function claimOutage(outageId: number, courtId: number, startsOn: string, 
     const day = (await courtDaysFor([courtId], date)).get(courtId);
     return day && !day.closed ? day.closeMin : 0;
   };
-  const start = Math.max(0, (await closesAt(addDays(startsOn, -1))) - DAY_MINUTES);
+  const first = Math.max(0, (await closesAt(addDays(startsOn, -1))) - DAY_MINUTES);
+  // From the moment it was taken out where that was on its first day: what went by before is history, and a booking
+  // already played that morning is not in its way (and ending it later claims the same time again).
+  const made = (await getDb().prepare("SELECT claimed_from FROM court_outages WHERE id = ?").get(outageId)) as { claimed_from: string | Date | null } | undefined;
+  const since = made?.claimed_from ? minuteOfDay(new Date(made.claimed_from), startsOn, await courtZone(courtId)) : 0;
+  const start = Math.max(first, Math.min(since, DAY_MINUTES));
   const end = endsOn === null ? DAY_MINUTES : (daysFrom(startsOn, endsOn) - 1) * DAY_MINUTES + Math.max(DAY_MINUTES, await closesAt(endsOn));
   await claim({
     court,
@@ -199,57 +211,81 @@ export async function createOutage(input: {
     }). End that one first, or pick other days.`,
   });
 
-  let cancelled = 0;
-  // What it called off, for the activity log (api/admin/outages): each booking, and each class with its enrolments.
-  const bookingsOff: Booking[] = [];
-  const classesOff: { session: ClassSession; enrolments: Booking[] }[] = [];
-  // A booking can land while what was there is being cancelled: the court is
-  // closed in one transaction that finds nothing in the way, or it goes round
-  // again for what arrived (a few times, then it says so).
+  const zone = await courtZone(input.courtId);
+  // Courts that share this court's floor hold offers on it too (lib/court-links.ts).
+  const sharing = (await db
+    .prepare(
+      `SELECT DISTINCT other.court_id FROM court_spaces mine JOIN court_spaces other ON other.space_id = mine.space_id WHERE mine.court_id = ?`
+    )
+    .all(input.courtId)) as { court_id: number }[];
+  const linked = [...new Set([input.courtId, ...sharing.map((r) => r.court_id)])];
+
+  // A booking can land while this is being made. Everything is one transaction: what is booked in the way is cancelled
+  // and refunded, the offers on the court are let go, the outage is written and the court claimed, or none of it is. A
+  // booking that arrives first makes the claim refuse, and it goes round again for what arrived (a few times, then it says
+  // so); one that arrives after is refused by the claim. The customers are told once it has committed.
   for (let round = 0; round < 3; round++) {
     const overlapping = await overlap();
     if (overlapping) return alreadyOut(overlapping);
-    const affected = await affectedBy(input.courtId, input.startsOn, input.endsOn);
-    if (affected.length > 0 && !input.cancelAffected)
+    const preview = await affectedBy(input.courtId, input.startsOn, input.endsOn);
+    if (preview.length > 0 && !input.cancelAffected)
       return {
         ok: false,
         error:
-          affected.length === 1
+          preview.length === 1
             ? "There is a booking in that time. Move it, or cancel it and tell the customer."
-            : `There are ${affected.length} bookings and classes in that time. Move them, or cancel them and tell the customers.`,
-        affected,
+            : `There are ${preview.length} bookings and classes in that time. Move them, or cancel them and tell the customers.`,
+        affected: preview,
       };
 
-    // Cancel what is there before closing the court over it, so nothing is
-    // refunded or messaged for a court that then failed to close.
-    for (const a of affected) {
-      if (a.kind === "class") {
-        const off = await cancelClassAndTell(Number(a.ref), undefined, "outage");
-        if (!off.ok) continue;
-        cancelled++;
-        if (off.session) classesOff.push({ session: off.session, enrolments: off.cancelled ?? [] });
-        continue;
-      }
-      // A counter payment is owed back, for the desk to settle (lib/counter-refunds.ts).
-      const done = await venueCancel(a.ref, "outage");
-      if (!done.ok) continue;
-      cancelled++;
-      bookingsOff.push(done.booking);
-      // Online money goes back as the venue's policy for what it cancels has it, as for a closed day.
-      await refundCancelled([done.booking.id], { byVenue: true });
-      await notifyVenueCancelled(done.booking);
-    }
-    if (affected.length > 0) await tickOutbox();
-
-    let closed: { ok: true; id: number } | ReturnType<typeof alreadyOut> | null;
+    const off = { bookings: [] as Booking[], classes: [] as { session: ClassSession; result: ClassCancelled }[] };
+    let closed: { ok: true; id: number } | ReturnType<typeof alreadyOut>;
     try {
       closed = await withTransaction(async () => {
+        off.bookings.length = 0;
+        off.classes.length = 0;
         const again = await overlap();
         if (again) return alreadyOut(again);
-        if ((await affectedBy(input.courtId, input.startsOn, input.endsOn)).length > 0) return null;
+        const affected = await affectedBy(input.courtId, input.startsOn, input.endsOn);
+        if (affected.length > 0 && !input.cancelAffected) throw new OutageStopped({ ok: false, error: "There is a booking in that time. Move it, or cancel it and tell the customer.", affected });
+        for (const a of affected) {
+          if (a.kind === "class") {
+            const session = await getClass(Number(a.ref));
+            const done = await cancelClassSession(Number(a.ref), "outage");
+            // Gone already (called off, or over since it was listed): nothing to do for it.
+            if (done.ok && session) off.classes.push({ session, result: done });
+            continue;
+          }
+          // A counter payment is owed back, for the desk to settle (lib/counter-refunds.ts). Nothing is offered: the court is going out.
+          const done = await venueCancel(a.ref, "outage", { offer: false });
+          if (done.ok) {
+            off.bookings.push(done.booking);
+            continue;
+          }
+          if ("code" in done && (done.code === "ALREADY_CANCELLED" || done.code === "CANCEL_PLAYED")) continue;
+          // Kit still out, or anything else that cannot be called off: the court cannot go out over it, and nothing is changed.
+          throw new OutageStopped({
+            ok: false,
+            error: done.error.startsWith("The kit for this booking is still out")
+              ? `The kit for booking ${a.ref} is still out. Take it back in first, then try again. Nothing was changed.`
+              : `Booking ${a.ref} could not be cancelled just now. Nothing was changed; try again.`,
+            affected,
+          });
+        }
+        // Nobody can claim an offer for the court's time once it is out of service.
+        await withdrawOffers({ courtIds: linked }, input.startsOn, input.endsOn ?? "9999-12-31");
         const info = await db
-          .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason, created_by, safety) VALUES (?, ?, ?, ?, ?, ?)")
-          .run(input.courtId, input.startsOn, input.endsOn, reason, input.adminId, input.safety === true);
+          .prepare("INSERT INTO court_outages (court_id, starts_on, ends_on, reason, created_by, safety, claimed_from) VALUES (?, ?, ?, ?, ?, ?, ?::timestamptz)")
+          .run(
+            input.courtId,
+            input.startsOn,
+            input.endsOn,
+            reason,
+            input.adminId,
+            input.safety === true,
+            // From now where it starts today: what has gone by is history.
+            input.startsOn <= todayISO(zone) ? new Date().toISOString() : null
+          );
         // Blocks in those days give way: a court out of service needs no block,
         // and a tournament's hold there is time its draw cannot use.
         const blocks = (await db
@@ -270,13 +306,34 @@ export async function createOutage(input: {
         return { ok: true as const, id: info.lastInsertRowid as number };
       });
     } catch (err) {
+      if (err instanceof OutageStopped) return err.result;
       if (!isConflict(err)) throw err;
-      closed = null;
+      continue;
     }
-    if (closed && !closed.ok) return closed;
-    if (closed) return { ok: true, outage: (await outageById(closed.id))!, cancelled, bookingsOff, classesOff };
+    if (!closed.ok) return closed;
+
+    // Committed: what was cancelled is refunded online and told, as for a closed day.
+    const bookingsOff = off.bookings;
+    const classesOff: { session: ClassSession; enrolments: Booking[] }[] = [];
+    for (const booking of bookingsOff) {
+      await refundCancelled([booking.id], { byVenue: true });
+      await notifyVenueCancelled(booking);
+    }
+    for (const c of off.classes) {
+      const told = await tellClassCancelled(c.session.id, c.session, c.result);
+      classesOff.push({ session: c.session, enrolments: told.cancelled ?? [] });
+    }
+    if (bookingsOff.length + classesOff.length > 0) await tickOutbox();
+    return { ok: true, outage: (await outageById(closed.id))!, cancelled: bookingsOff.length + classesOff.length, bookingsOff, classesOff };
   }
   return { ok: false, error: "Bookings keep arriving for those days. Try again in a moment." };
+}
+
+/** Taking the court out stopped for what it found, with nothing changed (the transaction is rolled back). */
+class OutageStopped extends Error {
+  constructor(readonly result: { ok: false; error: string; affected?: Affected[] }) {
+    super(result.error);
+  }
 }
 
 /**
