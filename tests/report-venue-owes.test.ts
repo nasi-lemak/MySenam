@@ -109,7 +109,7 @@ describe("the venue's liabilities in ringgit", () => {
     expect(await cancelBooking(gone.code, "0191110002")).toMatchObject({ ok: true });
 
     // Kit out on hire with RM30 of deposit held.
-    const hired = await createBooking({ courtId, date: today, hours: [14], name: "Paddler", phone: "0191110003" });
+    const hired = await createBooking({ courtId, date: addDays(today, 1), hours: [14], name: "Paddler", phone: "0191110003" });
     if (!hired.ok) throw new Error(JSON.stringify(hired));
     await getDb().prepare("INSERT INTO hire_records (booking_id, deposit) VALUES (?, 30)").run(hired.booking.id);
 
