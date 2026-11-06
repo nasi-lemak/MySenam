@@ -331,7 +331,7 @@ describe.skipIf(!marketplace)("the venue guide when things change", () => {
       await panel.getByLabel("X Signature key").fill(BILLPLZ_STAND_IN.xSignatureKey);
       await panel.getByLabel("Customers can pay online").check();
       await panel.getByLabel("Sandbox (test payments, no real money)").check();
-      await panel.getByRole("button", { name: "Save", exact: true }).click();
+      await panel.locator("button[type=submit]", { hasText: /^Save$/ }).click();
       await panel.getByText("Checked with the gateway and saved. Customers can pay online.").waitFor();
     });
 
