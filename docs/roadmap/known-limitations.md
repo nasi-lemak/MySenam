@@ -1341,13 +1341,15 @@ the decision record that states it.
 
 ### Found by release verification, 6 November 2026
 
-The first two full release runs on the AI VM ([testing](../development/testing.md#release-records)) failed on three real defects. Fixed; the release was then run again.
+The first four full release runs on the AI VM ([testing](../development/testing.md#release-records)) failed on three real defects (two further failures were of tests: the clock, and queries left running past a test). Fixed; the release was then run again.
 
 | Defect | Fixed by | Test |
 | ------ | -------- | ---- |
 | The add-resources form (courts, lanes, pitches from an activity's template) overwrote what the operator had typed, "How many" included, when the list of activities finished loading afterwards or was loaded again; a slow connection made three courts into one | The template is applied once per activity, and only to fields the operator has not changed | `tests/components/activities-ui.test.tsx` (failed before the fix); `tests/guide-setup-ui.test.tsx` |
 | Two ticks that found Xero's access token expired, or refused with a 401, at the same moment could each refresh it: the second saw the old state it had read before the first finished, and took the lease after the first let go | After taking the lease the connection is read again and the token the first tick stored is used; after a 401 the stored token is compared with the one that was refused | `tests/accounting-push.test.ts` (on Postgres it failed in about half of whole-file runs before the fix, 0 of 15 after) |
 | When the connection that holds the migration lock was lost before the lock was let go (a server restarting, an administrator ending it), a start that had finished its work failed with "Client has encountered a connection error and is not queryable", as an error nobody was waiting to hear (an unhandled rejection) | The unlock is best effort: the lock belongs to the connection and ends with it, so the work's own result is what the caller gets | `tests/db-connection-lost.test.ts` (failed before the fix with exactly that error) |
+
+One Postgres-suite error was a defect of a test, not of the application: `tests/rating-matchmaking.test.ts` started three database queries and read only some of them, so the rest ran on after the file's teardown had dropped its database, and reopened a connection that was cut (an unhandled error that failed the Postgres step, about one run in four of that file). The test now answers all three inside its helper (0 of 20 runs after, 3 of 12 before).
 
 One acceptance scenario depends on the time of day: *Accounts AG* needs an hour of the day still to come at the venue, which does not exist from 23:00 to midnight Malaysian time, so the release profile waits for midnight before the scenarios (a test of the clock, not of the application; found by run 3 at 23:50).
 
