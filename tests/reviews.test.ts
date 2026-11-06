@@ -210,6 +210,59 @@ describe("asking for a review", () => {
     expect(await askForReviews(new Date(slotStartsAt(b.date, b.endHour, ZONE).getTime() + 3 * 3_600_000))).toBe(0);
     await setReviewRequests(venueId, true);
   });
+
+  // Audit 9 D5 (ADR 0062): the invitation and the link ask the same question (`reviewable`).
+  const sentTo = async (email: string) =>
+    (await getDb().prepare("SELECT booking_id FROM messages WHERE kind = 'review_request' AND recipient = ?").all(email)) as { booking_id: number }[];
+
+  it("is not sent for a booking the link would refuse (unpaid, never checked in), and that booking does not use up the one invitation", async () => {
+    const email = "unpaid-first@example.my";
+    const phone = "0128880400";
+    const unpaid = await played(2, { phone, email, unpaid: true });
+    const paid = await played(1, { phone, email });
+    const at = new Date(slotStartsAt(paid.date, paid.endHour, ZONE).getTime() + 3 * 3_600_000);
+    expect((await reviewable(unpaid.code, at)).ok).toBe(false);
+    await askForReviews(at);
+    // Only the booking the link accepts is asked about, and its link works.
+    expect(await sentTo(email)).toEqual([{ booking_id: paid.id }]);
+    expect((await review(paid.code, 5, "Lovely")).ok).toBe(true);
+  });
+
+  it("is not sent for an unpaid booking until it is paid: the invitation waits for a booking that counts", async () => {
+    const email = "unpaid-later@example.my";
+    const b = await played(1, { phone: "0128880401", email, unpaid: true });
+    const at = new Date(slotStartsAt(b.date, b.endHour, ZONE).getTime() + 3 * 3_600_000);
+    await askForReviews(at);
+    expect(await sentTo(email)).toEqual([]);
+    // The desk marks it paid: the next round asks, and the link accepts it.
+    await getDb().prepare("UPDATE bookings SET payment_status = 'paid' WHERE id = ?").run(b.id);
+    await askForReviews(at);
+    expect(await sentTo(email)).toEqual([{ booking_id: b.id }]);
+    expect((await review(b.code, 4)).ok).toBe(true);
+  });
+
+  it("a customer's own check-in is not attendance until staff confirm it (ADR 0058): not asked until then, for the same reason the link refuses", async () => {
+    const email = "self-checkin@example.my";
+    const b = await played(1, { phone: "0128880402", email, unpaid: true });
+    await getDb().prepare("INSERT INTO check_ins (booking_id, source) VALUES (?, 'self')").run(b.id);
+    const at = new Date(slotStartsAt(b.date, b.endHour, ZONE).getTime() + 3 * 3_600_000);
+    expect((await reviewable(b.code, at)).ok).toBe(false);
+    await askForReviews(at);
+    expect(await sentTo(email)).toEqual([]);
+    await getDb().prepare("UPDATE check_ins SET confirmed_at = datetime('now') WHERE booking_id = ?").run(b.id);
+    expect((await reviewable(b.code, at)).ok).toBe(true);
+    await askForReviews(at);
+    expect(await sentTo(email)).toEqual([{ booking_id: b.id }]);
+  });
+
+  it("a free booking and a desk check-in are ones the link accepts, so they are asked about", async () => {
+    const email = "desk-checkin@example.my";
+    const b = await played(1, { phone: "0128880403", email, unpaid: true });
+    await getDb().prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(b.id);
+    const at = new Date(slotStartsAt(b.date, b.endHour, ZONE).getTime() + 3 * 3_600_000);
+    await askForReviews(at);
+    expect(await sentTo(email)).toEqual([{ booking_id: b.id }]);
+  });
 });
 
 describe("an account", () => {

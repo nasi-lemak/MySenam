@@ -101,6 +101,7 @@ const en = {
   "srv.unusable.codeRanOut": "This code ran out on {date}.",
   "srv.unusable.passCancelled": "This pass was cancelled.",
   "srv.unusable.passExpired": "This pass expired on {date}.",
+  "srv.unusable.passEndsBefore": "This pass ends on {date}, before the session on {session}.",
   "srv.unusable.passNoTime": "This pass has no time left.",
   "srv.unusable.passNoEntries": "This pass has no entries left.",
   // Stored credit: what each line is for, where MySenam wrote it (lib/store.ts, lib/payments.ts, lib/vouchers.ts)
@@ -541,6 +542,7 @@ const ms: Record<keyof typeof en, string> = {
   "srv.unusable.codeRanOut": "Kod ini tamat pada {date}.",
   "srv.unusable.passCancelled": "Pas ini telah dibatalkan.",
   "srv.unusable.passExpired": "Pas ini tamat pada {date}.",
+  "srv.unusable.passEndsBefore": "Pas ini tamat pada {date}, sebelum sesi pada {session}.",
   "srv.unusable.passNoTime": "Pas ini tiada baki masa.",
   "srv.unusable.passNoEntries": "Pas ini tiada baki kemasukan.",
   // Stored credit: what each line is for, where MySenam wrote it (lib/store.ts, lib/payments.ts, lib/vouchers.ts)
@@ -977,6 +979,7 @@ const zh: Record<keyof typeof en, string> = {
   "srv.unusable.codeRanOut": "此优惠码已于 {date} 失效。",
   "srv.unusable.passCancelled": "此次卡已取消。",
   "srv.unusable.passExpired": "此次卡已于 {date} 到期。",
+  "srv.unusable.passEndsBefore": "此次卡于 {date} 到期，早于 {session} 的场次。",
   "srv.unusable.passNoTime": "此次卡已没有剩余时间。",
   "srv.unusable.passNoEntries": "此次卡已没有剩余次数。",
   // Stored credit: what each line is for, where MySenam wrote it (lib/store.ts, lib/payments.ts, lib/vouchers.ts)

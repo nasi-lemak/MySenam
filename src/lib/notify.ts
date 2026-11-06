@@ -6,8 +6,8 @@ import { refundLines } from "./refund-text";
 import type { CancelRefund } from "./payments";
 import { getDb, mustRethrow } from "./db";
 import type { OwedKind } from "./notices-owed";
-import { cancelClassSession, findBooking, getBookingById, getClass, getClassRoster, getCourt, getVenue, normalisePhone, venueHours } from "./store";
-import { Booking, WAITLIST_OFFER_MINUTES, type ClassSession } from "./types";
+import { cancelClassSession, findBooking, getBookingById, getClass, getClassRoster, getCourt, getVenue, normalisePhone, offerEndsAt, offerEndsSql, venueHours } from "./store";
+import { Booking, type ClassSession } from "./types";
 import { isLocale, Locale, translator, type Phrase } from "./i18n";
 import { drainOutbox, enqueue, hourRange, sentences } from "./outbox";
 import type { Channel, Compose } from "./outbox";
@@ -19,7 +19,7 @@ import { refundCancelled, refundStatusFor, takesPaymentOnline, type RefundStatus
 import { refundStatusLine } from "./refund-text";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
-import { clockTime, money, region, shortDate } from "./region";
+import { clockRange, clockTime, money, region, shortDate } from "./region";
 import { localDateOf, slotStartsAt } from "./time";
 import { venueZoneOf } from "./zones";
 import { longEnough } from "./phone";
@@ -480,6 +480,8 @@ export async function notifyWaitlistOffer(input: {
   date: string;
   startHour: number;
   token: string;
+  /** The minutes this offer was given: the venue's offer window, or the time left to the start if that is less (ADR 0060). */
+  minutes: number;
 }): Promise<OutboxMessage | null> {
   const venue = await getVenue(input.venueId);
   // Nobody hears from a venue that has never been live: its bookings are
@@ -503,6 +505,7 @@ export async function notifyWaitlistOffer(input: {
       // With its weekday, in the reader's language (audit R8 X2-16).
       date: shortDate(input.date, input.locale, true),
       from,
+      minutes: input.minutes,
       // In the language the offer is written in, unless they have chosen one (lib/link-locale.ts).
       link: linkIn(`${await venueBaseUrl(venue.id)}/waitlist/${input.token}`, input.locale),
     },
@@ -564,6 +567,7 @@ interface OfferRow {
   email: string | null;
   locale: string;
   offer_token: string;
+  offer_minutes: number | null;
   class_id: number | null;
   court_id: number | null;
   date: string | null;
@@ -587,7 +591,7 @@ interface OfferRow {
 export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
   const rows = await getDb()
     .prepare(
-      `SELECT w.id, w.name, w.phone, w.email, w.locale, w.offer_token,
+      `SELECT w.id, w.name, w.phone, w.email, w.locale, w.offer_token, w.offer_minutes,
               w.class_id, w.court_id,
               -- A class entry carries no date of its own; the class has it.
               COALESCE(c.date, w.date) AS date,
@@ -630,7 +634,67 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
       date: row.date,
       startHour: hoursOf(row.start_min),
       token: row.offer_token,
+      minutes: row.offer_minutes ?? 30,
     });
+    if (message) written.push(message);
+  }
+  written.push(...(await notifyLapsedOffers()));
+  return written;
+}
+
+/**
+ * Offers that ran out unclaimed (`waitlist.offer_lapsed_at`, set when the offer is let go): the person is told once that the
+ * place has gone to the next and that they are no longer on the list for it, rather than losing it silently (ADR 0060). By email
+ * where they gave an address, as a receipt of the list is: there is no WhatsApp template for it. A number the venue has since
+ * refused is told nothing, as it is offered nothing. The entry is the dedupe key, so running it twice writes nothing twice.
+ */
+async function notifyLapsedOffers(): Promise<OutboxMessage[]> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT w.id, w.name, w.phone, w.email, w.locale,
+              COALESCE(c.date, w.date) AS date,
+              COALESCE(c.start_min, w.start_min) AS start_min,
+              c.name AS class_name,
+              ct.name AS court_name,
+              (SELECT string_agg(wp.name, ', ' ORDER BY wp.id) FROM waitlist_participants wp WHERE wp.waitlist_id = w.id AND wp.name IS NOT NULL) AS for_names,
+              COALESCE(cc.venue_id, ct.venue_id) AS venue_id
+         FROM waitlist w
+         LEFT JOIN classes c  ON c.id  = w.class_id
+         LEFT JOIN courts  cc ON cc.id = c.court_id
+         LEFT JOIN courts  ct ON ct.id = w.court_id
+        WHERE w.status = 'expired'
+          AND w.offer_lapsed_at IS NOT NULL
+          AND w.offer_lapsed_at > datetime('now', '-3 days')
+          AND w.email IS NOT NULL AND btrim(w.email) <> ''
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'offerlapsed:' || w.id)
+          AND NOT EXISTS (
+                SELECT 1 FROM venue_blocked_phones bp
+                 WHERE bp.venue_id = COALESCE(cc.venue_id, ct.venue_id) AND bp.phone_key = phone_key(w.phone)
+              )
+        ORDER BY w.id`
+    )
+    .all()) as { id: number; name: string; phone: string; email: string; locale: string; date: string | null; start_min: number | null; class_name: string | null; court_name: string | null; for_names: string | null; venue_id: number | null }[];
+  const written: OutboxMessage[] = [];
+  for (const row of rows) {
+    const place = row.class_name ?? row.court_name;
+    if (row.venue_id === null || !place || !row.date || row.start_min === null) continue;
+    const venue = await getVenue(row.venue_id);
+    if (!venue || !hasBeenLive(venue)) continue;
+    const locale: Locale = isLocale(row.locale) ? row.locale : "en";
+    const { from } = hourRange(hoursOf(row.start_min), hoursOf(row.start_min) + 1, locale);
+    const message = await deliver(
+      row,
+      {
+        venueId: venue.id,
+        kind: "waitlist_ended",
+        locale,
+        subject: "fx2.msg.offerLapsedSubject",
+        body: "fx2.msg.offerLapsed",
+        dedupeKey: `offerlapsed:${row.id}`,
+        vars: { name: firstName(row.name), what: forWhom(locale, place, row.for_names), venue: venue.name, date: shortDate(row.date, locale, true), from },
+      },
+      false
+    );
     if (message) written.push(message);
   }
   return written;
@@ -1179,7 +1243,79 @@ export async function tellClassCancelled(
     .filter((b) => ids.has(b.id))
     .map((b) => ({ ...b, status: "cancelled" as const, paymentStatus: result.paymentBefore?.[b.id] ?? b.paymentStatus }));
   for (const b of cancelled) await notifyVenueCancelled(b, session.name, why);
+  // Its waiting list closed with it (`cancelClassSession`): each person on it is told once, and its instructor where that is one of the venue's coaches.
+  await tellClassWaitingClosed(session, result.closedWaitingIds ?? []);
+  await tellCoachClassCancelled(session);
   return { ...result, session, cancelled };
+}
+
+/** Everybody the class's waiting list held when it was called off (waiting or offered a place) is told once, by email where they gave an address. */
+async function tellClassWaitingClosed(session: ClassSession, ids: number[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const venue = await getVenue(session.venueId);
+  if (!venue || !hasBeenLive(venue)) return 0;
+  const rows = (await getDb()
+    .prepare(
+      `SELECT w.id, w.name, w.phone, w.email, w.locale,
+              (SELECT string_agg(wp.name, ', ' ORDER BY wp.id) FROM waitlist_participants wp WHERE wp.waitlist_id = w.id AND wp.name IS NOT NULL) AS for_names
+         FROM waitlist w WHERE w.id IN (${ids.map(() => "?").join(",")}) ORDER BY w.id`
+    )
+    .all(...ids)) as { id: number; name: string; phone: string; email: string | null; locale: string; for_names: string | null }[];
+  let written = 0;
+  for (const row of rows) {
+    const locale: Locale = isLocale(row.locale) ? row.locale : "en";
+    const { from } = hourRange(session.startHour, session.startHour + 1, locale);
+    const message = await deliver(
+      row,
+      {
+        venueId: venue.id,
+        kind: "waitlist_ended",
+        locale,
+        subject: "fx2.msg.classOffWaitSubject",
+        body: "fx2.msg.classOffWait",
+        // One class called off once: written again (a retry), nothing is sent twice.
+        dedupeKey: `classoff-wait:${row.id}`,
+        vars: { name: firstName(row.name), what: forWhom(locale, session.name, row.for_names), venue: venue.name, date: shortDate(session.date, locale, true), from },
+      },
+      false
+    );
+    if (message) written++;
+  }
+  return written;
+}
+
+/**
+ * The venue's own coach who teaches a class called off is told by email, in their own language, where the venue has their
+ * address (`coach_lesson`, as a lesson cancelled is told): the class is out of their schedule. Once per class.
+ */
+async function tellCoachClassCancelled(session: ClassSession): Promise<boolean> {
+  if (!session.coachId) return false;
+  const { coachLocale } = await import("./coach-schedule");
+  const coach = (await getDb().prepare("SELECT name, email, locale FROM coaches WHERE id = ?").get(session.coachId)) as { name: string; email: string | null; locale: string | null } | undefined;
+  if (!coach?.email?.trim()) return false;
+  const venue = await getVenue(session.venueId);
+  if (!venue) return false;
+  const locale = coachLocale(coach.locale);
+  await enqueue({
+    venueId: venue.id,
+    bookingId: null,
+    kind: "coach_lesson",
+    channel: "email",
+    recipient: coach.email.trim(),
+    locale,
+    subject: "fx2.msg.coachClassOffSubject",
+    body: "fx2.msg.coachClassOff",
+    dedupeKey: `classoff-coach:${session.id}`,
+    vars: {
+      name: firstName(coach.name),
+      class: session.name,
+      venue: venue.name,
+      date: session.date,
+      time: clockRange(session.startMin, session.endMin, locale),
+      court: session.courtName,
+    },
+  });
+  return true;
 }
 
 /** Call off a class and tell everybody enrolled in it, as a venue cancellation each. */
@@ -1260,14 +1396,13 @@ export async function notifyClassChanged(changed: { before: ClassSession; after:
   }
 
   // Offered a place and not yet taken it: told too, with the offer's own link.
-  const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
   const ids = changed.map((c) => c.after.id);
   const offers = (await getDb()
     .prepare(
       `SELECT id, name, email, locale, offer_token, class_id FROM waitlist
-        WHERE class_id IN (${ids.map(() => "?").join(",")}) AND status = 'offered' AND offered_at > ? AND offer_token IS NOT NULL ORDER BY id`
+        WHERE class_id IN (${ids.map(() => "?").join(",")}) AND status = 'offered' AND ${offerEndsSql()} > datetime('now') AND offer_token IS NOT NULL ORDER BY id`
     )
-    .all(...ids, since)) as { id: number; name: string; email: string | null; locale: string | null; offer_token: string; class_id: number }[];
+    .all(...ids)) as { id: number; name: string; email: string | null; locale: string | null; offer_token: string; class_id: number }[];
   for (const o of offers) {
     const email = o.email?.trim();
     if (!email) continue;
@@ -1450,18 +1585,17 @@ export async function classMoveRecipients(moved: MovedClass[]): Promise<ClassMov
       });
     }
   const ids = ordered.map((m) => m.after.id);
-  const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
   const waiting = (await getDb()
     .prepare(
-      `SELECT id, name, phone, email, locale, class_id, status, offered_at, offer_token FROM waitlist
+      `SELECT id, name, phone, email, locale, class_id, status, offered_at, offer_minutes, offer_token FROM waitlist
         WHERE class_id IN (${ids.map(() => "?").join(",")}) AND status IN ('waiting', 'offered') ORDER BY id`
     )
-    .all(...ids)) as { id: number; name: string; phone: string; email: string | null; locale: string | null; class_id: number; status: string; offered_at: string | null; offer_token: string | null }[];
+    .all(...ids)) as { id: number; name: string; phone: string; email: string | null; locale: string | null; class_id: number; status: string; offered_at: string | null; offer_minutes: number | null; offer_token: string | null }[];
   for (const w of waiting) {
     const m = ordered.find((x) => x.after.id === w.class_id);
     if (!m || !w.email?.trim()) continue;
     const key = `waiting:${personKey(w.email, w.phone)}`;
-    const live = w.status === "offered" && w.offered_at !== null && w.offered_at > since && w.offer_token !== null;
+    const live = w.status === "offered" && w.offered_at !== null && offerEndsAt(w.offered_at, w.offer_minutes) > Date.now() && w.offer_token !== null;
     const known = people.get(key);
     if (known) {
       if (!known.sessions.some((s) => s.after.id === m.after.id)) known.sessions.push(m);

@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityGlyph } from "@/components/Glyph";
 import { sportLabel } from "@/lib/i18n";
 import type { PassProduct } from "@/lib/pass-products";
@@ -99,6 +99,7 @@ export function PassProducts({
       <h3 className="font-semibold">{t("p8b.prod.title")}</h3>
       <p className="mt-0.5 text-sm text-slate-600">{t("p8b.prod.intro")}</p>
       {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
+      <PassRestoreSetting venueId={venueId} />
       {products.length > 0 && (
         <ul className="mt-3 divide-y divide-violet-100 text-sm">
           {products.map((p) => (
@@ -222,5 +223,63 @@ export function PassProducts({
       </form>
       <p className="mt-1 text-xs text-slate-500">{t("pso.prod.soldOnlineHint")}</p>
     </div>
+  );
+}
+
+/**
+ * The days an ended pass is extended by when a cancellation gives entries back to it (lib/pass-validity.ts, ADR 0062): a manager's
+ * setting for the venue, shown with the recommended value in its help.
+ */
+function PassRestoreSetting({ venueId }: { venueId: number }) {
+  const t = useStaffT();
+  const [state, setState] = useState<{ days: string; recommended: number } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/admin/pass-settings?venueId=${venueId}`, { cache: "no-store" })
+      .then(async (res) => {
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(t.err(data, t("fx8.cr.restoreFailed")));
+        if (live) setState({ days: String(data.settings.restoreGraceDays), recommended: data.settings.recommended });
+      })
+      .catch((err) => live && setError(err instanceof Error ? err.message : t("fx8.cr.restoreFailed")));
+    return () => {
+      live = false;
+    };
+  }, [venueId, t]);
+  if (!state) return error ? <p className="mt-2 text-sm font-medium text-red-700">{error}</p> : null;
+  return (
+    <form
+      className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-violet-100 bg-white p-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError(null);
+        setMessage(null);
+        try {
+          const res = await fetch("/api/admin/pass-settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ venueId, restoreGraceDays: Number(state.days) }),
+          });
+          const data = await readJson(res);
+          if (!res.ok) throw new Error(t.err(data, t("fx8.cr.restoreFailed")));
+          setMessage(t("fx8.cr.restoreSaved"));
+        } catch (err) {
+          setError(err instanceof Error ? err.message : t("fx8.cr.restoreFailed"));
+        }
+      }}
+    >
+      <label className="flex max-w-md flex-col gap-1 text-xs font-medium text-slate-600">
+        {t("fx8.cr.restoreLabel")}
+        <input type="number" min={0} max={365} step={1} value={state.days} onChange={(e) => setState({ ...state, days: e.target.value })} className="w-24 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+      </label>
+      <button type="submit" className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-violet-700">
+        {t("fx8.cr.restoreSave")}
+      </button>
+      {message && <span className="text-xs font-medium text-emerald-700">{message}</span>}
+      {error && <span className="text-xs font-medium text-red-700">{error}</span>}
+      <p className="w-full text-xs text-slate-500">{t("fx8.cr.restoreHelp", { recommended: state.recommended })}</p>
+    </form>
   );
 }

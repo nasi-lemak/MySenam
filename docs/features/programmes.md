@@ -28,6 +28,16 @@ enrolment or a waiting-list claim at the same moment either lands first (and is 
 rest) or is refused `CLASS_CANCELLED`: no confirmed enrolment is ever left in a cancelled class. A class that **has
 ended** cannot be called off by hand, by a closed day, a rain-out or a court taken out of service (it was held, and the
 money was for a session that ran; its register stays open); one under way can.
+**Calling a class off closes its waiting list** in the same transaction: every entry still waiting or holding an
+offer is ended (it leaves the customer's *My waiting lists* and the staff list; an offer's link stops working and
+its unsent message is given up) and each person is told once, by email where they gave an address, in their
+language (kind `waitlist_ended`, keyed by the entry, so a retry tells nobody twice). A person joining at the same
+moment either lands first (and is closed and told with the rest) or is refused `CLASS_CANCELLED`. The class's
+instructor, where it is one of the venue's coaches with an address, is told once that it is off and out of their
+schedule (`coach_lesson`, once per class), by every route that calls a class off (staff, a closed day, a rain-out,
+a court out of service). **Changing the coach** of a class (`changeClass`) tells the coach who stops and the coach
+who starts, once each per change, in their own language; a name, price or places change, or a coach left as it was,
+tells no coach.
 Staff see a roster per class with each attendee's check-in
 state.
 
@@ -94,7 +104,9 @@ Its instructor is a name typed, or one of the venue's coaches
   offer (`offerClassPlace`), as when somebody cancels. The waiting list offers
   one place at a time, so a rise of several places offers the next one when
   that offer is taken up, lapses or another place frees; until then the
-  other new places are open to enrol.
+  other new places are open to enrol. No place is offered once the class has
+  started or with fewer than 5 minutes to go, and an offer ends at the start at the
+  latest ([how long an offer lasts](booking.md#how-long-an-offer-lasts)).
 - **Fewer places**: never below the people enrolled and the places held by
   live waiting-list offers, counted under the class's row lock, the lock
   every enrolment takes, so a cut and an enrolment at the same moment never
