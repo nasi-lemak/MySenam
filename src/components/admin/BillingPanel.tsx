@@ -320,6 +320,11 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                         : i.overdue
                           ? t("bill.statusOverdue")
                           : t("bill.statusDue")}
+                    {i.status === "due" && i.graceUntil && (
+                      <span className="block text-xs text-slate-500" title={isOwner && i.graceReason ? i.graceReason : undefined}>
+                        {t("fx11.bill.graceUntil", { date: i.graceUntil })}
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
                     <a href={`/admin/invoices/${i.id}`} target="_blank" rel="noopener" className="text-xs font-semibold text-teal-700 hover:underline">
@@ -347,6 +352,19 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                           className="text-xs font-semibold text-teal-700 hover:underline"
                         >
                           {t("bill.markPaid")}
+                        </button>{" "}
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            // More time, not a payment and not a pardon: a date and a reason, kept in the activity log with the owner's name.
+                            const until = window.prompt(t("fx11.bill.timeDate", { venue: i.venueName, period: i.period }), i.graceUntil ?? "");
+                            if (until === null) return;
+                            const reason = window.prompt(t("fx11.bill.timeReason"));
+                            if (reason && reason.trim()) act({ action: "giveTime", invoiceId: i.id, until: until.trim() || null, reason: reason.trim() }, t("fx11.bill.timeGiven"));
+                          }}
+                          className="text-xs font-semibold text-teal-700 hover:underline"
+                        >
+                          {t("fx11.bill.giveTime")}
                         </button>{" "}
                         <button
                           disabled={busy}

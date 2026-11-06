@@ -511,7 +511,7 @@ describe("the venue going away", () => {
     const bill = await bought(who, stripeVenue, P.ten);
     await getDb().prepare("UPDATE venues SET suspended_at = datetime('now') WHERE id = ?").run(stripeVenue);
     try {
-      expect(await buy(who, stripeVenue, P.ten)).toMatchObject({ status: 409, body: { code: "PSO_OFFLINE" } });
+      expect(await buy(who, stripeVenue, P.ten)).toMatchObject({ status: 409, body: { code: "FX11_SUSPENDED" } });
       fakeGateways();
       await stripePaid(bill);
       vi.unstubAllGlobals();

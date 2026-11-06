@@ -5134,6 +5134,15 @@ const EN = {
   "err.DISCOUNT_NOT_APPLIED": "Your discount could not be applied (it may have run out), so nothing has been booked or charged. Check the price and try again.",
   "receipt.why.priceLowered": "The booking's price came down below the deposit paid, and the difference was owed back.",
   "pwp.walletNotUsed": "Your credit or pass was not used, so nothing has been paid: {reason} {cur}{amount} is still to pay.",
+  // Audit 9 (FX11): a venue taken off the marketplace, and the customers who hold something there
+  "fx11.mail.subject": "{venue} is not available on {site} for now",
+  "fx11.mail.body":
+    "Hello,\n\n{venue} has been taken off {site} for now, so it cannot be booked or paid online and nothing new can be bought there. This is not something you did.\n\nYou have this at {venue}: {what}.\n\nWhat stands: nothing you have booked has been cancelled. If you would rather not wait, you can cancel a booking and be refunded as usual here: {link}\n\nPasses, memberships and stored credit cannot be used until {venue} is back. They are not lost. To ask what can be done, contact {venue} on {phone}.",
+  "fx11.has.bookings": "upcoming bookings",
+  "fx11.has.pass": "a pass",
+  "fx11.has.membership": "a membership",
+  "fx11.has.credit": "stored credit",
+  "err.FX11_SUSPENDED": "{venue} is not available on {site} at the moment, so passes, memberships and credit cannot be bought for it. Bookings already made stand.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10214,6 +10223,14 @@ const MS: Record<Phrase, string> = {
   "err.DISCOUNT_NOT_APPLIED": "Diskaun anda tidak dapat digunakan (mungkin telah habis), jadi tiada tempahan dibuat dan tiada caj dikenakan. Semak harga dan cuba lagi.",
   "receipt.why.priceLowered": "Harga tempahan turun di bawah deposit yang dibayar, dan bezanya perlu dipulangkan.",
   "pwp.walletNotUsed": "Kredit atau pas anda tidak digunakan, jadi tiada bayaran dibuat: {reason} {cur}{amount} masih perlu dibayar.",
+  "fx11.mail.subject": "{venue} tidak tersedia di {site} buat sementara waktu",
+  "fx11.mail.body":
+    "Helo,\n\n{venue} telah dikeluarkan daripada {site} buat sementara waktu, jadi ia tidak boleh ditempah atau dibayar dalam talian dan tiada apa-apa yang baharu boleh dibeli di sana. Ini bukan sesuatu yang anda lakukan.\n\nAnda ada ini di {venue}: {what}.\n\nApa yang kekal: tiada tempahan anda yang dibatalkan. Jika anda tidak mahu menunggu, anda boleh membatalkan tempahan dan menerima bayaran balik seperti biasa di sini: {link}\n\nPas, keahlian dan kredit simpanan tidak boleh digunakan sehingga {venue} kembali. Semuanya tidak hilang. Untuk bertanya apa yang boleh dilakukan, hubungi {venue} di {phone}.",
+  "fx11.has.bookings": "tempahan akan datang",
+  "fx11.has.pass": "pas",
+  "fx11.has.membership": "keahlian",
+  "fx11.has.credit": "kredit simpanan",
+  "err.FX11_SUSPENDED": "{venue} tidak tersedia di {site} buat masa ini, jadi pas, keahlian dan kredit tidak boleh dibeli untuknya. Tempahan yang telah dibuat kekal.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

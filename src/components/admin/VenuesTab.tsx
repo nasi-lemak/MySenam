@@ -744,6 +744,16 @@ function VenueStanding({
     await onSave("/api/admin/suspensions", "POST", { venueId: venue.id, action: "suspend", reason }, t("vn.isSuspended", { name: venue.name }));
   }
 
+  // A venue held for an unpaid invoice is put back by giving the invoice time (a date and a reason, kept in the activity log): never
+  // by marking it paid when it was not.
+  async function giveTime() {
+    const until = window.prompt(t("fx11.vn.timeDate", { name: venue.name }), "");
+    if (!until || !until.trim()) return;
+    const reason = window.prompt(t("fx11.vn.timeReason"), "");
+    if (!reason || !reason.trim()) return;
+    await onSave("/api/admin/suspensions", "POST", { venueId: venue.id, action: "lift", graceUntil: until.trim(), reason: reason.trim() }, t("fx11.vn.timeGiven", { name: venue.name }));
+  }
+
   return (
     <div className="w-full space-y-2 border-t border-slate-100 pt-2 text-sm">
       <div className="flex flex-wrap items-center gap-3">
@@ -761,6 +771,10 @@ function VenueStanding({
               className="text-xs font-medium text-teal-700 underline"
             >
               {t("vn.lift")}
+            </button>
+          ) : venue.suspendedAt !== null ? (
+            <button onClick={giveTime} className="text-xs font-medium text-teal-700 underline">
+              {t("fx11.vn.giveTime")}
             </button>
           ) : (
             <button onClick={suspend} className="text-xs font-medium text-red-700 underline">

@@ -2150,6 +2150,8 @@ export async function startTopUpPayment(
   if (!isAmount(amount, MIN_ONLINE_TOP_UP, MAX_TOP_UP))
     return { ok: false, error: `Top up ${money(MIN_ONLINE_TOP_UP)}–${MAX_TOP_UP}.`, status: 400 };
   const venue = await getVenue(venueId);
+  const suspended = venue ? suspendedSale(venue) : null;
+  if (suspended) return suspended;
   if (!venue || !isOpen(venue)) return { ok: false, error: "That venue is not taking payment online at the moment.", status: 409 };
   const account = await venueAccount(venueId);
   if (!account) return { ok: false, error: `${venue.name} does not take payment online. Top up at the counter.`, status: 409 };
@@ -2186,6 +2188,8 @@ export async function startTopUpPayment(
 export async function startVoucherPayment(input: VoucherInput): Promise<StartResult> {
   if (!onlineTopUpsAllowed()) return { ok: false, error: "Gift vouchers are sold at the counter here.", status: 409 };
   const venue = await getVenue(input.venueId);
+  const suspended = venue ? suspendedSale(venue) : null;
+  if (suspended) return suspended;
   if (!venue || !isOpen(venue)) return { ok: false, error: "That venue is not taking payment online at the moment.", status: 409 };
   const account = await venueAccount(input.venueId);
   if (!account) return { ok: false, error: `${venue.name} sells gift vouchers at the counter.`, status: 409 };
@@ -2220,6 +2224,16 @@ export async function startVoucherPayment(input: VoucherInput): Promise<StartRes
 const ENGLISH = translator("en");
 
 /**
+ * A venue the platform has taken off the marketplace (suspended, or held for an invoice): no pass, membership, credit or voucher is
+ * sold there, online or at the counter, and the customer is told why rather than that the venue "does not take payment online" (ADR 0063).
+ * Null for a live venue and for a draft, which the other refusals deal with.
+ */
+function suspendedSale(venue: { name: string; publishedAt: string | null; suspendedAt: string | null }): StartResult | null {
+  if (venue.publishedAt === null || venue.suspendedAt === null) return null;
+  return { ok: false, error: errorText(ENGLISH, "FX11_SUSPENDED", { venue: venue.name }), code: "FX11_SUSPENDED", vars: { venue: venue.name }, status: 409 };
+}
+
+/**
  * A customer joining, or renewing, on one of the venue's membership plans:
  * for themself, for somebody they look after (`participantId`), or a family
  * membership naming the dependants it covers (`covers`); who may be named is
@@ -2240,6 +2254,8 @@ export async function startMembershipPayment(
   if ((await accessSettings(plan.venueId)).access === "private")
     return { ok: false, error: errorText(ENGLISH, "JOIN_NO_PLAN"), code: "JOIN_NO_PLAN", status: 409 };
   const venue = await getVenue(plan.venueId);
+  const suspended = venue ? suspendedSale(venue) : null;
+  if (suspended) return suspended;
   const account = venue && isOpen(venue) ? await venueAccount(plan.venueId) : null;
   if (!venue || !account)
     return { ok: false, error: errorText(ENGLISH, "JOIN_OFFLINE"), code: "JOIN_OFFLINE", status: 409 };
@@ -2346,6 +2362,8 @@ export async function startPassPayment(
   request: PassPurchaseRequest
 ): Promise<StartResult> {
   const venue = await getVenue(venueId);
+  const suspended = venue ? suspendedSale(venue) : null;
+  if (suspended) return suspended;
   // Not from a draft (a test is never sold for real money), nor a venue off the marketplace (lib/listing.ts).
   const account = venue && isOpen(venue) ? await venueAccount(venueId) : null;
   if (!venue || !account) return { ok: false, error: "This venue does not sell passes online at the moment. Buy one at the counter.", code: "PSO_OFFLINE", status: 409 };
@@ -2556,6 +2574,63 @@ async function stopSubscription(subscriptionId: string): Promise<string | null> 
       .prepare("UPDATE membership_subscriptions SET status = 'stopped', stopped_at = datetime('now') WHERE id = ? AND status = 'active'")
       .run(sub.id);
   return null;
+}
+
+/**
+ * A membership that renews by itself is charged by the gateway, not by this code, so the only way to keep it from being charged while its
+ * venue is suspended (ADR 0063) is to pause the subscription there, and to carry it on when the venue is back. Each active subscription
+ * is brought into line with its venue's state: venue suspended and not paused, pause it; venue open and paused, resume it. Safe to run as
+ * often as wanted (the scheduler does, with the holds, and a suspension or lift does at once): `paused_at` records what the gateway
+ * accepted, a refusal leaves the subscription as it was to be tried again, and the platform owner is alerted (once in a while, per venue).
+ * While paused nothing is charged and nothing is billed afterwards for the time; the member's membership runs to its own end and the
+ * next charge, once the venue is back, runs on from it as any renewal does (lib/membership-purchases.ts). A charge the gateway made
+ * before the pause took hold is settled as ever: the member paid and has what they paid for. Not verified against the real gateway
+ * (`INTEGRATION_VERIFICATION_REQUIRED`): tested against a fake only.
+ */
+export async function reconcileRenewalPauses(): Promise<{ paused: number; resumed: number; failed: number }> {
+  const db = getDb();
+  const out = { paused: 0, resumed: 0, failed: 0 };
+  const rows = (await db
+    .prepare(
+      `SELECT s.id, s.venue_id, s.provider, s.subscription_id, v.name AS venue_name, v.suspended_at
+         FROM membership_subscriptions s JOIN venues v ON v.id = s.venue_id
+        WHERE s.status = 'active'
+          AND ((v.suspended_at IS NOT NULL AND s.paused_at IS NULL) OR (v.suspended_at IS NULL AND s.paused_at IS NOT NULL))
+        ORDER BY s.id LIMIT 500`
+    )
+    .all()) as { id: number; venue_id: number; provider: string; subscription_id: string; venue_name: string; suspended_at: string | null }[];
+  const failures = new Map<string, { venue: string; venueId: number; pausing: boolean; why: string }>();
+  for (const row of rows) {
+    const pausing = row.suspended_at !== null;
+    const gateway = gatewayFor(row.provider);
+    const account = await accountRow(row.venue_id);
+    const key = account && account.provider === row.provider ? readAccount(account) : null;
+    const why = !gateway?.pauseSubscription
+      ? `${gateway?.name ?? row.provider} cannot pause a subscription from here.`
+      : !key
+        ? `The venue's ${gateway.name} keys cannot be used. Pause or resume the subscription in ${gateway.name}.`
+        : await gateway.pauseSubscription(key, row.subscription_id, pausing);
+    if (why) {
+      out.failed++;
+      failures.set(`${row.venue_id}:${pausing}`, { venue: row.venue_name, venueId: row.venue_id, pausing, why });
+      continue;
+    }
+    await db
+      .prepare(`UPDATE membership_subscriptions SET paused_at = ${pausing ? "datetime('now')" : "NULL"} WHERE id = ? AND status = 'active'`)
+      .run(row.id);
+    if (pausing) out.paused++;
+    else out.resumed++;
+  }
+  if (failures.size > 0) {
+    const { raiseAlert } = await import("./alerts");
+    for (const f of failures.values())
+      await raiseAlert(
+        `renewal-${f.pausing ? "pause" : "resume"}:${f.venueId}`,
+        said(f.pausing ? "srv.fx11.pause.alert" : "srv.fx11.resume.alert", { venue: f.venue }),
+        f.why
+      );
+  }
+  return out;
 }
 
 /** Whether a membership bought online at this venue can renew itself: its gateway has subscriptions. */

@@ -4967,6 +4967,14 @@ export const ZH: Record<Phrase, string> = {
   "err.DISCOUNT_NOT_APPLIED": "您的优惠未能使用（可能已用完），因此未预订，也未扣款。请核对价格后重试。",
   "receipt.why.priceLowered": "预订价格降至已付订金以下，差额应退还。",
   "pwp.walletNotUsed": "未使用您的储值或套票，因此尚未付款：{reason} 仍需支付 {cur}{amount}。",
+  "fx11.mail.subject": "{venue} 暂时无法在 {site} 使用",
+  "fx11.mail.body":
+    "您好，\n\n{venue} 已暂时从 {site} 下架，因此无法预订或在线付款，也不能在那里购买任何新的项目。这不是您造成的。\n\n您在 {venue} 拥有：{what}。\n\n保持不变的部分：您已预订的内容均未被取消。如果您不想等待，可以像往常一样取消预订并获得退款，请到这里办理：{link}\n\n在 {venue} 恢复之前，套票、会员资格和储值无法使用，但不会丢失。如需了解可以怎么处理，请联系 {venue}，电话 {phone}。",
+  "fx11.has.bookings": "即将到来的预订",
+  "fx11.has.pass": "套票",
+  "fx11.has.membership": "会员资格",
+  "fx11.has.credit": "储值",
+  "err.FX11_SUSPENDED": "{venue} 目前无法在 {site} 使用，因此不能为其购买套票、会员资格或储值。已经完成的预订不受影响。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

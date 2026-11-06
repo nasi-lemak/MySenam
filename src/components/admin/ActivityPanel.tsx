@@ -332,6 +332,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "pass_product.offline": "pso.act.offline",
   "invoice.marked_paid": "fx7.act.invoicePaid",
   "invoice.voided": "fx7.act.invoiceVoided",
+  "invoice.grace_given": "fx11.act.graceGiven",
   "plan.set": "fx7.act.planSet",
   "tiers.set": "fx7.act.tiersSet",
   "business.grouped": "fx7.act.grouped",

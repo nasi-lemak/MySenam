@@ -388,6 +388,11 @@ const en = {
   "r9a.act.corrected": "Corrected a member of staff's name",
   "r9a.act.addressInvited": "Invited a member of staff's new email address",
   "r9a.act.addressChanged": "Changed a member of staff's email address",
+  // Audit 9 (FX11): a venue held for an unpaid invoice is put back by giving the invoice time
+  "fx11.vn.giveTime": "Give it time",
+  "fx11.vn.timeDate": "{name} is held for an unpaid invoice. Give it time until which date (YYYY-MM-DD, at most 90 days ahead)?",
+  "fx11.vn.timeReason": "Why? It is kept in the staff activity log with your name, and the invoice stays owed:",
+  "fx11.vn.timeGiven": "{name} is back. The invoice stays owed; it is held again after the date if still unpaid.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -773,6 +778,10 @@ const ms: Record<keyof typeof en, string> = {
   "r9a.act.corrected": "Membetulkan nama kakitangan",
   "r9a.act.addressInvited": "Menjemput alamat e-mel baharu kakitangan",
   "r9a.act.addressChanged": "Menukar alamat e-mel kakitangan",
+  "fx11.vn.giveTime": "Beri masa",
+  "fx11.vn.timeDate": "{name} ditahan kerana invois belum dibayar. Beri masa sehingga tarikh bila (YYYY-MM-DD, paling lama 90 hari)?",
+  "fx11.vn.timeReason": "Kenapa? Ia disimpan dalam log aktiviti kakitangan dengan nama anda, dan invois kekal terhutang:",
+  "fx11.vn.timeGiven": "{name} kembali. Invois kekal terhutang; ia ditahan semula selepas tarikh itu jika masih belum dibayar.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1158,6 +1167,10 @@ const zh: Record<keyof typeof en, string> = {
   "r9a.act.corrected": "更正员工姓名",
   "r9a.act.addressInvited": "向员工的新电邮地址发送邀请",
   "r9a.act.addressChanged": "更改员工电邮地址",
+  "fx11.vn.giveTime": "给予宽限",
+  "fx11.vn.timeDate": "{name} 因账单未付而被限制。给予宽限到哪一天（YYYY-MM-DD，最多 90 天）？",
+  "fx11.vn.timeReason": "原因？它会连同您的姓名记入员工操作日志，账单仍然未付：",
+  "fx11.vn.timeGiven": "{name} 已恢复。账单仍然未付；如果到该日期后仍未付款，将再次被限制。",
 };
 
 const area = { en, ms, zh };
