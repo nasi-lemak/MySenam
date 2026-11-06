@@ -70,7 +70,9 @@ describe("recording how a booking was paid", () => {
     const by = Object.fromEntries(report.collectedBy.map((c) => [c.via, c.amount]));
     expect(by.cash).toBe(b.totalPrice);
     expect(by.unrecorded).toBeGreaterThan(0);
-    expect(by.pass).toBeGreaterThan(0);
+    // A booking paid with a pass is not takings (the pass sale was the money, ADR 0055): no line of its own.
+    expect(by.pass).toBeUndefined();
+    expect(report.revenue.passPaid.bookings).toBeGreaterThan(0);
     expect(report.collectedBy.reduce((sum, c) => sum + c.amount, 0)).toBeCloseTo(report.revenue.collected, 2);
   });
 });
