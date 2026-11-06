@@ -79,6 +79,8 @@ export type MessageKind =
   | "waitlist_joined"
   /** By email only: a class somebody is enrolled in, or offered a place in, has a new name or instructor (lib/notify.ts `notifyClassChanged`). */
   | "class_changed"
+  /** By email only: a place on a waiting list ended without the person doing it: an offer ran out, or the class was called off (lib/notify.ts, ADR 0060). */
+  | "waitlist_ended"
   /**
    * To a player entered in a tournament, on the day, by email and on WhatsApp where the venue has chosen it and the player has
    * a number their account proved: their match is next on its court, or they are called to it (lib/tournament-day.ts). Once per

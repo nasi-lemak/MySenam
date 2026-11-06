@@ -124,12 +124,14 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0048 Ladder court-time holds: configurable limits, tentative holds that expire, no overlap, limits that only refuse](architecture/decisions/0048-ladder-hold-limits-and-expiry.md) ·
 [0050 Ladder court time: an existing agreement counts as confirmation; expired and released holds do not count towards the active allowance](architecture/decisions/0050-ladder-agreement-counts-and-expired-holds-do-not.md) ·
 [0051 Ladder court time: a counter-proposal is its maker's agreement and holds nothing; an expired or unanswered hold is no one's fault](architecture/decisions/0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md)
+[0060 Waiting-list offers: a window of the venue's own, never past the start, one per time, told when they lapse; a class called off closes its list and tells its coach](architecture/decisions/0060-waiting-list-offers-windows-starts-and-closing.md)
 [0053 A closure, a rain-out and an outage are written first; what has been played is left alone; a weekly series is checked week by week](architecture/decisions/0053-a-closure-is-written-first-and-what-has-been-played-is-left-alone.md)
 [0058 Safety and access after a booking is made: a refused number, eligibility taken back, and what counts as attendance](architecture/decisions/0058-safety-and-access-after-a-booking-is-made.md)
 [0051 Ladder court time: a counter-proposal is its maker's agreement and holds nothing; an expired or unanswered hold is no one's fault](architecture/decisions/0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md) ·
 [0057 Staff find only their own customers, secrets are never in a staff view, the owner's decisions are logged, and a draft that cannot be deleted never stops the day](architecture/decisions/0057-staff-lookups-masked-secrets-and-an-audit-trail-for-owner-decisions.md)
 [0054 Money paid never above the price, credit never taken for a cancelled booking, no silent price, a booking whose request died is held or let go](architecture/decisions/0054-money-paid-never-above-price-and-no-silent-price.md)
 [0063 A suspended venue tells its customers and sells nothing new; an overdue one can be given time; a branch is not approved on its own under a business not in good standing](architecture/decisions/0063-a-suspended-venue-tells-its-customers-sells-nothing-new-and-an-overdue-one-can-be-given-time.md)
+[0062 Passes judged on the session's date and entries given back are not dead; a membership's days given back never run into its renewal; a suspension of a renewing membership gives its days back; the concession check and the review invitation are decided once](architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md)
 
 ## Integrations
 

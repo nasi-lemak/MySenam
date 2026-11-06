@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     {
       booking: { code: booking.code, name: booking.name, players: booking.players ?? 1, paymentStatus: booking.paymentStatus, totalPrice: booking.totalPrice },
       places,
-      passes: (await usablePassesForHolder(venueId, booking.phone)).filter((p) => p.sport === null || p.sport === booking.sport),
+      passes: (await usablePassesForHolder(venueId, booking.phone, booking.date)).filter((p) => p.sport === null || p.sport === booking.sport),
       soldByPlace: court ? soldByPlace(court) : false,
       minutes: booking.endMin - booking.startMin,
     },

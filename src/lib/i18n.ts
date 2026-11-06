@@ -1104,7 +1104,7 @@ const EN = {
   "msg.lesson": "{court}, lesson with {coach}",
   "msg.offerSubject": "A place has opened up — {venue}",
   "msg.offer":
-    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for 30 minutes, and then goes to the next person waiting. Claim it at {link} while it is yours.",
+    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for {minutes} minutes, and then goes to the next person waiting. Claim it at {link} while it is yours.",
   "msg.enrolledSubject": "Enrolled in {what} — {venue}",
   "msg.enrolled":
     "Hi {name}, you are enrolled in {what} with {instructor}.\n\nCode: {code}\n{venue}\n{when}\nTotal: {total}\n\nShow the code at the front desk.",
@@ -5143,6 +5143,25 @@ const EN = {
   "fx11.has.membership": "a membership",
   "fx11.has.credit": "stored credit",
   "err.FX11_SUSPENDED": "{venue} is not available on {site} at the moment, so passes, memberships and credit cannot be bought for it. Bookings already made stand.",
+  "fx2.msg.offerLapsedSubject": "Your waiting-list offer has ended — {venue}",
+  "fx2.msg.offerLapsed": "Hi {name}, the place offered to you for {what} at {venue}, {date} {from}, was not taken in the time given, so it has gone to the next person waiting. You are no longer on the waiting list for it. If it is still full, you can join the list again.",
+  "fx2.msg.classOffWaitSubject": "Class called off — {venue}",
+  "fx2.msg.classOffWait": "Hi {name}, {what} at {venue}, {date} {from}, has been called off, so its waiting list is closed and you are no longer on it. We are sorry for the change.",
+  "fx2.msg.coachClassOffSubject": "Class called off — {venue}",
+  "fx2.msg.coachClassOff": "Hi {name}, {class} at {venue}, {date}, {time} ({court}) has been called off. It is no longer in your schedule.",
+  "fx2.msg.coachClassGainedSubject": "A class is now yours — {venue}",
+  "fx2.msg.coachClassGained": "Hi {name}, you now teach {class} at {venue}: {n} session(s), the first on {date}, {time} ({court}). It is in your schedule.",
+  "fx2.msg.coachClassLostSubject": "A class is no longer yours — {venue}",
+  "fx2.msg.coachClassLost": "Hi {name}, you no longer teach {class} at {venue}: {n} session(s), the first on {date}, {time} ({court}). It has been taken out of your schedule.",
+  "err.FX8_EXTEND_INTO_NEXT": "This membership's next term {code} starts on {date}: giving that many days back would run into it. Give back at most {max} days, or sell the holder a new term.",
+  "err.FX8_EXTEND_NEXT_FOLLOWS": "This membership's next term {code} starts on {date}, straight after this one ends: no days can be given back without running into it.",
+  "err.FX8_MOVE_PAST_PASS": "This booking is paid with a pass that ends on {date}, before the day you chose. Pick an earlier day, or ask the venue to extend the pass.",
+  "err.FX8_PASS_REASON": "Say why the pass is being extended, in a few words.",
+  "err.FX8_PASS_VOID": "This pass has been cancelled, and a cancelled pass is not brought back.",
+  "err.FX8_PASS_DATE": "Give the day the pass should run until (YYYY-MM-DD), or how many days to add.",
+  "err.FX8_PASS_NOT_LATER": "The new end must be today or later, and after the pass's present end, {date}.",
+  "err.FX8_PASS_TOO_FAR": "A pass cannot run beyond {date}.",
+  "err.FX8_GRACE_RANGE": "Give whole days from 0 to {max}; 0 turns it off.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -6198,7 +6217,7 @@ const MS: Record<Phrase, string> = {
   "msg.lesson": "{court}, kelas dengan {coach}",
   "msg.offerSubject": "Ada tempat kosong — {venue}",
   "msg.offer":
-    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda selama 30 minit, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {link} selagi ia milik anda.",
+    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda selama {minutes} minit, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {link} selagi ia milik anda.",
   "msg.enrolledSubject": "Berdaftar dalam {what} — {venue}",
   "msg.enrolled":
     "Hai {name}, anda telah berdaftar dalam {what} bersama {instructor}.\n\nKod: {code}\n{venue}\n{when}\nJumlah: {total}\n\nTunjukkan kod ini di kaunter hadapan.",
@@ -10231,6 +10250,25 @@ const MS: Record<Phrase, string> = {
   "fx11.has.membership": "keahlian",
   "fx11.has.credit": "kredit simpanan",
   "err.FX11_SUSPENDED": "{venue} tidak tersedia di {site} buat masa ini, jadi pas, keahlian dan kredit tidak boleh dibeli untuknya. Tempahan yang telah dibuat kekal.",
+  "fx2.msg.offerLapsedSubject": "Tawaran senarai menunggu anda telah tamat — {venue}",
+  "fx2.msg.offerLapsed": "Hai {name}, tempat yang ditawarkan kepada anda untuk {what} di {venue}, {date} {from}, tidak diambil dalam masa yang diberi, jadi ia telah diberikan kepada orang seterusnya dalam senarai. Anda tidak lagi dalam senarai menunggu untuknya. Jika ia masih penuh, anda boleh menyertai senarai itu semula.",
+  "fx2.msg.classOffWaitSubject": "Kelas dibatalkan — {venue}",
+  "fx2.msg.classOffWait": "Hai {name}, {what} di {venue}, {date} {from}, telah dibatalkan, jadi senarai menunggunya ditutup dan anda tidak lagi berada di dalamnya. Maaf atas perubahan ini.",
+  "fx2.msg.coachClassOffSubject": "Kelas dibatalkan — {venue}",
+  "fx2.msg.coachClassOff": "Hai {name}, {class} di {venue}, {date}, {time} ({court}) telah dibatalkan. Ia tidak lagi ada dalam jadual anda.",
+  "fx2.msg.coachClassGainedSubject": "Satu kelas kini milik anda — {venue}",
+  "fx2.msg.coachClassGained": "Hai {name}, anda kini mengajar {class} di {venue}: {n} sesi, yang pertama pada {date}, {time} ({court}). Ia ada dalam jadual anda.",
+  "fx2.msg.coachClassLostSubject": "Satu kelas bukan lagi milik anda — {venue}",
+  "fx2.msg.coachClassLost": "Hai {name}, anda tidak lagi mengajar {class} di {venue}: {n} sesi, yang pertama pada {date}, {time} ({court}). Ia telah dikeluarkan daripada jadual anda.",
+  "err.FX8_EXTEND_INTO_NEXT": "Penggal seterusnya keahlian ini, {code}, bermula pada {date}: memulangkan hari sebanyak itu akan bertindih dengannya. Pulangkan paling banyak {max} hari, atau jual penggal baharu kepada pemegangnya.",
+  "err.FX8_EXTEND_NEXT_FOLLOWS": "Penggal seterusnya keahlian ini, {code}, bermula pada {date}, terus selepas yang ini tamat: tiada hari boleh dipulangkan tanpa bertindih dengannya.",
+  "err.FX8_MOVE_PAST_PASS": "Tempahan ini dibayar dengan pas yang tamat pada {date}, sebelum hari yang anda pilih. Pilih hari yang lebih awal, atau minta pusat melanjutkan pas itu.",
+  "err.FX8_PASS_REASON": "Nyatakan sebab pas ini dilanjutkan, dalam beberapa perkataan.",
+  "err.FX8_PASS_VOID": "Pas ini telah dibatalkan, dan pas yang dibatalkan tidak dihidupkan semula.",
+  "err.FX8_PASS_DATE": "Berikan hari pas itu patut sah sehingga (YYYY-MM-DD), atau berapa hari untuk ditambah.",
+  "err.FX8_PASS_NOT_LATER": "Tarikh tamat baharu mestilah hari ini atau lebih lewat, dan selepas tarikh tamat pas sekarang, {date}.",
+  "err.FX8_PASS_TOO_FAR": "Pas tidak boleh sah melepasi {date}.",
+  "err.FX8_GRACE_RANGE": "Berikan bilangan hari penuh dari 0 hingga {max}; 0 mematikannya.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

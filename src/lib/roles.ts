@@ -90,6 +90,9 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/tournaments\/\d+\/day$/, methods: ["POST"] },
   { path: /^\/api\/admin\/(memberships|passes|promos|vouchers|counter-sales)\/\d+\/void$/, methods: ["POST"] },
   { path: /^\/api\/admin\/memberships\/\d+\/extend$/, methods: ["POST"] },
+  // Extending a pass's end, with a reason, and the days an ended pass is extended by when entries are given back to it (lib/pass-validity.ts).
+  { path: /^\/api\/admin\/passes\/\d+\/extend$/, methods: ["POST"] },
+  { path: /^\/api\/admin\/pass-settings$/, methods: ["POST"] },
   // Correcting a person entered wrongly on a membership, with a reason (lib/membership-purchases.ts correctCover).
   { path: /^\/api\/admin\/memberships\/\d+\/covers$/, methods: ["POST"] },
   // Suspending a membership and reactivating it take away and give back what was paid for, as voiding and giving
@@ -243,6 +246,8 @@ export const STAFF_ACTIONS = {
   rosterDecide: "POST /api/admin/roster/uncovered",
   // Credit & passes
   passVoid: "POST /api/admin/passes/1/void",
+  passExtend: "POST /api/admin/passes/1/extend",
+  passSettings: "POST /api/admin/pass-settings",
   passProducts: "POST /api/admin/pass-products",
   membershipVoid: "POST /api/admin/memberships/1/void",
   membershipExtend: "POST /api/admin/memberships/1/extend",

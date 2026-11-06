@@ -751,11 +751,19 @@ export interface WaitlistEntry {
 }
 
 /**
- * How long someone gets to claim a place before it passes to the next. The
- * offer message says "30 minutes" in so many words (msg.offer, and its
- * WhatsApp template): change them together.
+ * How long someone gets to claim a place before it passes to the next, where
+ * the venue has not chosen (`venues.waitlist_offer_minutes`, lib/holds.ts
+ * `holdPolicy`; ADR 0060), and what an offer made before that setting existed
+ * was given. An offer is never longer than the time left to the start of what
+ * it is for, and the offer message says how many minutes this one has
+ * (`{minutes}` in msg.offer and its WhatsApp template).
  */
 export const WAITLIST_OFFER_MINUTES = 30;
+
+/** An offer with fewer minutes than this left to the start is not made: it goes to nobody, and the place is left to the desk. */
+export const WAITLIST_OFFER_LEAST_MINUTES = 5;
+/** The venue's own offer window may be this long at most. */
+export const WAITLIST_OFFER_MOST_MINUTES = 120;
 
 /**
  * One column of the booking board: `grid` minutes from `minute`. The board

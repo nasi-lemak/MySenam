@@ -1009,4 +1009,5 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Give the date it is paid by, as YYYY-MM-DD.": { ms: "Berikan tarikh akhir bayaran, dalam bentuk YYYY-MM-DD.", zh: "请给出付款截止日期，格式为 YYYY-MM-DD。" },
   "The date must be after today.": { ms: "Tarikh mestilah selepas hari ini.", zh: "日期必须晚于今天。" },
   "At most 90 days at a time.": { ms: "Paling lama 90 hari pada satu masa.", zh: "每次最多 90 天。" },
+  "Hold a waiting-list offer for 5 to 120 minutes.": { ms: "Tahan tawaran senarai menunggu selama 5 hingga 120 minit.", zh: "候补名额的提供时间须为 5 至 120 分钟。" },
 };

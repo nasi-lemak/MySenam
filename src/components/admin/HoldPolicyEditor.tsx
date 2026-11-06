@@ -15,6 +15,7 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
   const [policy, setPolicy] = useState<HoldPolicy | null>(null);
   const [minutes, setMinutes] = useState("15");
   const [deposit, setDeposit] = useState("");
+  const [offer, setOffer] = useState("30");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,6 +29,7 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
         setPolicy(d.policy);
         setMinutes(String(d.policy.minutes));
         setDeposit(d.policy.depositPercent ? String(d.policy.depositPercent) : "");
+        setOffer(String(d.policy.offerMinutes));
       });
   }, [venueId, canPayOnline]);
 
@@ -51,6 +53,30 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
             : t("hold.nowHeld", { minutes: data.policy.minutes })
           : t("hold.nowOff")
       );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("hold.couldNotSave"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** The waiting-list offer window alone: holds are left as they are. */
+  async function saveOffer() {
+    if (!policy) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/hold-policy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, on: policy.on, minutes: policy.minutes, offerMinutes: Number(offer) }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("hold.couldNotSave")));
+      setPolicy(data.policy);
+      setOffer(String(data.policy.offerMinutes));
+      setNotice(t("hold.offerSaved", { minutes: data.policy.offerMinutes }));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("hold.couldNotSave"));
     } finally {
@@ -110,6 +136,27 @@ export function HoldPolicyEditor({ venueId, canPayOnline }: { venueId: number; c
         <span className={`text-xs font-semibold ${policy.active ? "text-emerald-700" : "text-slate-500"}`}>
           {policy.active ? t("hold.statusOn") : policy.on ? t("hold.statusNoPay") : t("hold.statusOff")}
         </span>
+      </div>
+      <div className="mt-4 border-t border-slate-100 pt-3">
+        <h4 className="text-xs font-semibold">{t("hold.offerTitle")}</h4>
+        <p className="mt-1 text-xs text-slate-500">{t("hold.offerIntro")}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2">
+            {t("hold.offerFor")}
+            <input
+              type="number"
+              min={5}
+              max={120}
+              value={offer}
+              onChange={(e) => setOffer(e.target.value)}
+              className="w-16 rounded-md border border-slate-300 px-2 py-1"
+            />
+            {t("hold.minutes")}
+          </label>
+          <button disabled={busy} onClick={saveOffer} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold">
+            {t("c.save")}
+          </button>
+        </div>
       </div>
       {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
       {notice && <p className="mt-2 text-sm font-medium text-emerald-700">{notice}</p>}

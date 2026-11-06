@@ -304,8 +304,10 @@ export async function setReviewRequests(venueId: number, on: boolean): Promise<v
 
 /**
  * The day after: one email asking a customer how it was, after a booking
- * that went ahead, the first time they play at a venue that asks. Never again
- * for that venue, whether they answer or not. By email only.
+ * that went ahead (one `reviewable` accepts: paid, or attendance verified), the
+ * first time they play at a venue that asks. Never again for that venue, whether
+ * they answer or not; a booking the link would refuse is not asked about and
+ * does not use the invitation up. By email only.
  */
 export async function askForReviews(now = new Date()): Promise<number> {
   const from = new Date(now.getTime() - 3 * 86_400_000).toISOString().slice(0, 10);
@@ -341,6 +343,10 @@ export async function askForReviews(now = new Date()): Promise<number> {
     const ended = slotStartsAt(r.date, hoursOf(r.end_min), await zoneOf(r.venue_id)).getTime();
     // A couple of hours after, so it is not in the middle of getting changed.
     if (now.getTime() - ended < 2 * 3_600_000 || now.getTime() - ended > 72 * 3_600_000) continue;
+    // Only a booking the link will accept is asked about: the same question `writeReview` asks (paid, or attendance verified,
+    // ADR 0058). One it would refuse neither gets an email nor spends the one invitation for this number: a later, played
+    // booking is still asked about (ADR 0062).
+    if (!(await reviewable(r.code, now)).ok) continue;
     seen.add(key);
     const locale: Locale = r.locale && isLocale(r.locale) ? r.locale : "en";
     await enqueue({
