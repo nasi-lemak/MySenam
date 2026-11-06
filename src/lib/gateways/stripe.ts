@@ -334,6 +334,21 @@ export const stripe: PaymentGateway = {
     }
   },
 
+  async pauseSubscription(account, subscriptionId, paused) {
+    try {
+      // Paused: invoices made meanwhile are voided, so nothing is charged and nothing is owed afterwards for the time paused; the
+      // billing dates themselves do not move. Resumed: the field is cleared (Stripe takes an empty value as unsetting it).
+      const form = new URLSearchParams(paused ? { "pause_collection[behavior]": "void" } : { pause_collection: "" });
+      await call<Subscription>(account, "POST", `/subscriptions/${encodeURIComponent(subscriptionId)}`, form);
+      return null;
+    } catch (err) {
+      if (err instanceof StripeError && err.status === 404) return null; // already gone
+      if (err instanceof StripeError && err.status === 403)
+        return "The venue's Stripe key cannot change subscriptions. Edit the restricted key in Stripe and set Subscriptions to Write.";
+      return err instanceof Error ? err.message : "Stripe could not be reached. Try again.";
+    }
+  },
+
   readCallback(body, headers): Inbound {
     let event: { type?: string; created?: number; data?: { object?: Session & { object?: string } } } | null = null;
     try {

@@ -6,6 +6,7 @@ import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
 import { searchVouchers, sellVoucher, VOUCHER_LIST_STATUSES, voucherPath } from "@/lib/vouchers";
 import { asStaff } from "@/lib/acting-staff";
 import { readListQuery } from "@/lib/list-search";
+import { counterSaleRefusal } from "@/lib/suspensions";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,9 @@ export async function POST(req: NextRequest) {
   const venueId = body.venueId as number;
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
+  // A voucher is stored value: not sold at a venue that is suspended or held for an invoice (lib/suspensions.ts).
+  const suspended = await counterSaleRefusal(venueId);
+  if (suspended) return NextResponse.json(suspended, { status: 409 });
   const text = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : null);
   const via = COUNTER_METHODS.includes(body.via as CounterMethod) ? (body.via as CounterMethod) : null;
   // As the member of staff selling it, so its receipt says who took the money (lib/acting-staff.ts).

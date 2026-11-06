@@ -8,6 +8,7 @@ import { COUNTER_METHODS, MAX_TOP_UP, PAID_VIA_LABELS, type CounterMethod } from
 import { asStaff } from "@/lib/acting-staff";
 import { logAction } from "@/lib/activity";
 import { money, isAmount } from "@/lib/region";
+import { counterSaleRefusal } from "@/lib/suspensions";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `via must be one of ${COUNTER_METHODS.join(", ")}.` }, { status: 400 });
 
   const counter = venueId ?? counterFor(admin, askedVenue);
+  // Nothing new is sold at a venue that is suspended or held for an invoice (lib/suspensions.ts).
+  const suspended = await counterSaleRefusal(counter);
+  if (suspended) return NextResponse.json(suspended, { status: 409 });
   // As the member of staff selling it, so its receipt says who took the money (lib/acting-staff.ts).
   const result = await asStaff(admin, () =>
     topUpWallet({

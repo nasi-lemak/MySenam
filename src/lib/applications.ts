@@ -663,15 +663,12 @@ export async function requestGoLive(
     );
   const application = (await applicationById(row.id))!;
   const report = await locationReport(application);
-  const live = await businessIsLive(venue.business_id, venueId);
+  const standing = await businessStanding(venue.business_id, venueId);
+  const auto = process.env.MYSENAM_AUTO_APPROVE_BRANCHES === "on" && application.businessId !== null;
 
-  // On its own only when nothing about where it is needs a second look.
-  if (
-    process.env.MYSENAM_AUTO_APPROVE_BRANCHES === "on" &&
-    application.businessId !== null &&
-    live &&
-    report.warnings.length === 0
-  ) {
+  // On its own only when nothing about where it is needs a second look, and the business is in good standing: with a branch of it
+  // suspended or held for an invoice the owner decides, as for any request.
+  if (auto && standing.live && !standing.held && report.warnings.length === 0) {
     const approved = await approveApplication(row.id, admin.id, "auto");
     if (!approved.ok) return approved;
     await tellOwnersEach((t) => ({
@@ -685,7 +682,8 @@ export async function requestGoLive(
     const asked = staffSentences(
       t,
       application.forBusiness ? t("r9d.app.ask.branch", { ...who, business: application.forBusiness }) : t("r9d.app.ask.b", who),
-      application.emailCheck === "unsent" && t("r9d.app.unsent")
+      application.emailCheck === "unsent" && t("r9d.app.unsent"),
+      auto && standing.held && t("fx11.app.held")
     );
     const worth = report.phrases.length ? `${t("r9d.app.worth")}\n- ${report.phrases.map((p) => t.say(p)).join("\n- ")}\n\n` : "";
     return {
@@ -696,14 +694,21 @@ export async function requestGoLive(
   return { ok: true, live: false };
 }
 
-/** Whether any other venue of this business is live. */
-async function businessIsLive(businessId: number | null, besides: number): Promise<boolean> {
-  if (businessId === null) return false;
-  return (
-    (await getDb()
-      .prepare("SELECT 1 FROM venues WHERE business_id = ? AND id <> ? AND published_at IS NOT NULL")
-      .get(businessId, besides)) !== undefined
-  );
+/**
+ * Whether another venue of this business is live and open, and none of its other branches is off the marketplace (suspended by the owner
+ * or held for an unpaid invoice): a branch goes live on its own only for a business in good standing, which `held` says it is not
+ * (ADR 0063). A business that is itself suspended is refused earlier (`businessSuspension`).
+ */
+async function businessStanding(businessId: number | null, besides: number): Promise<{ live: boolean; held: boolean }> {
+  if (businessId === null) return { live: false, held: false };
+  const row = (await getDb()
+    .prepare(
+      `SELECT COUNT(*) FILTER (WHERE published_at IS NOT NULL AND suspended_at IS NULL)::int AS open,
+              COUNT(*) FILTER (WHERE suspended_at IS NOT NULL)::int AS held
+         FROM venues WHERE business_id = ? AND id <> ?`
+    )
+    .get(businessId, besides)) as { open: number; held: number };
+  return { live: row.open > 0, held: row.held > 0 };
 }
 
 /** A business's own branches, newest first, whatever state they are in. */

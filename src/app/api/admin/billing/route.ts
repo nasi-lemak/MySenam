@@ -14,7 +14,7 @@ import {
 } from "@/lib/billing";
 import { isMarketplace } from "@/lib/mode";
 import { planTiers, setPlanTiers, suggestedTiers, type PlanTier } from "@/lib/plans";
-import { applyPaymentHolds } from "@/lib/payment-holds";
+import { applyPaymentHolds, giveInvoiceGrace } from "@/lib/payment-holds";
 import { logAction } from "@/lib/activity";
 import { getDb } from "@/lib/db";
 import { money } from "@/lib/region";
@@ -55,8 +55,8 @@ export async function GET(req: NextRequest) {
   }
   return NextResponse.json({
     marketplace: true,
-    // A business manager sees every branch's invoices together.
-    invoices: await listInvoices(admin.venueIds ?? []),
+    // A business manager sees every branch's invoices together; the time the owner gave shows as a date, the owner's reason does not.
+    invoices: (await listInvoices(admin.venueIds ?? [])).map(({ graceReason: _reason, ...invoice }) => invoice),
     // What each of its venues is on, and why: the tiers are no secret.
     plans: await venuePlans(admin.venueIds ?? []),
     tiers: await planTiers(),
@@ -66,7 +66,9 @@ export async function GET(req: NextRequest) {
 
 /**
  * `{ action: "pay", invoiceId }` — the venue's own staff, or the owner.
- * `{ action: "markPaid" | "void", invoiceId }` and
+ * `{ action: "markPaid" | "void", invoiceId, reason }` and
+ * `{ action: "giveTime", invoiceId, until, reason }` (more time on an overdue invoice: the venue is not held for it until after
+ * `until`; `until: null` takes the time back) and
  * `{ action: "setPlan", venueId, monthlyFee, billingStartsOn }` and
  * `{ action: "setTiers", tiers: [{ name, upTo, monthlyFee }], extraEach }` and
  * `{ action: "refund", paymentId, how: "gateway" | "manual" }` (what is owed
@@ -117,6 +119,24 @@ export async function POST(req: NextRequest) {
       detail: `${inv.period} invoice ${inv.id}, ${money(inv.amount)}${inv.venueId === null ? " (business)" : ""}, ${input.action === "markPaid" ? "recorded as paid outside the app" : "voided, nothing is owed"}: ${reason}`,
     });
     return NextResponse.json({ invoice: result.invoice });
+  }
+
+  if (input.action === "giveTime") {
+    // More time on an overdue invoice, without calling it paid or voiding it: `until` (a date, at most 90 days ahead; null takes the time
+    // back) and a reason, kept on the invoice and in the activity log with the owner's name (ADR 0063).
+    if (!Number.isInteger(input.invoiceId)) return NextResponse.json({ error: "invoiceId is required." }, { status: 400 });
+    const until = input.until === null || input.until === "" || input.until === undefined ? null : String(input.until);
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    const given = await giveInvoiceGrace(input.invoiceId as number, { until, reason, by: admin.name });
+    if (!given.ok) return NextResponse.json({ error: given.error, ...(given.code ? { code: given.code } : {}) }, { status: given.error.startsWith("That invoice") ? 409 : 400 });
+    const inv = (await invoiceById(input.invoiceId as number))!;
+    await logAction(admin, {
+      venueId: inv.venueId,
+      businessId: inv.venueId === null ? inv.businessId : null,
+      action: "invoice.grace_given",
+      detail: `${inv.period} invoice ${inv.id}, ${money(inv.amount)}${inv.venueId === null ? " (business)" : ""}, ${until ? `more time until ${until}: still owed, not marked paid` : "the time given was taken back"}: ${reason}`,
+    });
+    return NextResponse.json({ invoice: inv });
   }
 
   if (input.action === "refund") {

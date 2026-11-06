@@ -15,6 +15,7 @@ import { todayISO } from "@/lib/time";
 import { isScope, PASS_SCOPES } from "@/lib/entitlements";
 import { selectionAtVenue } from "@/lib/participant-bookings";
 import { isRefusal } from "@/lib/participants";
+import { counterSaleRefusal } from "@/lib/suspensions";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId as number);
   if (denied) return denied;
+  // Nothing new is sold at a venue that is suspended or held for an invoice (lib/suspensions.ts).
+  const suspended = await counterSaleRefusal(venueId as number);
+  if (suspended) return NextResponse.json(suspended, { status: 409 });
 
   // From the venue's list: its terms and price, the term running from today.
   let product: PassProduct | null = null;

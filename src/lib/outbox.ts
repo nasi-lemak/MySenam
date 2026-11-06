@@ -115,7 +115,13 @@ export type MessageKind =
    * By email only, to a customer: what became of money they paid back for a booking (the refund was made, failed, is late, or is
    * the venue's to make by a date), once per change (lib/notify.ts `notifyRefundStates`). Urgent news: not held to the daily limit.
    */
-  | "refund_notice";
+  | "refund_notice"
+  /**
+   * By email only, to a customer with something at a venue that has just been taken off the marketplace (owner suspension or an
+   * overdue invoice): what stands, what waits and whom to ask, once per suspension (lib/suspension-notices.ts). Urgent news: not held
+   * to the daily limit.
+   */
+  | "venue_suspension_notice";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
@@ -127,12 +133,12 @@ const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_chang
 /**
  * The urgent news a customer must not miss, in one place: what the venue does to their booking (cancelled, moved, changed), the
  * offer of a place that is against the clock, a guardian's notice (`URGENT_KINDS`, lib/whatsapp-credit.ts, which also decides what
- * the platform pays for on WhatsApp), and what became of money paid back (`refund_notice`). The day's limit per recipient is there
+ * the platform pays for on WhatsApp), and what became of money paid back (`refund_notice`), and that a venue they hold something at has been taken off (`venue_suspension_notice`). The day's limit per recipient is there
  * so the site cannot be used to flood somebody's phone with bookings made under their number; it must never write one of these off,
  * because a busy day (reminders, campaigns from several venues, class changes) is exactly when a cancellation matters most.
  * They are held to a much higher ceiling of their own instead (`urgentPerRecipientPerDay`).
  */
-export const URGENT_NEWS_KINDS: readonly string[] = [...URGENT_KINDS, "refund_notice"];
+export const URGENT_NEWS_KINDS: readonly string[] = [...URGENT_KINDS, "refund_notice", "venue_suspension_notice"];
 
 /** The most urgent notices one address or number is sent in a day (MYSENAM_URGENT_PER_RECIPIENT_PER_DAY, default 30). */
 export function urgentPerRecipientPerDay(): number {

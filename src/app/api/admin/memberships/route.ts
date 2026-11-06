@@ -7,6 +7,7 @@ import { logAction } from "@/lib/activity";
 import { money } from "@/lib/region";
 import { selectionAtVenue } from "@/lib/participant-bookings";
 import { isRefusal } from "@/lib/participants";
+import { counterSaleRefusal } from "@/lib/suspensions";
 import { asStaff } from "@/lib/acting-staff";
 import { counterPrice, priceOverridesFor } from "@/lib/counter-prices";
 import { paidVia } from "@/lib/documents";
@@ -61,6 +62,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "venueId is required." }, { status: 400 });
   const denied = denyVenue(admin, venueId as number);
   if (denied) return denied;
+  // Nothing new is sold at a venue that is suspended or held for an invoice (lib/suspensions.ts).
+  const suspended = await counterSaleRefusal(venueId as number);
+  if (suspended) return NextResponse.json(suspended, { status: 409 });
 
   // On one of the venue's plans, for its benefits (a tier), its fee and its months: any plan offered here.
   let plan: MembershipPlan | null = null;

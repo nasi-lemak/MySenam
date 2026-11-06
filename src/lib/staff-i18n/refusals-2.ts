@@ -1003,5 +1003,11 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That suspension is not here, or nobody has asked for a review of it.": { ms: "Penggantungan itu tiada di sini, atau tiada sesiapa meminta semakannya.", zh: "没有这项暂停，或无人请求对其审核。" },
   "This tournament has not been drawn and its first day has passed: ask the venue.": { ms: "Pertandingan ini belum diundi dan hari pertamanya sudah berlalu: tanya pusat.", zh: "本赛事尚未抽签且首日已过：请询问场馆。" },
   "Entries closed on {0}, the first day.": { ms: "Penyertaan ditutup pada {0}, hari pertama.", zh: "报名已于首日 {0} 截止。" },
+  // Audit 9 (FX11): a suspended venue sells nothing new; a hold for payment is lifted by giving time
+  "This venue is suspended or held for an unpaid invoice: passes, memberships and credit are not sold until it is back.": { ms: "Pusat ini digantung atau ditahan kerana invois belum dibayar: pas, keahlian dan kredit tidak dijual sehingga ia kembali.", zh: "该场馆已被暂停，或因账单未付而被限制：在恢复之前不出售套票、会员资格和储值。" },
+  "That venue is held for an unpaid invoice. Give it time until a date, with a reason, or record the invoice as paid.": { ms: "Pusat itu ditahan kerana invois belum dibayar. Beri masa sehingga satu tarikh, dengan sebab, atau rekodkan invois itu sebagai dibayar.", zh: "该场馆因账单未付而被限制。请给予宽限至某一日期并写明原因，或将该账单记录为已付。" },
+  "Give the date it is paid by, as YYYY-MM-DD.": { ms: "Berikan tarikh akhir bayaran, dalam bentuk YYYY-MM-DD.", zh: "请给出付款截止日期，格式为 YYYY-MM-DD。" },
+  "The date must be after today.": { ms: "Tarikh mestilah selepas hari ini.", zh: "日期必须晚于今天。" },
+  "At most 90 days at a time.": { ms: "Paling lama 90 hari pada satu masa.", zh: "每次最多 90 天。" },
   "Hold a waiting-list offer for 5 to 120 minutes.": { ms: "Tahan tawaran senarai menunggu selama 5 hingga 120 minit.", zh: "候补名额的提供时间须为 5 至 120 分钟。" },
 };

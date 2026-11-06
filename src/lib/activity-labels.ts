@@ -351,6 +351,7 @@ export const ACTION_LABELS: Record<string, string> = {
   // Audit 9 (FX7): the platform owner's money and tenancy decisions
   "invoice.marked_paid": "Recorded a platform invoice as paid outside the app (platform)",
   "invoice.voided": "Voided a platform invoice: nothing is owed (platform)",
+  "invoice.grace_given": "Gave a platform invoice more time before its venue is held, or took that time back; the invoice stays owed (platform)",
   "plan.set": "Set a venue's monthly fee or billing start (platform)",
   "tiers.set": "Changed the platform's plans by size (platform)",
   "business.grouped": "Grouped venues into a business, or added branches to one (platform)",

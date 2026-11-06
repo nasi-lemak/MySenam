@@ -115,6 +115,10 @@ const en = {
   "r9d.wa.buy": "Buy more under {place} → WhatsApp at {url}.",
   // The kind of a message to customers, in the venue's list of messages (MessagesPanel)
   "r9d.msg.kindClassChanged": "Class changed",
+  // Audit 9 (FX11): time given on an overdue invoice, and a branch request held for a business not in good standing
+  "fx11.grace.s": "More time given on the invoice for {period}",
+  "fx11.grace.b": "The platform owner has given more time on the invoice for {period}, {amount}, covering {names}. It is still owed. If it is unpaid after {until}, {names} will be hidden from customers from {off} until it is paid. Bookings already made will stand.\n\nPay it under {place}.",
+  "fx11.app.held": "Another branch of this business is suspended or held for an unpaid invoice, so this one was not approved automatically.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -216,6 +220,9 @@ const ms: Record<keyof typeof en, string> = {
   "r9d.wa.low.b": "Hanya tinggal {n} mesej WhatsApp. Apabila habis, pengesahan dihantar melalui e-mel sahaja.",
   "r9d.wa.buy": "Beli lagi di bawah {place} → WhatsApp di {url}.",
   "r9d.msg.kindClassChanged": "Kelas diubah",
+  "fx11.grace.s": "Masa tambahan diberikan untuk invois {period}",
+  "fx11.grace.b": "Pemilik platform telah memberi masa tambahan untuk invois {period}, {amount}, yang meliputi {names}. Ia masih terhutang. Jika masih belum dibayar selepas {until}, {names} akan disembunyikan daripada pelanggan mulai {off} sehingga ia dibayar. Tempahan yang sudah dibuat akan kekal.\n\nBayar di bawah {place}.",
+  "fx11.app.held": "Cawangan lain perniagaan ini digantung atau ditahan kerana invois belum dibayar, jadi cawangan ini tidak diluluskan secara automatik.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -317,6 +324,9 @@ const zh: Record<keyof typeof en, string> = {
   "r9d.wa.low.b": "仅剩 {n} 条 WhatsApp 消息。用完后，确认只通过电邮发送。",
   "r9d.wa.buy": "请在 {url} 的 {place} → WhatsApp 中购买更多。",
   "r9d.msg.kindClassChanged": "课程已更改",
+  "fx11.grace.s": "{period} 的账单获得宽限",
+  "fx11.grace.b": "平台所有者已为 {period} 的账单 {amount}（涵盖 {names}）给予宽限。款项仍然未付。如果到 {until} 之后仍未付款，{names} 将从 {off} 起对顾客隐藏，直到付清为止。已有的预订仍然有效。\n\n请在 {place} 中付款。",
+  "fx11.app.held": "该企业的另一家分店已被暂停，或因账单未付而被限制，因此这家分店没有被自动批准。",
 };
 
 const area = { en, ms, zh };

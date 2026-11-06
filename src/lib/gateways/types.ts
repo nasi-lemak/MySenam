@@ -230,6 +230,13 @@ export interface PaymentGateway {
   pageExpiry?: { minMinutes: number; maxMinutes: number };
   /** Stop a subscription: why it could not be, or null. */
   cancelSubscription?(account: GatewayAccount, subscriptionId: string): Promise<string | null>;
+  /**
+   * Pause a subscription's charges (`paused: true`) or let them carry on (`false`): why it could not be, or null. While paused nothing is
+   * charged and nothing is billed afterwards for the time it was paused (Stripe's `pause_collection` with behaviour `void`). Used while
+   * the venue that sold the membership is suspended (lib/payments.ts `reconcileRenewalPauses`, ADR 0063). Left out where the gateway
+   * cannot: its renewals are then charged as before, and the owner is told.
+   */
+  pauseSubscription?(account: GatewayAccount, subscriptionId: string, paused: boolean): Promise<string | null>;
   /** The platform's own account (venue fees, WhatsApp packs) from the environment. */
   platformAccount(env: NodeJS.ProcessEnv): GatewayAccount | null;
   /** The page a payment was made on, from the gateway's id for the payment (for a dispute). */

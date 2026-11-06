@@ -55,6 +55,9 @@ export interface Invoice {
   paidAt: string | null;
   paidVia: "online" | "manual" | null;
   overdue: boolean;
+  /** Time the owner gave: not held for this invoice until after this date (null: none). The reason is the owner's to read, never shown to the venue. */
+  graceUntil: string | null;
+  graceReason?: string | null;
 }
 
 interface InvoiceRow {
@@ -69,6 +72,8 @@ interface InvoiceRow {
   due_on: string;
   paid_at: string | null;
   paid_via: "online" | "manual" | null;
+  billing_grace_until?: string | null;
+  billing_grace_reason?: string | null;
   plan_name: string | null;
   resources: number | null;
   tax_amount?: number | string | null;
@@ -105,6 +110,8 @@ function toInvoice(r: InvoiceRow, lines: Invoice["lines"] = [], now = new Date()
     planName: r.plan_name ?? null,
     resources: r.resources ?? null,
     overdue: r.status === "due" && r.due_on < today(now),
+    graceUntil: r.status === "due" ? (r.billing_grace_until ?? null) : null,
+    graceReason: r.status === "due" ? (r.billing_grace_reason ?? null) : null,
   };
 }
 

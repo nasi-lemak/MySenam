@@ -254,6 +254,12 @@ const en = {
   "r10a.test.owedNote": "Money taken at the counter is owed back: it is on the day list until a named person hands it back or gives it as credit.",
   "fx7.bill.paidReason": "Why is {venue}'s {period} invoice being recorded as paid outside the app? Your answer is kept in the activity log with your name.",
   "fx7.bill.voidReason": "Why is {venue}'s {period} invoice being voided? Nothing will be owed on it. Your answer is kept in the activity log with your name.",
+  // Audit 9 (FX11): more time on an overdue invoice
+  "fx11.bill.giveTime": "Give time",
+  "fx11.bill.timeDate": "Give {venue}'s {period} invoice more time: until which date (YYYY-MM-DD, at most 90 days ahead)? Leave empty to take time already given back.",
+  "fx11.bill.timeReason": "Why? It is kept in the staff activity log with your name. The invoice stays owed, and is not marked paid:",
+  "fx11.bill.timeGiven": "Done. The venue is not held for this invoice until after that date.",
+  "fx11.bill.graceUntil": "Time given until {date}",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -505,6 +511,11 @@ const ms: Record<keyof typeof en, string> = {
   "r10a.test.owedNote": "Wang yang diterima di kaunter perlu dipulangkan: ia ada dalam senarai hari sehingga seseorang yang bernama memulangkannya atau memberinya sebagai kredit.",
   "fx7.bill.paidReason": "Mengapakah invois {period} bagi {venue} direkodkan sebagai telah dibayar di luar aplikasi? Jawapan anda disimpan dalam log aktiviti bersama nama anda.",
   "fx7.bill.voidReason": "Mengapakah invois {period} bagi {venue} dibatalkan? Tiada bayaran akan terhutang. Jawapan anda disimpan dalam log aktiviti bersama nama anda.",
+  "fx11.bill.giveTime": "Beri masa",
+  "fx11.bill.timeDate": "Beri invois {period} untuk {venue} lebih masa: sehingga tarikh bila (YYYY-MM-DD, paling lama 90 hari)? Biarkan kosong untuk menarik balik masa yang telah diberi.",
+  "fx11.bill.timeReason": "Kenapa? Ia disimpan dalam log aktiviti kakitangan dengan nama anda. Invois kekal terhutang, dan tidak ditandakan sebagai dibayar:",
+  "fx11.bill.timeGiven": "Selesai. Pusat tidak ditahan kerana invois ini sehingga selepas tarikh itu.",
+  "fx11.bill.graceUntil": "Masa diberi sehingga {date}",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -756,6 +767,11 @@ const zh: Record<keyof typeof en, string> = {
   "r10a.test.owedNote": "在柜台收取的款项需要退还：在指定人员退还或以储值退还之前，它会一直列在当日清单中。",
   "fx7.bill.paidReason": "为什么要将 {venue} 的 {period} 发票记为已在应用外付款？您的回答会连同您的姓名一并记入活动日志。",
   "fx7.bill.voidReason": "为什么要作废 {venue} 的 {period} 发票？之后无需再付款。您的回答会连同您的姓名一并记入活动日志。",
+  "fx11.bill.giveTime": "给予宽限",
+  "fx11.bill.timeDate": "给 {venue} 的 {period} 账单更多时间：到哪一天（YYYY-MM-DD，最多 90 天）？留空则收回已给予的宽限。",
+  "fx11.bill.timeReason": "原因？它会连同您的姓名记入员工操作日志。账单仍然未付，也不会标记为已付：",
+  "fx11.bill.timeGiven": "已完成。到该日期结束为止，不会因这张账单而限制该场馆。",
+  "fx11.bill.graceUntil": "宽限至 {date}",
 };
 
 const area = { en, ms, zh };

@@ -74,6 +74,25 @@ independent venues, players booking across them.
   cannot add a branch or send one live. Only the owner lifts a suspension:
   paying an invoice does not, and lifting one on a venue that still owes
   leaves it off for that (`src/lib/suspensions.ts`).
+- **What a suspension, or a hold for an invoice, does for customers**
+  ([ADR 0063](../architecture/decisions/0063-a-suspended-venue-tells-its-customers-sells-nothing-new-and-an-overdue-one-can-be-given-time.md)).
+  Customers with an upcoming booking, class or lesson, a pass, a membership or stored credit there are
+  emailed once ([messaging](../integrations/messaging.md#a-venue-taken-off-the-marketplace)); bookings stand and
+  can be cancelled and refunded as usual. Nothing new is sold: passes, memberships, credit and gift
+  vouchers are refused at the counter and online until it is back. A membership that renews itself is
+  paused at the gateway meanwhile (nothing is charged for the time) and carried on after; this is built and
+  tested against a fake Stripe only, and not verified against the real one. **Not built, and the owner's
+  to decide:** pausing or extending pass and membership validity for the time off (a manager can extend a
+  membership by hand), and closing or leaving a venue for good, with what customers hold refunded.
+- **The owner can give an overdue venue time** without marking an invoice paid or voiding it: *Give time*
+  on an unpaid invoice (*Billing*), with a date (at most 90 days ahead) and a reason. The invoice stays
+  owed and as issued; the venue is not held for it until after the date, and its managers are emailed the
+  date. A venue already held comes back at once; lifting a hold for payment on the venue is the same act
+  (a date and a reason are needed). Both are in the staff activity log. A venue given time is not sent
+  the overdue warning for that invoice.
+- **A branch is not approved on its own** (`MYSENAM_AUTO_APPROVE_BRANCHES`) under a business with a branch
+  suspended or held for an invoice, or with no branch live and open: the request goes to the owner, whose
+  email says why.
 - **Terms** live at `/terms`, for players and, on a marketplace, for venues.
   They are a starting draft written to match what the software does — who
   holds the money, who refunds it, whose credit is whose — and **not legal

@@ -332,6 +332,7 @@ const en = {
   "fx7.act.venueApproved": "Approved an application to list a venue (platform)",
   "fx7.act.venueRejected": "Refused an application to list a venue (platform)",
   "fx7.act.venueAdded": "Added a venue (platform)",
+  "fx11.act.graceGiven": "Gave a platform invoice more time before its venue is held, or took that time back; the invoice stays owed (platform)",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -661,6 +662,7 @@ const ms: Record<keyof typeof en, string> = {
   "fx7.act.venueApproved": "Meluluskan permohonan untuk menyenaraikan sebuah pusat (platform)",
   "fx7.act.venueRejected": "Menolak permohonan untuk menyenaraikan sebuah pusat (platform)",
   "fx7.act.venueAdded": "Menambah sebuah pusat (platform)",
+  "fx11.act.graceGiven": "Memberi invois platform lebih masa sebelum pusatnya ditahan, atau menarik balik masa itu; invois kekal terhutang (platform)",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -990,6 +992,7 @@ const zh: Record<keyof typeof en, string> = {
   "fx7.act.venueApproved": "批准了上架场馆的申请（平台）",
   "fx7.act.venueRejected": "拒绝了上架场馆的申请（平台）",
   "fx7.act.venueAdded": "新增了一个场馆（平台）",
+  "fx11.act.graceGiven": "为平台账单给予更多时间，暂缓限制其场馆，或收回该宽限；账单仍然未付（平台）",
 };
 
 const area = { en, ms, zh };
