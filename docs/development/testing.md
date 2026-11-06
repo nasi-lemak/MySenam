@@ -903,6 +903,37 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 6 November 2026, commit `3626098` (the business-process audit: findings and fixes)
+
+An independent audit of the business processes (baseline `2aabdd4`; eight auditors, read-only, with scratch repro tests; records in
+[audits](../audits/index.md)) and the fixes for its verified defects, built by eleven workers and merged (migrations 0295, 0297, 0299-0301, 0303-0309, 0311; ADRs 0053-0063): closures that write the closure first and leave played
+classes and bookings alone, class cancel and draw races, weekly series checked week by week, credit and pass payment decided under the booking's lock, money paid never above the price, no silent price, reports that reconcile with the journal,
+outbox reliability (outages, urgent news, reminders, refund and invoice notices), customer lookups bounded to a venue, secrets masked, owner actions logged, erasure of payers, safety flags and self check-in, counter fees owed back,
+waitlist offers per time, company-account part credits and cash-up counts, pass restore and session-date validity, and suspension notices. Not a launch. Run on one cloud container, Node 22, by hand.
+
+| Check | Result |
+| ----- | ------ |
+| Type-check, lint (`--max-warnings 0`) | Passed on `3626098` |
+| Documentation checks (`npm run docs:check`) | 143 passed on `3626098`; 157 passed after the audit documents were merged |
+| Build (`npm run build`) | **Failed at first**: the type-check ran out of memory at Node's default 2 GB heap; passed with a 4 GB heap, which `npm run build` and the Dockerfile now set |
+| End-to-end tests against that build | 3 files; 12 passed |
+| Acceptance scenarios against that build (`npm run uat`) | 27 files; 94 of 95 passed (one failure below) |
+| Suite on PGlite | 538 files (3 skipped); 6465 passed, 12 skipped, 5 failed (below) |
+| Suite on Postgres 16 (`TEST_DATABASE_URL`, local server) | 538 files; 6475 passed, 7 failed (below), one unhandled `ECONNRESET` |
+| CI | Not run (deferred) |
+| Real services | None checked |
+
+Every failure was in a test, not in the audited behaviour, and is corrected in the commits after this one. The acceptance failure (*Guide I*) clicked "Save" in the Online payment section, where a second Save button now
+exists (the waiting-list offer window, ADR 0060); it now picks the gateway form's button, and the whole file passed alone (3 tests). On both engines, four tests of `tests/components/counter-money.test.tsx` used a cash-up fixture without the new
+`expected` and `counts` fields (ADR 0061), and `tests/activity-log-coverage.test.ts` took a hire deposit without a payment method, which is now required; both were corrected and passed. On Postgres only, `tests/accounting-push.test.ts` (a
+race between two token refreshes) and `tests/guide-setup-ui.test.tsx` (a one-off timing under load) passed alone (75 tests). The unhandled `ECONNRESET` is the migration lock's release in one worker, as in earlier records. Before the full
+run, a test of the liabilities block depended on the time of day (it books for today at 14:00 and failed after 14:00 Malaysian time) and was corrected. After the corrections no second full run was made. Each fix worker ran its own new and affected
+tests on PGlite and, for races and money, on Postgres, with the results in its ADR and the register's status column; those runs are not CI.
+
+Gaps: no live integration has passed its check (the Stripe `pause_collection`, the changed WhatsApp waitlist template, MyInvois late consolidation and retry, Billplz refunds by hand); 33 audit findings remain open and 20 await an owner decision
+([findings register](../audits/findings-register-2026-11-06.md), [remediation roadmap](../audits/remediation-roadmap-2026-11-06.md), [decisions](../audits/business-decisions-2026-11-06.md)); no browser scenario covers the new safety flags,
+suspension notices, company-account overdue block or cash-up counts; the Malay, Chinese and Tamil of everything added is machine-assisted and awaits native review.
+
 #### 5 November 2026, commit `bd47dbc` (the owner's three remaining decisions)
 
 The owner's three decisions, built by two workers and the lead: ladder counter-proposals (the counter-proposer's agreement counts, a stale or superseded

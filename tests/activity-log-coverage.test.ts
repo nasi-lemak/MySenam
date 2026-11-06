@@ -134,8 +134,8 @@ describe("the activity log", () => {
     const booking = await createBooking({ courtId: fleet.id, date, hours: [12], name: "Paddler Log", phone: "0162220099" });
     vi.setSystemTime(new Date(`${date}T12:15:00+08:00`));
     if (!booking.ok) throw new Error(booking.error);
-    const out = await call(hire.POST as Handler, "/api/admin/hire", "POST", { code: booking.booking.code, action: "take" }, deskCookie);
-    expect(out.status).toBe(200);
+    const out = await call(hire.POST as Handler, "/api/admin/hire", "POST", { code: booking.booking.code, action: "take", via: "cash" }, deskCookie);
+    expect(out.status, JSON.stringify(await out.clone().json())).toBe(200);
     const back = await call(hire.POST as Handler, "/api/admin/hire", "POST", { code: booking.booking.code, action: "return", condition: "damaged", withheld: 20, note: "Cracked paddle", via: "cash" }, deskCookie);
     expect(back.status, JSON.stringify(await back.clone().json())).toBe(200);
     const log = await listActivity([venueId], { bookingCode: booking.booking.code });

@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.npm \
 FROM deps AS build
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npx next build
+RUN NODE_OPTIONS=--max-old-space-size=4096 npx next build
 
 # ---- what runs: production dependencies, the build, migrations and scripts
 FROM ${NODE_IMAGE} AS runtime

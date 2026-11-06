@@ -6,7 +6,7 @@
   "description": "MySenam - online booking for badminton, tennis, pickleball and futsal courts, gyms, pools and classes",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",

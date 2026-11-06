@@ -40,6 +40,8 @@ const cashUp = (scope: "own" | "all") => ({
   ],
   totals: { taken: 200, givenBack: 120, net: 80 },
   test: withTests ? TEST_BLOCK : NO_TESTS,
+  expected: [],
+  counts: [],
   entries: [
     { at: "2026-10-28T02:00:00.000Z", number: "R-000001", type: "Receipt", customer: "Cara", description: "", category: "Stored credit", method: "cash", gross: 50, staffName: "Dee Desk" },
     { at: "2026-10-28T03:00:00.000Z", number: "CN-000001", type: "Credit note", customer: "Pat", description: "", category: "Passes", method: "qr", gross: -120, staffName: "Mo Manager" },

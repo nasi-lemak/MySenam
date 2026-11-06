@@ -13,6 +13,12 @@ DATABASE_URL=postgres://mysenam:…@127.0.0.1:5432/mysenam npm start
                    # listens on 3000; put a TLS-terminating proxy in front
 ```
 
+The build's type-check needs more than Node's default heap (about 2 GB, which
+the build ran out of on 6 November 2026): `npm run build` and the Dockerfile
+raise it to 4 GB (`--max-old-space-size=4096`). Build where there is memory for
+that (a development machine or CI, or a Droplet with swap), not on a small
+Droplet that is also serving customers.
+
 The schema is created on the first database query after a start, and moved
 on by every later start: the
 files in `db/migrations` are applied in order, each once, under a lock, so two
