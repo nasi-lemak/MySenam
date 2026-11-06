@@ -334,6 +334,11 @@ export function rememberUntil(choice: Remember, today = todayISO()): string | nu
  * Staff have looked. Seen: it stands, and is remembered for the time chosen.
  * Not shown: the full price, added to what is owed, or, already paid, sold at
  * the counter for the difference (`via` says how it was paid then).
+ *
+ * The outcome is decided once, under the booking's row lock (ADR 0062): a
+ * double click, a second desk or a retry reads what the first one left. The
+ * full price is charged back once, never twice; and a proof marked seen stays
+ * seen (a later "no proof" is refused: a manager reverses it by hand).
  */
 export async function checkConcession(input: {
   bookingId: number;
@@ -349,51 +354,56 @@ export async function checkConcession(input: {
   const court = booking ? await getCourt(booking.courtId) : null;
   if (!booking || !court || (input.venueIds && !input.venueIds.includes(court.venueId))) return { ok: false, error: "Booking not found." };
   if (input.placeBenefitId !== undefined && input.placeBenefitId !== null) return checkPlaceConcession(booking, court.venueId, input);
-  const row = (await getDb().prepare("SELECT concession_id, concession_off, concession_check FROM bookings WHERE id = ?").get(booking.id)) as {
-    concession_id: number | null;
-    concession_off: number | string;
-    concession_check: ConcessionCheck | null;
-  };
-  if (row.concession_check === null) return { ok: false, error: "This booking has no concession price." };
-  if (row.concession_check === "refused") return { ok: false, error: "The full price is already charged on this one." };
+  if (input.outcome !== "seen" && input.outcome !== "refused") return { ok: false, error: "Say whether the proof was seen." };
   const db = getDb();
-  if (input.outcome === "seen") {
-    const remember = (REMEMBER as readonly string[]).includes(input.remember as string) ? (input.remember as Remember) : "visit";
-    const until = rememberUntil(remember);
-    await db.prepare("UPDATE bookings SET concession_check = 'seen' WHERE id = ?").run(booking.id);
-    if (until && row.concession_id !== null && isValidDateString(until))
-      await db
-        .prepare(
-          `INSERT INTO concession_proofs (venue_id, phone_key, concession_id, seen_by, seen_on, valid_until) VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT (venue_id, phone_key, concession_id) DO UPDATE SET seen_by = excluded.seen_by, seen_on = excluded.seen_on, valid_until = excluded.valid_until`
-        )
-        .run(court.venueId, phoneKey(booking.phone), row.concession_id, input.adminId, todayISO(), until);
-    return { ok: true, booking: (await bookingById(booking.id))!, charged: 0 };
-  }
-  if (input.outcome !== "refused") return { ok: false, error: "Say whether the proof was seen." };
-  const off = Number(row.concession_off);
-  if (booking.status === "confirmed" && booking.paymentStatus === "unpaid") {
-    await withTransaction(async () => {
-      await db
-        .prepare("UPDATE bookings SET total_price = total_price + ?, concession_check = 'refused' WHERE id = ?")
-        .run(off, booking.id);
+  return withTransaction(async () => {
+    // Read under the booking's row lock, as the concession was put on it: what is decided here is decided once.
+    const row = (await db
+      .prepare("SELECT status, payment_status, concession_id, concession_off, concession_check FROM bookings WHERE id = ? FOR UPDATE")
+      .get(booking.id)) as {
+      status: string;
+      payment_status: string;
+      concession_id: number | null;
+      concession_off: number | string;
+      concession_check: ConcessionCheck | null;
+    };
+    if (row.concession_check === null) return { ok: false as const, error: "This booking has no concession price." };
+    if (row.concession_check === "refused") return { ok: false as const, error: "The full price is already charged on this one." };
+    if (input.outcome === "seen") {
+      const remember = (REMEMBER as readonly string[]).includes(input.remember as string) ? (input.remember as Remember) : "visit";
+      const until = rememberUntil(remember);
+      await db.prepare("UPDATE bookings SET concession_check = 'seen' WHERE id = ? AND concession_check <> 'refused'").run(booking.id);
+      if (until && row.concession_id !== null && isValidDateString(until))
+        await db
+          .prepare(
+            `INSERT INTO concession_proofs (venue_id, phone_key, concession_id, seen_by, seen_on, valid_until) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT (venue_id, phone_key, concession_id) DO UPDATE SET seen_by = excluded.seen_by, seen_on = excluded.seen_on, valid_until = excluded.valid_until`
+          )
+          .run(court.venueId, phoneKey(booking.phone), row.concession_id, input.adminId, todayISO(), until);
+      return { ok: true as const, booking: (await bookingById(booking.id))!, charged: 0 };
+    }
+    // Once staff have said the proof was seen, a later click does not silently charge the full price.
+    if (row.concession_check === "seen") return { ok: false as const, error: "The proof was already marked as seen." };
+    const off = Number(row.concession_off);
+    if (row.status === "confirmed" && row.payment_status === "unpaid") {
+      await db.prepare("UPDATE bookings SET total_price = total_price + ?, concession_check = 'refused' WHERE id = ? AND concession_check = 'due'").run(off, booking.id);
       // A code on it is worked out again on the full price (lib/discounts.ts).
       await allocatePromo(booking.id);
-    });
-  } else {
-    // Paid already: the difference is a sale of its own, receipted like any other.
-    const sold = await sellAtCounter({
-      venueId: court.venueId,
-      adminId: input.adminId,
-      items: [{ name: `Full price, ${booking.code} (no proof)`.slice(0, 60), price: off, quantity: 1 }],
-      via: input.via,
-      customerName: booking.name,
-      customerPhone: booking.phone,
-    });
-    if (!sold.ok) return sold;
-    await db.prepare("UPDATE bookings SET concession_check = 'refused' WHERE id = ?").run(booking.id);
-  }
-  return { ok: true, booking: (await bookingById(booking.id))!, charged: off };
+    } else {
+      // Paid already: the difference is a sale of its own, receipted like any other.
+      const sold = await sellAtCounter({
+        venueId: court.venueId,
+        adminId: input.adminId,
+        items: [{ name: `Full price, ${booking.code} (no proof)`.slice(0, 60), price: off, quantity: 1 }],
+        via: input.via,
+        customerName: booking.name,
+        customerPhone: booking.phone,
+      });
+      if (!sold.ok) return sold;
+      await db.prepare("UPDATE bookings SET concession_check = 'refused' WHERE id = ? AND concession_check = 'due'").run(booking.id);
+    }
+    return { ok: true as const, booking: (await bookingById(booking.id))!, charged: off };
+  });
 }
 
 /**
@@ -408,65 +418,69 @@ async function checkPlaceConcession(
   input: { adminId: number | null; outcome: unknown; remember?: unknown; via?: unknown; placeBenefitId?: unknown }
 ): Promise<{ ok: true; booking: Booking; charged: number } | { ok: false; error: string }> {
   const db = getDb();
-  const pb = Number.isInteger(input.placeBenefitId)
-    ? ((await db
-        .prepare(
-          "SELECT id, participant_id, concession_id, amount::float AS amount, proof_check, reversed_at FROM place_benefits WHERE id = ? AND booking_id = ? AND kind = 'concession'"
-        )
-        .get(input.placeBenefitId, booking.id)) as
-        | { id: number; participant_id: number | null; concession_id: number | null; amount: number; proof_check: ConcessionCheck | null; reversed_at: unknown }
-        | undefined)
-    : undefined;
-  if (pb?.proof_check === "refused") return { ok: false, error: "The full price is already charged on this one." };
-  if (!pb || pb.proof_check === null || pb.reversed_at !== null) return { ok: false, error: "This booking has no concession price." };
-  if (input.outcome === "seen") {
-    const remember = (REMEMBER as readonly string[]).includes(input.remember as string) ? (input.remember as Remember) : "visit";
-    const until = rememberUntil(remember);
-    await db.prepare("UPDATE place_benefits SET proof_check = 'seen' WHERE id = ?").run(pb.id);
-    if (until && pb.concession_id !== null && isValidDateString(until)) {
-      if (pb.participant_id !== null)
-        await db
+  if (input.outcome !== "seen" && input.outcome !== "refused") return { ok: false, error: "Say whether the proof was seen." };
+  return withTransaction(async () => {
+    // Under the booking's row lock, as the concession was put on it: what is decided here is decided once (ADR 0062).
+    const live = (await db.prepare("SELECT status, payment_status FROM bookings WHERE id = ? FOR UPDATE").get(booking.id)) as { status: string; payment_status: string };
+    const pb = Number.isInteger(input.placeBenefitId)
+      ? ((await db
           .prepare(
-            `INSERT INTO participant_concession_proofs (venue_id, participant_id, concession_id, seen_by, seen_on, valid_until) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT (venue_id, participant_id, concession_id) DO UPDATE SET seen_by = excluded.seen_by, seen_on = excluded.seen_on, valid_until = excluded.valid_until`
+            "SELECT id, participant_id, concession_id, amount::float AS amount, proof_check, reversed_at FROM place_benefits WHERE id = ? AND booking_id = ? AND kind = 'concession'"
           )
-          .run(venueId, pb.participant_id, pb.concession_id, input.adminId, todayISO(), until);
-      else
-        await db
-          .prepare(
-            `INSERT INTO concession_proofs (venue_id, phone_key, concession_id, seen_by, seen_on, valid_until) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT (venue_id, phone_key, concession_id) DO UPDATE SET seen_by = excluded.seen_by, seen_on = excluded.seen_on, valid_until = excluded.valid_until`
-          )
-          .run(venueId, phoneKey(booking.phone), pb.concession_id, input.adminId, todayISO(), until);
+          .get(input.placeBenefitId, booking.id)) as
+          | { id: number; participant_id: number | null; concession_id: number | null; amount: number; proof_check: ConcessionCheck | null; reversed_at: unknown }
+          | undefined)
+      : undefined;
+    if (pb?.proof_check === "refused") return { ok: false as const, error: "The full price is already charged on this one." };
+    if (!pb || pb.proof_check === null || pb.reversed_at !== null) return { ok: false as const, error: "This booking has no concession price." };
+    if (input.outcome === "seen") {
+      const remember = (REMEMBER as readonly string[]).includes(input.remember as string) ? (input.remember as Remember) : "visit";
+      const until = rememberUntil(remember);
+      await db.prepare("UPDATE place_benefits SET proof_check = 'seen' WHERE id = ? AND proof_check <> 'refused'").run(pb.id);
+      if (until && pb.concession_id !== null && isValidDateString(until)) {
+        if (pb.participant_id !== null)
+          await db
+            .prepare(
+              `INSERT INTO participant_concession_proofs (venue_id, participant_id, concession_id, seen_by, seen_on, valid_until) VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT (venue_id, participant_id, concession_id) DO UPDATE SET seen_by = excluded.seen_by, seen_on = excluded.seen_on, valid_until = excluded.valid_until`
+            )
+            .run(venueId, pb.participant_id, pb.concession_id, input.adminId, todayISO(), until);
+        else
+          await db
+            .prepare(
+              `INSERT INTO concession_proofs (venue_id, phone_key, concession_id, seen_by, seen_on, valid_until) VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT (venue_id, phone_key, concession_id) DO UPDATE SET seen_by = excluded.seen_by, seen_on = excluded.seen_on, valid_until = excluded.valid_until`
+            )
+            .run(venueId, phoneKey(booking.phone), pb.concession_id, input.adminId, todayISO(), until);
+      }
+      return { ok: true as const, booking: (await bookingById(booking.id))!, charged: 0 };
     }
-    return { ok: true, booking: (await bookingById(booking.id))!, charged: 0 };
-  }
-  if (input.outcome !== "refused") return { ok: false, error: "Say whether the proof was seen." };
-  const off = Number(pb.amount);
-  if (booking.status === "confirmed" && booking.paymentStatus === "unpaid") {
-    // The benefit stays on record as refused and given back; its amount goes back on what is owed, once.
-    await withTransaction(async () => {
+    // Once staff have said the proof was seen, a later click does not silently charge the full price.
+    if (pb.proof_check === "seen") return { ok: false as const, error: "The proof was already marked as seen." };
+    const off = Number(pb.amount);
+    if (live.status === "confirmed" && live.payment_status === "unpaid") {
+      // The benefit stays on record as refused and given back; its amount goes back on what is owed, once.
       const done = await db
         .prepare("UPDATE place_benefits SET proof_check = 'refused', reversed_at = now(), reversed_why = 'no proof' WHERE id = ? AND reversed_at IS NULL")
         .run(pb.id);
-      if (done.changes !== 1) return;
+      if (done.changes !== 1) return { ok: false as const, error: "The full price is already charged on this one." };
       await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(off, booking.id);
       // A code on it is worked out again on the full price (lib/discounts.ts).
       await allocatePromo(booking.id);
-    });
-  } else {
-    const sold = await sellAtCounter({
-      venueId,
-      adminId: input.adminId,
-      items: [{ name: `Full price, ${booking.code} (no proof)`.slice(0, 60), price: off, quantity: 1 }],
-      via: input.via,
-      customerName: booking.name,
-      customerPhone: booking.phone,
-    });
-    if (!sold.ok) return sold;
-    await db.prepare("UPDATE place_benefits SET proof_check = 'refused' WHERE id = ?").run(pb.id);
-  }
-  return { ok: true, booking: (await bookingById(booking.id))!, charged: off };
+    } else {
+      const sold = await sellAtCounter({
+        venueId,
+        adminId: input.adminId,
+        items: [{ name: `Full price, ${booking.code} (no proof)`.slice(0, 60), price: off, quantity: 1 }],
+        via: input.via,
+        customerName: booking.name,
+        customerPhone: booking.phone,
+      });
+      if (!sold.ok) return sold;
+      await db.prepare("UPDATE place_benefits SET proof_check = 'refused' WHERE id = ?").run(pb.id);
+    }
+    return { ok: true as const, booking: (await bookingById(booking.id))!, charged: off };
+  });
 }
 
 /** What a number has on file here, for the desk and for the customer's own data. */

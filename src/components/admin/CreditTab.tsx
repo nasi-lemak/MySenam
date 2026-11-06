@@ -396,6 +396,29 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
     }
   }
 
+  /** A manager lengthens a pass's end, with a reason kept in its history (lib/pass-validity.ts `extendPass`). */
+  async function extend(pass: Pass) {
+    const expiresOn = prompt(t("fx8.cr.passExtendDate", { code: pass.code }), pass.expiresOn);
+    if (!expiresOn) return;
+    const reason = prompt(t("fx8.cr.passExtendReason"));
+    if (!reason) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/passes/${pass.id}/extend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresOn: expiresOn.trim(), reason }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("fx8.cr.passExtendFailed")));
+      setNotice(t("fx8.cr.passExtended", { code: pass.code, date: data.pass.expiresOn }));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("fx8.cr.passExtendFailed"));
+    }
+  }
+
   const inputClass =
     "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
 
@@ -733,6 +756,14 @@ function PassesPanel({ venues }: { venues: ManagedVenue[] }) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">{pass.expiresOn}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
+                  {may("passExtend") && pass.status !== "void" && (
+                    <button
+                      onClick={() => extend(pass)}
+                      className="mr-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      {t("fx8.cr.passExtend")}
+                    </button>
+                  )}
                   {pass.unusableReason ? (
                     <span className="text-xs text-slate-400">{t.say(pass.unusablePhrase, pass.unusableReason)}</span>
                   ) : (

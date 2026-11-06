@@ -111,6 +111,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "membership.plan_retired": "Retired a membership plan",
   "pass.sold": "Sold a pass",
   "pass.voided": "Voided a pass",
+  "pass.extended": "Extended a pass",
+  "pass.restored_after_void": "Handed back a cancelled pass's entry as money",
   "sale.made": "Sold at the counter",
   "sale.voided": "Voided a counter sale",
   "voucher.sold": "Sold a gift voucher",

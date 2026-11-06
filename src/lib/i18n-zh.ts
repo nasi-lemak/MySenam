@@ -4977,6 +4977,15 @@ export const ZH: Record<Phrase, string> = {
   "fx2.msg.coachClassGained": "{name} 您好，您现在任教 {venue} 的 {class}：共 {n} 节，第一节在 {date}，{time}，{court}。已加入您的日程。",
   "fx2.msg.coachClassLostSubject": "有一门课程不再由您任教 — {venue}",
   "fx2.msg.coachClassLost": "{name} 您好，您不再任教 {venue} 的 {class}：共 {n} 节，第一节在 {date}，{time}，{court}。已从您的日程中移除。",
+  "err.FX8_EXTEND_INTO_NEXT": "此会员资格的下一期 {code} 于 {date} 开始：退回那么多天会与之重叠。最多退回 {max} 天，或为持有人另售新的一期。",
+  "err.FX8_EXTEND_NEXT_FOLLOWS": "此会员资格的下一期 {code} 于 {date} 开始，紧接本期结束之后：无法在不与之重叠的情况下退回天数。",
+  "err.FX8_MOVE_PAST_PASS": "此预订由一张 {date} 到期的次卡支付，早于您选择的日期。请选择更早的日期，或请场馆延长该次卡。",
+  "err.FX8_PASS_REASON": "请用几句话说明为何延长该次卡。",
+  "err.FX8_PASS_VOID": "此次卡已被取消，已取消的次卡不会恢复。",
+  "err.FX8_PASS_DATE": "请给出次卡应延长至的日期（YYYY-MM-DD），或要增加的天数。",
+  "err.FX8_PASS_NOT_LATER": "新的到期日必须是今天或之后，并且晚于次卡现有的到期日 {date}。",
+  "err.FX8_PASS_TOO_FAR": "次卡的有效期不能超过 {date}。",
+  "err.FX8_GRACE_RANGE": "请填写 0 到 {max} 的整数天数；0 表示关闭。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

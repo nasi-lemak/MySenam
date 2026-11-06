@@ -5144,6 +5144,15 @@ const EN = {
   "fx2.msg.coachClassGained": "Hi {name}, you now teach {class} at {venue}: {n} session(s), the first on {date}, {time} ({court}). It is in your schedule.",
   "fx2.msg.coachClassLostSubject": "A class is no longer yours — {venue}",
   "fx2.msg.coachClassLost": "Hi {name}, you no longer teach {class} at {venue}: {n} session(s), the first on {date}, {time} ({court}). It has been taken out of your schedule.",
+  "err.FX8_EXTEND_INTO_NEXT": "This membership's next term {code} starts on {date}: giving that many days back would run into it. Give back at most {max} days, or sell the holder a new term.",
+  "err.FX8_EXTEND_NEXT_FOLLOWS": "This membership's next term {code} starts on {date}, straight after this one ends: no days can be given back without running into it.",
+  "err.FX8_MOVE_PAST_PASS": "This booking is paid with a pass that ends on {date}, before the day you chose. Pick an earlier day, or ask the venue to extend the pass.",
+  "err.FX8_PASS_REASON": "Say why the pass is being extended, in a few words.",
+  "err.FX8_PASS_VOID": "This pass has been cancelled, and a cancelled pass is not brought back.",
+  "err.FX8_PASS_DATE": "Give the day the pass should run until (YYYY-MM-DD), or how many days to add.",
+  "err.FX8_PASS_NOT_LATER": "The new end must be today or later, and after the pass's present end, {date}.",
+  "err.FX8_PASS_TOO_FAR": "A pass cannot run beyond {date}.",
+  "err.FX8_GRACE_RANGE": "Give whole days from 0 to {max}; 0 turns it off.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10234,6 +10243,15 @@ const MS: Record<Phrase, string> = {
   "fx2.msg.coachClassGained": "Hai {name}, anda kini mengajar {class} di {venue}: {n} sesi, yang pertama pada {date}, {time} ({court}). Ia ada dalam jadual anda.",
   "fx2.msg.coachClassLostSubject": "Satu kelas bukan lagi milik anda — {venue}",
   "fx2.msg.coachClassLost": "Hai {name}, anda tidak lagi mengajar {class} di {venue}: {n} sesi, yang pertama pada {date}, {time} ({court}). Ia telah dikeluarkan daripada jadual anda.",
+  "err.FX8_EXTEND_INTO_NEXT": "Penggal seterusnya keahlian ini, {code}, bermula pada {date}: memulangkan hari sebanyak itu akan bertindih dengannya. Pulangkan paling banyak {max} hari, atau jual penggal baharu kepada pemegangnya.",
+  "err.FX8_EXTEND_NEXT_FOLLOWS": "Penggal seterusnya keahlian ini, {code}, bermula pada {date}, terus selepas yang ini tamat: tiada hari boleh dipulangkan tanpa bertindih dengannya.",
+  "err.FX8_MOVE_PAST_PASS": "Tempahan ini dibayar dengan pas yang tamat pada {date}, sebelum hari yang anda pilih. Pilih hari yang lebih awal, atau minta pusat melanjutkan pas itu.",
+  "err.FX8_PASS_REASON": "Nyatakan sebab pas ini dilanjutkan, dalam beberapa perkataan.",
+  "err.FX8_PASS_VOID": "Pas ini telah dibatalkan, dan pas yang dibatalkan tidak dihidupkan semula.",
+  "err.FX8_PASS_DATE": "Berikan hari pas itu patut sah sehingga (YYYY-MM-DD), atau berapa hari untuk ditambah.",
+  "err.FX8_PASS_NOT_LATER": "Tarikh tamat baharu mestilah hari ini atau lebih lewat, dan selepas tarikh tamat pas sekarang, {date}.",
+  "err.FX8_PASS_TOO_FAR": "Pas tidak boleh sah melepasi {date}.",
+  "err.FX8_GRACE_RANGE": "Berikan bilangan hari penuh dari 0 hingga {max}; 0 mematikannya.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
