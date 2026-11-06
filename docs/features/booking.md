@@ -875,7 +875,7 @@ claim, [below](#waitlists)).
 | The limit on online bookings without an account (`GUEST_SURGE_PER_HOUR` unpaid ones made online or through the API in the hour) | Held until paid where the venue takes payment online; refused where it does not | Paid as it is booked, or refused; a manager may override | Refused |
 | A blocked number | Refused (`PHONE_BLOCKED`) | Refused, never overridden | Refused |
 | No-show strikes | Held until paid online; refused where nothing is taken online | Paid as it is booked, or refused; a manager may override | Refused |
-| Unpaid bookings coming up (3 here, 6 anywhere) | Refused | Refused, never overridden, paid as it is booked or not | Refused |
+| Unpaid bookings coming up (3 here, 6 anywhere), counted by the number **and** by the signed-in account | Refused | Refused, never overridden, paid as it is booked or not (by the number) | Refused (by the number) |
 | The venue's waiver | Ticked by the customer | Ticked by staff for the customer | Already on record, the customer's and each person's named |
 
 The booking engine then asks the rest the same on every path: the court's
@@ -1235,7 +1235,10 @@ the time goes while the customer rebooks.
   own court first, then another court offering the same activity. The booking's own
   time counts as free, so it can slide by a few minutes.
 - **The price follows the court time.** Unpaid, it is repriced at the new
-  time's rate, up or down, by the same pricing as a new booking. Paid, it keeps what was paid: a customer cannot move
+  time's rate, up or down, by the same pricing as a new booking; with a deposit
+  or friends' shares paid, never below what was paid on it (the excess of a
+  deposit is owed back, friends' shares refuse the move:
+  [a deposit instead of the whole price](payments-and-credit.md#paying-online-to-hold-a-booking)). Paid, it keeps what was paid: a customer cannot move
   it somewhere dearer (that would be peak hours at an off-peak price), and
   staff who do have chosen not to charge the difference. Its concessions and
   promo code stay as they were given, the same amounts, and are not asked

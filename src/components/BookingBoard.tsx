@@ -104,6 +104,9 @@ interface Confirmation {
   seriesCode: string | null;
   court: Court;
   venue: { name: string; area: string; timeZone?: string };
+  /** Paying from credit or a pass failed: the booking stands unpaid, and why (its code, to say it in the reader's language). */
+  walletError?: string | null;
+  walletErrorCode?: string | null;
   /** Total taken off by a promo code, and why one did not apply. */
   discount?: number;
   promoError?: string | null;
@@ -1032,6 +1035,8 @@ function BookingForm({
   }, [byGame?.gameMinutes, gamePlayers, selection.start, selection.games, selection.length, optionAt?.maxLength]);
   const [balance, setBalance] = useState<number | null>(null);
   const [payFromWallet, setPayFromWallet] = useState(false);
+  // The price the server answered with when it differed from the one shown, once the customer has read it and pressed Book again.
+  const [acceptedTotal, setAcceptedTotal] = useState<number | null>(null);
   const [passCode, setPassCode] = useState("");
   const [myPasses, setMyPasses] = useState<Pass[]>([]);
   // Which pass pays for whom (components/PassAllocation.tsx): one for the whole booking, or each person's own for their place.
@@ -1129,7 +1134,8 @@ function BookingForm({
   useEffect(() => {
     setCounterOffer(null);
     setCounterExtra({});
-  }, [court.id, start, length, date, phone, weeks, asGuest, hostPhone]);
+    setAcceptedTotal(null);
+  }, [court.id, start, length, date, phone, weeks, asGuest, hostPhone, promoCode, concession?.id, withExtras]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1167,6 +1173,13 @@ function BookingForm({
           email,
           weeks,
           skipConflicts,
+          // The total the customer was shown, in cents: refused with the price now where it is another (nothing is kept).
+          // Not for weeks (each week is priced on its own date), a court picked for them, or a concession (worked out there to the sen).
+          ...(acceptedTotal !== null
+            ? { expectedTotal: acceptedTotal }
+            : weeks === 1 && court.id !== ANY_COURT && !concession && withExtras !== null
+              ? { expectedTotal: Math.round(withExtras * 100) }
+              : {}),
           // On an account, paid on its invoice: not from credit or a pass.
           payFromWallet: chargeTo === null && (hasExtras || passCodes.length === 0) && payFromWallet,
           // One pass for the whole booking, or one person's own pass for each place (lib/pass-rules.ts).
@@ -1224,6 +1237,8 @@ function BookingForm({
         return;
       if (!res.ok && accountDetour(data)) return;
       if (!res.ok && typeof data?.code === "string" && (data.code.startsWith("GUARD_") || data.code.startsWith("PBK_"))) throw new Error(explainGuard(t, data));
+      // The price is not the one shown: nothing was booked or charged. The customer reads the new one, and pressing Book again accepts it.
+      if (!res.ok && data?.code === "PRICE_CHANGED" && typeof data?.vars?.cents === "number") setAcceptedTotal(data.vars.cents);
       if (!res.ok) throw new Error(translateError(t, data) || t("form.failed"));
       if (!signedIn) rememberGuest({ name, phone, email });
       onBooked(data);
@@ -2000,6 +2015,14 @@ function ConfirmationModal({
             </div>
           ))}
         </dl>
+        {confirmation.walletError && (
+          <p role="alert" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+            {t("pwp.walletNotUsed", {
+              reason: translateError(t, { error: confirmation.walletError, code: confirmation.walletErrorCode ?? undefined }),
+              amount: isSeries || isGroup ? seriesTotal : booking.totalPrice,
+            })}
+          </p>
+        )}
         {confirmation.promoError && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {t("done.promoRejected", { reason: translateError(t, { error: confirmation.promoError, code: confirmation.promoErrorCode ?? undefined }) })}

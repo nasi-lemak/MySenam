@@ -21,7 +21,7 @@ import { askForReviews } from "./reviews";
 import { notifyCoaches } from "./coach-schedule";
 import { runWebhooks } from "./webhooks";
 import { passOnExpiredOffers } from "./store";
-import { releaseExpiredHolds } from "./holds";
+import { holdStrandedBookings, releaseExpiredHolds } from "./holds";
 import { reconcileRefunds, settlePendingRefunds, settleRefundClaims } from "./payments";
 import { closeDueEntries } from "./tournaments";
 import { checkMessages, heartbeat, raiseAlert } from "./alerts";
@@ -113,6 +113,8 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Bookings whose request died before their hold was applied get it, from when they were made (lib/holds.ts).
+    await holdStrandedBookings();
     // Bookings held for payment that never came: free for somebody else.
     await releaseExpiredHolds();
     // Membership purchases whose hold lapsed with no payment: holding nobody (lib/membership-purchases.ts).

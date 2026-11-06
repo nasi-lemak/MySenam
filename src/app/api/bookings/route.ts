@@ -1,7 +1,7 @@
 import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { concessionById } from "@/lib/concessions";
-import { applyAskedDiscounts } from "@/lib/booking-discounts";
+import { applyAskedDiscounts, priceRefusal, readExpectedTotal } from "@/lib/booking-discounts";
 import { readPlaceConcessions, refuse } from "@/lib/entitlements";
 import { bookingLinkPath, phoneForLink } from "@/lib/booking-access";
 import { phoneRefusal } from "@/lib/phone-check";
@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
   if (email !== undefined && email !== null && email !== "" &&
       (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+  // The total the customer was shown, in cents: the booking is refused, and nothing kept, where it now costs another (ADR 0054).
+  const expectedTotal = readExpectedTotal((body as Record<string, unknown> | null)?.expectedTotal);
+  if (expectedTotal === undefined) return NextResponse.json({ error: "expectedTotal must be a whole number of cents." }, { status: 400 });
   // Each bounded, as every path that books keeps them (lib/contact-fields.ts).
   const unkept = contactRefusal({ name, email });
   if (unkept) return refusal(unkept, 400);
@@ -506,6 +509,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Nothing is charged at a price the customer did not accept: a discount refused, where the request settles the
+  // booking at once, or a total other than the one shown, ends the request with nothing kept (lib/booking-discounts.ts).
+  {
+    const settlesNow = !!account || passCodes.length > 0 || (payFromWallet === true && !!user) || (payNow !== null && !!desk);
+    const wrongPrice = priceRefusal(result.bookings, expectedTotal, { concessionError, promoError, promoErrorCode }, settlesNow);
+    if (wrongPrice) {
+      for (const b of result.bookings) await discardBooking(b.id);
+      return undone(refusal(wrongPrice));
+    }
+  }
+
   // On an account, it is paid on the account's invoice: nothing to settle now.
   // Past the account's limit, nothing is booked.
   if (account) {
@@ -533,6 +547,7 @@ export async function POST(req: NextRequest) {
   // Settling is best-effort: an empty wallet or a spent pass leaves the
   // booking standing as unpaid rather than throwing it away.
   const payErrors: string[] = [];
+  const payCodes: (string | null)[] = [];
   if (account) {
     // Paid on the invoice.
   } else if (passCodes.length > 0) {
@@ -541,14 +556,18 @@ export async function POST(req: NextRequest) {
     // person's place, so a booking for several is paid by one such pass each.
     for (const booking of result.bookings) {
       const paid = await payBookingWithPasses(booking.id, passCodes, { skipAbsent: group !== null });
-      if (!paid.ok) payErrors.push(paid.error);
-      else booking.paymentStatus = "paid";
+      if (!paid.ok) {
+        payErrors.push(paid.error);
+        payCodes.push(paid.code ?? null);
+      } else booking.paymentStatus = "paid";
     }
   } else if (payFromWallet === true && user) {
     for (const booking of result.bookings) {
       const paid = await payBookingFromWallet(booking.id);
-      if (!paid.ok) payErrors.push(paid.error);
-      else booking.paymentStatus = "paid";
+      if (!paid.ok) {
+        payErrors.push(paid.error);
+        payCodes.push(paid.code ?? null);
+      } else booking.paymentStatus = "paid";
     }
   }
   // Paid at the counter as it is booked (how, as staff say), on the record as any counter payment is.
@@ -558,6 +577,7 @@ export async function POST(req: NextRequest) {
       const paid = await setPaymentStatus(booking.code, true, payNow, desk.role, desk);
       if (!paid.ok) {
         payErrors.push(paid.error);
+        payCodes.push(paid.code ?? null);
         continue;
       }
       booking.paymentStatus = "paid";
@@ -642,6 +662,8 @@ export async function POST(req: NextRequest) {
       skipped: result.skipped,
       seriesCode: result.seriesCode,
       walletError: payErrors[0] ?? null,
+      // Its code, to say it in the reader's language (the booking stands, held where the venue holds, and unpaid).
+      walletErrorCode: payErrors.length > 0 ? (payCodes[0] ?? null) : null,
       // Pay online by then, or the booking is let go.
       holdUntil,
       // Or just this share of it, the rest at the counter: the venue's choice, not for a number past its strikes.

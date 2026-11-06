@@ -4962,6 +4962,11 @@ export const ZH: Record<Phrase, string> = {
   "fx10.susp.lifted": "经审核，您的消息功能已不再暂停。",
   "fx10.susp.continues": "您的请求已作出决定：您的消息功能继续暂停。",
   "err.PM_REVIEW_DUP": "您的审核请求已经收到。",
+  "err.PAID_ABOVE_PRICE": "此预订已有部分款项付清（订金，或朋友支付的份额），此更改会使价格低于已付金额。请联系场馆办理此更改。",
+  "err.PRICE_CHANGED": "此预订的价格现为 {cur}{amount}，与您看到的不同。尚未预订，也未扣款：请核对后再次点击预订以接受新价格。",
+  "err.DISCOUNT_NOT_APPLIED": "您的优惠未能使用（可能已用完），因此未预订，也未扣款。请核对价格后重试。",
+  "receipt.why.priceLowered": "预订价格降至已付订金以下，差额应退还。",
+  "pwp.walletNotUsed": "未使用您的储值或套票，因此尚未付款：{reason} 仍需支付 {cur}{amount}。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

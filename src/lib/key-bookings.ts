@@ -6,7 +6,8 @@ import { waiverSigned, waiverSignedFor } from "./waivers";
 import { notifyBookingConfirmed, notifyVenueCancelled } from "./notify";
 import { bookingForVenue } from "./public-api";
 import { createBooking, findBookingByCode, getCourt, quoteFor } from "./store";
-import { applyAskedDiscounts } from "./booking-discounts";
+import { applyAskedDiscounts, priceRefusal, readExpectedTotal } from "./booking-discounts";
+import { discardBooking } from "./coaching";
 import { readPlaceConcessions } from "./entitlements";
 import { mayBookOn, saidOn } from "./limits";
 import { asksStaffPowers } from "./policy-overrides";
@@ -131,6 +132,8 @@ export async function bookThroughKey(
     const said = saidOn("api", refused);
     return NextResponse.json({ error: said.error, code: said.code, ...(said.vars ? { vars: said.vars } : {}) }, { status: refused.code === "BUSY" ? 503 : 409 });
   }
+  const expectedTotal = readExpectedTotal(body.expectedTotal);
+  if (expectedTotal === undefined) return NextResponse.json({ error: "expectedTotal must be a whole number of cents." }, { status: 400 });
   if (opts.preview) {
     // What it would cost now, priced as the booking will be (lib/store.ts `quoteFor`): nothing kept, nobody told.
     const priced = await quoteFor({
@@ -189,6 +192,14 @@ export async function bookThroughKey(
   }
   // The discounts asked for, as on every path: the same price for the same request.
   const discounts = await applyAskedDiscounts([made.booking], { concessionId: body.concessionId, placeConcessions, promoCode: body.promoCode });
+  // The price the venue's system was quoted (`expectedTotal`, cents): another price now, and nothing is kept (ADR 0054).
+  const wrongPrice = priceRefusal([made.booking], expectedTotal, discounts, false);
+  if (wrongPrice) {
+    await discardBooking(made.booking.id);
+    if (registration) await undoGuestRegistration(registration);
+    const said = saidOn("api", wrongPrice);
+    return NextResponse.json({ error: said.error, code: said.code, ...(said.vars ? { vars: said.vars } : {}) }, { status: 409 });
+  }
   if (selection)
     await recordBookedFor(selection.participants, opts.actor ?? { adminId: null, name: `API key ${caller.keyId}` }, { venueId: caller.venueId, codes: [made.booking.code], how: "api" });
   await notifyBookingConfirmed([made.booking], "en", null);
