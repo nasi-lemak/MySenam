@@ -234,9 +234,11 @@ describe("matching never trusts a rating on fewer results than the install's def
       // Earned: the game suited to the rating is suggested and the declared one is not; provisional: the declared level is used.
       earned: ids.includes(pros.id) && !ids.includes(beginners.id),
       declared: ids.includes(beginners.id) && !ids.includes(pros.id),
-      inEarnedRatings: earnedRatingsOf(me.id).then((m) => m.has(`${venueId}|${sport}|doubles`)),
-      inPool: poolEarned(venueId, sport, "doubles").then((m) => m.has(me.id)),
-      inGameRef: gameReferenceRatings([{ id: mine.id, venueId, sport, spots: 2, hostId: me.id }]).then((m) => m.has(mine.id)),
+      // Answered here, not left as promises: a test that reads only some of them would end with the others still asking the
+      // database, which the test file's teardown has by then closed and dropped.
+      inEarnedRatings: (await earnedRatingsOf(me.id)).has(`${venueId}|${sport}|doubles`),
+      inPool: (await poolEarned(venueId, sport, "doubles")).has(me.id),
+      inGameRef: (await gameReferenceRatings([{ id: mine.id, venueId, sport, spots: 2, hostId: me.id }])).has(mine.id),
     };
   }
 
