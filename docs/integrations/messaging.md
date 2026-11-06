@@ -48,6 +48,7 @@ down](#when-a-provider-is-down-and-what-keeps-a-message-from-being-lost)).
 | A booking, a weekly series or a class place is made | Confirmation, with a calendar invite | email; WhatsApp on *everything* |
 | The customer cancels | Cancelled | email; WhatsApp on *everything* |
 | Money paid online for a booking comes back, cannot be sent back, is later than the venue said, or is the venue's to send by a date | **Refund** notice (kind `refund_notice`): made (amount, date), problem, late, or owed by a date; once per change, in the language the booking was made in ([refund notices](#refund-notices)) | email only; urgent (not held to the daily limit) |
+| A venue they hold a booking, pass, membership or credit at is suspended or held for an invoice | **Venue suspension** notice (kind `venue_suspension_notice`): what stands, what waits, whom to ask; once per suspension ([a venue taken off the marketplace](#a-venue-taken-off-the-marketplace)) | email only; urgent (not held to the daily limit) |
 | The venue cancels — at the desk, by closing the day, by taking the court out of service, or by calling off the class | **Cancelled by the venue**, with a *seen it* link (urgent) | email; WhatsApp unless *off* |
 | The venue moves a booking to another court | **Moved**, with the new court and a *seen it* link (urgent) | email; WhatsApp unless *off* |
 | A waitlist place frees up | Offer, with a link to claim it (urgent: it expires); the page it opens can also turn the offer down | email; WhatsApp unless *off* |
@@ -187,7 +188,7 @@ looks like in practice is recorded then.
 - **The daily limit never swallows urgent news.** The limit per recipient (8 a
   day over everything) is held back for marketing, reminders, confirmations and
   the like. The urgent set (`URGENT_NEWS_KINDS`, `lib/outbox.ts`: what the venue
-  does to a booking, a waitlist offer, a guardian's notice, `refund_notice`;
+  does to a booking, a waitlist offer, a guardian's notice, `refund_notice`, `venue_suspension_notice`;
   safeguarding notices, team decisions, tournament-day notices and staff alerts
   are exempt as before) has a ceiling of its own, `MYSENAM_URGENT_PER_RECIPIENT_PER_DAY`
   (default 30, at least 8, at most 1000), counted among urgent notices alone, so the
@@ -228,6 +229,24 @@ three days ago is not told (a deploy does not announce history). Email only, in
 the language the booking was made in (English, Malay, Chinese, Tamil), to the
 booking's email; the text is the same line the customer sees on their booking page.
 WhatsApp is not used (it needs a template Meta has approved).
+
+#### A venue taken off the marketplace
+
+When a venue is suspended by the owner (itself or with its business) or held for an invoice more than 14 days
+overdue, each customer with something at it is emailed once (`venue_suspension_notice`,
+`src/lib/suspension-notices.ts`, [ADR 0063](../architecture/decisions/0063-a-suspended-venue-tells-its-customers-sells-nothing-new-and-an-overdue-one-can-be-given-time.md)):
+a confirmed booking, class or lesson not yet played, an active pass with entries left, an
+active membership, or stored credit. The email says the venue is unavailable for now and
+that it was not the customer's doing, what they hold there, that bookings stand and can be
+cancelled and refunded as usual (link to their account, or *My booking* for a guest), that
+passes, memberships and credit wait and are not lost, and the venue's telephone number. In the
+account's language (English, Malay, Chinese, Tamil), or the language a guest booked in. Urgent
+news: not held to the day's limit per recipient. Once per suspension: each email is keyed by
+venue, suspension stamp and address, `venues.suspension_told_for` records the stamp told for,
+and the scheduler's holds check tells any suspension a stop left untold. An account that said it
+is under 18 is not written to; a pass or membership sold at the counter to nobody with an
+account has no address, and its venue tells them. Suspensions already in force when migration
+0311 ran were not told. Passes and memberships are not extended for the time off.
 
 #### The platform's invoice to a venue
 
