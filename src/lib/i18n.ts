@@ -5134,6 +5134,15 @@ const EN = {
   "err.DISCOUNT_NOT_APPLIED": "Your discount could not be applied (it may have run out), so nothing has been booked or charged. Check the price and try again.",
   "receipt.why.priceLowered": "The booking's price came down below the deposit paid, and the difference was owed back.",
   "pwp.walletNotUsed": "Your credit or pass was not used, so nothing has been paid: {reason} {cur}{amount} is still to pay.",
+  "err.FX8_EXTEND_INTO_NEXT": "This membership's next term {code} starts on {date}: giving that many days back would run into it. Give back at most {max} days, or sell the holder a new term.",
+  "err.FX8_EXTEND_NEXT_FOLLOWS": "This membership's next term {code} starts on {date}, straight after this one ends: no days can be given back without running into it.",
+  "err.FX8_MOVE_PAST_PASS": "This booking is paid with a pass that ends on {date}, before the day you chose. Pick an earlier day, or ask the venue to extend the pass.",
+  "err.FX8_PASS_REASON": "Say why the pass is being extended, in a few words.",
+  "err.FX8_PASS_VOID": "This pass has been cancelled, and a cancelled pass is not brought back.",
+  "err.FX8_PASS_DATE": "Give the day the pass should run until (YYYY-MM-DD), or how many days to add.",
+  "err.FX8_PASS_NOT_LATER": "The new end must be today or later, and after the pass's present end, {date}.",
+  "err.FX8_PASS_TOO_FAR": "A pass cannot run beyond {date}.",
+  "err.FX8_GRACE_RANGE": "Give whole days from 0 to {max}; 0 turns it off.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10214,6 +10223,15 @@ const MS: Record<Phrase, string> = {
   "err.DISCOUNT_NOT_APPLIED": "Diskaun anda tidak dapat digunakan (mungkin telah habis), jadi tiada tempahan dibuat dan tiada caj dikenakan. Semak harga dan cuba lagi.",
   "receipt.why.priceLowered": "Harga tempahan turun di bawah deposit yang dibayar, dan bezanya perlu dipulangkan.",
   "pwp.walletNotUsed": "Kredit atau pas anda tidak digunakan, jadi tiada bayaran dibuat: {reason} {cur}{amount} masih perlu dibayar.",
+  "err.FX8_EXTEND_INTO_NEXT": "Penggal seterusnya keahlian ini, {code}, bermula pada {date}: memulangkan hari sebanyak itu akan bertindih dengannya. Pulangkan paling banyak {max} hari, atau jual penggal baharu kepada pemegangnya.",
+  "err.FX8_EXTEND_NEXT_FOLLOWS": "Penggal seterusnya keahlian ini, {code}, bermula pada {date}, terus selepas yang ini tamat: tiada hari boleh dipulangkan tanpa bertindih dengannya.",
+  "err.FX8_MOVE_PAST_PASS": "Tempahan ini dibayar dengan pas yang tamat pada {date}, sebelum hari yang anda pilih. Pilih hari yang lebih awal, atau minta pusat melanjutkan pas itu.",
+  "err.FX8_PASS_REASON": "Nyatakan sebab pas ini dilanjutkan, dalam beberapa perkataan.",
+  "err.FX8_PASS_VOID": "Pas ini telah dibatalkan, dan pas yang dibatalkan tidak dihidupkan semula.",
+  "err.FX8_PASS_DATE": "Berikan hari pas itu patut sah sehingga (YYYY-MM-DD), atau berapa hari untuk ditambah.",
+  "err.FX8_PASS_NOT_LATER": "Tarikh tamat baharu mestilah hari ini atau lebih lewat, dan selepas tarikh tamat pas sekarang, {date}.",
+  "err.FX8_PASS_TOO_FAR": "Pas tidak boleh sah melepasi {date}.",
+  "err.FX8_GRACE_RANGE": "Berikan bilangan hari penuh dari 0 hingga {max}; 0 mematikannya.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

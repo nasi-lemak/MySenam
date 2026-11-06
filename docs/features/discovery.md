@@ -246,7 +246,16 @@ Stars and a few words about a venue, from somebody who played there
   (up to three days after), one email asks how it was, if the booking has an
   email address. It says it is the only time, and it is: never again for
   that venue, answered or not. Email only, never WhatsApp. A venue can turn
-  it off under *Venues & staff → Reviews*.
+  it off under *Venues & staff → Reviews*. The email goes only for a booking
+  the link will accept: the invitation and the link ask the same question
+  (`reviewable`, one function: paid, or free, or attendance verified), so
+  nobody is sent a link that refuses them. A booking the link would refuse
+  (left unpaid, never checked in, or a customer's own check-in staff have not
+  confirmed) gets no email and **does not use up the one invitation**: a later
+  booking that counts is asked about, and so is this one once the desk marks
+  it paid or confirms the arrival, while it is still within the three days
+  ([ADR 0062](../architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md);
+  `tests/reviews.test.ts`).
 - **One per number per venue.** Writing again replaces the earlier review,
   so a regular counts once, with what they think now.
 - **The rules are said before posting:** what is shown (first name and

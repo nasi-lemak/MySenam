@@ -254,7 +254,15 @@ student card"), and optionally one sport or off-peak hours only.
   Staff look at the card and press *Proof seen* (and say until when not to ask
   again: next visit, month end, year end or twelve months) or *No proof*. No
   proof on an unpaid booking adds the difference to what is owed; on one already
-  paid, the difference is sold at the counter and receipted like any sale.
+  paid, the difference is sold at the counter and receipted like any sale. The
+  outcome is decided **once**, under the booking's row lock
+  ([ADR 0062](../architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md)):
+  a double click, a second desk or a retry is refused (*The full price is
+  already charged on this one*) and charges nothing more, and a proof marked
+  *Seen* stays seen: a later *No proof* is refused (a manager corrects it by
+  hand), so a click cannot silently turn a seen proof into a charge. Both for
+  the whole booking and for one person's place
+  (`tests/concession-check-once.test.ts`).
 - **No proof is ever stored.** No photo, no card or IC number: only that this
   number was seen to qualify, by whom, and until when. A card's image would make
   the venue hold sensitive personal data under the PDPA, to check something a
@@ -430,7 +438,15 @@ not a member rate.
 A **membership** belongs to one venue and is held against a **phone number**,
 not an account. That is the point: a member who books as a guest, without
 signing in, still gets their price. Terms may not overlap at one venue, since
-two live memberships would make "which rate?" ambiguous.
+two live memberships would make "which rate?" ambiguous. **Giving days back**
+(*Give days back*, up to 90 at once, a manager's) holds to the same rule: it is
+refused where the days would run into the holder's next term (or one holding or
+covering somebody this one covers), the same rule a suspension's extension
+already keeps, saying how many days fit (`FX8_EXTEND_INTO_NEXT`; none fit where
+the next term starts the day after: `FX8_EXTEND_NEXT_FOLLOWS`), and nothing is
+changed. Two live terms for the same days are never left
+([ADR 0062](../architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md);
+`tests/membership-extension-and-renewing-suspension.test.ts`).
 
 Price is decided per session against **that session's date**, not today's, so a
 weekly series is discounted for the weeks the membership covers and charged
@@ -669,6 +685,21 @@ paid for. Another venue's staff cannot see or change it.
   so a renewal never lifts a suspension silently; reactivating either lifts
   both. The carried one is in the activity log, by *MySenam*. Nothing pauses
   a subscription's charges: no plan says it may.
+  **An open-ended suspension of a membership that renews by itself** (a
+  subscription still charging for it) always extends its end by the days it
+  took, whatever its plan says
+  ([ADR 0062](../architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md)):
+  the gateway keeps charging while it is suspended and nothing here can hold a
+  charge, so the member is given those days back when it is lifted, not charged
+  for nothing. When renewals were charged meanwhile, the days of every term the
+  suspension ran through are added to the last term's end (the earlier terms
+  keep theirs, their suspensions noting *Carried to MB-…*), so no term is
+  charged for and not given. Nothing moves while it is open (its last day is
+  not known); lifted early, the extension is corrected as for a plan that
+  extends. A dated suspension, and one of a membership that does not renew by
+  itself, still follow the plan's setting. Pausing collection in the gateway
+  is not done from here
+  ([known limitations](../roadmap/known-limitations.md)).
 - **The holder is told** by email, through the outbox, in the language their
   account last used: when it is suspended (the dates, whether its end moves,
   that bookings already made are not cancelled, and the venue's reason) and
@@ -1034,7 +1065,15 @@ A pass pays for a booking only when every one of these holds, and the entry
 count is re-read **inside** the paying transaction so two concurrent bookings
 cannot spend the same entry:
 
-- the pass is active, in date (`expires_on` is inclusive) and has entries left;
+- the pass is active, in date and has entries left. `expires_on` is inclusive
+  and is **the last day it can be played**, not the last day it can be booked:
+  it is judged on the date of the session it pays (as a membership is), so a
+  pass that ends before the session cannot pay it, and in a weekly series the
+  weeks inside its validity are paid and the weeks after are left unpaid with
+  the reason (`srv.unusable.passEndsBefore`), to pay another way. A booking
+  paid with a pass is not moved to a day after its end
+  (`FX8_MOVE_PAST_PASS`); the counter's list offers only passes good on the
+  booking's day. A pass still good today and on the session's day is as before;
 - the booking is at the pass's venue, and for its sport if it names one;
 - the booking's phone number matches the holder's. Malaysian numbers are
   compared on digits with the country code folded away, so `+60 12-345 6789`
@@ -1059,8 +1098,8 @@ the booking away. Cancelling a pass-paid booking returns its entries through
 every cancellation path — by code, from an account, a whole series, an admin
 cancellation, and the enrolments released when a class is cancelled — and
 refunding twice is refused, so a double cancellation cannot mint entries. An
-expired pass is still credited: the ledger stays honest even when the entries
-can no longer be spent. Taking one person off a booking gives back their
+expired pass is still credited, and its entries are not left dead
+([below](#passes-that-end-and-entries-given-back)). Taking one person off a booking gives back their
 place's entries where the pass was spent per place, and nothing where it paid
 for the booking as a whole
 ([taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
@@ -1073,6 +1112,46 @@ written for that much only, at the tax the pass was sold at; what was spent
 stays revenue (`voidPass` in `src/lib/store.ts`; `tests/void-credit-notes.test.ts`).
 Customers see their passes with a used/remaining meter on `/account`,
 and staff sell and cancel them from the *Credit & passes* tab.
+
+### Passes that end, and entries given back
+
+([ADR 0062](../architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md);
+`giveBackToPass` in `src/lib/store.ts`, `src/lib/pass-validity.ts`;
+`tests/pass-restore-and-validity.test.ts`.) An entry a cancellation gives back
+is never left where it cannot be used. It goes back to the ledger as it always
+did, by every path that gives entries back (the customer's cancellation, the
+venue's, a place taken off a booking, a class cancelled), and then:
+
+- **A pass that has ended is extended.** The pass runs on to today plus the
+  venue's *days an ended pass is extended by when entries are given back*
+  (`venues.pass_restore_grace_days`, migration 0309; **30 by default, which is
+  the recommended value**, 0 to 365; **0 turns it off** and keeps what used to
+  happen: the entry goes back but the pass stays ended). Set under *Credit &
+  passes → Passes the counter sells*, a manager's, with the recommended value
+  in its help text, and in the activity log. The extension is a line of the
+  pass's own history with its reason (*Valid until A → B: 1 entry given back
+  for MB-… after the pass had ended, 30 days to use them*), is made once
+  however many cancellations arrive together, and happens only where entries
+  actually go back (a late cancellation that keeps the whole entry changes
+  nothing). A pass still in date is not touched.
+- **A cancelled pass is never revived.** If a pass was cancelled with the
+  unused part handed back (`passes.void_refunded`; one cancelled before that
+  column, or by a chargeback, is read from the credit note on its sale) while it
+  still paid a booking ahead, cancelling that booking hands the entry's value
+  back in money instead: a credit note on the pass's sale for the entries'
+  share of its price (never above what the sale took, so the notes together
+  never exceed the price), owed back on its payment where the pass was bought
+  online (refunded from *Refunds owed*), and a line in the activity log
+  (`pass.restored_after_void`) so the venue pays it to a customer who bought
+  at the counter. The pass's history shows the entries handed back as money and
+  it stays at what it was when it was cancelled. A pass cancelled **without** a
+  refund is the venue's decision to keep the sale: the entries go back to the
+  ledger and the history says they are not handed back.
+- **A manager can extend a pass's end**, with a reason, from the pass list
+  (*Extend*): `POST /api/admin/passes/:id/extend` with a day or a number of
+  days. Not past what a pass may run, never earlier than its present end, never
+  for a cancelled pass. It is a line of the pass's history and in the activity
+  log (`pass.extended`).
 
 ### Day passes
 

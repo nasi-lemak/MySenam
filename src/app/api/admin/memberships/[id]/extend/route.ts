@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { extendMembership, membershipById } from "@/lib/store";
 import { logAction } from "@/lib/activity";
+import { refusal } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (denied) return denied;
   const body = (await req.json().catch(() => ({}))) as { days?: unknown; reason?: unknown };
   const result = await extendMembership(membershipId, Number(body.days));
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  // Refused with its code where it has one (`FX8_EXTEND_INTO_NEXT`: the holder's next term is in the way), so staff read it in their language.
+  if (!result.ok) return refusal(result);
   const why = typeof body.reason === "string" && body.reason.trim() ? `: ${body.reason.trim().slice(0, 200)}` : "";
   await logAction(admin, {
     venueId: existing.venueId,

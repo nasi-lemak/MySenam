@@ -40,6 +40,11 @@ import type { Refusal } from "./types";
  *   subscription's charge included) is still charged and made on its date;
  *   a suspension in force when it starts is carried on to it, so a renewal
  *   never lifts a suspension silently. Lifting one lifts the chain.
+ * - **An open-ended suspension of a membership that renews by itself** always
+ *   extends its end by the days it took, whatever its plan says (ADR 0062):
+ *   nothing here can hold the gateway's charge, so a member who is charged
+ *   while suspended is given those days back when it is lifted, the days of
+ *   every term of the chain added to the last term's end (`carriedDays`).
  * - **The holder is told** by email through the outbox, in their language,
  *   with the dates: the account that holds or bought it. Nobody it covers is
  *   written to, and no account that has said it is under 18.
@@ -175,7 +180,7 @@ async function coveredPeople(m: MembershipRow): Promise<number[]> {
  * into: the same holder's next term, or one holding or covering somebody
  * this one covers, starting after its present end and on or before `until`.
  */
-async function laterTerm(m: MembershipRow, until: string): Promise<{ code: string } | null> {
+async function laterTerm(m: MembershipRow, until: string): Promise<{ code: string; starts_on: string } | null> {
   const people = await coveredPeople(m);
   const holder =
     m.holder_kind === "participant"
@@ -188,12 +193,74 @@ async function laterTerm(m: MembershipRow, until: string): Promise<{ code: strin
       : "";
   return ((await getDb()
     .prepare(
-      `SELECT o.code FROM memberships o WHERE ${inSameBusiness("o.venue_id")} AND o.id <> ? AND o.status = 'active'
+      `SELECT o.code, o.starts_on FROM memberships o WHERE ${inSameBusiness("o.venue_id")} AND o.id <> ? AND o.status = 'active'
           AND o.starts_on > ? AND o.starts_on <= ? AND (${holder}${sharing}) ORDER BY o.starts_on LIMIT 1`
     )
     .get(m.venue_id, m.id, m.expires_on, until, m.holder_kind === "participant" ? m.holder_participant_id : m.holder_phone, ...people, ...people)) ?? null) as {
     code: string;
+    starts_on: string;
   } | null;
+}
+
+/**
+ * The next term that moving a membership's end to `until` would run into (the
+ * holder's next term, or one holding or covering somebody this one covers), or
+ * null. For giving days back (lib/store.ts `extendMembership`), which refuses
+ * what a suspension's extension already refuses (ADR 0062): two live terms for
+ * the same days. Under the membership's row lock.
+ */
+export async function termAfter(membershipId: number, until: string): Promise<{ code: string; startsOn: string } | null> {
+  const m = await lockedMembership(membershipId);
+  if (!m) return null;
+  const later = await laterTerm(m, until);
+  return later ? { code: later.code, startsOn: later.starts_on } : null;
+}
+
+/**
+ * Does a subscription still charge for this membership's next term: does it
+ * renew by itself? (`membership_subscriptions.membership_id` is the term its
+ * latest charge made.)
+ */
+export async function renewsByItself(membershipId: number): Promise<boolean> {
+  return !!(await getDb().prepare("SELECT 1 FROM membership_subscriptions WHERE membership_id = ? AND status = 'active'").get(membershipId));
+}
+
+/** Days from `from` to `to`, both ends counted; 0 when `to` is before `from`. */
+const spanDays = (from: string, to: string): number => (to < from ? 0 : daysBetween(from, to) + 1);
+
+/**
+ * Days that earlier terms of this suspension's chain took out of them and
+ * could not take back in their own end, because a renewal of the chain follows
+ * them (their extension note says `Carried to`): added to the end of the
+ * chain's last term, so a renewal charged while suspended is not charged for
+ * nothing (ADR 0062). Zero for a suspension that has no such predecessors.
+ */
+async function carriedDays(s: SuspensionRow, termStart: string): Promise<number> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT x.starts_on, x.ends_on, x.extended_days, m.starts_on AS term_from, m.expires_on AS term_to
+         FROM membership_suspensions x JOIN memberships m ON m.id = x.membership_id
+        WHERE COALESCE(x.chain_id, x.id) = ? AND x.id <> ? AND x.extends_expiry AND x.ends_on IS NOT NULL
+          AND x.extension_note LIKE 'Carried to %' AND m.status = 'active' AND m.starts_on < ?`
+    )
+    .all(s.chain_id ?? s.id, s.id, termStart)) as { starts_on: string; ends_on: string; extended_days: number; term_from: string; term_to: string }[];
+  let n = 0;
+  for (const r of rows) {
+    const from = r.starts_on > r.term_from ? r.starts_on : r.term_from;
+    const to = r.ends_on < r.term_to ? r.ends_on : r.term_to;
+    n += Math.max(0, spanDays(from, to) - Number(r.extended_days));
+  }
+  return n;
+}
+
+/** Is this term one a suspension of the same chain was carried on to? */
+async function inChain(s: SuspensionRow, code: string): Promise<boolean> {
+  return !!(await getDb()
+    .prepare(
+      `SELECT 1 FROM membership_suspensions c JOIN memberships o ON o.id = c.membership_id
+        WHERE COALESCE(c.chain_id, c.id) = ? AND c.id <> ? AND o.code = ? LIMIT 1`
+    )
+    .get(s.chain_id ?? s.id, s.id, code));
 }
 
 /**
@@ -202,6 +269,10 @@ async function laterTerm(m: MembershipRow, until: string): Promise<{ code: strin
  * once its last day is known. Applied once; lifted early, corrected down.
  * Never run into a later term: then the end stays, with why. Returns the
  * days the end moved by (0 when it did not).
+ *
+ * Where the later term is a renewal this suspension was carried on to (its own
+ * chain), the days are not lost: they are left to the chain's last term, whose
+ * end takes them with its own (`carriedDays`).
  */
 async function settleExtension(s: SuspensionRow): Promise<{ moved: number; until: string | null; blockedBy: string | null }> {
   if (!s.extends_expiry || s.ends_on === null) return { moved: 0, until: null, blockedBy: null };
@@ -211,7 +282,17 @@ async function settleExtension(s: SuspensionRow): Promise<{ moved: number; until
   const termEnds = addDays(m.expires_on, -Number(s.extended_days));
   const from = s.starts_on > m.starts_on ? s.starts_on : m.starts_on;
   const to = s.ends_on < termEnds ? s.ends_on : termEnds;
-  const days = to < from ? 0 : daysBetween(from, to) + 1;
+  const own = spanDays(from, to);
+  const ownDelta = own - Number(s.extended_days);
+  if (ownDelta > 0) {
+    const next = await laterTerm(m, addDays(m.expires_on, ownDelta));
+    if (next && (await inChain(s, next.code))) {
+      // The renewal it was carried on to is the last term's to extend: this one keeps its end, and says where its days went.
+      await db.prepare("UPDATE membership_suspensions SET extension_note = ? WHERE id = ?").run(`Carried to ${next.code}: its end takes these days.`, s.id);
+      return { moved: 0, until: null, blockedBy: null };
+    }
+  }
+  const days = own + (await carriedDays(s, m.starts_on));
   const delta = days - Number(s.extended_days);
   if (delta === 0) return { moved: 0, until: null, blockedBy: null };
   const until = addDays(m.expires_on, delta);
@@ -272,7 +353,9 @@ export async function suspendMembership(admin: Staff, membershipId: number, inpu
       )
       .get(m.id, from, until, until)) as { starts_on: string; ends_on: string | null } | undefined;
     if (clash) return refused(409, clash.ends_on ? "MS7_OVERLAP" : "MS7_OVERLAP_OPEN", { from: clash.starts_on, until: clash.ends_on ?? "" });
-    const extendsExpiry = await planExtends(m.plan);
+    // Open-ended and renewing by itself: the gateway keeps charging, so the days it takes are given back whatever the plan says.
+    const renews = until === null && (await renewsByItself(m.id));
+    const extendsExpiry = (await planExtends(m.plan)) || renews;
     const info = await db
       .prepare(
         `INSERT INTO membership_suspensions (membership_id, venue_id, starts_on, until_on, ends_on, reason, by_admin_id, by_name, extends_expiry)
@@ -299,7 +382,9 @@ export async function suspendMembership(admin: Staff, membershipId: number, inpu
       action: "membership.suspended",
       detail: `${m.code}: from ${from} ${until ? `until ${until}` : "until reactivated"}${flagged > 0 ? `; ${flagged} booking(s) flagged for staff` : ""}${
         extension.moved !== 0 ? `; its end moved to ${after.expires_on} (${extension.moved} days, its plan's setting)` : ""
-      }${extension.blockedBy ? `; its end not moved: ${extension.blockedBy} follows it` : ""}. Reason: ${reason}`,
+      }${extension.blockedBy ? `; its end not moved: ${extension.blockedBy} follows it` : ""}${
+        renews ? "; it renews by itself and is still charged while suspended, so the days it is suspended are added to its end when it is lifted" : ""
+      }. Reason: ${reason}`,
     });
     await notifyHolder(after, { kind: "suspended", from, until, reason, movedTo: extension.moved !== 0 ? after.expires_on : null });
     return {
@@ -403,9 +488,11 @@ export async function carrySuspensions(membershipId: number): Promise<number> {
     )
     .all(m.venue_id, m.id, m.starts_on, m.holder_kind === "participant" ? m.holder_participant_id : m.holder_phone, m.expires_on, m.starts_on)) as SuspensionRow[];
   if (carried.length === 0) return 0;
-  const extendsExpiry = await planExtends(m.plan);
+  const planExtendsEnd = await planExtends(m.plan);
   let n = 0;
   for (const s of carried) {
+    // An open-ended one that extends (its plan's setting, or the holder renewing by itself) goes on extending in the renewal.
+    const extendsExpiry = planExtendsEnd || (s.ends_on === null && s.extends_expiry);
     const from = s.starts_on > m.starts_on ? s.starts_on : m.starts_on;
     const info = await db
       .prepare(

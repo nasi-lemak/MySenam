@@ -31,7 +31,7 @@ import {
 import { creditScope } from "./mode";
 import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
-import { suspendedOn } from "./membership-suspensions";
+import { suspendedOn, termAfter } from "./membership-suspensions";
 import { isDuplicateSpend, memberPrices, membersOnlyRefusal, participationLapses, PASS_SCOPES, placesOf as placeRows, refuse as refuseEnt, soldByPlace, type BenefitScope, type MemberCover } from "./entitlements";
 import { keepPaidWithinPrice } from "./paid-within-price";
 import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, stackRefusal } from "./discounts";
@@ -123,7 +123,7 @@ import { coachSupervising, recordSupervisors, supervisionRefusal, supervisorsOf,
 import { utilisationByDay, type UseSplit } from "./reports";
 import { cancelPolicy, cancelPolicyFor, lateCancelTerms } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
-import { creditBooking, creditReceipt, issueReceipt, paidVia as paidViaLabel, saidLine, WHO } from "./documents";
+import { creditBooking, creditReceipt, documentFor, issueReceipt, paidVia as paidViaLabel, saidLine, WHO } from "./documents";
 import { gatewayFor } from "./gateways";
 import { venueTax } from "./tax";
 import { englishOf, lengthText, readStaffText, said, withPhrase, type StaffText } from "./staff-text";
@@ -3859,6 +3859,11 @@ async function rescheduleBookingOnce(
   if (!fromCourt) return refuse("COURT_NOT_FOUND");
   const start = to.start ?? (to.startHour === undefined ? NaN : minutesOf(to.startHour));
   if (!isMinute(start) || !isValidDateString(to.date)) return refuse("SLOT_PAST");
+  // Paid with a pass that is over before the new day: moved there it would be a session the pass could not have paid (ADR 0062).
+  if (to.date > booking.date) {
+    const ends = await passEndingBefore(booking.id, to.date);
+    if (ends) return refuse("FX8_MOVE_PAST_PASS", { date: ends });
+  }
   const length = booking.endMin - booking.startMin;
   const span = { start, end: start + length };
   const { zone } = await courtVenueHours(booking.courtId);
@@ -8070,7 +8075,15 @@ export async function extendMembership(id: number, days: number): Promise<Member
     if (!m) return { ok: false, error: "Membership not found." };
     if (m.status === "void") return { ok: false, error: "This membership is cancelled." };
     if (m.expiresOn < todayISO()) return { ok: false, error: "This membership has already ended. Sell a new one instead." };
-    await getDb().prepare("UPDATE memberships SET expires_on = ? WHERE id = ?").run(addDays(m.expiresOn, days), id);
+    // Never into the holder's next term (or one covering somebody this covers): two live terms would price the same days twice and
+    // leave "which tier applies" to chance. Refused, as a suspension's extension is (lib/membership-suspensions.ts), with how many days fit.
+    const until = addDays(m.expiresOn, days);
+    const later = await termAfter(id, until);
+    if (later) {
+      const fits = Math.max(0, Math.round((Date.parse(`${later.startsOn}T00:00:00Z`) - Date.parse(`${m.expiresOn}T00:00:00Z`)) / 86_400_000) - 1);
+      return refuse(fits > 0 ? "FX8_EXTEND_INTO_NEXT" : "FX8_EXTEND_NEXT_FOLLOWS", { code: later.code, date: later.startsOn, max: fits });
+    }
+    await getDb().prepare("UPDATE memberships SET expires_on = ? WHERE id = ?").run(until, id);
     return { ok: true, membership: (await membershipById(id))! };
   });
 }
@@ -8501,19 +8514,24 @@ function toPass(r: PassRow): Pass {
   return reason ? { ...pass, unusableReason: englishOf(reason), unusablePhrase: reason } : pass;
 }
 
-/** Why a pass cannot be spent today, or null when it can. */
-function passBlocked(pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind" | "dayPass" | "dayUsedOn">): StaffText | null {
+/**
+ * Why a pass cannot be spent today, or null when it can. For a session on a
+ * later date (`onDate`: the booking's) the pass must also be good on that day,
+ * as a membership is (ADR 0062): "valid until" means play by, not book by.
+ */
+function passBlocked(pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind" | "dayPass" | "dayUsedOn">, onDate?: string): StaffText | null {
   if (pass.status === "void") return said("srv.unusable.passCancelled");
   // expires_on is inclusive, so a pass is good for the whole of that day.
   if (pass.expiresOn < todayISO()) return said("srv.unusable.passExpired", { date: pass.expiresOn });
+  if (onDate && pass.expiresOn < onDate) return said("srv.unusable.passEndsBefore", { date: pass.expiresOn, session: onDate });
   // A day pass first used today still admits its person all day (lib/entries.ts), its one entry spent.
   if (pass.dayPass && pass.dayUsedOn && pass.dayUsedOn === todayISO()) return null;
   if (pass.remaining <= 0) return said(pass.kind === "time" ? "srv.unusable.passNoTime" : "srv.unusable.passNoEntries");
   return null;
 }
 
-const passBlockedReason = (pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind">): string | null => {
-  const reason = passBlocked(pass);
+const passBlockedReason = (pass: Pick<Pass, "status" | "expiresOn" | "remaining" | "kind">, onDate?: string): string | null => {
+  const reason = passBlocked(pass, onDate);
   return reason && englishOf(reason);
 };
 
@@ -8550,11 +8568,12 @@ export async function listPassesFor(userId: number): Promise<Pass[]> {
  * those it holds for a participant (each for that person's place), for the
  * counter to say which pays for whom (lib/pass-rules.ts `planPassSpends`).
  */
-export async function usablePassesForHolder(venueId: number, phone: string): Promise<Pass[]> {
+export async function usablePassesForHolder(venueId: number, phone: string, onDate?: string): Promise<Pass[]> {
   const rows = (await getDb()
     .prepare(`${PASS_SELECT} WHERE p.venue_id = ? AND phone_key(p.holder_phone) = phone_key(?) ORDER BY p.id`)
     .all(venueId, phone)) as PassRow[];
-  return rows.map(toPass).filter((p) => !p.unusableReason);
+  // Good today, and on the date of the session it would pay for (`passBlocked`).
+  return rows.map(toPass).filter((p) => !p.unusableReason && !passBlocked(p, onDate));
 }
 
 /** Passes issued by one venue, newest first — the counter's list. */
@@ -8785,7 +8804,9 @@ export async function voidPass(passId: number, opts: { refund?: boolean } = {}):
     const pass = await passById(passId);
     if (!pass) return refuse("PASS_NOT_FOUND");
     if (pass.status === "void") return { ok: false, error: "This pass is already cancelled." };
-    await db.prepare("UPDATE passes SET status = 'void' WHERE id = ?").run(passId);
+    // Whether the unused part was handed back is kept: a booking this pass still pays, cancelled later, gives its entry's value
+    // back in money, never to a pass that can no longer be used (`giveBackToPass`, ADR 0062).
+    await db.prepare("UPDATE passes SET status = 'void', void_refunded = ? WHERE id = ?").run(opts.refund === true, passId);
     let refunded: number | undefined;
     if (opts.refund) {
       const unused = pass.entries > 0 ? roundMoney((pass.price * Math.max(0, Math.min(pass.remaining, pass.entries))) / pass.entries) : 0;
@@ -8914,7 +8935,8 @@ export async function payBookingWithPasses(
       for (const s of spends) needed.set(s.pass.id, (needed.get(s.pass.id) ?? 0) + s.units);
       for (const [passId, units] of needed) {
         const fresh = (await passById(passId))!;
-        const blocked = passBlockedReason(fresh);
+        // Judged on the date of the session it pays for, not only today (a series: each week on its own date).
+        const blocked = passBlockedReason(fresh, booking.date);
         if (blocked) throw new Error(`BLOCKED:${blocked}`);
         if (fresh.remaining < units)
           throw new Error(`BLOCKED:This pass has ${passAmount(fresh, fresh.remaining)} left, and this booking needs ${passAmount(fresh, units)}.`);
@@ -8964,6 +8986,93 @@ export function normalisePhone(phone: string): string {
   return phoneKey(phone);
 }
 
+/** The day a pass that still pays this booking ends, when that is before `date`; null when none does. */
+async function passEndingBefore(bookingId: number, date: string): Promise<string | null> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT MIN(p.expires_on) AS ends FROM pass_entries e JOIN passes p ON p.id = e.pass_id
+        WHERE e.booking_id = ? AND e.delta < 0 AND p.expires_on < ?
+          AND NOT EXISTS (SELECT 1 FROM pass_entries r WHERE r.settles_entry_id = e.id)`
+    )
+    .get(bookingId, date)) as { ends: string | null } | undefined;
+  return row?.ends ?? null;
+}
+
+/**
+ * Entries given back to a pass for one spend of a cancelled booking (or a place taken off it): the ledger line that settles the spend,
+ * and what keeps the entries from being dead (ADR 0062, audit 9 D1 and H5).
+ *
+ * - A pass that has **expired** and has the venue's grace set (`venues.pass_restore_grace_days`, default 30; 0 = off) is extended to
+ *   today plus the grace, so the entries can be used; the extension is a line of its own in the pass's history, with its reason.
+ * - A pass that was **cancelled with the unused part handed back** is never revived: the entries' value goes back in money instead,
+ *   as a credit note on the pass's sale (never above what it took, `creditReceipt`), owed back through the gateway where the pass was
+ *   bought online, and the ledger shows the entries handed back as money so the cancelled pass stays at what it was. A pass cancelled
+ *   without a refund is the venue's decision to keep the sale: the entries go back to the ledger and no more (its history says so).
+ */
+export async function giveBackToPass(
+  spend: { id: number; pass_id: number; place_id: number | null },
+  back: number,
+  bookingId: number,
+  reason: string,
+  bookingCode: string
+): Promise<void> {
+  const db = getDb();
+  await db
+    .prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id, place_id, settles_entry_id) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(spend.pass_id, back, reason, bookingId, spend.place_id, spend.id);
+  const pass = await passById(spend.pass_id);
+  if (!pass || back <= 0) return;
+  if (pass.status === "void") {
+    const row = (await db.prepare("SELECT void_refunded FROM passes WHERE id = ?").get(pass.id)) as { void_refunded: boolean } | undefined;
+    const receipt = await documentFor(`pass:${pass.id}`);
+    if (!receipt) return;
+    const credited = (await db
+      .prepare("SELECT COALESCE(SUM(total), 0)::float AS t FROM receipts WHERE kind = 'credit_note' AND credits_id = ?")
+      .get(receipt.id)) as { t: number };
+    // Cancelled with a refund (or a chargeback, which credits its sale): its entries' value is the customer's.
+    if (!(row?.void_refunded === true || Number(credited.t) > 0)) {
+      await db
+        .prepare("INSERT INTO pass_entries (pass_id, delta, reason) VALUES (?, 0, ?)")
+        .run(pass.id, `Pass cancelled without a refund: ${passAmount(pass, back)} from ${bookingCode} are not usable and not handed back`);
+      return;
+    }
+    const value = pass.entries > 0 ? roundMoney((pass.price * back) / pass.entries) : 0;
+    const note = value > 0 ? await creditReceipt(`pass:${pass.id}`, "receipt.why.cancelled", 1, { key: `entry:${spend.id}`, amount: value, text: `${passAmount(pass, back)} from ${bookingCode}` }) : null;
+    const handed = note?.total ?? 0;
+    // The entries were handed back as money, not kept: the ledger of the cancelled pass stays as it was when it was cancelled.
+    await db
+      .prepare("INSERT INTO pass_entries (pass_id, delta, reason) VALUES (?, ?, ?)")
+      .run(pass.id, -back, `Pass cancelled: ${passAmount(pass, back)} from ${bookingCode} handed back as ${handed > 0 ? money(handed) : "nothing (already refunded in full)"}`);
+    if (handed > 0) {
+      // Where the pass was bought online, the money is owed back on its payment, to refund through the gateway (as voiding it did).
+      const owed = await (await import("./payments")).oweBackPass(pass.id, handed);
+      const { logAction } = await import("./activity");
+      await logAction(
+        { id: null, name: "MySenam" },
+        {
+          venueId: pass.venueId,
+          action: "pass.restored_after_void",
+          bookingCode,
+          detail: `Pass ${pass.code} was cancelled with a refund while it paid ${bookingCode}; the booking was cancelled, so ${passAmount(pass, back)} (${money(handed)}) is handed back as money${
+            owed !== null ? `, owed back online (${money(owed)} in all)` : ": to be paid to the customer by the venue"
+          }`,
+        }
+      );
+    }
+    return;
+  }
+  if (pass.expiresOn < todayISO()) {
+    const grace = (await db.prepare("SELECT pass_restore_grace_days AS n FROM venues WHERE id = ?").get(pass.venueId)) as { n: number } | undefined;
+    const days = grace?.n ?? 30;
+    if (days <= 0) return;
+    const until = addDays(todayISO(), days);
+    await db.prepare("UPDATE passes SET expires_on = ? WHERE id = ? AND status = 'active' AND expires_on < ?").run(until, pass.id, until);
+    await db
+      .prepare("INSERT INTO pass_entries (pass_id, delta, reason) VALUES (?, 0, ?)")
+      .run(pass.id, `Valid until ${pass.expiresOn} → ${until}: ${passAmount(pass, back)} given back for ${bookingCode} after the pass had ended, ${days} days to use them`);
+  }
+}
+
 /**
  * Give a cancelled booking's entries back. Refunding twice is refused, so a
  * double cancellation cannot mint entries. An expired pass is still credited —
@@ -8997,10 +9106,7 @@ export async function refundBookingToPass(bookingId: number, share = 1): Promise
     for (const charge of open) {
       // Whole entries (or minutes) only: a late cancellation's share is rounded down.
       const back = Math.floor(-charge.delta * share);
-      if (back > 0)
-        await db
-          .prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id, place_id, settles_entry_id) VALUES (?, ?, ?, ?, ?, ?)")
-          .run(charge.pass_id, back, `Refund for ${code ?? "booking"}`, bookingId, charge.place_id, charge.id);
+      if (back > 0) await giveBackToPass(charge, back, bookingId, `Refund for ${code ?? "booking"}`, code ?? String(bookingId));
     }
 
     return { ok: true, pass: (await passById(open[0].pass_id))!, spent: open.reduce((n, c) => n + c.delta, 0) };

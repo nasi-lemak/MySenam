@@ -561,10 +561,8 @@ export async function withdrawPlace(
       if (a.paid && booking.paidVia === "pass")
         for (const e of await openSpends(booking.id, a.place, o.places)) {
           const back = Math.floor(-e.delta * a.share);
-          if (back > 0)
-            await db
-              .prepare("INSERT INTO pass_entries (pass_id, delta, reason, booking_id, place_id, settles_entry_id) VALUES (?, ?, ?, ?, ?, ?)")
-              .run(e.pass_id, back, `Place taken off ${booking.code}`, booking.id, e.place_id, e.id);
+          // Given back as a cancellation gives back (an ended pass is extended, a cancelled one handed back as money: ADR 0062).
+          if (back > 0) await (await storeModule()).giveBackToPass(e, back, booking.id, `Place taken off ${booking.code}`, booking.code);
         }
 
       if (a.place && a.place.placeId !== null) {
