@@ -22,20 +22,34 @@ column.
 - **Revenue** is split into *booked* and *collected*, so the gap between them is
   the number a venue chases. Cancellations are counted as their own figure
   rather than folded into revenue: a thin month should read as either "we sold
-  less" or "they cancelled", never an ambiguous total.
-- **Kept from late cancellations** is takings: what the venue kept of a paid
-  booking in the period cancelled late (its late-cancellation fee, or all of
-  it where it allows no late cancelling) is a line of its own (`lateKept`) and
-  is inside *collected*, the split by payment method, by activity and by
-  month, and the tax collected. It is the booking's receipt less the credit
-  notes that gave the rest back, read from the same documents as the sales
-  journal (`bookingGross` and `bookingCredited` in `src/lib/accounting.ts`),
-  so the two agree; the fee's tax is worked out on the fee itself, the credit
-  note taking the rest of the receipt's. *Outstanding* is what confirmed
-  bookings still owe. A booking paid with a pass is left out, as its money was
-  taken when the pass was sold; a deposit kept on a booking never paid in
-  full is not in the report, as deposits are not
-  (`tests/late-cancel-report.test.ts`).
+  less" or "they cancelled", never an ambiguous total. Each figure has one
+  definition, below, implemented once (`bookingMoney` in `src/lib/reports.ts`)
+  and shown to reconcile with the sales journal over a scenario set
+  (`tests/report-reconciliation.test.ts`;
+  [ADR 0055](../architecture/decisions/0055-reports-reconcile-with-the-journal-and-einvoicing-keeps-going.md)).
+
+  | Figure | Definition |
+  | --- | --- |
+  | **Booked** (`expected`) | The price of confirmed bookings played in the period, as booked. A manager's later adjustment does not change it (it is shown as *given back*). |
+  | **Collected** (`collected`) | The money the venue holds for the bookings played in the period, as the sales journal has it: each booking's own receipt (the price less what friends paid on their own receipts) when it is paid and not paid with a pass; plus the deposit paid online and the friends' shares paid on it, on their own receipts; less the credit notes taken off them (a goodwill price adjustment on a booking that stays confirmed, a place taken off, a cheaper coach, a refund); plus what the venue kept of bookings cancelled late (*kept*, below). The same figure, by how it was paid (`collectedBy`: a deposit or a share is *online*), by activity and by month. |
+  | **Still owed** (`outstanding`) | For confirmed bookings not paid in full, the price less the deposit and shares already paid on it (not the whole price). A booking paid in full, or with a pass, owes nothing. |
+  | **Kept from late cancellations** (`lateKept`) | What the venue kept of a booking in the period cancelled late: its receipt, and the deposit and friends' shares paid on it, less the credit notes that gave the rest back (a late-cancellation fee, or all of it where late cancelling is not allowed; a deposit forfeited by one never paid in full). Inside *collected*. The tax on the fee is worked out on the fee itself, the credit note taking the rest of the receipt's. |
+  | **Given back after payment** (`adjusted`) | Credit notes taken off the receipts of confirmed bookings in the period: price adjustments, places taken off, a cheaper coach. Inside no other figure; it bridges *booked* to *collected*. |
+  | **Paid with a pass** (`passPaid`) | Confirmed bookings in the period paid with a pass, and what they came to at their price. **Not takings and not in *collected*:** the pass sale was the money (taken and taxed when the pass was sold, a row of the journal, *Passes*), and the booking is the pass being used. It is shown beside *collected* so the figures bridge. |
+  | **Tax** (`tax`) | The sales tax inside *collected*: each booking's own, less its credit notes', plus that on the period's other receipts (passes, memberships, fees, deposits, shares) less their credit notes. |
+
+  *Booked* is accounted for: *collected* less *kept*, plus *still owed*, plus
+  *given back*, plus *paid with a pass*, is *booked* (a test asserts it). **The
+  basis:** the report counts a booking on the day it was **played**, the sales
+  journal on the day it was **paid**, so the two agree over a period that holds
+  both dates of each booking; a booking paid before the period and played in it
+  is in the report and not in that period's journal, and one paid in it and played
+  after is the other way round. A deposit or share receipted by the gateway but
+  never counted towards the booking (it was owed back) is in neither. A deposit
+  that one payment held across several bookings (a weekly series) is shared
+  between them by what each took of it. A share paid at the counter has no receipt of
+  its own and so is in neither *collected* nor the journal. Counter sales, memberships, passes sold, fees and vouchers are not
+  bookings: counter sales are their own line (`counterSales`), the rest are in the journal.
 - **Utilisation** measures against hours that could *actually* have been sold —
   the trading day times capacity, less whole-day closures and any places staff
   took out of service. Marking a court out for maintenance should not make the
@@ -82,16 +96,31 @@ column.
   either. The demo data is what made that obvious: courts read 13% while the
   building read 2%.
 
-- **What you still owe** is the part a spreadsheet usually misses. Unspent pass
+- <a id="what-the-venue-owes"></a>**What the venue owes** is the part a spreadsheet usually misses. Unspent pass
   entries are hours already paid for that somebody can still walk in and take,
-  and lapsing memberships are next month's renewals. Stored credit is shown to
-  the platform owner only, because credit is bought at one counter and
-  spendable at any — the platform owes it, not the venue that sold it.
+  and lapsing memberships are next month's renewals. Beside them the report gives
+  what the venue holds for customers **in ringgit**, as of today and not of the
+  period (`liabilities.owed`, `venueOwes` in `src/lib/reports.ts`): stored credit
+  where it is this venue's (credit is per venue on a marketplace); gift vouchers
+  sold and not yet redeemed, unexpired (those past their date and neither redeemed
+  nor cancelled are shown apart and left out of the total until the venue's adviser
+  says how they are treated); deposits and friends' shares paid on confirmed bookings
+  not paid in full and still to be played; deposits held on kit out on hire; and
+  refunds owed (online refunds not yet made, and counter payments owed back and not
+  yet handed back). The total is those, and **is provisional**: how each is
+  treated in the venue's books is for its adviser, and the report says so. Passes are
+  not in the total: they are sold as takings, and the one RM value the code already
+  has for them, what voiding a pass with a refund gives back (its price times the
+  share of entries left), is shown as an *estimate*, *unspent pass value*, apart.
+  Memberships stay a count (no ringgit value is defensible). Stored credit is also shown
+  to the platform owner for the whole install, because where credit is platform-wide it is
+  bought at one counter and spendable at any: the platform owes it, not the venue that sold it.
   It is reported customer by customer, never netted: what customers hold
   (owed to them) is one figure, and apart from it what customers whose
   balance went below nothing after a chargeback owe (how many, and how much),
   labelled as not income. The two together are the ledger's total. A
-  balance below nothing is a debt to collect, not revenue.
+  balance below nothing is a debt to collect, not revenue
+  (`tests/report-venue-owes.test.ts`).
 - **Money kept from a hire deposit** is a sale per reason: in the day's
   takings, on a receipt, and in the sales journal and exports under its own
   heading — *Hire: damage and loss*, *Hire: extra charges*, *Hire:
@@ -129,8 +158,10 @@ months*; the exports below take the same period.
 booking with its price, whether and how it was paid, promo discount, extras,
 a manager's price adjustment, check-in and no-show; and every payment taken
 online with what is owed back.
-They open straight in Excel (byte-order mark, quoted cells, and a cell that
-would start a formula is kept as text). Managers only, and each download is
+They open straight in Excel (byte-order mark, quoted cells, and text that
+would start a formula is kept as text; an amount is a number, so a credit
+note's `-40.00` sums, pivots and imports: `toCsv` guards text columns only,
+`tests/export-credit-note-numbers.test.ts`). Managers only, and each download is
 in the activity log, since customers' names and numbers leave with it.
 
 **The sales journal** (`src/lib/accounting.ts`) is what the accountant keys

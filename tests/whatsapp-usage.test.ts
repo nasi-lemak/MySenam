@@ -34,6 +34,7 @@ import {
   packPrice,
   packSize,
   payPackOnline,
+  refundCredit,
   setWhatsappMode,
   settlePack,
   spendCredit,
@@ -199,6 +200,31 @@ describe("credit", () => {
     await drainOutbox();
     expect(await creditBalance(v.id)).toBe(1);
     expect((await messagesForBooking(fourth.id))[0].status).toBe("failed");
+    await setWhatsappMode(v.id, "urgent");
+  });
+});
+
+describe("the credit spent for one message", () => {
+  it("is charged once when the same message is tried again after a stop, and again after a given-back spend", async () => {
+    const v = (await listVenues())[0];
+    await setWhatsappMode(v.id, "all");
+    await grantCredit(v.id, 3, ownerId);
+    const court = v.courts.find((c) => c.capacity === 1)!;
+    const made = await createBooking({ courtId: court.id, date: addDays(todayISO(), 14), hours: [10], name: "Aisyah", phone: "0171237777" });
+    if (!made.ok) throw new Error(made.error);
+    await notifyBookingConfirmed([made.booking], "en", null);
+    const [m] = await messagesForBooking(made.booking.id);
+    const before = await creditBalance(v.id);
+    expect(await spendCredit(v.id, m.id)).toBe(true);
+    expect(await creditBalance(v.id)).toBe(before - 1);
+    // The process died before it wrote that the message went: the retry does not pay again.
+    expect(await spendCredit(v.id, m.id)).toBe(true);
+    expect(await creditBalance(v.id)).toBe(before - 1);
+    // A failed send gives it back; the next try pays again.
+    await refundCredit(v.id, m.id);
+    expect(await creditBalance(v.id)).toBe(before);
+    expect(await spendCredit(v.id, m.id)).toBe(true);
+    expect(await creditBalance(v.id)).toBe(before - 1);
     await setWhatsappMode(v.id, "urgent");
   });
 });

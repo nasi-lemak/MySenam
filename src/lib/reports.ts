@@ -6,7 +6,7 @@ import { addDays, todayISO } from "./time";
 import { venueTax } from "./tax";
 import { hoursOn, storedHours } from "./week-hours";
 import { venueZoneOf } from "./zones";
-import { bookingCredited, bookingGross } from "./accounting";
+import { bookingCredited, bookingGross, bookingSideNet } from "./accounting";
 
 /**
  * Reporting for the person who pays for the software.
@@ -23,12 +23,26 @@ import { bookingCredited, bookingGross } from "./accounting";
  */
 
 export interface RevenueLine {
-  /** What confirmed bookings in the period came to. */
+  /** What confirmed bookings in the period came to, at the price booked. */
   expected: number;
-  /** What has actually been marked paid, with what the venue kept of bookings cancelled late (`lateKept`). */
+  /**
+   * The money the venue holds for bookings played in the period, as the sales journal has it
+   * (`bookingMoney`, docs/features/reporting.md): each booking's receipt, the deposit and the friends' shares paid
+   * on it, less the credit notes taken off them (a goodwill adjustment, a place taken off, a cheaper coach), and
+   * with what the venue kept of bookings cancelled late (`lateKept`). A booking paid with a pass is not here: the
+   * pass sale was the money.
+   */
   collected: number;
-  /** What confirmed bookings still owe: `expected` less what of it was paid. */
+  /** What confirmed bookings not paid in full still owe: their price less the deposit and shares already paid on them. */
   outstanding: number;
+  /**
+   * Given back after payment on confirmed bookings in the period (price adjustments, places taken off, a cheaper
+   * coach): the credit notes the journal holds against their receipts. With the figures beside it,
+   * `expected` = (`collected` less `lateKept`) + `outstanding` + `adjusted` + `passPaid.value`.
+   */
+  adjusted: number;
+  /** Confirmed bookings in the period paid with a pass, and what they came to at their price: used up, not takings. */
+  passPaid: { bookings: number; value: number };
   /**
    * Kept from paid bookings in the period cancelled late: each one's receipt
    * less the credit notes that gave the rest back, as the sales journal has
@@ -136,7 +150,39 @@ export interface VenueReport {
     passesLive: number;
     membershipsActive: number;
     membershipsExpiringSoon: number;
+    /**
+     * What the venue holds for customers, in ringgit, as of today (not of the period). Every figure is provisional:
+     * how each is treated in the venue's books is for its adviser (docs/features/reporting.md#what-the-venue-owes).
+     */
+    owed: VenueOwes;
   };
+}
+
+/** What a venue holds for customers, in ringgit. */
+export interface VenueOwes {
+  /**
+   * Stored credit customers hold that this venue owes, where credit is per venue; null where it is the platform's
+   * (bought at one counter, spendable at any: see `walletLiability`, shown to the platform owner).
+   */
+  storedCredit: number | null;
+  /** Gift vouchers sold and not yet redeemed or expired. */
+  giftVouchers: number;
+  /** Vouchers past their date and neither redeemed nor cancelled: not in the figure above or the total, until the venue's adviser says how they are treated. */
+  giftVouchersLapsed: number;
+  /** Deposits and friends' shares paid on confirmed bookings not paid in full, still to be played. */
+  bookingDeposits: number;
+  /** Deposits held on kit hired out and not yet returned. */
+  hireDeposits: number;
+  /** Money owed back to customers: online refunds not yet made, and counter payments owed back and not yet handed back. */
+  refunds: number;
+  /**
+   * Unspent entries of live passes at the price each was sold at (the price times the share left, as voiding a pass
+   * with a refund works it out): an estimate of what the venue would give back, not an amount it owes. Not in the
+   * total: passes are takings when sold (the sales journal).
+   */
+  passValue: number;
+  /** The sum of stored credit (where the venue's), vouchers, booking and hire deposits and refunds. */
+  total: number;
 }
 
 /** How many days the expiry window for "expiring soon" covers. */
@@ -416,6 +462,144 @@ export async function utilisationByDay(
 }
 
 /**
+ * The money in the period report's booking figures, defined once (ADR 0055; docs/features/reporting.md).
+ *
+ * For every booking played in the period that is not a test, confirmed or cancelled late, the money the sales
+ * journal holds for it, read from the same receipts and credit notes (lib/accounting.ts):
+ *
+ * - its own receipt, `bookingGross` (the price less what friends paid on their own receipts), when it is paid and
+ *   not paid with a pass;
+ * - plus, on the receipts of their own, the deposit paid online and the friends' shares (a confirmed booking's
+ *   `shares_paid`; a cancelled one's, `bookingSideNet`);
+ * - less the credit notes taken off its own receipt, `bookingCredited`: a late cancellation's refund, a manager's
+ *   goodwill adjustment, a place taken off, a cheaper coach.
+ *
+ * A booking paid with a pass is not here at all, as in the journal: the pass sale was the money. What is not yet
+ * paid is `outstanding`: the price less the deposit and shares already paid, for confirmed bookings not paid in full.
+ * The report counts a booking on the date it was played and the journal on the date it was paid, so over a period
+ * holding both dates of every booking the two agree (tests/report-reconciliation.test.ts).
+ */
+export async function bookingMoney(venueId: number, from: string, to: string) {
+  const rows = (await getDb()
+    .prepare(`
+      SELECT b.status, (b.payment_status = 'paid') AS paid, COALESCE(b.paid_via, 'unrecorded') AS via,
+             (COALESCE(b.paid_via, '') = 'pass') AS pass, substr(b.date, 1, 7) AS month, b.sport,
+             b.total_price::float AS total, GREATEST(0, b.total_price - b.shares_paid)::float AS owing,
+             (CASE WHEN b.payment_status = 'paid' AND COALESCE(b.paid_via, '') <> 'pass' THEN GREATEST(0, ${bookingGross("b")}) ELSE 0 END)::float AS own,
+             (CASE WHEN COALESCE(b.paid_via, '') = 'pass' THEN 0 ELSE ${bookingCredited("b", "total")} END)::float AS credited,
+             (CASE WHEN COALESCE(b.paid_via, '') = 'pass' THEN 0
+                   WHEN b.status = 'confirmed' THEN b.shares_paid
+                   ELSE ${bookingSideNet("b")} END)::float AS side,
+             (b.tax_rate IS NOT NULL) AS taxed,
+             (CASE WHEN b.tax_rate IS NULL THEN 0
+                   ELSE ROUND(GREATEST(0, ${bookingGross("b")}) * b.tax_rate / (100 + b.tax_rate), 2) END)::float AS own_tax,
+             (CASE WHEN b.tax_rate IS NULL OR COALESCE(b.paid_via, '') = 'pass' THEN 0 ELSE ${bookingCredited("b", "tax_amount")} END)::float AS credited_tax
+        FROM bookings b
+       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ?
+         AND (b.status = 'confirmed' OR (b.status = 'cancelled' AND b.late_cancelled = 1))
+    `)
+    .all(venueId, from, to)) as {
+    status: string;
+    paid: boolean;
+    via: string;
+    pass: boolean;
+    month: string;
+    sport: Sport;
+    total: number;
+    owing: number;
+    own: number;
+    credited: number;
+    side: number;
+    taxed: boolean;
+    own_tax: number;
+    credited_tax: number;
+  }[];
+
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const lines = new Map<string, { amount: number; bookings: number }>();
+  const bySport = new Map<Sport, number>();
+  const byMonth = new Map<string, number>();
+  let seen = new Set<string>();
+  const line = (via: string, amount: number) => {
+    const l = lines.get(via) ?? { amount: 0, bookings: 0 };
+    l.amount += amount;
+    // A booking is counted once under each way it was paid, however many receipts that came on.
+    if (!seen.has(via)) l.bookings += 1;
+    seen.add(via);
+    lines.set(via, l);
+  };
+  let confirmedCollected = 0;
+  let lateKept = 0;
+  let outstanding = 0;
+  let adjusted = 0;
+  let tax = 0;
+  let taxRows = 0;
+  const passPaid = { bookings: 0, value: 0 };
+  for (const r of rows) {
+    seen = new Set();
+    const confirmed = r.status === "confirmed";
+    if (r.pass) {
+      if (confirmed) {
+        passPaid.bookings += 1;
+        passPaid.value += r.total;
+      }
+      continue;
+    }
+    const ownNet = r.own - r.credited;
+    let taken = 0;
+    if (confirmed) {
+      if (r.paid) {
+        line(r.via, ownNet);
+        taken += ownNet;
+        adjusted += r.credited;
+      } else outstanding += r.owing;
+      if (r.side > 0.004) {
+        line("online", r.side);
+        taken += r.side;
+      }
+      confirmedCollected += taken;
+      if (r.taxed && r.paid) {
+        tax += r.own_tax - r.credited_tax;
+        taxRows += 1;
+      }
+    } else {
+      // Kept of a booking cancelled late: the receipt less the credit notes that gave the rest back.
+      if (ownNet > 0.004) {
+        line(r.via, ownNet);
+        taken += ownNet;
+        if (r.taxed) {
+          tax += r.own_tax - r.credited_tax;
+          taxRows += 1;
+        }
+      }
+      if (r.side > 0.004) {
+        line("online", r.side);
+        taken += r.side;
+      }
+      lateKept += taken;
+    }
+    if (taken !== 0) {
+      bySport.set(r.sport, (bySport.get(r.sport) ?? 0) + taken);
+      byMonth.set(r.month, (byMonth.get(r.month) ?? 0) + taken);
+    }
+  }
+  return {
+    collected: round(confirmedCollected + lateKept),
+    lateKept: round(lateKept),
+    outstanding: round(outstanding),
+    adjusted: round(adjusted),
+    passPaid: { bookings: passPaid.bookings, value: round(passPaid.value) },
+    tax,
+    taxRows,
+    collectedBy: [...lines.entries()]
+      .map(([via, l]) => ({ via, amount: round(l.amount), bookings: l.bookings }))
+      .sort((a, b) => b.amount - a.amount),
+    bySport,
+    byMonth,
+  };
+}
+
+/**
  * Everything a venue owner asks at the end of a month.
  *
  * Cancelled bookings are counted but earn nothing: they are shown as their own
@@ -455,11 +639,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
         SUM(CASE WHEN b.status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
         SUM(CASE WHEN b.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
         SUM(CASE WHEN b.no_show = 1 THEN 1 ELSE 0 END) AS "noShows",
-        SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END) AS expected,
-        SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected,
-        SUM(CASE WHEN b.status = 'confirmed' AND b.payment_status = 'paid' AND b.tax_rate IS NOT NULL
-                      AND COALESCE(b.paid_via, '') <> 'pass'
-                 THEN ROUND((b.total_price - b.shares_paid) * b.tax_rate / (100 + b.tax_rate), 2) END) AS "taxCollected"
+        SUM(CASE WHEN b.status = 'confirmed' THEN b.total_price ELSE 0 END) AS expected
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ?
@@ -469,33 +649,14 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     cancelled: number | null;
     noShows: number | null;
     expected: number | null;
-    collected: number | null;
-    taxCollected: number | string | null;
   };
 
   const expected = counts.expected ?? 0;
 
-  // Kept from paid bookings cancelled late (the venue's late-cancellation fee): the receipt less the credit notes,
-  // the sales journal's own figures, so the two agree. Not one paid with a pass: that was sold when the pass was.
-  const kept = (
-    (await db
-      .prepare(`
-        SELECT COALESCE(b.paid_via, 'unrecorded') AS via, substr(b.date, 1, 7) AS month, b.sport,
-               GREATEST(0, ${bookingGross("b")} - ${bookingCredited("b", "total")})::float AS amount,
-               (CASE WHEN b.tax_rate IS NULL THEN 0
-                     ELSE ROUND(${bookingGross("b")} * b.tax_rate / (100 + b.tax_rate), 2) - ${bookingCredited("b", "tax_amount")} END)::float AS tax
-          FROM bookings b
-         WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ?
-           AND b.status = 'cancelled' AND b.late_cancelled = 1 AND b.payment_status = 'paid' AND COALESCE(b.paid_via, '') <> 'pass'
-      `)
-      .all(venueId, from, to)) as { via: string; month: string; sport: Sport; amount: number; tax: number }[]
-  ).filter((k) => Number(k.amount) > 0);
-  const lateKept = Math.round(kept.reduce((n, k) => n + Number(k.amount), 0) * 100) / 100;
-  const lateKeptTax = kept.reduce((n, k) => n + Number(k.tax), 0);
-  const keptBy = <K extends "via" | "month" | "sport">(key: K, value: string) =>
-    kept.filter((k) => k[key] === value).reduce((n, k) => n + Number(k.amount), 0);
-  const paidConfirmed = counts.collected ?? 0;
-  const collected = Math.round((Number(paidConfirmed) + lateKept) * 100) / 100;
+  // The money in the booking figures, defined once (docs/features/reporting.md, ADR 0055): what the sales journal holds
+  // for each booking played in the period, from the same receipts and credit notes. See `bookingMoney`.
+  const money = await bookingMoney(venueId, from, to);
+  const { lateKept, collected, outstanding, collectedBy } = money;
 
   // The tax on everything else sold, receipted as it was sold (passes,
   // memberships, fees, shares), less what credit notes took back of it.
@@ -513,9 +674,9 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     `)
     .get(venueId, zone, from, to)) as { n: number | string; tax: number | string };
   const taxCollected =
-    counts.taxCollected === null && Number(documents.n) === 0 && lateKeptTax === 0
+    money.taxRows === 0 && Number(documents.n) === 0
       ? null
-      : Math.round((Number(counts.taxCollected ?? 0) + Number(documents.tax) + lateKeptTax) * 100) / 100;
+      : Math.round((money.tax + Number(documents.tax)) * 100) / 100;
 
   const saleZone = zone;
   const counter = (await db
@@ -546,30 +707,6 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
          AND b.status = 'confirmed' AND b.payment_status = 'paid'
     `)
     .get(venueId, from, to)) as { n: number; total: number };
-
-  const collectedBy = (
-    (await db
-      .prepare(`
-        SELECT COALESCE(b.paid_via, 'unrecorded') AS via, SUM(b.total_price) AS amount, COUNT(*) AS bookings
-        FROM bookings b
-        WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ?
-          AND b.status = 'confirmed' AND b.payment_status = 'paid'
-        GROUP BY COALESCE(b.paid_via, 'unrecorded')
-      `)
-      .all(venueId, from, to)) as { via: string; amount: number | string; bookings: number | string }[]
-  )
-    .map((r) => ({ via: r.via, amount: Number(r.amount), bookings: Number(r.bookings) }));
-  // What was kept of bookings cancelled late, under how they were paid.
-  for (const via of new Set(kept.map((k) => k.via))) {
-    const line = collectedBy.find((r) => r.via === via);
-    const amount = keptBy("via", via);
-    const n = kept.filter((k) => k.via === via).length;
-    if (line) {
-      line.amount = Math.round((line.amount + amount) * 100) / 100;
-      line.bookings += n;
-    } else collectedBy.push({ via, amount: Math.round(amount * 100) / 100, bookings: n });
-  }
-  collectedBy.sort((a, b) => b.amount - a.amount);
 
   // --- place-hours sold ----------------------------------------------------
   const sold = records.sold;
@@ -612,8 +749,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       .prepare(`
         SELECT b.sport AS sport, COUNT(*) AS bookings,
                SUM((b.end_min - b.start_min) * CASE WHEN c.capacity > 1 THEN GREATEST(1, COALESCE(b.players, 1)) ELSE 1 END) / 60.0 AS booked_hours,
-               SUM(b.total_price) AS expected,
-               SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
+               SUM(b.total_price) AS expected
         FROM bookings b
         JOIN courts c ON c.id = b.court_id
         WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
@@ -625,12 +761,11 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       bookings: number;
       booked_hours: number | string;
       expected: number;
-      collected: number;
     }[]
   ).map(({ booked_hours, ...row }) => ({
     ...row,
-    // With what was kept of its bookings cancelled late.
-    collected: Math.round((Number(row.collected) + keptBy("sport", row.sport)) * 100) / 100,
+    // What the journal holds of its bookings (`bookingMoney`), with what was kept of those cancelled late.
+    collected: Math.round((money.bySport.get(row.sport) ?? 0) * 100) / 100,
     // What was booked for it, whichever court it was played on.
     hours: Math.round(Number(booked_hours) * 100) / 100,
   }));
@@ -639,14 +774,13 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   const monthRows = await db
     .prepare(`
       SELECT substr(b.date, 1, 7) AS month,
-             SUM(b.total_price) AS expected,
-             SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) AS collected
+             SUM(b.total_price) AS expected
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
       WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.date >= ? AND b.date <= ? AND b.status = 'confirmed'
       GROUP BY month
     `)
-    .all(venueId, from, to) as { month: string; expected: number; collected: number }[];
+    .all(venueId, from, to) as { month: string; expected: number }[];
   const monthHours: { month: string; hours: number }[] = [];
   for (const b of sold) {
     const month = b.date.slice(0, 7);
@@ -658,7 +792,7 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
   const byMonth: MonthLine[] = monthsIn(from, to).map((month) => ({
     month,
     expected: monthRows.find((r) => r.month === month)?.expected ?? 0,
-    collected: Math.round((Number(monthRows.find((r) => r.month === month)?.collected ?? 0) + keptBy("month", month)) * 100) / 100,
+    collected: Math.round((money.byMonth.get(month) ?? 0) * 100) / 100,
     hours: monthHours.find((r) => r.month === month)?.hours ?? 0,
   }));
 
@@ -677,15 +811,18 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
 
   // --- what the venue still owes people -----------------------------------
   const today = todayISO();
-  const { passEntriesUnspent, passesLive } = await db
+  const { passEntriesUnspent, passesLive, passesValue } = await db
     .prepare(`
       SELECT
         COALESCE(SUM(p.entries + COALESCE((SELECT SUM(e.delta) FROM pass_entries e WHERE e.pass_id = p.id), 0)), 0) AS "passEntriesUnspent",
-        COUNT(*) AS "passesLive"
+        COUNT(*) AS "passesLive",
+        COALESCE(SUM(CASE WHEN p.entries > 0
+                          THEN p.price * GREATEST(0, LEAST(p.entries, p.entries + COALESCE((SELECT SUM(e.delta) FROM pass_entries e WHERE e.pass_id = p.id), 0))) / p.entries
+                          ELSE 0 END), 0)::float AS "passesValue"
       FROM passes p
       WHERE p.venue_id = ? AND p.status = 'active' AND p.expires_on >= ?
     `)
-    .get(venueId, today) as { passEntriesUnspent: number; passesLive: number };
+    .get(venueId, today) as { passEntriesUnspent: number; passesLive: number; passesValue: number };
 
   const { membershipsActive } = await db
     .prepare(`
@@ -702,6 +839,8 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     .get(venueId, today, addDays(today, EXPIRING_SOON_DAYS)) as {
     membershipsExpiringSoon: number;
   };
+
+  const owed = await venueOwes(venueId, today, passesValue);
 
   const exclusive = courts.filter((c) => c.capacity === 1).map((c) => c.id);
   const floorTakings = byCourt.filter((c) => exclusive.includes(c.courtId)).reduce((n, c) => n + Number(c.expected), 0);
@@ -722,7 +861,9 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
     revenue: {
       expected,
       collected,
-      outstanding: expected - paidConfirmed,
+      outstanding,
+      adjusted: money.adjusted,
+      passPaid: money.passPaid,
       lateKept,
       tax: taxCollected === null ? null : { name: (await venueTax(venueId)).name, amount: taxCollected },
     },
@@ -743,7 +884,49 @@ export async function venueReport(venueId: number, from: string, to: string): Pr
       passesLive,
       membershipsActive,
       membershipsExpiringSoon,
+      owed,
     },
+  };
+}
+
+/**
+ * What the venue holds for customers, in ringgit (`VenueOwes`): one place for the figures, each read from where the
+ * money is kept. Provisional: the venue's adviser decides how each is treated in its books.
+ */
+async function venueOwes(venueId: number, today: string, passValue: number): Promise<VenueOwes> {
+  const db = getDb();
+  const one = async (sql: string, ...params: unknown[]) => Number(((await db.prepare(sql).get(...params)) as { n: number | string | null }).n ?? 0);
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const storedCredit = creditScope() === "venue" ? (await venueCreditLiability(venueId)).balance : null;
+  const giftVouchers = await one("SELECT COALESCE(SUM(amount), 0)::float AS n FROM gift_vouchers WHERE venue_id = ? AND status = 'active' AND expires_on >= ?", venueId, today);
+  const giftVouchersLapsed = await one("SELECT COALESCE(SUM(amount), 0)::float AS n FROM gift_vouchers WHERE venue_id = ? AND status = 'active' AND expires_on < ?", venueId, today);
+  const bookingDeposits = await one(
+    `SELECT COALESCE(SUM(b.shares_paid), 0)::float AS n FROM bookings b
+      WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND NOT b.test AND b.status = 'confirmed' AND b.payment_status = 'unpaid'
+        AND b.date >= ? AND b.shares_paid > 0`,
+    venueId,
+    today
+  );
+  const hireDeposits = await one(
+    `SELECT COALESCE(SUM(h.deposit), 0)::float AS n FROM hire_records h JOIN bookings b ON b.id = h.booking_id
+      WHERE h.returned_at IS NULL AND b.court_id IN (SELECT id FROM courts WHERE venue_id = ?)`,
+    venueId
+  );
+  const online = await one(
+    "SELECT COALESCE(SUM(p.refund_due - p.refunded), 0)::float AS n FROM online_payments p WHERE p.venue_id = ? AND p.purpose NOT IN ('invoice', 'pack') AND p.refund_due > p.refunded",
+    venueId
+  );
+  const counter = await one("SELECT COALESCE(SUM(amount), 0)::float AS n FROM counter_refunds_owed WHERE venue_id = ? AND settled_at IS NULL", venueId);
+  const refunds = round(online + counter);
+  return {
+    storedCredit: storedCredit === null ? null : round(storedCredit),
+    giftVouchers: round(giftVouchers),
+    giftVouchersLapsed: round(giftVouchersLapsed),
+    bookingDeposits: round(bookingDeposits),
+    hireDeposits: round(hireDeposits),
+    refunds,
+    passValue: round(passValue),
+    total: round((storedCredit ?? 0) + giftVouchers + bookingDeposits + hireDeposits + refunds),
   };
 }
 

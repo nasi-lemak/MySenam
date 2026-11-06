@@ -9,14 +9,19 @@ import { taxIncluded, taxName } from "./tax";
  * accountant: one row each, opened straight in Excel or Google Sheets.
  *
  * Excel is the reader to please: a byte-order mark so it reads Malay names
- * and "—" right, CRLF line ends, every field quoted, and a cell that would
+ * and "—" right, CRLF line ends, every field quoted, and a text cell that would
  * start a formula (=, +, -, @) given a leading apostrophe, so a customer
- * named "=HYPERLINK(...)" is text, not a link.
+ * named "=HYPERLINK(...)" is text, not a link. A number is not text: a credit
+ * note's "-40.00" (or a JavaScript number) is written as it is, so a column
+ * sums, pivots and imports; only a cell of nothing but a minus sign, digits
+ * and one decimal point is read as a number, anything longer is still text.
  */
+const PLAIN_NUMBER = /^-?\d+(\.\d+)?$/;
 
 function cell(value: unknown): string {
   let text = value === null || value === undefined ? "" : String(value);
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  const number = (typeof value === "number" && Number.isFinite(value)) || (typeof value === "string" && PLAIN_NUMBER.test(text));
+  if (!number && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return `"${text.replace(/"/g, '""')}"`;
 }
 

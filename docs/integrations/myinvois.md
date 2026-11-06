@@ -35,13 +35,25 @@ How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
 *Test connection* signs in with them. What is sent (`src/lib/myinvois.ts`,
 `src/lib/myinvois/ubl.ts`):
 
-- **Each month, consolidated.** In each venue's first seven days of a month,
-  the scheduler writes last month's sales down as one e-invoice to the
+- **Each month, consolidated.** From the first day of a month the scheduler
+  (`runEInvoicing`) writes last month's sales down as one e-invoice to the
   general public (`CON-2026-10`, buyer TIN `EI00000000010`, classification
   004): a line for each kind of sale (court hire, classes, coaching, passes,
   memberships, credit…) and tax rate, saying how many receipts and which.
   Which receipts it carried is stored with it when it is sent (`covers`).
-  Managers can send it sooner with *Send last month now*.
+  Managers can send it sooner with *Send last month now*. It is not a single
+  attempt in the first seven days: until the month's own end any run that finds
+  last month not yet consolidated makes it (every run in the first seven days;
+  after that once an hour, and only for a venue that was already e-invoicing
+  before the month began, so a venue that has just switched e-invoicing on is
+  not sent last month's earlier sales unasked), idempotently by its number
+  (`CON-2026-10`), so an outage of the scheduler or of MyInvois in the first week
+  no longer loses the month. A month more than one back is never made by
+  itself. One venue's failing step (a fault in its journal) is recorded as an
+  alert for the platform's owner and told to that venue's staff, and every
+  other venue carries on in the same run
+  ([ADR 0055](../architecture/decisions/0055-reports-reconcile-with-the-journal-and-einvoicing-keeps-going.md);
+  `tests/einvoice-resilience.test.ts`).
 - **Credit notes**, by the e-invoice that carried what they reverse: the
   month's consolidated one, or a customer's own, as consolidated credit notes
   (`CCN-2026-11-CON-2026-10`) naming it by LHDN's UUID. A credit note waits
@@ -94,7 +106,7 @@ else):
 | State | What it means | What it holds from LHDN | What staff can do next |
 | --- | --- | --- | --- |
 | Waiting to send (`pending`) | Written down, not sent: a draft | Nothing | Nothing: the scheduler sends it. A credit note says which document it waits for |
-| Not sent (`failed`) | It certainly did not reach LHDN: the venue's details were incomplete, nothing was left to send, MyInvois refused the sign-in, could not be connected to, or answered that it took nothing (a 4xx, or 503) | Nothing | *Send*: the same draft, once put right |
+| Not sent (`failed`) | It certainly did not reach LHDN: the venue's details were incomplete, nothing was left to send, MyInvois refused the sign-in, could not be connected to, or answered that it took nothing (a 4xx, or 503) | Nothing | Nothing needed: MySenam tries it again by itself (15 minutes after the first failure, then 30, 60, 120, 240 and every 6 hours, `retryNotSent`), each try on its history, and sends it once the cause is gone. Each failure alerts the platform's owner and tells the venue's staff (again only when the owner is told again, every 6 hours). *Send* sends it at once, once put right |
 | Needs verification: submission outcome unknown (`failed`, `outcomeUnknown`, state `unknown`) | MySenam asked LHDN and never recorded its answer, so LHDN may hold the document: the claim went stale (a sender stopped), or the request timed out, was cut after it went out, or was answered with something unreadable or a gateway or server error ([sending once](#sending-once)) | Nothing recorded; the attempt's payload is kept with the claim | *LHDN has it* (record its identifiers: LHDN is asked and must confirm the document is this one), or, once the manager has checked the portal, *LHDN does not have it, send again*. Never sent again by itself |
 | Refused by LHDN (`rejected`) | LHDN refused it when it was sent | Submission ID, LHDN's reasons as given | *Send a replacement* |
 | Sent, being validated (`submitted`) | LHDN accepted it for validation | Submission ID, UUID | *Check with LHDN*, *Ask LHDN again* |
@@ -278,7 +290,9 @@ code where it is used, and has not been checked against the MyInvois
 sandbox or LHDN's current guidance. None is presented to staff as settled:
 
 - the consolidated e-invoice sent in the first seven days after the month
-  (`runEInvoicing`), made out to the general public (TIN `EI00000000010`,
+  (`runEInvoicing`; made late, after the seventh day, where an outage or a
+  failure stopped it, which LHDN may treat differently: for the venue's
+  adviser), made out to the general public (TIN `EI00000000010`,
   state 17) with classification 004, and consolidated credit notes made the
   same way;
 - a single sale over RM10,000 kept out of the consolidated one

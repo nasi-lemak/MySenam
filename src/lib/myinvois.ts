@@ -933,7 +933,10 @@ export async function submitOne(id: number, now = new Date()): Promise<EInvoice>
     const done = await db
       .prepare(`UPDATE e_invoices SET status = 'failed', error = ?, sending_at = NULL, attempt_payload = NULL WHERE id = ? AND ${UNSENT}`)
       .run(error.slice(0, 1000), id);
-    if (done.changes === 1) await noteAttempt(id, "not_sent", error);
+    if (done.changes === 1) {
+      await noteAttempt(id, "not_sent", error);
+      await alertNotSent(r.venue_id, r.code_number, error);
+    }
     return toEInvoice((await rowById(id))!);
   };
   /** LHDN may hold it and MySenam has no answer: kept as a draft, marked unknown, and the venue's staff told once. */
@@ -1040,6 +1043,51 @@ async function alertUnknown(venueId: number, code: string): Promise<void> {
   } catch (err) {
     if (mustRethrow(err)) throw err;
     console.error("[mysenam] could not tell staff that an e-invoice's outcome is unknown:", err);
+  }
+}
+
+/**
+ * A document that certainly did not reach LHDN (*not sent*) is never silent: the platform owner is told through the
+ * alerts (kept, and told again every `RESEND_HOURS` while it goes on, `lib/alerts.ts`), and the venue's staff each
+ * time the owner is, in their own staff language. MySenam tries it again by itself (`retryNotSent`). Never throws.
+ */
+async function alertNotSent(venueId: number, code: string, why: string): Promise<void> {
+  try {
+    const { raiseAlert } = await import("./alerts");
+    const venue = (await getDb().prepare("SELECT name FROM venues WHERE id = ?").get(venueId)) as { name: string } | undefined;
+    const due = await raiseAlert(`einvoice:${venueId}:not-sent`, `E-invoice not sent (${venue?.name ?? `venue ${venueId}`})`, `${code}: ${why}`);
+    if (!due) return;
+    await tellVenueStaffEach(venueId, (t) => ({
+      subject: t("fx5.ei.notSent.s", { code }),
+      body: t("fx5.ei.notSent.b", { code, venue: venue?.name ?? t("r9d.yourVenue"), why }),
+    }));
+  } catch (err) {
+    if (mustRethrow(err)) throw err;
+    console.error("[mysenam] could not tell anyone that an e-invoice was not sent:", err);
+  }
+}
+
+/**
+ * One venue's e-invoicing run failed (not a document LHDN refused: MySenam's own step, such as the month's
+ * consolidation): recorded as an alert for the platform owner and told to that venue's staff, and the run goes on with
+ * the other venues. Told again only when the owner is (`RESEND_HOURS`). Never throws.
+ */
+async function alertRunFailed(venueId: number, step: "consolidating" | "sending", err: unknown): Promise<void> {
+  if (mustRethrow(err)) throw err;
+  const why = err instanceof Error ? err.message : String(err);
+  console.error(`[mysenam] e-invoicing failed for venue ${venueId} (${step}):`, err);
+  try {
+    const { raiseAlert } = await import("./alerts");
+    const venue = (await getDb().prepare("SELECT name FROM venues WHERE id = ?").get(venueId)) as { name: string } | undefined;
+    const due = await raiseAlert(`einvoice:${venueId}:${step}`, `E-invoicing failed while ${step} (${venue?.name ?? `venue ${venueId}`})`, err instanceof Error ? err.stack ?? why : why);
+    if (!due) return;
+    await tellVenueStaffEach(venueId, (t) => ({
+      subject: t("fx5.ei.run.s", { venue: venue?.name ?? t("r9d.yourVenue") }),
+      body: t("fx5.ei.run.b", { venue: venue?.name ?? t("r9d.yourVenue"), step: t(step === "consolidating" ? "fx5.ei.step.consolidating" : "fx5.ei.step.sending"), why }),
+    }));
+  } catch (inner) {
+    if (mustRethrow(inner)) throw inner;
+    console.error("[mysenam] could not record an e-invoicing failure:", inner);
   }
 }
 
@@ -1168,11 +1216,53 @@ export async function submitPending(venueId?: number, now = new Date()): Promise
     return stale;
   })();
   for (const e of interrupted) await alertUnknown(e.venue_id, e.code_number);
+  await retryNotSent(venueId, now);
   const rows = (await db
-    .prepare(`SELECT id FROM e_invoices WHERE status = 'pending' AND sending_at IS NULL AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
-    .all(...(venueId ? [venueId] : []))) as { id: number }[];
-  for (const r of rows) await submitOne(r.id, now);
+    .prepare(`SELECT id, venue_id FROM e_invoices WHERE status = 'pending' AND sending_at IS NULL AND ${UNSENT}${venueId ? " AND venue_id = ?" : ""} ORDER BY id LIMIT 50`)
+    .all(...(venueId ? [venueId] : []))) as { id: number; venue_id: number }[];
+  for (const r of rows) {
+    // One document's failure is that venue's to be told of, not the other venues' to wait for.
+    try {
+      await submitOne(r.id, now);
+    } catch (err) {
+      await alertRunFailed(r.venue_id, "sending", err);
+    }
+  }
   return rows.length;
+}
+
+/** Minutes before a document that was *not sent* is tried again, after its `n`th failed attempt: 15, 30, 60 ... up to 6 hours. */
+export const notSentRetryMinutes = (n: number) => Math.min(15 * 2 ** Math.max(0, n - 1), 360);
+
+/**
+ * A document that certainly did not reach LHDN (*not sent*: its details incomplete, no sign-in, no connection, a 503)
+ * is put back to waiting once its back-off has passed, so it goes by itself when the cause is gone, and each failed
+ * try is on its history and alerted (`alertNotSent`). Never one whose outcome is unknown: that is for staff to settle
+ * against the portal (docs/integrations/myinvois.md, sending once), and it is never sent again by itself. Safe:
+ * nothing that is not `UNSENT` is touched, and the same claim as any send guards the next one.
+ */
+export async function retryNotSent(venueId?: number, now = new Date()): Promise<number> {
+  const db = getDb();
+  const rows = (await db
+    .prepare(
+      `SELECT id,
+              (SELECT COUNT(*) FROM e_invoice_attempts a WHERE a.e_invoice_id = e_invoices.id AND a.event = 'not_sent')::int AS n,
+              (SELECT MAX(a.at) FROM e_invoice_attempts a WHERE a.e_invoice_id = e_invoices.id AND a.event = 'not_sent') AS last
+         FROM e_invoices
+        WHERE status = 'failed' AND ${UNSENT} AND outcome_unknown_at IS NULL AND error IS DISTINCT FROM ?${venueId ? " AND venue_id = ?" : ""}
+        ORDER BY id LIMIT 50`
+    )
+    .all(SENDING_INTERRUPTED, ...(venueId ? [venueId] : []))) as { id: number; n: number; last: string | null }[];
+  let again = 0;
+  for (const r of rows) {
+    const last = r.last ? Date.parse(`${r.last.replace(" ", "T")}Z`) : 0;
+    if (Number.isFinite(last) && now.getTime() - last < notSentRetryMinutes(r.n) * 60_000) continue;
+    const set = await db
+      .prepare(`UPDATE e_invoices SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed' AND ${UNSENT} AND outcome_unknown_at IS NULL AND error IS DISTINCT FROM ?`)
+      .run(r.id, SENDING_INTERRUPTED);
+    again += set.changes;
+  }
+  return again;
 }
 
 /** `confirmedNotAtLhdn`: the document's outcome was unknown and staff confirmed LHDN does not hold it. */
@@ -1333,20 +1423,43 @@ export async function recordFromPortal(
 }
 
 /**
- * The scheduler's part: in each venue's first seven days of a month, the
- * month before consolidated; then whatever is waiting sent, and whatever was
- * sent checked. UNVERIFIED: the seven days follow LHDN's guideline for
- * consolidated e-invoices as read when this was written, not checked
- * against its current guideline.
+ * The scheduler's part: each venue's previous month consolidated, then whatever is waiting sent (a document that was
+ * not sent is tried again, `retryNotSent`), and whatever was sent checked.
+ *
+ * Consolidation is not a single attempt in a window of seven days: from the first day of a month to its end, any run
+ * that finds the previous month not yet consolidated makes it (`consolidate` is idempotent by its code number, so a
+ * second run, a second server or a retry after a failure makes nothing twice), so a scheduler or MyInvois outage over
+ * the first seven days no longer leaves the month for ever. It is made late after the seventh day, which is what
+ * LHDN's guideline gives for it as read when this was written, not checked against its current guideline
+ * (UNVERIFIED); what LHDN makes of a late one is for the venue's adviser. A month further back is not made by itself.
+ *
+ * One venue's failure never stops the others: each venue's step and each document's send is on its own, recorded as
+ * an alert for the platform owner and told to that venue's staff (`alertRunFailed`).
  */
 export async function runEInvoicing(now = new Date()): Promise<void> {
   const venues = (await getDb().prepare("SELECT venue_id FROM einvoice_settings WHERE enabled = 1").all()) as { venue_id: number }[];
   for (const { venue_id } of venues) {
-    const today = todayISO(await zoneOf(venue_id));
-    if (Number(today.slice(8, 10)) <= 7) await consolidate(venue_id, previousPeriod(today));
+    try {
+      const today = todayISO(await zoneOf(venue_id));
+      if (Number(today.slice(8, 10)) > 7) {
+        // Past the seventh day: a catch-up, once an hour, and only for a venue that was already e-invoicing before
+        // this month began (a venue that has just switched it on is not sent last month's sales it never asked to).
+        if (now.getUTCMinutes() >= 2) continue;
+        const before = await getDb().prepare("SELECT 1 FROM e_invoices WHERE venue_id = ? AND created_at < ? LIMIT 1").get(venue_id, `${today.slice(0, 7)}-01 00:00:00`);
+        if (!before) continue;
+      }
+      await consolidate(venue_id, previousPeriod(today));
+    } catch (err) {
+      await alertRunFailed(venue_id, "consolidating", err);
+    }
   }
   await submitPending(undefined, now);
-  await checkSubmitted();
+  try {
+    await checkSubmitted();
+  } catch (err) {
+    if (mustRethrow(err)) throw err;
+    console.error("[mysenam] checking e-invoices with LHDN failed:", err);
+  }
 }
 
 // ------------------------------------------------------------ the statutory period

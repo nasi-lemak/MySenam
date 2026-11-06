@@ -120,9 +120,19 @@ export async function chatOfferedFor(venueId: number): Promise<boolean> {
 /**
  * Spend one message, before it is sent. False when there is none to spend,
  * and the message must not go. Not counted at all on a venue's own install.
+ * Once per message: a message already spent for and not given back (the process
+ * died between the spend and writing the outcome, so it is tried again) is not
+ * charged a second time; a spend given back by `refundCredit` is spent again on
+ * the next try.
  */
 export async function spendCredit(venueId: number, messageId: number | null): Promise<boolean> {
   if (!creditsApply()) return true;
+  if (messageId !== null) {
+    const net = (await getDb()
+      .prepare("SELECT COALESCE(SUM(delta), 0)::int AS n FROM whatsapp_credit WHERE venue_id = ? AND message_id = ? AND reason IN ('sent', 'not sent')")
+      .get(venueId, messageId)) as { n: number };
+    if (net.n < 0) return true;
+  }
   const spent = await getDb()
     .prepare(
       `INSERT INTO whatsapp_credit (venue_id, delta, reason, message_id)
