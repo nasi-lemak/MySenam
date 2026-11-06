@@ -915,7 +915,14 @@ appears anywhere in the flow. Above zero turns on the counter workflow:
   (`participantName`, from the booking). The check-in window
   applies unchanged, so kit cannot leave an hour before the slot it belongs to.
   Staff may override the amount, including waiving it — the record is worth
-  keeping either way, because the kayak is out.
+  keeping either way, because the kayak is out. **How the deposit is held** (cash,
+  QR, transfer or card) is said then, for any deposit above nothing, and kept with the
+  record and who took it (`deposit_via`, migration 0308): it says which till the
+  money is in, and what is kept or given back later follows it.
+- **The cash-up** lists the deposits taken, given back and kept by method, and what is
+  still held for customers, apart from takings
+  ([cash-up](payments-and-credit.md#cash-up)); the reports' liability for hire deposits
+  is that same figure (`src/lib/hire-deposits.ts`).
 - **Taking it back** records the condition (fine, damaged, not returned),
   anything kept back out of the hold, and a note. Nothing can be kept back that
   was not held, and anything short of a clean return needs a note: the customer
@@ -951,8 +958,9 @@ reason and an amount (`src/lib/deposit-deductions.ts`):
 
 Each line is rung up, in the same change as the return, as a counter sale
 linked to the hire, with a receipt: in the day's takings, the reports, the
-sales journal under its heading, and the exports. Staff say how it was taken
-(the way the deposit was paid). A reason is used at most once per return; the
+sales journal under its heading, and the exports. The sale is under the
+method the deposit was held by: a deposit taken before the method was recorded needs it
+said for anything kept, and nothing is ever put down as cash by default. A reason is used at most once per return; the
 lines must be positive and together no more than the deposit held. The
 deposit, the amounts kept and the amount handed back always add up, and two
 returns of the same kit at once keep it once (the second is refused). An

@@ -130,6 +130,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0051 Ladder court time: a counter-proposal is its maker's agreement and holds nothing; an expired or unanswered hold is no one's fault](architecture/decisions/0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md) ·
 [0057 Staff find only their own customers, secrets are never in a staff view, the owner's decisions are logged, and a draft that cannot be deleted never stops the day](architecture/decisions/0057-staff-lookups-masked-secrets-and-an-audit-trail-for-owner-decisions.md)
 [0054 Money paid never above the price, credit never taken for a cancelled booking, no silent price, a booking whose request died is held or let go](architecture/decisions/0054-money-paid-never-above-price-and-no-silent-price.md)
+[0061 Company accounts and the cash-up: credit notes taken off part by part, an issued invoice never drifts, overdue accounts reminded and optionally blocked, hire deposits and the counted till](architecture/decisions/0061-company-accounts-and-the-cash-up.md)
 [0062 Passes judged on the session's date and entries given back are not dead; a membership's days given back never run into its renewal; a suspension of a renewing membership gives its days back; the concession check and the review invitation are decided once](architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md)
 
 ## Integrations

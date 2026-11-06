@@ -996,6 +996,25 @@ who counted and who checked it.
   (`tests/cash-up.test.ts`, `tests/test-bookings-money.test.ts`).
 - **What is not money** is shown apart: a booking paid from stored credit
   already sold moves no money, and is left out of the total.
+- **Hire deposits are in the drawer but are not takings.** Under the table,
+  *Hire deposits held for customers* lists, by how each was held (cash, QR,
+  transfer or card; recorded when the kit went out), the deposits taken that day,
+  given back and kept, each with who did it, and what is **still held** at the end of
+  the day. That figure is the one definition of a deposit held
+  (`src/lib/hire-deposits.ts`) that the reports' liabilities use too
+  (`venueOwes`, [ADR 0055](../architecture/decisions/0055-reports-reconcile-with-the-journal-and-einvoicing-keeps-going.md)):
+  taken, and not yet back. What is kept back from a deposit is a sale in the
+  journal, as before, so each till's **expected** amount is the journal's net plus
+  deposits taken less every deposit let go of (given back and kept, the kept part
+  being already in the journal): *What each till should hold*. A deposit taken before
+  the method was recorded shows as *not recorded*, never as cash.
+- **What was counted** is recorded under the sheet: the cashier enters what they counted
+  in each till (`POST /api/admin/cash-up`), and the sheet shows, beside what was
+  expected, what was counted, the **variance** (short or over, worked out by the server
+  from the expected amount at that moment) and who counted. Each count is its own
+  record, a recount another one, the latest counting; none is edited
+  (`cash_up_counts`, migration 0308; *Counted the till…* in the activity log). Front desk
+  counts its own shift, a manager anybody's. Tested in `tests/hire-cash-up.test.ts`.
 - **Front desk sees its own**: what it took and gave back itself, today or
   yesterday (a shift past midnight). **A manager** sees everybody's, or one
   person's, on any day.
@@ -1039,6 +1058,18 @@ the person's own unpaid limit, and refused, with nothing booked, if it would
 take the account past its limit. The desk can put any unpaid booking on an
 account from the day's list, or take it off until it is invoiced.
 
+**An account that does not pay.** Invoices unpaid past their due day are listed under
+*Needs attention* for the venue's staff (account, number, due day, days overdue, what is
+still to pay) and reminded to the account's address by email, the first day overdue and
+weekly after, six at most per invoice (`remindOverdueAccountInvoices`, the outbox). A
+manager can also set, under *Company and school accounts* (*Overdue accounts*), after how
+many days overdue **new bookings on the account are refused**: blank, the default, never
+(as before); 30 is a sensible start. The refusal names the amount overdue and the days;
+the customer is told to pay for that booking themselves or ask the venue, and staff can
+charge the booking to the account anyway with a reason, recorded in the activity log
+(`company_overdue_block_days`, migration 0307). A paid invoice, or one whose credit notes
+and part payments cover it, no longer blocks. Tested in `tests/account-overdue.test.ts`.
+
 Early on the first of each month, what was played on each account last month
 and not yet invoiced goes on one invoice, which is emailed to the account
 with a link to print it or save it as a PDF: each booking, its date and court,
@@ -1051,11 +1082,16 @@ or this month so far: everything charged to it for dates up to today,
 a session later today included (the account buys on credit as it books;
 anything changed after the invoice is a credit note, below). *Mark paid*
 records how it came in and marks every booking on it paid the same way, one
-cancelled since included, as the invoice charged it. An unpaid invoice can
-be withdrawn; its bookings go on the next one; not once a booking on it was
-cancelled with a credit note against it, as that credit note stands.
+cancelled since included, as the invoice charged it. An account that pays in
+parts records each amount received (*Mark paid* with an amount, and how): the bookings
+the money covers are paid in the order played, by that means, and the invoice is paid
+when the last part is in, until then showing what was *received* and the *balance*
+(`account_invoice_payments`, migration 0307; `tests/account-credit-parts.test.ts`). An
+unpaid invoice can be withdrawn; its bookings go on the next one; not once any money
+was received on it, nor once a booking on it was cancelled or moved with a credit note
+against it, as that credit note stands.
 What the account **owes** is what its unpaid invoices say: each one's total
-as issued, less the credit notes taken off it. Closing an account stops new bookings on it;
+as issued, less the credit notes taken off it and what was received. Closing an account stops new bookings on it;
 what is on it is still invoiced.
 
 **Credit notes on the account.** One person taken off a booking on the
@@ -1068,15 +1104,28 @@ terms, is a credit note to the account against that invoice
 the venue's documents at the tax the booking was invoiced at, and never as
 well a credit note on the booking's own receipt), whether the invoice is paid
 or not, and comes off
-the account's next invoice, whole and oldest first, as far as its total
-goes: the invoice lists each (*Credit note CN-…, MS-…*) and what is *To
+the account's next invoice, **part by part**, oldest first, as far as its total
+goes: a credit bigger than the invoice is taken as far as the invoice goes and the rest
+waits for the next, never blocking the smaller ones behind it, and each part is a
+record of its own (which credit, which invoice, how much, who issued the invoice,
+when: `account_credit_allocations`, migration 0307). The invoice lists each (*Credit note CN-…, MS-…*) and what is *To
 pay*, and its email gives that. Staff see the credit waiting on the
 account, and on each invoice what was credited. Withdrawing an invoice gives
-its credits back to the account for the next one. Credit can also be paid
+its credits back to the account for the next one. **An issued invoice never drifts**:
+each booking's invoiced price is kept when the invoice is issued
+(`bookings.invoiced_amount`) and the invoice's lines, and the credit for a
+cancellation, follow that and never the booking's live price. A booking on an issued
+invoice **moved to a cheaper court or time** keeps the price it was invoiced at, and
+the difference is a credit note on the account against that invoice, waiting for the
+next one (a later cancellation gives back only what is left); moved to a dearer one, it
+is not charged more, and staff are told what the new time costs against the price
+(`unchargedDifference`), as for a paid booking. A booking not yet invoiced is
+re-priced when it moves, as before. Tested in `tests/account-invoice-snapshot.test.ts`. Credit can also be paid
 back to the account some other way (a bank transfer, or an account closed
 with no more to invoice): a manager records it with *Paid back by hand* and
 what they wrote down to find it again (`settleAccountCredit`, migration
-0223; *Paid back an account's credit by hand* in the activity log), and it
+0223, for what still waits of each credit, parts already taken off invoices staying
+taken; *Paid back an account's credit by hand* in the activity log), and it
 never comes off an invoice afterwards; an invoice issued at the same moment
 either takes it or leaves it to the hand payment, never both. A closed
 account stays listed, marked closed, while credit waits on it.
