@@ -217,9 +217,10 @@ async function sessionConflict(
 ): Promise<Conflict | null> {
   const db = getDb();
   const date = { date: dest.date };
-  // Attendance taken: a session somebody has checked in to is under way, whatever its start says.
+  // Attendance taken: a session somebody has been checked in to is under way, whatever its start says. Verified attendance
+  // only (ADR 0058): the desk's, a register mark's, or a customer's own check-in that staff confirmed, never a remote tap.
   const attended = await db
-    .prepare("SELECT 1 AS x FROM check_ins ci JOIN bookings b ON b.id = ci.booking_id WHERE b.class_id = ? AND b.status = 'confirmed' LIMIT 1")
+    .prepare("SELECT 1 AS x FROM check_ins ci JOIN bookings b ON b.id = ci.booking_id WHERE b.class_id = ? AND b.status = 'confirmed' AND (ci.source = 'desk' OR ci.confirmed_at IS NOT NULL) LIMIT 1")
     .get(session.id);
   if (attended) return conflictOf(refuse("CLSA_MOVE_ATTENDANCE", { date: session.date }));
 
@@ -408,7 +409,7 @@ export async function moveClasses(
         )
           throw new Refused(refuse("CLSA_MOVE_CHANGED"));
         if (instantOf(now.date, now.startMin, zone).getTime() <= Date.now()) throw new Refused(refuse("CLASS_STARTED"));
-        const attended = await db.prepare("SELECT 1 AS x FROM check_ins ci JOIN bookings b ON b.id = ci.booking_id WHERE b.class_id = ? AND b.status = 'confirmed' LIMIT 1").get(s.id);
+        const attended = await db.prepare("SELECT 1 AS x FROM check_ins ci JOIN bookings b ON b.id = ci.booking_id WHERE b.class_id = ? AND b.status = 'confirmed' AND (ci.source = 'desk' OR ci.confirmed_at IS NOT NULL) LIMIT 1").get(s.id);
         if (attended) throw new Refused(refuse("CLSA_MOVE_ATTENDANCE", { date: s.date }));
         const rostered = await classRosterRefusal(s, item.to);
         if (rostered) throw new Refused(rostered);

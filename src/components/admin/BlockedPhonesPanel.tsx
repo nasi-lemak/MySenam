@@ -50,6 +50,8 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
   const [unblocking, setUnblocking] = useState<string | null>(null);
   const [why, setWhy] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Upcoming bookings the number still had when it was refused: left for a decision in the needs-attention list (ADR 0058).
+  const [left, setLeft] = useState(0);
   const url = `/api/admin/venues/${venue.id}/blocked-phones`;
 
   const load = useCallback(async () => {
@@ -69,7 +71,11 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
     if (method === "POST") {
       setPhone("");
       setReason("");
+      setLeft(typeof data.flagged === "number" ? data.flagged : 0);
+      window.dispatchEvent(new Event("attention:refresh"));
     } else {
+      setLeft(0);
+      window.dispatchEvent(new Event("attention:refresh"));
       setUnblocking(null);
       setWhy("");
     }
@@ -149,6 +155,11 @@ function VenueBlocks({ venue }: { venue: ManagedVenue }) {
           {t("blk.block")}
         </button>
       </form>
+      {left > 0 && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="blocked-left">
+          {t.plural("fx9.blk.left", left)}
+        </p>
+      )}
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </div>
   );

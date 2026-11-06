@@ -6,7 +6,7 @@ import { tellOwnersEach, tellVenueStaffEach } from "./owner-alerts";
 import { reviewPath, reviewToken } from "./review-links";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
-import { findBookingByCode, getCourt, getVenue } from "./store";
+import { attendanceVerified, findBookingByCode, getCourt, getVenue } from "./store";
 import { addDays, slotStartsAt, todayISO } from "./time";
 import { MAX_REVIEW_BODY, type Booking, type Refusal } from "./types";
 import { venueZoneOf } from "./zones";
@@ -134,9 +134,9 @@ export async function reviewable(code: string, now = new Date()): Promise<{ ok: 
   const venue = court ? await getVenue(court.venueId) : null;
   if (!court || !venue) return refuse("REVIEW_NOT_FOUND");
   if (booking.status !== "confirmed" || booking.noShow) return refuse("REVIEW_NOT_PLAYED");
-  // Paid for, or checked in: a booking made under any number and never turned up to is not a visit,
+  // Paid for, or checked in and verified (the desk's, or a self check-in staff confirmed: ADR 0058): a booking made under any number and never turned up to is not a visit,
   // and is the cheapest way to leave a rival one star.
-  if (booking.paymentStatus !== "paid" && !booking.checkedInAt && booking.totalPrice > 0) return refuse("REVIEW_NOT_PLAYED");
+  if (booking.paymentStatus !== "paid" && booking.totalPrice > 0 && !(booking.checkedInAt && (await attendanceVerified(booking.id)))) return refuse("REVIEW_NOT_PLAYED");
   const zone = await zoneOf(venue.id);
   if (slotStartsAt(booking.date, booking.endHour, zone).getTime() > now.getTime()) return refuse("REVIEW_NOT_YET");
   if (booking.date < addDays(todayISO(zone), -REVIEW_DAYS)) return refuse("REVIEW_TOO_LATE", { days: REVIEW_DAYS });

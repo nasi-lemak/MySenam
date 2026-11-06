@@ -79,14 +79,24 @@ export async function POST(req: NextRequest) {
   }
   const lapsed = out !== true && admit === true ? await lapsesForCode(code) : [];
   const onLane = out !== true && Number.isInteger(laneId) ? await checkInOnLane(code, laneId as number, admitting) : null;
-  const result = onLane ?? (out === true ? await checkOut(code) : await checkIn(code, admitting));
+  // Somebody the customer checked in themselves (QR code or door code), unconfirmed: the desk's check-in is the confirmation (ADR 0058).
+  const unconfirmed = out !== true && onLane === null && (await selfCheckInWaiting(code));
+  const result = onLane ?? (out === true ? await checkOut(code) : await checkIn(code, { ...admitting, by: { adminId: admin.id, name: admin.name } }));
   if (!result.ok) return warned(result);
+  if (unconfirmed) await logAction(admin, { venueId, action: "checkin.confirmed", bookingCode: result.booking.code, detail: "Staff confirmed a self check-in as attendance" });
   // Given another lane on arrival: on the record as a move.
   if (onLane?.ok && onLane.moved)
     await logAction(admin, { venueId, action: "booking.moved", bookingCode: result.booking.code, detail: `${onLane.moved.from.name} to ${onLane.moved.to.name}, given on arrival` });
   if (lapsed.length > 0)
     await logAction(admin, { venueId, action: "checkin.membership_admitted", bookingCode: result.booking.code, detail: `Admitted ${admitted(lapsed)}${why}` });
   return NextResponse.json({ booking: result.booking });
+}
+
+/** Did the customer check this booking in themselves, with staff yet to confirm it? */
+async function selfCheckInWaiting(code: string): Promise<boolean> {
+  return !!(await getDb()
+    .prepare("SELECT 1 AS x FROM check_ins ci JOIN bookings b ON b.id = ci.booking_id WHERE UPPER(b.code) = UPPER(?) AND ci.source <> 'desk' AND ci.confirmed_at IS NULL")
+    .get(code.trim()));
 }
 
 /** The people on a booking its members' session no longer covers, before it is checked in. */

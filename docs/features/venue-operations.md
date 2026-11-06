@@ -19,8 +19,10 @@ The venue page renders this as a **Here right now** panel that refreshes every
 30 seconds.
 
 Check-in and no-show are mutually exclusive and self-correcting: a customer who
-checked in cannot be flagged a no-show, and checking someone in clears a
-no-show the desk had already recorded when they turn up late.
+the desk checked in cannot be flagged a no-show, and checking someone in at the
+desk clears a no-show it had already recorded when they turn up late. **A
+customer's own check-in is not that**: see [self check-in is not verified
+attendance](#self-check-in-is-not-verified-attendance).
 
 **Person by person.** Where a booking names the people taking part (two
 children booked by a parent; [booking for somebody else](booking.md#booking-for-somebody-else)),
@@ -428,7 +430,37 @@ rest of the day.
 Scanning the code never admits somebody to a members-only session whose
 membership no longer covers its date: it is refused with the reason, and they
 check in at the desk, where staff decide (above;
-`MV6_CHECKIN_ENDED`, `MV6_CHECKIN_CANCELLED`, `MV6_CHECKIN_NONE`).
+`MV6_CHECKIN_ENDED`, `MV6_CHECKIN_CANCELLED`, `MV6_CHECKIN_NONE`). Nor does it
+for a number the venue has refused (`FX9_DOOR_BLOCKED`, "see the venue"): the
+desk, a person looking at them, can still check them in
+([bookings that need a decision](#bookings-that-need-a-decision)).
+
+### Self check-in is not verified attendance
+
+One `check_ins` row used to serve the headcount, the strikes and "attendance
+taken", so a tap on a link on a phone cleared a no-show the desk had recorded,
+froze a class move and made a lesson count as held for the coach's pay
+([ADR 0058](../architecture/decisions/0058-safety-and-access-after-a-booking-is-made.md)).
+The row now says who recorded the arrival (`check_ins.source`): `desk` (the
+default, and every row from before: verified), `self` (the QR link) or `door`
+(a door code revealed). A `self` or `door` arrival counts for **the headcount**
+and is **visible to staff** (the Attendance chip reads *Self check-in 10:05 ·
+Confirm*; the class roster *self check-in · confirm*), and is **verified
+attendance only once staff confirm it**, by one tap: the same *Check in* call
+at the desk (a booking already checked in by the customer is confirmed, not
+refused), kit handed over, or somebody marked arrived in the register. Who
+confirmed and when is kept (`confirmed_by_name`, `confirmed_at`) and logged
+(`checkin.confirmed`). Until confirmed it:
+
+- **does not clear a no-show** the desk recorded (and staff may still mark a
+  no-show after a remote tap; once they confirmed the arrival they cannot, and
+  confirming clears the mark);
+- **does not freeze a class move** (`CLSA_MOVE_ATTENDANCE` counts verified
+  attendance only: [moving a class](programmes.md#moving-a-class));
+- **does not count as having played** for a [review](discovery.md#reviews) of an
+  unpaid, priced booking; and, because the no-show flag is still the one "did
+  not come" signal, the coach's payout, review requests and loyalty read as
+  they did.
 
 ## Entry with no set time
 
@@ -590,10 +622,24 @@ Who gets the code, and when:
 | Where the booked activity's rules ask for a [sign-off](activities.md#sign-offs) or certification, or the venue takes [approval applications](activities.md#registering-online-for-approval) for it, one is in force that day for everybody taking part: the customer's own (for the number booked), and each participant's own | Nobody is there to check. The rules are the activity booked, on a resource that offers several. Eligibility is never bypassed, whoever made the booking: one made past the rules by a manager, at the counter, through the venue's API key, as a coach's lesson, a session booked for an approval's in-person step, or one whose application is pending, refused, lapsed or revoked gets no code (`approval-needed`) ([ADR 0020](../architecture/decisions/0020-approval-to-booking-payment-and-authority.md); `tests/approval-workflow.test.ts`, "door codes never bypass eligibility") |
 | The booking is not **staff-supervised** | A manager can arrange staff-supervised attendance for somebody not signed off, where the venue's safety procedures allow (*Courts & rates → Staff-supervised attendance*, saying who supervises under which procedure; recorded in the activity log). Staff meet them and let them in (`supervised`); it is never a door code and signs nobody off for later |
 | On a members-only session, **everybody taking a place is still a member on its date**: their own membership, or a family one naming them (the customer's own place: theirs, or the venue's list) | A membership cancelled, voided on a chargeback, ended or suspended on the day since the booking was made is for staff to decide at the desk, never the door (`membership`, `MV6_DOOR_*`, `MS7_DOOR_SUSPENDED`; [before taking part](pricing.md#before-taking-part)). A court reserved whole is the booker's privilege, checked when it was booked, and is not asked again |
+| The number is not **refused by the venue** since it booked | A number the venue refuses gets no code, whatever else holds (`blocked`, `FX9_DOOR_BLOCKED`, "see the venue"); the booking is left for a manager ([below](#bookings-that-need-a-decision)) |
+| No sign-off, certification or induction was **taken back** since it was booked and left undecided | Staff look first (`flagged`, `FX9_DOOR_FLAGGED`); recording it again settles the flag. A staffed venue's flagged booking is not blocked |
 | The booking is not cancelled | — |
 | **The booking is paid** | Nobody is on site to take payment, so the door is the till. An unpaid booking still holds its slot; the code appears the moment staff or a payment marks it paid |
 | Inside the check-in window | The same hour before the slot that check-in already uses |
 | Before the slot ends | — |
+
+**Asked at booking, not first at the door.** Where the door code is the way in
+for a booking (an unmanned resource with a code, at a time the counter is not
+staffed), the customer is asked at **booking** for the same sign-off or
+certification the door asks for: the activity's booking rules, and an activity
+the venue takes approval applications for (`SIGN_OFF_NEEDED`,
+`CERTIFICATION_NEEDED`, before any payment); a manager can still book past it on
+record, and the door still waits. A **staffed** time is unchanged. An
+**induction** is taken in person, so it is told rather than refused: the
+confirmation and the booking's page say the time is unstaffed and a run-through
+at the desk comes first (`inductionNeeded`), and the door's own check stays the
+second line.
 
 Each refusal carries its own `reason`, so the customer is told what to do about
 it rather than getting a flat no. The booking's own page says beforehand which
@@ -610,9 +656,10 @@ Four consequences worth stating plainly:
   phone behind it. When a court is found in a state on Tuesday night, "who had
   the code" is the whole investigation — so the log is append-only and the
   venue's staff can read it from the Courts tab.
-- **Opening the door is the arrival.** The reveal checks the customer in, so
-  *Here right now* stays honest and no-shows stay meaningful with nobody at a
-  desk to press a button.
+- **Opening the door is the arrival, for the headcount.** The reveal checks the
+  customer in as `door`, so *Here right now* stays honest with nobody at a
+  desk to press a button; it is the customer's own arrival, not verified
+  attendance until staff confirm it ([above](#self-check-in-is-not-verified-attendance)).
 - **The entry screen carries the emergency details.** The venue's out-of-hours
   number and whatever it wants people to know — where the AED is, the nearest
   clinic — plus how many people are checked in right now, so somebody letting
@@ -651,7 +698,9 @@ belongs to the person shown round
   them. One per participant per venue.
 
 Either is revived rather than duplicated if access is withdrawn and later
-restored. Withdrawing access shuts the door on the next request. The door
+restored. Withdrawing access shuts the door on the next request, and flags the
+person's upcoming bookings on a resource with a door code, for staff to decide
+([bookings that need a decision](#bookings-that-need-a-decision)). The door
 asks for the induction of everybody taking part in the booking: the
 customer's own where they take a place (or where the booking names nobody
 else), and each participant's own. A participant linked to their own login
@@ -669,6 +718,41 @@ the name it was filed under; or confirms it is the number holder's own. A
 reason is required either way, and who decided, when and why is kept on the
 induction, in the participant's history and in the activity log. Front desk
 cannot do it.
+
+### Bookings that need a decision
+
+Two of the venue's own decisions can leave a booking somebody already made in
+doubt. Neither cancels it for them: the booking is listed in **Needs
+attention** (`safetyFlags` in `GET /api/admin/attention`), with who, when and
+why, for staff to decide ([ADR 0058](../architecture/decisions/0058-safety-and-access-after-a-booking-is-made.md);
+`booking_safety_flags`, migration 0303).
+
+- **A number the venue refuses** (*Venues & staff → Blocked numbers*). From that
+  moment its booking gets no door code and no QR check-in. Refusing it tells
+  the manager how many upcoming confirmed bookings the number has there (a
+  class or lesson enrolment is a booking too) and lists each: **Cancel with
+  refund** (the ordinary staff cancellation: what was paid goes back as it was
+  paid, the customer is told, and the booking leaves the list), or **Leave
+  it**, with a note kept in the activity log (a manager's, not the front
+  desk's). Nothing is cancelled or refunded by the system. Taking the number off
+  the refused list settles what was listed for it. The desk can still check
+  such a customer in: a person is looking at them.
+- **A sign-off, certification or induction taken back** (*Sign-offs*,
+  *Courts & rates → Cleared for unstaffed hours*): the person's upcoming
+  confirmed bookings it affected are listed with what was taken back, who took
+  it back, when and the reason, unless another sign-off or induction still
+  covers them. The customer is emailed **once** (the list says *not told: tell
+  them* where the booking has no email address). At an unstaffed hour the door
+  code waits for the decision; a staffed venue's flagged booking is not blocked
+  at all (the desk is there). Giving the sign-off or induction again settles the
+  flag by itself. A sign-off an approval wrote keeps the approval's own flagging
+  ([approvals](activities.md#registering-online-for-approval)). A certification
+  that runs out is asked about when a booking is made for a day it has run out
+  by; no warning is sent afterwards. No waiver is ever taken back (a new version
+  is agreed afresh), so none is flagged.
+
+A customer who revealed the door code or checked in can still cancel on the
+venue's late terms; that is a known limitation, not a rule.
 
 ## Who supervises a session
 

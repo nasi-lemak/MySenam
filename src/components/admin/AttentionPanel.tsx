@@ -12,6 +12,7 @@ import { money } from "@/lib/region";
 import { formatHour } from "@/lib/time";
 import type { Stranded } from "@/lib/launch-worklist";
 import type { MoveRequestView } from "@/lib/class-move-requests";
+import type { SafetyFlag } from "@/lib/safety-flags";
 import { ClassMoveRequestList } from "./ClassMoveRequests";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
@@ -85,6 +86,8 @@ export function AttentionPanel() {
     uncovered?: UncoveredSession[];
     /** Front desk's class moves waiting for a manager, and a desk's own outcomes (lib/class-move-requests.ts). */
     classMoveRequests?: MoveRequestView[];
+    /** Bookings a refused number or a sign-off, certification or induction taken back left for a decision; none cancelled (lib/safety-flags.ts, ADR 0058). */
+    safetyFlags?: SafetyFlag[];
     /** A manager's: venues whose overrides of advisory windows in 7 days are past the venue's limit (lib/window-overrides.ts). */
     windowOverrideAlerts?: { venueId: number; count: number; limit: number }[];
     /** Safeguarding (ADR 0052): the owner's overdue restrictions and escalated cases, and what is waiting for a manager or the owner to decide. */
@@ -125,9 +128,10 @@ export function AttentionPanel() {
   const uncovered = data?.uncovered ?? [];
   const moveRequests = data?.classMoveRequests ?? [];
   const overrideAlerts = data?.windowOverrideAlerts ?? [];
+  const flags = data?.safetyFlags ?? [];
   const sg = data?.safeguarding ?? null;
   const sgLines = sg ? sg.overdue.length + sg.escalatedCases.length + sg.appealsWaiting + sg.reviewsOpen + (sg.retention ? 1 : 0) : 0;
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && sgLines === 0)) return null;
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0)) return null;
 
   /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
   async function guardianTold(taskId: number) {
@@ -136,6 +140,35 @@ export function AttentionPanel() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ taskId, action: "guardianTold", how: "told" }),
+    });
+    const out = await readJson(res);
+    if (!res.ok) setError(t.err(out, t("att.saveFailed")));
+    else setData((was) => (was ? { ...was, ...out } : was));
+  }
+
+  /** Cancel a flagged booking with a refund (the ordinary staff cancellation: what was paid goes back as it was paid). */
+  async function cancelFlagged(f: SafetyFlag) {
+    if (!window.confirm(t("fx9.att.cancelConfirm", { code: f.bookingCode }))) return;
+    setError(null);
+    const res = await fetch("/api/admin/bookings/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: f.bookingCode }),
+    });
+    const out = await readJson(res);
+    if (!res.ok) setError(t.err(out, t("att.saveFailed")));
+    else void load();
+  }
+
+  /** A manager leaves a flagged booking as it is, and says why (kept on record). */
+  async function leaveFlagged(f: SafetyFlag) {
+    const note = window.prompt(t("fx9.att.leavePrompt", { code: f.bookingCode }));
+    if (note === null) return;
+    setError(null);
+    const res = await fetch("/api/admin/attention", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ flagId: f.id, action: "safetyFlag", note }),
     });
     const out = await readJson(res);
     if (!res.ok) setError(t.err(out, t("att.saveFailed")));
@@ -157,6 +190,51 @@ export function AttentionPanel() {
           {sg.appealsWaiting > 0 && <p>{t.plural("msg4.att.appeals", sg.appealsWaiting)}</p>}
           {sg.reviewsOpen > 0 && <p>{t.plural("msg4.att.reviews", sg.reviewsOpen)}</p>}
           {sg.retention && <p>{t("msg4.att.retention", { cases: sg.retention.cases, holds: sg.retention.holds, months: sg.retention.months })}</p>}
+        </div>
+      )}
+      {flags.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="attention-safety-flags">
+          <strong>{t.plural("fx9.att.title", flags.length)}</strong>
+          <p className="mt-0.5 text-xs">{t("fx9.att.help")}</p>
+          <ul className="mt-1 space-y-2 text-xs">
+            {flags.map((f) => (
+              <li key={f.id} className="rounded-md bg-amber-50 px-2 py-1.5">
+                <div>
+                  {t("fx9.att.line", {
+                    code: f.bookingCode,
+                    name: f.name,
+                    when: `${f.date} ${formatMinute(f.start, t.locale)}–${formatMinute(f.end, t.locale)}`,
+                    court: f.courtName,
+                  })}{" "}
+                  <a href={`tel:${f.phone}`} className="text-teal-700 underline">
+                    {f.phone}
+                  </a>
+                </div>
+                <div className="mt-0.5">
+                  {f.kind === "blocked"
+                    ? f.reason
+                      ? t("fx9.att.blockedWhy", { reason: f.reason })
+                      : t("fx9.att.blocked")
+                    : t(f.reason ? "fx9.att.lostWhy" : "fx9.att.lost", {
+                        what: t(`fx9.att.what.${f.what}` as "fx9.att.what.sign-off"),
+                        by: f.by ?? "",
+                        when: f.createdAt.slice(0, 10),
+                        reason: f.reason ?? "",
+                      })}
+                  {f.kind === "eligibility" && <> · {f.told ? t("fx9.att.told") : t("fx9.att.notTold")}</>}
+                  {f.paid && <> · {t("fx9.att.paid")}</>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void cancelFlagged(f)} className="rounded-md border border-red-300 px-2 py-0.5 font-semibold text-red-700 hover:bg-red-50">
+                    {t("fx9.att.cancel")}
+                  </button>
+                  <button type="button" onClick={() => void leaveFlagged(f)} className="rounded-md border border-teal-600 px-2 py-0.5 font-semibold text-teal-700 hover:bg-teal-50">
+                    {t("fx9.att.leave")}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       {reviews.length > 0 && (
@@ -272,7 +350,7 @@ export function AttentionPanel() {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 || moveRequests.length > 0 || overrideAlerts.length > 0 ? t("att.title") : t("att.nothing")}
+          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 || moveRequests.length > 0 || overrideAlerts.length > 0 || flags.length > 0 ? t("att.title") : t("att.nothing")}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">

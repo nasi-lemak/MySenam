@@ -12,6 +12,7 @@ import { strandedByLaunch } from "@/lib/launch-worklist";
 import { listVenues } from "@/lib/store";
 import { windowOverrideAlert } from "@/lib/window-overrides";
 import { safeguardingAttention } from "@/lib/youth-restrictions";
+import { resolveSafetyFlag, safetyFlags, safetyFlagVenue } from "@/lib/safety-flags";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,8 @@ async function windowOverrideAlerts(venueIds: number[] | null) {
  * And `classMoveRequests`: front desk's class moves waiting for a manager's approval (a manager decides them here); a desk is shown those waiting and the outcome of its
  * own in the last three days (lib/class-move-requests.ts, ADR 0045).
  * And `windowOverrideAlerts` (managers only): venues whose managers overrode advisory windows more often in 7 days than the venue's limit (ADR 0046).
+ * And `safetyFlags`: confirmed bookings a venue's own decision left in doubt, for staff to decide, none cancelled: a number the venue
+ * refused after it booked, and a sign-off, certification or induction taken back since (lib/safety-flags.ts, ADR 0058).
  * And `safeguarding` (managers and the owner; null for front desk): `overdue` protective restrictions past their review date and `escalatedCases` (the owner's), `appealsWaiting`
  * and `reviewsOpen` that are the caller's to decide, and `retention` (the owner's: closed cases and holds kept longer than the review interval, for a decision) (ADR 0052).
  */
@@ -64,6 +67,8 @@ export async function GET(req: NextRequest) {
     uncovered: await uncoveredSessions(admin.venueIds),
     classMoveRequests: await listMoveRequests(admin, { decidedDays: admin.role === "desk" ? 3 : 0, mineOnly: admin.role === "desk" }),
     windowOverrideAlerts: admin.role === "desk" ? [] : await windowOverrideAlerts(admin.venueIds),
+    // Bookings left for a decision after a refused number or a sign-off, certification or induction taken back (ADR 0058).
+    safetyFlags: await safetyFlags(admin.venueIds),
     // Safeguarding (managers and the owner; ADR 0052): protective restrictions past their review date and cases escalated, for the owner; requests for a review and authority reviews waiting; closed cases kept long.
     safeguarding: admin.role === "desk" ? null : await safeguardingAttention(admin),
   });
@@ -72,6 +77,8 @@ export async function GET(req: NextRequest) {
 /**
  * `{ id, action: "told" }` — staff told the customer another way.
  * `{ taskId, action: "guardianTold", how: "told" | "not_needed" }` — staff told a guardian recorded by name and number of a change.
+ * `{ flagId, action: "safetyFlag", note }` — a manager leaves a flagged booking as it is, on record with a note (cancelling it with a
+ * refund is the ordinary staff cancellation, after which it leaves the list: `POST /api/admin/bookings/cancel`).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -87,6 +94,16 @@ export async function POST(req: NextRequest) {
     if (!done.ok) return NextResponse.json({ error: done.error, code: done.code }, { status: done.status });
     await logAction(admin, { venueId: done.venueId, action: "participant.guardian_told", detail: `Guardian notice task ${String(b.taskId)}: ${String(b.how)}` });
     return NextResponse.json({ guardianTasks: await openNoticeTasks(admin.venueIds) });
+  }
+  if (b.action === "safetyFlag") {
+    if (admin.role === "desk") return NextResponse.json({ error: "Only a manager decides a booking left like this.", code: "MANAGER_ONLY" }, { status: 403 });
+    const venueId = Number.isInteger(b.flagId) ? await safetyFlagVenue(b.flagId as number) : null;
+    if (venueId === null) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    const denied = denyVenue(admin, venueId);
+    if (denied) return denied;
+    if (!(await resolveSafetyFlag(admin, b.flagId as number, b.note))) return NextResponse.json({ error: "Say why, in a few words.", code: "FX9_NOTE_NEEDED" }, { status: 400 });
+    await logAction(admin, { venueId, action: "safety.flag_resolved", detail: `Flag ${String(b.flagId)}: ${String(b.note).trim().slice(0, 300)}` });
+    return NextResponse.json({ safetyFlags: await safetyFlags(admin.venueIds) });
   }
   const notice = Number.isInteger(b.id) ? await noticeById(b.id as number) : null;
   if (!notice) return NextResponse.json({ error: "Not found." }, { status: 404 });

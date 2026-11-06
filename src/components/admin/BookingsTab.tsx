@@ -2121,6 +2121,26 @@ function AttendanceChip({ b, act }: { b: AdminBookingRow; act: Act }) {
   const t = useStaffT();
   const clock = useStaffClock();
   if (b.status !== "confirmed") return <span className="text-xs text-slate-400">—</span>;
+  // The customer's own check-in (QR code or door code) proves nobody is here: seen, and one tap to confirm it as attendance (ADR 0058).
+  if (b.checkedInAt && b.checkInSource && !b.checkInConfirmed && !b.checkedOutAt)
+    return (
+      <span className="inline-flex gap-1">
+        <button
+          onClick={() => act.toggleCheckIn(b.code, false)}
+          title={t("fx9.bk.confirmTitle")}
+          className={`${CHIP} bg-amber-100 text-amber-800 hover:bg-amber-200`}
+        >
+          {t(b.checkInSource === "door" ? "fx9.bk.door" : "fx9.bk.self", { time: clock.time(b.checkedInAt, b.venueId) })} · {t("fx9.bk.confirm")}
+        </button>
+        <button
+          onClick={() => act.toggleNoShow(b.code, !b.noShow)}
+          title={b.noShow ? t("bk.clearNoShow") : t("bk.markNoShow")}
+          className={`${CHIP} ${b.noShow ? "bg-red-100 text-red-700 hover:bg-red-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+        >
+          {b.noShow ? t("bk.noShow") : t("bk.noShowQ")}
+        </button>
+      </span>
+    );
   if (b.checkedInAt)
     return (
       <button

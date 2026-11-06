@@ -379,7 +379,9 @@ export async function blockPhone(input: {
   phone: string;
   reason?: string;
   adminId: number;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+  /** Who is refusing it, by name, for the list of bookings left for a decision. */
+  adminName?: string;
+}): Promise<{ ok: true; flagged: number } | { ok: false; error: string }> {
   const phone = input.phone.trim();
   if (!/^\+?[0-9 -]{7,20}$/.test(phone)) return { ok: false, error: "That is not a phone number." };
   const reason = input.reason?.trim().slice(0, 200) || null;
@@ -393,13 +395,17 @@ export async function blockPhone(input: {
   // A place already offered to the number from a waiting list: its messages still waiting to go are taken
   // back, and an offer nobody has been told of passes to the next (lib/store.ts `withdrawOffersTo`).
   await (await import("./store")).withdrawOffersTo(input.venueId, phone);
-  return { ok: true };
+  // Its confirmed bookings that remain: no door code, QR check-in or unstaffed access for them from now on, and listed for the
+  // manager to cancel with a refund or leave (ADR 0058). The count is shown to whoever blocked it. None is cancelled here.
+  const flagged = await (await import("./safety-flags")).flagBlockedNumber(input.venueId, phone, input.adminName ?? "Staff");
+  return { ok: true, flagged };
 }
 
-export async function unblockPhone(venueId: number, phone: string): Promise<boolean> {
+export async function unblockPhone(venueId: number, phone: string, by = "Staff"): Promise<boolean> {
   const r = await getDb()
     .prepare("DELETE FROM venue_blocked_phones WHERE venue_id = ? AND phone_key = phone_key(?)")
     .run(venueId, phone);
+  if (r.changes > 0) await (await import("./safety-flags")).clearBlockedFlags(venueId, phone, by);
   return r.changes > 0;
 }
 

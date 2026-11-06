@@ -351,6 +351,14 @@ export async function courtVenueHours(
   return withHours(row, date);
 }
 
+/** Does the venue this court belongs to refuse this phone number (lib/limits.ts `blockPhone`)? */
+async function numberRefusedAt(courtId: number, phone: string): Promise<boolean> {
+  const court = await getCourt(courtId);
+  if (!court) return false;
+  const { isBlocked } = await import("./limits");
+  return isBlocked(court.venueId, phone);
+}
+
 /** The time zone of the venue a court belongs to. */
 export async function courtZone(courtId: number): Promise<string> {
   return (await courtVenueHours(courtId)).zone;
@@ -494,6 +502,8 @@ interface BookingRow {
   user_id: number | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
+  check_in_source?: string | null;
+  check_in_confirmed_at?: string | null;
   hold_until?: string | null;
   released_unpaid?: number;
   tax_rate?: number | string | null;
@@ -594,6 +604,9 @@ function toBooking(r: BookingRow): Booking {
     noShow: r.no_show === 1,
     checkedInAt: r.checked_in_at ?? null,
     checkedOutAt: r.checked_out_at ?? null,
+    ...(r.check_in_source && r.check_in_source !== "desk"
+      ? { checkInSource: r.check_in_source as "self" | "door", checkInConfirmed: r.check_in_confirmed_at != null }
+      : {}),
     checkInToken: r.check_in_token,
     classId: r.class_id,
     sharesPaid: Number(r.shares_paid ?? 0),
@@ -2368,7 +2381,12 @@ export async function createBookingSeries(
   // unmanned resource that opens no door: the door code still waits for the
   // person's own sign-off (`accessCodeFor`), a safety prerequisite no
   // override goes past (ADR 0026).
-  const signOffNeed = input.classId || input.approval?.assessment ? null : policy.certification ? "certification" : policy.signOff ? "any" : null;
+  let signOffNeed: "certification" | "any" | null =
+    input.classId || input.approval?.assessment ? null : policy.certification ? "certification" : policy.signOff ? "any" : null;
+  // And at a time the door is the way in (an unmanned resource outside staffed hours), the door asks the same of everybody
+  // (`accessCodeFor`): the customer learns it now, not at the door with the money taken (ADR 0058). A staffed time keeps its flow.
+  if (signOffNeed === null && !input.classId && !input.approval && (await opensByDoor(found, span.start, span.end)))
+    signOffNeed = await signOffNeeded(found, found.venueId, input.sport ?? found.sport);
   if (signOffNeed) {
     const channel = input.by ?? "customer";
     // Everybody taking part, each on their own: the customer's own, and each participant's.
@@ -5014,10 +5032,10 @@ function checkInWindowError(booking: Booking, zone: string): string | null {
  * staff are warned (`MV6_DESK_WARNING`, with who and why) and decide; with
  * `admit` the decision is kept and they are checked in.
  */
-export async function checkIn(code: string, opts: { admit?: MembershipAdmit } = {}): Promise<DeskCheckInResult> {
+export async function checkIn(code: string, opts: { admit?: MembershipAdmit; by?: { adminId: number | null; name: string } } = {}): Promise<DeskCheckInResult> {
   const booking = await bookingByCode(code);
   if (!booking) return refuse("BOOKING_NOT_FOUND");
-  return await checkInBooking(booking, { desk: true, ...(opts.admit ? { admit: opts.admit } : {}) });
+  return await checkInBooking(booking, { desk: true, ...(opts.admit ? { admit: opts.admit } : {}), ...(opts.by ? { by: opts.by } : {}) });
 }
 
 /**
@@ -5037,9 +5055,37 @@ export async function checkInByToken(token: string): Promise<CheckInResult> {
   return (await checkInBooking(toBooking(row), { desk: false })) as CheckInResult;
 }
 
-async function checkInBooking(booking: Booking, how: { desk: boolean; admit?: MembershipAdmit }): Promise<DeskCheckInResult> {
+/**
+ * Is this booking's arrival verified attendance (ADR 0058)? A desk's check-in, a register mark, and a self check-in or door
+ * code that staff then confirmed are; a customer's own QR tap or door code on their phone, not yet confirmed, is recorded
+ * and visible to staff but proves nothing: it clears no no-show, freezes no class move and does not count as having played.
+ * Rows from before the source was kept are the desk's.
+ */
+export async function attendanceVerified(bookingId: number): Promise<boolean> {
+  return !!(await getDb().prepare("SELECT 1 AS x FROM check_ins WHERE booking_id = ? AND (source = 'desk' OR confirmed_at IS NOT NULL)").get(bookingId));
+}
+
+/** Staff confirm a customer's own check-in as attendance: on the record, and a no-show the desk had marked is cleared with it. */
+async function confirmSelfCheckIn(booking: Booking, by: { adminId: number | null; name: string }): Promise<boolean> {
+  const db = getDb();
+  const done = await db
+    .prepare("UPDATE check_ins SET confirmed_at = datetime('now'), confirmed_by_admin_id = ?, confirmed_by_name = ? WHERE booking_id = ? AND source <> 'desk' AND confirmed_at IS NULL")
+    .run(by.adminId, by.name, booking.id);
+  if (done.changes === 0) return false;
+  if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+  return true;
+}
+
+async function checkInBooking(booking: Booking, how: { desk: boolean; admit?: MembershipAdmit; by?: { adminId: number | null; name: string } }): Promise<DeskCheckInResult> {
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
-  if (booking.checkedInAt) return { ok: false, error: "Already checked in." };
+  if (booking.checkedInAt) {
+    // The desk meeting somebody who checked themselves in is the confirmation: the one tap on Arrived.
+    if (how.desk && (await confirmSelfCheckIn(booking, how.by ?? { adminId: null, name: "Front desk" })))
+      return { ok: true, booking: (await bookingByCode(booking.code))! };
+    return { ok: false, error: "Already checked in." };
+  }
+  // A number the venue refuses is let in by nobody unattended (ADR 0058): the QR code is no way past that. The desk sees them.
+  if (!how.desk && (await numberRefusedAt(booking.courtId, booking.phone))) return refuse("FX9_DOOR_BLOCKED");
   const windowError = checkInWindowError(booking, await courtZone(booking.courtId));
   if (windowError) return { ok: false, error: windowError };
   // Revalidated before taking part (the owner's decision of 27 October 2026): a membership cancelled,
@@ -5050,9 +5096,9 @@ async function checkInBooking(booking: Booking, how: { desk: boolean; admit?: Me
 
   const db = getDb();
   await db.transaction(async () => {
-    await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
-    // Arriving contradicts a no-show, so clear any stale flag.
-    if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
+    await db.prepare("INSERT INTO check_ins (booking_id, source) VALUES (?, ?)").run(booking.id, how.desk ? "desk" : "self");
+    // Staff seeing somebody arrive contradicts a no-show, so clear any stale flag; a customer's own tap does not (ADR 0058).
+    if (how.desk && booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
     if (lapses.length > 0 && how.admit) await recordAdmission(booking.id, lapses, how.admit);
   })();
   return { ok: true, booking: (await bookingByCode(booking.code))! };
@@ -5156,6 +5202,21 @@ export type InductionResult =
  * of it stays on that line.
  */
 export async function recordInduction(input: {
+  venueId: number;
+  phone: string;
+  name: string;
+  adminId?: number;
+  note?: string;
+  participant?: { id: number; name: string } | null;
+}): Promise<InductionResult> {
+  const made = await recordInductionNow(input);
+  // An induction given again settles the bookings flagged when it was withdrawn (lib/safety-flags.ts).
+  if (made.ok)
+    await import("./safety-flags").then((m) => m.settleCoveredFlags(input.venueId)).catch((err) => console.error("[mysenam] could not settle flagged bookings after an induction:", err));
+  return made;
+}
+
+async function recordInductionNow(input: {
   venueId: number;
   phone: string;
   name: string;
@@ -5315,6 +5376,49 @@ export async function courtAccess(courtId: number): Promise<CourtAccess> {
 }
 
 /**
+ * What the activity booked on this resource asks of everybody taking part before they do: nothing, a sign-off, or a
+ * certification. The booked activity's own rules, on a resource that offers several, and an activity the venue takes approval
+ * applications for needs its approval whatever its booking rules say (ADR 0020). One answer for the door, for flagging bookings
+ * after a sign-off is taken back, and for an unstaffed slot at sale (ADR 0058).
+ */
+export async function signOffNeeded(court: Court, venueId: number, sport: Sport): Promise<"any" | "certification" | null> {
+  const rules = await policyFor(courtFor(court, courtOffers(court, sport) ? sport : court.sport));
+  const asked = (await getDb()
+    .prepare("SELECT kind FROM approval_requirements WHERE venue_id = ? AND sport = ?")
+    .get(venueId, sport)) as { kind: string } | undefined;
+  return rules.certification || asked?.kind === "certification" ? "certification" : rules.signOff || asked ? "any" : null;
+}
+
+/** Is the door code the way in for this time on this resource (unmanned, with a code, outside the hours the counter is staffed)? */
+async function opensByDoor(court: Court, startMin: number, endMin: number): Promise<boolean> {
+  if (!court.unmanned || (await courtAccess(court.id)).code === null) return false;
+  const venue = await getVenue(court.venueId);
+  return !!venue && doorFor(venue, startMin, endMin).by === "code";
+}
+
+/**
+ * An induction this booking still needs before the door gives its code: the booking is at a time the door is the way in, is not
+ * staff-supervised, and somebody taking part has not been shown round. An induction is taken in person while the counter is
+ * open, so it is told at booking (and on the booking's page), not refused (ADR 0058). False for a staffed time.
+ */
+export async function inductionStillNeeded(booking: Booking): Promise<boolean> {
+  const court = await getCourt(booking.courtId);
+  if (!court || !(await opensByDoor(court, Math.round(booking.startHour * 60), Math.round(booking.endHour * 60)))) return false;
+  const row = (await getDb().prepare("SELECT user_id, staff_supervised FROM bookings WHERE id = ?").get(booking.id)) as
+    | { user_id: number | null; staff_supervised: boolean }
+    | undefined;
+  if (!row || row.staff_supervised === true) return false;
+  return !(await placesInducted(court.venueId, { id: booking.id, phone: booking.phone, userId: row.user_id }));
+}
+
+/** A sign-off, certification, induction or waiver taken back since this booking was made, and staff have not decided on it yet (ADR 0058). */
+export async function openEligibilityFlag(bookingId: number): Promise<boolean> {
+  return !!(await getDb()
+    .prepare("SELECT 1 AS x FROM booking_safety_flags WHERE booking_id = ? AND kind = 'eligibility' AND resolved_at IS NULL LIMIT 1")
+    .get(bookingId));
+}
+
+/**
  * Give the customer the code for their booking, and write down that we did.
  *
  * Every refusal here is a thing the customer can act on, so each carries its
@@ -5344,6 +5448,13 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
   const venue = await getVenue(court.venueId);
   if (!venue) return null;
 
+  // A number the venue has refused, even after it booked and paid, is given no code (ADR 0058): the code is the only
+  // control at a door nobody watches. The venue decides what becomes of the booking (needs-attention list).
+  if (await numberRefusedAt(court.id, booking.phone)) {
+    const said = refuse("FX9_DOOR_BLOCKED");
+    return { ok: false, reason: "blocked", message: said.error, code: "FX9_DOOR_BLOCKED" };
+  }
+
   // During staffed hours the counter does this, and a code handed out then is
   // a code in circulation for no reason. The booking's whole time decides,
   // not its start: one that runs on after the counter shuts gets the code
@@ -5358,6 +5469,12 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
         ? `Someone stays on the desk until your booking ends. Ask at the counter and they will let you in.`
         : `Someone is on the desk at that hour. Ask at the counter and they will let you in.`,
     };
+
+  // A sign-off, certification, induction or waiver taken back since this was booked: staff look at it first (ADR 0058).
+  if (await openEligibilityFlag(booking.id)) {
+    const said = refuse("FX9_DOOR_FLAGGED");
+    return { ok: false, reason: "flagged", message: said.error, code: "FX9_DOOR_FLAGGED" };
+  }
 
   // Nobody is here to show a stranger where the emergency button is, so that
   // has to have happened already, in person, while somebody could check it:
@@ -5400,12 +5517,7 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
   // activity's, on a resource that offers several, and an activity the venue
   // takes approval applications for needs its approval here whatever its
   // booking rules say (ADR 0020).
-  const rules = await policyFor(courtFor(court, courtOffers(court, booking.sport) ? booking.sport : court.sport));
-  const asked = (await db
-    .prepare("SELECT kind FROM approval_requirements WHERE venue_id = ? AND sport = ?")
-    .get(venue.id, booking.sport)) as { kind: string } | undefined;
-  const need =
-    rules.certification || asked?.kind === "certification" ? "certification" : rules.signOff || asked ? "any" : null;
+  const need = await signOffNeeded(court, venue.id, booking.sport);
   // Each taking part on their own sign-off: for somebody booked for, theirs, never the adult's or a sibling's.
   let signedOff = true;
   if (need)
@@ -5459,10 +5571,9 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
   await db.transaction(async () => {
     await db.prepare("INSERT INTO access_reveals (booking_id) VALUES (?)").run(booking.id);
     // Opening the door is the arrival, so there is nothing else to press.
-    if (!booking.checkedInAt) {
-      await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
-      if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
-    }
+    // Recorded as the customer's own (a code on their phone proves nobody is at the door): counted in the headcount, not as
+    // attendance until staff confirm it, and it clears no no-show (ADR 0058).
+    if (!booking.checkedInAt) await db.prepare("INSERT INTO check_ins (booking_id, source) VALUES (?, 'door')").run(booking.id);
   })();
 
   return {
@@ -5656,7 +5767,7 @@ export async function takeHire(code: string, deposit?: number): Promise<HireResu
     if (!booking.checkedInAt) {
       await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
       if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
-    }
+    } else await confirmSelfCheckIn(booking, { adminId: null, name: "Front desk" }); // handing kit over is seeing them
     await db.prepare("INSERT INTO hire_records (booking_id, deposit) VALUES (?, ?)").run(
       booking.id,
       held
@@ -5835,7 +5946,8 @@ export async function setNoShow(code: string, noShow: boolean): Promise<NoShowRe
       return refuse("BOOKING_WAS_CANCELLED");
     if (noShow && !isPastSlot(booking.date, booking.startHour, await courtZone(booking.courtId)))
       return { ok: false, error: "This booking has not started yet." };
-    if (noShow && booking.checkedInAt)
+    // Staff saw them arrive: not a no-show. A customer's own tap, not yet confirmed by staff, is not that (ADR 0058).
+    if (noShow && booking.checkedInAt && (await attendanceVerified(booking.id)))
       return { ok: false, error: "This customer checked in, so they were not a no-show." };
     if (booking.noShow === noShow)
       return { ok: false, error: `Already marked ${noShow ? "a no-show" : "attended"}.` };
@@ -5940,6 +6052,7 @@ export async function markPlace(
       if (lapsed.length > 0 && !opts.admit) return { ok: false, error: deskWarning(lapsed), code: "MV6_DESK_WARNING" as const, warnings: lapsed };
       if (lapsed.length > 0 && opts.admit) await recordAdmission(booking.id, lapsed, opts.admit);
       if (!booking.checkedInAt) await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
+      else await confirmSelfCheckIn(booking, { adminId: admin.id, name: admin.name }); // staff saw them arrive
       const checkIn = (await db.prepare("SELECT id FROM check_ins WHERE booking_id = ?").get(booking.id)) as { id: number };
       await db
         .prepare(
@@ -5968,7 +6081,7 @@ export async function markPlace(
 
     // The booking's own no-show: everybody it names was one, and nobody checked it in.
     const places = await placeAttendance(booking.id);
-    const allAway = places.every((p) => p.noShow) && !booking.checkedInAt;
+    const allAway = places.every((p) => p.noShow) && !(booking.checkedInAt && (await attendanceVerified(booking.id)));
     if (allAway !== booking.noShow && (allAway || mark !== "arrived"))
       await db.prepare("UPDATE bookings SET no_show = ? WHERE id = ?").run(allAway ? 1 : 0, booking.id);
     return { ok: true as const, booking: (await bookingByCode(code))!, places };
@@ -6212,6 +6325,7 @@ export async function listBookingsForDate(date: string, venueId?: number | numbe
     .prepare(`
       SELECT b.*, c.name AS court_name, b.sport AS court_sport, c.deposit AS court_deposit,
              v.id AS venue_id, v.name AS venue_name, ci.checked_in_at, ci.checked_out_at,
+             ci.source AS check_in_source, ci.confirmed_at AS check_in_confirmed_at,
              u.verified_phone AS user_verified_phone, k.name AS coach_name, ac.name AS account_name
       FROM bookings b
       JOIN courts c ON c.id = b.court_id
@@ -6909,7 +7023,7 @@ export async function cancelClassSession(
 export async function getClassRoster(classId: number): Promise<Booking[]> {
   const rows = await getDb()
     .prepare(`
-      SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b
+      SELECT b.*, ci.checked_in_at, ci.checked_out_at, ci.source AS check_in_source, ci.confirmed_at AS check_in_confirmed_at FROM bookings b
       LEFT JOIN check_ins ci ON ci.booking_id = b.id
       WHERE b.class_id = ? ORDER BY b.status, b.id
     `)

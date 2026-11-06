@@ -241,6 +241,10 @@ export type AccessDenial =
    * desk decide, never the door (lib/entitlements.ts `participationLapses`).
    */
   | "membership"
+  /** The venue refused this number after it booked (lib/limits.ts `blockPhone`): no code, whatever else holds (ADR 0058). */
+  | "blocked"
+  /** A sign-off, certification or induction was taken back since it was booked and staff have not decided yet (lib/safety-flags.ts). */
+  | "flagged"
   | "cancelled"
   | "unpaid"
   | "too-early"
@@ -383,6 +387,12 @@ export interface Booking {
   /** When the customer arrived at the desk, if they did. */
   checkedInAt: string | null;
   checkedOutAt: string | null;
+  /**
+   * Present only when the arrival was the customer's own (`self`: the QR code; `door`: a door code revealed) and not the desk's;
+   * `checkInConfirmed` once staff confirmed it. Only the staff lists and rosters carry it (ADR 0058).
+   */
+  checkInSource?: "self" | "door";
+  checkInConfirmed?: boolean;
   /** Secret behind the self check-in QR code. Never shown to other customers. */
   checkInToken: string | null;
   /** Set when this booking is an enrolment in an instructor-led class. */
