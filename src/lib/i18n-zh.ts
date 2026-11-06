@@ -4918,6 +4918,16 @@ export const ZH: Record<Phrase, string> = {
   "msg4.review.received": "您的请求已收到。",
   "msg4.review.lifted": "经审核，限制已解除。",
   "msg4.review.continues": "您的请求已作出决定：限制继续有效。",
+  "err.FX9_DOOR_BLOCKED": "场馆未允许此预订使用门禁码或二维码签到。请联系场馆。",
+  "err.FX9_DOOR_FLAGGED": "在提供门禁码之前，场馆需要先核实此预订的某些情况。请在柜台营业时前往询问。",
+  "fx9.what.sign-off": "核准",
+  "fx9.what.certification": "资格证明",
+  "fx9.what.induction": "场地介绍",
+  "fx9.mail.subject": "关于您在{venue}的预订 {code}",
+  "fx9.mail.body":
+    "{name}，您好：\n\n{venue}已撤销您的{what}。您的预订 {code}（{where}，{when}）没有被取消，但场馆会就此与您联系，在问题解决之前不会提供门禁码。来之前请先联系场馆。\n{reason}",
+  "fx9.door.induction":
+    "此时段不在柜台营业时间内，因此使用前您需要在柜台接受一次场地介绍。请在预订之前、柜台营业时顺道前来，只需几分钟。完成后才会显示门禁码。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

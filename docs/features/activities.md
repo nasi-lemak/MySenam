@@ -274,6 +274,18 @@ set as a safety assessment unless a manager delegated them for it
 ([who may grant](#registering-online-for-approval)); taking back one an
 approval wrote revokes that approval.
 
+**Taken back after bookings were made.** Taking back a sign-off or certification
+(not one an approval wrote, which keeps the approval's own flagging) lists the
+person's upcoming confirmed bookings it affected in *Needs attention*, with who,
+when and why, unless another sign-off still covers them; the customer is emailed
+once; nothing is cancelled, and at an unstaffed hour the door code waits for
+staff to decide ([bookings that need a decision](venue-operations.md#bookings-that-need-a-decision),
+[ADR 0058](../architecture/decisions/0058-safety-and-access-after-a-booking-is-made.md)).
+At a time nobody is on the desk, the booking is also asked for the sign-off or
+certification the door will ask for (the activity's rules, and an activity the
+venue takes approval applications for), so the customer learns at booking and
+not at the door; a staffed time is unchanged.
+
 **Who it counts for.** A phone number typed into a form proves nothing, so:
 
 | Who is booking | A sign-off counts when |

@@ -825,6 +825,45 @@ export async function notifyVenueCancelled(
  */
 export type CancelReason = { phrase: Phrase } | { text: string };
 
+/**
+ * Once, by email only: a sign-off, certification or induction a booking relied on was taken back, so the venue will be in touch
+ * about it (lib/safety-flags.ts). Nothing is cancelled and no reason is invented: what staff typed is passed on as typed. Returns
+ * whether a message was queued (a booking with no email address is told by staff, from the needs-attention list).
+ */
+export async function notifyBookingNeedsAttention(booking: Booking, what: "sign-off" | "certification" | "induction", reason: string | null, flagId: number): Promise<boolean> {
+  if (!booking.email?.trim()) return false;
+  const court = await getCourt(booking.courtId);
+  if (!court) return false;
+  const venue = await getVenue(court.venueId);
+  if (!venue || !hasBeenLive(venue)) return false;
+  const locale = await localeOf(booking.id);
+  const t = translator(locale);
+  const { where, when } = slot(locale, customerCourtName(court.name, booking, locale), venue.name, booking);
+  const written = await deliver(
+    booking,
+    {
+      bookingId: booking.id,
+      venueId: venue.id,
+      kind: "booking_safety_notice",
+      locale,
+      subject: "fx9.mail.subject",
+      body: "fx9.mail.body",
+      dedupeKey: `safety:${flagId}`,
+      vars: {
+        name: firstName(booking.name),
+        venue: venue.name,
+        code: booking.code,
+        what: t(`fx9.what.${what}` as Phrase),
+        where,
+        when,
+        reason: reason?.trim() ? t("pre.why", { reason: reason.trim() }) : "",
+      },
+    },
+    false
+  );
+  return written !== null;
+}
+
 /** The venue moved a booking to another court: same time, same price. */
 export async function notifyMoved(booking: Booking): Promise<number | null> {
   // A lane given on arrival, moved before it was given: the customer was never told a lane (lib/lanes.ts).

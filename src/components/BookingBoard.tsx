@@ -125,6 +125,8 @@ interface Confirmation {
   concessionError?: { error: string; code?: string; vars?: Record<string, string | number> } | null;
   /** Charged to a company or school account, on its monthly invoice. */
   account?: { name: string } | null;
+  /** A time nobody is on the desk and somebody taking part has not been shown round: told now, not at the door (ADR 0058). */
+  inductionNeeded?: boolean;
 }
 
 /** A concession price the venue offers (lib/concessions.ts). */
@@ -2005,6 +2007,11 @@ function ConfirmationModal({
         )}
         {confirmation.account && (
           <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">{t("done.onAccount", { name: confirmation.account.name })}</p>
+        )}
+        {confirmation.inductionNeeded && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900" data-testid="done-induction">
+            {t("fx9.door.induction")}
+          </p>
         )}
         {confirmation.concession && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">

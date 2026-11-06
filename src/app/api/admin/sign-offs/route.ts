@@ -6,6 +6,7 @@ import { venueMayOffer } from "@/lib/activities";
 import { addSignOff, listSignOffs, revokeSignOff, signOffAt } from "@/lib/sign-offs";
 import { signOffRevoked, staffMayGrant } from "@/lib/approvals";
 import { participantAtVenue } from "@/lib/participants";
+import { signOffTakenBack } from "@/lib/safety-flags";
 
 export const dynamic = "force-dynamic";
 
@@ -110,7 +111,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ signOff: made.signOff }, { status: 201 });
 }
 
-/** `?venueId&id[&reason]`: taken back, by whom and why recorded. One for every branch needs whoever runs the business. */
+/** `?venueId&id[&reason]` → `{ ok, flagged }`: how many upcoming bookings of the person it affected, left for staff to decide (ADR 0058). Taken back, by whom and why recorded. One for every branch needs whoever runs the business. */
 export async function DELETE(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -134,5 +135,8 @@ export async function DELETE(req: NextRequest) {
   });
   // Written by an approval: the approval is revoked with it, its bookings flagged for staff (lib/approvals.ts).
   await signOffRevoked(id, admin, reason);
-  return NextResponse.json({ ok: true });
+  // Not one an approval wrote: the person's upcoming bookings it affected are flagged for staff and the customer told once; none is cancelled (ADR 0058).
+  const flagged = await signOffTakenBack(found, admin, reason);
+  if (flagged > 0) await logAction(admin, { venueId, action: "signoff.bookings_flagged", detail: `${flagged} upcoming booking(s) of ${found.name} flagged for staff after it was taken back` });
+  return NextResponse.json({ ok: true, flagged });
 }

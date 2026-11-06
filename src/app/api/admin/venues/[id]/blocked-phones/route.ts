@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json({ blocked: await listBlockedPhones(s.venueId) });
 }
 
-/** `{ phone, reason? }` */
+/** `{ phone, reason? }` → the refused list and `flagged`, how many of the number's upcoming bookings are left for a decision. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const s = await scope(req, params);
   if (s instanceof NextResponse) return s;
@@ -48,12 +48,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     phone: input.phone,
     reason: typeof input.reason === "string" ? input.reason : undefined,
     adminId: s.admin.id,
+    adminName: s.admin.name,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   // Who refused the number, and why: no path books it now (lib/limits.ts `policyCheck`).
   const reason = typeof input.reason === "string" ? input.reason.trim().slice(0, 200) : "";
-  await logAction(s.admin, { venueId: s.venueId, action: "phone.blocked", detail: `Blocked ${input.phone.trim()}${reason ? `: ${reason}` : ""}` });
-  return NextResponse.json({ blocked: await listBlockedPhones(s.venueId) });
+  await logAction(s.admin, {
+    venueId: s.venueId,
+    action: "phone.blocked",
+    detail: `Blocked ${input.phone.trim()}${reason ? `: ${reason}` : ""}${result.flagged > 0 ? `; ${result.flagged} upcoming booking(s) left for a decision` : ""}`,
+  });
+  // `flagged`: its upcoming confirmed bookings, none cancelled, now in the needs-attention list for a decision (ADR 0058).
+  return NextResponse.json({ blocked: await listBlockedPhones(s.venueId), flagged: result.flagged });
 }
 
 /**
@@ -69,7 +75,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "A phone number is required." }, { status: 400 });
   const reason = typeof input.reason === "string" ? input.reason.trim() : "";
   if (reason.length < 3 || reason.length > 200) return refusal(policyRefusal("R9_UNBLOCK_REASON"), 400);
-  if (await unblockPhone(s.venueId, input.phone))
+  if (await unblockPhone(s.venueId, input.phone, s.admin.name))
     await logAction(s.admin, { venueId: s.venueId, action: "phone.unblocked", detail: `Unblocked ${input.phone.trim()}: ${reason}` });
   return NextResponse.json({ blocked: await listBlockedPhones(s.venueId) });
 }

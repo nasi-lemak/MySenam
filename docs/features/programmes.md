@@ -156,9 +156,11 @@ stay a manager's (`MANAGER_ONLY`).
   `claims`, and `coach_claims`); the preview and the early refusal read the same rules to
   say what is in the way.
 - **What is checked for each session**: attendance taken (`CLSA_MOVE_ATTENDANCE`: a session
-  somebody has checked in to is under way whatever its start says; the move asks for a
-  check-in only, not for a mark in the [attendance register](#attendance-registers), which a
-  lesson's move does ask for), the court (`CLSA_MOVE_COURT`; another venue's court
+  somebody has been checked in to is under way whatever its start says; the move asks for a
+  verified check-in only (the desk's, or a customer's own QR check-in that staff confirmed:
+  [self check-in is not verified attendance](venue-operations.md#self-check-in-is-not-verified-attendance),
+  ADR 0058), so a tap on a link from anywhere no longer stops a class being moved; it does not ask for a mark in the
+  [attendance register](#attendance-registers), which a lesson's move does ask for), the court (`CLSA_MOVE_COURT`; another venue's court
   is not said to exist), the venue's hours, closed days and the past (`CLSA_MOVE_HOURS`,
   `VENUE_CLOSED`, `SLOT_PAST`), what holds the court then, with its buffers (`CLSA_MOVE_CLASS`,
   `CLSA_MOVE_BOOKED`: a class, a booking, a block, a rained-off or out-of-service time), the

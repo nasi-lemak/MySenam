@@ -16,6 +16,7 @@ import {
   createBookingSeries,
   createGroupBooking,
   findBooking,
+  inductionStillNeeded,
   getCourt,
   getPass,
   getVenue,
@@ -651,6 +652,8 @@ export async function POST(req: NextRequest) {
       // The customer can open the chat themselves and have it there for free.
       chatNumber: (await chatOfferedFor(venue.id)) ? chatNumber() : null,
       court: shownCourt,
+      // At a time nobody is on the desk and the person has not been shown round: told now, not first at the door (ADR 0058).
+      inductionNeeded: await inductionStillNeeded(result.bookings[0]),
       // Courts booked together: each one's name, for the confirmation's list.
       ...(group ? { courtNames: Object.fromEntries(await Promise.all(group.map(async (id) => [id, await shownCourtName((await getCourt(id))?.name ?? "")]))) } : {}),
       venue: { id: venue.id, name: venue.name, area: venue.area, timeZone: venue.timeZone },
@@ -720,6 +723,8 @@ export async function GET(req: NextRequest) {
     link: bookingLinkPath(booking.code, booking.date),
     // On an unmanned resource: whether the door code or the counter lets them in, by the booking's whole time.
     door: court.unmanned ? doorFor(venue, Math.round(booking.startHour * 60), Math.round(booking.endHour * 60)) : null,
+    // The run-through at the desk still to be had before the door gives its code (ADR 0058).
+    inductionNeeded: booking.status === "confirmed" ? await inductionStillNeeded(booking) : false,
     // A deposit to hold it, while it is held and none is paid yet.
     depositPercent:
       booking.holdUntil && (booking.depositPaid ?? 0) === 0 && !(await struckOut(venue.id, booking.phone)).out

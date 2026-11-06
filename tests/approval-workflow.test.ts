@@ -634,12 +634,16 @@ describe("door codes never bypass eligibility, however the booking was made", ()
     expect((await updateCourt(court, { unmanned: true, accessCode: "2468" })).ok).toBe(true);
     expect((await saveRequirement(doorVenue, { sport: "badminton", declaration: "I know the hall's night rules and emergency exits." })).ok).toBe(true);
     const me = await person();
-    const b = await createBooking({ courtId: court, date: day(8), start: at(15), end: at(16), name: me.name, phone: me.phone, userId: me.id });
+    // Sold at an unstaffed time, the same ask is made at booking (ADR 0058): a customer without the approval is refused there.
+    expect(await createBooking({ courtId: court, date: day(8), start: at(15), end: at(16), name: me.name, phone: me.phone, userId: me.id })).toMatchObject({ ok: false, code: "SIGN_OFF_NEEDED" });
+    // A manager going past the rules still gets no door code for it: the door asks again.
+    const b = await createBookingSeries({ by: "staff", staff: { override: true }, courtId: court, date: day(8), start: at(15), end: at(16), weeks: 1, name: me.name, phone: me.phone, userId: me.id });
     if (!b.ok) throw new Error(b.error);
-    expect(await door(b.booking.code, me.phone, day(8), 15)).toMatchObject({ ok: false, reason: "approval-needed" });
+    const code = b.bookings[0].code;
+    expect(await door(code, me.phone, day(8), 15)).toMatchObject({ ok: false, reason: "approval-needed" });
     const a = await applied(me, { venueId: doorVenue, sport: "badminton", declaration: true, adult: true });
     await decide(staff(doorManager), a.id, "approve", { venueId: doorVenue });
-    expect(await door(b.booking.code, me.phone, day(8), 15)).toMatchObject({ ok: true });
+    expect(await door(code, me.phone, day(8), 15)).toMatchObject({ ok: true });
   });
 });
 

@@ -248,7 +248,7 @@ export async function addSignOff(input: {
     userId = proved?.id ?? null;
   }
   const scope = business !== null ? { venue: null, business } : { venue: input.venueId, business: null };
-  return db.transaction(async () => {
+  const made = await db.transaction(async () => {
     await db
       .prepare(
         `UPDATE sign_offs SET revoked_at = datetime('now'), revoked_by = ?, revoke_reason = 'Replaced'
@@ -265,6 +265,15 @@ export async function addSignOff(input: {
       .get(scope.venue, scope.business, input.sport, phone, name, userId, kind, reference, input.adminId, note, input.expiresOn ?? null, managed)) as Row;
     return { ok: true as const, signOff: toSignOff(row) };
   })();
+  // Given again: the bookings flagged when one was taken back are settled where it now covers them (lib/safety-flags.ts).
+  try {
+    const { settleCoveredFlags } = await import("./safety-flags");
+    const venues = business !== null ? ((await db.prepare("SELECT id FROM venues WHERE business_id = ?").all(business)) as { id: number }[]).map((v) => v.id) : [input.venueId];
+    for (const id of venues) await settleCoveredFlags(id);
+  } catch (err) {
+    console.error("[mysenam] could not settle flagged bookings after a sign-off:", err);
+  }
+  return made;
 }
 
 /** Take one back, saying who and why: from now on that person books it through staff again. */

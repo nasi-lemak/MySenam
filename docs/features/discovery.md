@@ -236,7 +236,8 @@ Stars and a few words about a venue, from somebody who played there
 (`src/lib/reviews.ts`, `venue_reviews`, migration 0058).
 
 - **Only after playing.** A review is written from a booking that went ahead
-  (not cancelled, not a no-show, and paid for or checked in), from when it
+  (not cancelled, not a no-show, and paid for or checked in: the desk's check-in, or a
+  customer's own that staff confirmed, never a tap on a link alone), from when it
   ends until 60 days after,
   through a link signed for that booking (`/review/<code>?t=…`, no phone
   number in it). My Booking and the account page show *Rate your visit* on

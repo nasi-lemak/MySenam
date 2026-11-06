@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { inductionById, revokeInduction } from "@/lib/store";
+import { inductionTakenBack } from "@/lib/safety-flags";
 import { logAction } from "@/lib/activity";
 import { assignInduction } from "@/lib/participants";
 
@@ -63,5 +64,7 @@ export async function DELETE(
     action: "induction.revoked",
     detail: `Induction ${inductionId}${induction.participantId ? ` (participant ${induction.participantId})` : `, ${induction.name}`}: out-of-hours access withdrawn`,
   });
-  return NextResponse.json({ induction: result.induction });
+  // Their upcoming bookings at a time the door is the way in are flagged for staff and the customer told once; none is cancelled (ADR 0058).
+  const flagged = await inductionTakenBack(induction, admin);
+  return NextResponse.json({ induction: result.induction, flagged });
 }

@@ -101,14 +101,20 @@ export type MessageKind =
    * Never the text of a message, never WhatsApp, never digested, and not held to the daily limit per recipient: a notice written off for a
    * busy day's limit is a guardian or supervisor who never learns of it.
    */
-  | "safeguarding_notice";
+  | "safeguarding_notice"
+  /**
+   * By email only, to the customer of a booking, once: a sign-off, certification or induction it relied on was taken back and the
+   * venue will be in touch about it (lib/safety-flags.ts). The venue's decision about a booking somebody made, so not held to the
+   * daily limit per recipient.
+   */
+  | "booking_safety_notice";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
  * daily limit per recipient, which is there to keep the site from being used
  * to flood somebody else's phone. A busy venue takes more bookings than that.
  */
-const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day", "team_decision", "safeguarding_notice"];
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day", "team_decision", "safeguarding_notice", "booking_safety_notice"];
 
 export interface OutboxMessage {
   id: number;

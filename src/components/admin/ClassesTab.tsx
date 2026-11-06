@@ -570,16 +570,36 @@ export function ClassesTab({ venues }: { venues: ManagedVenue[] }) {
                       {b.participantName ? t("apr.child.bookedFor", { name: b.participantName, adult: b.name }) : b.name}
                       <span className="ml-2 text-xs text-slate-400">{b.phone}</span>
                     </span>
-                    {b.status === "confirmed" && (
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          b.checkedInAt
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-500"
-                        }`}
+                    {b.status === "confirmed" && b.checkedInAt && b.checkInSource && !b.checkInConfirmed ? (
+                      // The customer's own check-in is no proof of presence: one tap confirms it as attendance (ADR 0058).
+                      <button
+                        type="button"
+                        title={t("fx9.bk.confirmTitle")}
+                        onClick={async () => {
+                          const res = await fetch("/api/admin/check-in", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ code: b.code }),
+                          });
+                          if (res.ok) await openRoster(roster.session);
+                          else setError(t.err(await readJson(res), t("bk.checkInFailed")));
+                        }}
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 hover:bg-amber-200"
                       >
-                        {b.checkedInAt ? t("cls.checkedIn") : t("cls.expected")}
-                      </span>
+                        {t("fx9.cls.selfUnconfirmed")}
+                      </button>
+                    ) : (
+                      b.status === "confirmed" && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            b.checkedInAt
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {b.checkedInAt ? t("cls.checkedIn") : t("cls.expected")}
+                        </span>
+                      )
                     )}
                   </li>
                 ))}

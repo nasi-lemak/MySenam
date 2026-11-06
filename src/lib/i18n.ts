@@ -5085,6 +5085,16 @@ const EN = {
   "msg4.review.received": "Your request was received.",
   "msg4.review.lifted": "After a review, the restriction was lifted.",
   "msg4.review.continues": "Your request was decided: the restriction continues.",
+  "err.FX9_DOOR_BLOCKED": "The venue has not let this booking use the door code or the QR check-in. Please speak to the venue.",
+  "err.FX9_DOOR_FLAGGED": "The venue needs to look at something about this booking before the door code is given. Please ask at the counter while it is open.",
+  "fx9.what.sign-off": "sign-off",
+  "fx9.what.certification": "certification",
+  "fx9.what.induction": "induction",
+  "fx9.mail.subject": "About your booking {code} at {venue}",
+  "fx9.mail.body":
+    "Hello {name},\n\n{venue} has taken back your {what}. Your booking {code} ({where}, {when}) has not been cancelled, but the venue will be in touch about it, and the door code will not be given until it is settled. Please speak to the venue before you come.\n{reason}",
+  "fx9.door.induction":
+    "This time is outside staffed hours, so you need a one-off run-through at the desk before you can use it. Drop in while the counter is open, before your booking: it takes a few minutes. The door code only appears once you have had it.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10116,6 +10126,16 @@ const MS: Record<Phrase, string> = {
   "msg4.review.received": "Permintaan anda telah diterima.",
   "msg4.review.lifted": "Selepas semakan, sekatan itu telah ditarik balik.",
   "msg4.review.continues": "Permintaan anda telah diputuskan: sekatan itu diteruskan.",
+  "err.FX9_DOOR_BLOCKED": "Pusat tidak membenarkan tempahan ini menggunakan kod pintu atau daftar masuk QR. Sila berhubung dengan pusat.",
+  "err.FX9_DOOR_FLAGGED": "Pusat perlu menyemak sesuatu tentang tempahan ini sebelum kod pintu diberikan. Sila tanya di kaunter semasa ia dibuka.",
+  "fx9.what.sign-off": "pengesahan",
+  "fx9.what.certification": "pensijilan",
+  "fx9.what.induction": "pengenalan tempat",
+  "fx9.mail.subject": "Tentang tempahan {code} anda di {venue}",
+  "fx9.mail.body":
+    "Hai {name},\n\n{venue} telah menarik balik {what} anda. Tempahan {code} anda ({where}, {when}) tidak dibatalkan, tetapi pusat akan menghubungi anda tentangnya, dan kod pintu tidak akan diberikan sehingga ia diselesaikan. Sila berhubung dengan pusat sebelum anda datang.\n{reason}",
+  "fx9.door.induction":
+    "Waktu ini di luar waktu kaunter dibuka, jadi anda perlu menjalani pengenalan tempat sekali sahaja di kaunter sebelum menggunakannya. Singgah semasa kaunter dibuka, sebelum tempahan anda: ia mengambil masa beberapa minit. Kod pintu hanya muncul selepas itu.",
 };
 
 /** Exported so a test can hold the two languages against each other. */
