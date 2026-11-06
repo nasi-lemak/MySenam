@@ -1,7 +1,7 @@
 # ADR 0017: Three ways to check a change, one runner, and staging by content digest
 
 - **Status:** current, decided 2026-10-24. How to run them is
-  [testing](../../development/testing.md#three-ways-to-check-a-change).
+  [testing](../../development/testing.md#checking-a-change-and-releasing).
 - **Context:** the suites run by hand on two databases, and CI has not run
   since the account's Actions budget stopped it. A change still needs to be
   seen running as it will in production, by several people at once, and the

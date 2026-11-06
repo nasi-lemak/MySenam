@@ -7,7 +7,9 @@ which names the one authoritative document for each subject.
 ## Working on the code
 
 - Run `npm run typecheck`, `npm run lint` and `npm test` before committing
-  (`npm run verify -- fast` does all three on what changed); see
+  (`npm run verify -- fast` does all three on what changed); a release is verified on
+  the AI VM with `node scripts/verify.mjs release --pg docker`, never by GitHub
+  Actions, which start only by hand; see
   [testing](docs/development/testing.md) for running the suite against Postgres
   as CI does, staging, and the acceptance scenarios.
 - Staging and acceptance runs use synthetic data only: never copy a production

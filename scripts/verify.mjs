@@ -1,48 +1,138 @@
 #!/usr/bin/env node
 /**
- * One way to check MySenam, the same here, on a staging machine and in CI:
+ * One way to check MySenam, the same on a developer's machine, on the AI
+ * development VM and on a staging machine. It is the release gate: nothing in
+ * GitHub Actions runs it automatically (those workflows are manual only).
  *
  *   node scripts/verify.mjs fast            # typecheck, lint, and the tests affected by uncommitted changes (PGlite)
  *   node scripts/verify.mjs fast tests/games.test.ts   # typecheck, lint and the files named
- *   node scripts/verify.mjs full            # everything: typecheck, lint, docs, PGlite, Postgres, build, browser tests
- *   node scripts/verify.mjs ci              # what CI runs: full
+ *   node scripts/verify.mjs release --pg docker       # THE RELEASE PROFILE: typecheck, lint, docs, the whole suite on
+ *                                           #   PGlite and on Postgres 16, a fresh production build, the browser
+ *                                           #   tests and every acceptance scenario (UAT), one after the other
+ *   node scripts/verify.mjs full            # the release profile without the acceptance scenarios (a checkpoint, never a release)
+ *   node scripts/verify.mjs ci              # the same as release
  *   node scripts/verify.mjs pg              # the suite on Postgres only
  *   node scripts/verify.mjs e2e             # the browser tests, building first only if the source changed
  *   node scripts/verify.mjs uat [file|title]  # the visual acceptance scenarios (tests/uat): all, one file, or one by title
+ *   node scripts/verify.mjs check [report.json]  # is a release report still true of the source in this checkout?
  *
- * Postgres: TEST_DATABASE_URL if set; otherwise, with `--pg docker` (the
- * default for full and pg when Docker answers), a throwaway postgres:16
- * container on a free port, removed when the run ends however it ends. With
- * neither, the Postgres step is reported as blocked, never as passed.
+ * Postgres is mandatory for release, full, ci and pg: a run with no Postgres
+ * is BLOCKED (exit 3), never passed. TEST_DATABASE_URL names one; otherwise,
+ * with `--pg docker` (the default), a throwaway postgres:16 container on a
+ * free loopback port, removed when the run ends however it ends. A server that
+ * is not Postgres 16, is not on this machine, or is the one DATABASE_URL names
+ * is refused.
  *
- * Every run writes artifacts/verify/<commit>-<time>.json: the commit, whether
- * the tree was dirty, the content digest tested, and each step's result and
- * time. Exits non-zero if any step failed.
+ * A step passes only when its process exited 0, nothing in it failed, it ran
+ * tests, and nothing was skipped that scripts/lib/expected-skips.mjs does not
+ * allow (on Postgres, nothing may be skipped). A process that is killed, runs
+ * past its time limit or crashes fails; the run being interrupted fails. There
+ * is no retry: a test that failed in a run failed in that run, and a later
+ * rerun of it is a new, separate fact that does not change this report.
+ *
+ * Every run writes artifacts/verify/<commit>-<time>.json (and the steps' logs
+ * and raw results beside it): the commit, whether the tree was dirty, the
+ * digest of the exact source tested (taken before AND after: a change during
+ * the run fails it), Node, the machine, each step's result with test counts
+ * (PGlite and Postgres apart), the Postgres server used, and the providers
+ * that were NOT exercised. The verdict is PASS, FAIL or BLOCKED; exit 0, 1, 3.
+ * A release PASS is of one source digest only: `check` says whether it still is.
  */
 import { execFileSync, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
+import { INTEGRATIONS, PGLITE_EXPECTED_SKIPS } from "./lib/expected-skips.mjs";
 import { ROOT, sourceState } from "./lib/source.mjs";
 
 const args = process.argv.slice(2);
 const profile = args[0] ?? "fast";
-const rest = args.slice(1).filter((a, i, all) => !a.startsWith("--") && all[i - 1] !== "--pg" && all[i - 1] !== "--report");
+const VALUE_FLAGS = ["--pg", "--report", "--max-workers"];
+const rest = args.slice(1).filter((a, i, all) => !a.startsWith("--") && !VALUE_FLAGS.includes(all[i - 1]));
 const flag = (name) => {
   const i = args.indexOf(name);
-  return i === -1 ? null : args[i + 1] ?? null;
+  return i === -1 ? null : (args[i + 1] ?? null);
 };
-const PROFILES = ["fast", "full", "ci", "pg", "e2e", "uat"];
+const PROFILES = ["fast", "full", "release", "ci", "pg", "e2e", "uat", "check"];
 if (!PROFILES.includes(profile)) {
   console.error(`Profiles: ${PROFILES.join(", ")}.`);
   process.exit(2);
 }
+const REPORTS = path.join(ROOT, "artifacts", "verify");
+const MAJOR = 16;
+/** The only files a commit may change after a release was verified: the record of the verification itself. */
+const RECORD_FILES = ["docs/development/testing.md"];
+/** Release grade: every mandatory phase, Postgres included, fresh build, nothing skipped unexpectedly, a clean tree. */
+const releaseGrade = profile === "release" || profile === "ci";
+const strict = releaseGrade || profile === "full" || profile === "pg";
+const TIME_LIMITS = { typecheck: 25, lint: 20, docs: 10, "tests (PGlite)": 90, "tests (Postgres 16)": 90, build: 40, "browser tests (e2e)": 30, "acceptance scenarios (uat)": 120 };
 
+// ---------------------------------------------------------------- check: is a report still true?
+if (profile === "check") {
+  const given = rest[0];
+  let file = given ? path.resolve(given) : null;
+  if (!file) {
+    const reports = fs.existsSync(REPORTS)
+      ? fs
+          .readdirSync(REPORTS)
+          .filter((f) => f.endsWith(".json"))
+          .map((f) => path.join(REPORTS, f))
+          .filter((f) => {
+            try {
+              const r = JSON.parse(fs.readFileSync(f, "utf8"));
+              return r.schema === 2 && r.releaseGrade === true;
+            } catch {
+              return false;
+            }
+          })
+          .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+      : [];
+    file = reports[0] ?? null;
+  }
+  if (!file || !fs.existsSync(file)) {
+    console.log("NOT VERIFIED: no release report found in artifacts/verify/ (run: node scripts/verify.mjs release --pg docker).");
+    process.exit(1);
+  }
+  const report = JSON.parse(fs.readFileSync(file, "utf8"));
+  const now = sourceState();
+  const problems = [];
+  let recordOnly = 0;
+  if (!report.releaseGrade) problems.push(`${path.basename(file)} is a ${report.profile} report, not a release report`);
+  if (report.verdict !== "PASS") problems.push(`the report's verdict is ${report.verdict}`);
+  if (report.sourceDigest !== now.digest) {
+    // The one change allowed after a verification is the release record itself: commits that touch only these files.
+    let changed = null;
+    try {
+      changed = execFileSync("git", ["diff", "--name-only", `${report.commit}..HEAD`], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
+      recordOnly = Number(execFileSync("git", ["rev-list", "--count", `${report.commit}..HEAD`], { cwd: ROOT, encoding: "utf8" }).trim());
+    } catch {
+      // the verified commit is not in this checkout
+    }
+    const outside = (changed ?? []).filter((p) => !RECORD_FILES.includes(p));
+    if (changed === null) problems.push(`the verified commit ${String(report.commit).slice(0, 12)} is not in this checkout`);
+    else if (outside.length > 0 || now.dirty) problems.push(`the source has changed since the verified commit${outside.length ? `: ${outside.slice(0, 5).join(", ")}${outside.length > 5 ? ` and ${outside.length - 5} more` : ""}` : " (uncommitted changes)"}`);
+  } else if (now.dirty) problems.push("the working tree has uncommitted or untracked changes");
+  console.log(`${problems.length ? "NOT VERIFIED" : "VERIFIED"}: ${path.relative(ROOT, file)} (${report.profile}, ${report.at})`);
+  for (const p of problems) console.log(`  - ${p}`);
+  if (!problems.length) console.log(`  commit ${report.commit}\n  source digest ${report.sourceDigest}${recordOnly ? `\n  ${recordOnly} commit(s) since touch only the release record (${RECORD_FILES.join(", ")})` : ""}\n  providers not exercised: ${(report.integrations ?? []).length} (see the report)`);
+  process.exit(problems.length ? 1 : 0);
+}
+
+const startedAt = new Date();
 const source = sourceState();
+const runId = `${source.short}-${startedAt.getTime()}`;
+const runDir = path.join(REPORTS, runId);
+fs.mkdirSync(runDir, { recursive: true });
 const steps = [];
+const reasons = [];
 const cleanups = [];
-let stopping = false;
+let current = null;
+let interrupted = null;
+let postgresInfo = null;
+let finished = false;
+
 async function cleanup() {
   while (cleanups.length) {
     try {
@@ -52,41 +142,235 @@ async function cleanup() {
     }
   }
 }
+
+function hostInfo() {
+  let diskFreeGB = null;
+  try {
+    const s = fs.statfsSync(ROOT);
+    diskFreeGB = Math.round((s.bavail * s.bsize) / 1e8) / 10;
+  } catch {
+    // not available on this platform
+  }
+  return {
+    platform: `${os.platform()} ${os.release()}`,
+    cpus: os.cpus().length,
+    memoryGB: Math.round(os.totalmem() / 1e8) / 10,
+    freeMemoryGB: Math.round(os.freemem() / 1e8) / 10,
+    diskFreeGB,
+  };
+}
+
+function writeReport() {
+  if (finished) return null;
+  finished = true;
+  const finishedAt = new Date();
+  const after = sourceState();
+  const sourceUnchanged = after.digest === source.digest;
+  if (!sourceUnchanged) reasons.push(`the source changed while the run was going (digest ${source.digest.slice(0, 12)} → ${after.digest.slice(0, 12)}): nothing it says applies to either`);
+  if (interrupted) reasons.push(`the run was interrupted (${interrupted})`);
+  if (strict && releaseGrade && source.dirty) reasons.push("the working tree was not clean: commit first, a release is of one commit");
+  const failed = steps.filter((s) => s.status === "failed");
+  const blocked = steps.filter((s) => s.status === "blocked");
+  for (const s of failed) reasons.push(`${s.name} failed${s.reason ? `: ${s.reason}` : ""}`);
+  for (const s of blocked) reasons.push(`${s.name} is blocked: ${s.reason}`);
+  const mandatory = releaseGrade ? ["typecheck", "lint", "docs", "tests (PGlite)", "tests (Postgres 16)", "build", "browser tests (e2e)", "acceptance scenarios (uat)"] : [];
+  for (const m of mandatory) if (!steps.some((s) => s.name === m && s.status === "passed") && !steps.some((s) => s.name === m && (s.status === "failed" || s.status === "blocked"))) reasons.push(`${m} did not run`);
+  let verdict = "PASS";
+  const hardFail = failed.length > 0 || !sourceUnchanged || interrupted || (releaseGrade && source.dirty) || (blocked.length === 0 && mandatory.some((m) => !steps.some((s) => s.name === m)));
+  if (hardFail) verdict = "FAIL";
+  else if (blocked.length > 0) verdict = "BLOCKED";
+  const report = {
+    schema: 2,
+    profile,
+    releaseGrade,
+    at: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationSeconds: Math.round((finishedAt - startedAt) / 1000),
+    commit: source.commit,
+    dirty: source.dirty,
+    sourceDigest: source.digest,
+    sourceDigestAfter: after.digest,
+    sourceUnchanged,
+    node: process.version,
+    host: hostInfo(),
+    postgres: postgresInfo,
+    verdict,
+    reasons,
+    steps,
+    // Said every time: a pass here proves the code against fakes and stand-ins, not any provider.
+    integrations: INTEGRATIONS.map(([name, how]) => ({ name, status: "NOT EXERCISED by this run (unverified)", verifiedBy: how })),
+  };
+  const out = flag("--report") ?? path.join(REPORTS, `${source.short}-${startedAt.getTime()}.json`);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, JSON.stringify(report, null, 2));
+  console.log(
+    `\n${verdict} — ${steps.map((s) => `${s.name}: ${s.status}${s.tests ? ` (${s.tests.passed}/${s.tests.total}${s.tests.skipped ? `, ${s.tests.skipped} skipped` : ""})` : ""}`).join("; ")}` +
+      (reasons.length ? `\n${reasons.map((r) => `  - ${r}`).join("\n")}` : "") +
+      `\nCommit ${source.short}${source.dirty ? " (DIRTY tree)" : ""}, source digest ${source.digest.slice(0, 16)}, ${report.durationSeconds}s\nReport: ${path.relative(ROOT, out)}`,
+  );
+  return verdict;
+}
+
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, async () => {
-    if (stopping) return;
-    stopping = true;
+    if (interrupted) return;
+    interrupted = signal;
+    try {
+      current?.kill("SIGKILL");
+    } catch {
+      // gone
+    }
     await cleanup();
+    writeReport();
     process.exit(130);
   });
 
-function run(name, command, commandArgs, env = {}) {
+// ---------------------------------------------------------------- running a step
+const nodeOptions = process.env.NODE_OPTIONS?.includes("max-old-space-size") ? process.env.NODE_OPTIONS : `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=4096`.trim();
+
+/** Run one command to the end; false-y status when it exited non-zero, was killed, or ran out of time. Output goes to the screen and to a log. */
+function exec(name, command, commandArgs, env = {}) {
   return new Promise((resolve) => {
     const started = Date.now();
+    const log = path.join(runDir, `${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.log`);
+    const logStream = fs.createWriteStream(log);
     console.log(`\n▶ ${name}: ${[command, ...commandArgs].join(" ")}`);
-    const child = spawn(command, commandArgs, { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...env } });
-    child.on("close", (code) => {
-      const step = { name, status: code === 0 ? "passed" : "failed", exitCode: code, seconds: Math.round((Date.now() - started) / 100) / 10 };
-      steps.push(step);
-      console.log(`${code === 0 ? "✔" : "✖"} ${name} (${step.seconds}s)`);
-      resolve(code === 0);
+    const child = spawn(command, commandArgs, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, NODE_OPTIONS: nodeOptions, ...env } });
+    current = child;
+    let timedOut = false;
+    const limit = (TIME_LIMITS[name] ?? 60) * 60_000;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, limit);
+    for (const [stream, sink] of [
+      [child.stdout, process.stdout],
+      [child.stderr, process.stderr],
+    ]) {
+      stream.on("data", (chunk) => {
+        sink.write(chunk);
+        logStream.write(chunk);
+      });
+    }
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      logStream.end();
+      resolve({ exitCode: null, signal: null, timedOut, seconds: 0, log, error: err.message });
+    });
+    child.on("close", (exitCode, signal) => {
+      clearTimeout(timer);
+      logStream.end();
+      current = null;
+      resolve({ exitCode, signal, timedOut, seconds: Math.round((Date.now() - started) / 100) / 10, log });
     });
   });
 }
-const note = (name, status, detail) => {
-  steps.push({ name, status, detail });
-  console.log(`${status === "skipped" ? "–" : "■"} ${name}: ${status}, ${detail}`);
-};
+
+const rel = (p) => path.relative(ROOT, p);
+
+/** Counts, failures and skips out of vitest's JSON result. */
+function readResults(file) {
+  const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+  const tests = { files: raw.testResults.length, total: raw.numTotalTests, passed: raw.numPassedTests, failed: raw.numFailedTests, skipped: raw.numPendingTests, todo: raw.numTodoTests ?? 0 };
+  const failures = [];
+  const skippedByFile = {};
+  let filesFailed = 0;
+  let filesSkipped = 0;
+  for (const f of raw.testResults) {
+    const name = path.relative(ROOT, f.name);
+    const asserts = f.assertionResults ?? [];
+    const failedHere = asserts.filter((a) => a.status === "failed");
+    if (f.status === "failed") {
+      filesFailed++;
+      if (failedHere.length === 0) failures.push({ file: name, test: "(the file did not run)", message: String(f.message ?? "").slice(0, 300) });
+    }
+    for (const a of failedHere) failures.push({ file: name, test: a.fullName, message: String((a.failureMessages ?? [])[0] ?? "").slice(0, 300) });
+    const skipped = asserts.filter((a) => a.status === "pending" || a.status === "skipped").length;
+    if (skipped > 0) skippedByFile[name] = skipped;
+    if (asserts.length > 0 && skipped === asserts.length) filesSkipped++;
+  }
+  tests.filesFailed = filesFailed;
+  tests.filesSkipped = filesSkipped;
+  return { tests, failures, skippedByFile };
+}
+
+/** A vitest step. `skips`: "none" (nothing may be skipped), "pglite" (only the listed Postgres-only tests), "any" (not enforced). */
+async function testStep(name, vitestArgs, { env = {}, skips = "any", allowEmpty = false } = {}) {
+  const resultFile = path.join(runDir, `${name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.vitest.json`);
+  const ran = await exec(name, npx("vitest"), ["run", ...vitestArgs, "--reporter=default", "--reporter=json", `--outputFile.json=${resultFile}`, ...(flag("--max-workers") ? ["--maxWorkers", flag("--max-workers")] : [])], env);
+  const step = { name, status: "passed", exitCode: ran.exitCode, seconds: ran.seconds, log: rel(ran.log) };
+  const fail = (reason) => {
+    step.status = "failed";
+    step.reason = step.reason ? `${step.reason}; ${reason}` : reason;
+  };
+  if (ran.signal) fail(`killed by ${ran.signal}${ran.timedOut ? ` after the ${TIME_LIMITS[name] ?? 60}-minute limit` : ""}`);
+  else if (ran.timedOut) fail("ran past its time limit");
+  if (ran.error) fail(ran.error);
+  if (ran.exitCode !== 0) fail(`exit code ${ran.exitCode}`);
+  if (fs.existsSync(resultFile)) {
+    try {
+      const { tests, failures, skippedByFile } = readResults(resultFile);
+      step.tests = tests;
+      step.result = rel(resultFile);
+      if (failures.length) {
+        step.failures = failures;
+        fail(`${tests.failed} test(s) and ${tests.filesFailed} file(s) failed`);
+      }
+      if (tests.total === 0 && !allowEmpty) fail("no tests ran");
+      if (skips !== "any" && tests.skipped > 0) {
+        const unexpected = [];
+        for (const [file, n] of Object.entries(skippedByFile)) {
+          const allowed = skips === "pglite" ? (PGLITE_EXPECTED_SKIPS[file] ?? 0) : 0;
+          if (n > allowed) unexpected.push(`${file}: ${n} skipped${allowed ? `, ${allowed} allowed` : ""}`);
+        }
+        if (unexpected.length) {
+          step.unexpectedSkips = unexpected;
+          fail(`unexpected skips: ${unexpected.join("; ")}`);
+        }
+      }
+      if (skips === "pglite") {
+        const missing = Object.entries(PGLITE_EXPECTED_SKIPS).filter(([f, n]) => (skippedByFile[f] ?? 0) !== n && step.tests.files > 100);
+        if (missing.length) step.note = `the listed Postgres-only skips differ from the list: ${missing.map(([f, n]) => `${f} (${skippedByFile[f] ?? 0} of ${n})`).join(", ")}`;
+      }
+    } catch (err) {
+      fail(`the result file could not be read: ${err instanceof Error ? err.message : err}`);
+    }
+  } else {
+    fail("no result file: the run did not finish");
+  }
+  steps.push(step);
+  console.log(`${step.status === "passed" ? "✔" : "✖"} ${name} (${step.seconds}s)${step.tests ? ` ${step.tests.passed} passed, ${step.tests.failed} failed, ${step.tests.skipped} skipped of ${step.tests.total}` : ""}${step.reason ? ` — ${step.reason}` : ""}`);
+  return step.status === "passed";
+}
+
+/** A command that is not vitest (tsc, eslint, next build). */
+async function plainStep(name, command, commandArgs, env = {}) {
+  const ran = await exec(name, command, commandArgs, env);
+  const step = { name, status: "passed", exitCode: ran.exitCode, seconds: ran.seconds, log: rel(ran.log) };
+  if (ran.signal || ran.timedOut || ran.error || ran.exitCode !== 0) {
+    step.status = "failed";
+    step.reason = ran.signal ? `killed by ${ran.signal}${ran.timedOut ? ` after the ${TIME_LIMITS[name] ?? 60}-minute limit` : ""}` : ran.timedOut ? "ran past its time limit" : ran.error ?? `exit code ${ran.exitCode}`;
+  }
+  steps.push(step);
+  console.log(`${step.status === "passed" ? "✔" : "✖"} ${name} (${step.seconds}s)${step.reason ? ` — ${step.reason}` : ""}`);
+  return step.status === "passed";
+}
+
+function note(name, status, reason) {
+  steps.push({ name, status, reason });
+  console.log(`${status === "skipped" ? "–" : "■"} ${name}: ${status}, ${reason}`);
+}
 
 const npx = (bin) => path.join(ROOT, "node_modules", ".bin", bin);
-const typecheck = () => run("typecheck", npx("tsc"), ["--noEmit"]);
-const lint = () => run("lint", npx("eslint"), [".", "--max-warnings", "0"]);
-const docs = () => run("docs", npx("vitest"), ["run", "tests/docs.test.ts"]);
-const pglite = (extra = []) => run("tests (PGlite)", npx("vitest"), ["run", ...extra], { TEST_DATABASE_URL: "", MYSENAM_DB: ":memory:" });
+const typecheck = () => plainStep("typecheck", npx("tsc"), ["--noEmit"]);
+const lint = () => plainStep("lint", npx("eslint"), [".", "--max-warnings", "0"]);
+const docs = () => testStep("docs", ["tests/docs.test.ts"], { env: { TEST_DATABASE_URL: "", MYSENAM_DB: ":memory:" }, skips: strict ? "none" : "any" });
+const pglite = (extra = []) => testStep("tests (PGlite)", extra, { env: { TEST_DATABASE_URL: "", MYSENAM_DB: ":memory:" }, skips: strict ? "pglite" : "any", allowEmpty: extra.includes("--passWithNoTests") });
 
+// ---------------------------------------------------------------- Postgres
 function dockerAnswers() {
   try {
-    execFileSync("docker", ["info"], { stdio: "ignore", timeout: 10_000 });
+    execFileSync("docker", ["info"], { stdio: "ignore", timeout: 15_000 });
     return true;
   } catch {
     return false;
@@ -103,105 +387,178 @@ const freePort = () =>
     s.on("error", reject);
   });
 
-/** A Postgres to test against, and how it was found; null with why when there is none. */
+/** What the server says it is, and how many transactions it has committed in all (to show later that the suite really used it). */
+async function probe(url) {
+  const { default: pg } = await import("pg");
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    const version = (await client.query("SHOW server_version")).rows[0].server_version;
+    const commits = Number((await client.query("SELECT COALESCE(SUM(xact_commit), 0) AS n FROM pg_stat_database")).rows[0].n);
+    return { version, major: Number(String(version).split(".")[0]), commits };
+  } finally {
+    await client.end();
+  }
+}
+
+/** A Postgres to test against, how it was found, and why not when there is none. A server that could hold real data is refused. */
 async function postgres() {
-  if (process.env.TEST_DATABASE_URL) return { url: process.env.TEST_DATABASE_URL, how: "TEST_DATABASE_URL" };
+  const fromEnv = process.env.TEST_DATABASE_URL;
   const want = flag("--pg") ?? "docker";
-  if (want === "none") return { url: null, how: "--pg none" };
-  if (want !== "docker") return { url: want, how: "--pg" };
-  if (!dockerAnswers()) return { url: null, how: "no TEST_DATABASE_URL and Docker is not available" };
-  const port = await freePort();
-  const name = `mysenam-verify-${crypto.randomBytes(4).toString("hex")}`;
-  const password = crypto.randomBytes(12).toString("hex");
-  const expires = Math.floor(Date.now() / 1000) + 2 * 3600;
-  execFileSync("docker", [
-    "run", "-d", "--rm", "--name", name,
-    "--label", "mysenam.purpose=verify", "--label", `mysenam.expires=${expires}`,
-    "-e", `POSTGRES_PASSWORD=${password}`, "-p", `127.0.0.1:${port}:5432`,
-    "postgres:16-alpine", "-c", "max_connections=300", "-c", "fsync=off",
-  ], { stdio: "ignore" });
-  cleanups.push(async () => execFileSync("docker", ["rm", "-f", name], { stdio: "ignore" }));
-  const url = `postgres://postgres:${password}@127.0.0.1:${port}/postgres`;
-  const deadline = Date.now() + 60_000;
-  for (;;) {
+  if (!fromEnv && want === "none") return { url: null, how: "--pg none", blocked: "--pg none: Postgres was declined" };
+  let url = fromEnv ?? (want !== "docker" ? want : null);
+  let how = fromEnv ? "TEST_DATABASE_URL" : want !== "docker" ? "--pg" : "";
+  if (!url) {
+    if (!dockerAnswers()) return { url: null, how: "", blocked: "no TEST_DATABASE_URL, and Docker does not answer (start the daemon, or name a Postgres 16 server with TEST_DATABASE_URL)" };
+    const port = await freePort();
+    const name = `mysenam-verify-${crypto.randomBytes(4).toString("hex")}`;
+    const password = crypto.randomBytes(12).toString("hex");
+    const expires = Math.floor(Date.now() / 1000) + 3 * 3600;
     try {
-      execFileSync("docker", ["exec", name, "pg_isready", "-U", "postgres", "-h", "127.0.0.1"], { stdio: "ignore" });
-      break;
-    } catch {
-      if (Date.now() > deadline) throw new Error("The Postgres container did not become ready.");
-      await new Promise((r) => setTimeout(r, 500));
+      execFileSync(
+        "docker",
+        ["run", "-d", "--rm", "--name", name, "--label", "mysenam.purpose=verify", "--label", `mysenam.expires=${expires}`, "-e", `POSTGRES_PASSWORD=${password}`, "-p", `127.0.0.1:${port}:5432`, "postgres:16-alpine", "-c", "max_connections=300", "-c", "fsync=off"],
+        { stdio: "ignore" },
+      );
+    } catch (err) {
+      return { url: null, how: "", blocked: `the Postgres container would not start: ${err instanceof Error ? err.message.split("\n")[0] : err}` };
+    }
+    cleanups.push(async () => execFileSync("docker", ["rm", "-f", name], { stdio: "ignore" }));
+    url = `postgres://postgres:${password}@127.0.0.1:${port}/postgres`;
+    how = `throwaway container ${name} (postgres:16-alpine on 127.0.0.1:${port})`;
+    const deadline = Date.now() + 90_000;
+    for (;;) {
+      try {
+        execFileSync("docker", ["exec", name, "pg_isready", "-U", "postgres", "-h", "127.0.0.1"], { stdio: "ignore" });
+        break;
+      } catch {
+        if (Date.now() > deadline) return { url: null, how, blocked: "the Postgres container did not become ready in 90 seconds" };
+        await new Promise((r) => setTimeout(r, 500));
+      }
     }
   }
-  return { url, how: `throwaway container ${name}` };
+  // Isolation: only this machine, and never the database the app itself is configured to use.
+  let host = "";
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return { url: null, how, blocked: "the Postgres URL cannot be read" };
+  }
+  if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(host)) return { url: null, how, blocked: `refused: ${host} is not this machine, and a verification run empties tables` };
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL === url) return { url: null, how, blocked: "refused: that is the database DATABASE_URL names" };
+  let info;
+  try {
+    info = await probe(url);
+  } catch (err) {
+    return { url: null, how, blocked: `the server did not answer: ${err instanceof Error ? err.message : err}` };
+  }
+  if (info.major !== MAJOR) return { url: null, how, blocked: `refused: the server is PostgreSQL ${info.version}, a release is verified on ${MAJOR}`, failed: true };
+  return { url, how, version: info.version, commitsBefore: info.commits };
 }
 
 async function pgSuite(extra = []) {
   const pg = await postgres();
-  if (!pg.url) return note("tests (Postgres 16)", "blocked", pg.how), true;
-  console.log(`Postgres: ${pg.how}`);
-  return run("tests (Postgres 16)", npx("vitest"), ["run", ...extra], { TEST_DATABASE_URL: pg.url });
+  postgresInfo = { how: pg.how || null, version: pg.version ?? null, isolated: Boolean(pg.url), exercised: false };
+  if (!pg.url) {
+    if (pg.failed) {
+      steps.push({ name: "tests (Postgres 16)", status: "failed", reason: pg.blocked });
+      console.log(`✖ tests (Postgres 16): ${pg.blocked}`);
+      return false;
+    }
+    note("tests (Postgres 16)", "blocked", pg.blocked);
+    return false;
+  }
+  console.log(`Postgres: ${pg.how}, server ${pg.version}`);
+  const ok = await testStep("tests (Postgres 16)", extra, { env: { TEST_DATABASE_URL: pg.url }, skips: "none" });
+  try {
+    const after = await probe(pg.url);
+    postgresInfo.transactionsCommitted = after.commits - pg.commitsBefore;
+    postgresInfo.exercised = postgresInfo.transactionsCommitted > 1000;
+  } catch (err) {
+    postgresInfo.note = `the server could not be asked afterwards: ${err instanceof Error ? err.message : err}`;
+  }
+  const step = steps[steps.length - 1];
+  if (step.name === "tests (Postgres 16)") step.postgres = postgresInfo;
+  if (ok && extra.length === 0 && !postgresInfo.exercised) {
+    step.status = "failed";
+    step.reason = `the suite passed but the server shows only ${postgresInfo.transactionsCommitted ?? "an unknown number of"} committed transactions: Postgres was not really exercised`;
+    return false;
+  }
+  return ok;
 }
 
-/** The production build, made again only when the source it was made from differs. */
+// ---------------------------------------------------------------- build and the browser
+/** The production build; for a release always made afresh, otherwise made again only when the source it was made from differs. */
 async function build() {
   const stamp = path.join(ROOT, ".next", "mysenam-source.json");
-  try {
-    const built = JSON.parse(fs.readFileSync(stamp, "utf8"));
-    if (built.digest === source.digest && fs.existsSync(path.join(ROOT, ".next", "BUILD_ID")) && profile !== "full" && profile !== "ci") {
-      note("build", "skipped", `the build in .next is of this source (${source.digest.slice(0, 12)})`);
-      return true;
+  if (!strict) {
+    try {
+      const built = JSON.parse(fs.readFileSync(stamp, "utf8"));
+      if (built.digest === source.digest && fs.existsSync(path.join(ROOT, ".next", "BUILD_ID"))) {
+        note("build", "skipped", `the build in .next is of this source (${source.digest.slice(0, 12)})`);
+        return true;
+      }
+    } catch {
+      // no stamp: build
     }
-  } catch {
-    // no stamp: build
+  } else {
+    fs.rmSync(path.join(ROOT, ".next"), { recursive: true, force: true });
   }
-  const ok = await run("build", npx("next"), ["build"]);
+  const ok = await plainStep("build", npx("next"), ["build"]);
   if (ok) fs.writeFileSync(stamp, JSON.stringify({ ...source, builtAt: new Date().toISOString() }, null, 2));
   return ok;
 }
-const e2e = () => run("browser tests (e2e)", npx("vitest"), ["run", "--config", "vitest.e2e.config.mts"]);
+const e2e = () => testStep("browser tests (e2e)", ["--config", "vitest.e2e.config.mts"], { skips: strict ? "none" : "any" });
 // A file ("matchmaking", "tests/uat/booking.uat.ts") or one scenario by its title ("C:", "Booking 2").
 const uat = (scenario) =>
-  run("acceptance scenarios (uat)", npx("vitest"), [
-    "run",
-    "--config",
-    "vitest.uat.config.mts",
-    ...(!scenario ? [] : /^[a-z/._-]+$/.test(scenario) ? [scenario] : ["-t", scenario]),
-  ]);
+  testStep("acceptance scenarios (uat)", ["--config", "vitest.uat.config.mts", ...(!scenario ? [] : /^[a-z/._-]+$/.test(scenario) ? [scenario] : ["-t", scenario])], { skips: strict && !scenario ? "none" : "any" });
 
-let ok = true;
-const all = (...results) => results.every(Boolean);
+// ---------------------------------------------------------------- preflight
+function preflight() {
+  const h = hostInfo();
+  console.log(`Machine: ${h.cpus} CPUs, ${h.memoryGB} GB memory (${h.freeMemoryGB} GB free), ${h.diskFreeGB ?? "?"} GB disk free, Node ${process.version}`);
+  if (h.memoryGB < 6) note("preflight", "blocked", `${h.memoryGB} GB of memory; the build and the suites need about 6`);
+  else if (h.diskFreeGB !== null && h.diskFreeGB < 3) note("preflight", "blocked", `${h.diskFreeGB} GB of disk free; the acceptance scenarios keep videos and traces, about 3 GB are needed`);
+  else return true;
+  return false;
+}
+
+let exitCode = 1;
 try {
-  if (profile === "fast") {
-    ok = all(await typecheck(), await lint(), await pglite(rest.length ? rest : ["--changed", "HEAD", "--passWithNoTests"]));
+  if (strict && !preflight()) {
+    // blocked before anything was spent
+  } else if (profile === "fast") {
+    await typecheck();
+    await lint();
+    await pglite(rest.length ? rest : ["--changed", "HEAD", "--passWithNoTests"]);
   } else if (profile === "pg") {
-    ok = await pgSuite(rest);
+    await pgSuite(rest);
   } else if (profile === "e2e") {
-    ok = (await build()) && (await e2e());
+    if (await build()) await e2e();
   } else if (profile === "uat") {
-    ok = (await build()) && (await uat(rest[0]));
+    if (await build()) await uat(rest[0]);
   } else {
-    // full and ci: every step, even after one fails, so the report says everything that is wrong.
-    const results = [await typecheck(), await lint(), await docs(), await pglite(), await pgSuite()];
-    const built = await build();
-    results.push(built, built ? await e2e() : (note("browser tests (e2e)", "skipped", "the build failed"), false));
-    ok = all(...results);
+    // full, release, ci: every step, one after the other (never two builds or suites at once), even after one fails,
+    // so the report says everything that is wrong.
+    await typecheck();
+    await lint();
+    await docs();
+    await pglite();
+    await pgSuite();
+    if (await build()) {
+      await e2e();
+      if (releaseGrade) await uat();
+    } else {
+      note("browser tests (e2e)", "skipped", "the build failed");
+      if (releaseGrade) note("acceptance scenarios (uat)", "skipped", "the build failed");
+    }
   }
+} catch (err) {
+  reasons.push(`the verification itself crashed: ${err instanceof Error ? err.stack ?? err.message : err}`);
+  steps.push({ name: "verify.mjs", status: "failed", reason: "crashed" });
 } finally {
   await cleanup();
 }
-
-const report = {
-  profile,
-  at: new Date().toISOString(),
-  commit: source.commit,
-  dirty: source.dirty,
-  sourceDigest: source.digest,
-  node: process.version,
-  ok,
-  steps,
-};
-const out = flag("--report") ?? path.join(ROOT, "artifacts", "verify", `${source.short}-${Date.now()}.json`);
-fs.mkdirSync(path.dirname(out), { recursive: true });
-fs.writeFileSync(out, JSON.stringify(report, null, 2));
-console.log(`\n${ok ? "All passed" : "FAILED"} — ${steps.map((s) => `${s.name}: ${s.status}`).join(", ")}\nReport: ${path.relative(ROOT, out)}`);
-process.exit(ok ? 0 : 1);
+const verdict = writeReport();
+exitCode = verdict === "PASS" ? 0 : verdict === "BLOCKED" ? 3 : 1;
+process.exit(exitCode);

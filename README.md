@@ -63,7 +63,7 @@ npm test                                                     # on PGlite
 TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres npm test   # on Postgres
 npm run docs:check                                           # documentation links and references
 npm run build
-npm run verify -- full                                       # all of it, with a report
+node scripts/verify.mjs release --pg docker                      # all of it, on the AI VM, with a report (not GitHub Actions)
 npm run stage -- run                                         # on a staging copy with Docker
 ```
 

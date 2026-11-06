@@ -71,27 +71,101 @@ sold for one activity at a time (`activities.e2e.ts`). Each
 roadmap batch adds the journeys it changes (see the
 [roadmap](../roadmap/roadmap.md#delivered)).
 
-## Three ways to check a change
+## Checking a change, and releasing
 
-One runner does the same checks here, on a staging machine and in CI, and
-writes what it tested to `artifacts/verify/<commit>-<time>.json`: the commit,
-whether the tree had uncommitted changes, a digest of the exact content, and
-each step's result and time. A step it could not run (no Postgres, no
-browser) is reported as blocked, never as passed.
+One runner does the same checks on a developer's machine, on the AI development
+VM and on a staging machine: `scripts/verify.mjs`. **Release verification is
+done on the AI VM, with this runner. GitHub Actions does not run it** (see
+[GitHub Actions](#github-actions-manual-only)): nothing is started by a push.
+Use the targeted commands while developing, and the release profile at a
+release checkpoint, not after every edit.
 
 ```bash
 npm run verify -- fast                 # typecheck, lint, the tests touched by uncommitted changes (about 30 s)
 npm run verify -- fast tests/games.test.ts
-npm run verify -- full                 # typecheck, lint, docs, PGlite, Postgres, build, browser tests
 npm run verify -- pg                   # the suite on Postgres only
 npm run verify -- e2e                  # browser tests; builds only when the source digest changed
 npm run verify -- uat                  # the visual acceptance scenarios (below)
 npm run verify -- uat "C:"             # one scenario, by its title
+npm run verify -- full --pg docker     # everything below except the acceptance scenarios: a checkpoint, never a release
+node scripts/verify.mjs release --pg docker   # THE RELEASE PROFILE (below)
+node scripts/verify.mjs check          # is the newest release report still true of this checkout?
 ```
 
-Postgres comes from `TEST_DATABASE_URL`, `--pg <url>`, or else a throwaway
-`postgres:16-alpine` container labelled `mysenam.purpose=verify`, removed
-when the run ends however it ends.
+### The release profile
+
+`node scripts/verify.mjs release --pg docker` runs, one after the other (never
+two builds or suites at once), and every step even after one fails, so the
+report says everything that is wrong: **type-check, lint, documentation checks,
+the whole suite on PGlite, the whole suite on PostgreSQL 16, a fresh production
+build (`.next` is removed first), the browser end-to-end tests, and every
+acceptance scenario (UAT)**. `ci` is another name for it.
+
+A step passes only when its process exited 0, no test or test file in it
+failed, it ran tests, and nothing was skipped that
+[`scripts/lib/expected-skips.mjs`](../../scripts/lib/expected-skips.mjs) does not
+allow: on PGlite only the Postgres-only tests listed there (12 tests in 7 files,
+which must then run on Postgres); on Postgres, the browser tests and the
+acceptance scenarios, **nothing**. A process that is killed, runs past its time
+limit (type-check 25 minutes, the suites 90, the build 40, the acceptance
+scenarios 120) or crashes fails; so does an interrupted run (Ctrl-C or SIGTERM
+write a report that says so). **There is no retry.** A test that failed in a run
+failed in it; a later rerun of that test is a separate fact (record it as a
+targeted rerun) and never changes the report, which stays FAIL until a complete
+run passes.
+
+**PostgreSQL is mandatory.** `--pg docker` (the default) starts a throwaway
+`postgres:16-alpine` container on a free loopback port with a random password,
+labelled `mysenam.purpose=verify` and removed when the run ends however it ends;
+`TEST_DATABASE_URL` or `--pg <url>` names another server. A server that is not
+on this machine, is the one `DATABASE_URL` names, or is not PostgreSQL 16 is
+refused, and the report records the server version and how many transactions
+the suite committed on it (a pass with almost none fails: Postgres was not
+really exercised). With no Postgres and no Docker the run is **BLOCKED** (exit
+3), never PASS.
+
+The report, `artifacts/verify/<commit>-<time>.json` (the steps' logs and raw
+vitest results are beside it, in a folder of the same name; `artifacts/` is not
+committed), records: the commit, whether the tree was dirty, the digest of the
+exact source tested **taken before and after the run** (a change during the run
+fails it), Node, the machine (CPUs, memory, free disk), each step's result,
+duration, exit code and test counts (PGlite and Postgres apart; passed, failed,
+skipped, and each failure), the Postgres server used, a **list of every
+provider that was not exercised** (Billplz, Stripe, SES, WhatsApp, SMS,
+Backblaze B2, MyInvois, Xero, Google, ClamAV: the tests use stand-ins; each is
+verified separately, with the command named in the report), and the verdict:
+**PASS** (exit 0), **FAIL** (exit 1) or **BLOCKED** (exit 3).
+
+**A release is verified only when** every mandatory step above passed; Postgres
+was exercised; the build succeeded; the browser tests and the acceptance
+scenarios passed; no unexplained skip remains; the tree was clean (a release is
+of one commit); and `node scripts/verify.mjs check` says the report's source
+digest is the checkout's. Any change to the source after a verification, a
+documentation change included, invalidates it. The one exception is the release
+record: a commit after the verified one that changes only this file
+(`docs/development/testing.md`) leaves the verification standing (`check`
+accepts it). Automated tests passing is **not** production readiness: the
+providers above, and every item in the
+[launch checklist](../operations/deployment.md#before-going-live-what-only-a-live-account-can-prove),
+need their own real-service checks.
+
+#### Reproducing a verification on the AI VM
+
+```bash
+git status --short                       # must be empty: commit first
+sudo dockerd >/tmp/dockerd.log 2>&1 &    # only if `docker info` fails; the image postgres:16-alpine must be present or pullable
+docker info >/dev/null && echo docker-ok
+node scripts/verify.mjs release --pg docker      # about 1½ hours on 4 CPUs / 16 GB; the exit code is the verdict
+node scripts/verify.mjs check            # VERIFIED / NOT VERIFIED for the checkout
+```
+
+The build and the type-check need a 4 GB Node heap; the runner sets
+`--max-old-space-size=4096` for every step (Node's default of about 2 GB ran
+out on 6 November 2026), and the machine needs about 6 GB of memory and 3 GB of
+free disk (the runner is BLOCKED without them).
+
+Postgres is `TEST_DATABASE_URL`, `--pg <url>`, or else the throwaway container
+described above.
 
 ### Staging and real services
 
@@ -594,37 +668,19 @@ links are alive (no network is used).
 It cannot check that documented *behaviour* is true: that a route exists says
 nothing about what it does. That is what the feature tests and review are for.
 
-## Continuous integration
+## GitHub Actions: manual only
 
-`.github/workflows/ci.yml` runs on pull requests, on pushes to `main` and the
-demo branch, and by hand. It runs `node scripts/verify.mjs ci` against a
-Postgres 16 service: type-check, lint, documentation, the suite on PGlite and
-again on Postgres, the build, and the end-to-end tests against that build,
-and keeps the run's report as an artifact. It
-skips changes that touch only Markdown, so
-`.github/workflows/docs.yml` runs the documentation checks on those (and on
-every other pull request) instead.
+GitHub is for source control. `.github/workflows/ci.yml` and `docs.yml` start
+**only by hand** (`workflow_dispatch`, from the Actions tab), never on a push
+or a pull request, and they are not a required check for merging (and must not
+be made one). Until 6 November 2026 they started on every push to the demo
+branch (hundreds of runs, the CI job about half an hour each), which spent the
+account's Actions minutes on checks that the AI VM does for nothing. Release
+verification is [the release profile above](#the-release-profile), run on the
+VM; the manual CI job runs the same profile for the exceptional case that the
+VM cannot be used, and costs billed minutes when it is.
 
-Both run on `ubuntu-24.04`, pinned: `ubuntu-latest` moves to Ubuntu 26 from
-October 2026, and the browser install and the Postgres service are only known
-to work on the image they were written for.
-
-**Not running since 16 October 2026.** Every job since then has been refused
-before a runner was given to it, in about three seconds, with no log: the
-check run's annotation reads "The job was not started because an Actions
-budget is preventing further use". The repository is private on a personal
-account, so its jobs spend that account's included Actions minutes, and a
-budget set to stop usage stops them once the minutes are gone. Nothing in the
-repository can change that. The account owner, on GitHub: **Settings →
-Billing and licensing → Budgets and alerts**, edit the Actions budget to raise
-its amount or clear *Stop usage when budget limit is reached* (with a payment
-method on the account); or wait for the included minutes to reset at the
-start of the next billing cycle. Then re-run the latest CI run from the
-Actions tab. The owner has deferred paid CI for cost (October 2026); until a
-run passes, CI is not evidence of anything. The suites are run by hand
-(above), and each release's results are recorded below.
-
-### Release records
+## Release records
 
 What was run on the commit a release is cut from, by hand, on one machine.
 A check not listed was not run; a real-service check is listed only if it ran
