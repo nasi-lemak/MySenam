@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { denyVenue, getSessionAdmin, requireAdmin } from "@/lib/admin-auth";
+import { asStaff } from "@/lib/acting-staff";
 import { logFromRequest } from "@/lib/activity";
 import { accountById, INVOICE_LIST_STATUSES, issueInvoice, searchInvoices } from "@/lib/accounts";
 import { readListQuery } from "@/lib/list-search";
@@ -36,7 +37,9 @@ export async function POST(req: NextRequest) {
   if (!account) return NextResponse.json({ error: "Account not found." }, { status: 404 });
   const denied = denyVenue(admin, account.venueId);
   if (denied) return denied;
-  const invoice = await issueInvoice(account.id, body.period);
+  const staff = await getSessionAdmin(req);
+  const issue = () => issueInvoice(account.id, body.period as string);
+  const invoice = staff ? await asStaff(staff, issue) : await issue();
   if (!invoice) return NextResponse.json({ error: "Nothing on the account to invoice up to then." }, { status: 409 });
   await tickOutbox();
   await logFromRequest(req, {

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CashUp } from "@/lib/cash-up";
 import type { ManagedVenue } from "./shared";
 import { CashUpSheet } from "./CashUpSheet";
+import { methodText } from "./cash-up-words";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 
 type Loaded = CashUp & { scope: "own" | "all"; deskDays: string[] };
@@ -23,6 +24,10 @@ export function CashUpPanel({ venues }: { venues: ManagedVenue[] }) {
   const [staffId, setStaffId] = useState("");
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const [counted, setCounted] = useState<Record<string, string>>({});
+  const [countNote, setCountNote] = useState("");
+  const [countMsg, setCountMsg] = useState<string | null>(null);
   const asked = useRef(0);
 
   useEffect(() => {
@@ -42,7 +47,25 @@ export function CashUpPanel({ venues }: { venues: ManagedVenue[] }) {
         if (!date) setDate((body as Loaded).date);
       })
       .catch(() => mine === asked.current && setError(t("p8b.cash.failed")));
-  }, [venueId, date, staffId, t]);
+  }, [venueId, date, staffId, t, reload]);
+
+  /** What the cashier counted in each till, against what is expected (lib/cash-up.ts `saveCashUpCount`). */
+  async function saveCount() {
+    if (!data) return;
+    setCountMsg(null);
+    const counts = data.expected.filter((e) => (counted[e.method] ?? "").trim() !== "").map((e) => ({ method: e.method, counted: Number(counted[e.method]) }));
+    const res = await fetch("/api/admin/cash-up", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ venueId, date: data.date, staffId: data.staffId, counts, note: countNote }),
+    });
+    const body = await readJson(res).catch(() => ({}));
+    if (!res.ok) return setCountMsg(t.err(body, t("fx4.cash.countFailed")));
+    setCountMsg(t("fx4.cash.countSaved"));
+    setCounted({});
+    setCountNote("");
+    setReload((n) => n + 1);
+  }
 
   const own = data?.scope === "own";
   const input = "rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-teal-500 focus:outline-none";
@@ -101,6 +124,40 @@ export function CashUpPanel({ venues }: { venues: ManagedVenue[] }) {
       {data && (
         <div className="mt-3">
           <CashUpSheet data={data} t={t} time={(at) => clock.time(at, venueId)} />
+          {data.expected.length > 0 && (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid="cash-up-count">
+              <h4 className="text-sm font-semibold">{t("fx4.cash.countTitle")}</h4>
+              <p className="text-xs text-slate-600">{t("fx4.cash.countHelp")}</p>
+              <div className="mt-2 flex flex-wrap items-end gap-3">
+                {data.expected.map((e) => (
+                  <label key={e.method} className="flex flex-col text-xs text-slate-600">
+                    {methodText(t, e.method)}
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      inputMode="decimal"
+                      value={counted[e.method] ?? ""}
+                      onChange={(ev) => setCounted({ ...counted, [e.method]: ev.target.value })}
+                      className={`${input} w-28`}
+                    />
+                  </label>
+                ))}
+                <label className="flex min-w-[12rem] flex-1 flex-col text-xs text-slate-600">
+                  {t("fx4.cash.countNote")}
+                  <input value={countNote} maxLength={300} onChange={(ev) => setCountNote(ev.target.value)} className={input} />
+                </label>
+                <button type="button" onClick={() => void saveCount()} className="rounded-md bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700">
+                  {t("fx4.cash.countSave")}
+                </button>
+              </div>
+              {countMsg && (
+                <p role="status" className="mt-2 text-sm text-slate-700">
+                  {countMsg}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </section>

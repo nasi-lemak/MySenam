@@ -59,7 +59,7 @@ describe("taking kit out", () => {
     const booking = await bookRunningNow(court.id, "0150000001");
     expect(booking.checkedInAt).toBeNull();
 
-    const out = await takeHire(booking.code);
+    const out = await takeHire(booking.code, undefined, "cash");
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.hire.deposit).toBe(50);
@@ -75,7 +75,7 @@ describe("taking kit out", () => {
     expect(waived.ok).toBe(true);
     if (waived.ok) expect(waived.hire.deposit).toBe(0);
 
-    const smaller = await takeHire((await bookRunningNow(court.id, "0150000003")).code, 20);
+    const smaller = await takeHire((await bookRunningNow(court.id, "0150000003")).code, 20, "cash");
     expect(smaller.ok).toBe(true);
     if (smaller.ok) expect(smaller.hire.deposit).toBe(20);
 
@@ -90,7 +90,7 @@ describe("taking kit out", () => {
   it("refuses a resource that is not hired out", async () => {
     const court = await fleet(0);
     const booking = await bookRunningNow(court.id, "0150000007");
-    const out = await takeHire(booking.code);
+    const out = await takeHire(booking.code, undefined, "cash");
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error).toContain("not hired out");
   });
@@ -98,8 +98,8 @@ describe("taking kit out", () => {
   it("refuses a second deposit on the same booking", async () => {
     const court = await fleet(50);
     const booking = await bookRunningNow(court.id, "0150000008");
-    expect((await takeHire(booking.code)).ok).toBe(true);
-    const again = await takeHire(booking.code);
+    expect((await takeHire(booking.code, undefined, "cash")).ok).toBe(true);
+    const again = await takeHire(booking.code, undefined, "cash");
     expect(again).toEqual({ ok: false, error: "A deposit is already held on this booking." });
   });
 
@@ -116,14 +116,14 @@ describe("taking kit out", () => {
     });
     // The venue may close before 23:00, in which case there is nothing to test.
     if (later.ok) {
-      const early = await takeHire(later.booking.code);
+      const early = await takeHire(later.booking.code, undefined, "cash");
       expect(early.ok).toBe(false);
       if (!early.ok) expect(early.error).toContain("Check-in opens");
     }
 
     const booking = await bookRunningNow(court.id, "0150000010");
     expect((await adminCancelBooking(booking.code)).ok).toBe(true);
-    const gone = await takeHire(booking.code);
+    const gone = await takeHire(booking.code, undefined, "cash");
     expect(gone).toEqual({
       ok: false,
       error: "This booking was cancelled.",
@@ -136,7 +136,7 @@ describe("taking kit back", () => {
   it("settles a clean return and checks the customer out", async () => {
     const court = await fleet(50);
     const booking = await bookRunningNow(court.id, "0150000011");
-    await takeHire(booking.code);
+    await takeHire(booking.code, undefined, "cash");
 
     const back = await returnHire(booking.code, { condition: "ok" });
     expect(back.ok).toBe(true);
@@ -151,7 +151,7 @@ describe("taking kit back", () => {
   it("records damage with a note and keeps back part of the deposit", async () => {
     const court = await fleet(50);
     const booking = await bookRunningNow(court.id, "0150000012");
-    await takeHire(booking.code);
+    await takeHire(booking.code, undefined, "cash");
 
     const back = await returnHire(booking.code, {
       condition: "damaged",
@@ -168,7 +168,7 @@ describe("taking kit back", () => {
   it("never keeps back more than it held", async () => {
     const court = await fleet(50);
     const booking = await bookRunningNow(court.id, "0150000013");
-    await takeHire(booking.code, 20);
+    await takeHire(booking.code, 20, "cash");
 
     const over = await returnHire(booking.code, {
       condition: "lost",
@@ -184,13 +184,13 @@ describe("taking kit back", () => {
   it("insists on a note whenever money is kept back or the kit is not fine", async () => {
     const court = await fleet(50);
     const damaged = await bookRunningNow(court.id, "0150000014");
-    await takeHire(damaged.code);
+    await takeHire(damaged.code, undefined, "cash");
     const bare = await returnHire(damaged.code, { condition: "damaged" });
     expect(bare.ok).toBe(false);
     if (!bare.ok) expect(bare.error).toContain("note is required");
 
     const kept = await bookRunningNow(court.id, "0150000015");
-    await takeHire(kept.code);
+    await takeHire(kept.code, undefined, "cash");
     const quiet = await returnHire(kept.code, { condition: "ok", withheld: 10 });
     expect(quiet.ok).toBe(false);
   });
@@ -201,11 +201,11 @@ describe("taking kit back", () => {
     const never = await returnHire(booking.code, { condition: "ok" });
     expect(never).toEqual({ ok: false, error: "No deposit is held on this booking." });
 
-    await takeHire(booking.code);
+    await takeHire(booking.code, undefined, "cash");
     expect((await returnHire(booking.code, { condition: "ok" })).ok).toBe(true);
     const twice = await returnHire(booking.code, { condition: "ok" });
     expect(twice).toEqual({ ok: false, error: "This kit has already been taken back." });
-    expect((await takeHire(booking.code)).ok).toBe(false);
+    expect((await takeHire(booking.code, undefined, "cash")).ok).toBe(false);
   });
 });
 
@@ -214,7 +214,7 @@ describe("kit that is still out", () => {
     const court = await fleet(50);
     const other = await fleet(50);
     const booking = await bookRunningNow(court.id, "0150000017");
-    await takeHire(booking.code);
+    await takeHire(booking.code, undefined, "cash");
 
     const byStaff = await adminCancelBooking(booking.code);
     expect(byStaff.ok).toBe(false);
@@ -235,8 +235,8 @@ describe("kit that is still out", () => {
     const court = await fleet(50);
     const first = await bookRunningNow(court.id, "0150000018", 12);
     const second = await bookRunningNow(court.id, "0150000019", 12);
-    await takeHire(first.code);
-    await takeHire(second.code);
+    await takeHire(first.code, undefined, "cash");
+    await takeHire(second.code, undefined, "cash");
 
     const out = (await listOpenHires((await VENUE()).id)).filter((h) => h.courtId === court.id);
     expect(out.map((h) => h.bookingCode)).toEqual([first.code, second.code]);
@@ -251,7 +251,7 @@ describe("kit that is still out", () => {
   it("will not let a venue switch off a deposit while kit is out", async () => {
     const court = await fleet(50);
     const booking = await bookRunningNow(court.id, "0150000020");
-    await takeHire(booking.code);
+    await takeHire(booking.code, undefined, "cash");
 
     const off = await updateCourt(court.id, { deposit: 0 });
     expect(off.ok).toBe(false);
@@ -280,9 +280,9 @@ describe("money kept back from a deposit", () => {
     try {
       const court = await fleet(80);
       const damaged = await bookRunningNow(court.id, "0150000091");
-      expect((await takeHire(damaged.code)).ok).toBe(true);
+      expect((await takeHire(damaged.code, undefined, "card")).ok).toBe(true);
       const charged = await bookRunningNow(court.id, "0150000092", 13);
-      expect((await takeHire(charged.code)).ok).toBe(true);
+      expect((await takeHire(charged.code, undefined, "cash")).ok).toBe(true);
 
       // Two returns of the same kit at once keep the deposit once. On a real
       // server one of them is run again after a short, real wait: a frozen
@@ -350,7 +350,7 @@ describe("money kept back from a deposit", () => {
     try {
       const court = await fleet(50);
       const booking = await bookRunningNow(court.id, "0150000094", 15);
-      expect((await takeHire(booking.code)).ok).toBe(true);
+      expect((await takeHire(booking.code, undefined, "cash")).ok).toBe(true);
       expect(
         (await returnHire(booking.code, {
           condition: "ok",
@@ -392,7 +392,7 @@ describe("money kept back from a deposit", () => {
     const keep = async (phone: string, hour: number) => {
       const court = await fleet(40);
       const booking = await bookRunningNow(court.id, phone, hour);
-      expect((await takeHire(booking.code)).ok).toBe(true);
+      expect((await takeHire(booking.code, undefined, "cash")).ok).toBe(true);
       expect((await returnHire(booking.code, { condition: "damaged", deductions: [{ reason: "damage", amount: 10 }], note: "Cracked hull" })).ok).toBe(true);
       return ((await (await db())
         .prepare("SELECT s.tax_basis FROM counter_sales s JOIN hire_records h ON h.id = s.hire_record_id JOIN bookings b ON b.id = h.booking_id WHERE b.code = ?")
@@ -429,7 +429,7 @@ describe("money kept back from a deposit", () => {
   it("refuses what does not add up or says no reason; the older single amount takes its reason from the condition", async () => {
     const court = await fleet(40);
     const booking = await bookRunningNow(court.id, "0150000095", 16);
-    expect((await takeHire(booking.code)).ok).toBe(true);
+    expect((await takeHire(booking.code, undefined, "cash")).ok).toBe(true);
     const note = "Scratched";
     expect(await returnHire(booking.code, { condition: "damaged", deductions: [{ reason: "wear", amount: 5 }], note })).toMatchObject({ ok: false });
     expect(
@@ -462,7 +462,7 @@ describe("money kept back from a deposit", () => {
   it("is not a sale when nothing is kept", async () => {
     const court = await fleet(40);
     const fine = await bookRunningNow(court.id, "0150000093", 14);
-    expect((await takeHire(fine.code)).ok).toBe(true);
+    expect((await takeHire(fine.code, undefined, "cash")).ok).toBe(true);
     expect((await returnHire(fine.code, { condition: "ok" })).ok).toBe(true);
     const n = (await (await db())
       .prepare("SELECT COUNT(*)::int AS n FROM counter_sales s JOIN hire_records h ON h.id = s.hire_record_id JOIN bookings b ON b.id = h.booking_id WHERE b.code = ?")

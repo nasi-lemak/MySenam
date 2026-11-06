@@ -5134,6 +5134,10 @@ const EN = {
   "err.DISCOUNT_NOT_APPLIED": "Your discount could not be applied (it may have run out), so nothing has been booked or charged. Check the price and try again.",
   "receipt.why.priceLowered": "The booking's price came down below the deposit paid, and the difference was owed back.",
   "pwp.walletNotUsed": "Your credit or pass was not used, so nothing has been paid: {reason} {cur}{amount} is still to pay.",
+  "err.ACCOUNT_OVERDUE": "{name}'s account has {amount} overdue ({days} days past its due day), so nothing more can be charged to it until that is paid. Pay for this one yourself, or ask the venue.",
+  "msg.accountOverdueSubject": "{venue}: invoice {number} for {account} is overdue",
+  "msg.accountOverdue": "Hello,\n\nInvoice {number} from {venue} for {account} was due on {due} and is {days} days overdue: {total} is still to pay.\n\nSee it, print it or save it as a PDF: {link}\n\nIf you have paid it already, thank you, and please ignore this.\n\n{site}",
+  "receipt.why.movedCheaper": "The booking was moved to a court or time that costs less, and the difference was credited to the account.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10214,6 +10218,10 @@ const MS: Record<Phrase, string> = {
   "err.DISCOUNT_NOT_APPLIED": "Diskaun anda tidak dapat digunakan (mungkin telah habis), jadi tiada tempahan dibuat dan tiada caj dikenakan. Semak harga dan cuba lagi.",
   "receipt.why.priceLowered": "Harga tempahan turun di bawah deposit yang dibayar, dan bezanya perlu dipulangkan.",
   "pwp.walletNotUsed": "Kredit atau pas anda tidak digunakan, jadi tiada bayaran dibuat: {reason} {cur}{amount} masih perlu dibayar.",
+  "err.ACCOUNT_OVERDUE": "Akaun {name} mempunyai {amount} tertunggak ({days} hari selepas tarikh akhir), jadi tiada lagi yang boleh dicajkan kepadanya sehingga ia dibayar. Bayar sendiri untuk yang ini, atau tanya tempat itu.",
+  "msg.accountOverdueSubject": "{venue}: invois {number} untuk {account} telah tertunggak",
+  "msg.accountOverdue": "Salam,\n\nInvois {number} daripada {venue} untuk {account} perlu dibayar pada {due} dan telah tertunggak {days} hari: {total} masih belum dibayar.\n\nLihat, cetak atau simpan sebagai PDF: {link}\n\nJika anda sudah membayarnya, terima kasih, dan sila abaikan mesej ini.\n\n{site}",
+  "receipt.why.movedCheaper": "Tempahan dipindahkan ke gelanggang atau masa yang lebih murah, dan bezanya dikreditkan kepada akaun.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

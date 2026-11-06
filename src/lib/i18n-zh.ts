@@ -4967,6 +4967,10 @@ export const ZH: Record<Phrase, string> = {
   "err.DISCOUNT_NOT_APPLIED": "您的优惠未能使用（可能已用完），因此未预订，也未扣款。请核对价格后重试。",
   "receipt.why.priceLowered": "预订价格降至已付订金以下，差额应退还。",
   "pwp.walletNotUsed": "未使用您的储值或套票，因此尚未付款：{reason} 仍需支付 {cur}{amount}。",
+  "err.ACCOUNT_OVERDUE": "{name} 的账户有 {amount} 已逾期（已过到期日 {days} 天），在付清之前不能再记入新的预订。请自行支付这次预订，或联系场馆。",
+  "msg.accountOverdueSubject": "{venue}：{account} 的账单 {number} 已逾期",
+  "msg.accountOverdue": "您好，\n\n{venue} 开给 {account} 的账单 {number} 应于 {due} 付款，现已逾期 {days} 天：仍有 {total} 未付。\n\n查看、打印或另存为 PDF：{link}\n\n如您已付款，谢谢，请忽略此邮件。\n\n{site}",
+  "receipt.why.movedCheaper": "预订已改到费用较低的场地或时间，差额已记入账户。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

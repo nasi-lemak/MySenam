@@ -30,6 +30,10 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
   const [form, setForm] = useState<typeof BLANK & { id?: number }>(BLANK);
   const [booker, setBooker] = useState<Record<number, { name: string; phone: string }>>({});
   const [paying, setPaying] = useState<number | null>(null);
+  // A part payment: what was received now (blank for all that is still to pay).
+  const [payAmount, setPayAmount] = useState("");
+  // After how many days overdue new bookings on an account stop (blank for never): the venue's setting.
+  const [blockDays, setBlockDays] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // Invoices found by number or account, open, overdue or paid, a page at a time (X1-7).
@@ -46,6 +50,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
     const data = await readJson(res);
     setAccounts(data.accounts);
     setLanguages(data.languages ?? []);
+    setBlockDays(data.overdueBlockDays === null || data.overdueBlockDays === undefined ? "" : String(data.overdueBlockDays));
     if (inv.ok) {
       const found = await readJson(inv);
       setInvoices(found.invoices ?? []);
@@ -255,6 +260,25 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
         ))}
       </ul>
 
+      <ManagerOnly may="accountSettings">
+        <form
+          className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const done = await send("/api/admin/accounts/settings", "POST", { venueId, overdueBlockDays: blockDays.trim() === "" ? null : Number(blockDays) });
+            if (done) setNotice(t("fx4.acc.blockSaved"));
+          }}
+        >
+          <p className="w-full text-sm font-semibold">{t("fx4.acc.overdueTitle")}</p>
+          <p className="w-full text-xs text-slate-600">{t("fx4.acc.blockHelp")}</p>
+          <label className="flex flex-col text-xs text-slate-500">
+            {t("fx4.acc.blockDays")}
+            <input type="number" min={1} max={365} placeholder="30" value={blockDays} onChange={(e) => setBlockDays(e.target.value)} className={`${input} w-28`} />
+          </label>
+          <button className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">{t("fx4.acc.blockSave")}</button>
+        </form>
+      </ManagerOnly>
+
       <ManagerOnly may="accounts">
       <form onSubmit={save} className="mt-4 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-3">
         <p className="text-sm font-semibold sm:col-span-3">{form.id ? t("acc.changeName", { name: form.name }) : t("acc.open")}</p>
@@ -333,6 +357,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                 <td className="py-2 pr-2 text-right tabular-nums">
                   {money(i.total)}
                   {i.credited > 0 && <span className="block text-xs text-slate-500">{t("pw6.acc.credited", { amount: money(i.credited), due: money(i.due) })}</span>}
+                  {!i.paidOn && i.received > 0 && <span className="block text-xs text-slate-500">{t("fx4.acc.received", { received: money(i.received), balance: money(i.balance) })}</span>}
                 </td>
                 <td className="py-2 text-right text-xs">
                   {i.paidOn ? (
@@ -341,13 +366,35 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                       {i.paidVia ? `, ${t(`c.via.${i.paidVia}`)}` : ""}
                     </span>
                   ) : paying === i.id ? (
-                    <span className="inline-flex flex-wrap gap-1">
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      <input
+                        type="number"
+                        min={0.01}
+                        max={i.balance}
+                        step="0.01"
+                        inputMode="decimal"
+                        aria-label={t("fx4.acc.amountReceived", { balance: money(i.balance) })}
+                        placeholder={money(i.balance)}
+                        title={t("fx4.acc.amountReceived", { balance: money(i.balance) })}
+                        value={payAmount}
+                        onChange={(e) => setPayAmount(e.target.value)}
+                        className="w-24 rounded border border-slate-300 px-1 py-0.5"
+                      />
                       {COUNTER_METHODS.map((via: CounterMethod) => (
                         <button
                           key={via}
                           type="button"
                           onClick={async () => {
-                            if (await send(`/api/admin/accounts/invoices/${i.id}`, "POST", { via })) setPaying(null);
+                            const part = payAmount.trim() !== "" && Math.abs(Number(payAmount) - i.balance) >= 0.005;
+                            const done = await send(`/api/admin/accounts/invoices/${i.id}`, "POST", { via, ...(part ? { amount: Number(payAmount) } : {}) });
+                            if (done) {
+                              setPaying(null);
+                              setPayAmount("");
+                              if (part) {
+                                const inv = done.invoice as AccountInvoice;
+                                setNotice(t(inv.paidOn ? "fx4.acc.paidRecorded" : "fx4.acc.partRecorded", { amount: money(Number(payAmount)), number: inv.number, balance: money(inv.balance) }));
+                              }
+                            }
                           }}
                           className="rounded border border-slate-300 px-2 py-0.5 hover:border-teal-500"
                         >
@@ -357,7 +404,7 @@ export function AccountsPanel({ venues }: { venues: ManagedVenue[] }) {
                     </span>
                   ) : (
                     <span className="inline-flex gap-2">
-                      <button type="button" onClick={() => setPaying(i.id)} className="font-medium text-teal-700 underline">
+                      <button type="button" onClick={() => { setPayAmount(""); setPaying(i.id); }} className="font-medium text-teal-700 underline">
                         {t("acc.markPaid")}
                       </button>
                       {may("invoiceWithdraw") && (

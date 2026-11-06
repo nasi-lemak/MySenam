@@ -128,7 +128,7 @@ describe("rain-out over kit still out", () => {
     if (!out.ok || !later.ok) throw new Error("booking");
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(slotStartsAt(date, 12.25, ZONE));
-    expect((await takeHire(out.booking.code)).ok).toBe(true);
+    expect((await takeHire(out.booking.code, undefined, "cash")).ok).toBe(true);
     vi.setSystemTime(slotStartsAt(date, 12.5, ZONE));
     const r = await rainOut({ venueId, courtIds: [fleet.court.id], date, fromMin: 12 * 60, untilMin: 17 * 60, reason: "Thunderstorm" });
     expect(r.ok).toBe(true);

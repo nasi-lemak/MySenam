@@ -26,6 +26,7 @@ const en = {
   "srv.work.unpaidHolds": "letting go of unpaid holds",
   "srv.work.issuingInvoices": "issuing invoices",
   "srv.work.invoicingAccounts": "invoicing company and school accounts",
+  "srv.work.remindingAccounts": "reminding company and school accounts of overdue invoices",
   "srv.work.overdueInvoices": "checking for overdue invoices",
   "srv.work.leagueHousekeeping": "league housekeeping",
   "srv.work.ratings": "reading results into the ratings",
@@ -440,6 +441,7 @@ const en = {
   "srv.fx6.inv.b": "Your {site} invoice for {period} has been issued: {amount}, due on {due}. If it is still unpaid on {off}, {names} will be hidden from customers until it is paid. Bookings already made will stand.\n\nPay it under {place}.",
   "srv.fx6.invSoon.s": "Your {site} invoice for {period} falls due on {due}",
   "srv.fx6.invSoon.b": "The invoice for {period}, {amount}, falls due on {due}. Pay it by then under {place} to keep {names} listed.",
+  "srv.fx4.movedCheaper": "{code}, moved to a court or time that costs less",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -464,6 +466,7 @@ const ms: Record<keyof typeof en, string> = {
   "srv.work.unpaidHolds": "melepaskan tahanan yang belum dibayar",
   "srv.work.issuingInvoices": "mengeluarkan invois",
   "srv.work.invoicingAccounts": "menginvois akaun syarikat dan sekolah",
+  "srv.work.remindingAccounts": "mengingatkan akaun syarikat dan sekolah tentang invois tertunggak",
   "srv.work.overdueInvoices": "menyemak invois tertunggak",
   "srv.work.leagueHousekeeping": "pengemasan liga",
   "srv.work.ratings": "membaca keputusan ke dalam penarafan",
@@ -874,6 +877,7 @@ const ms: Record<keyof typeof en, string> = {
   "srv.fx6.inv.b": "Invois {site} anda untuk {period} telah dikeluarkan: {amount}, perlu dibayar pada {due}. Jika masih belum dibayar pada {off}, {names} akan disembunyikan daripada pelanggan sehingga ia dibayar. Tempahan yang sudah dibuat akan kekal.\n\nBayar di bawah {place}.",
   "srv.fx6.invSoon.s": "Invois {site} anda untuk {period} perlu dibayar pada {due}",
   "srv.fx6.invSoon.b": "Invois untuk {period}, {amount}, perlu dibayar pada {due}. Bayar sebelum tarikh itu di bawah {place} supaya {names} kekal disenaraikan.",
+  "srv.fx4.movedCheaper": "{code}, dipindahkan ke gelanggang atau masa yang lebih murah",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -898,6 +902,7 @@ const zh: Record<keyof typeof en, string> = {
   "srv.work.unpaidHolds": "释放未付款的保留",
   "srv.work.issuingInvoices": "开具发票",
   "srv.work.invoicingAccounts": "为公司和学校账户开具发票",
+  "srv.work.remindingAccounts": "提醒公司和学校账户支付逾期账单",
   "srv.work.overdueInvoices": "检查逾期发票",
   "srv.work.leagueHousekeeping": "联赛例行维护",
   "srv.work.ratings": "将结果读入评分",
@@ -1308,6 +1313,7 @@ const zh: Record<keyof typeof en, string> = {
   "srv.fx6.inv.b": "您的 {site} {period} 账单已开出：{amount}，到期日 {due}。如果到 {off} 仍未付款，{names} 将对顾客隐藏，直到付清为止。已有的预订仍然有效。\n\n请在 {place} 中付款。",
   "srv.fx6.invSoon.s": "您的 {site} {period} 账单将于 {due} 到期",
   "srv.fx6.invSoon.b": "{period} 的账单 {amount} 将于 {due} 到期。请在此之前在 {place} 中付款，以便 {names} 继续上架。",
+  "srv.fx4.movedCheaper": "{code}，已改到费用较低的场地或时间",
 };
 
 const area = { en, ms, zh };

@@ -3,6 +3,7 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { getVenue, getVenueIdForBookingCode, listOpenHires, returnHire, takeHire } from "@/lib/store";
 import { deductionTreatments } from "@/lib/deposit-deductions";
 import { logAction } from "@/lib/activity";
+import { asStaff } from "@/lib/acting-staff";
 import { money } from "@/lib/region";
 import { COUNTER_METHODS, type CounterMethod, HIRE_CONDITIONS, HireCondition } from "@/lib/types";
 
@@ -23,7 +24,10 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ hires: await listOpenHires(venueId), deductions: await deductionTreatments(venueId) });
 }
 
-/** Hand kit over (`action: "take"`) or take it back in (`action: "return"`). */
+/**
+ * Hand kit over (`action: "take"`, with `via`: how the deposit is held, cash, qr, transfer or card, for any deposit above nothing) or take it
+ * back in (`action: "return"`). As the member of staff doing it: the cash-up lists the deposits each took and gave back (lib/cash-up.ts).
+ */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -51,13 +55,15 @@ export async function POST(req: NextRequest) {
   if (action === "take") {
     if (deposit !== undefined && typeof deposit !== "number")
       return NextResponse.json({ error: "deposit must be a number." }, { status: 400 });
-    const result = await takeHire(code, deposit as number | undefined);
+    if (via !== undefined && !COUNTER_METHODS.includes(via as CounterMethod))
+      return NextResponse.json({ error: "via is cash, qr, transfer or card." }, { status: 400 });
+    const result = await asStaff(admin, () => takeHire(code, deposit as number | undefined, via as CounterMethod | undefined));
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     await logAction(admin, {
       venueId,
       action: "hire.taken",
       bookingCode: result.hire.bookingCode,
-      detail: `${result.hire.name}: kit handed out, ${money(result.hire.deposit)} deposit held`,
+      detail: `${result.hire.name}: kit handed out, ${money(result.hire.deposit)} deposit held${result.hire.depositVia ? ` (${result.hire.depositVia})` : ""}`,
     });
     return NextResponse.json({ hire: result.hire, booking: result.booking });
   }
@@ -73,14 +79,16 @@ export async function POST(req: NextRequest) {
 
   if (via !== undefined && !COUNTER_METHODS.includes(via as CounterMethod))
     return NextResponse.json({ error: "via is cash, qr, transfer or card." }, { status: 400 });
-  const result = await returnHire(code, {
-    condition: condition as HireCondition,
-    deductions: deductions as { reason: unknown; amount: unknown }[] | undefined,
-    withheld: withheld as number | undefined,
-    note: note as string | undefined,
-    // How the deposit was held, so what is kept is in the takings under the same method.
-    via: via as CounterMethod | undefined,
-  });
+  const result = await asStaff(admin, () =>
+    returnHire(code, {
+      condition: condition as HireCondition,
+      deductions: deductions as { reason: unknown; amount: unknown }[] | undefined,
+      withheld: withheld as number | undefined,
+      note: note as string | undefined,
+      // How the deposit was held, for one whose method was not recorded at handover; what is kept is in the takings under it.
+      via: via as CounterMethod | undefined,
+    })
+  );
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   // Money kept back from a deposit is the venue's takings: who kept it, how much, and why.
   const kept = result.hire.withheld ?? 0;
@@ -89,7 +97,7 @@ export async function POST(req: NextRequest) {
     action: "hire.returned",
     bookingCode: result.hire.bookingCode,
     detail: `${result.hire.name}: kit back (${result.hire.condition ?? condition}); ${
-      kept > 0 ? `${money(kept)} of ${money(result.hire.deposit)} kept${via ? ` (${via as string})` : ""}` : `${money(result.hire.deposit)} deposit given back`
+      kept > 0 ? `${money(kept)} of ${money(result.hire.deposit)} kept${result.hire.depositVia ?? via ? ` (${(result.hire.depositVia ?? via) as string})` : ""}` : `${money(result.hire.deposit)} deposit given back`
     }${result.hire.note ? `: ${result.hire.note}` : ""}`,
   });
   return NextResponse.json({ hire: result.hire, booking: result.booking });

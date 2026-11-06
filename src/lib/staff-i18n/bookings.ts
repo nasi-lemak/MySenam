@@ -923,6 +923,14 @@ const en = {
   "fx9.act.checkinConfirmed": "Confirmed a customer's own check-in as attendance",
   "fx9.act.flagResolved": "Decided a booking left for a decision",
   "fx9.act.signoffFlagged": "Flagged bookings after a sign-off was taken back",
+  "fx4.bk.chooseMethod": "How is it held?",
+  "fx4.bk.depositHeldVia": "Held as",
+  "fx4.bk.depositWas": "The deposit is held by {method}: what is kept back goes in the takings the same way.",
+  "fx4.bk.needMethod": "Say how the deposit is held first.",
+  "fx4.att.accTitle": "Company and school accounts: invoices overdue",
+  "fx4.att.accLine": "{account}: invoice {number} was due on {due}, {days} days ago, and {amount} is still to pay.",
+  "fx4.att.accBlocking": "New bookings on this account are stopped.",
+  "fx4.att.accHelp": "The account's contact is reminded by email each week. Under Company and school accounts you can set after how many days overdue new bookings are stopped.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1828,6 +1836,14 @@ const ms: Record<keyof typeof en, string> = {
   "fx9.act.checkinConfirmed": "Mengesahkan daftar masuk sendiri pelanggan sebagai kehadiran",
   "fx9.act.flagResolved": "Memutuskan tempahan yang diserahkan untuk keputusan",
   "fx9.act.signoffFlagged": "Menandakan tempahan selepas pengesahan ditarik balik",
+  "fx4.bk.chooseMethod": "Bagaimana dipegang?",
+  "fx4.bk.depositHeldVia": "Dipegang sebagai",
+  "fx4.bk.depositWas": "Deposit dipegang secara {method}: bahagian yang ditahan dimasukkan dalam jualan dengan cara yang sama.",
+  "fx4.bk.needMethod": "Nyatakan dahulu bagaimana deposit dipegang.",
+  "fx4.att.accTitle": "Akaun syarikat dan sekolah: invois tertunggak",
+  "fx4.att.accLine": "{account}: invois {number} perlu dibayar pada {due}, {days} hari lalu, dan {amount} masih belum dibayar.",
+  "fx4.att.accBlocking": "Tempahan baharu pada akaun ini dihentikan.",
+  "fx4.att.accHelp": "Pegawai perhubungan akaun diingatkan melalui e-mel setiap minggu. Di bawah Akaun syarikat dan sekolah anda boleh menetapkan selepas berapa hari tertunggak tempahan baharu dihentikan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2733,6 +2749,14 @@ const zh: Record<keyof typeof en, string> = {
   "fx9.act.checkinConfirmed": "将客户自助签到确认为出勤",
   "fx9.act.flagResolved": "决定了一个等待决定的预订",
   "fx9.act.signoffFlagged": "核准被撤销后标记了预订",
+  "fx4.bk.chooseMethod": "以何种方式代管？",
+  "fx4.bk.depositHeldVia": "代管方式",
+  "fx4.bk.depositWas": "押金以{method}方式代管：扣留的部分也按同一方式计入收入。",
+  "fx4.bk.needMethod": "请先说明押金的代管方式。",
+  "fx4.att.accTitle": "公司和学校账户：逾期账单",
+  "fx4.att.accLine": "{account}：账单 {number} 应于 {due} 付款，已逾期 {days} 天，仍有 {amount} 未付。",
+  "fx4.att.accBlocking": "该账户的新预订已被停止。",
+  "fx4.att.accHelp": "账户联系人每周会收到一封电邮提醒。您可以在“公司和学校账户”中设置逾期多少天后停止新预订。",
 };
 
 const area = { en, ms, zh };

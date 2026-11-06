@@ -695,6 +695,8 @@ export interface HireRecord {
   /** Who takes part, where the booking names somebody other than its customer (the customer holds the deposit). */
   participantName?: string | null;
   deposit: number;
+  /** How the deposit was held at handover (cash, QR, transfer, card); null where it was taken before that was recorded, or waived. */
+  depositVia: CounterMethod | null;
   takenAt: string;
   returnedAt: string | null;
   /** Kept back out of the deposit. null until the kit comes back. */

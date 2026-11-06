@@ -191,7 +191,7 @@ describe("closing a day", () => {
     if (!out.ok || !plain.ok) throw new Error("booking");
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(slotStartsAt(date, 12.25, ZONE));
-    expect((await takeHire(out.booking.code)).ok).toBe(true);
+    expect((await takeHire(out.booking.code, undefined, "cash")).ok).toBe(true);
     vi.setSystemTime(slotStartsAt(date, 12.5, ZONE));
 
     const done = await closeDay({ date, reason: "Storm", cancelAffected: true });
@@ -341,7 +341,7 @@ describe("taking a court out of service", () => {
     if (!out.ok || !later.ok) throw new Error("booking");
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(slotStartsAt(date, 10.25, ZONE));
-    expect((await takeHire(out.booking.code)).ok).toBe(true);
+    expect((await takeHire(out.booking.code, undefined, "cash")).ok).toBe(true);
     const made = await createOutage({ courtId: fleet.court.id, startsOn: date, endsOn: date, adminId: ownerId, cancelAffected: true });
     expect(made.ok).toBe(false);
     if (!made.ok) expect(made.error).toContain(out.booking.code);

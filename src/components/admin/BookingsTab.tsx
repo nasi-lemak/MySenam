@@ -116,6 +116,8 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     mode: "take" | "return";
     deposit: number;
     courtName: string;
+    /** How the deposit was held at handover, where that was recorded. */
+    via: "cash" | "qr" | "transfer" | "card" | null;
   } | null>(null);
   const [deposit, setDeposit] = useState("0");
   const [condition, setCondition] = useState<HireCondition>("ok");
@@ -123,7 +125,8 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
   const [deductions, setDeductions] = useState<{ reason: DeductionReason; amount: string }[]>([]);
   const [treatments, setTreatments] = useState<DeductionTreatment[]>([]);
   const withheld = deductions.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
-  const [heldVia, setHeldVia] = useState<"cash" | "qr" | "transfer" | "card">("cash");
+  // How a deposit is held, chosen by staff (never assumed): at handover, and on return for a deposit whose method was not recorded.
+  const [heldVia, setHeldVia] = useState<"" | "cash" | "qr" | "transfer" | "card">("");
   const [note, setNote] = useState("");
   const [revenue, setRevenue] = useState(0);
   const [collected, setCollected] = useState(0);
@@ -315,7 +318,9 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       mode,
       deposit: mode === "take" ? b.courtDeposit : (b.hire?.deposit ?? 0),
       courtName: b.courtName,
+      via: mode === "return" ? (b.hire?.depositVia ?? null) : null,
     });
+    setHeldVia("");
     setDeposit(String(b.courtDeposit));
     setCondition("ok");
     setDeductions([]);
@@ -332,20 +337,23 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     if (!kit) return;
     setError(null);
     setNotice(null);
+    // Said, not assumed: a deposit above nothing is held some way, and what is kept back follows it.
+    if (kit.mode === "take" && Number(deposit) > 0 && heldVia === "") return setError(t("fx4.bk.needMethod"));
+    if (kit.mode === "return" && kit.via === null && kit.deposit > 0 && withheld > 0 && heldVia === "") return setError(t("fx4.bk.needMethod"));
     try {
       const res = await fetch("/api/admin/hire", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           kit.mode === "take"
-            ? { code: kit.code, action: "take", deposit: Number(deposit) }
+            ? { code: kit.code, action: "take", deposit: Number(deposit), ...(Number(deposit) > 0 ? { via: heldVia } : {}) }
             : {
                 code: kit.code,
                 action: "return",
                 condition,
                 deductions: deductions.map((d) => ({ reason: d.reason, amount: Number(d.amount) })),
                 note,
-                via: heldVia,
+                ...(kit.via === null && heldVia !== "" ? { via: heldVia } : {}),
               }
         ),
       });
@@ -610,15 +618,22 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
   }
 
   /** Onto a company or school account (lib/accounts.ts), or off it again. */
-  async function charge(b: AdminBookingRow, accountId: number | null) {
+  async function charge(b: AdminBookingRow, accountId: number | null, overrideReason?: string) {
     setError(null);
     const res = await fetch("/api/admin/accounts/charge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId: b.id, accountId }),
+      body: JSON.stringify({ bookingId: b.id, accountId, ...(overrideReason ? { overrideReason } : {}) }),
     });
     const data = await readJson(res);
-    if (!res.ok) setError(t.err(data, t("bk.accountFailed")));
+    if (!res.ok) {
+      // An account with an invoice too long overdue takes no more bookings; staff may go past that with a reason (recorded).
+      if (data.code === "ACCOUNT_OVERDUE" && overrideReason === undefined) {
+        const why = window.prompt(t("fx4.acc.overridePrompt", { message: t.err(data, t("bk.accountFailed")) }), "");
+        if (why && why.trim().length >= 3) return charge(b, accountId, why.trim());
+      }
+      setError(t.err(data, t("bk.accountFailed")));
+    }
     load();
   }
 
@@ -1227,6 +1242,13 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
           <p className="mt-0.5 text-xs text-slate-600">{t("bk.handOverHelp")}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <label className="text-xs font-medium text-slate-600">{t("bk.depositHeld")}</label>
+            <select aria-label={t("fx4.bk.depositHeldVia")} value={heldVia} onChange={(e) => setHeldVia(e.target.value as typeof heldVia)} className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none">
+              <option value="">{t("fx4.bk.chooseMethod")}</option>
+              <option value="cash">{t("c.via.cash")}</option>
+              <option value="qr">QR</option>
+              <option value="transfer">{t("bk.heldVia.transfer")}</option>
+              <option value="card">{t("bk.heldVia.card")}</option>
+            </select>
             <input aria-label={t("bk.depositHeld")}
               type="number"
             step={0.01}
@@ -1332,16 +1354,21 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
               {withheld > 0 && (
                 <div className="flex items-center gap-2 text-xs text-slate-600">
                   {t("bk.keptHandedBack", { kept: money(withheld), back: money(Math.max(kit.deposit - withheld, 0)) })}
+                  {kit.via !== null ? (
+                    <span className="font-medium">{t("fx4.bk.depositWas", { method: kit.via === "qr" ? "QR" : t(`c.via.${kit.via}` as "c.via.cash") })}</span>
+                  ) : (
                   <select aria-label={t("q8b.l.method")}
                     value={heldVia}
                     onChange={(e) => setHeldVia(e.target.value as typeof heldVia)}
                     className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
                   >
+                    <option value="">{t("fx4.bk.chooseMethod")}</option>
                     <option value="cash">{t("c.via.cash")}</option>
                     <option value="qr">QR</option>
                     <option value="transfer">{t("bk.heldVia.transfer")}</option>
                     <option value="card">{t("bk.heldVia.card")}</option>
                   </select>
+                  )}
                 </div>
               )}
             </div>

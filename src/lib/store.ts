@@ -3665,6 +3665,12 @@ export type RescheduleResult =
       keepsAgreedPrice?: boolean;
       /** A deposit paid online was above the new, lower price: this much of it is owed back on its payment (lib/paid-within-price.ts). */
       owedBack?: number;
+      /**
+       * On an invoice to a company or school account already issued: the invoice stays as issued and the booking keeps
+       * the price it was invoiced at; a move to a cheaper court or time is this much credited to the account, as a credit
+       * note against that invoice (lib/accounts.ts `creditAccountForMove`). Absent when nothing was credited.
+       */
+      accountCredited?: number;
       /** The court's rules staff went past, to be recorded. */
       overrides?: PolicyBreach[];
       /** Where it went (or, previewed or held, would go). */
@@ -3997,15 +4003,21 @@ async function rescheduleBookingOnce(
     const feeChange = lesson ? lesson.fee - (booking.coachFee ?? 0) : 0;
     const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players, booking.games ?? null).total - oldPrice + feeChange) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
+    // On an account's invoice already issued: its price stands as invoiced, as a paid booking's does (a move is never a
+    // silent change to what was issued). Cheaper, the difference is credited to the account; dearer, it is not charged.
+    const invoiced = (row as { account_invoice_id?: number | null }).account_invoice_id != null && !paid && !coachChanging;
+    const settled = paid || invoiced;
     let coachChange: import("./lesson-coaches").CoachChange | undefined;
-    if (paid && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
+    if (settled && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
     // A lesson the venue moves keeps the price agreed: the new time may price differently, but the customer is not charged more or
     // given back less without a choice (a manager's price adjustment); only another coach's fee still changes it (lib/lesson-venue-moves.ts).
     const keepsAgreed = by === "staff" && !!booking.coachId;
     const chargeDelta = keepsAgreed ? (coachChanging ? feeChange : 0) : delta;
     // A payment page open for the old price would settle it short.
-    if (!paid && chargeDelta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
-    const priceChange = paid ? 0 : Math.max(-booking.totalPrice, chargeDelta);
+    if (!settled && chargeDelta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
+    const priceChange = settled ? 0 : Math.max(-booking.totalPrice, chargeDelta);
+    // The part of a cheaper move the account is credited for (a lesson keeps its agreed price, so nothing).
+    const accountCredit = invoiced && !keepsAgreed && delta < 0 ? roundMoney(-delta) : 0;
     const from = { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, startHour: booking.startHour, endHour: booking.endHour, courtId: fromCourt.id };
     const where = { date: to.date, startMin: span.start, endMin: span.end, courtId: court.id, courtName: court.name };
     const result = {
@@ -4014,7 +4026,8 @@ async function rescheduleBookingOnce(
       to: where,
       priceChange,
       // A paid lesson's coach fee is settled as the manager chose (lib/lesson-coaches.ts), not left uncharged here.
-      unchargedDifference: paid || keepsAgreed ? Math.round((delta - (coachChanging ? feeChange : 0)) * 100) / 100 : 0,
+      unchargedDifference: paid || keepsAgreed || (invoiced && accountCredit === 0) ? Math.round((delta - (coachChanging ? feeChange : 0)) * 100) / 100 : 0,
+      ...(accountCredit > 0 ? { accountCredited: accountCredit } : {}),
       ...(keepsAgreed ? { keepsAgreedPrice: true } : {}),
       ...(breaches.length > 0 ? { overrides: breaches } : {}),
     };
@@ -4158,6 +4171,8 @@ async function rescheduleBookingOnce(
           }
           if (breaches.length > 0) await db.prepare("UPDATE bookings SET policy_override = true WHERE id = ?").run(booking.id);
           await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(priceChange, booking.id);
+          // On an issued invoice to an account: the cheaper move is a credit note against it, in this transaction (lib/accounts.ts).
+          if (accountCredit > 0) await (await import("./accounts")).creditAccountForMove(booking.id, accountCredit, "receipt.why.movedCheaper");
           // Lowered below what a deposit or shares paid on it: that part owed back, or the move refused (lib/paid-within-price.ts).
           if (priceChange < 0) {
             const kept = await keepPaidWithinPrice(booking.id);
@@ -5775,6 +5790,7 @@ interface HireRow {
   id: number;
   booking_id: number;
   deposit: number;
+  deposit_via: CounterMethod | null;
   taken_at: string;
   returned_at: string | null;
   withheld: number | null;
@@ -5809,6 +5825,7 @@ function toHire(r: HireRow): HireRecord {
     // Who has the kit, where the booking is for somebody else; the customer holds the deposit.
     participantName: r.participant_name ?? null,
     deposit: r.deposit,
+    depositVia: r.deposit_via ?? null,
     takenAt: r.taken_at,
     returnedAt: r.returned_at,
     withheld: r.withheld,
@@ -5857,7 +5874,9 @@ export type HireResult =
   | Refusal;
 
 /**
- * Hand the kit over and record the deposit held against it.
+ * Hand the kit over and record the deposit held against it, and how it was held (`via`: cash, QR, transfer or card), so the
+ * cash-up can list it under the right till and what is kept or given back later follows the same one. Said for any deposit
+ * above nothing; there is no default.
  *
  * The deposit defaults to the court's own figure; staff may override it,
  * including down to nothing, because a waiver still needs the rest of the
@@ -5865,7 +5884,7 @@ export type HireResult =
  * in, so the desk does one thing instead of two, and the check-in window
  * applies unchanged: kit does not leave before the slot it belongs to.
  */
-export async function takeHire(code: string, deposit?: number): Promise<HireResult> {
+export async function takeHire(code: string, deposit?: number, via?: CounterMethod): Promise<HireResult> {
   const db = getDb();
   const booking = await bookingByCode(code);
   if (!booking) return refuse("BOOKING_NOT_FOUND");
@@ -5890,6 +5909,8 @@ export async function takeHire(code: string, deposit?: number): Promise<HireResu
     return { ok: false, error: `A deposit must be ${money(0)} or more, to the ${region().currency.minor}.` };
   if (held > MAX_DEPOSIT)
     return { ok: false, error: `A deposit cannot be more than ${money(MAX_DEPOSIT)}.` };
+  if (held > 0 && !COUNTER_METHODS.includes(via as CounterMethod))
+    return { ok: false, error: "Say how the deposit is held: cash, QR, transfer or card." };
 
   if (!booking.checkedInAt) {
     const windowError = checkInWindowError(booking, await courtZone(booking.courtId));
@@ -5903,10 +5924,10 @@ export async function takeHire(code: string, deposit?: number): Promise<HireResu
       await db.prepare("INSERT INTO check_ins (booking_id) VALUES (?)").run(booking.id);
       if (booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
     } else await confirmSelfCheckIn(booking, { adminId: null, name: "Front desk" }); // handing kit over is seeing them
-    await db.prepare("INSERT INTO hire_records (booking_id, deposit) VALUES (?, ?)").run(
-      booking.id,
-      held
-    );
+    const by = actingStaff();
+    await db
+      .prepare("INSERT INTO hire_records (booking_id, deposit, deposit_via, taken_by_admin_id, taken_by_name) VALUES (?, ?, ?, ?, ?)")
+      .run(booking.id, held, held > 0 ? (via as CounterMethod) : null, by?.id ?? null, by?.name ?? null);
   })();
 
   return { ok: true, hire: (await hireFor(booking.id))!, booking: (await bookingByCode(booking.code))! };
@@ -5930,7 +5951,10 @@ export async function returnHire(
     /** The older way: one amount, its reason taken from the condition (damaged, lost; otherwise "other"). */
     withheld?: number;
     note?: string;
-    /** How the deposit was held, so what is kept is in the takings under the same method; cash unless said. */
+    /**
+     * How the deposit was held, for a deposit whose method was not recorded when the kit went out: what is kept is in the
+     * takings under it. Never assumed: where the deposit's method is recorded it is that, and said otherwise is refused.
+     */
     via?: CounterMethod;
   }
 ): Promise<HireResult> {
@@ -5970,18 +5994,22 @@ export async function returnHire(
   if ((input.condition !== "ok" || withheld > 0) && note === "")
     return { ok: false, error: "Say what happened — a note is required when the kit is not returned fine." };
 
-  const via = input.via ?? "cash";
-  if (!COUNTER_METHODS.includes(via)) return { ok: false, error: "Say how the deposit was paid." };
+  if (input.via !== undefined && !COUNTER_METHODS.includes(input.via)) return { ok: false, error: "Say how the deposit was held: cash, QR, transfer or card." };
+  // The method recorded at handover is the one; a deposit taken before it was recorded needs it said for anything kept (never cash by default).
+  if (hire.depositVia && input.via && input.via !== hire.depositVia)
+    return { ok: false, error: `This deposit was held by ${hire.depositVia}, so what is kept back is too. Leave the method out, or say ${hire.depositVia}.` };
+  const via: CounterMethod | null = hire.depositVia ?? input.via ?? null;
+  if (withheld > 0 && via === null) return { ok: false, error: "Say how the deposit was held (cash, QR, transfer or card): the part kept goes in the takings under it." };
   const court = await getCourt(booking.courtId);
 
   const returned = await db.transaction(async () => {
     // Only the return that gets there first: two at once keep the deposit once.
     const done = await db.prepare(`
       UPDATE hire_records
-      SET returned_at = datetime('now'), withheld = ?, condition = ?, note = ?
+      SET returned_at = datetime('now'), withheld = ?, condition = ?, note = ?, returned_via = ?, returned_by_admin_id = ?, returned_by_name = ?
       WHERE booking_id = ? AND returned_at IS NULL
       RETURNING id
-    `).get(withheld, input.condition, note === "" ? null : note, booking.id) as { id: number } | undefined;
+    `).get(withheld, input.condition, note === "" ? null : note, hire.deposit > 0 ? via : null, actingStaff()?.id ?? null, actingStaff()?.name ?? null, booking.id) as { id: number } | undefined;
     if (!done) return false;
     // What is kept is income: rung up and receipted with the return (M13),
     // reason by reason, each with the tax its nature carries at this venue.
@@ -5995,7 +6023,7 @@ export async function returnHire(
         description: `${DEDUCTION_INFO[d.reason].label}: ${court?.name ?? "hired kit"} (${booking.code}). ${note}`,
         phrase: said("srv.line.kept", { reason: said(`srv.deduction.${d.reason}`), item: court?.name ?? said("srv.line.hiredKit"), code: booking.code, note }),
         amount: d.amount,
-        via,
+        via: via!,
         customerName: booking.name,
         customerPhone: booking.phone,
       });
@@ -7578,7 +7606,8 @@ export async function paidPartLeft(bookingId: number): Promise<number> {
       `SELECT (b.total_price - b.shares_paid)::float AS base,
               ((SELECT COALESCE(SUM(w.price - w.deposit_part), 0) FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid)
                + (SELECT COALESCE(SUM(l.refunded), 0) FROM lesson_coach_changes l WHERE l.booking_id = b.id AND l.paid)
-               + (SELECT COALESCE(SUM(-a.delta), 0) FROM booking_price_adjustments a WHERE a.booking_id = b.id AND a.paid))::float AS gone
+               + (SELECT COALESCE(SUM(-a.delta), 0) FROM booking_price_adjustments a WHERE a.booking_id = b.id AND a.paid)
+               + (SELECT COALESCE(SUM(ac.amount), 0) FROM account_credits ac WHERE ac.booking_id = b.id AND ac.for_adjustment))::float AS gone
          FROM bookings b WHERE b.id = ?`
     )
     .get(bookingId)) as { base: number; gone: number } | undefined;

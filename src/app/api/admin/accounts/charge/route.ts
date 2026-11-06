@@ -3,12 +3,14 @@ import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logFromRequest } from "@/lib/activity";
 import { chargeToAccount, takeOffAccount } from "@/lib/accounts";
 import { getBookingById, getCourt } from "@/lib/store";
+import { money } from "@/lib/region";
 
 export const dynamic = "force-dynamic";
 
 /**
  * `{ bookingId, accountId }`: the desk charges a booking to a company or
- * school account; `accountId: null` takes it off again, until it is invoiced.
+ * school account; `accountId: null` takes it off again, until it is invoiced. Where the venue stops new bookings on an account
+ * with an invoice too long overdue, `overrideReason` (a few words) goes past that, and is recorded in the activity log.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -27,8 +29,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
   if (!Number.isInteger(body.accountId)) return NextResponse.json({ error: "accountId is required." }, { status: 400 });
-  const done = await chargeToAccount(court.venueId, body.accountId as number, [booking.id]);
+  const done = await chargeToAccount(court.venueId, body.accountId as number, [booking.id], {
+    override: typeof body.overrideReason === "string" ? { reason: body.overrideReason } : undefined,
+  });
   if (!done.ok) return NextResponse.json(done, { status: 409 });
-  await logFromRequest(req, { venueId: court.venueId, action: "account.charged", bookingCode: booking.code, detail: `${booking.code} charged to account ${body.accountId}` });
+  await logFromRequest(req, {
+    venueId: court.venueId,
+    action: "account.charged",
+    bookingCode: booking.code,
+    detail: `${booking.code} charged to account ${body.accountId}${
+      done.overridden ? `, past the venue's block: ${money(done.overridden.amount)} overdue, ${done.overridden.days} days; reason: ${done.overridden.reason}` : ""
+    }`,
+  });
   return NextResponse.json({ ok: true });
 }

@@ -18,6 +18,7 @@ import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 import type { CompetitionFixture, UndrawnTournament } from "@/lib/competition-fixtures";
 import type { ModerationAttention } from "@/lib/message-moderation";
+import type { OverdueInvoice } from "@/lib/accounts";
 
 const REACH_STYLE: Record<UrgentNotice["reach"], string> = {
   unreachable: "bg-red-100 text-red-800",
@@ -104,6 +105,8 @@ export function AttentionPanel() {
     competitions?: { stranded: CompetitionFixture[]; undrawn: UndrawnTournament[] } | null;
     /** Open reports of messages, automatic suspensions to review and requests for a review (ADR 0059). */
     messageModeration?: ModerationAttention | null;
+    /** Invoices to company and school accounts unpaid past their day, oldest first, and whether the venue's block stops new bookings on each (lib/accounts.ts). */
+    accountsOverdue?: (OverdueInvoice & { blocking: boolean })[];
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [moveTo, setMoveTo] = useState<Record<string, string>>({});
@@ -151,7 +154,8 @@ export function AttentionPanel() {
   const mod = data?.messageModeration ?? null;
   const modLines = mod ? (mod.openReports > 0 ? 1 : 0) + mod.suspensionsToReview.length + (mod.reviewRequests > 0 ? 1 : 0) : 0;
   const compLines = days.size + (comp?.undrawn.length ?? 0) + modLines;
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
+  const overdueAccounts = data?.accountsOverdue ?? [];
+  if (!data?.open || !data.recent || (overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
 
   /** Postpone a day's fixtures of a tournament or a team league to another day (ADR 0059). */
   async function postpone(d: { kind: CompetitionFixture["kind"]; ownerId: number; date: string }) {
@@ -261,6 +265,18 @@ export function AttentionPanel() {
           {sg.appealsWaiting > 0 && <p>{t.plural("msg4.att.appeals", sg.appealsWaiting)}</p>}
           {sg.reviewsOpen > 0 && <p>{t.plural("msg4.att.reviews", sg.reviewsOpen)}</p>}
           {sg.retention && <p>{t("msg4.att.retention", { cases: sg.retention.cases, holds: sg.retention.holds, months: sg.retention.months })}</p>}
+        </div>
+      )}
+      {overdueAccounts.length > 0 && (
+        <div className="mb-3 space-y-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="attention-overdue-accounts">
+          <strong>{t("fx4.att.accTitle")}</strong>
+          {overdueAccounts.slice(0, 20).map((o) => (
+            <p key={o.id}>
+              {t("fx4.att.accLine", { account: o.accountName, number: o.number, due: o.dueOn, days: o.daysOverdue, amount: money(o.balance) })}
+              {o.blocking && <span className="ml-1 font-semibold text-red-700">{t("fx4.att.accBlocking")}</span>}
+            </p>
+          ))}
+          <p className="text-xs">{t("fx4.att.accHelp")}</p>
         </div>
       )}
       {flags.length > 0 && (

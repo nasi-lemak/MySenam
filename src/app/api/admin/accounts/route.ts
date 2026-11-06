@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logFromRequest } from "@/lib/activity";
-import { closeAccount, listAccounts, listInvoices, saveAccount } from "@/lib/accounts";
+import { closeAccount, listAccounts, listInvoices, overdueBlockDays, saveAccount } from "@/lib/accounts";
 import { offeredLocales } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +14,12 @@ async function venueOf(req: NextRequest, raw: unknown) {
   return denyVenue(admin, venueId) ?? venueId;
 }
 
-/** `?venueId` → the venue's company and school accounts, its invoices to them (lib/accounts.ts), and the languages an invoice can be in. */
+/** `?venueId` → the venue's company and school accounts, its invoices to them (lib/accounts.ts), the languages an invoice can be in, and `overdueBlockDays` (the venue's setting; null for never). */
 export async function GET(req: NextRequest) {
   const venueId = await venueOf(req, req.nextUrl.searchParams.get("venueId"));
   if (venueId instanceof NextResponse) return venueId;
   return NextResponse.json(
-    { accounts: await listAccounts(venueId), invoices: await listInvoices(venueId), languages: offeredLocales() },
+    { accounts: await listAccounts(venueId), invoices: await listInvoices(venueId), languages: offeredLocales(), overdueBlockDays: await overdueBlockDays(venueId) },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

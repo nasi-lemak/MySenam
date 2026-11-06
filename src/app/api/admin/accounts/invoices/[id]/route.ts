@@ -15,20 +15,22 @@ async function invoiceFor(req: NextRequest, id: string) {
   return denyVenue(admin, invoice.venueId) ?? invoice;
 }
 
-/** `{ via }`: paid, and so is every booking on it. */
+/** `{ via, amount? }`: paid, and so is every booking on it; with an `amount`, that much received (a part payment), the rest staying due. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const invoice = await invoiceFor(req, (await params).id);
   if (invoice instanceof NextResponse) return invoice;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   // As the member of staff taking it: the cash-up counts who took what (lib/acting-staff.ts).
   const staff = await getSessionAdmin(req);
-  const pay = () => markInvoicePaid(invoice.venueId, invoice.id, body?.via);
+  const pay = () => markInvoicePaid(invoice.venueId, invoice.id, body?.via, body?.amount);
   const done = staff ? await asStaff(staff, pay) : await pay();
   if (!done.ok) return NextResponse.json(done, { status: 409 });
   await logFromRequest(req, {
     venueId: invoice.venueId,
     action: "account.paid",
-    detail: `Invoice ${invoice.number} from ${invoice.accountName} paid, ${money(invoice.total)} by ${String(body?.via)}`,
+    detail: `Invoice ${invoice.number} from ${invoice.accountName}: ${money(done.invoice.received - invoice.received)} received by ${String(body?.via)}, ${
+      done.invoice.paidOn ? "paid in full" : `${money(done.invoice.balance)} still to pay`
+    }`,
   });
   return NextResponse.json({ invoice: done.invoice });
 }
@@ -39,7 +41,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (invoice instanceof NextResponse) return invoice;
   if (!(await withdrawInvoice(invoice.venueId, invoice.id)))
     return NextResponse.json(
-      { error: (await invoiceById(invoice.id))?.paidOn ? "A paid invoice stays." : "A booking on this invoice was cancelled with a credit note against it, so the invoice stays." },
+      {
+        error: (await invoiceById(invoice.id))?.paidOn
+          ? "A paid invoice stays."
+          : (await invoiceById(invoice.id))!.received > 0
+            ? "Money was received on this invoice, so it stays."
+            : "A booking on this invoice was cancelled or moved with a credit note against it, so the invoice stays.",
+      },
       { status: 409 }
     );
   await logFromRequest(req, { venueId: invoice.venueId, action: "account.invoiced", detail: `Invoice ${invoice.number} to ${invoice.accountName} withdrawn` });

@@ -706,7 +706,7 @@ describe("at the venue: attendance, kit, door codes, money", () => {
     if (!made.ok) throw new Error(made.error);
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(`${date}T09:05:00+08:00`));
-    const taken = await takeHire(made.bookings[0].code);
+    const taken = await takeHire(made.bookings[0].code, undefined, "cash");
     vi.useRealTimers();
     if (!taken.ok) throw new Error(taken.error);
     expect(await hireFor(made.bookings[0].id)).toMatchObject({ name: mum.name, phone: mum.phone, participantName: "Ahmad", deposit: 50 });

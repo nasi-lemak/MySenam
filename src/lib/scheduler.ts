@@ -12,7 +12,7 @@ import { copyOffsite } from "./offsite";
 import { backupHealth } from "./backup-health";
 import { tickOutbox } from "./notify";
 import { issueDueInvoices } from "./billing";
-import { issueDueAccountInvoices } from "./accounts";
+import { issueDueAccountInvoices, remindOverdueAccountInvoices } from "./accounts";
 import { applyPaymentHolds, notifyInvoiceStages } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
 import { runEInvoicing } from "./myinvois";
@@ -155,6 +155,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] invoicing accounts failed:", err);
     await raiseAlert("scheduler:invoicing-accounts-failed", failed("srv.work.invoicingAccounts"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // Company and school accounts: invoices past their day are reminded to the account, weekly (lib/accounts.ts).
+    await remindOverdueAccountInvoices();
+  } catch (err) {
+    console.error("[mysenam] reminding overdue accounts failed:", err);
+    await raiseAlert("scheduler:reminding-overdue-accounts-failed", failed("srv.work.remindingAccounts"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

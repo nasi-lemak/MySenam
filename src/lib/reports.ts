@@ -7,6 +7,7 @@ import { venueTax } from "./tax";
 import { hoursOn, storedHours } from "./week-hours";
 import { venueZoneOf } from "./zones";
 import { bookingCredited, bookingGross, bookingSideNet } from "./accounting";
+import { hireDepositsHeld } from "./hire-deposits";
 
 /**
  * Reporting for the person who pays for the software.
@@ -907,11 +908,8 @@ async function venueOwes(venueId: number, today: string, passValue: number): Pro
     venueId,
     today
   );
-  const hireDeposits = await one(
-    `SELECT COALESCE(SUM(h.deposit), 0)::float AS n FROM hire_records h JOIN bookings b ON b.id = h.booking_id
-      WHERE h.returned_at IS NULL AND b.court_id IN (SELECT id FROM courts WHERE venue_id = ?)`,
-    venueId
-  );
+  // The one definition of a hire deposit held, shared with the cash-up's "held for customers" (lib/hire-deposits.ts).
+  const hireDeposits = (await hireDepositsHeld(venueId)).total;
   const online = await one(
     "SELECT COALESCE(SUM(p.refund_due - p.refunded), 0)::float AS n FROM online_payments p WHERE p.venue_id = ? AND p.purpose NOT IN ('invoice', 'pack') AND p.refund_due > p.refunded",
     venueId

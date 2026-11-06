@@ -189,6 +189,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "guest_invitation.withdrawn": "Withdrew the invitation a resident emailed for a guest",
   "payment.gateway_refund": "A refund made in the payment gateway's own dashboard was recorded",
   "account.credit_settled": "Paid back an account's credit by hand",
+  "cashup.counted": "Counted the till at the end of a shift, against what the cash-up expected",
   "booking.policy_overridden": "Overrode a venue policy for one booking",
   "booking.window_overridden": "Went past an advisory launch or tide window, with a reason",
   "phone.blocked": "Blocked a phone number",
