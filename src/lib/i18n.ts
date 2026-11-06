@@ -1104,7 +1104,7 @@ const EN = {
   "msg.lesson": "{court}, lesson with {coach}",
   "msg.offerSubject": "A place has opened up — {venue}",
   "msg.offer":
-    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for 30 minutes, and then goes to the next person waiting. Claim it at {link} while it is yours.",
+    "Hi {name}, a place has opened up for {what} at {venue}, {date} {from}.\n\nIt is held for you for {minutes} minutes, and then goes to the next person waiting. Claim it at {link} while it is yours.",
   "msg.enrolledSubject": "Enrolled in {what} — {venue}",
   "msg.enrolled":
     "Hi {name}, you are enrolled in {what} with {instructor}.\n\nCode: {code}\n{venue}\n{when}\nTotal: {total}\n\nShow the code at the front desk.",
@@ -5134,6 +5134,16 @@ const EN = {
   "err.DISCOUNT_NOT_APPLIED": "Your discount could not be applied (it may have run out), so nothing has been booked or charged. Check the price and try again.",
   "receipt.why.priceLowered": "The booking's price came down below the deposit paid, and the difference was owed back.",
   "pwp.walletNotUsed": "Your credit or pass was not used, so nothing has been paid: {reason} {cur}{amount} is still to pay.",
+  "fx2.msg.offerLapsedSubject": "Your waiting-list offer has ended — {venue}",
+  "fx2.msg.offerLapsed": "Hi {name}, the place offered to you for {what} at {venue}, {date} {from}, was not taken in the time given, so it has gone to the next person waiting. You are no longer on the waiting list for it. If it is still full, you can join the list again.",
+  "fx2.msg.classOffWaitSubject": "Class called off — {venue}",
+  "fx2.msg.classOffWait": "Hi {name}, {what} at {venue}, {date} {from}, has been called off, so its waiting list is closed and you are no longer on it. We are sorry for the change.",
+  "fx2.msg.coachClassOffSubject": "Class called off — {venue}",
+  "fx2.msg.coachClassOff": "Hi {name}, {class} at {venue}, {date}, {time} ({court}) has been called off. It is no longer in your schedule.",
+  "fx2.msg.coachClassGainedSubject": "A class is now yours — {venue}",
+  "fx2.msg.coachClassGained": "Hi {name}, you now teach {class} at {venue}: {n} session(s), the first on {date}, {time} ({court}). It is in your schedule.",
+  "fx2.msg.coachClassLostSubject": "A class is no longer yours — {venue}",
+  "fx2.msg.coachClassLost": "Hi {name}, you no longer teach {class} at {venue}: {n} session(s), the first on {date}, {time} ({court}). It has been taken out of your schedule.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -6189,7 +6199,7 @@ const MS: Record<Phrase, string> = {
   "msg.lesson": "{court}, kelas dengan {coach}",
   "msg.offerSubject": "Ada tempat kosong — {venue}",
   "msg.offer":
-    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda selama 30 minit, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {link} selagi ia milik anda.",
+    "Hai {name}, ada tempat kosong untuk {what} di {venue}, {date} {from}.\n\nIa ditahan untuk anda selama {minutes} minit, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {link} selagi ia milik anda.",
   "msg.enrolledSubject": "Berdaftar dalam {what} — {venue}",
   "msg.enrolled":
     "Hai {name}, anda telah berdaftar dalam {what} bersama {instructor}.\n\nKod: {code}\n{venue}\n{when}\nJumlah: {total}\n\nTunjukkan kod ini di kaunter hadapan.",
@@ -10214,6 +10224,16 @@ const MS: Record<Phrase, string> = {
   "err.DISCOUNT_NOT_APPLIED": "Diskaun anda tidak dapat digunakan (mungkin telah habis), jadi tiada tempahan dibuat dan tiada caj dikenakan. Semak harga dan cuba lagi.",
   "receipt.why.priceLowered": "Harga tempahan turun di bawah deposit yang dibayar, dan bezanya perlu dipulangkan.",
   "pwp.walletNotUsed": "Kredit atau pas anda tidak digunakan, jadi tiada bayaran dibuat: {reason} {cur}{amount} masih perlu dibayar.",
+  "fx2.msg.offerLapsedSubject": "Tawaran senarai menunggu anda telah tamat — {venue}",
+  "fx2.msg.offerLapsed": "Hai {name}, tempat yang ditawarkan kepada anda untuk {what} di {venue}, {date} {from}, tidak diambil dalam masa yang diberi, jadi ia telah diberikan kepada orang seterusnya dalam senarai. Anda tidak lagi dalam senarai menunggu untuknya. Jika ia masih penuh, anda boleh menyertai senarai itu semula.",
+  "fx2.msg.classOffWaitSubject": "Kelas dibatalkan — {venue}",
+  "fx2.msg.classOffWait": "Hai {name}, {what} di {venue}, {date} {from}, telah dibatalkan, jadi senarai menunggunya ditutup dan anda tidak lagi berada di dalamnya. Maaf atas perubahan ini.",
+  "fx2.msg.coachClassOffSubject": "Kelas dibatalkan — {venue}",
+  "fx2.msg.coachClassOff": "Hai {name}, {class} di {venue}, {date}, {time} ({court}) telah dibatalkan. Ia tidak lagi ada dalam jadual anda.",
+  "fx2.msg.coachClassGainedSubject": "Satu kelas kini milik anda — {venue}",
+  "fx2.msg.coachClassGained": "Hai {name}, anda kini mengajar {class} di {venue}: {n} sesi, yang pertama pada {date}, {time} ({court}). Ia ada dalam jadual anda.",
+  "fx2.msg.coachClassLostSubject": "Satu kelas bukan lagi milik anda — {venue}",
+  "fx2.msg.coachClassLost": "Hai {name}, anda tidak lagi mengajar {class} di {venue}: {n} sesi, yang pertama pada {date}, {time} ({court}). Ia telah dikeluarkan daripada jadual anda.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

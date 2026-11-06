@@ -190,36 +190,36 @@ Tamil (`ta`) — {{1}} name, {{2}} code, {{3}} where, {{4}} when, {{5}} money
 
 ### `mysenam_waitlist_offer`
 
-English (`en`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} link
+English (`en`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} minutes, {{7}} link
 
 ```text
 Hi {{1}}, a place has opened up for {{2}} at {{3}}, {{4}} {{5}}.
 
-It is held for you for 30 minutes, and then goes to the next person waiting. Claim it at {{6}} while it is yours.
+It is held for you for {{6}} minutes, and then goes to the next person waiting. Claim it at {{7}} while it is yours.
 ```
 
-Malay (`ms`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} link
+Malay (`ms`) — {{1}} name, {{2}} what, {{3}} venue, {{4}} date, {{5}} from, {{6}} minutes, {{7}} link
 
 ```text
 Hai {{1}}, ada tempat kosong untuk {{2}} di {{3}}, {{4}} {{5}}.
 
-Ia ditahan untuk anda selama 30 minit, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {{6}} selagi ia milik anda.
+Ia ditahan untuk anda selama {{6}} minit, kemudian diberikan kepada orang seterusnya dalam giliran. Tuntut di {{7}} selagi ia milik anda.
 ```
 
-Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} what, {{4}} date, {{5}} from, {{6}} link
+Chinese (`zh_CN`) — {{1}} name, {{2}} venue, {{3}} what, {{4}} date, {{5}} from, {{6}} minutes, {{7}} link
 
 ```text
 您好，{{1}}！{{2}} 的 {{3}}（{{4}} {{5}}）有名额空出。
 
-名额会为您保留 30 分钟，之后将转给下一位候补者。请趁名额仍属于您时在 {{6}} 领取。
+名额会为您保留 {{6}} 分钟，之后将转给下一位候补者。请趁名额仍属于您时在 {{7}} 领取。
 ```
 
-Tamil (`ta`) — {{1}} name, {{2}} venue, {{3}} date, {{4}} from, {{5}} what, {{6}} link
+Tamil (`ta`) — {{1}} name, {{2}} venue, {{3}} date, {{4}} from, {{5}} what, {{6}} minutes, {{7}} link
 
 ```text
 வணக்கம் {{1}}, {{2}} இல் {{3}} {{4}} அன்று {{5}} க்கு ஓர் இடம் காலியாகியுள்ளது.
 
-அது உங்களுக்காக 30 நிமிடங்கள் ஒதுக்கப்பட்டிருக்கும், பின்னர் காத்திருக்கும் அடுத்தவருக்குச் செல்லும். அது உங்களுடையதாக இருக்கும்போதே {{6}} இல் அதைப் பெற்றுக்கொள்ளுங்கள்.
+அது உங்களுக்காக {{6}} நிமிடங்கள் ஒதுக்கப்பட்டிருக்கும், பின்னர் காத்திருக்கும் அடுத்தவருக்குச் செல்லும். அது உங்களுடையதாக இருக்கும்போதே {{7}} இல் அதைப் பெற்றுக்கொள்ளுங்கள்.
 ```
 
 ### `mysenam_class_enrolled`

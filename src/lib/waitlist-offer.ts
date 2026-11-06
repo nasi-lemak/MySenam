@@ -3,8 +3,7 @@ import { struckOut } from "./cancel-policy";
 import { holdPolicy } from "./holds";
 import { guestSurge } from "./limits";
 import { takesPaymentOnline } from "./payments";
-import { getClass, getCourt, getVenue, quoteFor } from "./store";
-import { WAITLIST_OFFER_MINUTES } from "./types";
+import { getClass, getCourt, getVenue, offerEndsAt, quoteFor } from "./store";
 
 /**
  * A waiting-list offer as the person holding its link sees it before
@@ -48,6 +47,7 @@ interface OfferRow {
   user_id: number | null;
   status: string;
   offered_at: string | null;
+  offer_minutes: number | null;
   places: number | null;
   customer_takes_part: boolean | null;
   made_by: "customer" | "staff" | "api" | null;
@@ -67,16 +67,13 @@ export async function claimHold(venueId: number, phone: string, hasAccount: bool
   return { hold: mustPay, minutes: policy.minutes };
 }
 
-/** datetime('now') is UTC without a zone marker (as lib/store.ts reads it). */
-const parseUtc = (stamp: string) => new Date(stamp.includes("Z") ? stamp : `${stamp.replace(" ", "T")}Z`).getTime();
-
 export type OfferLookup = { ok: true; offer: OfferView } | { ok: false; code: "OFFER_INVALID" | "OFFER_EXPIRED" };
 
 export async function describeOffer(token: string): Promise<OfferLookup> {
   const db = getDb();
   const row = (await db.prepare("SELECT * FROM waitlist WHERE offer_token = ?").get(token.trim())) as OfferRow | undefined;
   if (!row) return { ok: false, code: "OFFER_INVALID" };
-  const ends = row.offered_at ? parseUtc(row.offered_at) + WAITLIST_OFFER_MINUTES * 60_000 : 0;
+  const ends = row.offered_at ? offerEndsAt(row.offered_at, row.offer_minutes) : 0;
   if (row.status !== "offered" || ends <= Date.now()) return { ok: false, code: "OFFER_EXPIRED" };
 
   const session = row.class_id ? await getClass(row.class_id) : null;

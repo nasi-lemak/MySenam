@@ -614,7 +614,7 @@ export async function withdrawPlace(
   }
   const booking = (await store.getBookingById(bookingId))!;
   // The freed place goes to whoever has waited longest for it.
-  if (done.outcome.released > 0) await store.offerSlotPlace(booking.courtId, booking.date);
+  if (done.outcome.released > 0) await store.offerFreedPlace({ classId: booking.classId, courtId: booking.courtId, date: booking.date });
   if (done.outcome.participantId !== null) {
     const actor: Actor =
       by.kind === "staff"

@@ -65,6 +65,7 @@ export const VENUE_SETTINGS = [
   "pay_to_hold",
   "hold_minutes",
   "deposit_percent",
+  "waitlist_offer_minutes",
   "series_weeks",
   "guest_invites",
   "guest_invite_days",

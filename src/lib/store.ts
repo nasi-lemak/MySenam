@@ -38,7 +38,7 @@ import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, sta
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import { emailRefusal, nameRefusal } from "./contact-fields";
-import { Booking, busyness, Refusal, Court, type CourtActivity, type CourtHoursChange, type CourtRateChange, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, type MembershipSuspensionSummary, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, type CourtHoursChange, type CourtRateChange, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, type MembershipSuspensionSummary, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, WAITLIST_OFFER_LEAST_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -330,11 +330,19 @@ function withHours(row: HoursRow | undefined, date?: string): VenueHours {
 
 /** Class places held by live waiting-list offers (each offer every place its entry waits for), other than `except`. */
 export async function classOfferHolds(classId: number, except?: number): Promise<number> {
-  const since = new Date(Date.now() - WAITLIST_OFFER_MINUTES * 60_000).toISOString().replace("T", " ").slice(0, 19);
   const r = (await getDb()
-    .prepare("SELECT COALESCE(SUM(places), 0) AS n FROM waitlist WHERE class_id = ? AND status = 'offered' AND offered_at > ? AND id <> ?")
-    .get(classId, since, except ?? 0)) as { n: number | string };
+    .prepare(`SELECT COALESCE(SUM(places), 0) AS n FROM waitlist WHERE class_id = ? AND status = 'offered' AND ${offerEndsSql()} > datetime('now') AND id <> ?`)
+    .get(classId, except ?? 0)) as { n: number | string };
   return Number(r.n);
+}
+
+/**
+ * When a live offer ends, as SQL on the waiting list's own columns (UTC, "YYYY-MM-DD HH:MM:SS"): the minutes it was given
+ * (`offer_minutes`, capped at the start of what it is for when it was made), the default for one made before they were kept.
+ */
+export function offerEndsSql(alias = ""): string {
+  const col = alias ? `${alias}.` : "";
+  return `datetime(${col}offered_at, CAST(COALESCE(${col}offer_minutes, ${WAITLIST_OFFER_MINUTES}) AS TEXT) || ' minutes')`;
 }
 
 /** The trading hours of the venue a court belongs to. */
@@ -2921,7 +2929,8 @@ export async function cancelSeries(
     }
   })();
   // Each freed week goes to whoever has waited longest for it.
-  for (const row of claimed) await offerSlotPlace(row.court_id, row.date);
+  // A term's class place goes to its class's waiting list, not to court-time queues (ADR 0060).
+  for (const row of claimed) await offerFreedPlace({ classId: row.class_id, courtId: row.court_id, date: row.date });
   const done = new Set(claimed.map((r) => r.code.toUpperCase()));
   return {
     ok: true,
@@ -7130,6 +7139,8 @@ export async function cancelClassSession(
   cancelledIds?: number[];
   /** How each of them stood before the refund, by enrolment id, for what is said to them. */
   paymentBefore?: Record<number, "paid" | "unpaid">;
+  /** The waiting-list entries this closed (waiting or holding an offer), by id: each is told once (lib/notify.ts `tellClassCancelled`). */
+  closedWaitingIds?: number[];
   error?: string;
 }> {
   const db = getDb();
@@ -7151,6 +7162,20 @@ export async function cancelClassSession(
     // The court is free again for that time, and the coach (lib/class-coaches.ts) for any other.
     await release({ kind: "class", classId });
     await db.prepare("UPDATE coach_claims SET active = false WHERE class_id = ? AND active").run(classId);
+    // Its waiting list closes with it (ADR 0060): nobody stays 'waiting' on their account for a class that will not run, and an
+    // offer of a place in it stands no longer (its message, if not yet sent, is given up). Each entry is closed once, by the
+    // conditional update, so a leave or a claim at the same moment either lands first or is refused.
+    const waiting = (await db
+      .prepare("SELECT id, offer_token FROM waitlist WHERE class_id = ? AND status IN ('waiting','offered') ORDER BY id")
+      .all(classId)) as { id: number; offer_token: string | null }[];
+    const closedWaitingIds: number[] = [];
+    for (const w of waiting) {
+      const closed = await db.prepare("UPDATE waitlist SET status = 'cancelled', offer_token = NULL WHERE id = ? AND status IN ('waiting','offered')").run(w.id);
+      if (closed.changes !== 1) continue;
+      await release({ kind: "offer", waitlistId: w.id });
+      await withdrawOfferMessages(w.offer_token, "Not sent: the class was called off after the offer was made.");
+      closedWaitingIds.push(w.id);
+    }
     for (const row of enrolments) {
       // Only an enrolment still standing: one its customer cancelled a moment ago was refunded then.
       const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);
@@ -7160,7 +7185,7 @@ export async function cancelClassSession(
       cancelledIds.push(row.id);
       paymentBefore[row.id] = row.payment_status;
     }
-    return { ok: true, released: cancelledIds.length, cancelledIds, paymentBefore };
+    return { ok: true, released: cancelledIds.length, cancelledIds, paymentBefore, closedWaitingIds };
   })();
 }
 
@@ -9061,6 +9086,8 @@ interface WaitlistRow {
   user_id: number | null;
   status: WaitlistStatus;
   offered_at: string | null;
+  /** The minutes this offer was given (null on one made before they were kept: the default). */
+  offer_minutes?: number | null;
   offer_token: string | null;
   locale: string;
   created_at: string;
@@ -9105,7 +9132,7 @@ function toWaitlistEntry(r: WaitlistRow, includeToken = false): WaitlistEntry {
     ...(r.made_by && r.made_by !== "customer" ? { madeByName: r.made_by_name ?? null } : {}),
   };
   if (r.status === "offered" && r.offered_at) {
-    const deadline = parseUtc(r.offered_at) + WAITLIST_OFFER_MINUTES * 60_000;
+    const deadline = offerEndsAt(r.offered_at, r.offer_minutes);
     entry.expiresInSeconds = Math.max(0, Math.round((deadline - Date.now()) / 1000));
   }
   return entry;
@@ -9363,6 +9390,23 @@ function parseUtc(stamp: string): number {
   return new Date(stamp.includes("Z") ? stamp : `${stamp.replace(" ", "T")}Z`).getTime();
 }
 
+/** When an offer made at `offeredAt` for `minutes` (null: the default) ends, in epoch milliseconds. */
+export function offerEndsAt(offeredAt: string, minutes?: number | null): number {
+  return parseUtc(offeredAt) + (minutes ?? WAITLIST_OFFER_MINUTES) * 60_000;
+}
+
+/**
+ * How many minutes an offer may be given for something that starts in `startsIn` minutes, at this venue: its own offer window
+ * (`venues.waitlist_offer_minutes`, 30 unless set), never beyond the start. Null: it is too late to offer anybody the place
+ * (the thing has started, or fewer than `WAITLIST_OFFER_LEAST_MINUTES` remain, when an offer could only lapse in the desk's way).
+ */
+async function offerMinutesFor(venueId: number, startsIn: number): Promise<number | null> {
+  if (!(startsIn > 0)) return null;
+  const row = (await getDb().prepare("SELECT waitlist_offer_minutes AS m FROM venues WHERE id = ?").get(venueId)) as { m: number | null } | undefined;
+  const minutes = Math.min(row?.m ?? WAITLIST_OFFER_MINUTES, Math.floor(startsIn));
+  return minutes < WAITLIST_OFFER_LEAST_MINUTES ? null : minutes;
+}
+
 /**
  * Time out offers nobody claimed, at the start of every waitlist operation
  * and on every scheduler tick. Returns where places came free again, for the
@@ -9371,15 +9415,16 @@ function parseUtc(stamp: string): number {
 async function expireStaleOffers(): Promise<{ classIds: number[]; slots: { courtId: number; date: string }[] }> {
   const db = getDb();
   const rows = await db
-    .prepare("SELECT id, offered_at, class_id, court_id, date FROM waitlist WHERE status = 'offered'")
-    .all() as { id: number; offered_at: string | null; class_id: number | null; court_id: number | null; date: string | null }[];
+    .prepare("SELECT id, offered_at, offer_minutes, class_id, court_id, date FROM waitlist WHERE status = 'offered'")
+    .all() as { id: number; offered_at: string | null; offer_minutes: number | null; class_id: number | null; court_id: number | null; date: string | null }[];
   const now = Date.now();
   const freed = { classIds: [] as number[], slots: [] as { courtId: number; date: string }[] };
   for (const row of rows) {
     if (!row.offered_at) continue;
-    if (parseUtc(row.offered_at) + WAITLIST_OFFER_MINUTES * 60_000 <= now) {
+    if (offerEndsAt(row.offered_at, row.offer_minutes) <= now) {
+      // `offer_lapsed_at`: the person is told once that the place has passed on (lib/notify.ts `notifyPendingOffers`).
       const done = await db.prepare(
-        "UPDATE waitlist SET status = 'expired', offer_token = NULL WHERE id = ? AND status = 'offered'"
+        "UPDATE waitlist SET status = 'expired', offer_token = NULL, offer_lapsed_at = datetime('now') WHERE id = ? AND status = 'offered'"
       ).run(row.id);
       if (done.changes !== 1) continue;
       // Its hold on the court goes with it.
@@ -9392,12 +9437,51 @@ async function expireStaleOffers(): Promise<{ classIds: number[]; slots: { court
 }
 
 /**
+ * Entries still waiting for a class or a time that has begun are closed (`expired`): a place freed now is never offered for
+ * it (`offerClassPlace`, `offerSlotPlace`), so nobody should be left on, or shown, a list that can no longer move. By the
+ * scheduler; nothing is said to them (they were never offered anything). How many were closed.
+ */
+async function closeStartedEntries(): Promise<number> {
+  const db = getDb();
+  const rows = (await db
+    .prepare(
+      `SELECT w.id, COALESCE(cl.date, w.date) AS date, COALESCE(cl.start_min, w.start_min) AS start_min, COALESCE(cc.venue_id, ct.venue_id) AS venue_id
+         FROM waitlist w
+         LEFT JOIN classes cl ON cl.id = w.class_id
+         LEFT JOIN courts cc ON cc.id = cl.court_id
+         LEFT JOIN courts ct ON ct.id = w.court_id
+        WHERE w.status = 'waiting' AND COALESCE(cl.date, w.date) <= ?`
+    )
+    .all(addDays(todayISO(), 2))) as { id: number; date: string | null; start_min: number | null; venue_id: number | null }[];
+  const zones = new Map<number, string>();
+  let closed = 0;
+  for (const row of rows) {
+    if (!row.date || row.start_min === null || row.venue_id === null) continue;
+    if (!zones.has(row.venue_id)) zones.set(row.venue_id, (await venueHours(row.venue_id)).zone);
+    if (instantOf(row.date, row.start_min, zones.get(row.venue_id)!).getTime() > Date.now()) continue;
+    closed += (await db.prepare("UPDATE waitlist SET status = 'expired', offer_token = NULL WHERE id = ? AND status = 'waiting'").run(row.id)).changes;
+  }
+  return closed;
+}
+
+/**
  * The scheduler's part: offers that ran out pass straight to the next person
  * waiting, rather than sitting until somebody else happens to cancel. The
  * offers made are told by the outbox's sweep (notifyPendingOffers).
  */
 export async function passOnExpiredOffers(): Promise<number> {
   const freed = await expireStaleOffers();
+  await closeStartedEntries();
+  // An offer that ran out while somebody was reading a list or claiming something else was let go there (every waitlist read and
+  // write lets stale offers go) and nobody passed it on: the places of offers that lapsed in the last hour are offered again
+  // here, so a lapse is never left with the place idle (ADR 0060). Nothing is offered twice: what is live is skipped.
+  const lapsed = (await getDb()
+    .prepare("SELECT DISTINCT class_id, court_id, date FROM waitlist WHERE status = 'expired' AND offer_lapsed_at > datetime('now', '-60 minutes')")
+    .all()) as { class_id: number | null; court_id: number | null; date: string | null }[];
+  for (const l of lapsed) {
+    if (l.class_id) freed.classIds.push(l.class_id);
+    else if (l.court_id && l.date) freed.slots.push({ courtId: l.court_id, date: l.date });
+  }
   let offered = 0;
   for (const id of new Set(freed.classIds)) if (await offerClassPlace(id)) offered++;
   const seen = new Set<string>();
@@ -9438,6 +9522,9 @@ export async function joinClassWaitlist(input: {
   if (unkept) return unkept;
   return withTransaction(async () => {
     await expireStaleOffers();
+    // The lock calling a class off takes (`cancelClassSession`): joining at the same moment either lands first (and is closed and
+    // told with the rest of the list) or finds the class cancelled and is refused.
+    await getDb().prepare("SELECT id FROM classes WHERE id = ? FOR UPDATE").get(input.classId);
     const session = await getClass(input.classId);
     if (!session) return refuse("CLASS_NOT_FOUND");
     if (session.status === "cancelled") return refuse("CLASS_CANCELLED");
@@ -9494,6 +9581,10 @@ export async function offerClassPlace(classId: number): Promise<WaitlistEntry | 
     if (await getVenueClosure(session.venueId, session.date)) return null;
     const free = session.capacity - session.enrolled - (await classOfferHolds(classId));
     if (free <= 0) return null;
+    // Nor for a class that has begun, nor with so little time left that the offer could only lapse in the desk's way; and never
+    // for longer than the time left (ADR 0060): the claim would be refused `CLASS_STARTED`.
+    const minutes = await offerMinutesFor(session.venueId, minutesUntil(session.date, session.startMin, (await venueHours(session.venueId)).zone));
+    if (minutes === null) return null;
 
     const db = getDb();
     for (const next of queue) {
@@ -9508,8 +9599,8 @@ export async function offerClassPlace(classId: number): Promise<WaitlistEntry | 
       if (refused?.leaves) await dropEntry(next.id);
       if (refused) continue;
       await db.prepare(
-        "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
-      ).run(randomBytes(16).toString("hex"), next.id);
+        "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_minutes = ?, offer_token = ? WHERE id = ?"
+      ).run(minutes, randomBytes(16).toString("hex"), next.id);
       return await readEntry(next.id, true);
     }
     return null;
@@ -9622,6 +9713,9 @@ async function claimWaitlistOfferOnce(token: string, opts: { agreeWaiver?: boole
     if (opts.agreeWaiver === true)
       for (const p of who) await signWaiver(venueId, { phone: row.phone, name: row.name, bookingId: bookings[0].id, participant: p });
     await db.prepare("UPDATE waitlist SET status = 'claimed', offer_token = NULL WHERE id = ?").run(row.id);
+    // Taken up: whoever else waits for a place that is free (other times that day, another place in the class) is offered it
+    // now, not left until an unrelated event comes by (ADR 0060).
+    await offerFreedPlace({ classId: row.class_id, courtId: row.court_id, date: row.date });
     return { ok: true, booking: bookings[0], bookings, entry: await readEntry(row.id) };
   });
 }
@@ -9915,28 +10009,36 @@ async function slotQueue(courtId: number, date: string): Promise<WaitlistRow[]> 
  * Time freed up on a resource: offer it to the longest waiter whose wanted
  * time is now entirely free, for every place they wait for. The offer claims
  * that time (and those places) until it is taken up or runs out, so nobody
- * else can book it meanwhile; one live offer per resource and day, so
- * overlapping windows cannot be promised to two people at once. Each entry
- * is checked again first: still for whom it was made, by an account acting
- * for them (else it leaves the queue), and each of them still able to book
- * it (else it waits).
+ * else can book it meanwhile. A live offer holds only its own time: several
+ * waiters for different times on the day are offered theirs at once, and an
+ * overlapping time is not free while an offer holds it, so one time is never
+ * promised to two people (`slotTimeFree`, and the claim's own constraints).
+ * Each entry is checked again first: still for whom it was made, by an
+ * account acting for them (else it leaves the queue), and each of them still
+ * able to book it (else it waits). Never for a time that has begun, and an
+ * offer lasts the venue's offer window or the time left to the start if that
+ * is less; with too little left, the entry is passed over (ADR 0060).
  */
 export async function offerSlotPlace(courtId: number, date: string): Promise<WaitlistEntry | null> {
   return withTransaction(async () => {
     await expireStaleOffers();
     const queue = await slotQueue(courtId, date);
-    if (queue.some((row) => row.status === "offered")) return null;
     const court = await getCourt(courtId);
     if (!court) return null;
     const day = await courtDay(court, date);
     // Nothing is offered for a day the venue is shut (a closure, or a weekday it never opens); blocked and out-of-service time is not free, so `slotTimeFree` leaves it.
     if (day.closed) return null;
     const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
+    // One place at a time for one person: somebody holding a live offer on this court and day is not offered a second.
+    const holding = new Set(queue.filter((r) => r.status === "offered").map((r) => normalisePhone(r.phone)));
+    let first: WaitlistEntry | null = null;
 
     for (const row of queue) {
       if (row.status !== "waiting" || row.start_min === null || row.end_min === null) continue;
+      if (holding.has(normalisePhone(row.phone))) continue;
       const span = { start: row.start_min, end: row.end_min };
-      if (minutesUntil(date, span.start, day.zone) <= 0) continue;
+      const minutes = await offerMinutesFor(court.venueId, minutesUntil(date, span.start, day.zone));
+      if (minutes === null) continue;
       const places = row.places ?? 1;
       if (!(await slotTimeFree(court, date, span, day.policy, day.zone, places))) continue;
       const named = await entryStillTheirs(row);
@@ -9962,8 +10064,8 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
       try {
         await withTransaction(async () => {
           await db.prepare(
-            "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_token = ? WHERE id = ?"
-          ).run(randomBytes(16).toString("hex"), row.id);
+            "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_minutes = ?, offer_token = ? WHERE id = ?"
+          ).run(minutes, randomBytes(16).toString("hex"), row.id);
           await claim({
             court,
             source: { kind: "offer", waitlistId: row.id },
@@ -9973,7 +10075,7 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
             ...claimBuffers(day.policy),
             // Every place it waits for, or no offer at all.
             places,
-            expiresAt: new Date(Date.now() + WAITLIST_OFFER_MINUTES * 60_000),
+            expiresAt: new Date(Date.now() + minutes * 60_000),
           });
         });
       } catch (err) {
@@ -9981,10 +10083,22 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
         if (isConflict(err)) continue;
         throw err;
       }
-      return await readEntry(row.id, true);
+      // Every other waiter whose own time is free is offered it too (one offer per time): on to the rest of the queue.
+      holding.add(normalisePhone(row.phone));
+      first ??= await readEntry(row.id, true);
     }
-    return null;
+    return first;
   });
+}
+
+/**
+ * A place came free in a class or on a resource's day: offer it to its waiting list, the class's or the court time's.
+ * Every way a place is freed that does not go through a cancellation of its own (a term's weeks cancelled one by one, an
+ * unpaid place let go, a taken-up offer) comes here, so a class place is never offered as court time or the other way round.
+ */
+export async function offerFreedPlace(freed: { classId?: number | null; courtId?: number | null; date?: string | null }): Promise<void> {
+  if (freed.classId) await offerClassPlace(freed.classId);
+  else if (freed.courtId && freed.date) await offerSlotPlace(freed.courtId, freed.date);
 }
 
 /* ---------------- Finding a booking, for staff ---------------- */

@@ -223,7 +223,7 @@ change, update this page, and update [feature status](feature-status.md).
 
 - **Emergency numbers** follow the country: 999 in Malaysia; 995 (ambulance
   and fire) and 999 (police) in Singapore.
-- **A waiting-list offer** says the place is held for 30 minutes.
+- **A waiting-list offer** says the place is held for as many minutes as it was given: the venue's offer window (30 unless set) or the time left to the start if that is less ([how long an offer lasts](../features/booking.md#how-long-an-offer-lasts)).
 - **Booking terms** say when a venue gives stored credit rather than money
   back for a booking paid online and cancelled; a number past its strikes at a
   venue that sends such numbers to the counter is told that, rather than to

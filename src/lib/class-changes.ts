@@ -1,10 +1,12 @@
 import { CoachHeld, coachTeachingRefusal, holdCoach } from "./class-coaches";
 import { coachById } from "./coaching";
+import { coachLocale } from "./coach-schedule";
 import { getDb, withTransaction } from "./db";
 import { refuse } from "./entitlements";
 import { instantOf } from "./interval";
 import { notifyClassChanged } from "./notify";
-import { isAmount, money, roundMoney } from "./region";
+import { enqueue } from "./outbox";
+import { clockRange, isAmount, money, roundMoney } from "./region";
 import { classOfferHolds, getClass, getCourt, offerClassPlace, venueHours } from "./store";
 import type { ClassSession, Refusal } from "./types";
 
@@ -171,7 +173,65 @@ export async function changeClass(classId: number, change: ClassChange): Promise
   for (const c of changed) if (c.after.capacity > c.before.capacity && (await offerClassPlace(c.after.id))) offered++;
   // A new name or instructor is told to those enrolled and those offered a place, once (lib/notify.ts).
   const told = await notifyClassChanged(changed);
+  // The coach who stops teaching it, and the one who starts, are told too (ADR 0060).
+  await notifyCoachesOfChange(changed);
   return { ok: true, changed, offered, told };
+}
+
+/**
+ * A change of the instructor as one of the venue's coaches (`coachId`): the coach who no longer teaches the changed sessions and
+ * the coach who now does are each told once, by email in their own language where the venue has their address (`coach_lesson`, as a
+ * class moved is told): the first session and how many. A name or price change, or a coach left as it was, tells no coach.
+ * Returns how many emails were written.
+ */
+async function notifyCoachesOfChange(changed: { before: ClassSession; after: ClassSession }[]): Promise<number> {
+  const first = changed[0];
+  if (!first) return 0;
+  const change = `${first.after.id}:${Date.now()}`;
+  const moved = changed.filter((c) => (c.before.coachId ?? null) !== (c.after.coachId ?? null));
+  const tell: { coachId: number; how: "Lost" | "Gained"; sessions: ClassSession[] }[] = [];
+  for (const c of moved) {
+    for (const [coachId, how, session] of [
+      [c.before.coachId, "Lost", c.before],
+      [c.after.coachId, "Gained", c.after],
+    ] as const) {
+      if (!coachId) continue;
+      const known = tell.find((t) => t.coachId === coachId && t.how === how);
+      if (known) known.sessions.push(session);
+      else tell.push({ coachId, how, sessions: [session] });
+    }
+  }
+  let written = 0;
+  for (const { coachId, how, sessions } of tell) {
+    const coach = await coachById(coachId);
+    const row = (await getDb().prepare("SELECT email, locale FROM coaches WHERE id = ?").get(coachId)) as { email: string | null; locale: string | null } | undefined;
+    if (!coach || !row?.email?.trim()) continue;
+    const locale = coachLocale(row.locale);
+    const at = sessions[0];
+    const venue = (await getDb().prepare("SELECT name FROM venues WHERE id = ?").get(at.venueId)) as { name: string } | undefined;
+    await enqueue({
+      venueId: at.venueId,
+      bookingId: null,
+      kind: "coach_lesson",
+      channel: "email",
+      recipient: row.email.trim(),
+      locale,
+      subject: `fx2.msg.coachClass${how}Subject`,
+      body: `fx2.msg.coachClass${how}`,
+      dedupeKey: `classcoach:${change}:${coachId}:${how}`,
+      vars: {
+        name: coach.name.split(/\s+/)[0],
+        class: at.name,
+        venue: venue?.name ?? "",
+        n: String(sessions.length),
+        date: at.date,
+        time: clockRange(at.startMin, at.endMin, locale),
+        court: at.courtName,
+      },
+    });
+    written++;
+  }
+  return written;
 }
 
 /** The change in words, for the activity log: what was, and what is. */

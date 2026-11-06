@@ -968,11 +968,41 @@ manager's (`POST /api/admin/policy-overrides`) and is in the activity log
 
 A full class *or taken court time* can still be joined — as a queue. A court
 entry keeps the start and length wanted, within the court's booking rules.
-When that whole time frees up (a booking or enrolment cancelled, or someone
-ahead dropping out), it is **offered to whoever has waited longest**, with a
-secret token and a 30-minute hold. Only one offer is ever live per class, and
-per resource per day, so two cancellations do not hand the same place to two
-people.
+When that whole time frees up (a booking or enrolment cancelled, a held place
+let go unpaid, a term's weeks cancelled one by one, someone ahead dropping out,
+or an offer running out or taken up), it is **offered to whoever has waited
+longest**, with a secret token and a hold for the venue's offer window (30
+minutes unless the venue chose otherwise, [below](#how-long-an-offer-lasts)).
+A live offer holds **only its own time**: waiters for different times on one
+court and day are each offered theirs at once, an overlapping time is not free
+while an offer holds it (so one time is never promised to two people), and
+nobody is offered a second place on that court and day while they hold one. A
+class has one live offer at a time, so two cancellations do not hand the same
+place to two people; when it is taken up, lapses or another place frees, the
+next person is offered the next place.
+
+### How long an offer lasts
+
+Each venue sets how long a waiting-list offer lasts (*Waiting-list offers* beside
+*Pay online to hold a booking*, `venues.waitlist_offer_minutes`, 5 to 120
+minutes, **30** unless set; `GET/POST /api/admin/hold-policy`, `offerMinutes`).
+It is **never longer than the time left to the start**: an offer made with 12
+minutes to go lasts 12, and ends at the start at the latest, whether it is for
+court time (the court hold ends with it) or a class place; with **fewer than 5
+minutes left, or once it has started, nobody is offered the place** (the next
+person whose own time is later is, for court time), so a place minutes from the
+start is left to the desk instead of being held for somebody who cannot come.
+The minutes an offer was given are kept on it (`waitlist.offer_minutes`), so a
+change of the setting never moves an offer already made, and the offer message
+and its page say that many minutes. When an offer runs out unclaimed the person
+is **told once** that the place has passed to the next and that they are no
+longer on the list for it (kind `waitlist_ended`, by email where they gave an
+address, in their language: a person with only a phone number is not told, as
+there is no WhatsApp template for it). Entries still *waiting* for a class or time
+that has begun are closed quietly by the scheduler, so nobody is shown a list that
+can no longer move. A place whose offer was let go while somebody was reading a list
+or claiming something else is offered to the next by the scheduler's sweep (it looks
+at offers that lapsed in the last hour), so a lapse never leaves the place idle.
 
 Queuing is only offered where a cancellation could actually free the time. A
 blocked, class-reserved or past time is not queueable, and the booking grid
@@ -998,7 +1028,7 @@ fixed), so the page is where the hold is said.
 
 A live offer **holds the place**: it is a claim on the court that lapses with
 the offer, so the grid shows it taken and nobody can book it directly for
-those 30 minutes, so the person offered it does not tap the
+the offer's minutes, so the person offered it does not tap the
 link to find it gone. Stale offers are expired whenever the waitlist is read or
 written, and by the scheduler every few minutes (`passOnExpiredOffers()`),
 which offers each freed place to the next person in the queue, so a place

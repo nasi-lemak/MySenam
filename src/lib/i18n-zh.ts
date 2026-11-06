@@ -960,7 +960,7 @@ export const ZH: Record<Phrase, string> = {
   "msg.keptFee": "场馆保留了 {kept} 作为逾期取消费用。",
   "msg.lesson": "{court}，教练：{coach}",
   "msg.offerSubject": "有名额空出 — {venue}",
-  "msg.offer": "您好，{name}！{venue} 的 {what}（{date} {from}）有名额空出。\n\n名额会为您保留 30 分钟，之后将转给下一位候补者。请趁名额仍属于您时在 {link} 领取。",
+  "msg.offer": "您好，{name}！{venue} 的 {what}（{date} {from}）有名额空出。\n\n名额会为您保留 {minutes} 分钟，之后将转给下一位候补者。请趁名额仍属于您时在 {link} 领取。",
   "msg.enrolledSubject": "已报名 {what} — {venue}",
   "msg.enrolled": "您好，{name}！您已报名由 {instructor} 指导的 {what}。\n\n代码：{code}\n{venue}\n{when}\n总额：{total}\n\n请在前台出示代码。",
   "msg.venueCancelledSubject": "预订 {code} 已被 {venue} 取消",
@@ -4967,6 +4967,16 @@ export const ZH: Record<Phrase, string> = {
   "err.DISCOUNT_NOT_APPLIED": "您的优惠未能使用（可能已用完），因此未预订，也未扣款。请核对价格后重试。",
   "receipt.why.priceLowered": "预订价格降至已付订金以下，差额应退还。",
   "pwp.walletNotUsed": "未使用您的储值或套票，因此尚未付款：{reason} 仍需支付 {cur}{amount}。",
+  "fx2.msg.offerLapsedSubject": "您的候补名额邀请已结束 — {venue}",
+  "fx2.msg.offerLapsed": "{name} 您好，{venue} 的 {what}（{date} {from}）向您提供的名额未在规定时间内领取，已转给下一位候补者。您已不在该课程或时段的候补名单中。如果仍然满员，您可以重新加入候补。",
+  "fx2.msg.classOffWaitSubject": "课程已取消 — {venue}",
+  "fx2.msg.classOffWait": "{name} 您好，{venue} 的 {what}（{date} {from}）已取消，其候补名单随之关闭，您已不在名单中。对此变动我们深表歉意。",
+  "fx2.msg.coachClassOffSubject": "课程已取消 — {venue}",
+  "fx2.msg.coachClassOff": "{name} 您好，{venue} 的 {class}（{date}，{time}，{court}）已取消，已从您的日程中移除。",
+  "fx2.msg.coachClassGainedSubject": "有一门课程现由您任教 — {venue}",
+  "fx2.msg.coachClassGained": "{name} 您好，您现在任教 {venue} 的 {class}：共 {n} 节，第一节在 {date}，{time}，{court}。已加入您的日程。",
+  "fx2.msg.coachClassLostSubject": "有一门课程不再由您任教 — {venue}",
+  "fx2.msg.coachClassLost": "{name} 您好，您不再任教 {venue} 的 {class}：共 {n} 节，第一节在 {date}，{time}，{court}。已从您的日程中移除。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

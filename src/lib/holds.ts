@@ -1,8 +1,8 @@
 import { getDb } from "./db";
 import { releaseBooking } from "./claims";
 import { takesPaymentOnline } from "./payments";
-import { DEPOSIT_PERCENTS } from "./types";
-import { offerSlotPlace, settleCancelled } from "./store";
+import { DEPOSIT_PERCENTS, WAITLIST_OFFER_LEAST_MINUTES, WAITLIST_OFFER_MINUTES, WAITLIST_OFFER_MOST_MINUTES } from "./types";
+import { offerFreedPlace, settleCancelled } from "./store";
 
 /**
  * Paying online to hold a booking.
@@ -38,12 +38,17 @@ export interface HoldPolicy {
   active: boolean;
   /** The share of the price the customer may pay now to hold it, the rest at the counter; null: the whole price. */
   depositPercent: number | null;
+  /**
+   * How long a waiting-list offer of a place lasts at the most, whether or not holds are on (ADR 0060): shortened to the time left
+   * to the start of what is offered, and not made at all with fewer than a few minutes left.
+   */
+  offerMinutes: number;
 }
 
 
 export async function holdPolicy(venueId: number): Promise<HoldPolicy> {
-  const row = (await getDb().prepare("SELECT pay_to_hold, hold_minutes, deposit_percent FROM venues WHERE id = ?").get(venueId)) as
-    | { pay_to_hold: number; hold_minutes: number; deposit_percent: number | null }
+  const row = (await getDb().prepare("SELECT pay_to_hold, hold_minutes, deposit_percent, waitlist_offer_minutes FROM venues WHERE id = ?").get(venueId)) as
+    | { pay_to_hold: number; hold_minutes: number; deposit_percent: number | null; waitlist_offer_minutes: number }
     | undefined;
   const on = row?.pay_to_hold === 1;
   return {
@@ -51,15 +56,22 @@ export async function holdPolicy(venueId: number): Promise<HoldPolicy> {
     minutes: row?.hold_minutes ?? 15,
     active: on && (await takesPaymentOnline(venueId)),
     depositPercent: on ? (row?.deposit_percent ?? null) : null,
+    offerMinutes: row?.waitlist_offer_minutes ?? WAITLIST_OFFER_MINUTES,
   };
 }
 
 export async function setHoldPolicy(
   venueId: number,
-  input: { on: boolean; minutes?: number; depositPercent?: number | null }
+  input: { on: boolean; minutes?: number; depositPercent?: number | null; offerMinutes?: number }
 ): Promise<{ ok: true; policy: HoldPolicy } | { ok: false; error: string }> {
   const minutes = input.minutes ?? 15;
   if (!Number.isInteger(minutes) || minutes < 5 || minutes > 60) return { ok: false, error: "Hold a booking for 5 to 60 minutes." };
+  // Not given: as it was.
+  if (
+    input.offerMinutes !== undefined &&
+    (!Number.isInteger(input.offerMinutes) || input.offerMinutes < WAITLIST_OFFER_LEAST_MINUTES || input.offerMinutes > WAITLIST_OFFER_MOST_MINUTES)
+  )
+    return { ok: false, error: `Hold a waiting-list offer for ${WAITLIST_OFFER_LEAST_MINUTES} to ${WAITLIST_OFFER_MOST_MINUTES} minutes.` };
   // Not given: as it was.
   const deposit =
     input.depositPercent !== undefined
@@ -77,6 +89,7 @@ export async function setHoldPolicy(
               pay_to_hold = ?, hold_minutes = ?, deposit_percent = ? WHERE id = ?`
     )
     .run(input.on ? 1 : 0, input.on ? 1 : 0, minutes, deposit, venueId);
+  if (input.offerMinutes !== undefined) await getDb().prepare("UPDATE venues SET waitlist_offer_minutes = ? WHERE id = ?").run(input.offerMinutes, venueId);
   return { ok: true, policy: await holdPolicy(venueId) };
 }
 
@@ -166,10 +179,10 @@ export async function releaseExpiredHolds(): Promise<number> {
   const db = getDb();
   const due = (await db
     .prepare(
-      `SELECT id, court_id, date FROM bookings
+      `SELECT id, court_id, date, class_id FROM bookings
         WHERE hold_until IS NOT NULL AND status = 'confirmed' AND payment_status = 'unpaid' AND hold_until < datetime('now')`
     )
-    .all()) as { id: number; court_id: number; date: string }[];
+    .all()) as { id: number; court_id: number; date: string; class_id: number | null }[];
   if (due.length === 0) return 0;
   const released: typeof due = [];
   for (const b of due) {
@@ -190,9 +203,11 @@ export async function releaseExpiredHolds(): Promise<number> {
     })();
     if (done) released.push(b);
   }
-  for (const place of new Set(released.map((b) => `${b.court_id}|${b.date}`))) {
+  // Each freed place to whoever waits for it: a class place to its class's list, court time to the court's (ADR 0060).
+  for (const place of new Set(released.map((b) => (b.class_id ? `class|${b.class_id}` : `${b.court_id}|${b.date}`)))) {
     const [court, date] = place.split("|");
-    await offerSlotPlace(Number(court), date);
+    if (court === "class") await offerFreedPlace({ classId: Number(date) });
+    else await offerFreedPlace({ courtId: Number(court), date });
   }
   return released.length;
 }

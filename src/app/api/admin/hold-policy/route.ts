@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ policy: await holdPolicy(venueId) });
 }
 
-/** `{ venueId, on, minutes, depositPercent? }`: depositPercent null for the whole price. */
+/** `{ venueId, on, minutes, depositPercent?, offerMinutes? }`: depositPercent null for the whole price; offerMinutes the waiting-list offer window (not given: as it was). */
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
     on: body.on === true,
     minutes: body.minutes === undefined ? undefined : Number(body.minutes),
     depositPercent: body.depositPercent === undefined ? undefined : body.depositPercent === null ? null : Number(body.depositPercent),
+    offerMinutes: body.offerMinutes === undefined ? undefined : Number(body.offerMinutes),
   });
   if (!result.ok) return NextResponse.json(result, { status: 400 });
   await logFromRequest(req, {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
       result.policy.on
         ? `on, ${result.policy.minutes} minutes${result.policy.depositPercent ? `, a ${result.policy.depositPercent}% deposit` : ""}`
         : "off"
-    }`,
+    }; waiting-list offers last up to ${result.policy.offerMinutes} minutes`,
   });
   return NextResponse.json({ policy: result.policy });
 }

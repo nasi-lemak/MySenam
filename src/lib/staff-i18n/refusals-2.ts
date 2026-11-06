@@ -1003,4 +1003,5 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That suspension is not here, or nobody has asked for a review of it.": { ms: "Penggantungan itu tiada di sini, atau tiada sesiapa meminta semakannya.", zh: "没有这项暂停，或无人请求对其审核。" },
   "This tournament has not been drawn and its first day has passed: ask the venue.": { ms: "Pertandingan ini belum diundi dan hari pertamanya sudah berlalu: tanya pusat.", zh: "本赛事尚未抽签且首日已过：请询问场馆。" },
   "Entries closed on {0}, the first day.": { ms: "Penyertaan ditutup pada {0}, hari pertama.", zh: "报名已于首日 {0} 截止。" },
+  "Hold a waiting-list offer for 5 to 120 minutes.": { ms: "Tahan tawaran senarai menunggu selama 5 hingga 120 minit.", zh: "候补名额的提供时间须为 5 至 120 分钟。" },
 };
