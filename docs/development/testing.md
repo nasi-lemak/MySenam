@@ -159,6 +159,11 @@ node scripts/verify.mjs release --pg docker      # about 1½ hours on 4 CPUs / 1
 node scripts/verify.mjs check            # VERIFIED / NOT VERIFIED for the checkout
 ```
 
+One acceptance scenario (*Accounts AG*, `tests/uat/round7.uat.ts`) books the next hour of the day at the venue and invoices it, and from 23:00
+Malaysian time there is no such hour (an account is invoiced for what is dated up to today, and nothing is booked in an hour already begun). The
+release profile therefore waits, idle, from 22:15 until just after midnight there before it starts the acceptance scenarios, and the report records
+the wait (`waitedForMidnightSeconds`); run by hand, start the scenarios outside that time.
+
 The build and the type-check need a 4 GB Node heap; the runner sets
 `--max-old-space-size=4096` for every step (Node's default of about 2 GB ran
 out on 6 November 2026), and the machine needs about 6 GB of memory and 3 GB of

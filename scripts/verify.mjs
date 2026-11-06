@@ -509,8 +509,31 @@ async function build() {
   return ok;
 }
 const e2e = () => testStep("browser tests (e2e)", ["--config", "vitest.e2e.config.mts"], { skips: strict ? "none" : "any" });
+/**
+ * "Accounts AG" (tests/uat/round7.uat.ts) invoices a booking made for the next hour of the day at the venue, and from 23:00
+ * Malaysian time there is none. A release does not start the acceptance scenarios from 22:15 until just after midnight there:
+ * it waits (the machine is idle, nothing is spent), and the report says how long.
+ */
+async function clearOfMidnight() {
+  const mytMinutes = () => {
+    const now = new Date(Date.now() + 8 * 3_600_000);
+    return now.getUTCHours() * 60 + now.getUTCMinutes();
+  };
+  const m = mytMinutes();
+  if (m < 22 * 60 + 15) return 0;
+  const waitMinutes = 24 * 60 - m + 1;
+  console.log(`\n⏸ the acceptance scenarios wait ${waitMinutes} minutes for midnight in Malaysia (a scenario needs an hour of the day still to come)`);
+  await new Promise((r) => setTimeout(r, waitMinutes * 60_000));
+  return waitMinutes * 60;
+}
 // A file ("matchmaking", "tests/uat/booking.uat.ts") or one scenario by its title ("C:", "Booking 2").
-const uat = (scenario) =>
+const uat = async (scenario) => {
+  const waited = strict && !scenario ? await clearOfMidnight() : 0;
+  const ok = await uatSteps(scenario);
+  if (waited) steps[steps.length - 1].waitedForMidnightSeconds = waited;
+  return ok;
+};
+const uatSteps = (scenario) =>
   testStep("acceptance scenarios (uat)", ["--config", "vitest.uat.config.mts", ...(!scenario ? [] : /^[a-z/._-]+$/.test(scenario) ? [scenario] : ["-t", scenario])], { skips: strict && !scenario ? "none" : "any" });
 
 // ---------------------------------------------------------------- preflight

@@ -1349,6 +1349,8 @@ The first two full release runs on the AI VM ([testing](../development/testing.m
 | Two ticks that found Xero's access token expired, or refused with a 401, at the same moment could each refresh it: the second saw the old state it had read before the first finished, and took the lease after the first let go | After taking the lease the connection is read again and the token the first tick stored is used; after a 401 the stored token is compared with the one that was refused | `tests/accounting-push.test.ts` (on Postgres it failed in about half of whole-file runs before the fix, 0 of 15 after) |
 | When the connection that holds the migration lock was lost before the lock was let go (a server restarting, an administrator ending it), a start that had finished its work failed with "Client has encountered a connection error and is not queryable", as an error nobody was waiting to hear (an unhandled rejection) | The unlock is best effort: the lock belongs to the connection and ends with it, so the work's own result is what the caller gets | `tests/db-connection-lost.test.ts` (failed before the fix with exactly that error) |
 
+One acceptance scenario depends on the time of day: *Accounts AG* needs an hour of the day still to come at the venue, which does not exist from 23:00 to midnight Malaysian time, so the release profile waits for midnight before the scenarios (a test of the clock, not of the application; found by run 3 at 23:50).
+
 ### Fixed since the audit
 
 IDs are not reused. Each fix came with the test recommended above.

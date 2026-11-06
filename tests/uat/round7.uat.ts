@@ -866,7 +866,11 @@ describe("a lesson paid from credit", () => {
 function nextHour(): { date: string; hour: number } {
   const now = new Date(Date.now() + 8 * 3_600_000);
   const hour = now.getUTCHours() + 1;
-  return hour < 24 ? { date: now.toISOString().slice(0, 10), hour } : { date: new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10), hour: hour - 24 };
+  // An account is invoiced for what is dated up to today, and nothing can be booked in an hour already begun: from 23:00 there is
+  // no hour of today still to come, so this scenario has nothing to invoice. `node scripts/verify.mjs release` waits out that hour
+  // before the acceptance scenarios; run by hand, start outside 22:15 to midnight Malaysian time.
+  if (hour >= 24) throw new Error("This scenario needs an hour of today still to come at the venue: run it before 23:00 Malaysian time, or after midnight.");
+  return { date: now.toISOString().slice(0, 10), hour };
 }
 
 /** A company account at the venue with RM10 of credit waiting: three places today charged to it, invoiced, one taken off (setup). */
