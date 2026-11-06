@@ -28,12 +28,19 @@ export default function GuardianMessaging() {
   const [enabled, setEnabled] = useState(true);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/my/people/messaging", { cache: "no-store" });
-    if (res.ok) {
-      const data = await readJson(res);
-      setChildren(data.children);
-      setEnabled(data.enabled !== false);
-      if (typeof data.digestHours === "number") setHours(data.digestHours);
+    // Called when the page opens and nobody waits on it. Nothing shows until the children are known (and for most guardians
+    // never), so a connection that is down leaves the section out, to be tried again when the page is opened again; it is
+    // not an error thrown where nobody can hear it.
+    try {
+      const res = await fetch("/api/my/people/messaging", { cache: "no-store" });
+      if (res.ok) {
+        const data = await readJson(res);
+        setChildren(data.children);
+        setEnabled(data.enabled !== false);
+        if (typeof data.digestHours === "number") setHours(data.digestHours);
+      }
+    } catch {
+      // see above
     }
   }, []);
   useEffect(() => {

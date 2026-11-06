@@ -1341,7 +1341,7 @@ the decision record that states it.
 
 ### Found by release verification, 6 November 2026
 
-The first four full release runs on the AI VM ([testing](../development/testing.md#release-records)) failed on three real defects (two further failures were of tests: the clock, and queries left running past a test). Fixed; the release was then run again.
+The first five full release runs on the AI VM ([testing](../development/testing.md#release-records)) failed on three real defects (two further failures were of tests: the clock, and queries left running past a test). Fixed; the release was then run again.
 
 | Defect | Fixed by | Test |
 | ------ | -------- | ---- |
@@ -1350,6 +1350,8 @@ The first four full release runs on the AI VM ([testing](../development/testing.
 | When the connection that holds the migration lock was lost before the lock was let go (a server restarting, an administrator ending it), a start that had finished its work failed with "Client has encountered a connection error and is not queryable", as an error nobody was waiting to hear (an unhandled rejection) | The unlock is best effort: the lock belongs to the connection and ends with it, so the work's own result is what the caller gets | `tests/db-connection-lost.test.ts` (failed before the fix with exactly that error) |
 
 One Postgres-suite error was a defect of a test, not of the application: `tests/rating-matchmaking.test.ts` started three database queries and read only some of them, so the rest ran on after the file's teardown had dropped its database, and reopened a connection that was cut (an unhandled error that failed the Postgres step, about one run in four of that file). The test now answers all three inside its helper (0 of 20 runs after, 3 of 12 before).
+
+Run 5 found two more. `src/components/GuardianMessaging.tsx` asked the server for the children when the page opened with no handler for a failed request, so a connection that was down threw an error nobody could hear (an unhandled rejection; it failed the PGlite step when a component test left that request unstubbed); a failed request now leaves the section out, as for a guardian with no child in a youth group (`tests/components/guardian-messaging-offline.test.tsx`, failed before the fix). And `tests/no-enumeration-timing.test.ts` compared what was in the queue and what had been sent a moment after a password-reset reply, which the reply's own background work (by design started on the next turn) can change on a loaded Postgres server; it now compares the awaited work (one statement, either way) and checks the background work once it has settled. It failed once in the full suite and in none of 20 runs alone.
 
 One acceptance scenario depends on the time of day: *Accounts AG* needs an hour of the day still to come at the venue, which does not exist from 23:00 to midnight Malaysian time, so the release profile waits for midnight before the scenarios (a test of the clock, not of the application; found by run 3 at 23:50).
 

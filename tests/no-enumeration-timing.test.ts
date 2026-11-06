@@ -95,17 +95,17 @@ describe("asking for a password reset", () => {
     const counted = async (email: string) => {
       const before = transactionStats().queries;
       const answer = await requestReset("user", email);
+      // Read on the turn the reply comes back, before the background work (which starts on the next) can add a statement.
       const statements = transactionStats().queries - before;
-      const queued = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM password_reset_requests WHERE email = ?").get(email)) as { n: number };
-      const messages = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM messages WHERE recipient = ?").get(email)) as { n: number };
       await settleResetRequests();
-      return { answer, statements, queued: queued.n, messages: messages.n };
+      return { answer, statements };
     };
     await forget();
     const known = await counted("timed@timing.my");
     const unknown = await counted("nobody-reset@timing.my");
-    // The reply: the same answer, one statement (the request written down), nothing sent yet, either way.
-    expect(known).toEqual({ answer: { ok: true }, statements: 1, queued: 1, messages: 0 });
+    // The reply: the same answer, one statement (the request written down; finding the account, making the link and
+    // queuing the email are not among the awaited work), either way. What the background work did is checked below, once settled.
+    expect(known).toEqual({ answer: { ok: true }, statements: 1 });
     expect(unknown).toEqual(known);
     // Afterwards, the account's address has its link; the other has nothing.
     expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM messages WHERE recipient = 'timed@timing.my'").get()) as { n: number }).toEqual({ n: 1 });
