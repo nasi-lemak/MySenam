@@ -964,6 +964,50 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 6 November 2026, commit `1737cc2` (release verification on the AI VM: PASS)
+
+The first complete release run that passed: `node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker 29 with
+`postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container on a loopback port), of commit `1737cc28490d234e562fa8ffedb8755cf28b27f8`, tree clean, source digest
+`8cb908af668344991b9caba969d31b98f6b00418e96e83f03d72370ec902be77` (the same before and after the run). Started 18:46 UTC, 4929 seconds. Report:
+`artifacts/verify/1737cc28490d-1793990785460.json` (not committed). **This is not CI** (no GitHub Actions job was started) **and not production readiness.**
+
+| Step | Result |
+| ---- | ------ |
+| Type-check | Passed |
+| Lint (`--max-warnings 0`) | Passed |
+| Documentation checks | 157 of 157 passed |
+| Suite on PGlite | 539 files; 6472 passed, 0 failed, 13 skipped (the 13 Postgres-only tests listed in `scripts/lib/expected-skips.mjs`, in 3 whole files and 4 others), of 6485 |
+| Suite on PostgreSQL 16 | 539 files; 6485 passed, 0 failed, **0 skipped**, of 6485; the server committed 2225 transactions during it (Postgres was used) |
+| Production build (`.next` removed first) | Succeeded |
+| Browser end-to-end tests | 3 files; 12 of 12 passed |
+| Acceptance scenarios (UAT) | 27 files; 95 of 95 passed, none skipped |
+| CI | Not run: GitHub Actions workflows start only by hand |
+| Real services | None exercised (below) |
+
+**How it got there.** The runner was rewritten first (release profile; Postgres mandatory; failures, skips, kills, timeouts and interruptions fail; a source digest before and after; `check`),
+and the workflows were made manual. Five complete runs then failed before this one, each for a reason found and fixed, none by a retry:
+
+| Run | Commit | Failed | Cause and fix |
+| --- | ------ | ------ | ------------- |
+| 1 | `c835be3` | PGlite: one test; Postgres: one test (all else, UAT included, passed) | The add-resources form lost what the operator had typed when the list of activities loaded late (a defect: fixed, with a test that failed before); two ticks refreshing Xero's rotating token at once (a defect: the connection is read again after the lease; about half of whole-file runs failed before it, 0 of 15 after) |
+| 2 | `9e98792` | Postgres: exit code 1 with every test passing | An unlock on a lost migration-lock connection failed finished work (a defect: unlock is best effort; test added that failed with exactly that error before). The run was stopped when the source changed under it, and its report says so |
+| 3 | `715a30b` | One acceptance scenario | *Accounts AG* needs an hour of the day still to come at the venue and has none from 23:00 Malaysian time; the scenario says so plainly and the release profile waits out 22:15 to midnight before the scenarios (a defect of a test about the clock) |
+| 4 | `6339f5e` | Postgres: exit code 1 with every test passing | `tests/rating-matchmaking.test.ts` left three database queries running after its teardown had dropped the database (a defect of a test; 3 of 12 runs of the file before, 0 of 20 after) |
+| 5 | `9d635de` | PGlite: exit code 1; Postgres: one test | The guardian messaging section threw an unheard error when the connection was down (a defect: fixed, test added that failed before); the password-reset timing test raced its own background work on a loaded Postgres (a defect of a test: it now compares the awaited work; it failed once, and in none of 20 runs alone) |
+| 6 | `1737cc2` | Nothing | PASS |
+
+Each failed run's report is kept as it was; a rerun of a failed test alone never changed a report (the stress loops above were diagnosis, not retries). Run 6 is the first whole run on the final source.
+Commits after `1737cc2` that change only this file leave the verification standing; `node scripts/verify.mjs check` says so.
+
+**Not verified by this run, by name** (each is listed in the report's `integrations`, with the command that checks it): Billplz (FPX, cards, refunds), Stripe (cards, refunds, disputes,
+subscriptions, `pause_collection`), email through SES or SMTP, WhatsApp (and the changed waitlist offer template, which needs resubmitting to Meta), SMS, Backblaze B2 / S3 off-site
+storage, MyInvois (including the late consolidation and the retry of unsent documents), Xero, Google sign-in, ClamAV on the Droplet. The suites use stand-ins for all of them.
+
+**Remaining release blockers** (the [remediation roadmap](../audits/remediation-roadmap-2026-11-06.md) has the full list): every row of the
+[launch checklist](../operations/deployment.md#before-going-live-what-only-a-live-account-can-prove) that needs a real account; 33 open and 20 undecided audit findings
+([findings register](../audits/findings-register-2026-11-06.md)), among them a way to close or leave a live venue, and the tax treatment of stored-credit sales in the consolidated e-invoice; the
+machine-assisted Malay, Chinese and Tamil await native review; the legal questions about youth messaging stay pending.
+
 #### 6 November 2026, commit `3626098` (the business-process audit: findings and fixes)
 
 An independent audit of the business processes (baseline `2aabdd4`; eight auditors, read-only, with scratch repro tests; records in
