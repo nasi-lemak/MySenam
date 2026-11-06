@@ -59,6 +59,7 @@ import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
 import { readSelection, recordBookedFor, selectionAtVenue, selectionForAccount, type Named, type Selection } from "@/lib/participant-bookings";
 import { venueContact } from "@/lib/venue-contact";
+import { owingCustomer } from "@/lib/notices-owed";
 import { customerCourt, customerCourtName, laneHidden } from "@/lib/lanes";
 
 export const dynamic = "force-dynamic";
@@ -399,16 +400,20 @@ export async function POST(req: NextRequest) {
     return res;
   };
 
-  const result = anyCourt
-    ? await createBookingOnAnyCourt({
-        ...common,
-        ...forPeople,
-        venueId: venueId as number,
-        sport: sport as Sport,
-      })
-    : group
-      ? await createGroupBooking({ ...common, courtIds: group, placesByCourt, ...(Object.keys(assign).length > 0 ? { assign } : {}) })
-      : await createBookingSeries({ ...common, ...forPeople, courtId: courtId as number });
+  // Made under `owingCustomer`: each booking's transaction also writes that its confirmation is owed, so a stop before the message
+  // is written below is found again by the outbox's sweep (lib/notices-owed.ts).
+  const result = await owingCustomer("booking_confirmed", async () =>
+    anyCourt
+      ? await createBookingOnAnyCourt({
+          ...common,
+          ...forPeople,
+          venueId: venueId as number,
+          sport: sport as Sport,
+        })
+      : group
+        ? await createGroupBooking({ ...common, courtIds: group, placesByCourt, ...(Object.keys(assign).length > 0 ? { assign } : {}) })
+        : await createBookingSeries({ ...common, ...forPeople, courtId: courtId as number })
+  );
 
   if (!result.ok) {
     // A window's refusal at the counter says what a manager can do about it (lib/counter-policy.ts `windowRefused`).

@@ -4932,6 +4932,12 @@ export const TA: Record<Phrase, string> = {
     "வணக்கம் {name},\n\n{venue} உங்கள் {what} ஐ திரும்பப் பெற்றுள்ளது. உங்கள் முன்பதிவு {code} ({where}, {when}) ரத்து செய்யப்படவில்லை, ஆனால் மையம் இது பற்றி உங்களைத் தொடர்பு கொள்ளும்; அது தீரும் வரை கதவு குறியீடு வழங்கப்படாது. வருவதற்கு முன் மையத்துடன் பேசுங்கள்.\n{reason}",
   "fx9.door.induction":
     "இந்த நேரம் கவுண்டர் திறந்திருக்கும் நேரத்திற்கு வெளியே உள்ளது, எனவே இதைப் பயன்படுத்தும் முன் கவுண்டரில் ஒருமுறை அறிமுகம் பெற வேண்டும். உங்கள் முன்பதிவுக்கு முன், கவுண்டர் திறந்திருக்கும்போது வாருங்கள்: சில நிமிடங்கள் ஆகும். அதன் பிறகே கதவு குறியீடு தோன்றும்.",
+  // Audit 9 (FX6): what became of money paid back (lib/notify.ts notifyRefundStates)
+  "fx6.msg.refundSubjectMade": "முன்பதிவு {code} க்கான பணம் திருப்பித் தரப்பட்டது — {venue}",
+  "fx6.msg.refundSubjectFailed": "முன்பதிவு {code} க்கான உங்கள் பணத் திருப்பலில் சிக்கல் — {venue}",
+  "fx6.msg.refundSubjectLate": "முன்பதிவு {code} க்கான உங்கள் பணத் திருப்பல் தாமதமாகிறது — {venue}",
+  "fx6.msg.refundSubjectOwed": "முன்பதிவு {code} க்கான உங்கள் பணத் திருப்பல் — {venue}",
+  "fx6.msg.refund": "வணக்கம் {name},\n\n{venue} இல் உங்கள் முன்பதிவு {code} பற்றி:\n\n{line}\n\nஇங்கே பின்தொடரலாம்: {link}",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

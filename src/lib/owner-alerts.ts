@@ -12,6 +12,11 @@ import { staffReaderLocale } from "./staff-locales";
 export interface AlertOptions {
   exceptEmails?: string[];
   kind?: "staff_alert" | "safeguarding_notice";
+  /**
+   * What this alert is about, when telling it twice would be wrong (a sweep, a job run on two servers, a run after a stop): each
+   * person's email is queued once under it (the outbox's own dedupe), so telling again writes nothing more.
+   */
+  dedupeKey?: string;
 }
 
 /** An alert no longer worth sending a week on (an outbox with no mail server set up for that long). */
@@ -77,6 +82,7 @@ export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opt
       venueId: opts.kind === "safeguarding_notice" ? null : venueId,
       expiresMinutes: ALERT_EXPIRES_MINUTES,
       locale: t.locale,
+      ...(opts.dedupeKey ? { dedupeKey: `${opts.dedupeKey}:${p.email.toLowerCase()}` } : {}),
     });
   }
 }

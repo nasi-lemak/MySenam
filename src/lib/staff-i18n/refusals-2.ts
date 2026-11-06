@@ -988,4 +988,7 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
     ms: "Nyatakan sebabnya (5 hingga 300 aksara): ia disimpan dalam log aktiviti kakitangan bersama nama anda.",
     zh: "请说明原因（5 至 300 个字符）：它会连同您的姓名一并记入员工活动日志。",
   },
+  "Already {0} urgent notices to this recipient today. Try again tomorrow.": { ms: "Sudah ada {0} notis segera kepada penerima ini hari ini. Cuba lagi esok.", zh: "今天已向此收件人发送 {0} 条紧急通知。请明天再试。" },
+  "Choose a start and an end for the messages to send again.": { ms: "Pilih permulaan dan penghujung bagi mesej yang hendak dihantar semula.", zh: "请选择要重新发送的消息的起止时间。" },
+  "Choose a window of 60 days or less.": { ms: "Pilih tempoh 60 hari atau kurang.", zh: "请选择不超过 60 天的时间段。" },
 };

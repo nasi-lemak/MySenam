@@ -7,7 +7,7 @@ import { amzDate, signV4 } from "../src/lib/offsite";
 import { SesError, sesCall, sesConfigFromEnv, sesHost } from "../src/lib/ses";
 import type { SesConfig } from "../src/lib/ses";
 import { emailConfig, emailTransport } from "../src/lib/transports";
-import { MAX_ATTEMPTS, drainOutbox, emailPlain, setTransport } from "../src/lib/outbox";
+import { drainOutbox, emailPlain, maxMessageAgeDays, setTransport } from "../src/lib/outbox";
 import type { OutboxMessage } from "../src/lib/outbox";
 import { getDb } from "../src/lib/db";
 
@@ -482,17 +482,27 @@ describe("the outbox with SES behind it", () => {
     expect(await row(id)).toMatchObject({ status: "sent", attempts: 2, last_error: null, provider_id: "ses-id-2" });
   });
 
-  it("a sandbox rejection is retried and then abandoned with its reason, as any failure is", async () => {
+  it("a sandbox rejection is the account's to put right: kept and retried, then abandoned with its reason once it is too old", async () => {
     const id = await queued("ses-sandbox");
     standIn(refused(400, "MessageRejected", "Email address is not verified."));
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    for (let i = 0; i < 7; i++) {
       await due(id);
       await drainOutbox();
     }
+    // Seven failures later it is still waiting: the number of tries no longer gives a message up.
+    expect(await row(id)).toMatchObject({
+      status: "failed",
+      attempts: 7,
+      last_error: "Amazon SES refused it (400): Email address is not verified.",
+    });
+    // Past the longest it is kept trying, the next failure gives it up, with the reason.
+    await getDb().prepare("UPDATE messages SET created_at = datetime('now', ?) WHERE id = ?").run(`-${maxMessageAgeDays() + 1} days`, id);
+    await due(id);
+    await drainOutbox();
     expect(await row(id)).toMatchObject({
       status: "abandoned",
-      attempts: MAX_ATTEMPTS,
-      last_error: "Amazon SES refused it (400): Email address is not verified.",
+      attempts: 8,
+      last_error: `Amazon SES refused it (400): Email address is not verified. (given up after ${maxMessageAgeDays()} days of trying)`,
     });
   });
 });

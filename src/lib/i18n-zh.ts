@@ -4928,6 +4928,12 @@ export const ZH: Record<Phrase, string> = {
     "{name}，您好：\n\n{venue}已撤销您的{what}。您的预订 {code}（{where}，{when}）没有被取消，但场馆会就此与您联系，在问题解决之前不会提供门禁码。来之前请先联系场馆。\n{reason}",
   "fx9.door.induction":
     "此时段不在柜台营业时间内，因此使用前您需要在柜台接受一次场地介绍。请在预订之前、柜台营业时顺道前来，只需几分钟。完成后才会显示门禁码。",
+  // Audit 9 (FX6): what became of money paid back (lib/notify.ts notifyRefundStates)
+  "fx6.msg.refundSubjectMade": "预订 {code} 的退款已办理 — {venue}",
+  "fx6.msg.refundSubjectFailed": "预订 {code} 的退款出现问题 — {venue}",
+  "fx6.msg.refundSubjectLate": "预订 {code} 的退款已延迟 — {venue}",
+  "fx6.msg.refundSubjectOwed": "预订 {code} 的退款 — {venue}",
+  "fx6.msg.refund": "您好，{name}！\n\n关于您在 {venue} 的预订 {code}：\n\n{line}\n\n您可在此查看进展：{link}",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

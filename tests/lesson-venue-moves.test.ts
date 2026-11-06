@@ -288,7 +288,8 @@ describe("telling the customer and the coach, and the new time everywhere", () =
     // Within a day of the new time, the reminder is for the new time and goes once.
     const nearNew = new Date(new Date(`${to}T14:00:00+08:00`).getTime() - 20 * 3_600_000);
     expect(await notifyReminders(nearNew)).toBeGreaterThanOrEqual(1);
-    const after = (await messages(l.id, "booking_reminder")).filter((r) => r.dedupe_key === `reminder:${l.code}`);
+    // Keyed by the booking's code and its time, so the one for the old time never stands in for the new.
+    const after = (await messages(l.id, "booking_reminder")).filter((r) => r.dedupe_key === `reminder:${l.code}:${to}:${H(14)}`);
     expect(after).toHaveLength(1);
     expect(after[0].body).toContain("2:00 PM to 3:00 PM");
     expect(await notifyReminders(nearNew)).toBe(0);

@@ -6,6 +6,7 @@ import { refusal } from "@/lib/api";
 import { closeVenueDay, closureRefusal, listVenueClosures, reopenVenueDay, venueHours } from "@/lib/store";
 import { instantOf } from "@/lib/interval";
 import { venueCancel } from "@/lib/counter-refunds";
+import { owingCustomer } from "@/lib/notices-owed";
 import { getDb } from "@/lib/db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 import { isValidDateString, todayISO } from "@/lib/time";
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     for (const b of bookings) {
       handled.add(`b${b.code}`);
       // A counter payment is owed back, for the desk to settle (lib/counter-refunds.ts). Nothing is offered: the day is closed.
-      const done = await venueCancel(b.code, "closure", { offer: false });
+      const done = await owingCustomer("booking_cancelled_by_venue", () => venueCancel(b.code, "closure", { offer: false }));
       if (!done.ok) {
         if (!("code" in done && (done.code === "ALREADY_CANCELLED" || done.code === "CANCEL_PLAYED"))) left.set(b.code, { ref: b.code, why: done.error });
         continue;

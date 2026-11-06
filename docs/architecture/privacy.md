@@ -207,6 +207,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | A report of a message between players in an ordinary (adults') conversation, with the copy of the conversation frozen with it | 365 days after it was dealt with (`MESSAGE_REPORT_RETENTION_DAYS`); open ones until dealt with | deleted |
 | A report in a **youth thread**, its case actions, and the safeguarding event store | **no period**: kept unless the install sets `SAFEGUARDING_EVIDENCE_RETENTION_DAYS` (closed cases only); the owner is prompted to decide about what is kept long ([below](#youth-messaging-evidence)) | not deleted by default |
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
+| The record that a customer was owed a message (`notices_owed`: a booking and a kind, nothing personal), once it was told | 60 days | deleted |
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
 | The payer's name and number on an online payment (`online_payments`) | 730 days | anonymised, the payment (amount, refunds, gateway bill) kept ([erasure](#online-payments-messages-and-webhook-deliveries)) |
 | Names and numbers on bookings | 730 days | anonymised, money kept |

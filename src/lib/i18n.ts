@@ -5095,6 +5095,12 @@ const EN = {
     "Hello {name},\n\n{venue} has taken back your {what}. Your booking {code} ({where}, {when}) has not been cancelled, but the venue will be in touch about it, and the door code will not be given until it is settled. Please speak to the venue before you come.\n{reason}",
   "fx9.door.induction":
     "This time is outside staffed hours, so you need a one-off run-through at the desk before you can use it. Drop in while the counter is open, before your booking: it takes a few minutes. The door code only appears once you have had it.",
+  // Audit 9 (FX6): what became of money paid back (lib/notify.ts notifyRefundStates)
+  "fx6.msg.refundSubjectMade": "Refund made for booking {code} — {venue}",
+  "fx6.msg.refundSubjectFailed": "Problem with your refund for booking {code} — {venue}",
+  "fx6.msg.refundSubjectLate": "Your refund for booking {code} is late — {venue}",
+  "fx6.msg.refundSubjectOwed": "Your refund for booking {code} — {venue}",
+  "fx6.msg.refund": "Hello {name},\n\nAbout your booking {code} at {venue}:\n\n{line}\n\nYou can follow it here: {link}",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10136,6 +10142,12 @@ const MS: Record<Phrase, string> = {
     "Hai {name},\n\n{venue} telah menarik balik {what} anda. Tempahan {code} anda ({where}, {when}) tidak dibatalkan, tetapi pusat akan menghubungi anda tentangnya, dan kod pintu tidak akan diberikan sehingga ia diselesaikan. Sila berhubung dengan pusat sebelum anda datang.\n{reason}",
   "fx9.door.induction":
     "Waktu ini di luar waktu kaunter dibuka, jadi anda perlu menjalani pengenalan tempat sekali sahaja di kaunter sebelum menggunakannya. Singgah semasa kaunter dibuka, sebelum tempahan anda: ia mengambil masa beberapa minit. Kod pintu hanya muncul selepas itu.",
+  // Audit 9 (FX6): what became of money paid back (lib/notify.ts notifyRefundStates)
+  "fx6.msg.refundSubjectMade": "Bayaran balik dibuat untuk tempahan {code} — {venue}",
+  "fx6.msg.refundSubjectFailed": "Masalah dengan bayaran balik anda untuk tempahan {code} — {venue}",
+  "fx6.msg.refundSubjectLate": "Bayaran balik anda untuk tempahan {code} lewat — {venue}",
+  "fx6.msg.refundSubjectOwed": "Bayaran balik anda untuk tempahan {code} — {venue}",
+  "fx6.msg.refund": "Helo {name},\n\nMengenai tempahan {code} anda di {venue}:\n\n{line}\n\nAnda boleh mengikutinya di sini: {link}",
 };
 
 /** Exported so a test can hold the two languages against each other. */

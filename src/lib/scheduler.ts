@@ -13,7 +13,7 @@ import { backupHealth } from "./backup-health";
 import { tickOutbox } from "./notify";
 import { issueDueInvoices } from "./billing";
 import { issueDueAccountInvoices } from "./accounts";
-import { applyPaymentHolds } from "./payment-holds";
+import { applyPaymentHolds, notifyInvoiceStages } from "./payment-holds";
 import { leagueHousekeeping } from "./leagues";
 import { runEInvoicing } from "./myinvois";
 import { runAccountingPush } from "./accounting-push";
@@ -137,6 +137,14 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   } catch (err) {
     console.error("[mysenam] issuing invoices failed:", err);
     await raiseAlert("scheduler:issuing-invoices-failed", failed("srv.work.issuingInvoices"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
+    // The platform's invoice to each venue, told to its managers when issued and again a few days before it falls due.
+    await notifyInvoiceStages(now);
+  } catch (err) {
+    console.error("[mysenam] telling venues about their invoices failed:", err);
+    await raiseAlert("scheduler:invoice-notices-failed", failed("srv.work.invoiceNotices"), err instanceof Error ? err.stack ?? err.message : String(err));
   }
 
   try {

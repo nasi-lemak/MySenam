@@ -23,6 +23,15 @@ export const GRACE_DAYS = 14;
 /** How far into the grace a venue is warned that it is coming off. */
 export const WARN_AFTER_DAYS = 7;
 
+/**
+ * How many days before an invoice falls due its managers are reminded (MYSENAM_INVOICE_REMINDER_DAYS, default 3; 0 turns the reminder
+ * off). Never more than the days the invoice has to run (14), so it is not sent the day it is issued.
+ */
+export function invoiceReminderDays(): number {
+  const n = Number(process.env.MYSENAM_INVOICE_REMINDER_DAYS ?? 3);
+  return Number.isInteger(n) && n >= 0 && n <= 13 ? n : 3;
+}
+
 /** Malaysia's date, `days` before now. */
 function daysAgo(now: Date, days: number): string {
   const d = new Date(now.getTime() + offsetMs());
@@ -96,41 +105,110 @@ export async function applyPaymentHolds(now = new Date()): Promise<HoldChanges> 
 
 /**
  * A week into the grace, once per invoice: what is owed, and the day the
- * venue comes off if it is still owed then.
+ * venue comes off if it is still owed then. Told first and stamped after, each
+ * email under the invoice's own dedupe key: a stop between the two tells it
+ * again on the next run and writes nothing twice, where stamping first would
+ * lose the warning for good.
  */
 async function warnOverdue(now: Date): Promise<void> {
   const db = getDb();
   const due = (await db
     .prepare(
-      `UPDATE venue_invoices SET warned_at = datetime('now')
-        WHERE status = 'due' AND warned_at IS NULL AND due_on < ? AND due_on >= ?
-        RETURNING id, venue_id, business_id, amount, due_on, period`
+      `SELECT id, venue_id, business_id, amount, due_on, period FROM venue_invoices
+        WHERE status = 'due' AND warned_at IS NULL AND due_on < ? AND due_on >= ?`
     )
-    .all(daysAgo(now, WARN_AFTER_DAYS), daysAgo(now, GRACE_DAYS))) as {
-    id: number;
-    venue_id: number | null;
-    business_id: number | null;
-    amount: number;
-    due_on: string;
-    period: string;
-  }[];
+    .all(daysAgo(now, WARN_AFTER_DAYS), daysAgo(now, GRACE_DAYS))) as InvoiceRow[];
   for (const invoice of due) {
     const venues = (await db
       .prepare("SELECT id, name FROM venues WHERE id = ? OR (business_id = ? AND published_at IS NOT NULL) ORDER BY id")
       .all(invoice.venue_id, invoice.business_id)) as { id: number; name: string }[];
-    if (venues.length === 0) continue;
-    const names = venues.map((v) => v.name).join(", ");
-    const offOn = addDays(invoice.due_on, GRACE_DAYS + 1);
-    await tellVenueStaffEach(venues[0].id, (t) => ({
-      subject: t("r9d.overdue.s"),
-      body: t("r9d.overdue.b", {
-        period: invoice.period,
-        amount: money(Number(invoice.amount).toFixed(2)),
-        due: invoice.due_on,
-        off: offOn,
-        names,
-        place: `${t("sh.tab.venuesStaff")} → ${t("bill.title")}`,
-      }),
-    }));
+    if (venues.length > 0) {
+      const names = venues.map((v) => v.name).join(", ");
+      const offOn = addDays(invoice.due_on, GRACE_DAYS + 1);
+      await tellVenueStaffEach(
+        venues[0].id,
+        (t) => ({
+          subject: t("r9d.overdue.s"),
+          body: t("r9d.overdue.b", {
+            period: invoice.period,
+            amount: money(Number(invoice.amount).toFixed(2)),
+            due: invoice.due_on,
+            off: offOn,
+            names,
+            place: `${t("sh.tab.venuesStaff")} → ${t("bill.title")}`,
+          }),
+        }),
+        { dedupeKey: `invoice-overdue:${invoice.id}` }
+      );
+    }
+    await db.prepare("UPDATE venue_invoices SET warned_at = datetime('now') WHERE id = ? AND warned_at IS NULL").run(invoice.id);
   }
+}
+
+interface InvoiceRow {
+  id: number;
+  venue_id: number | null;
+  business_id: number | null;
+  amount: number | string;
+  due_on: string;
+  period: string;
+}
+
+/**
+ * Tell a venue's managers about the platform's invoice to it, in writing, before it can be late: when it is issued (amount, due date,
+ * where to pay) and a few days before it falls due (`invoiceReminderDays`), once each. Until now the first word was a warning a week
+ * after the due date, a week short of the venue coming off the marketplace. A business's one invoice goes to its managers (found
+ * through its first branch, as the overdue warning is). Each email is queued under the invoice's own dedupe key and the invoice
+ * stamped after: a stop between the two writes nothing twice on the next run, on any server. Answers how many invoices were told of.
+ * Run by the scheduler after the month's invoices are issued; also safe to call at any other time.
+ */
+export async function notifyInvoiceStages(now = new Date()): Promise<{ issued: number; reminded: number }> {
+  if (!isMarketplace()) return { issued: 0, reminded: 0 };
+  const db = getDb();
+  const result = { issued: 0, reminded: 0 };
+  const today = daysAgo(now, 0);
+
+  const tell = async (invoice: InvoiceRow, stage: "issued" | "due-soon"): Promise<boolean> => {
+    const venues = (await db
+      .prepare("SELECT id, name FROM venues WHERE id = ? OR (business_id = ? AND published_at IS NOT NULL) ORDER BY id")
+      .all(invoice.venue_id, invoice.business_id)) as { id: number; name: string }[];
+    if (venues.length === 0) return false;
+    const names = venues.map((v) => v.name).join(", ");
+    const amount = money(Number(invoice.amount).toFixed(2));
+    const off = addDays(invoice.due_on, GRACE_DAYS + 1);
+    await tellVenueStaffEach(
+      venues[0].id,
+      (t) => {
+        const place = `${t("sh.tab.venuesStaff")} → ${t("bill.title")}`;
+        return stage === "issued"
+          ? { subject: t("srv.fx6.inv.s", { period: invoice.period, amount }), body: t("srv.fx6.inv.b", { period: invoice.period, amount, due: invoice.due_on, off, names, place }) }
+          : { subject: t("srv.fx6.invSoon.s", { period: invoice.period, due: invoice.due_on }), body: t("srv.fx6.invSoon.b", { period: invoice.period, amount, due: invoice.due_on, names, place }) };
+      },
+      { managersOnly: true, dedupeKey: `invoice-${stage}:${invoice.id}` }
+    );
+    return true;
+  };
+
+  const fresh = (await db
+    .prepare("SELECT id, venue_id, business_id, amount, due_on, period FROM venue_invoices WHERE status = 'due' AND issued_notified_at IS NULL ORDER BY id")
+    .all()) as InvoiceRow[];
+  for (const invoice of fresh) {
+    if (await tell(invoice, "issued")) result.issued++;
+    await db.prepare("UPDATE venue_invoices SET issued_notified_at = datetime('now') WHERE id = ? AND issued_notified_at IS NULL").run(invoice.id);
+  }
+
+  const days = invoiceReminderDays();
+  if (days > 0) {
+    const soon = (await db
+      .prepare(
+        `SELECT id, venue_id, business_id, amount, due_on, period FROM venue_invoices
+          WHERE status = 'due' AND due_soon_notified_at IS NULL AND due_on >= ? AND due_on <= ? ORDER BY id`
+      )
+      .all(today, addDays(today, days))) as InvoiceRow[];
+    for (const invoice of soon) {
+      if (await tell(invoice, "due-soon")) result.reminded++;
+      await db.prepare("UPDATE venue_invoices SET due_soon_notified_at = datetime('now') WHERE id = ? AND due_soon_notified_at IS NULL").run(invoice.id);
+    }
+  }
+  return result;
 }

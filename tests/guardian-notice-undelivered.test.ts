@@ -13,7 +13,8 @@ import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession } from "../src/li
 import { noticeContactGuardians, openNoticeTasks, taskUndeliveredNotices } from "../src/lib/contact-guardians";
 import { getDb } from "../src/lib/db";
 import { tickOutbox } from "../src/lib/notify";
-import { MAX_ATTEMPTS, MESSAGES_PER_RECIPIENT_PER_DAY, recordDelivery, setTransport } from "../src/lib/outbox";
+import { recordDelivery, setTransport, urgentPerRecipientPerDay } from "../src/lib/outbox";
+import { PermanentSendError } from "../src/lib/send-errors";
 import { createAtVenue, participantHistory } from "../src/lib/participants";
 import { phoneNumber } from "../src/lib/phone-check";
 import { createVenue } from "../src/lib/store";
@@ -95,10 +96,10 @@ describe("a guardian notice that did not reach the guardian", () => {
     const kid = await walkIn("Aina");
     const sends: string[] = [];
     setTransport({ name: "test", send: async (m) => void sends.push(m.recipient) });
-    // That number has had the day's messages already.
-    for (let i = 0; i < MESSAGES_PER_RECIPIENT_PER_DAY; i++)
+    // That number has had the day's urgent notices already (a guardian's notice is urgent news: the ordinary limit of 8 does not hold it, a ceiling of its own does).
+    for (let i = 0; i < urgentPerRecipientPerDay(); i++)
       await getDb()
-        .prepare("INSERT INTO messages (venue_id, kind, channel, recipient, locale, body, status) VALUES (?, 'booking_confirmation', 'whatsapp', ?, 'en', 'x', 'sent')")
+        .prepare("INSERT INTO messages (venue_id, kind, channel, recipient, locale, body, status) VALUES (?, 'waitlist_offer', 'whatsapp', ?, 'en', 'x', 'sent')")
         .run(venue, kid.mumPhone);
     expect(await notice(kid, 9001)).toBe(1);
     expect((await messageFor(kid.mumPhone)).status).toBe("abandoned");
@@ -146,7 +147,8 @@ describe("a guardian notice that did not reach the guardian", () => {
     setTransport({
       name: "test",
       send: async (m) => {
-        if (phoneNumber(m.recipient) === phoneNumber(failing.mumPhone)) throw new Error("WhatsApp: recipient not reachable");
+        // Meta says this number cannot be sent to (131026): sending again cannot help, so it is given up at once.
+        if (phoneNumber(m.recipient) === phoneNumber(failing.mumPhone)) throw new PermanentSendError("WhatsApp: recipient not reachable");
         return { providerId: `wamid.${m.id}` };
       },
     });
@@ -154,8 +156,6 @@ describe("a guardian notice that did not reach the guardian", () => {
     await notice(fine, 9003);
     // Queued, not yet given up: no task.
     expect(await taskUndeliveredNotices()).toBe(0);
-    // The failing one on its last try.
-    await getDb().prepare("UPDATE messages SET attempts = ? WHERE id = ?").run(MAX_ATTEMPTS - 1, (await messageFor(failing.mumPhone)).id);
     await tickOutbox();
     expect((await messageFor(failing.mumPhone)).status).toBe("abandoned");
     expect((await messageFor(fine.mumPhone)).status).toBe("sent");
@@ -183,11 +183,10 @@ describe("a guardian notice that did not reach the guardian", () => {
     setTransport({
       name: "test",
       send: async () => {
-        throw new Error("WhatsApp: recipient not reachable");
+        throw new PermanentSendError("WhatsApp: recipient not reachable");
       },
     });
     await notice(kid, 9005);
-    await getDb().prepare("UPDATE messages SET attempts = ? WHERE id = ?").run(MAX_ATTEMPTS - 1, (await messageFor(kid.mumPhone)).id);
     await getDb().prepare("UPDATE participant_guardians SET revoked_at = now() WHERE id = ?").run(kid.guardianshipId);
     await tickOutbox();
     expect((await messageFor(kid.mumPhone)).status).toBe("abandoned");

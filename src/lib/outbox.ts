@@ -3,8 +3,9 @@ import { formatHour } from "./time";
 import { Locale, isLocale, offeredLocales, translator } from "./i18n";
 import type { Phrase, T, Vars } from "./i18n";
 import { emailConfig, emailTransport, whatsappConfig, whatsappTransport } from "./transports";
-import { chatOfferedFor, paidByVenue, refundCredit, spendCredit } from "./whatsapp-credit";
+import { URGENT_KINDS, chatOfferedFor, paidByVenue, refundCredit, spendCredit } from "./whatsapp-credit";
 import { linkIn } from "./link-locale";
+import { isPermanentSendError } from "./send-errors";
 
 /**
  * Messages to customers, written down before they are sent.
@@ -107,7 +108,12 @@ export type MessageKind =
    * venue will be in touch about it (lib/safety-flags.ts). The venue's decision about a booking somebody made, so not held to the
    * daily limit per recipient.
    */
-  | "booking_safety_notice";
+  | "booking_safety_notice"
+  /**
+   * By email only, to a customer: what became of money they paid back for a booking (the refund was made, failed, is late, or is
+   * the venue's to make by a date), once per change (lib/notify.ts `notifyRefundStates`). Urgent news: not held to the daily limit.
+   */
+  | "refund_notice";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
@@ -115,6 +121,31 @@ export type MessageKind =
  * to flood somebody else's phone. A busy venue takes more bookings than that.
  */
 const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day", "team_decision", "safeguarding_notice", "booking_safety_notice"];
+
+/**
+ * The urgent news a customer must not miss, in one place: what the venue does to their booking (cancelled, moved, changed), the
+ * offer of a place that is against the clock, a guardian's notice (`URGENT_KINDS`, lib/whatsapp-credit.ts, which also decides what
+ * the platform pays for on WhatsApp), and what became of money paid back (`refund_notice`). The day's limit per recipient is there
+ * so the site cannot be used to flood somebody's phone with bookings made under their number; it must never write one of these off,
+ * because a busy day (reminders, campaigns from several venues, class changes) is exactly when a cancellation matters most.
+ * They are held to a much higher ceiling of their own instead (`urgentPerRecipientPerDay`).
+ */
+export const URGENT_NEWS_KINDS: readonly string[] = [...URGENT_KINDS, "refund_notice"];
+
+/** The most urgent notices one address or number is sent in a day (MYSENAM_URGENT_PER_RECIPIENT_PER_DAY, default 30). */
+export function urgentPerRecipientPerDay(): number {
+  const n = Number(process.env.MYSENAM_URGENT_PER_RECIPIENT_PER_DAY ?? 30);
+  return Number.isInteger(n) && n >= MESSAGES_PER_RECIPIENT_PER_DAY && n <= 1000 ? n : 30;
+}
+
+/**
+ * How long a message that keeps failing is kept trying: after this many days of provider trouble it is given up, and the venue's
+ * staff and the platform's owners are told (MYSENAM_MESSAGE_MAX_AGE_DAYS, default 7). Until then a failure only delays the next try.
+ */
+export function maxMessageAgeDays(): number {
+  const n = Number(process.env.MYSENAM_MESSAGE_MAX_AGE_DAYS ?? 7);
+  return Number.isInteger(n) && n >= 1 && n <= 60 ? n : 7;
+}
 
 export interface OutboxMessage {
   id: number;
@@ -214,10 +245,11 @@ function parseParams(json: string | null): Vars | null {
   }
 }
 
-/** Give up after this many tries; a sixth attempt is not going to work. */
-export const MAX_ATTEMPTS = 5;
-
-/** Minutes to wait before attempt n+1: a minute, then five, then half an hour… */
+/**
+ * Minutes to wait before attempt n+1: a minute, then five, then half an hour, then two hours for as long as it keeps failing.
+ * A message is not given up for the number of tries (an outage of a few hours used to use them all up) but for its age
+ * (`maxMessageAgeDays`), or at once when its transport says sending again cannot help (lib/send-errors.ts).
+ */
 const BACKOFF_MINUTES = [1, 5, 30, 120];
 
 function backoffFor(attempts: number): number {
@@ -271,16 +303,36 @@ export const MESSAGES_PER_RECIPIENT_PER_DAY = 8;
 
 const RECIPIENT_KEY = "(CASE WHEN channel = 'email' THEN lower(recipient) ELSE phone_key(recipient) END)";
 
-/** Messages written for this recipient in the last day, sent or not. */
-export async function sentToday(channel: Channel, recipient: string): Promise<number> {
+/** Messages written for this recipient in the last day, sent or not; only of these kinds when they are given. */
+export async function sentToday(channel: Channel, recipient: string, kinds?: readonly string[]): Promise<number> {
   const { n } = (await getDb()
     .prepare(
       `SELECT COUNT(*) AS n FROM messages
         WHERE ${RECIPIENT_KEY} = (CASE WHEN ? = 'email' THEN lower(?) ELSE phone_key(?) END)
-          AND created_at >= datetime('now', '-1 day')`
+          AND created_at >= datetime('now', '-1 day')${kinds ? ` AND kind IN (${kinds.map(() => "?").join(",")})` : ""}`
     )
-    .get(channel, recipient.trim(), recipient.trim())) as { n: number };
+    .get(channel, recipient.trim(), recipient.trim(), ...(kinds ?? []))) as { n: number };
   return n;
+}
+
+/**
+ * Whether a message of this kind to this recipient is past the day's limit, with the sentence saying so. Staff's own alerts and the
+ * like are never held to it; urgent news (`URGENT_NEWS_KINDS`) only to its own high ceiling, counted among urgent news alone; the
+ * rest to `MESSAGES_PER_RECIPIENT_PER_DAY` counted over everything. `includesThis`: the message itself is already among those counted
+ * (putting it back in the queue).
+ */
+async function limitReached(kind: MessageKind, channel: Channel, recipient: string, includesThis = false): Promise<string | null> {
+  if (UNCAPPED_KINDS.includes(kind)) return null;
+  const extra = includesThis ? 1 : 0;
+  if (URGENT_NEWS_KINDS.includes(kind)) {
+    const ceiling = urgentPerRecipientPerDay();
+    return (await sentToday(channel, recipient, URGENT_NEWS_KINDS)) >= ceiling + extra
+      ? `Not sent: already ${ceiling} urgent notices to this recipient today.`
+      : null;
+  }
+  return (await sentToday(channel, recipient)) >= MESSAGES_PER_RECIPIENT_PER_DAY + extra
+    ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.`
+    : null;
 }
 
 /**
@@ -299,9 +351,9 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
   const hold =
     input.channel === "whatsapp" && input.venueId !== null && HELD_KINDS.includes(input.kind) && (await chatOfferedFor(input.venueId)) ? chatHoldMinutes() : 0;
   // Past the day's limit for this recipient, it is written down but never
-  // sent, with the reason, where staff can see it.
-  const capped =
-    !UNCAPPED_KINDS.includes(input.kind) && (await sentToday(input.channel, input.recipient)) >= MESSAGES_PER_RECIPIENT_PER_DAY;
+  // sent, with the reason, where staff can see it. Urgent news is held to its own ceiling (`limitReached`).
+  const cappedWhy = await limitReached(input.kind, input.channel, input.recipient);
+  const capped = cappedWhy !== null;
   const info = await db
     .prepare(
       `INSERT INTO messages
@@ -321,7 +373,7 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
       JSON.stringify(input.vars),
       input.dedupeKey ?? null,
       capped ? "abandoned" : "queued",
-      capped ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.` : null,
+      cappedWhy,
       `+${hold} minutes`,
       input.channel === "email" ? (input.calendar ?? null) : null,
       input.noticeId ?? null,
@@ -540,7 +592,13 @@ export function transportName(): string | null {
   return transport()?.name ?? null;
 }
 
-/** Messages that are due to be tried now. */
+/**
+ * What a venue's news to a long list of people is: sent after what customers and staff are waiting for (a confirmation, a waitlist
+ * offer, a reset link), never ahead of it. A campaign to two thousand people queues two thousand rows at once, oldest first.
+ */
+const BULK_KINDS: MessageKind[] = ["campaign", "review_request"];
+
+/** Messages that are due to be tried now: what somebody waits for first, bulk news last, each oldest first. */
 export async function dueMessages(limit = 25): Promise<OutboxMessage[]> {
   return (
     await getDb()
@@ -548,10 +606,77 @@ export async function dueMessages(limit = 25): Promise<OutboxMessage[]> {
         `SELECT * FROM messages
           WHERE status IN ('queued','failed')
             AND next_attempt_at <= datetime('now')
-          ORDER BY id LIMIT ?`
+          ORDER BY (CASE WHEN kind IN (${BULK_KINDS.map(() => "?").join(",")}) THEN 1 ELSE 0 END), id LIMIT ?`
       )
-      .all(limit) as MessageRow[]
+      .all(...BULK_KINDS, limit) as MessageRow[]
   ).map(toMessage);
+}
+
+/**
+ * Why a message that is waiting should not go now, looked at as it is about to be sent and not as it was written: what it says no
+ * longer stands, or the person has withdrawn what it was sent on. Null: send it.
+ *  - A reminder is for one booking at one time (its key says which): not for a cancelled booking, not for a booking moved to another
+ *    time since (the one for the new time is written separately), not for a time that has begun.
+ *  - A venue's campaign goes only to somebody whose consent still stands (not withdrawn, not erased).
+ */
+async function staleReason(message: OutboxMessage): Promise<string | null> {
+  const db = getDb();
+  if (message.kind === "booking_reminder" && message.bookingId !== null) {
+    const row = (await db
+      .prepare("SELECT status, date, start_min, starts_at FROM bookings WHERE id = ?")
+      .get(message.bookingId)) as { status: string; date: string; start_min: number; starts_at: string | Date | null } | undefined;
+    if (!row) return "Not sent: the booking is gone.";
+    if (row.status !== "confirmed") return "Not sent: the booking was cancelled before the reminder could go.";
+    const at = /^reminder:[^:]+:(\d{4}-\d{2}-\d{2}):(\d+)/.exec(message.dedupeKey ?? "");
+    if (at && (row.date !== at[1] || Number(row.start_min) !== Number(at[2])))
+      return "Not sent: the booking was moved to another time before the reminder could go.";
+    if (row.starts_at && new Date(row.starts_at).getTime() <= Date.now()) return "Not sent: the booking's time had begun.";
+    return null;
+  }
+  if (message.kind === "campaign") {
+    const token = /^campaign:\d+:([^:]+)$/.exec(message.dedupeKey ?? "")?.[1];
+    if (!token) return null;
+    const consent = (await db
+      .prepare("SELECT 1 FROM marketing_consents WHERE token = ? AND withdrawn_at IS NULL AND confirmed_at IS NOT NULL")
+      .get(token)) as unknown;
+    return consent ? null : "Not sent: they withdrew their consent to hear from the venue after it was queued.";
+  }
+  return null;
+}
+
+/** Whether this message was written more than `maxMessageAgeDays` ago. */
+async function agedOut(id: number): Promise<boolean> {
+  const row = (await getDb()
+    .prepare("SELECT created_at <= datetime('now', ?) AS old FROM messages WHERE id = ?")
+    .get(`-${maxMessageAgeDays()} days`, id)) as { old: boolean } | undefined;
+  return row?.old === true;
+}
+
+/**
+ * Messages given up for their age (a provider that stayed down for days): the managers of each venue they belong to are told once a
+ * day with how many, and the platform's owners once (lib/alerts.ts `raiseAlert`), with the way to send what is still worth sending
+ * (Messages, "Send again everything that failed"). Never throws: telling about a failure must not become one.
+ */
+async function tellAgedOut(given: OutboxMessage[]): Promise<void> {
+  try {
+    const { said, englishOf } = await import("./staff-text");
+    const { raiseAlert } = await import("./alerts");
+    const { tellVenueStaffEach } = await import("./owner-alerts");
+    const days = maxMessageAgeDays();
+    const byVenue = new Map<number, number>();
+    for (const m of given) if (m.venueId !== null) byVenue.set(m.venueId, (byVenue.get(m.venueId) ?? 0) + 1);
+    const today = new Date().toISOString().slice(0, 10);
+    for (const [venueId, n] of byVenue)
+      await tellVenueStaffEach(
+        venueId,
+        (t) => ({ subject: t("srv.fx6.aged.s"), body: t("srv.fx6.aged.b", { n, days, place: t("srv.fx6.aged.place") }) }),
+        { managersOnly: true, dedupeKey: `messages-aged:${venueId}:${today}` }
+      );
+    const detail = said("srv.fx6.aged.detail", { n: given.length, days, error: given[0].lastError ?? said("srv.alert.noneGiven") });
+    await raiseAlert("messages-aged-out", said("srv.fx6.aged.alert"), englishOf(detail), [detail]);
+  } catch (err) {
+    console.error("[mysenam] could not tell about messages given up for age:", err instanceof Error ? err.message : "unknown error");
+  }
 }
 
 export interface DrainResult {
@@ -575,6 +700,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
 
   const db = getDb();
   const result: DrainResult = { sent: 0, failed: 0, abandoned: 0, transport: post.name };
+  const givenUpForAge: OutboxMessage[] = [];
 
   for (const message of await dueMessages(limit)) {
     // Claimed before it is tried: two drains at once (two requests, two servers) each see it due, and
@@ -599,6 +725,15 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
       result.abandoned++;
       continue;
     }
+    // Looked at again as it is about to go: a cancelled booking's reminder, a withdrawn consent.
+    const stale = await staleReason(message);
+    if (stale) {
+      await db
+        .prepare(`UPDATE messages SET status = 'abandoned', last_error = ?, ${FORGET_ACCOUNT_LINK} WHERE id = ?`)
+        .run(stale, ACCOUNT_LINK_HIDDEN, message.id);
+      result.abandoned++;
+      continue;
+    }
     // A WhatsApp message the venue pays for is paid before it goes
     // (lib/whatsapp-credit.ts); with nothing left to pay with, it does not go
     // at all. Urgent news is the platform's to pay.
@@ -619,11 +754,21 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       if (paid) await refundCredit(message.venueId!, message.id);
-      if (attempts >= MAX_ATTEMPTS) {
+      // Given up at once only where the transport says trying again cannot help; otherwise kept, with a backoff that stops growing
+      // at two hours, until it is too old to matter. A provider outage is the provider's, and a recovered one releases what waited.
+      const permanent = isPermanentSendError(err);
+      const tooOld = !permanent && (await agedOut(message.id));
+      if (permanent || tooOld) {
         await db.prepare(
           `UPDATE messages SET status = 'abandoned', attempts = ?, last_error = ?, ${FORGET_ACCOUNT_LINK} WHERE id = ?`
-        ).run(attempts, reason, ACCOUNT_LINK_HIDDEN, message.id);
+        ).run(
+          attempts,
+          tooOld ? `${reason} (given up after ${maxMessageAgeDays()} days of trying)` : reason,
+          ACCOUNT_LINK_HIDDEN,
+          message.id
+        );
         result.abandoned++;
+        if (tooOld) givenUpForAge.push(message);
       } else {
         await db.prepare(
           `UPDATE messages
@@ -635,6 +780,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
       }
     }
   }
+  if (givenUpForAge.length > 0) await tellAgedOut(givenUpForAge);
   return result;
 }
 
@@ -669,9 +815,13 @@ export async function retryMessage(
   // The day's limit holds for whoever it goes to now.
   const readdressed = to !== null && to !== existing.recipient;
   // Counted with this message itself, where it was already theirs.
-  const today = await sentToday(existing.channel, to ?? existing.recipient);
-  if (!UNCAPPED_KINDS.includes(existing.kind) && today >= MESSAGES_PER_RECIPIENT_PER_DAY + (readdressed ? 0 : 1))
-    return { ok: false, error: `Already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today. Try again tomorrow.` };
+  if (await limitReached(existing.kind, existing.channel, to ?? existing.recipient, !readdressed))
+    return {
+      ok: false,
+      error: URGENT_NEWS_KINDS.includes(existing.kind)
+        ? `Already ${urgentPerRecipientPerDay()} urgent notices to this recipient today. Try again tomorrow.`
+        : `Already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today. Try again tomorrow.`,
+    };
   await getDb()
     .prepare(
       `UPDATE messages
@@ -682,6 +832,46 @@ export async function retryMessage(
     )
     .run(to, id);
   return { ok: true, message: (await messageById(id))! };
+}
+
+/** The most messages "send again everything that failed" puts back in one go; ask again for the rest. */
+export const RESEND_ALL_LIMIT = 500;
+
+/**
+ * Put every message of a venue that did not go, written in a window, back in the queue: the one click after a provider outage that
+ * `retryMessage` would take one message at a time. Honouring staleness: not an account email (its link is not kept: the person
+ * asks for a new one), not a safeguarding notice (not on these screens), not one older than `maxMessageAgeDays` or past its own
+ * expiry, not one already given up because what it said no longer stood (a cancelled booking's reminder, a withdrawn consent: they
+ * would be given up again), and each is held to the day's limit for its recipient as a single resend is. At most `RESEND_ALL_LIMIT`
+ * (the oldest first); the answer says how many went back and how many were left, by reason.
+ */
+export async function retryFailedMessages(
+  venueId: number,
+  window: { since: string; until: string }
+): Promise<{ requeued: number; skipped: { stale: number; refused: number }; more: boolean }> {
+  const rows = (await getDb()
+    .prepare(
+      `SELECT id, created_at <= datetime('now', ?) AS too_old, (expires_at IS NOT NULL AND expires_at <= datetime('now')) AS expired
+         FROM messages
+        WHERE venue_id = ? AND status IN ('failed','abandoned') AND created_at >= ? AND created_at <= ?
+          AND kind NOT IN ('account_email', 'safeguarding_notice')
+          AND COALESCE(last_error, '') NOT LIKE 'Not sent: the booking%' AND COALESCE(last_error, '') NOT LIKE 'Not sent: they withdrew%'
+          AND COALESCE(last_error, '') NOT LIKE 'Not sent: it ran out%'
+        ORDER BY id LIMIT ?`
+    )
+    .all(`-${maxMessageAgeDays()} days`, venueId, window.since, window.until, RESEND_ALL_LIMIT + 1)) as { id: number; too_old: boolean; expired: boolean }[];
+  const skipped = { stale: 0, refused: 0 };
+  let requeued = 0;
+  for (const row of rows.slice(0, RESEND_ALL_LIMIT)) {
+    if (row.too_old || row.expired) {
+      skipped.stale++;
+      continue;
+    }
+    const done = await retryMessage(row.id);
+    if (done?.ok) requeued++;
+    else skipped.refused++;
+  }
+  return { requeued, skipped, more: rows.length > RESEND_ALL_LIMIT };
 }
 
 /**
