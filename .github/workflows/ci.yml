@@ -1,24 +1,14 @@
 name: CI
 
-# Runs where a result is worth paying for: on pull requests, and on pushes
-# to the branch the demo deploys from. Not on every branch an agent pushes
-# to along the way — each run tests twice and takes minutes from the
-# account's monthly allowance, and those branches get checked again when
-# they come back as a pull request.
+# MANUAL ONLY. Release verification is run on the AI development VM, not here:
+#   node scripts/verify.mjs release --pg docker      (see docs/development/testing.md)
+# GitHub Actions bills by the minute, and this job (the suite twice, the build,
+# the browser tests) takes about half an hour, so nothing starts it
+# automatically: not a push to any branch, not a pull request. Run it by hand
+# from the Actions tab only when the AI VM cannot be used. It is not a required
+# check for merging and must not be made one.
 on:
-  pull_request:
-    paths-ignore: ["**/*.md"]
-  push:
-    branches: [main, claude/sports-court-booking-w99x22]
-    paths-ignore: ["**/*.md"]
-  # Run it by hand from the Actions tab, on any branch, when wanted.
   workflow_dispatch:
-
-# Several pushes in a row test only the last: a newer push cancels the run
-# still going for the one before it.
-concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
   ci:
@@ -57,7 +47,7 @@ jobs:
       # staging machine: typecheck, lint, docs, the suite on PGlite and on this
       # job's Postgres, the build and the browser tests (scripts/verify.mjs).
       - name: Verify
-        run: node scripts/verify.mjs ci --report artifacts/verify/ci.json
+        run: node scripts/verify.mjs release --pg docker --report artifacts/verify/ci.json
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
