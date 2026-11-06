@@ -131,7 +131,7 @@ export function databaseLabel(): string {
 const INT8 = 20;
 const NUMERIC = 1700;
 
-async function postgresDriver(url: string): Promise<Driver> {
+export async function postgresDriver(url: string): Promise<Driver> {
   const pg = (await import("pg")).default;
   // COUNT(*) and SUM() come back as int8, money as numeric; both are strings
   // by default, to protect values JavaScript cannot hold exactly. Nothing here
@@ -212,7 +212,10 @@ async function postgresDriver(url: string): Promise<Driver> {
         try {
           return await fn();
         } finally {
-          await client.query("SELECT pg_advisory_unlock(7419266)");
+          // The lock belongs to this connection and ends with it. If the connection was lost while the work was going (the server
+          // restarted, an administrator ended it), the unlock has nothing to do and must not turn finished work into an error
+          // nobody is waiting to hear: the work's own result, or failure, is what the caller gets.
+          await client.query("SELECT pg_advisory_unlock(7419266)").catch(() => undefined);
         }
       } finally {
         client.off("error", onLost);

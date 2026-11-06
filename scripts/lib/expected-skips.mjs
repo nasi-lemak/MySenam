@@ -12,7 +12,7 @@
  */
 export const PGLITE_EXPECTED_SKIPS = {
   "tests/booking-references-deferred.test.ts": 3,
-  "tests/db-connection-lost.test.ts": 1,
+  "tests/db-connection-lost.test.ts": 2,
   "tests/migration-lock.test.ts": 4,
   "tests/postgres-pool.test.ts": 1,
   "tests/refund-crash.test.ts": 1,
