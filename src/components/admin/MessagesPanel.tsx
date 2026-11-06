@@ -53,6 +53,8 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
   const [notice, setNotice] = useState<string | null>(null);
   const [fixing, setFixing] = useState<{ id: number; recipient: string } | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [window24, setWindow24] = useState(72);
+  const [resending, setResending] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -90,6 +92,32 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("msg.requeueFailed"));
+    }
+  }
+
+  /** Every message of this venue that did not go in the chosen window, back in the queue (after a provider outage). */
+  async function resendAll() {
+    if (!window.confirm(t("srv.fx6.resend.confirm"))) return;
+    setError(null);
+    setNotice(null);
+    setResending(true);
+    try {
+      const res = await fetch("/api/admin/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resendFailed: true, venueId, hours: window24 }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("srv.fx6.resend.failed")));
+      setNotice(
+        (data.left > 0 ? t("srv.fx6.resend.doneSome", { n: data.requeued, left: data.left }) : t("srv.fx6.resend.done", { n: data.requeued })) +
+          (data.more ? ` ${t("srv.fx6.resend.more")}` : "")
+      );
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("srv.fx6.resend.failed"));
+    } finally {
+      setResending(false);
     }
   }
 
@@ -144,6 +172,35 @@ export function MessagesPanel({ venues, isOwner = false }: { venues: ManagedVenu
                 .reduce((a, b) => t("msg.listAnd", { a, b })),
             })}
           </span>
+        </div>
+      )}
+
+      {venueId !== PLATFORM && summary && summary.transport !== null && summary.failed + summary.abandoned > 0 && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+          <div className="font-semibold">{t("srv.fx6.resend.title")}</div>
+          <p className="mt-0.5 text-xs text-slate-500">{t("srv.fx6.resend.intro")}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="text-xs text-slate-600" htmlFor="resend-window">
+              {t("srv.fx6.resend.window")}
+            </label>
+            <select
+              id="resend-window"
+              value={window24}
+              onChange={(e) => setWindow24(Number(e.target.value))}
+              className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none"
+            >
+              <option value={24}>{t("srv.fx6.resend.d1")}</option>
+              <option value={72}>{t("srv.fx6.resend.d3")}</option>
+              <option value={168}>{t("srv.fx6.resend.d7")}</option>
+            </select>
+            <button
+              onClick={resendAll}
+              disabled={resending}
+              className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+            >
+              {t("srv.fx6.resend.go")}
+            </button>
+          </div>
         </div>
       )}
 

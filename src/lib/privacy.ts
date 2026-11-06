@@ -454,6 +454,8 @@ export async function pruneOldData(): Promise<PruneResult> {
     // The staff activity log: two years, long enough for any dispute or audit.
     // Entries about youth messaging are audit records (class (c), ADR 0052): no period is invented for them, and they are never deleted by this.
     await db.prepare("DELETE FROM staff_actions WHERE created_at < ? AND action NOT LIKE 'messages.youth%'").run(`${addDays(todayISO(), -730)} 00:00:00`);
+    // The record that a customer was owed a message (lib/notices-owed.ts), once it was told: nothing in it is personal, and 60 days is long past any sweep.
+    await db.prepare("DELETE FROM notices_owed WHERE told_at IS NOT NULL AND told_at < ?").run(`${addDays(todayISO(), -60)} 00:00:00`);
     // A guest let into a private venue until a date is not on its list after it.
     await db.prepare("DELETE FROM venue_access_list WHERE expires_on IS NOT NULL AND expires_on < ?").run(todayISO());
     await db.prepare(

@@ -4918,6 +4918,12 @@ export const ZH: Record<Phrase, string> = {
   "msg4.review.received": "您的请求已收到。",
   "msg4.review.lifted": "经审核，限制已解除。",
   "msg4.review.continues": "您的请求已作出决定：限制继续有效。",
+  // Audit 9 (FX6): what became of money paid back (lib/notify.ts notifyRefundStates)
+  "fx6.msg.refundSubjectMade": "预订 {code} 的退款已办理 — {venue}",
+  "fx6.msg.refundSubjectFailed": "预订 {code} 的退款出现问题 — {venue}",
+  "fx6.msg.refundSubjectLate": "预订 {code} 的退款已延迟 — {venue}",
+  "fx6.msg.refundSubjectOwed": "预订 {code} 的退款 — {venue}",
+  "fx6.msg.refund": "您好，{name}！\n\n关于您在 {venue} 的预订 {code}：\n\n{line}\n\n您可在此查看进展：{link}",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

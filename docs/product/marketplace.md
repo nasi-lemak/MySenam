@@ -49,8 +49,10 @@ independent venues, players booking across them.
   use, so the page cannot say one thing and the bill another.
 - **An invoice more than 14 days overdue** (28 days after it was issued) takes
   every venue on it off the marketplace until it is paid: not listed, not
-  bookable, not payable online. A week before that, its staff are emailed
-  once with the amount and the date it happens. When it happens, they and the
+  bookable, not payable online. The venue's managers are emailed the invoice
+  when it is issued and again three days before it falls due
+  ([messaging](../integrations/messaging.md#the-platforms-invoice-to-a-venue)); a week
+  after the due date, its staff are emailed once with the amount and the date it happens. When it happens, they and the
   owner are emailed; the dashboard keeps working and bookings already made
   stand. Paying it, or the owner marking it paid or voiding it, puts the venue
   back at once. It is worked out afresh from the invoices by the scheduler,

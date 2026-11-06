@@ -91,12 +91,13 @@ export async function recordLessonMove(input: MoveRecordInput): Promise<void> {
 
 /**
  * A reminder for a booking that moved: one still queued says the old time, so it is given up; one already sent (or given up) said the old
- * time too and must not stop the reminder for the new one, so its key is set aside. `notifyReminders` then finds the booking at its new
- * time when that is within a day, as for any booking.
+ * time too and must not stop the reminder for the new one. Reminders are keyed by the booking's code and time (`reminder:<code>:<date>:<start>`),
+ * so a sent one for the old time never blocks the new; those written before that, keyed by the code alone, have their key set aside. `notifyReminders`
+ * then finds the booking at its new time when that is within a day, as for any booking.
  */
 export async function rearmReminder(code: string): Promise<void> {
   const keys = [`reminder:${code}`, `reminder:${code}:whatsapp`];
-  await abandonUnsent(keys, "The lesson was moved: a reminder for its new time follows.");
+  await abandonUnsent([...keys, `reminder:${code}:%`], "The lesson was moved: a reminder for its new time follows.");
   await getDb()
     .prepare(`UPDATE messages SET dedupe_key = dedupe_key || ':moved' || id WHERE dedupe_key IN (${keys.map(() => "?").join(",")})`)
     .run(...keys);

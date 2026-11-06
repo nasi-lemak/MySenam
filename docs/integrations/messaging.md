@@ -39,18 +39,21 @@ on a message arriving. Messages are the copy they keep:
   dashboard says so.
 
 **What is sent, and when.** Each message is written the moment the thing
-happens and sent at once, then retried (1, 5, 30, 120 minutes; five tries).
+happens and sent at once, then retried while the provider fails, with a wait
+that grows to two hours, until it is too old to matter ([when a provider is
+down](#when-a-provider-is-down-and-what-keeps-a-message-from-being-lost)).
 
 | When | Message | Channels |
 |---|---|---|
 | A booking, a weekly series or a class place is made | Confirmation, with a calendar invite | email; WhatsApp on *everything* |
 | The customer cancels | Cancelled | email; WhatsApp on *everything* |
+| Money paid online for a booking comes back, cannot be sent back, is later than the venue said, or is the venue's to send by a date | **Refund** notice (kind `refund_notice`): made (amount, date), problem, late, or owed by a date; once per change, in the language the booking was made in ([refund notices](#refund-notices)) | email only; urgent (not held to the daily limit) |
 | The venue cancels — at the desk, by closing the day, by taking the court out of service, or by calling off the class | **Cancelled by the venue**, with a *seen it* link (urgent) | email; WhatsApp unless *off* |
 | The venue moves a booking to another court | **Moved**, with the new court and a *seen it* link (urgent) | email; WhatsApp unless *off* |
 | A waitlist place frees up | Offer, with a link to claim it (urgent: it expires); the page it opens can also turn the offer down | email; WhatsApp unless *off* |
 | Somebody joins a waiting list online, giving an email address | **On the waiting list** (kind `waitlist_joined`), with the private link to leave it ([leaving](../features/booking.md#leaving-and-turning-an-offer-down)) | email only |
 | A class's name or instructor is changed, to those enrolled and those holding an offer of a place, giving an email address | **A change to the class** (kind `class_changed`), once per person per change, saying what it was and what it is; an offer's carries its link ([changing a class](../features/programmes.md#changing-a-class)) | email only |
-| The day before, for a booking made more than a day ahead | Reminder | email; WhatsApp only on *everything* with *Day-before reminders on WhatsApp too* ticked |
+| The day before, for a booking made more than a day ahead | Reminder, **for that booking at that time**: a booking moved to another time is reminded of the new one, and one cancelled or moved while its reminder waited is not sent the old | email; WhatsApp only on *everything* with *Day-before reminders on WhatsApp too* ticked |
 | A booking is paid later — online, or marked paid at the counter | Receipt | email only |
 | Tournaments, leagues and open games: entering, coming off a waiting list, a tournament's new name before its draw, the draw, a season starting, a call-off, a game's changes, the day before a game a player joined | The programme's own message (kind `programme`) | email only |
 | On a tournament's day: a side's match is the next on its court (within the hour, or late), and when a manager or official calls it to its court | **Next** and **Called** (kind `tournament_day`, template `mysenam_tournament_day`, prepared and not yet submitted to Meta in [WhatsApp templates](whatsapp-templates.md#mysenam_tournament_day)), once per fixture, side and call, to the account that holds the entry and in its language, never to somebody who left ([tournament day](../features/tournaments.md#tournament-day)) | email; WhatsApp only on *everything*, to a number the account proved |
@@ -106,9 +109,10 @@ region (`ap-southeast-1`) before it becomes part of the host name. SES's
 unavailable; everything else, including the sandbox refusing an address that
 is not verified (`MessageRejected`, "Email address is not verified"), is a
 plain failure with its reason. Every failure goes through the outbox's usual
-retry (1, 5, 30 and 120 minutes, five tries) and then the message is
-abandoned with the reason, so a throttle is retried and not lost, and
-staff see why under *Venues*.
+retry ([a failing provider is waited out](#when-a-provider-is-down-and-what-keeps-a-message-from-being-lost):
+backing off to two hours, kept for up to seven days) and only then is the
+message abandoned with the reason, so a throttle, a sandbox rejection or a
+suspended account is retried and not lost, and staff see why under *Venues*.
 
 **Sandbox and production access.** A new SES account is in the sandbox: it
 sends only to addresses and domains verified in SES, at most about 200 a day
@@ -131,6 +135,111 @@ email stays `INTEGRATION_VERIFICATION_REQUIRED` until the real-service check
 passes ([workstream](../roadmap/integration-workstream.md)); what a bounce
 looks like in practice is recorded then.
 
+### When a provider is down, and what keeps a message from being lost
+
+*(Audit 9, G1, G7 to G11, G13; [ADR 0056](../architecture/decisions/0056-outbox-reliability-messages-survive-outages-and-stops.md).)*
+
+- **A provider outage is waited out, not counted.** A message that fails is
+  tried again after 1, 5, 30 and then 120 minutes, and every 120 minutes
+  after that, for as long as it keeps failing, until it is older than
+  `MYSENAM_MESSAGE_MAX_AGE_DAYS` (default 7). An expired WhatsApp token, a
+  suspended email account or a DNS fault of a day or two therefore loses
+  nothing: what waited goes when the provider is back. Only a transport can
+  say sending again cannot help (an address that is not an address, a number
+  WhatsApp says it cannot deliver to, a message written for the other
+  channel: `PermanentSendError`, `lib/send-errors.ts`), and that message is
+  given up at once with the reason. An error not marked so is treated as
+  the provider's.
+- **Giving up for age is told.** When a message is given up for its age, each
+  venue's managers get one email a day saying how many (and the way to send
+  again what is still worth sending), and the platform's owners get the
+  `messages-aged-out` alert (email and `MYSENAM_ALERT_WEBHOOK`). The
+  `messages` alert (several failures in an hour and none sent) is as before.
+- **Send again everything that failed.** *Messages* shows, for a venue with
+  messages that failed or were given up, a button that puts every one written
+  in the chosen window (24 hours, 3 days, 7 days) back in the queue
+  (`POST /api/admin/messages` with `resendFailed`; the venue's own staff,
+  recorded in the activity log as *Sent a message again*). It leaves out an
+  account email (its link is not kept), a safeguarding notice, anything older
+  than the longest age or past its own expiry, and what no longer stands (a
+  cancelled booking's reminder, a withdrawn consent); each message is held to
+  the daily limit for its recipient as a single resend is; at most 500 at a
+  time, the oldest first, and it says when there are more.
+- **Account emails are not stranded.** A password reset, a sign-up
+  confirmation, an invitation or an application's address check keeps being
+  tried while its link lasts (a reset 30 minutes, a sign-up link as set in
+  `lib/registration.ts`, a staff invitation and an application's check
+  days) and is given up when the link runs out (its text is wiped, as
+  before). There is a way to a new one that needs nobody to find the old
+  message: asking again for a reset or a sign-up link, *Resend* on a staff
+  invitation, inviting again, or an applicant applying again (the owners see the
+  unconfirmed application meanwhile).
+- **A message is looked at again as it goes** (`staleReason`, `lib/outbox.ts`).
+  A reminder is for one booking at one time (`reminder:<code>:<date>:<start>`):
+  not sent for a cancelled booking, for a booking moved to another time since,
+  or for a time that has begun; the one for the new time is written when it is
+  within a day. A venue's campaign goes only to somebody whose consent still
+  stands: unsubscribing after it was queued, or erasure, stops it.
+- **Queue order.** What somebody waits for (a confirmation, a waitlist offer,
+  a reset link, a cancellation notice) is sent before a venue's bulk news (a
+  campaign, review requests), each oldest first: a campaign to two thousand
+  people does not hold a customer's confirmation behind it.
+- **The daily limit never swallows urgent news.** The limit per recipient (8 a
+  day over everything) is held back for marketing, reminders, confirmations and
+  the like. The urgent set (`URGENT_NEWS_KINDS`, `lib/outbox.ts`: what the venue
+  does to a booking, a waitlist offer, a guardian's notice, `refund_notice`;
+  safeguarding notices, team decisions, tournament-day notices and staff alerts
+  are exempt as before) has a ceiling of its own, `MYSENAM_URGENT_PER_RECIPIENT_PER_DAY`
+  (default 30, at least 8, at most 1000), counted among urgent notices alone, so the
+  site still cannot be used to flood a number.
+- **A step before sending cannot stop the sending.** `tickOutbox` runs password
+  resets, sign-ups, waitlist offers, owed notices, digests, reminders, refund
+  notices and guardian tasks each on its own: one that throws is logged and
+  raised to the owners (`outbox-step:<name>`) and the rest run, the drain above
+  all. A route that awaits the tick after its own action no longer answers 500
+  for a poison row.
+- **A message a stopped request never wrote is found again** (`notices_owed`,
+  migration 0299; `lib/notices-owed.ts`, `tellOwedNotices`). The transaction
+  that makes a booking through the booking route, a venue's cancellation
+  through the staff cancel route or a closure, or a customer's own cancellation,
+  also writes one row saying the customer is owed that message. The request
+  writes the message at once as before; the outbox's tick, a few minutes later,
+  writes it for any row whose message does not exist (a venue's cancellation
+  without the reason staff typed; a customer's with the refund as it stands) and
+  stamps the row told. A booking held for payment is told when it is paid or not
+  at all if released. A booking made, or a booking cancelled, by any other path
+  (the desk's own screens, the venue's API key, a test booking, a lesson the
+  venue moved) owes nothing here: those tell nobody, or tell in their own way.
+  Not covered: a series cancelled in one go, class enrolments, and the booking's
+  own money (which the refund reconciler already recovers).
+
+#### Refund notices
+
+The customer is told what became of money they paid online (`notifyRefundStates`,
+every minute in the tick): **made** (the amount and the date), **a problem**
+(the payment provider could not send it; the venue has been told), **late** (a
+refund the venue makes by hand is past the date it gave), or **owed by a date**
+(a refund the venue makes by hand, for a booking the venue cancelled; one the
+customer cancelled themselves was told the date in the cancellation message).
+One message per payment and state and amount (`refund:<payment>:<state>:<amount>`),
+so running it again, on any server, writes nothing twice; a refund still asked of
+or settling at the provider is not told until it settles; a refund made more than
+three days ago is not told (a deploy does not announce history). Email only, in
+the language the booking was made in (English, Malay, Chinese, Tamil), to the
+booking's email; the text is the same line the customer sees on their booking page.
+WhatsApp is not used (it needs a template Meta has approved).
+
+#### The platform's invoice to a venue
+
+The monthly invoice is emailed to the venue's managers (a business's, through its
+first branch) when it is issued, with the amount, the due date and where to pay, and
+again `MYSENAM_INVOICE_REMINDER_DAYS` (default 3; 0 turns it off) days before it
+falls due; the warning a week after the due date stays. Each is written once per
+invoice under its own key and the invoice stamped after (`issued_notified_at`,
+`due_soon_notified_at`, migration 0300), so a stop between the two writes nothing
+twice, and the overdue warning is now told before it is stamped. Invoices issued
+before the change are not told as new. Front-desk staff are not sent the invoice.
+
 ### Emails that belong to no venue's customers
 
 Emails to people applying to list a venue, password reset links, alerts to
@@ -143,7 +252,7 @@ twice:
 | ------- | ---- | ---------- | -------- |
 | Password reset link (customers and staff) | `account_email` | the platform | when the link runs out (`expires_at`, the reset's own lifetime) |
 | Confirming an application's email address | `account_email` | the platform | when the confirmation link runs out |
-| An application approved, refused, or asked for more | `applicant` | the platform | after the five tries |
+| An application approved, refused, or asked for more | `applicant` | the platform | after seven days of failing (`MYSENAM_MESSAGE_MAX_AGE_DAYS`), or at once for an address that is not one |
 | Alerts to the platform's owners (system alerts such as a failed backup, courts or classes piling up, an application, a reported review, a dispute on the platform's account) | `staff_alert` | the platform | after seven days |
 | Alerts to a venue's staff (a suspension or payment hold, a review hidden, a league or dispute matter, WhatsApp credit low) | `staff_alert` | that venue | after seven days |
 
@@ -255,8 +364,8 @@ Guardians a venue recorded by name and number only have no email
   `guardianTold`), with who.
 - A WhatsApp notice that does not reach them becomes the same task, with
   why *not delivered* (`taskUndeliveredNotices`, migration 0184): given up
-  by the outbox (out of tries, over the day's limit for the number, run
-  out) or reported undelivered by WhatsApp afterwards. Which notice went to
+  by the outbox (too old after days of failing, a number WhatsApp cannot
+  deliver to, over the day's limit for the number, run out) or reported undelivered by WhatsApp afterwards. Which notice went to
   which guardian about what is kept (`guardian_notice_messages`), and the
   task names the message; it is made once per notice, after each outbox
   drain (`tickOutbox`), and not for a guardian whose relationship has since

@@ -126,6 +126,7 @@ import { creditBooking, creditReceipt, issueReceipt, paidVia as paidViaLabel, sa
 import { gatewayFor } from "./gateways";
 import { venueTax } from "./tax";
 import { englishOf, lengthText, readStaffText, said, withPhrase, type StaffText } from "./staff-text";
+import { noticeOwed } from "./notices-owed";
 
 interface CourtRow {
   id: number;
@@ -2539,6 +2540,8 @@ export async function createBookingSeries(
                   input.madeOn ?? input.by ?? "customer", input.guestOf ?? null,
                   games, laneOnArrival
                 )) as { id: number };
+              // A booking whose confirmation is owed (made through the booking route) is found again if the server stops before it is written (lib/notices-owed.ts).
+              await noticeOwed(id.id, "booking_confirmed");
               // Who takes part, where that is somebody other than (or as well as) the customer.
               await placeParticipants(id.id, {
                 participants: named,
@@ -2925,6 +2928,8 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
     await releaseBooking(booking.id);
     if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keptPercent, booking.id);
     await refundBooking(booking.id, share);
+    // Both routes that call this tell the customer; a stop before they do is found again (lib/notices-owed.ts, C17).
+    await noticeOwed(booking.id, "booking_cancelled", true);
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
@@ -3503,6 +3508,8 @@ async function adminCancelBookingOnce(
       .run(booking.id);
     if (done.changes !== 1) return false;
     await releaseBooking(booking.id);
+    // Where the route tells the customer (staff's cancellation, a closure), a stop before it does is found again (lib/notices-owed.ts, G11).
+    if (!opts.test) await noticeOwed(booking.id, "booking_cancelled_by_venue");
     if (plan.keptPercent !== undefined)
       await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(plan.keptPercent, booking.id);
     const owed = (await plan.owe?.(booking.id)) ?? false;

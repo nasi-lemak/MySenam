@@ -11,7 +11,7 @@ import {
   retryMessage,
   setTransport,
   transportName,
-  MAX_ATTEMPTS,
+  maxMessageAgeDays,
 } from "../src/lib/outbox";
 import { emailPlayer, messageById } from "../src/lib/outbox";
 import { createSession, getSessionUser, registerUser, SESSION_COOKIE } from "../src/lib/auth";
@@ -172,7 +172,7 @@ describe("sending", () => {
     expect(sent[0].sentAt).not.toBeNull();
   });
 
-  it("retries with a delay, then gives up rather than spinning", async () => {
+  it("retries with a delay and keeps trying through an outage, then gives up for its age rather than spinning", async () => {
     const booking = await book(addDays(todayISO(), 5), 10);
     const [message] = await messagesForBooking(booking.id);
     setTransport({
@@ -182,17 +182,23 @@ describe("sending", () => {
       },
     });
 
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    for (let i = 0; i < 8; i++) {
       // Each failure pushes the next attempt into the future, so bring it back.
       await getDb()
         .prepare("UPDATE messages SET next_attempt_at = datetime('now') WHERE id = ?")
         .run(message.id);
       await drainOutbox(100);
     }
+    // Eight failures (an outage of many hours) did not use it up: it is still waiting for its next try.
+    expect(await messageById(message.id)).toMatchObject({ status: "failed", attempts: 8 });
+
+    // Too old to matter: the next failure gives it up, with the reason.
+    await getDb().prepare("UPDATE messages SET created_at = datetime('now', ?), next_attempt_at = datetime('now') WHERE id = ?").run(`-${maxMessageAgeDays() + 1} days`, message.id);
+    await drainOutbox(100);
 
     const after = (await messagesForBooking(booking.id))[0];
     expect(after.status).toBe("abandoned");
-    expect(after.attempts).toBe(MAX_ATTEMPTS);
+    expect(after.attempts).toBe(9);
     expect(after.lastError).toContain("no route to host");
     // An abandoned message stops being due, so it cannot spin forever.
     expect((await dueMessages(100)).map((m) => m.id)).not.toContain(message.id);

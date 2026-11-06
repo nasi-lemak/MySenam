@@ -4922,6 +4922,12 @@ export const TA: Record<Phrase, string> = {
   "msg4.review.received": "உங்கள் கோரிக்கை பெறப்பட்டது.",
   "msg4.review.lifted": "மதிப்பாய்வுக்குப் பிறகு, கட்டுப்பாடு நீக்கப்பட்டது.",
   "msg4.review.continues": "உங்கள் கோரிக்கை தீர்மானிக்கப்பட்டது: கட்டுப்பாடு தொடர்கிறது.",
+  // Audit 9 (FX6): what became of money paid back (lib/notify.ts notifyRefundStates)
+  "fx6.msg.refundSubjectMade": "முன்பதிவு {code} க்கான பணம் திருப்பித் தரப்பட்டது — {venue}",
+  "fx6.msg.refundSubjectFailed": "முன்பதிவு {code} க்கான உங்கள் பணத் திருப்பலில் சிக்கல் — {venue}",
+  "fx6.msg.refundSubjectLate": "முன்பதிவு {code} க்கான உங்கள் பணத் திருப்பல் தாமதமாகிறது — {venue}",
+  "fx6.msg.refundSubjectOwed": "முன்பதிவு {code} க்கான உங்கள் பணத் திருப்பல் — {venue}",
+  "fx6.msg.refund": "வணக்கம் {name},\n\n{venue} இல் உங்கள் முன்பதிவு {code} பற்றி:\n\n{line}\n\nஇங்கே பின்தொடரலாம்: {link}",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

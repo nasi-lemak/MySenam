@@ -980,4 +980,7 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "A decision is recorded about a reported adult only. A minor's guardians follow the usual notices.": { ms: "Keputusan hanya direkodkan tentang orang dewasa yang dilaporkan. Penjaga seorang kanak-kanak mengikut pemberitahuan biasa.", zh: "决定只针对被举报的成年人记录。未成年人的监护人按通常的通知处理。" },
   "A decision has already been recorded for this restriction.": { ms: "Satu keputusan telah pun direkodkan untuk sekatan ini.", zh: "该限制已记录过决定。" },
   "Choose why: suspected abuse, imminent danger, a possibly reportable incident, or other.": { ms: "Pilih sebabnya: disyaki penderaan, bahaya yang hampir berlaku, insiden yang mungkin perlu dilaporkan, atau lain-lain.", zh: "请选择原因：疑似虐待、迫在眉睫的危险、可能须报告的事件，或其他。" },
+  "Already {0} urgent notices to this recipient today. Try again tomorrow.": { ms: "Sudah ada {0} notis segera kepada penerima ini hari ini. Cuba lagi esok.", zh: "今天已向此收件人发送 {0} 条紧急通知。请明天再试。" },
+  "Choose a start and an end for the messages to send again.": { ms: "Pilih permulaan dan penghujung bagi mesej yang hendak dihantar semula.", zh: "请选择要重新发送的消息的起止时间。" },
+  "Choose a window of 60 days or less.": { ms: "Pilih tempoh 60 hari atau kurang.", zh: "请选择不超过 60 天的时间段。" },
 };

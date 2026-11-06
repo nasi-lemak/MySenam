@@ -129,7 +129,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | ------- | ---------------------- |
 | Billplz and Stripe set-up | [Payment gateways](integrations/payment-gateways.md) |
 | Which payment, email, phone-check and storage providers to launch with, and why | [Launch providers](integrations/launch-providers.md) |
-| Email, WhatsApp and SMS: what is sent when, delivery, costs, marketing email | [Messaging](integrations/messaging.md) |
+| Email, WhatsApp and SMS: what is sent when, delivery, costs, marketing email; what happens when a provider is down ([ADR 0056](architecture/decisions/0056-outbox-reliability-messages-survive-outages-and-stops.md)) | [Messaging](integrations/messaging.md) |
 | WhatsApp set-up and every template, word for word | [WhatsApp templates](integrations/whatsapp-templates.md) |
 | LHDN MyInvois e-invoicing | [MyInvois](integrations/myinvois.md) |
 | Live accounting: sending a venue's sales to Xero (set-up, mapping, the queue, the reconciliation, verifying against a demo company) | [Xero](integrations/xero.md) |

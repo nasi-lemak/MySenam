@@ -4,8 +4,9 @@ import { hoursOf } from "./interval";
 import { coachNames } from "./coaching";
 import { refundLines } from "./refund-text";
 import type { CancelRefund } from "./payments";
-import { getDb } from "./db";
-import { cancelClassSession, findBooking, getClass, getClassRoster, getCourt, getVenue, normalisePhone, venueHours } from "./store";
+import { getDb, mustRethrow } from "./db";
+import type { OwedKind } from "./notices-owed";
+import { cancelClassSession, findBooking, getBookingById, getClass, getClassRoster, getCourt, getVenue, normalisePhone, venueHours } from "./store";
 import { Booking, WAITLIST_OFFER_MINUTES, type ClassSession } from "./types";
 import { isLocale, Locale, translator, type Phrase } from "./i18n";
 import { drainOutbox, enqueue, hourRange, sentences } from "./outbox";
@@ -14,7 +15,8 @@ import { icsCalendar } from "./booking-links";
 import { siteName } from "./site";
 import { whatsappFor } from "./whatsapp-credit";
 import { createNotice } from "./urgent";
-import { refundCancelled, takesPaymentOnline } from "./payments";
+import { refundCancelled, refundStatusFor, takesPaymentOnline, type RefundStatus } from "./payments";
+import { refundStatusLine } from "./refund-text";
 import { venueBaseUrl } from "./storefront";
 import type { DrainResult, OutboxMessage } from "./outbox";
 import { clockTime, money, region, shortDate } from "./region";
@@ -642,24 +644,48 @@ export async function notifyPendingOffers(): Promise<OutboxMessage[]> {
  * the requests that could have caused work, and is cheap when there is none.
  */
 export async function tickOutbox(): Promise<DrainResult> {
+  // Every step before the draining on its own: a step that fails (a malformed row it cannot work through) is logged and raised to the
+  // owners, and the rest still run, the drain above all. One poison row must not stop every message on the install, nor fail the
+  // route that awaits this after its own work was done.
   // Password resets asked for are worked through after their reply; any a server stopped before reaching are done here.
-  await (await import("./password-reset")).processResetRequests();
+  await step("password-resets", async () => void (await (await import("./password-reset")).processResetRequests()));
   // Sign-ups asked for, the same way (lib/registration.ts).
-  await (await import("./registration")).processRegistrationRequests();
-  await notifyPendingOffers();
+  await step("sign-ups", async () => void (await (await import("./registration")).processRegistrationRequests()));
+  await step("waitlist-offers", async () => void (await notifyPendingOffers()));
+  // A booking, or a cancellation, whose message a stopped request never wrote (lib/notices-owed.ts).
+  await step("owed-notices", async () => void (await tellOwedNotices()));
   // Unread messages between players: one digest notice per person per conversation per period, never the text (lib/message-digest.ts).
-  await (await import("./message-digest")).sendDueDigests().catch((err) => console.error("[mysenam] message digests failed:", err instanceof Error ? err.message : "unknown error"));
+  await step("message-digests", async () => void (await (await import("./message-digest")).sendDueDigests()));
   // Reminders look over three days of bookings: once a minute is soon enough, not on every request.
   if (Date.now() - remindersLooked.at >= 60_000) {
     remindersLooked.at = Date.now();
-    await notifyReminders();
+    await step("reminders", async () => void (await notifyReminders()));
     // Players in somebody else's open game: the booking's reminder goes to its host only.
-    await (await import("./games")).remindPlayers();
+    await step("game-reminders", async () => void (await (await import("./games")).remindPlayers()));
+    // What became of money paid back: made, failed, late, or the venue's to make (told once per change).
+    await step("refund-notices", async () => void (await notifyRefundStates()));
   }
   const drained = await drainOutbox();
   // A guardian notice given up, or reported undelivered, becomes the venue's task to tell them (lib/contact-guardians.ts).
-  await (await import("./contact-guardians")).taskUndeliveredNotices();
+  await step("guardian-notices", async () => void (await (await import("./contact-guardians")).taskUndeliveredNotices()));
   return drained;
+}
+
+/** One preparatory step of `tickOutbox`: whatever it throws is logged and raised as an alert, never passed on. */
+async function step(name: string, work: () => Promise<void>): Promise<void> {
+  try {
+    await work();
+  } catch (err) {
+    if (mustRethrow(err)) throw err;
+    const text = err instanceof Error ? err.message : "unknown error";
+    console.error(`[mysenam] outbox step "${name}" failed:`, text);
+    try {
+      const { raiseAlert } = await import("./alerts");
+      await raiseAlert(`outbox-step:${name}`, said("srv.fx6.step.alert", { step: name }), `${name}: ${text}`.slice(0, 500));
+    } catch {
+      // Telling about it must not become a second failure.
+    }
+  }
 }
 
 const remindersLooked = { at: 0 };
@@ -785,18 +811,24 @@ export async function notifyVenueCancelled(
   const { where, when } = slot(locale, place, venue.name, booking);
   const reason = why ? ("phrase" in why ? t(why.phrase) : why.text.trim()) : "";
   const owed = settled ? t(settled.phrase, settled.vars) : t(booking.paymentStatus === "paid" ? "msg.refundOwed" : "msg.nothingOwed");
-  const notice = await createNotice({
-    venueId: venue.id,
-    bookingId: booking.id,
-    kind: "cancelled",
-    name: booking.name,
-    phone: booking.phone,
-    email: booking.email ?? null,
-    date: booking.date,
-    startMin: booking.startMin,
-    summary: `${venue.name} cancelled booking ${booking.code}: ${where}, ${when}.`,
-    summaryPhrase: noticePhrase("srv.urgent.cancelled", venue.name, booking.code, place, booking),
-  });
+  // A run that stopped after the notice and before the message (found again by `tellOwedNotices`) is not given a second notice.
+  const earlier = (await getDb()
+    .prepare("SELECT id, ack_token FROM urgent_notices WHERE booking_id = ? AND kind = 'cancelled' ORDER BY id DESC LIMIT 1")
+    .get(booking.id)) as { id: number; ack_token: string } | undefined;
+  const notice = earlier
+    ? { id: earlier.id, token: earlier.ack_token }
+    : await createNotice({
+        venueId: venue.id,
+        bookingId: booking.id,
+        kind: "cancelled",
+        name: booking.name,
+        phone: booking.phone,
+        email: booking.email ?? null,
+        date: booking.date,
+        startMin: booking.startMin,
+        summary: `${venue.name} cancelled booking ${booking.code}: ${where}, ${when}.`,
+        summaryPhrase: noticePhrase("srv.urgent.cancelled", venue.name, booking.code, place, booking),
+      });
   await deliver(booking, {
     bookingId: booking.id,
     venueId: venue.id,
@@ -1024,7 +1056,8 @@ export async function notifyPaid(bookings: Booking[], how: "online" | "counter")
  * hours that was made longer ago than that — somebody who booked this
  * afternoon for tonight does not need reminding. By email always; on WhatsApp
  * too only where the venue has chosen it, since each one costs a message.
- * Once per booking, however often this runs.
+ * Once per booking at one time, however often this runs: a booking moved to another time is reminded of the new one, and one that is
+ * cancelled, or moved, while its reminder waits is not sent the old (lib/outbox.ts `staleReason`, looked at as it goes).
  */
 export async function notifyReminders(now = new Date()): Promise<number> {
   // Wide enough for a venue anywhere on the clock; each is then held to its own zone.
@@ -1035,7 +1068,10 @@ export async function notifyReminders(now = new Date()): Promise<number> {
       `SELECT b.*, v.whatsapp_reminders, v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng FROM bookings b
          JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE b.status = 'confirmed' AND b.demo = 0 AND b.date >= ? AND b.date <= ?
-          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'reminder:' || b.code)`
+          -- One per booking at one time: a booking moved to another day or hour is reminded again for its new time.
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'reminder:' || b.code || ':' || b.date || ':' || b.start_min)
+          -- Written before reminders were keyed by time (by the code alone): covers the booking only while it can be about this time.
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'reminder:' || b.code AND m.created_at >= datetime('now', '-1 day'))`
     )
     .all(from, to)) as (Record<string, unknown> & {
     whatsapp_reminders: number;
@@ -1065,7 +1101,7 @@ export async function notifyReminders(now = new Date()): Promise<number> {
         locale,
         subject: "msg.reminderSubject",
         body: "msg.reminder",
-        dedupeKey: `reminder:${r.code as string}`,
+        dedupeKey: `reminder:${r.code as string}:${r.date as string}:${r.start_min as number}`,
         vars: {
           name: firstName(r.name as string),
           code: r.code as string,
@@ -1525,4 +1561,185 @@ export async function sendClassMoveNotices(
     if (message) written++;
   }
   return written;
+}
+
+// ------------------------------------------------------- found again, and money back
+
+async function messageExists(dedupeKey: string): Promise<boolean> {
+  return !!(await getDb().prepare("SELECT 1 FROM messages WHERE dedupe_key = ?").get(dedupeKey));
+}
+
+/**
+ * Write the message for every booking, venue cancellation and customer cancellation whose message a stopped request never wrote.
+ *
+ * The transaction that made each fact wrote a `notices_owed` row with it (lib/notices-owed.ts). A row older than a few minutes
+ * (the request that made it has long finished) whose message does not exist is written here with what can be known now (a venue's
+ * cancellation without the reason staff typed; a customer's with the refund as it stands, from the refund status), and every
+ * row is then stamped told. A message that exists is never written twice: each is found by its own dedupe key. A booking held for
+ * payment is left until it is paid (it is told then) or released (nothing to tell). One row failing to be told is logged and
+ * does not stop the others. Safe to run as often as anything likes, on any number of servers. Answers how many messages it wrote.
+ */
+export async function tellOwedNotices(graceMinutes = 3): Promise<number> {
+  const db = getDb();
+  const owed = (await db
+    .prepare("SELECT id, kind, booking_id FROM notices_owed WHERE told_at IS NULL AND created_at <= datetime('now', ?) ORDER BY id LIMIT 100")
+    .all(`-${graceMinutes} minutes`)) as { id: number; kind: OwedKind; booking_id: number }[];
+  let written = 0;
+  for (const row of owed) {
+    try {
+      const done = await tellOwed(row.kind, row.booking_id);
+      if (!done) continue;
+      if (done.written) written++;
+      await db
+        .prepare(`UPDATE notices_owed SET told_at = datetime('now') WHERE kind = ? AND told_at IS NULL AND booking_id IN (${done.bookingIds.map(() => "?").join(",")})`)
+        .run(row.kind, ...done.bookingIds);
+    } catch (err) {
+      if (mustRethrow(err)) throw err;
+      console.error(`[mysenam] a notice owed for booking ${row.booking_id} could not be written:`, err instanceof Error ? err.message : "unknown error");
+    }
+  }
+  return written;
+}
+
+/** Null: not yet (leave it owed). Otherwise it is settled, with whether a message was written now and which bookings it covered. */
+async function tellOwed(kind: OwedKind, bookingId: number): Promise<{ written: boolean; bookingIds: number[] } | null> {
+  const b = await getBookingById(bookingId);
+  const nothing = { written: false, bookingIds: [bookingId] };
+  if (!b) return nothing;
+
+  if (kind === "booking_confirmed") {
+    // Not a booking any more (released, cancelled): there is no confirmation to give.
+    if (b.status !== "confirmed") return nothing;
+    // Held for payment: told when it is paid (lib/payments.ts), or released.
+    if (b.paymentStatus === "unpaid" && b.holdUntil) return null;
+    const ids = b.seriesCode
+      ? ((await getDb().prepare("SELECT id FROM bookings WHERE series_code = ? AND status = 'confirmed' ORDER BY date, start_min, id").all(b.seriesCode)) as { id: number }[]).map((r) => r.id)
+      : b.groupCode
+        ? ((await getDb().prepare("SELECT id FROM bookings WHERE group_code = ? AND status = 'confirmed' ORDER BY id").all(b.groupCode)) as { id: number }[]).map((r) => r.id)
+        : [b.id];
+    const all = (await Promise.all(ids.map((id) => getBookingById(id)))).filter((x): x is Booking => x !== null);
+    const group = !b.seriesCode && all.length > 1 && !!b.groupCode;
+    const code = b.seriesCode ?? (group ? b.groupCode! : b.code);
+    if (await messageExists(`confirmed:${code}`)) return { written: false, bookingIds: ids };
+    const message = await notifyBookingConfirmed(all, await localeOf(b.id), b.seriesCode);
+    return { written: message !== null, bookingIds: ids };
+  }
+
+  if (kind === "booking_cancelled_by_venue") {
+    if (b.status !== "cancelled" || (await messageExists(`vcancelled:${b.code}`))) return nothing;
+    return { written: (await notifyVenueCancelled(b)) !== null, bookingIds: [b.id] };
+  }
+
+  // A customer's own cancellation.
+  if (b.status !== "cancelled" || (await messageExists(`cancelled:${b.code}`))) return nothing;
+  const late = (await getDb().prepare("SELECT late_cancelled, late_kept_percent FROM bookings WHERE id = ?").get(b.id)) as
+    | { late_cancelled: number; late_kept_percent: number | null }
+    | undefined;
+  const kept =
+    late?.late_cancelled === 1 && late.late_kept_percent && b.paymentStatus === "paid" ? Math.round(b.totalPrice * late.late_kept_percent) / 100 : null;
+  const refunds: CancelRefund[] = (await refundStatusFor([b.id]))
+    .map((r): CancelRefund | null =>
+      r.owed > 0
+        ? { how: r.how, amount: r.owed, ...(r.how === "staff" && r.clock ? { dueBy: r.clock.dueBy } : {}) }
+        : r.refunded > 0
+          ? { how: r.how, amount: r.refunded }
+          : null
+    )
+    .filter((r): r is CancelRefund => r !== null);
+  const message = await notifyBookingCancelled(b, await localeOf(b.id), { kept, refunds });
+  return { written: message !== null, bookingIds: [b.id] };
+}
+
+/** How recently a refund must have been made for "it has been made" to still be news (what a deploy finds already done is not told). */
+const REFUND_MADE_NEWS_DAYS = 3;
+
+const REFUND_SUBJECT = {
+  completed: "fx6.msg.refundSubjectMade",
+  failed: "fx6.msg.refundSubjectFailed",
+  overdue: "fx6.msg.refundSubjectLate",
+  owed: "fx6.msg.refundSubjectOwed",
+} as const;
+
+/**
+ * Tell customers what became of money they paid back for a booking: the refund was made (amount, when), the payment provider could not
+ * make it, the venue's own refund is later than it said, or it is the venue's to make by a date. By email, in the language the
+ * booking was made in, through the outbox (counted as urgent news, not held to the day's limit), once per change: each message is
+ * keyed by the payment, the state and the amount, so a sweep that runs again, on any server, writes nothing twice, and a second
+ * refund on the same payment, or a retry after a failure that changes what is owed, is told as its own. Read from the refund's own
+ * state (`refundStatusFor`), so a crash after the refund and before the message is found again; a refund still going through at the
+ * provider is not told until it has settled. Only payments with a booking whose customer left an email are told; WhatsApp is not
+ * used (it needs a template Meta has approved). A refund an old install already made is not told now (`REFUND_MADE_NEWS_DAYS`).
+ * Answers how many messages it wrote.
+ */
+export async function notifyRefundStates(): Promise<number> {
+  const db = getDb();
+  const recent = (await db
+    .prepare(
+      `SELECT p.id FROM online_payments p
+        WHERE p.status = 'paid' AND p.refund_due > 0 AND p.venue_id IS NOT NULL AND p.purpose NOT IN ('invoice', 'pack')
+          AND COALESCE(p.refund_seen_at, p.created_at) >= datetime('now', '-30 days')
+        ORDER BY p.id DESC LIMIT 300`
+    )
+    .all()) as { id: number }[];
+  if (recent.length === 0) return 0;
+  const links = (await db
+    .prepare(`SELECT payment_id, booking_id FROM online_payment_bookings WHERE payment_id IN (${recent.map(() => "?").join(",")}) ORDER BY booking_id`)
+    .all(...recent.map((r) => r.id))) as { payment_id: number; booking_id: number }[];
+  const wanted = new Set(recent.map((r) => r.id));
+  const bookingIds = [...new Set(links.map((l) => l.booking_id))];
+  if (bookingIds.length === 0) return 0;
+  let written = 0;
+  const seen = new Set<number>();
+  for (const status of await refundStatusFor(bookingIds)) {
+    if (!wanted.has(status.paymentId) || seen.has(status.paymentId)) continue;
+    seen.add(status.paymentId);
+    try {
+      if (await tellRefundState(status)) written++;
+    } catch (err) {
+      if (mustRethrow(err)) throw err;
+      console.error(`[mysenam] a refund notice for payment ${status.paymentId} could not be written:`, err instanceof Error ? err.message : "unknown error");
+    }
+  }
+  return written;
+}
+
+async function tellRefundState(status: RefundStatus): Promise<boolean> {
+  // Still going through at the provider, or asked of it: not news until it settles.
+  if (status.state === "processing" || status.state === "requested") return false;
+  const amount = status.state === "completed" ? status.refunded : status.owed;
+  if (status.state === "completed" && (!status.refundedAt || Date.now() - Date.parse(`${status.refundedAt.replace(" ", "T")}Z`) > REFUND_MADE_NEWS_DAYS * 86_400_000)) return false;
+  // Owed and not late: a refund through the gateway or as credit is on its way (the cancellation said so); only one the venue makes by hand has a date to tell.
+  if (status.state === "owed" && status.how !== "staff") return false;
+  const first = status.bookingIds.length > 0 ? await getBookingById(Math.min(...status.bookingIds)) : null;
+  if (!first || !first.email?.trim()) return false;
+  // A customer who cancelled themselves was told the date in the cancellation message.
+  if (status.state === "owed" && (await getDb().prepare("SELECT 1 FROM messages WHERE booking_id = ? AND kind = 'booking_cancelled' LIMIT 1").get(first.id))) return false;
+  const court = await getCourt(first.courtId);
+  const venue = court ? await getVenue(court.venueId) : null;
+  if (!venue || !hasBeenLive(venue)) return false;
+  const key = `refund:${status.paymentId}:${status.state}:${amount.toFixed(2)}`;
+  if (await messageExists(key)) return false;
+  const locale = await localeOf(first.id);
+  const t = translator(locale);
+  const message = await deliver(
+    first,
+    {
+      bookingId: first.id,
+      venueId: venue.id,
+      kind: "refund_notice",
+      locale,
+      subject: REFUND_SUBJECT[status.state],
+      body: "fx6.msg.refund",
+      dedupeKey: key,
+      vars: {
+        name: firstName(first.name),
+        code: first.code,
+        venue: venue.name,
+        line: refundStatusLine(t, status).text,
+        link: linkIn(`${await venueBaseUrl(venue.id)}${bookingLinkPath(first.code, first.date)}`, locale),
+      },
+    },
+    false
+  );
+  return message !== null;
 }

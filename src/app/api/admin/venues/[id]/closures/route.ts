@@ -5,6 +5,7 @@ import { refundCancelled } from "@/lib/payments";
 import { refusal } from "@/lib/api";
 import { closeVenueDay, listVenueClosures, reopenVenueDay } from "@/lib/store";
 import { venueCancel } from "@/lib/counter-refunds";
+import { owingCustomer } from "@/lib/notices-owed";
 import { getDb } from "@/lib/db";
 import { cancelClassAndTell, notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 import { isValidDateString, todayISO } from "@/lib/time";
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const offed: Booking[] = [];
   for (const b of bookings) {
     // A counter payment is owed back, for the desk to settle (lib/counter-refunds.ts).
-    const done = await venueCancel(b.code, "closure");
+    const done = await owingCustomer("booking_cancelled_by_venue", () => venueCancel(b.code, "closure"));
     if (!done.ok) continue;
     cancelled++;
     offed.push(done.booking);

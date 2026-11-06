@@ -5,6 +5,7 @@ import { getVenueIdForBookingCode } from "@/lib/store";
 import { notifyVenueCancelled, tickOutbox } from "@/lib/notify";
 import { refusal } from "@/lib/api";
 import { refundCancelled } from "@/lib/payments";
+import { owingCustomer } from "@/lib/notices-owed";
 import { isCancelOutcome, logCancelled, previewStaffCancel, settledWords, staffCancel } from "@/lib/counter-refunds";
 
 export const dynamic = "force-dynamic";
@@ -46,11 +47,15 @@ export async function POST(req: NextRequest) {
   }
 
   // As the member of staff, so a credit note or counter payout says who gave the money back (lib/acting-staff.ts).
+  // Under `owingCustomer`: the cancellation's transaction also writes that the customer is owed the news, found again if the server
+  // stops before it is written below (lib/notices-owed.ts).
   const { result, settled } = await asStaff(admin, () =>
-    staffCancel(code, admin, {
-      ...(outcome !== undefined ? { outcome } : {}),
-      ...(expectRefund !== undefined ? { expectRefund: expectRefund as number } : {}),
-    })
+    owingCustomer("booking_cancelled_by_venue", () =>
+      staffCancel(code, admin, {
+        ...(outcome !== undefined ? { outcome } : {}),
+        ...(expectRefund !== undefined ? { expectRefund: expectRefund as number } : {}),
+      })
+    )
   );
   if (!result.ok) return refusal(result);
   // Paid online: it goes back now, as when a customer cancels, rather than waiting on staff.

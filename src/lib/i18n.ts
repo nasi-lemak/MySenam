@@ -5085,6 +5085,12 @@ const EN = {
   "msg4.review.received": "Your request was received.",
   "msg4.review.lifted": "After a review, the restriction was lifted.",
   "msg4.review.continues": "Your request was decided: the restriction continues.",
+  // Audit 9 (FX6): what became of money paid back (lib/notify.ts notifyRefundStates)
+  "fx6.msg.refundSubjectMade": "Refund made for booking {code} — {venue}",
+  "fx6.msg.refundSubjectFailed": "Problem with your refund for booking {code} — {venue}",
+  "fx6.msg.refundSubjectLate": "Your refund for booking {code} is late — {venue}",
+  "fx6.msg.refundSubjectOwed": "Your refund for booking {code} — {venue}",
+  "fx6.msg.refund": "Hello {name},\n\nAbout your booking {code} at {venue}:\n\n{line}\n\nYou can follow it here: {link}",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10116,6 +10122,12 @@ const MS: Record<Phrase, string> = {
   "msg4.review.received": "Permintaan anda telah diterima.",
   "msg4.review.lifted": "Selepas semakan, sekatan itu telah ditarik balik.",
   "msg4.review.continues": "Permintaan anda telah diputuskan: sekatan itu diteruskan.",
+  // Audit 9 (FX6): what became of money paid back (lib/notify.ts notifyRefundStates)
+  "fx6.msg.refundSubjectMade": "Bayaran balik dibuat untuk tempahan {code} — {venue}",
+  "fx6.msg.refundSubjectFailed": "Masalah dengan bayaran balik anda untuk tempahan {code} — {venue}",
+  "fx6.msg.refundSubjectLate": "Bayaran balik anda untuk tempahan {code} lewat — {venue}",
+  "fx6.msg.refundSubjectOwed": "Bayaran balik anda untuk tempahan {code} — {venue}",
+  "fx6.msg.refund": "Helo {name},\n\nMengenai tempahan {code} anda di {venue}:\n\n{line}\n\nAnda boleh mengikutinya di sini: {link}",
 };
 
 /** Exported so a test can hold the two languages against each other. */

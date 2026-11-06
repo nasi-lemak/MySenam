@@ -6,6 +6,7 @@ import { region } from "./region";
 import { internationalNumber } from "./phone";
 import { sendRawEmail, sesConfigFromEnv } from "./ses";
 import type { SesConfig } from "./ses";
+import { PermanentSendError } from "./send-errors";
 
 /**
  * The real ways a message leaves the machine: WhatsApp and email.
@@ -62,7 +63,7 @@ export function templateText(kind: MessageKind, locale: Locale): {
   params: string[];
 } {
   const key = TEMPLATE_PHRASES[kind];
-  if (!key) throw new Error(`A ${kind.replace(/_/g, " ")} message goes by email only.`);
+  if (!key) throw new PermanentSendError(`A ${kind.replace(/_/g, " ")} message goes by email only.`);
   const phrase = DICTIONARIES[locale][key];
   const params = placeholders(phrase);
   const body = phrase.replace(/\{(\w+)\}/g, (_, key: string) => `{{${params.indexOf(key) + 1}}}`);
@@ -118,7 +119,7 @@ export function whatsappTransport(config: WhatsAppConfig): Transport {
         text: { body: message.body, preview_url: false },
       });
       if (!message.params)
-        throw new Error(
+        throw new PermanentSendError(
           "This message was written before WhatsApp templates were in use. Retry it to send it again."
         );
       const { name, language, params } = templateText(message.kind, message.locale);
@@ -143,6 +144,13 @@ export function whatsappTransport(config: WhatsAppConfig): Transport {
   };
 }
 
+/**
+ * Meta's error codes that are about the recipient or the message and not the account: a number that cannot receive
+ * WhatsApp messages from us (131026), one outside the allowed list (131030), the sender as recipient (131021), and
+ * a template's parameters not matching what was approved (132000, 132001, 132005, 132007, 132012).
+ */
+const UNDELIVERABLE = new Set([131026, 131030, 131021, 132000, 132001, 132005, 132007, 132012]);
+
 /** One message to Meta's Cloud API; throws with Meta's reason when it is refused. */
 async function post(config: WhatsAppConfig, message: Record<string, unknown>): Promise<{ providerId?: string }> {
   const res = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`, {
@@ -156,10 +164,14 @@ async function post(config: WhatsAppConfig, message: Record<string, unknown>): P
   });
   if (!res.ok) {
     const detail = (await res.json().catch(() => null)) as {
-      error?: { message?: string; error_data?: { details?: string } };
+      error?: { code?: number; message?: string; error_data?: { details?: string } };
     } | null;
     const why = detail?.error?.error_data?.details || detail?.error?.message || res.statusText;
-    throw new Error(`WhatsApp refused it (${res.status}): ${why}`);
+    const text = `WhatsApp refused it (${res.status}): ${why}`;
+    // About this recipient or this message, not the account: sending again cannot help. An expired token (401), a paused
+    // account or template, a throttle and every 5xx are the provider's or the venue's to put right, and wait.
+    if (res.status === 400 && detail?.error?.code !== undefined && UNDELIVERABLE.has(Number(detail.error.code))) throw new PermanentSendError(text);
+    throw new Error(text);
   }
   // Meta's id for the message, which its delivery reports quote.
   const sent = (await res.json().catch(() => null)) as { messages?: { id?: string }[] } | null;
@@ -233,7 +245,7 @@ export function emailTransport(config: EmailConfig): Transport {
     name: "email",
     async send(message: OutboxMessage) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message.recipient))
-        throw new Error(`${message.recipient} is not an email address.`);
+        throw new PermanentSendError(`${message.recipient} is not an email address.`);
       const mail = mailFor(config.from, message);
       if (config.kind === "ses")
         return await sendRawEmail(config, { from: config.from, to: message.recipient, raw: await rawMessage(mail) });
