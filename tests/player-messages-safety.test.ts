@@ -212,8 +212,9 @@ describe("what staff may do", () => {
   it("leaves an automatic suspension to the owner: lifted, or kept as a decision of theirs", async () => {
     const bad = await person({ name: "Pest" });
     const reporters: User[] = [await person(), await person(), await person()];
-    for (const rep of reporters) {
-      const g = await gameAt(0, rep, [bad]);
+    for (const [i, rep] of reporters.entries()) {
+      // Reports from two venues' games: the suspension is across venues (one resting on a single venue's reports is that venue's manager's too: message-suspension-review.test.ts).
+      const g = await gameAt(i === 1 ? 1 : 0, rep, [bad]);
       await sendMessage(bad.id, "game", g.id, "spam spam");
       const v = await threadView(rep.id, "game", g.id);
       if (!v.ok) throw new Error(v.error);

@@ -244,6 +244,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "messages.thread_state": "pmg.act.threadState",
   "messages.suspended": "pmg.act.suspended",
   "messages.suspension_lifted": "pmg.act.suspensionLifted",
+  "messages.suspension_reviewed": "fx10.act.suspensionReviewed",
   "messages.suspension_confirmed": "pmg.act.suspensionConfirmed",
   "messages.youth_viewed": "ysg.act.viewed",
   "messages.youth_group_answered": "ysg.act.answered",

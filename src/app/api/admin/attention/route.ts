@@ -13,6 +13,8 @@ import { listVenues } from "@/lib/store";
 import { windowOverrideAlert } from "@/lib/window-overrides";
 import { safeguardingAttention } from "@/lib/youth-restrictions";
 import { resolveSafetyFlag, safetyFlags, safetyFlagVenue } from "@/lib/safety-flags";
+import { strandedFixtures, undrawnTournaments } from "@/lib/competition-fixtures";
+import { moderationAttention } from "@/lib/message-moderation";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,9 @@ async function windowOverrideAlerts(venueIds: number[] | null) {
  * refused after it booked, and a sign-off, certification or induction taken back since (lib/safety-flags.ts, ADR 0058).
  * And `safeguarding` (managers and the owner; null for front desk): `overdue` protective restrictions past their review date and `escalatedCases` (the owner's), `appealsWaiting`
  * and `reviewsOpen` that are the caller's to decide, and `retention` (the owner's: closed cases and holds kept longer than the review interval, for a decision) (ADR 0052).
+ * And `competitions` (managers and the owner; null for front desk; ADR 0059): `stranded`, tournament matches and team-league fixtures still to play on a court out of service or on a
+ * closed day, to be postponed or moved; and `undrawn`, tournaments whose first day has arrived and that nobody drew or called off, with the court time held for each.
+ * And `messageModeration` (same readers): open reports of messages by number and age, automatic suspensions to review with their date, and requests for a review (ADR 0059).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -71,6 +76,11 @@ export async function GET(req: NextRequest) {
     safetyFlags: await safetyFlags(admin.venueIds),
     // Safeguarding (managers and the owner; ADR 0052): protective restrictions past their review date and cases escalated, for the owner; requests for a review and authority reviews waiting; closed cases kept long.
     safeguarding: admin.role === "desk" ? null : await safeguardingAttention(admin),
+    // Competitions (ADR 0059): fixtures left on a court or day that is gone, and tournaments past their first day with no draw.
+    competitions:
+      admin.role === "desk" ? null : { stranded: await strandedFixtures(admin.venueIds ?? null), undrawn: await undrawnTournaments(admin.venueIds ?? null) },
+    // Reports of messages between players and suspensions awaiting review (ADR 0059): counts, ages and numbers only.
+    messageModeration: admin.role === "desk" ? null : await moderationAttention(admin),
   });
 }
 

@@ -5,6 +5,7 @@ import { caseStep, caseView } from "@/lib/youth-report-cases";
 import { decideAppeal, listAppeals } from "@/lib/youth-restrictions";
 import {
   confirmSuspension,
+  keepSuspension,
   liftSuspension,
   listMessageReports,
   listSuspensions,
@@ -47,8 +48,9 @@ export async function GET(req: NextRequest) {
 
 /**
  * `{ action: "review", id, outcome: "no_action" | "action_taken" }`, `{ action: "thread", id, state: "open" | "muted" | "closed", reason }`,
- * `{ action: "suspend", userId, reportId?, reason }`, `{ action: "lift", id, reason }`, `{ action: "confirm", id, reason }` (the owner's, for an
- * automatic suspension). Each is logged by number and reason, never with any message text. A report in a youth thread has a third review outcome,
+ * `{ action: "suspend", userId, reportId?, reason }`, `{ action: "lift", id, reason }` (a venue's manager may lift an automatic suspension that rests on that venue's
+ * reports alone, the owner any), `{ action: "confirm", id, reason }` (the owner's, for an automatic suspension), `{ action: "keep", id, reason }` (answers the suspended person's
+ * request for a review: it stands, by somebody who did not apply it; ADR 0059). Each is logged by number and reason, never with any message text. A report in a youth thread has a third review outcome,
  * `restriction_continues`, and its case steps: `{ action: "case", id, step: "confirm" | "extend" | "lift" | "escalate", reason }`,
  * `{ action: "case", id, step: "decide", outcome: "removed_from_group" | "messaging_suspended", reason }` (the protective restriction becomes a moderator's recorded
  * decision), `{ action: "case", id, step: "safeguarding", kind: "suspected_abuse" | "imminent_danger" | "possible_reportable_incident" | "other", reason }` (the owner is told
@@ -78,7 +80,9 @@ export async function POST(req: NextRequest) {
             ? await liftSuspension(admin, id, body.reason)
             : body.action === "confirm" && id !== null
               ? await confirmSuspension(admin, id, body.reason)
-              : null;
+              : body.action === "keep" && id !== null
+                ? await keepSuspension(admin, id, body.reason)
+                : null;
   if (!done) return NextResponse.json({ error: "Choose what to do." }, { status: 400 });
   if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status });
   return NextResponse.json(done);

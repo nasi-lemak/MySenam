@@ -83,6 +83,8 @@ export async function messagesExport(userId: number): Promise<unknown> {
       "SELECT source, reason, created_at, lifted_at, lift_reason FROM player_message_suspensions WHERE user_id = ? ORDER BY id",
       userId
     ),
+    // The person's own requests for a review of a suspension (ADR 0059): what they wrote and the outcome in neutral words; never anything of a report.
+    reviewRequests: await all("SELECT message, status, outcome, created_at, decided_at FROM player_message_suspension_appeals WHERE user_id = ? ORDER BY id", userId),
     // Supervised youth groups (ADR 0044): what this person did, was asked, or was made for them, and the children's group messages a guardian can export.
     youthMessaging: {
       optIns: await all("SELECT group_id, opted_in_at, revoked_at FROM youth_message_optins WHERE user_id = ? ORDER BY id", userId),

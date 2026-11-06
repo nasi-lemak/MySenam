@@ -109,6 +109,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0044 Supervised group messaging for eligible minors, guardian controls, and a real notification digest](architecture/decisions/0044-supervised-group-messaging-for-minors-and-a-digest.md)
 [0049 Guardians in conflict, and a reported adult is not told (amends 0044)](architecture/decisions/0049-guardians-in-conflict-and-a-reported-adult-is-not-told.md) ·
 [0052 Youth messaging: interim safeguards, prepared for legal review (amends 0049 and 0044)](architecture/decisions/0052-youth-messaging-interim-safeguards-pending-legal-review.md)
+[0059 Competitions tell the people they change, owe back what they took and say when a court is lost; reports of messages are told and an automatic suspension can be reviewed](architecture/decisions/0059-competition-notices-fees-owed-fixtures-lost-and-message-review.md)
 [0043 Moving a class, and a class's instructor as one of the venue's coaches](architecture/decisions/0043-moving-a-class-and-a-class-coach.md)
 [0045 Front desk may move a class; a consequential or exceptional move waits for a manager](architecture/decisions/0045-front-desk-class-moves-with-approval.md)
 [0047 FIDE's Baku Acceleration Method, an optional pairing for chess Swiss events](architecture/decisions/0047-baku-acceleration-for-chess.md) ·

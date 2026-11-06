@@ -27,6 +27,7 @@ import {
   joinAs,
   ladderDetail,
   ladderHousekeeping,
+  remindLead,
   leave,
   moveTo,
   myPlaces,
@@ -329,6 +330,72 @@ describe("the life of a challenge", () => {
     expect(c4.status).toBe("cancelled");
     expect(await ids(dance.l.id)).toEqual(dance.players.map((p) => p.id));
     await expectReplayEquality(dance.l.id);
+  });
+});
+
+describe("an unanswered challenge is reminded once before it forfeits (F9)", () => {
+  const reminders = async (recipient: string) => (await mails("Please answer your challenge")).filter((m) => m.recipient === recipient);
+
+  it("reminds the challenged at half the response window, once, and the forfeit still follows if nobody answers", async () => {
+    const { l, players } = await populated(4);
+    const [, , p3, p4] = players;
+    const made = ok(await challenge(p4.user.id, l.id, p4.id, p3.id));
+    // Just made, the window ahead: nothing yet. (Three days to answer: half is two days before the last day.)
+    expect(await reminders(p3.user.email)).toHaveLength(0);
+    await ladderHousekeeping();
+    expect(await reminders(p3.user.email)).toHaveLength(0);
+    await getDb().prepare("UPDATE ladder_challenges SET respond_by = ? WHERE id = ?").run(addDays(todayISO(), 2), made.id);
+    await ladderHousekeeping();
+    const first = await reminders(p3.user.email);
+    expect(first).toHaveLength(1);
+    expect(first[0].body).toContain(`Answer by ${addDays(todayISO(), 2)}`);
+    expect(first[0].body).toContain("forfeit");
+    // The challenger is not reminded; running again, or on two servers, says nothing more.
+    expect(await reminders(p4.user.email)).toHaveLength(0);
+    await Promise.all([ladderHousekeeping(), ladderHousekeeping()]);
+    expect(await reminders(p3.user.email)).toHaveLength(1);
+    // Nobody answered: the forfeit follows as it always did.
+    await getDb().prepare("UPDATE ladder_challenges SET respond_by = ? WHERE id = ?").run(addDays(todayISO(), -1), made.id);
+    expect((await ladderHousekeeping()).forfeited).toBe(1);
+    expect(await reminders(p3.user.email)).toHaveLength(1);
+  });
+
+  it("uses the ladder's own lead when it sets one, and reminds again for a new last day", async () => {
+    const { l, players } = await populated(5);
+    const [, p2, p3, p4, p5] = players;
+    const changed = await changeSettings(l.id, { remindDays: 1 });
+    expect(changed.ok).toBe(true);
+    const made = ok(await challenge(p3.user.id, l.id, p3.id, p2.id));
+    await getDb().prepare("UPDATE ladder_challenges SET respond_by = ? WHERE id = ?").run(addDays(todayISO(), 2), made.id);
+    await ladderHousekeeping();
+    expect(await reminders(p2.user.email)).toHaveLength(0);
+    await getDb().prepare("UPDATE ladder_challenges SET respond_by = ? WHERE id = ?").run(addDays(todayISO(), 1), made.id);
+    await ladderHousekeeping();
+    expect(await reminders(p2.user.email)).toHaveLength(1);
+    // A new last day (a counter-proposal restarts the window) is a new reminder; the same day is not.
+    await getDb().prepare("UPDATE ladder_challenges SET respond_by = ? WHERE id = ?").run(todayISO(), made.id);
+    await ladderHousekeeping();
+    await ladderHousekeeping();
+    expect(await reminders(p2.user.email)).toHaveLength(2);
+    // An answered challenge is not reminded.
+    const other = ok(await challenge(p5.user.id, l.id, p5.id, p4.id));
+    ok(await answer(p4.user.id, other.id, { accept: true }));
+    await getDb().prepare("UPDATE ladder_challenges SET respond_by = ? WHERE id = ?").run(addDays(todayISO(), 1), other.id);
+    await ladderHousekeeping();
+    expect(await reminders(p4.user.email)).toHaveLength(0);
+  });
+
+  it("takes the lead as a setting with limits: 1 to 14 days, or none for half the window", async () => {
+    const l = await ladder();
+    expect(l.settings.remindDays).toBeNull();
+    expect(remindLead(l.settings)).toBe(2);
+    expect(remindLead({ respondDays: 1, remindDays: null })).toBe(1);
+    expect(remindLead({ respondDays: 14, remindDays: null })).toBe(7);
+    expect((await changeSettings(l.id, { remindDays: 0 })).ok).toBe(false);
+    expect((await changeSettings(l.id, { remindDays: 15 })).ok).toBe(false);
+    expect(ok(await changeSettings(l.id, { remindDays: 3 })).settings.remindDays).toBe(3);
+    expect(ok(await changeSettings(l.id, { remindDays: null })).settings.remindDays).toBeNull();
+    expect((await createLadder({ venueId, name: `Reminding ${n++}`, sport: "badminton", teamSize: 1, level: null, settings: { remindDays: 2 } }, adminId)).ok).toBe(true);
   });
 });
 

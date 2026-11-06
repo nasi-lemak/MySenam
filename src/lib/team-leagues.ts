@@ -853,6 +853,41 @@ export async function moveFixture(fixtureId: number, to: MoveInput, expected: { 
   return { ok: true, value: null };
 }
 
+/**
+ * Postpone a night's fixtures: each fixture still to play on `from` (a court out of service, a venue closed, a rain-out) is moved to the same time on
+ * `to`, on its own court where that is free to hold and on another of the league's courts where it is not, one at a time by the checks of any move
+ * (`moveFixture`: not in the past, neither team playing another fixture then or on a date it said it cannot, the court time held for the league first,
+ * never over a booking). Each fixture that moves tells both captains and the lineup. A fixture that cannot be placed stays where it was and is
+ * answered with why, for staff to move by hand: the others are not held back by it (ADR 0059).
+ */
+export async function postponeLeagueDay(leagueId: number, from: string, to: string): Promise<TeamResult<{ moved: number; left: { fixtureId: number; reason: string }[] }>> {
+  if (!isValidDateString(from) || !isValidDateString(to) || from === to) return teamRefusal("TL_NIGHTS", {}, 400);
+  const league = await teamLeagueById(leagueId);
+  if (!league) return teamRefusal("TL_NOT_FOUND", {}, 404);
+  if (league.status !== "scheduled") return teamRefusal("TL_SEASON_OVER");
+  const day = (await getDb()
+    .prepare("SELECT id, court_id, start_min FROM team_fixtures WHERE league_id = ? AND date = ? AND status = 'scheduled' ORDER BY start_min, id")
+    .all(leagueId, from)) as { id: number; court_id: number | null; start_min: number }[];
+  let moved = 0;
+  const left: { fixtureId: number; reason: string }[] = [];
+  for (const f of day) {
+    const courts = [f.court_id ?? league.courts[0].id, ...league.courts.map((c) => c.id)].filter((c, i, all) => all.indexOf(c) === i);
+    let last = "";
+    let done = false;
+    for (const courtId of courts) {
+      const r = await moveFixture(f.id, { date: to, startMin: f.start_min, courtId });
+      if (r.ok) {
+        done = true;
+        break;
+      }
+      last = r.error;
+    }
+    if (done) moved++;
+    else left.push({ fixtureId: f.id, reason: last });
+  }
+  return { ok: true, value: { moved, left } };
+}
+
 async function sidesOf(f: Pick<FixtureRow, "home_team" | "away_team">): Promise<{ home: string; away: string }> {
   return { home: (await leagueTeam(f.home_team))?.name ?? "", away: (await leagueTeam(f.away_team))?.name ?? "" };
 }

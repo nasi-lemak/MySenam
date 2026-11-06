@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAction } from "@/lib/activity";
 import { pairingName } from "@/lib/tournament-rules";
-import { cancelTournament, changeTournament, closeEntries, makeDraw, makeFinal, setRules, tournamentById, tournamentChangeDetail, tournamentDetail } from "@/lib/tournaments";
+import { cancelTournament, changeTournament, closeEntries, makeDraw, makeFinal, postponeTournamentDay, setRules, tournamentById, tournamentChangeDetail, tournamentDetail } from "@/lib/tournaments";
 import { tickOutbox } from "@/lib/notify";
 import { saveVenueTemplate } from "@/lib/competition-templates";
 import { staffTournament } from "@/lib/tournament-access";
-import { listOfficials, openReports } from "@/lib/match-reports";
+import { listOfficials, openReports, standingBySilence } from "@/lib/match-reports";
 import { listCorrectionRequests } from "@/lib/official-performances";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     tournament: await tournamentDetail(found.id, { forStaff: true }),
     // Results players reported and are waiting on, or dispute; and the officials' links.
     reports: await openReports(found.id),
+    // Walkovers and scores that stood because the other side said nothing: who reported each and when, kept for staff (ADR 0059).
+    stoodBySilence: await standingBySilence(found.id),
     officials: await listOfficials(found.id),
     // What officials of a climbing event asked to have corrected, for a manager to review.
     correctionRequests: await listCorrectionRequests(found.id),
@@ -56,7 +58,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 /**
  * `{ action: "close" | "draw" | "cancel" }`; `{ action: "rules", rules, confirmFeedIn? }` before the draw (choosing the feed-in consolation draw needs `confirmFeedIn: true`, else 409 `FEED_IN_CONFIRM`); `{ action: "final",
  * chosen }` — who takes the last places in a performance final where competitors are level; `{ action:
- * "save_template", name }` — keep its settings to start the next one from. A Swiss event's rounds: `{ action: "swiss_pair" }`
+ * "save_template", name }` — keep its settings to start the next one from; `{ action: "postpone_day", from, to }` — move every fixture still to play on `from`
+ * to the same times on `to` (another court where its own is not free), all or nothing, each side told (lib/tournaments.ts `postponeTournamentDay`, ADR 0059). A Swiss event's rounds: `{ action: "swiss_pair" }`
  * pairs the next round where it could not be paired by itself; `{ action: "swiss_close_round", round, resolutions: [{ matchId,
  * winner }] }` closes the latest round, each match still to play given a walkover to `winner` or, with a null `winner`, played by
  * nobody; `{ action: "swiss_end" }` ends it after the last round paired.
@@ -148,6 +151,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       detail: `${t?.name ?? `Tournament ${found.id}`}${body.action === "swiss_close_round" ? `, round ${Number(body.round)}` : ""}`,
     });
     return NextResponse.json({ tournament: t });
+  }
+  // A day's fixtures moved to another day, as a court lost or a venue closed after the draw needs (ADR 0059): all of the day's matches still to play, or none.
+  if (body.action === "postpone_day") {
+    const moved = await postponeTournamentDay(found.id, String(body.from ?? ""), String(body.to ?? ""));
+    if (!moved.ok) return NextResponse.json({ error: moved.error, ...(moved.code ? { code: moved.code } : {}) }, { status: 409 });
+    await logAction(found.admin, {
+      venueId: moved.value.detail.venueId,
+      action: "tournament.match_moved",
+      detail: `${moved.value.detail.name}: ${moved.value.moved} fixture(s) postponed from ${String(body.from)} to ${String(body.to)}`,
+    });
+    await tickOutbox();
+    return NextResponse.json({ tournament: moved.value.detail, moved: moved.value.moved });
   }
   const result =
     body.action === "final"

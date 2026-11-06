@@ -11,7 +11,7 @@ import { NextRequest } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdmin, createAdminSession, ensureBootstrapAdmin, listAdmins } from "../src/lib/admin-auth";
 import { registerUser, type User } from "../src/lib/auth";
 import { getDb } from "../src/lib/db";
-import { addOfficial, answerReport, officialByToken, officialResult, openReports, REPORT_STANDS_HOURS, reportResult, revokeOfficial, standUnansweredReports } from "../src/lib/match-reports";
+import { addOfficial, answerReport, officialByToken, officialResult, openReports, REPORT_REMIND_HOURS, REPORT_STANDS_HOURS, reportResult, revokeOfficial, standingBySilence, standUnansweredReports } from "../src/lib/match-reports";
 import { listVenues } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import { createTournament, enter, makeDraw, recordResult, tournamentDetail, type TournamentInput } from "../src/lib/tournaments";
@@ -146,6 +146,51 @@ describe("a report nobody answers", () => {
     expect((await tournamentDetail(t.id))!.matches.find((m) => m.id === match.id)!.winner).toBeNull();
     const told = (await db().prepare("SELECT recipient FROM messages WHERE subject = ?").all(`A result needs entering: ${t.name}`)) as { recipient: string }[];
     expect(told.map((m) => m.recipient)).toContain("desk@rep.my");
+  });
+
+  it("reminds the silent side of a walkover once before it stands, and keeps who reported it and when for staff (F10)", async () => {
+    const { t, match, sideA, sideB } = await drawn();
+    expect(await reportResult(sideA.id, match.id, { winner: match.a!, walkover: true })).toMatchObject({ ok: true });
+    const reminders = async () => (await db().prepare("SELECT recipient, body FROM messages WHERE dedupe_key LIKE 'report-remind:%' ORDER BY id").all()) as { recipient: string; body: string }[];
+    const before = (await reminders()).length;
+    // Just reported: nothing more yet.
+    expect(await standUnansweredReports()).toBe(0);
+    expect(await reminders()).toHaveLength(before);
+    // Half the time gone: the silent side is reminded, with the hours left; the reporter is not.
+    await db().prepare(`UPDATE tournament_reports SET created_at = datetime('now', '-${REPORT_REMIND_HOURS + 1} hours') WHERE match_id = ? AND status = 'pending'`).run(match.id);
+    expect(await standUnansweredReports()).toBe(0);
+    const sent = (await reminders()).slice(before);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].recipient).toBe(sideB.email);
+    expect(sent[0].body).toContain(`${REPORT_STANDS_HOURS - REPORT_REMIND_HOURS} hours`);
+    // Once: a repeat run, or two servers, remind nobody again.
+    await Promise.all([standUnansweredReports(), standUnansweredReports()]);
+    expect(await reminders()).toHaveLength(before + 1);
+    const open = (await openReports(t.id))[0];
+    expect(open).toMatchObject({ entryId: match.a, walkover: true, status: "pending", stoodBySilence: false });
+    expect(open.remindedAt).not.toBeNull();
+    // Silence for the whole time: it stands, and the record says it stood because nobody answered, who reported and when.
+    await aged(match.id);
+    expect(await standUnansweredReports()).toBe(1);
+    expect(await reminders()).toHaveLength(before + 1);
+    const stood = await standingBySilence(t.id);
+    expect(stood).toHaveLength(1);
+    expect(stood[0]).toMatchObject({ matchId: match.id, entryId: match.a, walkover: true, status: "confirmed", stoodBySilence: true });
+    expect(stood[0].createdAt).toBeTruthy();
+    expect(stood[0].answeredAt).toBeTruthy();
+  });
+
+  it("does not remind a side that answered, nor about a score (one email, as before)", async () => {
+    const a = await drawn();
+    expect(await reportResult(a.sideA.id, a.match.id, { winner: a.match.a!, walkover: true })).toMatchObject({ ok: true });
+    expect(await answerReport(a.sideB.id, a.match.id, { dispute: "I was there" })).toMatchObject({ ok: true });
+    await db().prepare(`UPDATE tournament_reports SET created_at = datetime('now', '-${REPORT_REMIND_HOURS + 1} hours') WHERE match_id = ?`).run(a.match.id);
+    const b = await drawn();
+    expect(await reportResult(b.sideA.id, b.match.id, { winner: b.match.a!, score: "21-10, 21-12" })).toMatchObject({ ok: true });
+    await db().prepare(`UPDATE tournament_reports SET created_at = datetime('now', '-${REPORT_REMIND_HOURS + 1} hours') WHERE match_id = ?`).run(b.match.id);
+    await standUnansweredReports();
+    const told = (await db().prepare("SELECT recipient FROM messages WHERE dedupe_key LIKE 'report-remind:%' AND recipient IN (?, ?)").all(a.sideB.email, b.sideB.email)) as unknown[];
+    expect(told).toHaveLength(0);
   });
 
   it("is answered in time like any other: confirmed before the day is out, nothing is left to stand", async () => {

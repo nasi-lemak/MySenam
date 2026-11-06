@@ -24,6 +24,8 @@ export const LIMITS = {
   /** Different people reporting somebody within `autoSuspendDays` suspends their messaging until the platform owner reviews it. */
   autoSuspendReporters: 3,
   autoSuspendDays: 30,
+  /** An automatic suspension is to be reviewed within this many days: a date on the owner's list, not a legal period, and passing it lifts nothing by itself (ADR 0059). */
+  autoSuspendReviewDays: 14,
   /** What a person sees of a thread: the latest this many. */
   shown: 200,
 } as const;

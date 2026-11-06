@@ -2012,6 +2012,9 @@ export async function startEntryPayment(
   if (row.paid_at) return { ok: false, error: "Your entry fee is paid already.", status: 409 };
   if (row.fee <= 0) return { ok: false, error: "There is no entry fee.", status: 409 };
   if (row.t_status === "cancelled" || row.t_status === "finished") return { ok: false, error: "That tournament is over.", status: 409 };
+  // An event nobody drew takes no more fees once its first day has gone (ADR 0059): it can no longer be drawn into the days that have passed.
+  if ((row.t_status === "open" || row.t_status === "closed") && todayISO((await zoneSettings(row.venue_id))?.zone) > row.starts_on)
+    return { ok: false, error: "This tournament has not been drawn and its first day has passed: ask the venue.", status: 409 };
   const venue = (await getVenue(row.venue_id))!;
   if (!isOpen(venue)) return { ok: false, error: `${venue.name} is not taking payment online at the moment.`, status: 409 };
   const account = await venueAccount(row.venue_id);

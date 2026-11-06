@@ -1,7 +1,7 @@
 import { getDb, withTransaction } from "./db";
 import { isOwner, type Admin } from "./admin-auth";
 import { logAction } from "./activity";
-import { LIMITS } from "./messages";
+import { countedReporters, LIMITS } from "./messages";
 import { kindInUrl, type ContextKind, type SeatLabel } from "./message-contexts";
 import { declaredAdult } from "./player-profiles";
 import { adminIsAccusedIn, adminIsUser, namesTheViewerSql } from "./safeguarding-conflict";
@@ -14,7 +14,8 @@ import { adminIsAccusedIn, adminIsUser, namesTheViewerSql } from "./safeguarding
  * copy of the thread's last messages frozen with it. A venue's staff see the reports of contexts that belong to their venue (its games,
  * its tournaments, leagues and ladders, its teams); the platform owner sees the reports of contexts with no venue (a community group, a
  * team that plays from no venue) and the platform-wide suspensions, the automatic ones above all. The owner does not read a venue's
- * reports and a venue does not read another's: a context's venue is fixed when its thread begins.
+ * reports (except those behind an automatic suspension in force, which the owner is asked to review: ADR 0059) and a venue does not read another's: a context's venue is
+ * fixed when its thread begins.
  *
  * **What they may do:** mark a report dealt with (nothing needed, or something done); mute a thread (nobody may write, undone by
  * a manager) or close it for good; and suspend a person's messaging with a reason, for the venue's own contexts only (a venue, and only
@@ -46,7 +47,11 @@ function scopeSql(scope: Scope, column: string): { sql: string; args: number[] }
 function reportScope(scope: Scope, alias: string, admin: Admin): { sql: string; args: (string | number)[] } {
   const base = scopeSql(scope, `${alias}.venue_id`);
   const names = namesTheViewerSql(alias, admin);
-  const visible = scope.owner ? `(${base.sql} OR ${alias}.escalated_at IS NOT NULL)` : base.sql;
+  // The owner is asked to review an automatic suspension, so the owner reads the reports behind it, a venue's too, for as long as it is in force (ADR 0059): not a youth
+  // thread's, which are cases of their own (ADR 0049).
+  const behindOne = `${alias}.urgent = 0 AND EXISTS (SELECT 1 FROM player_message_suspensions bs WHERE bs.source = 'automatic' AND bs.lifted_at IS NULL AND bs.venue_id IS NULL
+                       AND bs.user_id = ${alias}.reported_id AND ${alias}.created_at >= datetime(bs.created_at, '-${LIMITS.autoSuspendDays} days'))`;
+  const visible = scope.owner ? `(${base.sql} OR ${alias}.escalated_at IS NOT NULL OR (${behindOne}))` : base.sql;
   return { sql: `${visible} AND NOT ${names.sql}`, args: [...base.args, ...names.args] };
 }
 
@@ -171,16 +176,50 @@ export async function reviewMessageReport(admin: Admin, id: number, outcome: unk
   const done = await getDb()
     .prepare(
       `UPDATE player_message_reports r SET status = 'reviewed', outcome = ?, reviewed_at = datetime('now'), reviewed_by_name = ?
-        WHERE r.id = ? AND r.status = 'open' AND (r.urgent = 1 OR ?::text <> 'restriction_continues') AND ${scope.sql} RETURNING r.venue_id, r.urgent, r.context_id`
+        WHERE r.id = ? AND r.status = 'open' AND (r.urgent = 1 OR ?::text <> 'restriction_continues') AND ${scope.sql} RETURNING r.venue_id, r.urgent, r.context_id, r.reported_id`
     )
-    .get(outcome, admin.name, id, outcome, ...scope.args) as { venue_id: number | null; urgent: number; context_id: number } | undefined;
+    .get(outcome, admin.name, id, outcome, ...scope.args) as { venue_id: number | null; urgent: number; context_id: number; reported_id: number | null } | undefined;
   if (!done) return no("That report is not here, or it has been dealt with.", 404);
   // A person a report muted in a supervised youth group's thread is paused only until the report is reviewed: nothing needed lifts it.
   if (outcome === "no_action")
     await getDb().prepare("UPDATE youth_thread_mutes SET lifted_at = datetime('now'), lifted_by = ? WHERE report_id = ? AND lifted_at IS NULL").run(admin.name, id);
   if (done.urgent === 1) await (await import("./youth-report-cases")).caseAudit(id, done.context_id, admin.name, "reviewed", outcome);
   else await logAction(admin, { venueId: done.venue_id, action: "messages.report_reviewed", detail: `Report ${id}: ${outcome === "no_action" ? "nothing needed" : "action taken"}` });
+  // An automatic suspension rests on the reports counted: with this one found to need no action, fewer than the rule's number may be left (ADR 0059).
+  if (outcome === "no_action" && done.reported_id !== null) await recheckAutomaticSuspension(done.reported_id, admin, done.venue_id);
   return { ok: true };
+}
+
+/**
+ * The published rule counts reports found to need no action out: an automatic suspension is **lifted** when fewer than the rule's number of different
+ * people's reports are left to count, and does not outlive the reports it rests on. Run whenever a report is found to need no action. The lift records who
+ * dismissed the report and why (activity log `messages.suspension_lifted`); an open request for a review of it is answered *lifted*. A suspension the owner
+ * confirmed (a decision of their own) is not touched.
+ */
+export async function recheckAutomaticSuspension(userId: number, by: Pick<Admin, "name"> & { id: number | null }, venueId: number | null): Promise<boolean> {
+  if ((await countedReporters(userId)) >= LIMITS.autoSuspendReporters) return false;
+  const reason = "The reports it rested on were found to need no action.";
+  const lifted = (await getDb()
+    .prepare(
+      `UPDATE player_message_suspensions SET lifted_at = datetime('now'), lifted_by_name = ?, lift_reason = ?
+        WHERE user_id = ? AND source = 'automatic' AND venue_id IS NULL AND lifted_at IS NULL RETURNING id`
+    )
+    .all(by.name, reason, userId)) as { id: number }[];
+  for (const l of lifted) {
+    await answerReview(l.id, "lifted", by.name, reason);
+    await logAction(by, { venueId, action: "messages.suspension_lifted", detail: `Person ${userId}. ${reason}` });
+  }
+  return lifted.length > 0;
+}
+
+/** An open request for a review of this suspension is answered, in neutral words (`lifted` or `continues`); nothing of any report is kept in it. */
+async function answerReview(suspensionId: number, outcome: "lifted" | "continues", by: string, reason: string): Promise<void> {
+  await getDb()
+    .prepare(
+      `UPDATE player_message_suspension_appeals SET status = 'decided', outcome = ?, decided_by_name = ?, decision_reason = ?, decided_at = datetime('now')
+        WHERE suspension_id = ? AND status = 'open'`
+    )
+    .run(outcome, by, reason, suspensionId);
 }
 
 const reasonOf = (raw: unknown): string | null => (typeof raw === "string" && raw.trim().length >= 3 ? raw.trim().replace(/\s+/g, " ").slice(0, 300) : null);
@@ -226,31 +265,93 @@ export interface SuspensionOut {
   createdAt: string;
   /** An automatic one still awaiting the owner's review. */
   pendingReview: boolean;
+  /** The date an automatic one is to be reviewed by (operational, not a legal period), and whether it has passed: nothing lifts by itself. */
+  reviewBy: string | null;
+  overdue: boolean;
+  /** The reports behind an automatic one that this reader may read, by number. */
+  reportIds: number[];
+  /** The suspended person asked for a review, and has not been answered: their words (never what any report said) and when. */
+  reviewRequested: { id: number; text: string | null; at: string } | null;
+}
+
+/**
+ * The reports an automatic suspension rests on: about the same person, within the rule's window before it was made, none found to need no action. `s` is the
+ * suspension's alias, `r` the report's.
+ */
+const BEHIND = (s: string, r: string) =>
+  `${r}.reported_id = ${s}.user_id AND ${r}.created_at >= datetime(${s}.created_at, '-${LIMITS.autoSuspendDays} days') AND (${r}.outcome IS NULL OR ${r}.outcome <> 'no_action')`;
+
+/**
+ * An automatic suspension a venue's manager may deal with: every report behind it is one of theirs (its venue's), and at least one is. A suspension is platform-wide
+ * (`venue_id` null), so one that rests on another venue's reports, or on a conversation with no venue, is the owner's alone (ADR 0059).
+ */
+function managedAutomatic(scope: Scope, alias: string): { sql: string; args: number[] } {
+  if (scope.owner || scope.venueIds.length === 0) return { sql: "FALSE", args: [] };
+  const marks = scope.venueIds.map(() => "?").join(",");
+  return {
+    sql: `(${alias}.source = 'automatic' AND ${alias}.venue_id IS NULL
+            AND EXISTS (SELECT 1 FROM player_message_reports mr WHERE ${BEHIND(alias, "mr")} AND mr.venue_id IN (${marks}))
+            AND NOT EXISTS (SELECT 1 FROM player_message_reports xr WHERE ${BEHIND(alias, "xr")} AND (xr.venue_id IS NULL OR xr.venue_id NOT IN (${marks}))))`,
+    args: [...scope.venueIds, ...scope.venueIds],
+  };
+}
+
+/** SQL for the suspensions this scope may see and lift: a venue's own, the owner's platform-wide ones, and, for a manager, an automatic one resting on that venue's reports alone. */
+function suspensionScope(scope: Scope, alias: string): { sql: string; args: number[] } {
+  const base = scopeSql(scope, `${alias}.venue_id`);
+  const auto = managedAutomatic(scope, alias);
+  return { sql: `(${base.sql} OR ${auto.sql})`, args: [...base.args, ...auto.args] };
 }
 
 /** Suspensions in force in this scope. */
 export async function listSuspensions(admin: Admin): Promise<SuspensionOut[]> {
-  const scope = scopeSql(scopeOf(admin), "s.venue_id");
+  const scope = suspensionScope(scopeOf(admin), "s");
+  const names = namesTheViewerSql("sr", admin);
   const rows = (await getDb()
     .prepare(
-      `SELECT s.id, s.user_id, split_part(u.name, ' ', 1) AS first_name, s.source, s.venue_id, s.reason, s.admin_name, s.created_at
+      `SELECT s.id, s.user_id, split_part(u.name, ' ', 1) AS first_name, s.source, s.venue_id, s.reason, s.admin_name, s.created_at,
+              COALESCE(s.review_by, datetime(s.created_at, '+${LIMITS.autoSuspendReviewDays} days')) AS review_by,
+              (SELECT a.id FROM player_message_suspension_appeals a WHERE a.suspension_id = s.id AND a.status = 'open') AS appeal_id,
+              (SELECT a.message FROM player_message_suspension_appeals a WHERE a.suspension_id = s.id AND a.status = 'open') AS appeal_text,
+              (SELECT a.created_at FROM player_message_suspension_appeals a WHERE a.suspension_id = s.id AND a.status = 'open') AS appeal_at
          FROM player_message_suspensions s JOIN users u ON u.id = s.user_id
         WHERE s.lifted_at IS NULL AND ${scope.sql}
-          AND NOT EXISTS (SELECT 1 FROM player_message_reports sr WHERE sr.id = s.report_id AND ${namesTheViewerSql("sr", admin).sql})
+          AND NOT EXISTS (SELECT 1 FROM player_message_reports sr WHERE sr.id = s.report_id AND ${names.sql})
         ORDER BY s.id DESC LIMIT 200`
     )
-    .all(...scope.args, ...namesTheViewerSql("sr", admin).args)) as { id: number; user_id: number; first_name: string; source: "staff" | "automatic"; venue_id: number | null; reason: string; admin_name: string | null; created_at: string }[];
-  return rows.map((r) => ({
-    id: r.id,
-    userId: r.user_id,
-    who: r.first_name,
-    source: r.source,
-    venueId: r.venue_id,
-    reason: r.reason,
-    adminName: r.admin_name,
-    createdAt: r.created_at,
-    pendingReview: r.source === "automatic",
-  }));
+    .all(...scope.args, ...names.args)) as {
+    id: number; user_id: number; first_name: string; source: "staff" | "automatic"; venue_id: number | null; reason: string; admin_name: string | null; created_at: string; review_by: string;
+    appeal_id: number | null; appeal_text: string | null; appeal_at: string | null;
+  }[];
+  const reader = reportScope(scopeOf(admin), "r", admin);
+  const out: SuspensionOut[] = [];
+  for (const r of rows) {
+    const reportIds =
+      r.source === "automatic"
+        ? (((await getDb()
+            .prepare(
+              `SELECT r.id FROM player_message_reports r JOIN player_message_suspensions s ON s.id = ?
+                WHERE ${BEHIND("s", "r")} AND ${reader.sql} ORDER BY r.id`
+            )
+            .all(r.id, ...reader.args)) as { id: number }[]).map((x) => x.id))
+        : [];
+    out.push({
+      id: r.id,
+      userId: r.user_id,
+      who: r.first_name,
+      source: r.source,
+      venueId: r.venue_id,
+      reason: r.reason,
+      adminName: r.admin_name,
+      createdAt: r.created_at,
+      pendingReview: r.source === "automatic",
+      reviewBy: r.source === "automatic" ? r.review_by : null,
+      overdue: r.source === "automatic" && r.review_by.slice(0, 19) < new Date().toISOString().slice(0, 19).replace("T", " "),
+      reportIds,
+      reviewRequested: r.appeal_id !== null ? { id: r.appeal_id, text: r.appeal_text, at: r.appeal_at ?? "" } : null,
+    });
+  }
+  return out;
 }
 
 /**
@@ -299,23 +400,52 @@ export async function suspendMessaging(admin: Admin, input: { userId: unknown; r
   return done.ok ? { ok: true, id: done.id } : done;
 }
 
-/** Lift a suspension, with a reason. A venue lifts its own; the owner lifts platform-wide ones, the automatic ones included. */
+/**
+ * Lift a suspension, with a reason. A venue lifts its own, and an automatic one that rests on its own reports alone; the owner lifts platform-wide ones, the
+ * automatic ones included (ADR 0059). An open request for a review of it is answered *lifted*.
+ */
 export async function liftSuspension(admin: Admin, id: number, reasonRaw: unknown): Promise<{ ok: true } | Refused> {
   const reason = reasonOf(reasonRaw);
   if (!reason) return no("Say why, in a few words.");
-  const scope = scopeSql(scopeOf(admin), "venue_id");
+  const scope = suspensionScope(scopeOf(admin), "s");
   // A suspension a report in a youth thread brought about, about the same person as this staff login, is not theirs to lift: it is not here for them, as the
   // report is not (ADR 0049's conflict-of-interest guard; found in the review of ADR 0052).
   const names = namesTheViewerSql("sr", admin);
   const done = (await getDb()
     .prepare(
-      `UPDATE player_message_suspensions SET lifted_at = datetime('now'), lifted_by_name = ?, lift_reason = ?
-        WHERE id = ? AND lifted_at IS NULL AND ${scope.sql}
-          AND NOT EXISTS (SELECT 1 FROM player_message_reports sr WHERE sr.id = player_message_suspensions.report_id AND ${names.sql}) RETURNING venue_id, user_id`
+      `UPDATE player_message_suspensions s SET lifted_at = datetime('now'), lifted_by_name = ?, lift_reason = ?
+        WHERE s.id = ? AND s.lifted_at IS NULL AND ${scope.sql}
+          AND NOT EXISTS (SELECT 1 FROM player_message_reports sr WHERE sr.id = s.report_id AND ${names.sql})
+        RETURNING s.venue_id, s.user_id, (SELECT x.venue_id FROM player_message_reports x WHERE x.id = s.report_id) AS report_venue`
     )
-    .get(admin.name, reason, id, ...scope.args, ...names.args)) as { venue_id: number | null; user_id: number } | undefined;
+    .get(admin.name, reason, id, ...scope.args, ...names.args)) as { venue_id: number | null; user_id: number; report_venue: number | null } | undefined;
   if (!done) return no("That suspension is not here, or it has been lifted.", 404);
-  await logAction(admin, { venueId: done.venue_id, action: "messages.suspension_lifted", detail: `Person ${done.user_id}. ${reason}` });
+  await answerReview(id, "lifted", admin.name, reason);
+  await logAction(admin, { venueId: done.venue_id ?? done.report_venue, action: "messages.suspension_lifted", detail: `Person ${done.user_id}. ${reason}` });
+  return { ok: true };
+}
+
+/**
+ * The answer to a request for a review, when the suspension stands: *continues*, with a reason, by somebody who did not apply it (a suspension the
+ * owner confirmed, or a manager made, is not decided again by the same login). Only where there is a request to answer; lifting is the other answer.
+ */
+export async function keepSuspension(admin: Admin, id: number, reasonRaw: unknown): Promise<{ ok: true } | Refused> {
+  const reason = reasonOf(reasonRaw);
+  if (!reason) return no("Say why, in a few words.");
+  const scope = suspensionScope(scopeOf(admin), "s");
+  const names = namesTheViewerSql("sr", admin);
+  const row = (await getDb()
+    .prepare(
+      `SELECT s.venue_id, s.user_id, s.admin_name, (SELECT x.venue_id FROM player_message_reports x WHERE x.id = s.report_id) AS report_venue FROM player_message_suspensions s
+        WHERE s.id = ? AND s.lifted_at IS NULL AND ${scope.sql}
+          AND EXISTS (SELECT 1 FROM player_message_suspension_appeals a WHERE a.suspension_id = s.id AND a.status = 'open')
+          AND NOT EXISTS (SELECT 1 FROM player_message_reports sr WHERE sr.id = s.report_id AND ${names.sql})`
+    )
+    .get(id, ...scope.args, ...names.args)) as { venue_id: number | null; user_id: number; admin_name: string | null; report_venue: number | null } | undefined;
+  if (!row) return no("That suspension is not here, or nobody has asked for a review of it.", 404);
+  if (row.admin_name && row.admin_name.toLowerCase() === admin.name.toLowerCase()) return no("Somebody who did not apply it answers a request for a review.", 409);
+  await answerReview(id, "continues", admin.name, reason);
+  await logAction(admin, { venueId: row.venue_id ?? row.report_venue, action: "messages.suspension_reviewed", detail: `Person ${row.user_id}: it stands. ${reason}` });
   return { ok: true };
 }
 
@@ -333,4 +463,35 @@ export async function confirmSuspension(admin: Admin, id: number, reasonRaw: unk
   if (!done) return no("That suspension is not waiting for review.", 404);
   await logAction(admin, { venueId: null, action: "messages.suspension_confirmed", detail: `Person ${done.user_id}. ${reason}` });
   return { ok: true };
+}
+
+export interface ModerationAttention {
+  /** Reports open now in this reader's scope (a youth thread's are the safeguarding lines): how many, and since when the oldest. */
+  openReports: number;
+  oldestOpenReport: string | null;
+  /** How many whole days the oldest has been open. */
+  waitingDays: number;
+  /** Automatic suspensions to review, with their review date; and requests for a review of any suspension waiting for an answer. */
+  suspensionsToReview: { id: number; since: string; reviewBy: string; overdue: boolean }[];
+  reviewRequests: number;
+}
+
+/**
+ * The needs-attention lines for reports of messages and suspensions (ADR 0059), for a manager or the owner: nothing about a person, a message or a report beyond
+ * a count, an age and a number. Derived from what is open, so dismissing a report or lifting a suspension clears it.
+ */
+export async function moderationAttention(admin: Admin): Promise<ModerationAttention> {
+  const scope = reportScope(scopeOf(admin), "r", admin);
+  const open = (await getDb()
+    .prepare(`SELECT COUNT(*)::int AS n, MIN(r.created_at) AS oldest FROM player_message_reports r WHERE r.status = 'open' AND r.urgent = 0 AND ${scope.sql}`)
+    .get(...scope.args)) as { n: number; oldest: string | null };
+  const suspensions = await listSuspensions(admin);
+  const oldest = open.oldest ? Date.parse(`${open.oldest.replace(" ", "T")}Z`) : null;
+  return {
+    openReports: open.n,
+    oldestOpenReport: open.oldest,
+    waitingDays: oldest === null ? 0 : Math.floor((Date.now() - oldest) / 86_400_000),
+    suspensionsToReview: suspensions.filter((x) => x.pendingReview).map((x) => ({ id: x.id, since: x.createdAt, reviewBy: x.reviewBy ?? "", overdue: x.overdue })),
+    reviewRequests: suspensions.filter((x) => x.reviewRequested !== null).length,
+  };
 }

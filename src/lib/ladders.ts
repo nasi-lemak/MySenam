@@ -179,9 +179,14 @@ export interface LadderSettings {
   inactiveDrop: number;
   freezeMaxDays: number;
   declineIs: "free" | "forfeit";
+  /** A challenge nobody has answered is reminded once this many days before the last day to answer (1 to 14); null: half the response window, at least a day (ADR 0059). */
+  remindDays: number | null;
 }
 
-export const DEFAULT_SETTINGS: LadderSettings = { reach: 3, respondDays: 3, playDays: 14, cooldownDays: 14, inactiveDays: 30, inactiveDrop: 1, freezeMaxDays: 60, declineIs: "free" };
+export const DEFAULT_SETTINGS: LadderSettings = { reach: 3, respondDays: 3, playDays: 14, cooldownDays: 14, inactiveDays: 30, inactiveDrop: 1, freezeMaxDays: 60, declineIs: "free", remindDays: null };
+
+/** The days before the last day to answer that an unanswered challenge is reminded: the ladder's own, else half its response window (at least one). */
+export const remindLead = (s: Pick<LadderSettings, "respondDays" | "remindDays">): number => s.remindDays ?? Math.max(1, Math.ceil(s.respondDays / 2));
 
 /** Why one player may not challenge another, or null. The code is the refusal's. */
 export type NotAllowed = { code: "LD_SELF" | "LD_NOT_ON" | "LD_FROZEN_ME" | "LD_FROZEN_THEM" | "LD_NOT_ABOVE" | "LD_REACH" | "LD_BUSY_ME" | "LD_BUSY_THEM" | "LD_COOLDOWN"; vars?: Record<string, string | number> };
@@ -450,6 +455,7 @@ interface LRow {
   inactive_drop: number;
   freeze_max_days: number;
   decline_is: "free" | "forfeit";
+  remind_days?: number | null;
   player_count: number;
   court_time_on?: boolean | null;
   /** Whether a hold has to be confirmed by both players (migration 0290; true unless a manager turned it off). */
@@ -481,6 +487,7 @@ const settingsOf = (r: LRow): LadderSettings => ({
   inactiveDrop: r.inactive_drop,
   freezeMaxDays: r.freeze_max_days,
   declineIs: r.decline_is,
+  remindDays: r.remind_days ?? null,
 });
 
 export async function currentSeason(ladderId: number): Promise<SeasonRow | undefined> {
@@ -846,6 +853,11 @@ export function readSettings(input: Partial<LadderSettings> | undefined, base: L
   const drop = pick("inactiveDrop", 1, 10, "Places dropped");
   const freeze = pick("freezeMaxDays", 1, 180, "The longest freeze in days");
   for (const x of [reach, respond, play, cooldown, inactive, drop, freeze]) if ("error" in x && x.error) return { ok: false, error: x.error };
+  let remind: number | null = base.remindDays ?? null;
+  if (s.remindDays !== undefined) {
+    if (s.remindDays !== null && intIn(s.remindDays, 1, 14) === null) return { ok: false, error: "Days before the last day to answer that a challenge is reminded: 1 to 14, or none for half the window." };
+    remind = s.remindDays;
+  }
   if (s.declineIs !== undefined && s.declineIs !== "free" && s.declineIs !== "forfeit") return { ok: false, error: 'Declining is "free" or counts as a "forfeit".' };
   return {
     ok: true,
@@ -858,6 +870,7 @@ export function readSettings(input: Partial<LadderSettings> | undefined, base: L
       inactiveDrop: drop.value!,
       freezeMaxDays: freeze.value!,
       declineIs: s.declineIs ?? base.declineIs,
+      remindDays: remind,
     },
   };
 }
@@ -958,6 +971,7 @@ export async function createLadder(input: LadderInput, adminId: number): Promise
         team?.maxRubbersPerPlayer ?? null
       );
     id = info.lastInsertRowid as number;
+    if (s.remindDays !== null) await db.prepare("UPDATE ladders SET remind_days = ? WHERE id = ?").run(s.remindDays, id);
     for (const c of courtIds) await db.prepare("INSERT INTO ladder_courts (ladder_id, court_id) VALUES (?, ?)").run(id, c);
     await db.prepare("INSERT INTO ladder_seasons (ladder_id, number, started_on) VALUES (?, 1, ?)").run(id, today);
   })();
@@ -972,9 +986,9 @@ export async function changeSettings(ladderId: number, change: Partial<LadderSet
     const s = parsed.settings;
     await getDb()
       .prepare(
-        `UPDATE ladders SET reach = ?, respond_days = ?, play_days = ?, cooldown_days = ?, inactive_days = ?, inactive_drop = ?, freeze_max_days = ?, decline_is = ? WHERE id = ?`
+        `UPDATE ladders SET reach = ?, respond_days = ?, play_days = ?, cooldown_days = ?, inactive_days = ?, inactive_drop = ?, freeze_max_days = ?, decline_is = ?, remind_days = ? WHERE id = ?`
       )
-      .run(s.reach, s.respondDays, s.playDays, s.cooldownDays, s.inactiveDays, s.inactiveDrop, s.freezeMaxDays, s.declineIs, ladderId);
+      .run(s.reach, s.respondDays, s.playDays, s.cooldownDays, s.inactiveDays, s.inactiveDrop, s.freezeMaxDays, s.declineIs, s.remindDays, ladderId);
     return { ok: true, value: (await ladderById(ladderId))! };
   });
 }
@@ -2008,6 +2022,22 @@ export async function ladderHousekeeping(): Promise<{ confirmed: number; forfeit
         for (const id of [c.challenger, c.challenged]) await tellPlayer(id, ladder, (tr) => tr("lad5.mail.moveLapsed.s", { l: ladder.name }), (tr) => tr("lad5.mail.moveLapsed.b", { l: ladder.name, date: c.move_on!, time: fmtMin(c.move_min ?? 0) }));
       }
       for (const c of open) {
+        // An unanswered challenge is reminded once before it ends, to whoever it waits for: ignoring it forfeits, so they are asked in time (ADR 0059). Once: it is claimed for
+        // the last day to answer, so a repeat run, a second server or a counter-proposal's new day reminds as the case is.
+        if (c.status === "pending" && c.respond_by !== null && today <= c.respond_by && daysBetween(today, c.respond_by) <= remindLead(ladder.settings) && daysBetween(today, c.respond_by) < ladder.settings.respondDays) {
+          const claimed = await db.prepare("UPDATE ladder_challenges SET reminded_for = respond_by WHERE id = ? AND reminded_for IS DISTINCT FROM respond_by").run(c.id);
+          if (claimed.changes === 1) {
+            const waiting = c.awaiting === "challenged" ? c.challenged : c.challenger;
+            const from = people.get(c.awaiting === "challenged" ? c.challenger : c.challenged)?.shown ?? "";
+            const forfeits = c.awaiting === "challenged" && ladder.kind !== "teams";
+            await tellPlayer(
+              waiting,
+              ladder,
+              (tr) => tr("fx10.ladder.remind.s", { l: ladder.name }),
+              (tr) => tr(forfeits ? "fx10.ladder.remind.bForfeit" : "fx10.ladder.remind.bLapse", { l: ladder.name, a: from, date: c.respond_by! })
+            );
+          }
+        }
         if (c.status === "pending" && c.respond_by !== null && today > c.respond_by) await eventOf(ladder, c.id, "no_response", null, { rev: Number(c.proposal_rev ?? 1), date: c.proposed_on, startMin: c.proposed_min, note: "the challenge was not answered in time" });
         if (c.status === "reported" && c.reported_at !== null && c.reported_at < (await daysAgo(CONFIRM_DAYS))) {
           await standResult(ladder, season, c, today);

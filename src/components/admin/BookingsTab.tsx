@@ -27,6 +27,7 @@ import type { PlanPlace } from "@/lib/pass-rules";
 import { errorText } from "@/lib/i18n";
 import { lengthLabel } from "@/lib/length-label";
 import type { CancelOutcome, CounterPayout, OwedRefund, StaffCancelOption, StaffCancelPreview, StaffSeriesWeek } from "@/lib/counter-refunds";
+import type { OwedEntryFee } from "@/lib/entry-fee-refunds";
 import type { CorrectionScope } from "@/lib/booking-corrections";
 import { AdjustPrice } from "./AdjustPrice";
 import { OwedRefunds } from "./OwedRefunds";
@@ -137,6 +138,8 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
   const [seriesCx, setSeriesCx] = useState<{ seriesCode: string; weeks: StaffSeriesWeek[]; chosen: string[]; outcome: CancelOutcome } | null>(null);
   // Counter payments owed back on bookings the venue cancelled, whatever their day (lib/counter-refunds.ts).
   const [owed, setOwed] = useState<OwedRefund[]>([]);
+  // Entry fees taken at the counter and owed back after a tournament was called off (lib/entry-fee-refunds.ts).
+  const [feesOwed, setFeesOwed] = useState<OwedEntryFee[]>([]);
   // The series whose weeks still to be played are being moved together (lib/series-moves.ts).
   const [seriesMove, setSeriesMove] = useState<string | null>(null);
   // A booking's name, number or email being corrected.
@@ -164,6 +167,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       setBookings(data.bookings);
       setPayouts(Array.isArray(data.payouts) ? data.payouts : []);
       setOwed(Array.isArray(data.owed) ? data.owed : []);
+      setFeesOwed(Array.isArray(data.feesOwed) ? data.feesOwed : []);
       setRevenue(data.revenue);
       setCollected(data.collected);
       setOutstanding(data.outstanding);
@@ -1135,6 +1139,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
 
       <OwedRefunds
         owed={owed}
+        fees={feesOwed}
         onDone={(done) => {
           setError(null);
           setNotice(done);

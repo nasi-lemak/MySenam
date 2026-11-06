@@ -170,6 +170,8 @@ export type OutageResult =
       cancelled: number;
       bookingsOff?: Booking[];
       classesOff?: { session: ClassSession; enrolments: Booking[] }[];
+      /** Tournament matches and team-league fixtures still drawn on the court in those days: their people are told, and staff move them (lib/competition-fixtures.ts). */
+      fixtures?: import("./competition-fixtures").CompetitionFixture[];
     }
   | { ok: false; error: string; affected?: Affected[] };
 
@@ -324,7 +326,13 @@ export async function createOutage(input: {
       classesOff.push({ session: c.session, enrolments: told.cancelled ?? [] });
     }
     if (bookingsOff.length + classesOff.length > 0) await tickOutbox();
-    return { ok: true, outage: (await outageById(closed.id))!, cancelled: bookingsOff.length + classesOff.length, bookingsOff, classesOff };
+    // The tournament matches and team-league fixtures drawn on the court in those days stay where they were drawn, on a court that is gone: staff are shown them and
+    // the entrants and captains are told once (the venue will rearrange them); staff move them with one action per day (lib/competition-fixtures.ts, ADR 0059).
+    const competition = await import("./competition-fixtures");
+    const fixtures = await competition.fixturesOnCourt(input.courtId, input.startsOn, input.endsOn);
+    await competition.tellFixturesLost(fixtures, "outage");
+    if (fixtures.length > 0) await tickOutbox();
+    return { ok: true, outage: (await outageById(closed.id))!, cancelled: bookingsOff.length + classesOff.length, bookingsOff, classesOff, fixtures };
   }
   return { ok: false, error: "Bookings keep arriving for those days. Try again in a moment." };
 }

@@ -161,7 +161,8 @@ outbox.
 - **Repeated reports.** When **3 different people** have reported the same person
   within **30 days** (a report found to need no action does not count), **their messaging
   is suspended everywhere automatically**, pending the platform owner's review (published
-  rule; no learning, no scoring). The reporter is not told whether it did.
+  rule; no learning, no scoring). The reporter is not told whether it did. What makes that
+  review possible is [below](#every-report-is-told-and-an-automatic-suspension-can-be-reviewed).
 
 ## Moderation
 
@@ -176,7 +177,8 @@ front desk is turned away).
   teams that play from it (and team-league fixtures of its leagues). The **platform owner
   sees the reports of conversations with no venue** (a community group; a team with no
   venue) and the platform-wide suspensions. The venue of a conversation is fixed when it
-  begins; a venue never sees another's, and the owner does not read a venue's.
+  begins; a venue never sees another's, and the owner does not read a venue's, except the reports behind
+  an automatic suspension in force ([below](#every-report-is-told-and-an-automatic-suspension-can-be-reviewed)).
 - **What they may do** (each logged in the [activity log](reporting.md) by number and the
   reason given, never any message text): mark a report dealt with (nothing needed, or action
   taken); **mute a conversation** (nobody may write; a manager can open it again) or **close
@@ -189,6 +191,43 @@ front desk is turned away).
   once by email (a `safeguarding_notice`, with their guardians if they are a minor), **except an
   adult suspended because of a report in a youth thread, who is told nothing by the system**
   ([a reported adult is not told](#a-reported-adult-is-not-told)).
+### Every report is told, and an automatic suspension can be reviewed
+
+*(ADR 0059; the operational design, with no legal conclusion: how long a report may wait, what must be
+done about one, and any right to a review or to be told are for the operator and its legal adviser.)*
+
+- **A report in any ordinary conversation is told when it is made** (`src/lib/message-alerts.ts`): to
+  the managers of the conversation's venue, or to the platform's owners where it has none (a community
+  group, a team that plays from no venue). It says that a message in a conversation they are responsible
+  for was reported, how many reports are open there, and where to read it: **never any message text, never who
+  reported or who was reported, never why**. It is the same alert whatever the reporter chose as the reason
+  or wrote in the note (a report that says someone feels unsafe is not read from its text and not worded
+  differently), once per report (keyed by it), through the outbox (a mail server that is down delays it).
+  A member of staff who is the person reported is not among those told. (A report in a supervised youth
+  group's thread is the urgent case it was.) The dashboard's needs-attention panel adds a line: how many
+  reports are open in your scope and how long the oldest has waited (`messageModeration` on `GET
+  /api/admin/attention`; managers and the owner, not front desk).
+- **An automatic suspension is told when it is made**, to the owners and to the managers of the venue
+  whose report completed the count, with the date it is to be reviewed by (14 days, `autoSuspendReviewDays`,
+  operational and not a legal period: passing it lifts nothing by itself and turns the line red).
+- **Whoever is asked to review it can read what they review.** The owner reads the reports behind an
+  automatic suspension in force, a venue's included (not a youth thread's, which are cases of their own); the
+  suspensions list carries the numbers of the reports behind each. Otherwise the owner still reads no venue's reports.
+- **A venue's manager deals with one that rests on that venue's reports alone**: they see it, lift it with a
+  reason, or answer a request for a review of it. A suspension is platform-wide, so one that rests on
+  another venue's reports, or on a conversation with no venue, stays the owner's alone.
+- **It does not outlive its reports.** When a report is found to need no action, the count is made again, and an
+  automatic suspension is **lifted** if fewer than the rule's three different people's reports are left to count (who
+  dismissed the report and why are in the activity log, `messages.suspension_lifted`). A suspension the owner
+  confirmed as a decision of their own, or one staff made, is not touched.
+- **The suspended person can ask for a review** (`POST /api/messages/suspension-review`; `GET` says where it
+  stands), from the line that says their messages are paused: one short text, optional, once while one is open. It is the
+  same neutral route as a restriction in a youth group (ADR 0052): nothing of any report is shown or asked; it
+  goes to somebody who may lift it, who lifts it or answers that it stands (`keep`), with a reason, **by somebody
+  who did not apply it**; the person sees only that it was received and, when decided, *lifted* or *stands* in
+  neutral words. A person who is not suspended gets the answer a stranger would (not found). The people who may decide are told
+  one is waiting (that and where only). **No legal right to a review or to notification is promised.**
+
 - **A report in a youth group's thread is a case.** Its copy is not in the list: it is read one
   report at a time, each reading recorded, and the report has its own steps (confirm, extend or lift
   the protective restriction, escalate, note, notify the reported adult in the moderator's own words)
@@ -528,6 +567,7 @@ is ever deleted automatically**; (d) records under a **legal hold**.
 | Contexts and who is in each | `src/lib/message-contexts.ts` | `tests/player-messages.test.ts`, `tests/player-messages-contexts.test.ts` |
 | Settings, sending, reading, limits, notices, block, report, automatic suspension | `src/lib/messages.ts`, `src/lib/message-limits.ts`, `src/lib/message-titles.ts`, `db/migrations/0280_player_messages.sql` | `tests/player-messages.test.ts`, `tests/player-messages-contexts.test.ts`, `tests/player-messages-safety.test.ts` (races on Postgres) |
 | Moderation | `src/lib/message-moderation.ts`, `src/app/api/admin/message-moderation/route.ts`, `src/components/admin/MessageReportsPanel.tsx` | `tests/player-messages-safety.test.ts`, `tests/components/player-messages.test.tsx` |
+| Every report told; an automatic suspension reviewed: the owner reads its reports, a venue lifts one resting on its own, it ends with its reports, the person asks for a review, the dashboard lines | `src/lib/message-alerts.ts`, `src/lib/suspension-reviews.ts`, `src/lib/message-moderation.ts`, `src/lib/messages.ts`, `src/app/api/messages/suspension-review/route.ts`, `src/app/messages/Thread.tsx`, `src/app/api/admin/attention/route.ts`, `src/components/admin/AttentionPanel.tsx`, `db/migrations/0305_message_suspension_review.sql` | `tests/message-suspension-review.test.ts` (PGlite and Postgres) |
 | Export, erasure, retention | `src/lib/message-privacy.ts`, `src/lib/privacy.ts` | `tests/player-messages-safety.test.ts`, `tests/youth-messages.test.ts` |
 | The player's routes and pages | `src/app/api/messages/`, `src/app/messages/`, `src/components/MessagesLink.tsx` | `tests/player-messages-safety.test.ts`, `tests/components/player-messages.test.tsx` |
 | Guardians in conflict: authority per link, objections, restoring, races (ADR 0049) | `src/lib/youth-consent.ts`, `src/lib/youth-messages.ts`, `src/lib/youth-safeguarding.ts`, `src/components/GuardianMessaging.tsx`, `src/components/admin/YouthGroupsPanel.tsx`, `db/migrations/0291_guardians_in_conflict_and_reported_adults.sql` | `tests/youth-guardian-conflict.test.ts` (races, both engines) |

@@ -53,6 +53,7 @@ export async function tellOwnersEach(write: WriteAlert, opts: AlertOptions = {})
       kind: opts.kind ?? "staff_alert",
       expiresMinutes: ALERT_EXPIRES_MINUTES,
       locale: t.locale,
+      ...(opts.dedupeKey ? { dedupeKey: `${opts.dedupeKey}:${owner.email.toLowerCase()}` } : {}),
     });
   }
 }

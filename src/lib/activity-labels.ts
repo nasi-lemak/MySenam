@@ -253,6 +253,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "messages.thread_state": "Paused, closed or opened again a conversation between players",
   "messages.suspended": "Suspended somebody's messages to other players",
   "messages.suspension_lifted": "Lifted a suspension of somebody's messages",
+  "messages.suspension_reviewed": "Answered a request for a review of a messaging suspension: it stands",
   "messages.suspension_confirmed": "Confirmed an automatic suspension of somebody's messages",
   "messages.youth_viewed": "Read the conversation of a supervised youth group",
   "messages.youth_group_answered": "Accepted or declined a youth group's request to be looked after by the venue",
