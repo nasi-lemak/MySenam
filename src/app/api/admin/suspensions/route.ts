@@ -34,10 +34,12 @@ export async function POST(req: NextRequest) {
     result = body.action === "lift" ? await liftBusiness(businessId) : await suspendBusiness(businessId, reason);
   else return NextResponse.json({ error: "Which venue or business?" }, { status: 400 });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  const ofVenue = Number.isInteger(venueId) && venueId > 0;
   await logAction(admin, {
-    venueId: Number.isInteger(venueId) && venueId > 0 ? venueId : null,
+    venueId: ofVenue ? venueId : null,
+    businessId: ofVenue ? null : businessId,
     action: body.action === "lift" ? "venue.suspension_lifted" : "venue.suspended",
-    detail: `${Number.isInteger(venueId) && venueId > 0 ? `Venue ${venueId}` : `Business ${businessId}, every branch`}${body.action === "suspend" && reason ? `: ${reason}` : ""}`,
+    detail: `${ofVenue ? `Venue ${venueId}` : `Business ${businessId}, every branch`}${reason.trim() ? `: ${reason.trim().slice(0, 300)}` : ""}`,
   });
   return NextResponse.json(result);
 }

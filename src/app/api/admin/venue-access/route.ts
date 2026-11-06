@@ -1,3 +1,4 @@
+import { guardLinking } from "@/lib/customer-lookup";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import {
@@ -75,6 +76,8 @@ export async function POST(req: NextRequest) {
     if (!result.ok) return NextResponse.json(result, { status: 400 });
   } else if (body.action === "add") {
     const account = str(body.account)?.trim() || null;
+    const guarded = await guardLinking(req, admin);
+    if (guarded) return guarded;
     // The account first, so a wrong one adds nobody.
     const found = account ? await findAccountToLink(account) : null;
     if (found && !found.ok) return NextResponse.json(found, { status: 400 });
@@ -93,6 +96,8 @@ export async function POST(req: NextRequest) {
     }
   } else if (body.action === "link") {
     if (!Number.isInteger(body.id)) return NextResponse.json({ error: "id is required." }, { status: 400 });
+    const guarded = await guardLinking(req, admin);
+    if (guarded) return guarded;
     const linked = await linkAccess(venueId, body.id as number, str(body.account) ?? "", admin.id);
     if (!linked.ok) return NextResponse.json({ error: linked.error }, { status: linked.status ?? 400 });
     detail = `Access list: entry ${String(body.id)} linked to account ${linked.account.id}`;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addMonths, planById, type MembershipPlan } from "@/lib/membership-plans";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { guardLinking } from "@/lib/customer-lookup";
 import { findAccountByEmail, MEMBERSHIP_LIST_STATUSES, searchMembershipsForVenue, sellMembership } from "@/lib/store";
 import { logAction } from "@/lib/activity";
 import { money } from "@/lib/region";
@@ -96,6 +97,8 @@ export async function POST(req: NextRequest) {
   // a phone number would let whoever registered it first claim the pass.
   let userId: number | undefined;
   if (typeof input.accountEmail === "string" && input.accountEmail.trim() !== "") {
+    const guarded = await guardLinking(req, admin);
+    if (guarded) return guarded;
     const account = await findAccountByEmail(input.accountEmail);
     if (!account)
       return NextResponse.json(

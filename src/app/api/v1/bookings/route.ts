@@ -57,5 +57,5 @@ export async function POST(req: NextRequest) {
   if (caller instanceof NextResponse) return caller;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   // The same code the MCP server's create_booking runs (lib/key-bookings.ts).
-  return bookThroughKey(caller, body);
+  return bookThroughKey(caller, body, { log: true });
 }

@@ -384,13 +384,34 @@ export async function messageById(id: number): Promise<OutboxMessage | null> {
   return row ? toMessage(row) : null;
 }
 
-/** The venue's recent messages, newest first. */
+/**
+ * A message as staff may read it. A link into somebody's account (an invitation, a password reset, an address to confirm: kind
+ * `account_email`) is theirs alone, whoever reads the outbox: its subject and how it went are shown, never the link. Any other
+ * link that carries a secret (`token=`) is hidden the same way. Everything that lists messages to staff goes through it; the
+ * sending code reads the message itself.
+ */
+export function forStaff(m: OutboxMessage): OutboxMessage {
+  if (m.kind === "account_email") return { ...m, body: ACCOUNT_LINK_HIDDEN, params: null, calendar: null };
+  const hide = (text: string) => text.replace(SECRET_LINK, LINK_HIDDEN);
+  const params = m.params
+    ? (Object.fromEntries(Object.entries(m.params).map(([k, v]) => [k, typeof v === "string" ? hide(v) : v])) as Vars)
+    : null;
+  return { ...m, body: hide(m.body), params };
+}
+
+/** An address that carries a secret in its query, wherever it sits in a text. */
+const SECRET_LINK = /https?:\/\/[^\s"'<>]*[?&]token=[^\s"'<>]*/g;
+const LINK_HIDDEN = "(link hidden)";
+
+/** The venue's recent messages, newest first, as staff may read them (`forStaff`). */
 export async function listMessages(venueId: number, limit = 50): Promise<OutboxMessage[]> {
   return (
     await getDb()
       .prepare("SELECT * FROM messages WHERE venue_id = ? AND kind <> 'safeguarding_notice' ORDER BY id DESC LIMIT ?")
       .all(venueId, limit) as MessageRow[]
-  ).map(toMessage);
+  )
+    .map(toMessage)
+    .map(forStaff);
 }
 
 /** Messages that belong to no venue: to applicants, password resets, alerts to staff. For the platform's owners. */
@@ -399,8 +420,7 @@ export async function listPlatformMessages(limit = 50): Promise<OutboxMessage[]>
     (await getDb().prepare("SELECT * FROM messages WHERE venue_id IS NULL AND kind <> 'safeguarding_notice' ORDER BY id DESC LIMIT ?").all(limit)) as MessageRow[]
   )
     .map(toMessage)
-    // A link into somebody's account is theirs alone: its subject and how it went are shown, never the link.
-    .map((m) => (m.kind === "account_email" ? { ...m, body: ACCOUNT_LINK_HIDDEN, params: null } : m));
+    .map(forStaff);
 }
 
 const ACCOUNT_LINK_HIDDEN = "(Not shown or kept: it carries a link into somebody's account.)";

@@ -252,6 +252,8 @@ const en = {
   "r10a.test.real": "Yes: real money was taken at the counter. It is owed back, and staff hand it back from the day list",
   "r10a.test.recorded": "Your answer is recorded with your name.",
   "r10a.test.owedNote": "Money taken at the counter is owed back: it is on the day list until a named person hands it back or gives it as credit.",
+  "fx7.bill.paidReason": "Why is {venue}'s {period} invoice being recorded as paid outside the app? Your answer is kept in the activity log with your name.",
+  "fx7.bill.voidReason": "Why is {venue}'s {period} invoice being voided? Nothing will be owed on it. Your answer is kept in the activity log with your name.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -501,6 +503,8 @@ const ms: Record<keyof typeof en, string> = {
   "r10a.test.real": "Ya: wang sebenar diterima di kaunter. Ia perlu dipulangkan, dan kakitangan memulangkannya daripada senarai hari",
   "r10a.test.recorded": "Jawapan anda direkodkan dengan nama anda.",
   "r10a.test.owedNote": "Wang yang diterima di kaunter perlu dipulangkan: ia ada dalam senarai hari sehingga seseorang yang bernama memulangkannya atau memberinya sebagai kredit.",
+  "fx7.bill.paidReason": "Mengapakah invois {period} bagi {venue} direkodkan sebagai telah dibayar di luar aplikasi? Jawapan anda disimpan dalam log aktiviti bersama nama anda.",
+  "fx7.bill.voidReason": "Mengapakah invois {period} bagi {venue} dibatalkan? Tiada bayaran akan terhutang. Jawapan anda disimpan dalam log aktiviti bersama nama anda.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -750,6 +754,8 @@ const zh: Record<keyof typeof en, string> = {
   "r10a.test.real": "是：已在柜台收取真实款项。需要退还，由员工在当日清单中退还",
   "r10a.test.recorded": "您的回答会连同您的姓名一并记录。",
   "r10a.test.owedNote": "在柜台收取的款项需要退还：在指定人员退还或以储值退还之前，它会一直列在当日清单中。",
+  "fx7.bill.paidReason": "为什么要将 {venue} 的 {period} 发票记为已在应用外付款？您的回答会连同您的姓名一并记入活动日志。",
+  "fx7.bill.voidReason": "为什么要作废 {venue} 的 {period} 发票？之后无需再付款。您的回答会连同您的姓名一并记入活动日志。",
 };
 
 const area = { en, ms, zh };

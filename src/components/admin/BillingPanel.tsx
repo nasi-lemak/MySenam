@@ -339,7 +339,11 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                         {" "}
                         <button
                           disabled={busy}
-                          onClick={() => act({ action: "markPaid", invoiceId: i.id }, t("bill.markedPaid"))}
+                          onClick={() => {
+                            // Money said to be received outside the app: why, kept in the activity log with the owner's name.
+                            const reason = window.prompt(t("fx7.bill.paidReason", { venue: i.venueName, period: i.period }));
+                            if (reason && reason.trim()) act({ action: "markPaid", invoiceId: i.id, reason: reason.trim() }, t("bill.markedPaid"));
+                          }}
                           className="text-xs font-semibold text-teal-700 hover:underline"
                         >
                           {t("bill.markPaid")}
@@ -347,8 +351,9 @@ export function BillingPanel({ isOwner }: { isOwner: boolean }) {
                         <button
                           disabled={busy}
                           onClick={() => {
-                            if (window.confirm(t("bill.voidConfirm", { venue: i.venueName, period: i.period })))
-                              act({ action: "void", invoiceId: i.id }, t("bill.voided"));
+                            // Nothing will be owed: why, kept in the activity log with the owner's name.
+                            const reason = window.prompt(t("fx7.bill.voidReason", { venue: i.venueName, period: i.period }));
+                            if (reason && reason.trim()) act({ action: "void", invoiceId: i.id, reason: reason.trim() }, t("bill.voided"));
                           }}
                           className="text-xs text-slate-500 hover:underline"
                         >

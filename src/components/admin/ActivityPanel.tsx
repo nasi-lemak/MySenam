@@ -329,6 +329,15 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "pass.bought_online": "pso.act.boughtOnline",
   "pass_product.online": "pso.act.online",
   "pass_product.offline": "pso.act.offline",
+  "invoice.marked_paid": "fx7.act.invoicePaid",
+  "invoice.voided": "fx7.act.invoiceVoided",
+  "plan.set": "fx7.act.planSet",
+  "tiers.set": "fx7.act.tiersSet",
+  "business.grouped": "fx7.act.grouped",
+  "staff.promoted": "fx7.act.promoted",
+  "venue.approved": "fx7.act.venueApproved",
+  "venue.rejected": "fx7.act.venueRejected",
+  "venue.added": "fx7.act.venueAdded",
 };
 
 /**

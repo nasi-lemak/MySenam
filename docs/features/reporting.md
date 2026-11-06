@@ -211,6 +211,16 @@ shift; search it by booking code
 for one booking's history. Entries keep the person's name, so they read right
 after an account is removed, and are kept two years.
 
+A business's managers read, beside each of its venues' entries, what was done at **business level** (its managers invited,
+removed, given another address or role, made managers by the owner, or the business suspended or lifted), which names no venue
+(`staff_actions.business_id`, migration 0301). Entries from before that migration have no business and are read by the platform owner only.
+
+The platform owner's own money and tenancy decisions are in it: an invoice marked paid or voided (with the reason they had to give),
+a venue's fee and billing start and the plans by size (before and after), venues grouped into a business, staff made its managers,
+a venue added, an application approved or refused, a venue or business suspended or lifted (each with its reason); and a booking
+made or cancelled through a venue's **API key** is there as `booking.created` and `booking.cancelled` under `API key "<name>"`
+([ADR 0057](../architecture/decisions/0057-staff-lookups-masked-secrets-and-an-audit-trail-for-owner-decisions.md)).
+
 Every staff write is in it. A day closed writes one entry with what it
 called off (`day.closed`: bookings, classes and their enrolments), a
 `class.cancelled` for each class, and a `booking.cancelled` under each

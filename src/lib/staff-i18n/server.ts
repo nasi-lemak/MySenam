@@ -414,6 +414,7 @@ const en = {
   "clsb.ret.attendance": "Attendance marks and their corrections",
   "clsb.ret.lessonMoves": "Records of lessons the venue moved",
   "msg4.ret.evidence": "Closed safeguarding cases in youth groups, with their case records, once dealt with (only where this install sets a period)",
+  "fx7.ret.payers": "Payer names and numbers on old online payments",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -822,6 +823,7 @@ const ms: Record<keyof typeof en, string> = {
   "clsb.ret.attendance": "Tanda kehadiran dan pembetulannya",
   "clsb.ret.lessonMoves": "Rekod pelajaran yang diubah masanya oleh pusat",
   "msg4.ret.evidence": "Kes keselamatan kumpulan belia yang ditutup, dengan rekod kesnya, setelah diselesaikan (hanya jika pemasangan ini menetapkan tempoh)",
+  "fx7.ret.payers": "Nama dan nombor pembayar pada bayaran dalam talian yang lama",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1230,6 +1232,7 @@ const zh: Record<keyof typeof en, string> = {
   "clsb.ret.attendance": "出勤标记及其更正记录",
   "clsb.ret.lessonMoves": "场馆更改课程时间的记录",
   "msg4.ret.evidence": "青少年小组中已结的安全保障案件及其案件记录（处理完毕之后；仅当本系统设置了期限时）",
+  "fx7.ret.payers": "旧网上付款上的付款人姓名和号码",
 };
 
 const area = { en, ms, zh };

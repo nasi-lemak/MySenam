@@ -192,7 +192,12 @@ async function sendInvitation(inv: InvitationRow, token: string, by: { name: str
   const site = siteName();
   const where = await placeName({ venueId: inv.venue_id, businessId: inv.business_id });
   const role = inv.venue_id === null ? own("r9a.mail.roleManagerAll") : inv.role === "desk" ? own("r9a.mail.roleDesk") : own("r9a.mail.roleManager");
+  // An earlier email of this invitation that has not gone (the mail server was down) carries a link that no longer works: it is
+  // given up, and its link not kept, before the new one is queued.
+  const { abandonUnsent } = await import("./outbox");
+  await abandonUnsent([`staff-invitation:${inv.id}:%`], "A newer invitation was sent.");
   await emailPlain({
+    dedupeKey: `staff-invitation:${inv.id}:${crypto.randomBytes(6).toString("hex")}`,
     to: inv.email,
     subject: own(inv.admin_id === null ? "r9a.mail.inviteSubject" : "r9a.mail.addressSubject", { site }),
     text: own(inv.admin_id === null ? "r9a.mail.inviteBody" : "r9a.mail.addressBody", {
@@ -254,6 +259,7 @@ export async function inviteStaff(
   await sendInvitation(row, token, by);
   await logAction(by, {
     venueId: place.venueId,
+    businessId: place.businessId,
     action: "staff.invited",
     detail: `${row.name} (${row.email})${place.venueId !== null ? `, ${place.role === "desk" ? "front desk" : "manager"}` : place.businessId !== null ? ", business manager" : ", platform owner"}`,
   });
@@ -301,6 +307,7 @@ export async function resendInvitation(by: Admin, id: number, change: { name?: u
   const corrected = row.email !== open.row.email || row.name !== open.row.name;
   await logAction(by, {
     venueId: row.venue_id,
+    businessId: row.business_id,
     action: "staff.invitation_resent",
     detail: corrected ? `${open.row.name} (${open.row.email}) → ${row.name} (${row.email})` : `${row.name} (${row.email})`,
   });
@@ -315,7 +322,7 @@ export async function withdrawInvitation(by: Admin, id: number): Promise<{ ok: t
     .prepare("UPDATE staff_invitations SET withdrawn_at = datetime('now') WHERE id = ? AND accepted_at IS NULL AND withdrawn_at IS NULL")
     .run(id);
   if (done.changes === 0) return refuse("That invitation has already been accepted or withdrawn.", 409);
-  await logAction(by, { venueId: open.row.venue_id, action: "staff.invitation_withdrawn", detail: `${open.row.name} (${open.row.email})` });
+  await logAction(by, { venueId: open.row.venue_id, businessId: open.row.business_id, action: "staff.invitation_withdrawn", detail: `${open.row.name} (${open.row.email})` });
   return { ok: true };
 }
 
@@ -375,6 +382,7 @@ export async function acceptInvitation(token: string, password: string): Promise
   if (admin)
     await logAction(admin, {
       venueId: admin.venueId,
+      businessId: admin.businessId,
       action: accepted.row.admin_id === null ? "staff.joined" : "staff.address_changed",
       detail: `${admin.name} (${admin.email})`,
     });
@@ -406,7 +414,7 @@ export async function changeRole(by: Admin, id: number, role: StaffRole): Promis
   if (role === "manager" && isBranchManager(by))
     return refuse("At your own branch you add, change and remove front-desk staff; a business manager makes somebody a manager.", 403);
   await setStaffRole(id, role);
-  await logAction(by, { venueId: target.venueId, action: "staff.role", detail: `${target.name}: ${target.role} → ${role}` });
+  await logAction(by, { venueId: target.venueId, businessId: target.businessId, action: "staff.role", detail: `${target.name}: ${target.role} → ${role}` });
   return { ok: true };
 }
 
@@ -426,7 +434,7 @@ export async function correctStaff(by: Admin, id: number, change: { name?: unkno
   if (change.name !== undefined && change.name !== null && change.name !== target.name) {
     if (!validName(change.name)) return refuse("Name is required.", 400);
     await db.prepare("UPDATE admins SET name = ? WHERE id = ?").run(change.name.trim(), id);
-    await logAction(by, { venueId: target.venueId, action: "staff.corrected", detail: `${target.name} → ${change.name.trim()} (${target.email})` });
+    await logAction(by, { venueId: target.venueId, businessId: target.businessId, action: "staff.corrected", detail: `${target.name} → ${change.name.trim()} (${target.email})` });
   }
   if (change.email === undefined || change.email === null || change.email === "") return { ok: true, invited: false };
   if (!validEmail(change.email)) return refuse("A valid email is required.", 400);
@@ -440,7 +448,7 @@ export async function correctStaff(by: Admin, id: number, change: { name?: unkno
     if ((await db.prepare("SELECT id FROM admins WHERE email = ? AND id <> ?").get(email, id)) !== undefined)
       return refuse("An admin with this email already exists.", 409);
     await db.prepare("UPDATE admins SET email = ? WHERE id = ?").run(email, id);
-    await logAction(by, { venueId: target.venueId, action: "staff.address_changed", detail: `${name}: ${target.email} → ${email}` });
+    await logAction(by, { venueId: target.venueId, businessId: target.businessId, action: "staff.address_changed", detail: `${name}: ${target.email} → ${email}` });
     return { ok: true, invited: false };
   }
   // Any earlier change of address still out for this account gives way to this one.
@@ -465,7 +473,7 @@ export async function correctStaff(by: Admin, id: number, change: { name?: unkno
     venueId: target.venueId,
     locale: own.locale,
   });
-  await logAction(by, { venueId: target.venueId, action: "staff.address_invited", detail: `${name}: ${target.email} → ${email}` });
+  await logAction(by, { venueId: target.venueId, businessId: target.businessId, action: "staff.address_invited", detail: `${name}: ${target.email} → ${email}` });
   return { ok: true, invited: true };
 }
 
@@ -492,6 +500,6 @@ export async function removeStaff(by: Admin, id: number): Promise<Done> {
     if (err instanceof Refused) return err.refusal;
     throw err;
   }
-  await logAction(by, { venueId: target.venueId, action: "staff.removed", detail: `${target.name} (${target.email})` });
+  await logAction(by, { venueId: target.venueId, businessId: target.businessId, action: "staff.removed", detail: `${target.name} (${target.email})` });
   return { ok: true };
 }

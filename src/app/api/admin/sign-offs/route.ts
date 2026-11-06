@@ -1,3 +1,4 @@
+import { guardLinking } from "@/lib/customer-lookup";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin, type Admin } from "@/lib/admin-auth";
 import { getDb } from "@/lib/db";
@@ -73,6 +74,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `${key} must be text.` }, { status: 400 });
   if (body.kind !== undefined && body.kind !== "operational" && body.kind !== "certification")
     return NextResponse.json({ error: "kind is operational or certification." }, { status: 400 });
+  if (typeof body.email === "string" && body.email.trim() !== "" && !participant) {
+    const guarded = await guardLinking(req, admin);
+    if (guarded) return guarded;
+  }
   const wholeBusiness = body.wholeBusiness === true;
   if (wholeBusiness && !(await forWholeBusiness(admin, venueId)))
     return NextResponse.json({ error: "Only whoever runs the business records a sign-off for every branch." }, { status: 403 });

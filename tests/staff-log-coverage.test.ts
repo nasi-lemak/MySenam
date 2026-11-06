@@ -35,14 +35,12 @@ const NEEDS_NO_ENTRY: Record<string, string> = {
   // The platform owner running the install itself: no venue's day, bookings, money or settings.
   "errors POST": "the platform owner marking an error report dealt with",
   "system POST": "the platform owner clearing a system alert",
+  // (Money and tenancy decisions of the platform owner are logged since audit 9: invoices marked paid or voided, plans and tiers,
+  // businesses grouped, venues added and approved, suspensions; tests/owner-activity-log.test.ts.)
   "demo POST": "the platform owner loading or moving the demonstration data (refused once anything is sold for real)",
   "backup POST": "the platform owner taking a backup now",
-  "businesses POST": "the platform owner grouping venues into a business",
-  "venues POST": "the platform owner adding a venue",
-  "venue-applications POST": "the platform owner deciding an application to list a venue, stored on the application",
   "storefronts POST": "the platform owner's marketplace storefronts",
   "storefronts DELETE": "the platform owner's marketplace storefronts",
-  "billing POST": "the platform's own invoices to venues: the owner's records of them, or a venue starting an online payment the gateway confirms",
   "setup POST": "ticking off or hiding the set-up checklist: a reminder, not a setting",
 };
 

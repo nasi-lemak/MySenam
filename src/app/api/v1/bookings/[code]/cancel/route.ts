@@ -12,5 +12,5 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ code: string }> }) {
   const caller = await apiCaller(req, "write");
   if (caller instanceof NextResponse) return caller;
-  return cancelThroughKey(caller, (await params).code);
+  return cancelThroughKey(caller, (await params).code, { log: true });
 }

@@ -1,3 +1,4 @@
+import { DELIVERIES_OF_USER, PAYMENTS_OF_USER } from "./erasure-traces";
 import { getDb } from "./db";
 import { addDays, todayISO } from "./time";
 import { deleteStaleDrafts, STALE_DRAFT_DAYS, staleDrafts } from "./drafts";
@@ -229,6 +230,15 @@ const RULES: Rule[] = [
     // The booking survives — its price is the venue's record. The person in
     // it does not, nor anybody it was booked for.
     set: `name = '${ANONYMOUS}', phone = '', email = NULL, check_in_token = NULL, participant_name = NULL`,
+  },
+  {
+    // The payer of an online payment (the name and number typed when paying): the money row stays, as the booking does, the person does not (docs/architecture/privacy.md#online-payments).
+    what: said("fx7.ret.payers"),
+    days: RETENTION.bookingIdentityDays,
+    action: "anonymised",
+    table: "online_payments",
+    where: `created_at < ? AND ((payer_name IS NOT NULL AND payer_name <> '${ANONYMOUS}') OR payer_phone IS NOT NULL)`,
+    set: `payer_name = CASE WHEN payer_name IS NULL THEN NULL ELSE '${ANONYMOUS}' END, payer_phone = NULL`,
   },
   {
     // A register's marks (lib/attendance.ts): who came, a walk-in's name and a note; each correction goes with its mark.
@@ -530,6 +540,10 @@ export interface CustomerExport {
    */
   membershipCoverChanges: unknown[];
   doorCodesShown: unknown[];
+  /** Online payments that are theirs (their bookings, top-ups, membership, pass, game or entry), with the payer's name and number as typed when paying (lib/erasure-traces.ts). */
+  onlinePayments: unknown[];
+  /** What a venue's own systems were sent about their bookings, while it is still held (lib/webhooks.ts; the last weeks only). */
+  webhookDeliveries: unknown[];
   /** Open games they hosted or asked to join, and the levels they gave. */
   games: unknown[];
   levels: unknown[];
@@ -817,6 +831,16 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
       userId,
       account.email
     ),
+    onlinePayments: await all(
+      `SELECT p.created_at, p.paid_at, v.name AS venue, p.provider, p.bill_id, p.purpose, p.status, p.amount, p.refunded, p.payer_name, p.payer_phone
+         FROM online_payments p LEFT JOIN venues v ON v.id = p.venue_id
+        WHERE ${PAYMENTS_OF_USER} ORDER BY p.id`,
+      userId, userId, userId, userId, userId, userId
+    ),
+    webhookDeliveries: await all(
+      `SELECT d.created_at, d.event, d.delivered_at, d.payload FROM webhook_deliveries d WHERE ${DELIVERIES_OF_USER} ORDER BY d.id`,
+      userId
+    ),
     approvals: await (await import("./approvals")).approvalsExport(userId),
     publicNameAuthorisations: await (await import("./public-name-consents")).consentsExport(userId),
     ...(await (async () => {
@@ -878,6 +902,8 @@ export interface PhoneExport {
   accountBookers: unknown[];
   /** The venue's staff's note on this customer (lib/customer-notes.ts). */
   staffNotes: unknown[];
+  /** Online payments made to these venues with this number as the payer's. */
+  onlinePayments: unknown[];
   /** Private hire enquiries from this number (lib/enquiries.ts). */
   enquiries: unknown[];
   /** The venue's waivers this number agreed to, and when (lib/waivers.ts). */
@@ -1020,6 +1046,13 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
       ...venueIds,
       phone
     ),
+    onlinePayments: await all(
+      `SELECT v.name AS venue, p.created_at, p.paid_at, p.purpose, p.status, p.amount, p.refunded, p.payer_name, p.payer_phone
+         FROM online_payments p JOIN venues v ON v.id = p.venue_id
+        WHERE p.venue_id IN (${marks}) AND p.payer_phone IS NOT NULL AND phone_key(p.payer_phone) = phone_key(?) ORDER BY p.id`,
+      ...venueIds,
+      phone
+    ),
     enquiries: await all(
       `SELECT v.name AS venue, e.created_at, e.name, e.phone, e.email, e.kind, e.wanted_on, e.people, e.message, e.status
          FROM hire_enquiries e JOIN venues v ON v.id = e.venue_id
@@ -1148,6 +1181,9 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
       .prepare("SELECT COALESCE(SUM(amount), 0)::float AS back FROM wallet_entries WHERE user_id = ?")
       .get(userId)) as { back: number };
     if (Number(back) > 0) throw new ErasureGivesBack();
+    // The payer on their payments, what was sent them and about them, and what a venue's own systems were told: while their
+    // bookings, games and entries still say whose they are (lib/erasure-traces.ts).
+    await (await import("./erasure-traces")).eraseTracesOfUser(userId, account.email);
     await forgetPlayer(userId);
     // What they wrote to people they play with becomes "message removed"; the other side's stays for them (lib/message-privacy.ts).
     await (await import("./message-privacy")).forgetMessagesOfUser(userId);

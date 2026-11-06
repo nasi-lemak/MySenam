@@ -15,9 +15,14 @@ import {
 import { isMarketplace } from "@/lib/mode";
 import { planTiers, setPlanTiers, suggestedTiers, type PlanTier } from "@/lib/plans";
 import { applyPaymentHolds } from "@/lib/payment-holds";
+import { logAction } from "@/lib/activity";
+import { getDb } from "@/lib/db";
+import { money } from "@/lib/region";
 import { markRefunded, platformRefundsOwed, refundOnline, refundsInFlight } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
+
+const REASON_ASKED = "Say why (5 to 300 characters): it is kept in the staff activity log with your name.";
 
 /**
  * A marketplace venue's invoices. Venue staff see their own venue's; the
@@ -98,9 +103,19 @@ export async function POST(req: NextRequest) {
   if (input.action === "markPaid" || input.action === "void") {
     if (!Number.isInteger(input.invoiceId))
       return NextResponse.json({ error: "invoiceId is required." }, { status: 400 });
+    // Money the platform says it received, or forgives: the owner says why, and it is kept in the staff activity log with their name.
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    if (reason.length < 5 || reason.length > 300) return NextResponse.json({ error: REASON_ASKED, code: "BILL_REASON_REQUIRED" }, { status: 400 });
     const result =
       input.action === "markPaid" ? await markInvoicePaid(input.invoiceId as number) : await voidInvoice(input.invoiceId as number);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+    const inv = result.invoice;
+    await logAction(admin, {
+      venueId: inv.venueId,
+      businessId: inv.venueId === null ? inv.businessId : null,
+      action: input.action === "markPaid" ? "invoice.marked_paid" : "invoice.voided",
+      detail: `${inv.period} invoice ${inv.id}, ${money(inv.amount)}${inv.venueId === null ? " (business)" : ""}, ${input.action === "markPaid" ? "recorded as paid outside the app" : "voided, nothing is owed"}: ${reason}`,
+    });
     return NextResponse.json({ invoice: result.invoice });
   }
 
@@ -122,8 +137,18 @@ export async function POST(req: NextRequest) {
     const fee = input.monthlyFee === null || input.monthlyFee === "" ? null : Number(input.monthlyFee);
     const start =
       input.billingStartsOn === null || input.billingStartsOn === "" ? null : String(input.billingStartsOn);
+    const before = (await getDb().prepare("SELECT monthly_fee, billing_starts_on FROM venues WHERE id = ?").get(input.venueId)) as
+      | { monthly_fee: number | string | null; billing_starts_on: string | null }
+      | undefined;
     const result = await setVenuePlan(input.venueId as number, { monthlyFee: fee, billingStartsOn: start });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+    const why = typeof input.reason === "string" && input.reason.trim() ? `: ${input.reason.trim().slice(0, 300)}` : "";
+    const fmt = (f: number | string | null | undefined) => (f === null || f === undefined ? "the default fee" : money(Number(f)));
+    await logAction(admin, {
+      venueId: input.venueId as number,
+      action: "plan.set",
+      detail: `Monthly fee ${fmt(before?.monthly_fee)} → ${fmt(fee)}, billing starts ${before?.billing_starts_on ?? "when let in"} → ${start ?? "when let in"}${why}`,
+    });
     return NextResponse.json({ plans: await venuePlans() });
   }
 
@@ -134,8 +159,13 @@ export async function POST(req: NextRequest) {
       upTo: t?.upTo === null || t?.upTo === "" || t?.upTo === undefined ? null : Number(t.upTo),
       monthlyFee: Number(t?.monthlyFee),
     }));
+    const before = await planTiers();
     const result = await setPlanTiers({ tiers, extraEach: Number(input.extraEach ?? 0) });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+    const describe = (p: { tiers: PlanTier[]; extraEach?: number }) =>
+      `${p.tiers.map((t) => `${t.name} ${t.upTo === null ? "any size" : `up to ${t.upTo}`} ${money(t.monthlyFee)}`).join(", ")}; ${money(Number(p.extraEach ?? 0))} for each more`;
+    const why = typeof input.reason === "string" && input.reason.trim() ? `: ${input.reason.trim().slice(0, 300)}` : "";
+    await logAction(admin, { venueId: null, action: "tiers.set", detail: `Plans by size: ${describe(before)} → ${describe(result.plan)}${why}`.slice(0, 500) });
     return NextResponse.json({ tiers: result.plan, plans: await venuePlans() });
   }
 

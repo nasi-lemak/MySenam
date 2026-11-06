@@ -321,6 +321,15 @@ const en = {
   "p8c.act.whatsappPack": "Ordered, gave or settled WhatsApp messages",
   // Archiving past claims (lib/claims-archive.ts, lib/integrity.ts)
   "ow5.int.kind.claim_archived_early": "Court time that has not ended was moved to the archive: it no longer keeps anybody off the court",
+  "fx7.act.invoicePaid": "Recorded a platform invoice as paid outside the app (platform)",
+  "fx7.act.invoiceVoided": "Voided a platform invoice: nothing is owed (platform)",
+  "fx7.act.planSet": "Set a venue's monthly fee or billing start (platform)",
+  "fx7.act.tiersSet": "Changed the platform's plans by size (platform)",
+  "fx7.act.grouped": "Grouped venues into a business, or added branches to one (platform)",
+  "fx7.act.promoted": "Made branch staff a business manager (platform)",
+  "fx7.act.venueApproved": "Approved an application to list a venue (platform)",
+  "fx7.act.venueRejected": "Refused an application to list a venue (platform)",
+  "fx7.act.venueAdded": "Added a venue (platform)",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -639,6 +648,15 @@ const ms: Record<keyof typeof en, string> = {
   "p8c.act.messageResent": "Menghantar semula mesej",
   "p8c.act.whatsappPack": "Memesan, memberi atau menyelesaikan mesej WhatsApp",
   "ow5.int.kind.claim_archived_early": "Masa gelanggang yang belum tamat telah dipindahkan ke arkib: ia tidak lagi menghalang sesiapa daripada menempah gelanggang itu",
+  "fx7.act.invoicePaid": "Merekodkan invois platform sebagai telah dibayar di luar aplikasi (platform)",
+  "fx7.act.invoiceVoided": "Membatalkan invois platform: tiada bayaran terhutang (platform)",
+  "fx7.act.planSet": "Menetapkan yuran bulanan atau tarikh bil bermula bagi sebuah pusat (platform)",
+  "fx7.act.tiersSet": "Mengubah pelan platform mengikut saiz (platform)",
+  "fx7.act.grouped": "Mengumpulkan pusat menjadi satu perniagaan, atau menambah cawangan (platform)",
+  "fx7.act.promoted": "Menjadikan kakitangan cawangan pengurus perniagaan (platform)",
+  "fx7.act.venueApproved": "Meluluskan permohonan untuk menyenaraikan sebuah pusat (platform)",
+  "fx7.act.venueRejected": "Menolak permohonan untuk menyenaraikan sebuah pusat (platform)",
+  "fx7.act.venueAdded": "Menambah sebuah pusat (platform)",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -957,6 +975,15 @@ const zh: Record<keyof typeof en, string> = {
   "p8c.act.messageResent": "重新发送消息",
   "p8c.act.whatsappPack": "订购、赠送或结清 WhatsApp 消息",
   "ow5.int.kind.claim_archived_early": "尚未结束的场地时间被移入归档：它不再阻止他人预订该场地",
+  "fx7.act.invoicePaid": "将平台发票记为已在应用外付款（平台）",
+  "fx7.act.invoiceVoided": "作废平台发票：无需再付款（平台）",
+  "fx7.act.planSet": "设定场馆的月费或计费开始日期（平台）",
+  "fx7.act.tiersSet": "更改平台按规模划分的套餐（平台）",
+  "fx7.act.grouped": "将场馆归入一个企业，或为企业增加分店（平台）",
+  "fx7.act.promoted": "将分店员工设为企业经理（平台）",
+  "fx7.act.venueApproved": "批准了上架场馆的申请（平台）",
+  "fx7.act.venueRejected": "拒绝了上架场馆的申请（平台）",
+  "fx7.act.venueAdded": "新增了一个场馆（平台）",
 };
 
 const area = { en, ms, zh };

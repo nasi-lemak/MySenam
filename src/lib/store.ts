@@ -8958,15 +8958,20 @@ export async function refundBookingToPass(bookingId: number, share = 1): Promise
   });
 }
 
-/** Find a customer by email or phone, for the counter. */
+/**
+ * Find a customer by email or phone, for the counter. `scope` is the venues whose customers staff may find
+ * (lib/customer-lookup.ts `customerScope`): only a customer with a relationship with one of them is found. Null: anybody.
+ */
 export async function findUserForWallet(
   query: string,
-  venueId?: number
+  venueId?: number,
+  scope: number[] | null = null
 ): Promise<{ id: number; name: string; email: string; phone: string; balance: number } | null> {
   const trimmed = query.trim();
   if (trimmed === "") return null;
+  const { connectedTo } = await import("./customer-lookup");
   const row = await getDb()
-    .prepare("SELECT id, name, email, phone FROM users WHERE email = ? OR phone = ?")
+    .prepare(`SELECT u.id, u.name, u.email, u.phone FROM users u WHERE (u.email = ? OR u.phone = ?)${scope === null ? "" : ` AND ${connectedTo("u", scope)}`} ORDER BY u.id LIMIT 1`)
     .get(trimmed, trimmed) as
     | { id: number; name: string; email: string; phone: string }
     | undefined;

@@ -25,7 +25,13 @@ independent venues, players booking across them.
 - **Drafts nobody comes back to go.** A business that never went live, and
   that nobody has signed in to for 90 days, is deleted with what it set up —
   unless it holds something of a customer's (a pass, a membership, credit, a
-  payment, an invoice), which is left for the owner to look at.
+  payment, an invoice), which is left for the owner to look at. Everything else it set up goes with it, found from the database's
+  foreign keys rather than a list (`src/lib/drafts.ts`), and one that cannot be deleted is left and the owners are told
+  (`retention:stale-draft-not-deleted`): it never stops the rest of the day's retention run or a dashboard from opening.
+- **Signing up does not say who works at a venue.** An address that already holds a staff account, or has a sign-up waiting, gets
+  the answer a new address does and an email saying what it can do (at most one an hour); the page never says whether an address belongs to somebody
+  at a venue. On an install that cannot send email nobody could be asked to confirm either, and it says so
+  ([ADR 0057](../architecture/decisions/0057-staff-lookups-masked-secrets-and-an-audit-trail-for-owner-decisions.md)).
 - **Stored credit is per venue** — see *Whose credit it is*.
 - **Venues are invoiced monthly.** Each pays its own agreed fee if it has
   one; else its tier by size, once the owner has set tiers (see *Plans by
@@ -38,7 +44,10 @@ independent venues, players booking across them.
   Venue staff see theirs under *Venues & staff → Billing* and can pay online
   into **the platform's own Billplz account** (`BILLPLZ_*`), which is never a
   venue's: this is the platform's income. The owner sets each venue's fee and
-  start date there, and marks a bank transfer paid or voids an invoice.
+  start date there, and marks a bank transfer paid or voids an invoice. Marking paid and voiding each need a reason (5 to 300 characters),
+  and every one of those decisions, the fees and plans by size, grouping venues into a business, making staff its managers, adding or
+  approving a venue and suspending or lifting one is in the [staff activity log](../features/reporting.md#staff-activity-log) with the
+  owner's name and the figures before and after, where the venue's or business's own managers read it.
 - **How MySenam fits a business** is explained at `/for-venues` (linked from
   the site's navigation): the visitor picks the kinds of business and
   activities and sees a day in MySenam for them, what is and is not supported,

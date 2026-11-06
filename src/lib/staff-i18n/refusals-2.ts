@@ -984,4 +984,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That day has bookings or classes in it now. Look at it again.": { ms: "Hari itu kini mempunyai tempahan atau kelas. Lihat semula.", zh: "该日现已有预订或课程。请重新查看。" },
   "The kit for booking {0} is still out. Take it back in first, then try again. Nothing was changed.": { ms: "Peralatan bagi tempahan {0} masih belum dipulangkan. Terima pemulangannya dahulu, kemudian cuba lagi. Tiada apa yang diubah.", zh: "预订 {0} 的装备尚未归还。请先办理归还，然后重试。未作任何更改。" },
   "Booking {0} could not be cancelled just now. Nothing was changed; try again.": { ms: "Tempahan {0} tidak dapat dibatalkan sekarang. Tiada apa yang diubah; cuba lagi.", zh: "预订 {0} 暂时无法取消。未作任何更改；请重试。" },
+  "Say why (5 to 300 characters): it is kept in the staff activity log with your name.": {
+    ms: "Nyatakan sebabnya (5 hingga 300 aksara): ia disimpan dalam log aktiviti kakitangan bersama nama anda.",
+    zh: "请说明原因（5 至 300 个字符）：它会连同您的姓名一并记入员工活动日志。",
+  },
 };

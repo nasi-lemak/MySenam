@@ -351,6 +351,11 @@ remove whom is in [tenancy](tenancy.md#who-manages-staff-accounts).
   typed password is refused. With `MYSENAM_SEND=log` (development, staging
   and the acceptance scenarios) both work: a blank password invites, the
   email written to the server log.
+- **The link is never shown to staff.** The email is filed under the venue it is for, and the venue's messages screen is open to the
+  front desk, so a link into somebody's account (kind `account_email`: an invitation, a reset, an address to confirm) is not shown
+  there or in the platform owner's list, whatever state the message is in, nor any other link with a `token=` in a staff view
+  (`forStaff` in `src/lib/outbox.ts`); a front-desk account cannot read an invitation to become a manager and accept it first. Sending
+  an invitation again gives up an earlier one that had not gone, link and all.
 - Every step is in the staff activity log: `staff.invited`,
   `staff.invitation_resent`, `staff.invitation_withdrawn`, `staff.joined`,
   `staff.added` (a typed password), `staff.corrected`, `staff.address_invited`,

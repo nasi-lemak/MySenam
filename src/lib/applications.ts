@@ -246,7 +246,29 @@ async function emailApplicant(
 
 export const MIN_PASSWORD = 10;
 
-export type SubmitResult = { ok: true; application: VenueApplication } | { ok: false; error: string };
+/**
+ * An address that already holds a venue account, or an application waiting, asked to sign up again. A visitor is not told that
+ * (anybody can type an address, and the answer would say who works at a venue): the page answers as it does for a new
+ * address, and the address itself is emailed what it can do, at most once an hour. False where no email can be sent, so the
+ * caller says what it has to (such an install is one where nobody could be asked to confirm either).
+ */
+export async function tellExistingApplicant(email: string, contactName: string): Promise<boolean> {
+  const to = email.trim().toLowerCase();
+  const site = siteName();
+  return emailApplicant(
+    to,
+    `Your ${site} sign-up`,
+    `Hi ${contactName.trim().split(/\s+/)[0] || "there"},\n\nSomebody, probably you, asked to sign a venue up to ${site} with this email address. ` +
+      `It already has a venue account here, or a sign-up waiting to be confirmed.\n\n` +
+      `To use it, sign in at ${baseUrl()}/admin. If you have forgotten your password, ask for a new one on that page. ` +
+      `If a sign-up is waiting, the email we sent you earlier has its link.\n\n` +
+      `If it was not you, ignore this email and nothing happens.\n\n${site}`,
+    { kind: "applicant", dedupeKey: `application-known:${to}:${Math.floor(Date.now() / 3_600_000)}`, expiresMinutes: 24 * 60 }
+  );
+}
+
+/** `code` says the one refusal that must not be shown to a visitor as it is: the address is already known (see `tellExistingApplicant`). */
+export type SubmitResult = { ok: true; application: VenueApplication } | { ok: false; error: string; code?: "EMAIL_KNOWN" };
 
 /**
  * A business signing up. It is written down, and a link emailed to them;
@@ -289,13 +311,13 @@ export async function submitApplication(input: {
 
   const db = getDb();
   if (await db.prepare("SELECT id FROM admins WHERE email = ?").get(email))
-    return { ok: false, error: "That email already has an account. Sign in at /admin." };
+    return { ok: false, error: "That email already has an account. Sign in at /admin.", code: "EMAIL_KNOWN" };
   if (
     await db
       .prepare("SELECT id FROM venue_applications WHERE email = ? AND status = 'pending' AND venue_id IS NULL")
       .get(email)
   )
-    return { ok: false, error: "There is already an application waiting for that email." };
+    return { ok: false, error: "There is already an application waiting for that email.", code: "EMAIL_KNOWN" };
   // One never confirmed — a lost email, a typo they have since fixed — gives
   // way to this one rather than locking them out until it expires.
   await db.prepare("DELETE FROM venue_applications WHERE email = ? AND email_check = 'waiting'").run(email);

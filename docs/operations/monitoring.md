@@ -20,6 +20,9 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
   `claimsArchive` in the owner's system answer (`GET /api/admin/system`: days,
   last run, moved, due, behind, last failure)
   ([archiving past claims](../architecture/database.md#archiving-past-claims));
+- the **retention run** fails (`scheduler:retention-failed`, from the scheduler or from a dashboard load, which never fails because of it), or one **stale draft venue
+  cannot be deleted** (`retention:stale-draft-not-deleted`: it is skipped, and the rest of the run goes on; the alert names the business and the database's reason, which
+  usually means a table the foreign-key walk in `src/lib/drafts.ts` cannot clear);
 - the **nightly backup** or its **off-site copy** fails;
 - **messages to customers stop going out**: five or more failed in an hour and
   none sent (one bad address is not news; a rejected SMTP login is).

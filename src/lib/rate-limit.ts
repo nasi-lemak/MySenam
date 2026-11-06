@@ -77,6 +77,10 @@ export const POLICIES = {
   quote: { limit: 120, windowMs: 10 * MINUTE },
   /** A venue's own systems on the public API, per key: plenty for a front-desk screen polling, not a scrape. */
   api: { limit: 120, windowMs: MINUTE },
+  /** Staff looking a customer's account up by email or number, per staff account (lib/customer-lookup.ts): a counter's worth an hour, not a walk through the numbers. */
+  staffLookup: { limit: 30, windowMs: 60 * MINUTE },
+  /** The same, per address, so fresh staff accounts from one place do not each get the allowance. */
+  staffLookupAddress: { limit: 120, windowMs: 60 * MINUTE },
   /** An AI assistant on the MCP server without a key, per address: a conversation's worth of searches, not a scrape (a key counts as `api`). */
   mcp: { limit: 60, windowMs: MINUTE },
   /** An AI assistant's connector registering itself (lib/mcp/oauth.ts), per address: one per connector added, not a flood of rows. A provider's servers register for all their users from few addresses, hence not fewer. */
@@ -214,6 +218,18 @@ export async function refusedFor(name: PolicyName, subject: string, now = Date.n
   return NextResponse.json(
     { error: "Too many attempts. Please wait a moment and try again." },
     { status: 429, headers: { "Retry-After": String(Math.ceil((resetAt - now) / 1000)) } }
+  );
+}
+
+/** Counts one use against one subject (an account) from anywhere, and returns the 429 to hand back once it is over its allowance. */
+export async function rateLimitSubject(name: PolicyName, subject: string): Promise<NextResponse | null> {
+  const policy = POLICIES[name];
+  const key = `${name}:${subject.trim().toLowerCase()}`;
+  const result = sharedLimits() ? await checkSharedRateLimit(key, policy) : checkRateLimit(key, policy);
+  if (result.allowed) return null;
+  return NextResponse.json(
+    { error: "Too many attempts. Please wait a moment and try again." },
+    { status: 429, headers: { "Retry-After": String(result.retryAfter) } }
   );
 }
 

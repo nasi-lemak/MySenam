@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
-import { submitApplication } from "@/lib/applications";
+import { submitApplication, tellExistingApplicant } from "@/lib/applications";
 import { isMarketplace } from "@/lib/mode";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +43,10 @@ export async function POST(req: NextRequest) {
     // What the visitor chose in the public guide, if they did: checked and kept by submitApplication.
     fit: input.fit,
   });
+  // An address that is already a staff account, or has a sign-up waiting, gets the answer a new one does, and an email saying
+  // what it can do: the page never says whether an address belongs to somebody who works at a venue.
+  if (!result.ok && result.code === "EMAIL_KNOWN" && (await tellExistingApplicant(input.email as string, input.contactName as string)))
+    return NextResponse.json({ ok: true, emailSent: true }, { status: 201 });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   // Whether to tell them to look for a link in their email.
   return NextResponse.json({ ok: true, emailSent: result.emailSent }, { status: 201 });
