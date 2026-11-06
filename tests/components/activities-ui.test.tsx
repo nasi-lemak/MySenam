@@ -48,6 +48,34 @@ describe("adding resources from a template", () => {
     expect(added).toHaveBeenCalledWith("Added Lane 1, Lane 2.");
   });
 
+  it("keeps what the operator has typed when the activities finish loading afterwards, or are loaded again", async () => {
+    // The activities answer late (a slow connection, a busy server): the operator is already typing.
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).startsWith("/api/admin/activities")) {
+        await gate;
+        return json({ activities: allActivities() });
+      }
+      return json({});
+    });
+    render(<AddResourcesForm venueId={3} onAdded={() => {}} />);
+    await act(async () => {});
+    fireEvent.change(screen.getByRole("spinbutton", { name: /How many/ }), { target: { value: "3" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Places/ }), { target: { value: "6" } });
+    await act(async () => {
+      release!();
+      await gate;
+    });
+    await act(async () => {});
+    // The template arrived, and did not overwrite what was typed.
+    expect((screen.getByRole("spinbutton", { name: /How many/ }) as HTMLInputElement).value).toBe("3");
+    expect((screen.getByRole("spinbutton", { name: /Places/ }) as HTMLInputElement).value).toBe("6");
+    // Choosing another activity is the operator asking for its template: that does replace the fields.
+    fireEvent.change(screen.getByRole("combobox", { name: /Activity/ }), { target: { value: "swimming" } });
+    expect((screen.getByRole("spinbutton", { name: /Places/ }) as HTMLInputElement).value).toBe("4");
+  });
+
   it("says when an activity asks for a sign-off, and what is not built", async () => {
     fetchMock.mockImplementation(async () => json({ activities: allActivities() }));
     render(<AddResourcesForm venueId={3} onAdded={() => {}} />);

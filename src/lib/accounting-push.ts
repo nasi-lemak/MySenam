@@ -548,7 +548,7 @@ async function needReconnect(venueId: number, now: Date): Promise<void> {
  * and spends the old), so one process refreshes at a time: it takes a short lease, and another that finds it held uses
  * what the first stored, or tries again next tick. Null when it cannot be had now.
  */
-async function session(venueId: number, now: Date, force: boolean): Promise<Session | null> {
+async function session(venueId: number, now: Date, force: boolean, bad: string | null = null): Promise<Session | null> {
   const db = getDb();
   let c = await connectionRow(venueId);
   if (!c || c.status !== "connected" || !c.tenant_id) return null;
@@ -572,6 +572,18 @@ async function session(venueId: number, now: Date, force: boolean): Promise<Sess
   }
   try {
     c = (await connectionRow(venueId))!;
+    // Read before the lease was taken, "expired" may be out of date: another tick can have refreshed and let go of the lease
+    // between that read and this one. Look again now that nobody else can be refreshing, and use what it stored: refreshing a
+    // second time would spend the new rotating token for nothing.
+    // Asked for after a 401 (force), the same holds when the stored token is no longer the one that was refused: it was
+    // already replaced since.
+    if (c.access_token && (force ? bad !== null : fresh(c))) {
+      const token = unseal(c.access_token);
+      if (token && (!force || token !== bad)) {
+        await db.prepare("UPDATE accounting_connections SET refreshing_until = NULL WHERE venue_id = ?").run(venueId);
+        return { accessToken: token, tenantId: c.tenant_id! };
+      }
+    }
     const refresh = c.refresh_token ? unseal(c.refresh_token) : null;
     // Sealed under another key (an install restored elsewhere): it cannot be opened, so the grant has to be given again.
     if (!refresh) throw new ProviderError("unauthorised", "The stored access cannot be read.");
@@ -602,7 +614,7 @@ async function contextFor(venueId: number, now: Date): Promise<Context | null> {
         if (err instanceof ProviderError && err.kind === "unauthorised" && !refreshed) {
           refreshed = true;
           const bad = current!.accessToken;
-          let next = await session(venueId, now, true);
+          let next = await session(venueId, now, true, bad);
           // Another tick is refreshing at this moment (the refresh token is spent by one): take what it stores, rather than
           // taking the 401 for a lost grant.
           for (let wait = 0; !next && wait < 25; wait++) {

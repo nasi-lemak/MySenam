@@ -1,7 +1,7 @@
 "use client";
 
 import { readJson } from "@/lib/read-response";
-import { Fragment, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ACTIVITY_CATEGORIES, BUILTIN_ACTIVITIES, RESOURCE_MODELS, RESOURCE_NOUNS } from "@/lib/activity-catalogue";
 import { type Activity } from "@/lib/activity-registry";
 import { ActivityGlyph, GlyphTile } from "@/components/Glyph";
@@ -107,20 +107,35 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
   const [error, setError] = useState<string | null>(null);
   const [ownOpen, setOwnOpen] = useState(false);
 
-  // A new activity chosen: start from its template.
+  // The fields the operator has changed themselves. A template fills only the others: the activities can arrive after the
+  // operator has started typing, or be loaded again, and neither may wipe what they entered.
+  const touched = useRef(new Set<string>());
+  const edit = (patch: Partial<typeof form>) => {
+    for (const key of Object.keys(patch)) touched.current.add(key);
+    setForm((f) => ({ ...f, ...patch }));
+  };
+  // A new activity chosen: start from its template. Once per activity: a reload gives the same activity as a new object.
+  const appliedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!chosen) return;
+    if (!chosen || appliedFor.current === chosen.key) return;
+    // Another activity picked is the operator asking for that activity's template, so it replaces what was typed.
+    if (appliedFor.current !== null) touched.current.clear();
+    appliedFor.current = chosen.key;
     const tpl = chosen.template;
-    setForm((f) => ({
-      ...f,
-      count: String(tpl.count),
-      noun: tpl.noun,
-      capacity: String(tpl.capacity),
-      perPlayer: tpl.perPlayer,
-      maxPlayers: tpl.maxPlayers === null ? "" : String(tpl.maxPlayers),
-      setting: tpl.setting ?? "",
-      deposit: tpl.model === "hire" ? f.deposit : "0",
-    }));
+    setForm((f) => {
+      const fill: Partial<typeof f> = {
+        count: String(tpl.count),
+        noun: tpl.noun,
+        capacity: String(tpl.capacity),
+        perPlayer: tpl.perPlayer,
+        maxPlayers: tpl.maxPlayers === null ? "" : String(tpl.maxPlayers),
+        setting: tpl.setting ?? "",
+        deposit: tpl.model === "hire" ? f.deposit : "0",
+      };
+      const next = { ...f };
+      for (const [key, value] of Object.entries(fill)) if (!touched.current.has(key)) (next as Record<string, unknown>)[key] = value;
+      return next;
+    });
   }, [chosen]);
 
   async function add(e: React.FormEvent) {
@@ -164,17 +179,17 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
         <ActivityPicker activities={activities} value={sport} onChange={setSport} />
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("res.howMany")}
-          <input type="number" min={1} max={20} value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} className={`mt-1 w-20 ${input}`} />
+          <input type="number" min={1} max={20} value={form.count} onChange={(e) => edit({ count: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
         {form.count === "1" && (
           <label className="flex flex-col text-xs font-medium text-slate-500">
             {t("res.nameOptional")}
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("res.nameExample")} className={`mt-1 w-36 ${input}`} />
+            <input value={form.name} onChange={(e) => edit({ name: e.target.value })} placeholder={t("res.nameExample")} className={`mt-1 w-36 ${input}`} />
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("res.eachIsA")}
-          <select value={form.noun} onChange={(e) => setForm({ ...form, noun: e.target.value })} className={`mt-1 ${input}`}>
+          <select value={form.noun} onChange={(e) => edit({ noun: e.target.value })} className={`mt-1 ${input}`}>
             {RESOURCE_NOUNS.map((n) => (
               <option key={n} value={n}>
                 {t(`res.noun.${n}`)}
@@ -184,29 +199,29 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("res.offPeakRate")}
-          <input required type="number" step={0.01} min={0} value={form.offPeak} onChange={(e) => setForm({ ...form, offPeak: e.target.value })} className={`mt-1 w-24 ${input}`} />
+          <input required type="number" step={0.01} min={0} value={form.offPeak} onChange={(e) => edit({ offPeak: e.target.value })} className={`mt-1 w-24 ${input}`} />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("res.peakRate")}
-          <input required type="number" step={0.01} min={0} value={form.peak} onChange={(e) => setForm({ ...form, peak: e.target.value })} className={`mt-1 w-24 ${input}`} />
+          <input required type="number" step={0.01} min={0} value={form.peak} onChange={(e) => edit({ peak: e.target.value })} className={`mt-1 w-24 ${input}`} />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500" title={t("res.placesTitle")}>
           {t("res.places")}
-          <input type="number" min={1} max={MAX_CAPACITY} value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} className={`mt-1 w-20 ${input}`} />
+          <input type="number" min={1} max={MAX_CAPACITY} value={form.capacity} onChange={(e) => edit({ capacity: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500" title={t("res.depositTitle")}>
           {t("res.deposit")}
-          <input type="number" step={0.01} min={0} max={MAX_DEPOSIT} value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} className={`mt-1 w-20 ${input}`} />
+          <input type="number" step={0.01} min={0} max={MAX_DEPOSIT} value={form.deposit} onChange={(e) => edit({ deposit: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
         {form.capacity === "1" && (
           <label className="flex items-center gap-1 text-xs font-medium text-slate-500">
-            <input type="checkbox" checked={form.perPlayer} onChange={(e) => setForm({ ...form, perPlayer: e.target.checked })} />
+            <input type="checkbox" checked={form.perPlayer} onChange={(e) => edit({ perPlayer: e.target.checked })} />
             {t("res.perPerson")}
           </label>
         )}
         <label className="flex flex-col text-xs font-medium text-slate-500" title={t("res.settingTitle")}>
           {t("res.setting")}
-          <select value={form.setting} onChange={(e) => setForm({ ...form, setting: e.target.value })} className={`mt-1 ${input}`}>
+          <select value={form.setting} onChange={(e) => edit({ setting: e.target.value })} className={`mt-1 ${input}`}>
             <option value="">{t("res.notSaid")}</option>
             <option value="indoor">{t("res.indoor")}</option>
             <option value="outdoor">{t("res.outdoor")}</option>
@@ -214,7 +229,7 @@ export function AddResourcesForm({ venueId, onAdded }: { venueId: number; onAdde
         </label>
         <label className="flex flex-col text-xs font-medium text-slate-500">
           {t("res.mostInBooking")}
-          <input type="number" min={1} max={mostPerBookingAllowed(Number(form.capacity) || 1)} placeholder={t("res.any")} value={form.maxPlayers} onChange={(e) => setForm({ ...form, maxPlayers: e.target.value })} className={`mt-1 w-20 ${input}`} />
+          <input type="number" min={1} max={mostPerBookingAllowed(Number(form.capacity) || 1)} placeholder={t("res.any")} value={form.maxPlayers} onChange={(e) => edit({ maxPlayers: e.target.value })} className={`mt-1 w-20 ${input}`} />
         </label>
         <button type="submit" className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">
           {t("c.add")}
