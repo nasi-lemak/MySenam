@@ -23,7 +23,12 @@ than the court's hourly one.
 
 Classes can repeat weekly for a term (up to 12 weeks) under a shared `CL-`
 series code. Cancelling a class releases every enrolment and returns the hours
-to general booking. Staff see a roster per class with each attendee's check-in
+to general booking. The class is locked and its roster read in the same transaction as the cancellation, so an
+enrolment or a waiting-list claim at the same moment either lands first (and is cancelled, refunded and told with the
+rest) or is refused `CLASS_CANCELLED`: no confirmed enrolment is ever left in a cancelled class. A class that **has
+ended** cannot be called off by hand, by a closed day, a rain-out or a court taken out of service (it was held, and the
+money was for a session that ran; its register stays open); one under way can.
+Staff see a roster per class with each attendee's check-in
 state.
 
 **Enrolling somebody else.** A signed-in adult enrols themself, people they

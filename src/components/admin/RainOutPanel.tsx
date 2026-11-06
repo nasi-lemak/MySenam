@@ -69,8 +69,10 @@ export function RainOutPanel({
     if (!res.ok) return setError(t.err(data, t("rain.failed")));
     if (isPreview) return setPreview(data);
     setPreview(null);
+    const left = (data.left ?? []) as { ref: string }[];
     setNotice(
-      t("rain.done", { bookings: t.plural("rain.bookings", data.bookings.length), classes: t.plural("rain.classes", data.classes) })
+      t("rain.done", { bookings: t.plural("rain.bookings", data.bookings.length), classes: t.plural("rain.classes", data.classes) }) +
+        (left.length > 0 ? ` ${t("cf1.left", { codes: left.map((l) => l.ref).join(", ") })}` : "")
     );
     onDone();
   }

@@ -4006,6 +4006,8 @@ async function rescheduleBookingOnce(
         // Somebody qualified on shift for the new time, where the activity there asks for one (lib/rosters.ts): a move of
         // time or court is asked as a booking is. A change of coach alone moves nothing the roster is asked about.
         const movesSession = to.date !== booking.date || span.start !== booking.startMin || court.id !== booking.courtId;
+        // A day closed while this was being moved onto it: asked again here, where a closure that reads what is booked meets it (closeVenueDay).
+        if (to.date !== booking.date && (await getVenueClosure(court.venueId, to.date))) throw new SupervisorMissing(refuse("VENUE_CLOSED"));
         if (movesSession) {
           const bare = await supervisionRefusal({ venueId: court.venueId, courtId: court.id, sport: booking.sport, date: to.date, span, zone, exceptBookingId: booking.id });
           if (bare) throw new SupervisorMissing(bare);
