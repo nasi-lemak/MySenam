@@ -427,6 +427,14 @@ refusal lists every such booking (date, time, court and code), and staff
 cancel or move them first. Hours saved in the editor apply from today; hours
 can also be set [from a later date](#hours-from-a-date).
 
+**A weekly series is checked week by week** against the hours, the closed weekdays, the closures and the court's
+booking rules (starts, lengths) in force **on that week's own date**, as its price is each week's own: a change of
+hours or a closed weekday from a later date reaches the weeks that fall after it. A week that does not fit is
+**skipped with the reason** (*outside the opening hours*, *outside the court's booking rules*, *venue closed*) with
+*skip unavailable weeks*, as a clash or a closed day is; without it the whole series is refused, naming the first week
+and the reason, and nothing is made. Staff who may go past the court's rules (`staff.override`) book those weeks
+anyway, and the series answers with the rules gone past (`overrides`), each such week marked as an override.
+
 A **closure** shuts one venue for one whole date (`venue_closures`, unique on
 venue + date). Closed days read as blocked everywhere: no slot is selectable,
 booking, series, class scheduling, enrolment and waitlist joins are all refused
@@ -435,6 +443,19 @@ date, and customers see the reason both as an upcoming-closures banner on the
 venue page and on the grid itself. Staff still see the day in the schedule,
 marked with the closure reason rather than blank, so bookings taken before the
 closure was declared remain visible for them to handle.
+
+**Closing a day over bookings** (*Venues → Closures*; `POST /api/admin/venues/{id}/closures`)
+is one decision, taken in this order ([ADR 0053](../architecture/decisions/0053-a-closure-is-written-first-and-what-has-been-played-is-left-alone.md)):
+a past date is refused first, before anything is cancelled; with bookings or classes still to be played that day it
+asks for a yes (a 409 naming the counts); the **closure is then written first**, in a transaction that also reads what
+is booked, and live waiting-list offers for the day are let go (the entry goes back to waiting, not burned); only then
+is each booking cancelled, refunded and its customer told (a counter payment owed back), and each class called off,
+with nothing offered to the waiting list (a closed day is not offered). A booking made at the same moment either
+completes before the closure (and is cancelled with the rest) or is refused after it, never left confirmed on the closed
+day; the sweep runs again for anything that arrived before the closure was written. What has **been played** (a
+booking or class that has ended) is left alone, and not counted; one under way is called off. A booking whose **kit is
+still out** cannot be cancelled: it stays confirmed and is **named in the response (`left`) and the activity log** for
+the desk to settle after the kit is back; asked again, the same request carries on with what is left.
 
 ### Hours by weekday, and after midnight
 
@@ -506,9 +527,16 @@ Two ways, for two lengths of time:
   choose to cancel them, which refunds each as a staff cancellation would
   (a counter payment owed back, [owed back after the venue cancels](payments-and-credit.md#owed-back-after-the-venue-cancels))
   and messages its customer. Classes on a court sharing the floor are listed too.
-  The outage is saved in one transaction that finds nothing left in the way: a
-  booking made while the others were being cancelled is cancelled in turn (or,
-  without *cancel them*, listed). *Back in service today* ends it early.
+  **Taking the court out is one transaction**: the bookings and classes in the way are cancelled and refunded, live
+  waiting-list offers on the court are let go, and the outage is written and the court claimed, **or none of it is**
+  (nothing is offered to the waiting list meanwhile, and the customers are told, and online money refunded, once it
+  has committed). A booking made while this runs makes the claim refuse and the whole thing goes round again for it
+  (a few times, then it says so, with nothing changed); one made after is refused by the claim. What has **been played**
+  today is history, never "in the way": a court taken out at 15:00 "from today" is not refused because of the 09:00
+  booking, and its claim starts from the moment it was taken out (`court_outages.claimed_from`). One under way is
+  cancelled. A booking whose **kit is still out** cannot be cancelled and the court cannot go out over it: the request
+  is refused naming the booking, with **nothing changed** (no booking cancelled, no refund, no outage).
+  *Back in service today* ends it early.
 
 An outage is one claim on the court for the whole stretch: every minute of
 each business day it covers, late hours past midnight included, or with no
@@ -535,8 +563,13 @@ would (the venue's choice, so no late-cancel fee; a counter payment owed back,
 [owed back after the venue cancels](payments-and-credit.md#owed-back-after-the-venue-cancels)), messages each customer and
 keeps them on the desk's *needs attention* list until they have seen it, and
 blocks the rest of those hours with the reason so nobody books them
-meanwhile (`rainOut` in `src/lib/rain-outs.ts`). A booking already under
-way is called off too; one that has finished is left alone. Bookings on a
+meanwhile (`rainOut` in `src/lib/rain-outs.ts`). **The hours are blocked first**
+(live waiting-list offers for them are let go), so from then on nothing in them is offered, claimed or booked; each
+booking and class is then called off in a transaction that also blocks the time it frees, so the freed time is never
+open in between and is offered to nobody; a booking that slipped in before the block is found by going round again. A
+booking or class already under way is called off too; one that has finished is left alone, and the preview does not
+count it. A booking whose **kit is still out** cannot be called off: it is **named for the desk** (`left` in the
+response, and in the panel's message) rather than skipped silently. Bookings on a
 linked court that hold the chosen court's hours are found as well. Front-desk
 staff can do it; it is in the activity log.
 

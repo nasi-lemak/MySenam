@@ -429,8 +429,27 @@ const ENGLISH = translator("en");
 
 export type ClosureResult = { ok: true; closure: VenueClosure } | Refusal;
 
-/** Shut a venue for a whole day. Existing bookings are left for staff to handle. */
-export async function closeVenueDay(venueId: number, date: string, reason?: string, opts: { safety?: boolean } = {}): Promise<ClosureResult> {
+/** Why a day cannot be shut, before anything is done for it: a day gone by would only hide what was booked and played. */
+export async function closureRefusal(venueId: number, date: string): Promise<Refusal | null> {
+  if (!isValidDateString(date)) return { ok: false, error: "Invalid date." };
+  if (!(await getDb().prepare("SELECT id FROM venues WHERE id = ?").get(venueId))) return refuse("VENUE_NOT_FOUND");
+  return date < todayISO((await venueHours(venueId)).zone) ? refuse("CLOSURE_PAST") : null;
+}
+
+/**
+ * Shut a venue for a whole day. The closure is the decision, written first: from the moment it is committed nothing is
+ * offered, claimed or booked on that day (every booking path asks for the closure inside its own transaction, and this
+ * one reads what is booked in the same transaction, so a booking made at the same moment and this closure cannot both
+ * miss each other: the transactions are serializable). What is booked stays for the caller to cancel, refund and tell
+ * (routes/admin/venues/[id]/closures), which is why `refuseIfBooked` exists for a caller that was not asked to.
+ * Live waiting-list offers on the day are let go, and a waiting entry is left waiting, for a day that is opened again.
+ */
+export async function closeVenueDay(
+  venueId: number,
+  date: string,
+  reason?: string,
+  opts: { safety?: boolean; refuseIfBooked?: boolean } = {}
+): Promise<ClosureResult> {
   return withTransaction(async () => {
     if (!isValidDateString(date)) return { ok: false, error: "Invalid date." };
     const db = getDb();
@@ -438,13 +457,70 @@ export async function closeVenueDay(venueId: number, date: string, reason?: stri
     if (!venue) return refuse("VENUE_NOT_FOUND");
     // A day gone by cannot be shut; it would only hide what was booked and played.
     if (date < todayISO((await venueHours(venueId)).zone)) return refuse("CLOSURE_PAST");
+    // What is booked, read in this transaction: against a booking made at the same moment, one of the two is made to run again.
+    // What has been played is history and does not count.
+    const zone = (await venueHours(venueId)).zone;
+    const held = (await db
+      .prepare(
+        `SELECT b.end_min FROM bookings b JOIN courts c ON c.id = b.court_id WHERE c.venue_id = ? AND b.date = ? AND b.status = 'confirmed'
+         UNION ALL
+         SELECT cl.end_min FROM classes cl JOIN courts c ON c.id = cl.court_id WHERE c.venue_id = ? AND cl.date = ? AND cl.status = 'scheduled'`
+      )
+      .all(venueId, date, venueId, date)) as { end_min: number }[];
+    const standing = held.filter((r) => minutesUntil(date, r.end_min, zone) > 0).length;
+    if (opts.refuseIfBooked && standing > 0) return { ok: false, error: "That day has bookings or classes in it now. Look at it again." };
     const trimmed = reason?.trim();
     await db.prepare(
       `INSERT INTO venue_closures (venue_id, date, reason, safety) VALUES (?, ?, ?, ?)
        ON CONFLICT (venue_id, date) DO UPDATE SET reason = excluded.reason, safety = excluded.safety`
     ).run(venueId, date, trimmed && trimmed.length > 0 ? trimmed : null, opts.safety === true);
+    // A place offered to somebody for that day is no longer anybody's.
+    await withdrawOffers({ venueId }, date, date);
     return { ok: true, closure: { date, reason: trimmed && trimmed.length > 0 ? trimmed : null } };
   });
+}
+
+/**
+ * Let go the live waiting-list offers for court time the venue is taking away (a closed day, a rain-out, a court out of
+ * service): the offer's hold on the court is released and the entry goes back to waiting, so it is not burned and is
+ * offered again if the time is ever open. Nobody can claim it meanwhile (the offer is no longer live). `span`, on a
+ * single date, narrows it to the time taken. Returns how many were let go. Run it in the transaction that closes the time.
+ */
+export async function withdrawOffers(
+  scope: { venueId?: number; courtIds?: number[] },
+  from: string,
+  to: string,
+  span?: Span
+): Promise<number> {
+  const db = getDb();
+  const where: string[] = ["w.status = 'offered'", "w.date >= ?", "w.date <= ?", "w.court_id IS NOT NULL"];
+  const params: (string | number)[] = [from, to];
+  if (scope.venueId !== undefined) {
+    where.push("c.venue_id = ?");
+    params.push(scope.venueId);
+  }
+  if (scope.courtIds) {
+    if (scope.courtIds.length === 0) return 0;
+    where.push(`w.court_id IN (${scope.courtIds.map(() => "?").join(",")})`);
+    params.push(...scope.courtIds);
+  }
+  if (span) {
+    where.push("w.start_min < ? AND w.end_min > ?");
+    params.push(span.end, span.start);
+  }
+  const rows = (await db
+    .prepare(`SELECT w.id FROM waitlist w JOIN courts c ON c.id = w.court_id WHERE ${where.join(" AND ")} ORDER BY w.id`)
+    .all(...params)) as { id: number }[];
+  let letGo = 0;
+  for (const row of rows) {
+    const done = await db
+      .prepare("UPDATE waitlist SET status = 'waiting', offered_at = NULL, offer_token = NULL WHERE id = ? AND status = 'offered'")
+      .run(row.id);
+    if (done.changes !== 1) continue;
+    await release({ kind: "offer", waitlistId: row.id });
+    letGo++;
+  }
+  return letGo;
 }
 
 /** Re-open a closed day. */
@@ -2465,6 +2541,8 @@ export async function createBookingSeries(
     return court.capacity > 1 ? "fully booked" : "already booked";
   };
 
+  // The court's rules a later week went past, where staff may (recorded as overrides).
+  const laterBreaches: PolicyBreach[] = [];
   try {
     const result = await withTransaction(async () => {
       // Ids only: each booking is read back once the transaction has committed.
@@ -2474,6 +2552,7 @@ export async function createBookingSeries(
       const skipped: SeriesSkip[] = [];
       let missing: Refusal | null = null;
       let supervisionSkips = 0;
+      laterBreaches.length = 0;
       // Asked again in the booking's own transaction: a membership suspended, cancelled or ended while this
       // booking was being made is either seen here, or sees this booking when it flags its bookings
       // (lib/membership-suspensions.ts, lib/membership-flags.ts): the transactions are serializable, so never neither.
@@ -2488,7 +2567,25 @@ export async function createBookingSeries(
         let reason: string | null = null;
         // A manager's override of an advisory window, where this week is outside its day's window (ADR 0046): recorded with the booking.
         let windowWent: { code: WindowCode; day: LaunchDay } | null = week === 0 && windowPast && day.launch ? { code: launchRefusal(day.launch, span).code, day: day.launch } : null;
-        if (week > 0 && (await getVenueClosure(court.venueId, weekDate))) reason = "venue closed";
+        // Asked in this transaction, for every week including the first: a day closed while this booking was being made is
+        // either seen here, or sees this booking when it reads what is booked (closeVenueDay): never neither.
+        if ((week > 0 || !input.classId) && (await getVenueClosure(court.venueId, weekDate)) !== null) {
+          if (week === 0) throw new MembershipLapsed(refuse("VENUE_CLOSED"));
+          reason = "venue closed";
+        }
+        // Each later week keeps to the hours, the closed weekdays and the court's rules in force on its own date, as its
+        // price is its own (ADR 0027): a change from a later date reaches the weeks that fall after it.
+        let weekOverridden = false;
+        if (!reason && week > 0 && !input.classId) {
+          const that = await courtDay(court, weekDate);
+          const out = policyBreaches(that.policy, span, that, minutesUntil(weekDate, span.start, that.zone)).filter((b) => b !== "NOTICE" && b !== "WINDOW");
+          if (out.includes("CLOCK")) reason = "the clocks change that day";
+          else if (out.length > 0 && !override) reason = out.includes("HOURS") ? "outside the opening hours" : "outside the court's booking rules";
+          else if (out.length > 0) {
+            weekOverridden = true;
+            for (const b of out) if (!laterBreaches.includes(b)) laterBreaches.push(b);
+          }
+        }
         if (!reason && week > 0 && windowed) {
           const that = (await courtDay(court, weekDate)).launch;
           if (that && !launchOk(that, span)) {
@@ -2534,7 +2631,7 @@ export async function createBookingSeries(
                   instantOf(weekDate, span.start, zone).toISOString(), instantOf(weekDate, span.end, zone).toISOString(),
                   name, phone, email ?? null, roundMoney(quote.total - placeOff), quote.fees,
                   userId ?? null, seriesCode, randomBytes(16).toString("hex"),
-                  input.classId ?? null, players, breaches.length > 0,
+                  input.classId ?? null, players, breaches.length > 0 || weekOverridden,
                   quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players, games).total ? 1 : 0,
                   input.madeOn ?? input.by ?? "customer", input.guestOf ?? null,
                   games, laneOnArrival
@@ -2606,7 +2703,8 @@ export async function createBookingSeries(
     });
     const bookings: Booking[] = [];
     for (const id of result.bookingIds) bookings.push((await getBookingById(id))!);
-    return { ok: true, bookings, skipped: result.skipped, seriesCode, ...(breaches.length > 0 ? { overrides: breaches } : {}) };
+    const overrides = [...new Set([...breaches, ...laterBreaches])];
+    return { ok: true, bookings, skipped: result.skipped, seriesCode, ...(overrides.length > 0 ? { overrides } : {}) };
   } catch (err: unknown) {
     if (err instanceof MembershipLapsed) return err.refusal;
     if (err instanceof SupervisorMissing) return err.refusal;
@@ -3474,7 +3572,16 @@ async function adminCancelBookingOnce(
    * Clearing a test booking (lib/test-bookings.ts): only one still a test, and one already played too, since
    * nothing was played for real; all of it back.
    */
-  opts: { test?: boolean } = {}
+  opts: {
+    test?: boolean;
+    /**
+     * False when the venue is closing the time this booking held (a closed day, a rain-out, a court out of service):
+     * the freed place is then offered to nobody, since the time is not open (lib/counter-refunds.ts `venueCancel`).
+     */
+    offer?: boolean;
+    /** Written in the cancellation's own transaction, after the refund: how a closure takes the freed time in the same breath. */
+    within?: (booking: Booking) => Promise<void>;
+  } = {}
 ): Promise<CancelResult> {
   const db = getDb();
   const row = await db
@@ -3508,11 +3615,12 @@ async function adminCancelBookingOnce(
     const owed = (await plan.owe?.(booking.id)) ?? false;
     await refundBooking(booking.id, plan.share, plan.backAs, owed);
     await plan.settle?.(booking.id);
+    await opts.within?.({ ...booking, status: "cancelled" });
     return true;
   })();
   if (!claimed) return refuse("ALREADY_CANCELLED");
-  // A freed place goes to whoever has waited longest (not one already played).
-  if (played) return { ok: true, booking: { ...booking, status: "cancelled" } };
+  // A freed place goes to whoever has waited longest (not one already played, nor time the venue is closing).
+  if (played || opts.offer === false) return { ok: true, booking: { ...booking, status: "cancelled" } };
   if (booking.classId) await offerClassPlace(booking.classId);
   else await offerSlotPlace(booking.courtId, booking.date);
   return { ok: true, booking: { ...booking, status: "cancelled" } };
@@ -3898,6 +4006,8 @@ async function rescheduleBookingOnce(
         // Somebody qualified on shift for the new time, where the activity there asks for one (lib/rosters.ts): a move of
         // time or court is asked as a booking is. A change of coach alone moves nothing the roster is asked about.
         const movesSession = to.date !== booking.date || span.start !== booking.startMin || court.id !== booking.courtId;
+        // A day closed while this was being moved onto it: asked again here, where a closure that reads what is booked meets it (closeVenueDay).
+        if (to.date !== booking.date && (await getVenueClosure(court.venueId, to.date))) throw new SupervisorMissing(refuse("VENUE_CLOSED"));
         if (movesSession) {
           const bare = await supervisionRefusal({ venueId: court.venueId, courtId: court.id, sport: booking.sport, date: to.date, span, zone, exceptBookingId: booking.id });
           if (bare) throw new SupervisorMissing(bare);
@@ -6860,7 +6970,13 @@ export async function enrolInTerm(input: {
   return { ok: true, bookings, skipped, seriesCode };
 }
 
-/** Cancel a class and release every enrolment in it. */
+/**
+ * Cancel a class and release every enrolment in it. The class's row is locked and its roster read inside the
+ * transaction, so an enrolment or a waiting-list claim that happens at the same moment either lands first (and is
+ * cancelled, refunded and told with the rest) or finds the class cancelled and is refused (`enrolPeopleOnce` takes the
+ * same lock). A class that is over is left alone, as a booking that is over is: there is nothing to call off, and the
+ * money was for a session that was held. One under way may still be called off.
+ */
 export async function cancelClassSession(
   classId: number,
   /**
@@ -6873,22 +6989,25 @@ export async function cancelClassSession(
   released: number;
   /** The enrolments this cancelled (not one its customer had cancelled a moment before). */
   cancelledIds?: number[];
+  /** How each of them stood before the refund, by enrolment id, for what is said to them. */
+  paymentBefore?: Record<number, "paid" | "unpaid">;
   error?: string;
 }> {
-  const session = await getClass(classId);
-  if (!session) return { ok: false, released: 0, error: "Class not found." };
-  if (session.status === "cancelled")
-    return { ok: false, released: 0, error: "This class is already cancelled." };
-
   const db = getDb();
-  const enrolments = await db
-    .prepare("SELECT id FROM bookings WHERE class_id = ? AND status = 'confirmed'")
-    .all(classId) as { id: number }[];
-
-  let cancelledIds: number[] = [];
   const { oweCounter } = await import("./counter-refunds");
-  await db.transaction(async () => {
-    cancelledIds = [];
+  return db.transaction(async () => {
+    await db.prepare("SELECT id FROM classes WHERE id = ? FOR UPDATE").get(classId);
+    const session = await getClass(classId);
+    if (!session) return { ok: false, released: 0, error: "Class not found." };
+    if (session.status === "cancelled") return { ok: false, released: 0, error: "This class is already cancelled." };
+    if (minutesUntil(session.date, session.endMin, (await venueHours(session.venueId)).zone) <= 0) {
+      return { ok: false, released: 0, error: "This class is over, so it cannot be called off." };
+    }
+    const enrolments = (await db
+      .prepare("SELECT id, payment_status FROM bookings WHERE class_id = ? AND status = 'confirmed' ORDER BY id")
+      .all(classId)) as { id: number; payment_status: "paid" | "unpaid" }[];
+    const cancelledIds: number[] = [];
+    const paymentBefore: Record<number, "paid" | "unpaid"> = {};
     await db.prepare("UPDATE classes SET status = 'cancelled' WHERE id = ?").run(classId);
     // The court is free again for that time, and the coach (lib/class-coaches.ts) for any other.
     await release({ kind: "class", classId });
@@ -6900,9 +7019,10 @@ export async function cancelClassSession(
       await releaseBooking(row.id);
       await refundBooking(row.id, 1, undefined, await oweCounter(row.id, cause));
       cancelledIds.push(row.id);
+      paymentBefore[row.id] = row.payment_status;
     }
+    return { ok: true, released: cancelledIds.length, cancelledIds, paymentBefore };
   })();
-  return { ok: true, released: cancelledIds.length, cancelledIds };
 }
 
 /** Who is coming to a class. */
@@ -9202,6 +9322,8 @@ export async function offerClassPlace(classId: number): Promise<WaitlistEntry | 
 
     const session = await getClass(classId);
     if (!session || session.status === "cancelled") return null;
+    // Nothing is offered for a day the venue is shut.
+    if (await getVenueClosure(session.venueId, session.date)) return null;
     const free = session.capacity - session.enrolled - (await classOfferHolds(classId));
     if (free <= 0) return null;
 
@@ -9639,6 +9761,8 @@ export async function offerSlotPlace(courtId: number, date: string): Promise<Wai
     const court = await getCourt(courtId);
     if (!court) return null;
     const day = await courtDay(court, date);
+    // Nothing is offered for a day the venue is shut (a closure, or a weekday it never opens); blocked and out-of-service time is not free, so `slotTimeFree` leaves it.
+    if (day.closed) return null;
     const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
 
     for (const row of queue) {

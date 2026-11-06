@@ -1081,6 +1081,32 @@ export async function notifyReminders(now = new Date()): Promise<number> {
   return written;
 }
 
+/** What `cancelClassSession` answered, as the telling of it needs it. */
+export type ClassCancelled = Awaited<ReturnType<typeof cancelClassSession>>;
+
+/**
+ * Tell everybody a class was called off for (after `cancelClassSession` committed): the online money goes back as the
+ * venue's policy for what it cancels has it, and each enrolment cancelled is told as a venue cancellation. For a caller
+ * that cancels inside a larger transaction (a court taken out of service), which tells once that has committed.
+ */
+export async function tellClassCancelled(
+  classId: number,
+  session: ClassSession,
+  result: ClassCancelled,
+  why?: CancelReason
+): Promise<{ ok: boolean; released: number; error?: string; session?: ClassSession; cancelled?: Booking[] }> {
+  // Exactly the enrolments it cancelled: not one its customer had just cancelled, nor miss one made a moment before.
+  const ids = new Set(result.cancelledIds ?? []);
+  // Online money goes back as the venue's policy for what it cancels has it (lib/payments.ts `refundCancelled`).
+  if (ids.size > 0) await refundCancelled([...ids], { byVenue: true });
+  // How each stood before the refund (paid or not), for the activity log and the notice; the refund changes it.
+  const cancelled = (await getClassRoster(classId))
+    .filter((b) => ids.has(b.id))
+    .map((b) => ({ ...b, status: "cancelled" as const, paymentStatus: result.paymentBefore?.[b.id] ?? b.paymentStatus }));
+  for (const b of cancelled) await notifyVenueCancelled(b, session.name, why);
+  return { ...result, session, cancelled };
+}
+
 /** Call off a class and tell everybody enrolled in it, as a venue cancellation each. */
 export async function cancelClassAndTell(
   classId: number,
@@ -1089,19 +1115,9 @@ export async function cancelClassAndTell(
   cause: VenueCancelCause = "class"
 ): Promise<{ ok: boolean; released: number; error?: string; session?: ClassSession; cancelled?: Booking[] }> {
   const session = await getClass(classId);
-  // How each stood before (paid or not), for the activity log; the refund changes it.
-  const before = new Map((await getClassRoster(classId)).map((b) => [b.id, b]));
   const result = await cancelClassSession(classId, cause);
   if (!result.ok || !session) return result;
-  // Exactly the enrolments it cancelled: not one its customer had just cancelled, nor miss one made a moment before.
-  const ids = new Set(result.cancelledIds ?? []);
-  // Online money goes back as the venue's policy for what it cancels has it (lib/payments.ts `refundCancelled`).
-  if (ids.size > 0) await refundCancelled([...ids], { byVenue: true });
-  const cancelled = (await getClassRoster(classId))
-    .filter((b) => ids.has(b.id))
-    .map((b) => ({ ...b, status: "cancelled" as const, paymentStatus: before.get(b.id)?.paymentStatus ?? b.paymentStatus }));
-  for (const b of cancelled) await notifyVenueCancelled(b, session.name, why);
-  return { ...result, session, cancelled };
+  return tellClassCancelled(classId, session, result, why);
 }
 
 /**

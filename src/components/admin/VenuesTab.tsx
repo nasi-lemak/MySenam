@@ -299,7 +299,12 @@ function ClosuresRow({
         data = await readJson(res);
       }
       if (!res.ok) throw new Error(t.err(data, t("vn.requestFailed")));
-      if (okMessage) onNotice(data.cancelled ? `${okMessage} ${t("vn.cancelledTold", { n: data.cancelled })}` : okMessage);
+      const left = (data.left ?? []) as { ref: string }[];
+      if (okMessage)
+        onNotice(
+          (data.cancelled ? `${okMessage} ${t("vn.cancelledTold", { n: data.cancelled })}` : okMessage) +
+            (left.length > 0 ? ` ${t("cf1.left", { codes: left.map((l) => l.ref).join(", ") })}` : "")
+        );
       await load();
     } catch (err) {
       onError(err instanceof Error ? err.message : t("vn.requestFailed"));
