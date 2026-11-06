@@ -173,6 +173,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Go-to-market research, October 2026: competitors, costs, pricing, segments, and what became of its recommendations | [Go-to-market research](research/go-to-market/index.md) |
 | Where to store and scan supporting documents, and at what cost (October 2026): object storage, on-demand scanners and GuardDuty compared with clamd on the 4 GB Droplet; a recommendation, not a decision | [Document storage and scanning costs](research/2026-10-27-document-storage-and-scanning-costs.md) |
 | Audits by date, and a tracker of the launch audit's open items | [Audits](audits/index.md) |
+| The business-process audit of 6 November 2026: every finding with evidence and status, and what is left in order | [Findings register](audits/findings-register-2026-11-06.md) ([E to H](audits/findings-register-2026-11-06-e-to-h.md)), [remediation roadmap](audits/remediation-roadmap-2026-11-06.md) |
+| The same audit's workflow inventory, consistency matrix, state machines and owner decisions | [Inventory](audits/business-process-inventory-2026-11-06.md), [cross-domain consistency](audits/cross-domain-consistency-2026-11-06.md), [state transitions and recovery](audits/state-transitions-and-recovery-2026-11-06.md), [business decisions](audits/business-decisions-2026-11-06.md) |
 
 ## Where new information belongs
 

@@ -4,7 +4,11 @@ The third of four records of the business-process audit of MySenam at commit
 `2aabdd406626c9f1bdbd32e65addf599d0751c6f`. The others are the
 [business-process inventory](business-process-inventory-2026-11-06.md), the
 [cross-domain consistency matrix](cross-domain-consistency-2026-11-06.md) and
-the [remaining business decisions](business-decisions-2026-11-06.md).
+the [remaining business decisions](business-decisions-2026-11-06.md). The
+findings are in the [findings register](findings-register-2026-11-06.md); what is
+left to do is in the [remediation roadmap](remediation-roadmap-2026-11-06.md); and
+the transitions and exit paths the fix round added, and those still missing, are at
+the end, under [status after the fix round](#status-after-the-fix-round).
 
 Every long-lived object in MySenam (a booking, a payment, a pass, a message, a
 venue) is a small state machine, and most business defects the audit found are
@@ -325,3 +329,66 @@ in the product moves it on.
 | Cancelled booking | Any cancel | Nothing: a new booking is the only route | H12 |
 | Unpaid, unheld confirmed booking | A crash after creation, or no pay-to-hold | Staff by hand | B10=C16, B8 |
 | Open-ended suspension on a renewing plan | A manager who forgot | The manager reactivates | D12 |
+
+## Status after the fix round
+
+*Added after the fix round that followed this audit; the machines and rows above are
+unchanged and describe the baseline commit.* Where each finding stands is in the
+[findings register](findings-register-2026-11-06.md); what is left is in the
+[remediation roadmap](remediation-roadmap-2026-11-06.md). The new transitions were
+verified by new tests written by their authors on PGlite and, for races and money,
+Postgres; the lead's validation is in [testing](../development/testing.md#release-records).
+Nothing was run against a real provider, so every transition that sends a message,
+takes or returns money, or calls a gateway is tested against a stand-in only.
+
+Migrations added by the round: 0295, 0297, 0299, 0300, 0301, 0303, 0304, 0305, 0306,
+0307, 0308, 0309, 0311 (the numbers 0298, 0302 and 0310 are unused).
+
+### Transitions and exit paths added
+
+| Machine | Added | Findings |
+| ------- | ----- | -------- |
+| Booking | A played state in effect: ended bookings and classes are never listed or cancelled by a closure, rain-out, outage or manual cancel. Credit or pass payment only on a confirmed booking, decided in the paying transaction. A price lowered below money paid owes the deposit's excess back and refuses friends' shares. A booking whose request died before its hold is held or let go by the scheduler. A self or door check-in is recorded apart and does not clear a no-show. | B2, B5 = E8, B3, C1 = H1, B10 = C16, E7 |
+| Concession check | Decided once under the booking's lock; *Seen* is final | D2 |
+| Online payment and refund | A customer message when a refund is made, fails or is late (email). A counter-paid fee owed back on a tournament called off or a pre-draw withdrawal (`counter_fee_refunds_owed`). A payment's payer details anonymised with the booking | G13, C11 = F4 = H4, G6 |
+| Waiting-list offer | Offers made per time and not blocked by an unrelated offer; none for a closed day, a started class or a time with under 5 minutes left; an offer capped at the start; a lapse told once (email); a class called off closes its list and tells its coach; a freed class place from a term cancel or a released hold is offered to the class | B1 = E9 = H3, B6 (courts), B7 = E5, B13, E6, E12 = H9 |
+| Class session and enrolment | The roster read under the class lock, so an enrolment racing a cancel is cancelled or refused | E1 |
+| Membership | Days given back refused when they would run into the next term. An open-ended suspension of a renewing membership extends its end by the days it took when lifted. A venue suspension pauses a Stripe subscription's collection and resumes it | D7, D12, A4 |
+| Pass | Judged on the session's date. Entries given back to an ended pass reopen it for a venue-set grace (default 30 days). A pass cancelled with a refund is never revived and the entry is credited. A manager can extend a pass | D4, D1 = H5, D10 (part) |
+| Tournament, entry and fixture | The draw under the tournament's row lock and conditional on `open` or `closed`. A tournament with no closing date stops taking entries after its first day, is closed by the scheduler and flagged. An entrant taken out, disqualified or forfeited by staff is told. Drawn fixtures on a lost court or closed day are shown, told and postponable (`postpone_day`). A reported walkover is reminded 12 hours before it stands and flagged when it stood by silence | F1, F7, F5, F3, F10 (part) |
+| Open-game seat | No transition added | F6, F11 remain |
+| Ladder court-time hold | No change (the machine the fixtures were measured against) | |
+| Outbox message | No count of attempts gives a message up; the backoff stops at two hours; a message is given up when 7 days old, with staff and owners told; staff can send again everything that failed in a window; a reminder is re-read as it is sent; a campaign needs consent still standing and yields to transactional mail; urgent kinds bypass the daily cap; a WhatsApp credit is spent once per message; a message owed to a customer is recorded with its fact and swept | G1, G7, G8, G9, H11, G11, C17 |
+| Scheduler jobs | The outbox tick isolates each step. New sweeps: stranded holds, owed notices, renewal pauses and suspension notices, e-invoice back-off retry and catch-up. Platform invoice and payment-hold warnings are told-then-stamped (a crash repeats or loses nothing) | G10, B10, G11, A4, G15, G14 |
+| Venue lifecycle | A suspension (owner or payment) tells customers once and stops new sales of passes, memberships, credit and vouchers. An owner's lift of a payment hold means giving the overdue invoices time, with a reason. A branch is auto-approved only under a business in good standing. The draft purge skips a draft it cannot delete and reports it | A4, A7, A11, A1 = H2 |
+| Platform invoice and payment hold | The invoice is told on issue and before due. The owner can give time (`billing_grace_until`) without marking paid or voiding. Marking paid or void needs a reason and is logged | G14, A7, A6 = G12 |
+| Company invoice and credit | Credit allocated part by part and recorded. Invoices can be part-paid. Lines fixed at issue; a cheaper reschedule is a credit on the account. Overdue accounts reminded, shown in *Needs attention* and optionally blocked | C6, C5 (part), C7 |
+| E-invoice (MyInvois) | A document that did not reach LHDN goes back to waiting after a back-off and alerts; the month before is consolidated on any day; one venue's error no longer stops the loop | G15 |
+| Hire record | A method recorded when kit goes out; deposits held and returned in the cash-up; counted cash and variance stored; a bulk cancel or closure names the booking it skipped for kit out | C10 = E13 = H10, E14 |
+| Staff invitation and account | An invitation's link is never in a staff list. Business-level changes carry a business id and are visible to the business | A3, A8 |
+| Message report, suspension and appeal | For adults: managers told of a report; the owner reads the reports behind an automatic suspension; a suspension with a 14-day review date, lifted when fewer than three reports remain, with a request for review from the suspended person | F8 (part), F2 |
+| Retention run | A per-business savepoint; `me` no longer fails with housekeeping; the deletion plan comes from the database's foreign keys; erasure reaches payer details, messages and webhook deliveries | A1 = H2, G6 |
+| Safety (a new machine in effect) | A refused number loses the door code and self check-in and its upcoming bookings are listed; a sign-off, certification or induction taken back flags the bookings it affects, tells the customer once and withholds the door code until staff decide | E2, E4 (part) |
+
+### Transitions and exits still missing
+
+| Machine | Still missing | Findings |
+| ------- | ------------- | -------- |
+| Booking | Cancelled back to confirmed. The hold and confirmation in the booking's own transaction (only the sweep exists). A paid booking moved to a cheaper time keeps the price paid. The last-minute price on a move. Cancellation terms snapshotted | H12, B10, B16 = C12 = D15, B11, B12 |
+| Online payment and refund | A late payment revived into its booking. A refund notice by WhatsApp, and for payments with no booking. The customer's bank details for a Billplz refund (decision). One computed refundable amount in sen. The amount a gateway reports checked | C18 = H7, G13, C13, C19 |
+| Waiting-list offer | Several class places offered at once; an overnight pause; a closed day's waiting entries dropped and told; offers withdrawn by a closure told | B6, B13, B1 |
+| Class session and enrolment | A hold on a direct enrolment. A discount that follows the sessions kept | B9 = E10, E15 |
+| Membership | A pause of collection for a membership suspension; pass and membership validity across a venue suspension; benefits copied onto the term; a pro-rata void; a correction of holder or account | D12, A4, D6, D22, D10 |
+| Pass | A correction of holder or entries; a refusal on voiding while paid bookings stand; limits to off-peak or courts; entries given back to a pass cancelled without a refund | D10, D1, D8 |
+| Tournament, entry and fixture | A refusal of entries the day before the start, a two-day alert and a one-click cancel; a payment deadline for a promoted entrant; a walkover that never stands by silence; a box league's fee on a staff removal; an atomic postponement of a team-league night | F7, F10, F12, F3 |
+| Open-game seat | A notice and a way to clear a no-show; a cutoff on a leaver's share | F6, F11 |
+| Outbox message | A WhatsApp template for the lapse and refund notices; a series cancellation and class enrolment recovery row; the reason staff typed in a swept message; retry of a message abandoned for no WhatsApp credit (not recorded as changed) | B13, G13, G11, G20 |
+| Scheduler jobs | Per-job last-run state; a separate lease for backup; an idempotent loyalty grant | G18, G19 |
+| Venue lifecycle | Live to closed or archived, with customers' credit, passes and memberships offboarded; a customer-visible "venue is back" and "renewal paused"; validity extended for the time a venue was off; counter receipts excluded from a draft's deletion; lapsed holds released in the venue API | A5 = H8, A4, A15, B15 |
+| Company invoice and credit | A debit adjustment line for a dearer move; part payments in the journal before a whole booking is covered and on the customer's page | C5, C6 |
+| E-invoice (MyInvois) | A consolidation that follows the journal's revenue flag; the late consolidation's treatment | C2, G15 |
+| Hire record | A recorded method for deposits taken before migration 0308 (they show "not recorded"); a deposit's refund at the counter in the till's payout list | C10, C11 |
+| Staff invitation and account | An offer to revoke API keys and webhook secrets when a manager is removed; ticket attempts counted before the check | A13, A14 |
+| Message report, suspension and appeal | Escalation of an adult-thread report to the owner; a reporter notice of the outcome | F8 |
+| Retention run | A longer retention for money-related actions in the activity log; payer-detail retention basis decided by the venue's adviser | G20, G6 |
+| Safety | Warning a certification that expires before a booking; re-asking the sign-off when a booking moves into an unstaffed slot; the desk refusing a refused number; refusing a customer cancel after the code was revealed | E4, E3, E2, E18 |

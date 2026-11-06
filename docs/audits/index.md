@@ -7,6 +7,7 @@ here, and accepted work is carried to the [roadmap](../roadmap/roadmap.md) or
 
 | Audit | Date | What it covered |
 | ----- | ---- | --------------- |
+| [Business-process audit](findings-register-2026-11-06.md) | 6 November 2026 | Eight auditors read the whole product as a venue platform should behave: 149 workflows, 140 findings, 59 owner decisions; the fix round that followed and what it left ([record documents](#business-process-audit-6-november-2026)) |
 | [Operations audit](operations-2026-10-28.md) | 28 October 2026 | Operating a venue without support, the customer's and staff's flows, and money, security and concurrency, walked in the production build; 50 findings |
 | [Documentation audit](documentation-2026-10-24.md) | 24 October 2026 | This reorganisation: research and audits into `docs/`, programmes split into tournaments and matchmaking, conventions, discrepancies found |
 | [Launch audit](launch-2026-10-23.md) | 23 October 2026 | The research's 28 market gaps, where each stood after the launch batches, and what was still open |
@@ -15,6 +16,53 @@ here, and accepted work is carried to the [roadmap](../roadmap/roadmap.md) or
 
 Earlier audits of defects (the S, B and M identifiers) are tracked, fixed or
 open, in [known limitations](../roadmap/known-limitations.md).
+
+## Business-process audit, 6 November 2026
+
+An independent review of MySenam at commit
+`2aabdd406626c9f1bdbd32e65addf599d0751c6f` (the end of round 13), by eight
+auditors (A to H) working read-only with scratch repro tests: the marketplace
+lifecycle and permissions, court reservations, money, memberships and passes,
+classes and safety, competitions and messaging, communications and privacy, and
+adversarial sequences across modules. No real provider was called and no browser was
+walked. It found 140 findings (19 P1, 71 P2, 50 P3; no P0), listed 149
+workflows, and put 59 questions to the owner. A fix round of eleven workers then
+changed the code ([ADRs 0053 to 0063](../architecture/decisions/)); the
+validation of the integration branch is in
+[testing](../development/testing.md#release-records).
+
+| Record | What it holds |
+| ------ | ------------- |
+| [Findings register](findings-register-2026-11-06.md) and its [second half](findings-register-2026-11-06-e-to-h.md) | Every finding once, with evidence, cause, recommendation and status |
+| [Remediation roadmap](remediation-roadmap-2026-11-06.md) | What is open, in the order it matters, the owner decisions that gate it, the integrations still to verify, and a controlled-pilot recommendation |
+| [Business-process inventory](business-process-inventory-2026-11-06.md) | 149 workflows, who starts them, and how far the audit followed each |
+| [Cross-domain consistency matrix](cross-domain-consistency-2026-11-06.md) | The same concept in two places, and whether they differ |
+| [State transitions and recovery](state-transitions-and-recovery-2026-11-06.md) | Each long-lived object as a state machine, where something strands, and who recovers it |
+| [Business decisions](business-decisions-2026-11-06.md) | The 59 questions with a business answer, the recommended default, and (at the end) which were built |
+
+The earlier records keep their baseline text and end with a *status after the fix
+round*. Open items are tracked in [known limitations](../roadmap/known-limitations.md#business-process-audit-6-november-2026-open-items)
+(fixed ones under [fixed since the audit](../roadmap/known-limitations.md#fixed-since-the-audit)),
+and the deferred and proposed work in the [roadmap](../roadmap/roadmap.md).
+
+Where the findings stand (identifiers are the auditors': A to H, then the number):
+
+| Domain | Findings | Fixed | Partly | Open for a decision | Open |
+| ------ | -------- | ----- | ------ | ------------------- | ---- |
+| A Marketplace lifecycle, tenancy and permissions | 15 | 9 | 1 | 2 | 3 |
+| B Court reservations | 16 | 9 | 2 | 2 | 3 |
+| C Money | 19 | 11 | 1 | 5 | 2 |
+| D Memberships, passes, prices and standing | 24 | 7 | 1 | 6 | 10 |
+| E Classes, coaching, venue operations and safety | 19 | 11 | 1 | 1 | 6 |
+| F Competitions, matchmaking and messaging | 14 | 7 | 2 | 1 | 4 |
+| G Communications, reports, privacy and the scheduler | 20 | 15 | 1 | 0 | 4 |
+| H Adversarial sequences across modules | 13 | 8 | 1 | 3 | 1 |
+| **All** | **140** | **77** | **10** | **20** | **33** |
+
+"Fixed" means changed with a regression test and a decision record, tested against
+stand-ins where a provider is involved: it is not a live check. The one P1 not fixed is
+C2 (the e-invoice of stored-credit sales), a tax adviser's question. Of the 59
+decisions, 19 were built as recommended, 13 in part, and 27 remain for the owner.
 
 ## Operations audit, 28 October 2026
 

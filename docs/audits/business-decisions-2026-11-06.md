@@ -5,6 +5,10 @@ The fourth of four records of the business-process audit of MySenam at commit
 [business-process inventory](business-process-inventory-2026-11-06.md), the
 [cross-domain consistency matrix](cross-domain-consistency-2026-11-06.md) and
 the [state-transition and failure-recovery audit](state-transitions-and-recovery-2026-11-06.md).
+The findings are collected in the [findings register](findings-register-2026-11-06.md)
+and ordered in the [remediation roadmap](remediation-roadmap-2026-11-06.md); which of
+these decisions the fix round implemented is at the end, under
+[status after the fix round](#status-after-the-fix-round).
 
 Most findings of the audit are defects with one right answer. These are the
 ones where the right answer is a business choice: the code does something that
@@ -600,3 +604,100 @@ question as settled in code, and a recommendation here does not settle one.
 - **Recommended default.** (a).
 - **Blocks.** G20 (the guest-email point).
 - **Status.** Decided in part: showing a guest booking to the account with the confirmed email was the fix for a 28 October finding ([operations audit](operations-2026-10-28.md), X2-12); cancel rights were not discussed.
+
+## Status after the fix round
+
+*Added after the fix round that followed this audit; the decisions above are
+unchanged and still say what was open at the baseline.* The fix workers implemented a
+recommended default only where their brief said to, and left the rest. Each row below says what happened; the findings are in the
+[findings register](findings-register-2026-11-06.md) and what is left is in the
+[remediation roadmap](remediation-roadmap-2026-11-06.md). **A decision built into
+the code by a fix worker is a default taken for the audit round, recorded in a decision
+record; it is the owner's to confirm or change**, and nothing here settles a tax,
+consumer-law or data-protection question.
+
+Of the 59 decisions: the recommended default was **implemented in 19**, **in part in
+13**, and **27 remain for the owner**. Every implemented one was verified by new tests
+on PGlite and (races and money) Postgres by the fix workers; none by a real provider.
+
+| Outcome | Decisions |
+| ------- | --------- |
+| Implemented | DEC-01, DEC-04, DEC-06, DEC-07, DEC-12, DEC-17, DEC-21, DEC-22, DEC-25, DEC-26, DEC-28, DEC-40, DEC-42, DEC-44, DEC-47, DEC-49, DEC-55, DEC-56, DEC-57 |
+| Implemented in part | DEC-02, DEC-10, DEC-13, DEC-18, DEC-20, DEC-27, DEC-29, DEC-35, DEC-38, DEC-41, DEC-48, DEC-52, DEC-53 |
+| For the owner (not built) | DEC-03, DEC-05, DEC-08, DEC-09, DEC-11, DEC-14, DEC-15, DEC-16, DEC-19, DEC-23, DEC-24, DEC-30, DEC-31, DEC-32, DEC-33, DEC-34, DEC-36, DEC-37, DEC-39, DEC-43, DEC-45, DEC-46, DEC-50, DEC-51, DEC-54, DEC-58, DEC-59 |
+
+### Per decision
+
+The records are [ADR 0053](../architecture/decisions/0053-a-closure-is-written-first-and-what-has-been-played-is-left-alone.md),
+[0054](../architecture/decisions/0054-money-paid-never-above-price-and-no-silent-price.md),
+[0055](../architecture/decisions/0055-reports-reconcile-with-the-journal-and-einvoicing-keeps-going.md),
+[0056](../architecture/decisions/0056-outbox-reliability-messages-survive-outages-and-stops.md),
+[0057](../architecture/decisions/0057-staff-lookups-masked-secrets-and-an-audit-trail-for-owner-decisions.md),
+[0058](../architecture/decisions/0058-safety-and-access-after-a-booking-is-made.md),
+[0059](../architecture/decisions/0059-competition-notices-fees-owed-fixtures-lost-and-message-review.md),
+[0060](../architecture/decisions/0060-waiting-list-offers-windows-starts-and-closing.md),
+[0061](../architecture/decisions/0061-company-accounts-and-the-cash-up.md),
+[0062](../architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md) and
+[0063](../architecture/decisions/0063-a-suspended-venue-tells-its-customers-sells-nothing-new-and-an-overdue-one-can-be-given-time.md).
+
+| ID | Outcome | What was built, and what remains for the owner |
+| -- | ------- | ---------------------------------------------- |
+| DEC-01 | Implemented, wider | Customers with a booking, class, lesson, active pass, active membership or credit are emailed once per suspension (the recommended default (a) plus the holders of (b)), as urgent news; four languages. ADR 0063 |
+| DEC-02 | In part | The counter and online no longer sell passes, memberships, credit or vouchers while suspended; Stripe subscriptions are paused at the gateway (`pause_collection`), **unverified against real Stripe**. **Owner:** whether validity is extended for the time a venue was off (not built; a manager can extend a membership by hand). ADR 0063 |
+| DEC-03 | Owner | No close-down workflow was built (A5 = H8). ADR 0063 records it as left to the owner |
+| DEC-04 | Implemented | `billing_grace_until` with a reason, honoured by the overdue query; an accurate lift message. ADR 0063 |
+| DEC-05 | Owner | Not changed (A10). Configurable today by `MYSENAM_STAFF_2FA` |
+| DEC-06 | Implemented | Lookups find only customers with a relationship to the venue and are throttled; linking is refused from a draft. The masked-name alternative was not taken. ADR 0057 |
+| DEC-07 | Implemented | The classification test (`desk`, `manager`, `owner`, `account`) fails for an unlisted route; the deny-list stays; `inductions` left as a desk tool; two routes moved to manager-only. ADR 0057 |
+| DEC-08 | Owner | Not changed (H13); rain-out stays a desk tool |
+| DEC-09 | Owner | Not changed (B12) |
+| DEC-10 | In part | A venue setting (5 to 120 minutes, default 30), the offer capped at the start, and a lapse notice (email only). **Owner:** the overnight pause or extension, not built. The WhatsApp template changed and must be resubmitted. ADR 0060 |
+| DEC-11 | Owner | Not changed (B9 = E10) |
+| DEC-12 | Implemented | Unpaid bookings counted by number or account. ADR 0054 |
+| DEC-13 | In part | (a) the closure first, built; the order was a defect. **Owner:** (c) against (d): waiting entries on a closed day are left waiting, not dropped with a message. ADR 0053 |
+| DEC-14 | Owner | Not changed (C18 = H7) |
+| DEC-15 | Owner | Not changed (H12) |
+| DEC-16 | Owner | Not changed; ADR 0054 leaves a paid booking moved cheaper alone (B16 = C12 = D15) |
+| DEC-17 | Implemented | (b) for a deposit, refuse for friends' shares, in one helper used by every writer of the price. ADR 0054 |
+| DEC-18 | In part | A call-off and a pre-draw withdrawal owe a counter fee back (a sibling table, settled by staff once with a credit note). **Owner:** a league's place fee on a staff removal (F12). ADR 0059 |
+| DEC-19 | Owner | Not changed (C2); a tax adviser's question |
+| DEC-20 | In part | Overdue accounts are reminded and shown in *Needs attention* (on); the block is a **per-venue** setting, default off, not per account. **Owner:** whether to default it on or make it per account. ADR 0061 |
+| DEC-21 | Implemented | Credit allocated part by part; invoices part-paid. ADR 0061 |
+| DEC-22 | Implemented | The method recorded at take, a deposits block and counted cash in the cash-up; nothing defaults to cash. Whether held deposits are a liability in the books stays with the adviser. ADR 0061 |
+| DEC-23 | Owner | Not changed (C15, D21); needs a lawyer. The desk redemption and the reminder were not built |
+| DEC-24 | Owner | Not changed; Billplz refunds stay by hand and the customer's bank details are not collected (G13's notice is email) |
+| DEC-25 | Implemented | A cash basis matching the journal; pass-paid apart; adjustments and liabilities reported. ADR 0055 |
+| DEC-26 | Implemented | (b) and (a): a refused discount no longer settles; `expectedTotal` / `PRICE_CHANGED`. ADR 0054 |
+| DEC-27 | In part | The refund notice (email) and the platform invoice on issue and before due. **Owner:** a warning one day after the due date was not added. ADR 0056 |
+| DEC-28 | Implemented | A pass is judged on the session's date. ADR 0062 |
+| DEC-29 | In part | Extension on restoration (venue setting, default 30 days, not 14) and a credit when the pass was cancelled with a refund. **Owner:** refusing to void a pass that pays future bookings was not built; a pass cancelled without a refund still forfeits restored entries. ADR 0062 |
+| DEC-30 | Owner | Not changed (C14 = D14 = H6) |
+| DEC-31 | Owner | Not changed (D8) |
+| DEC-32 | Owner | Not changed (D9) |
+| DEC-33 | Owner | Not changed (D3) |
+| DEC-34 | Owner | Not changed (D6) |
+| DEC-35 | In part | An open-ended suspension of a renewing membership extends its end when lifted. **Owner:** pausing collection at the gateway, a dated suspension's default, telling the member at suspension that charges continue. ADR 0062 |
+| DEC-36 | Owner | Not changed (D22) |
+| DEC-37 | Owner | Not changed (D23); documentation and code still disagree |
+| DEC-38 | In part | The liabilities line in ringgit (provisional). **Owner:** the expiry reminders, not built (D11, G16). ADR 0055 |
+| DEC-39 | Owner | Not changed (D13) |
+| DEC-40 | Implemented | A refused number loses the door code and self check-in and its upcoming bookings are listed, not cancelled. **Owner:** whether the desk may check one in (today yes). ADR 0058 |
+| DEC-41 | In part | Sign-off and certification refused at booking for unstaffed time; an induction is told, not refused. ADR 0058. **Owner:** refusing an induction online |
+| DEC-42 | Implemented | Flag and tell; nothing cancelled. A certification's expiry is not warned. ADR 0058 |
+| DEC-43 | Owner | Not changed (E15) |
+| DEC-44 | Implemented | A self check-in counts for the headcount only until staff confirm it. ADR 0058 |
+| DEC-45 | Owner | Not changed (E18); recorded as a limitation in ADR 0058 |
+| DEC-46 | Owner | Not changed (E11) |
+| DEC-47 | Implemented | The owner reads the reports, a 14-day review date, auto-lift under three reports, a review on request. Legal questions stay pending. ADR 0059 |
+| DEC-48 | In part | Managers are told of a report (counts only) and the panel shows the age of the oldest. **Owner:** escalation to the owner and a reporter notice, not built. ADR 0059 |
+| DEC-49 | Implemented | Warn, tell once and postpone the day. ADR 0059 |
+| DEC-50 | Owner | Not changed (F6) |
+| DEC-51 | Owner | Not changed (F11) |
+| DEC-52 | In part | A ladder reminder at half the window. A walkover is reminded 12 hours before it stands and flagged, but still stands after 24 hours. **Owner:** whether a walkover ever stands by silence. ADR 0059 |
+| DEC-53 | In part | A tournament with no closing date stops taking entries after its first day, is closed and flagged. **Owner:** the day before the start, an alert two days ahead, a one-click cancel. ADR 0059 |
+| DEC-54 | Owner | Not changed (F13); the stale limitation text remains |
+| DEC-55 | Implemented | Transient failures wait (7 days by default, `MYSENAM_MESSAGE_MAX_AGE_DAYS`, not 48 hours); staff resend everything that failed. ADR 0056 |
+| DEC-56 | Implemented | One urgent list, exempt from the daily 8, with a ceiling of its own (default 30). ADR 0056 |
+| DEC-57 | Implemented | Payer details, messages and webhook deliveries reached by erasure and the 730-day rule (provisional: not a statement of what the law requires). ADR 0057 |
+| DEC-58 | Owner | Not changed (G20) |
+| DEC-59 | Owner | Not changed (G20) |

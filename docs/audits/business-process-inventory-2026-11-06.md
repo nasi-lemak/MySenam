@@ -6,7 +6,11 @@ workflow the auditors found, who starts it, where it enters the system, the
 states it moves through, and how far the audit followed it. The others are
 the [cross-domain consistency matrix](cross-domain-consistency-2026-11-06.md),
 the [state-transition and failure-recovery audit](state-transitions-and-recovery-2026-11-06.md)
-and the [remaining business decisions](business-decisions-2026-11-06.md).
+and the [remaining business decisions](business-decisions-2026-11-06.md). The
+findings are collected in the [findings register](findings-register-2026-11-06.md)
+and what is left to do after the fix round is ordered in the
+[remediation roadmap](remediation-roadmap-2026-11-06.md); the
+[status after the fix round](#status-after-the-fix-round) is at the end.
 
 This is a dated record. It says what was inventoried and how far each part was
 examined at that commit; it does not say what is fixed now. Findings are cited
@@ -451,3 +455,53 @@ workflow row suggests. Nothing here may be taken as sound.
   recorded as open (e-invoicing prepaid credit, voucher expiry, erasure of
   payer details, youth messaging) stay open.
 
+## Status after the fix round
+
+*Added after the fix round that followed this audit; the inventory above is
+unchanged and still describes the baseline commit.* Where each finding stands is in
+the [findings register](findings-register-2026-11-06.md); what is left is in the
+[remediation roadmap](remediation-roadmap-2026-11-06.md).
+
+**Coverage totals are unchanged.** The inventory is a record of what the audit
+examined, and the fix round examined nothing new: 149 workflows, 103 traced end to
+end, 41 read and not traced, 5 not reviewed. The five workflows nobody reviewed
+(Stripe subscription settlement W-054, instructor pay W-077, customer sign-in W-107,
+walk-in entries W-114, Reserve with Google W-136) were not reviewed by the fix round
+either, except that W-054's venue-suspension pause was built and tested against a
+stand-in (ADR 0063). The fixes were verified by new tests by their authors on PGlite
+and, for races and money, Postgres; the lead's full validation is in
+[testing](../development/testing.md#release-records).
+
+**86 of the 149 workflows behave differently** because a finding recorded at one of
+them was fixed or partly fixed; the other 63 are unchanged. Workflows by domain, with
+what is different now (findings in the register; a decision record for each fix
+worker is linked there):
+
+| Domain | Changed of total | Workflows | What is different now |
+| ------ | ---------------- | --------- | --------------------- |
+| Marketplace | 10 of 12 | W-001, W-003, W-004, W-005, W-006, W-007, W-008, W-009, W-011, W-012 | Sign-up answers every address alike (A12). A branch is auto-approved only under a business in good standing (A11). A draft that cannot be deleted is skipped and reported, and the dashboard no longer fails with it (A1 = H2). The owner's billing, grouping and approval actions are logged, and marking an invoice paid or void needs a reason (A6 = G12). The owner can give an overdue invoice time without marking it paid (A7). A platform invoice is emailed when issued and before it is due (G14). A suspension tells customers once, refuses new sales of passes, memberships, credit and vouchers, and pauses subscription charges at the gateway (A4, partly). Review invitations ask the question the link asks (D5) |
+| Court reservations | 11 of 19 | W-013, W-017, W-018, W-019, W-020, W-022, W-023, W-024, W-025, W-026, W-027 | A closed day, rain-out and outage are written first, leave what was played alone and name what could not be cancelled (B1 = E9 = H3, B2, B5 = E8, E14). A weekly series is checked week by week (B4). Credit and pass payment are decided in the paying transaction (B3). A request that dies after the booking is swept (B10 = C16). A booking carries `expectedTotal` and a refused discount refuses (C3, C4). Court-time offers are per time, capped at the start and told when they lapse (B6 in part, B7 = E5, B13). A move below a deposit owes the excess back (C1 = H1). A customer's cancel message is owed and swept (C17). Cancelling weeks of a class term sends the freed places to the class's waiting list (E6) |
+| Money | 10 of 16 | W-034, W-035, W-036, W-037, W-039, W-040, W-041, W-044, W-045, W-047 | Refunds are told to the customer (G13). Fees paid at the counter are owed back when a tournament is called off (C11 = F4 = H4). A price change never leaves paid above price (C1 = H1; B16 in part). Company accounts apply credit part by part, can be part-paid, are reminded and may be blocked when overdue, and an issued invoice no longer drifts (C5 in part, C6, C7). Stored credit and vouchers are not sold at a suspended venue, and vouchers show in the liabilities (A4, G16 in part). Staff find only their own customers (A2) |
+| Prices | 2 of 4 | W-048, W-051 | The quoted price is checked (C3, D20); a concession is decided once (D2) |
+| Memberships | 4 of 8 | W-054, W-056, W-057, W-058 | An open-ended suspension of a renewing membership gives its days back (D12). Giving days back refuses to run into the next term (D7) |
+| Passes | 4 of 8 | W-062, W-063, W-064, W-066 | A pass is judged on the session's date (D4). Entries given back to an ended pass reopen it (30 days), and one cancelled with a refund is not revived but credited (D1 = H5). A manager can extend a pass (D10, in part) |
+| Classes | 5 of 10 | W-071, W-072, W-073, W-074, W-075 | A class called off locks its roster, leaves a held class alone, closes its waiting list and tells its coach (E1, B5 = E8, E12 = H9). Offers are not made after the start (B7 = E5). Freed places reach the class list (E6). A self check-in no longer freezes a move (E7) |
+| Coaching | 1 of 5 | W-081 | A self check-in no longer makes a lesson count as held (E7). Coach absence is unchanged (E11) |
+| Competitions | 11 of 13 | W-083, W-084, W-085, W-086, W-087, W-088, W-089, W-090, W-091, W-093, W-094 | The draw is made under the tournament's lock (F1). An undrawn tournament stops taking entries after its first day and is flagged (F7). Entrants removed or forfeited are told (F5). A lost court or closed day answers the fixtures, tells each side and can postpone the day (F3). Counter fees are owed back (C11 = F4 = H4). A reported walkover is reminded and flagged (F10, in part); a ladder challenge is reminded (F9) |
+| Customer identities | 3 of 8 | W-103, W-105, W-106 | Staff lookups are bounded to the venue's customers and throttled (A2). Erasure and retention reach payments, messages and webhook deliveries (G6). A self check-in does not clear a strike (E7) |
+| Venue operations | 3 of 8 | W-108, W-109, W-110 | Self and door check-in are not verified attendance until staff confirm (E7). A refused number gets no door code, and an unstaffed slot asks for the sign-off at booking (E2, E3; E4 in part). A hire deposit has a recorded method, shows in the cash-up and never defaults to cash (C10 = E13 = H10) |
+| Safety | 2 of 6 | W-116, W-119 | Eligibility taken back flags the person's bookings and tells them (E4, in part). A blocked number is listed with its upcoming bookings (E2) |
+| Communications | 5 of 6 | W-122, W-123, W-124, W-125, W-126 | A provider outage is waited out for up to 7 days with a bulk resend; urgent news is uncapped; a reminder follows its booking; a campaign yields to a confirmation and respects withdrawn consent; the tick's steps are isolated; owed messages are swept (G1, G7 to G11). Account links are never in a staff list (A3). WhatsApp credit is spent once per message (H11). Adult-thread reports are told and an automatic suspension can be reviewed (F2; F8 in part) |
+| Reports | 3 of 4 | W-128, W-129, W-130 | The period report's money is the journal's; pass-paid is shown apart; deposits and shares count; the liabilities are in ringgit and provisional (C8 = G4, C9, G3, G5, G16 in part). The journal export writes negatives as numbers (G2). The cash-up has deposits and counted cash (C10 = E13 = H10) |
+| Integrations | 3 of 7 | W-132, W-133, W-137 | An API key's bookings are logged and can carry `expectedTotal` (G12, C3). Webhook deliveries about an erased person are dropped (G6). E-invoicing is isolated per venue, retried and alerted, and consolidates on any day (G15), on a stand-in |
+| Platform, tenancy and permissions | 6 of 8 | W-139, W-140, W-141, W-143, W-144, W-145 | Every admin route is classified in one table and two moved to manager-only (A9). Lookups are scoped (A2). Invitation links are masked (A3). Business-level changes are visible to the business (A8). The owner's actions are logged (A6 = G12, A7). A message given up alerts the owners (G1) |
+| Scheduler | 3 of 3 | W-147, W-148, W-149 | The outbox tick isolates its steps (G10); the platform invoice and payment-hold warnings are told-then-stamped (G14); retention skips an undeletable draft (A1 = H2) and reaches payer details (G6). New sweeps: stranded holds, owed notices, renewal pauses, e-invoice retry |
+
+**Workflows whose gaps remain.** Eight workflows have no fix at all, or only a part
+that is not what their row is about: the exit of a venue (W-010, A5 = H8), customer
+notices for expiry and strikes (W-127, D11), correcting a pass or membership at the
+desk (W-052, W-060, W-065, D10, where only a manager's extension of a pass was
+built), approvals and youth messaging (W-117, W-120: unchanged; the adult-thread
+fixes F2 and F8 sit beside them), and manager price adjustment and counter price
+override (W-050). The stale-draft purge (W-004) changed, but still deletes a draft's
+counter receipts (A15).

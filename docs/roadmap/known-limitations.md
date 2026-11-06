@@ -7,7 +7,11 @@ from ideas ([roadmap](roadmap.md)). First recorded by the
 defects it found (S1–S8, B1–B8, M1–M11) have since been fixed, each with a
 test. So have those found since (S9–S11, B9, B10, B12–B16, M12–M15), all but
 B11; every fixed one is under [fixed since the audit](#fixed-since-the-audit).
-Reconciled against the code and tests on 24 October 2026.
+Reconciled against the code and tests on 24 October 2026. The
+[business-process audit](../audits/findings-register-2026-11-06.md) of 6 November
+2026 found 140 more; the 77 fixed are under [fixed since the audit](#fixed-since-the-audit)
+(cited *audit A1* and so on, never as S, B or M numbers) and the rest, with what the fixes
+left, are under [its open items](#business-process-audit-6-november-2026-open-items).
 
 [What the launch depends on](#what-the-launch-depends-on) sorts what is open
 by whether it affects the first launch, and gives each consequential item an
@@ -57,11 +61,11 @@ before the feature is used with real customers.
 | Feature, and what switches it on | What must happen first | Owner action |
 | -------------------------------- | ---------------------- | ------------ |
 | Online payment at a Malaysian venue: the venue connects Billplz | The Billplz check: a sandbox bill paid by FPX and by card, a tampered callback refused, an expired hold's bill expiring. Refunds are by hand (accepted for a small launch, [launch providers](../integrations/launch-providers.md#launch-stack-and-what-is-still-to-decide)) | Pass the check before the first venue takes money online; until then venues take payment at the counter |
-| Stripe: a Singapore install, membership renewals, or the platform's own invoices through Stripe | The Stripe test-mode check: checkout, webhook, refunds, a dispute, a renewal. Refund reconciliation is tested against a stand-in only ([money](#money-m)) | Pass the check before switching any of them on |
+| Stripe: a Singapore install, membership renewals, or the platform's own invoices through Stripe | The Stripe test-mode check: checkout, webhook, refunds, a dispute, a renewal. Refund reconciliation is tested against a stand-in only ([money](#money-m)) | Pass the check before switching any of them on. A venue's suspension also pauses its members' subscriptions at Stripe (`pause_collection`, [audit A4](#business-process-audit-6-november-2026-open-items)); that call is tested against a stand-in only and needs the key's *Subscriptions: write* |
 | Charging venues a fee: `MYSENAM_VENUE_FEE`, plan tiers, or a venue's own fee | The price decided. Once a fee or tiers are set, `/pricing` says "no setup fee, no contract": commercial terms nobody has decided ([pricing](../business/pricing.md#open-decisions)). The platform's invoices need a verified gateway | The owner decides the price and those two claims before setting any fee |
-| Phone checks by WhatsApp or SMS: `WHATSAPP_TOKEN`, `SMS_TWILIO_ACCOUNT_SID` or `SMS_HTTP_URL` | A live send; every WhatsApp template approved by Meta word for word; in Malaysia, a registered SMS sender | Pass the phone check. Without phone checks, numbers are taken as given (a decision below) |
+| Phone checks by WhatsApp or SMS: `WHATSAPP_TOKEN`, `SMS_TWILIO_ACCOUNT_SID` or `SMS_HTTP_URL` | A live send; every WhatsApp template approved by Meta word for word; in Malaysia, a registered SMS sender | Pass the phone check. Without phone checks, numbers are taken as given (a decision below). The `mysenam_waitlist_offer` template gained a parameter (the offer's minutes) and must be resubmitted to Meta ([audit B13](#business-process-audit-6-november-2026-open-items)) |
 | Money kept from a hire deposit: a venue deducts from one | The venue's tax adviser's review recorded under *Tax*; until then every amount kept is marked provisional ([money](#money-m)) | Each venue's manager records it before the first real deduction; the owner tells pilot venues so |
-| E-invoicing: `MYINVOIS_CLIENT_ID` | The MyInvois sandbox check with the venue's own TIN and certificate | Only for venues that must e-invoice, and for the platform if it must |
+| E-invoicing: `MYINVOIS_CLIENT_ID` | The MyInvois sandbox check with the venue's own TIN and certificate | Only for venues that must e-invoice, and for the platform if it must. Not for a venue that sells stored credit or vouchers until its adviser has answered what a consolidated e-invoice does with them ([audit C2](#business-process-audit-6-november-2026-open-items)) |
 | Google sign-in: `GOOGLE_CLIENT_ID` | The redirect URI registered | Register it before switching on |
 | Youth messaging: `YOUTH_MESSAGING_LAUNCH_APPROVED=yes` (off in production without it) | The written advice, the venue-agreement terms, a safeguarding policy and trained safeguarding contacts of the [launch gate](../operations/legal-review-youth-messaging.md#launch-gate); the questions are under [pending legal verification](#youth-messaging-pending-legal-verification) | Take [the checklist](../operations/legal-review-youth-messaging.md) to a Malaysian lawyer and a child-safeguarding professional; set the variable only afterwards, deliberately |
 | Photos in a bucket: `PHOTOS_S3_BUCKET` | A photo uploaded and served from the real bucket | Needed before running more than one instance |
@@ -195,7 +199,10 @@ purpose, **6** waiting on an outside service, **7** a legal or commercial
 decision needing approval, **8** not needed until a market or customer
 that needs it. Kinds 1 to 4 are worked off; 5 stays unless the reason
 changes; 6 to 8 name what they wait for. As of 5 November 2026 no defect
-(kind 1) is open (B76, found and fixed on 5 November, is under *fixed since the audit*).
+(kind 1) was open (B76, found and fixed on 5 November, is under *fixed since the audit*).
+The business-process audit of 6 November 2026 then found defects, most fixed; those still open
+(kind 1), with its other open items and decisions, are in [their own section](#business-process-audit-6-november-2026-open-items)
+and are not counted below.
 
 | Limitation | Kind | Who it affects | Next action, or what it waits for |
 | ---------- | ---- | -------------- | --------------------------------- |
@@ -237,6 +244,7 @@ changes; 6 to 8 name what they wait for. As of 5 November 2026 no defect
 | [Timing tests on one machine; an invitation withdrawn while its email is being sent](#operations-and-security-s) | 5 | Everyone | Kept: equal timing in production is shown only by measuring there; the link is refused either way |
 | [MyInvois: cancelling in the portal, no debit or refund notes, buyer details kept, LHDN's rules unverified](#operations-and-security-s) | 6 / 7 | Malaysian venues issuing e-invoices | A MyInvois sandbox check; the statutory period confirmed by the venue's adviser |
 | [Deliberately unsupported](#deliberately-unsupported): surge pricing, referral credit, one country per install, storefronts not data separation, no turnstiles, signed sets prove origin only, off-site copies need a location | 5 | — | Kept |
+| [Business-process audit, 6 November 2026: open items](#business-process-audit-6-november-2026-open-items): 33 findings open, 10 partly fixed, 20 waiting for a decision, and what the fixes left | 1 / 2 / 5 / 6 / 7 | Venues, customers, the platform | The remediation order is in the [audit's roadmap](../audits/remediation-roadmap-2026-11-06.md); decisions are the owner's, in the [business decisions](../audits/business-decisions-2026-11-06.md) |
 
 Counted mechanically (each bullet, *Also* paragraph and table row in this
 page's lists of open items and its launch tables; one limitation can sit in
@@ -291,7 +299,7 @@ messages in the install's first language, and what the counter's policies
 leave (staff moves, the class page's buttons, overrides in the export). The owner's decisions of 24 October 2026 (the launch languages,
 backups abroad) moved a decision into the launch blockers rather than
 closing it: native review is now required, and the transfer steps remain.
-Round 10 (5 November 2026) added six sections of accepted restrictions (rosters, launch and tide windows, messages between players, moving classes, lessons and registers, live accounting push, and ladders) and rewrote the Swiss one and one integration row, each beside what the work leaves and none a defect; the count above is as of round 9 and has not been redone. Round 11 (5 November 2026) rewrote the sections for rosters, launch and tide windows, messages between players, moving classes, ladders and Swiss for what the owner decided, and recorded one defect found on the way (B76). Round 12 (5 November 2026) rewrote the sections for messages between players (guardians in conflict, a reported adult not told) and ladders (an agreement counts, expired holds free the allowance) for what the owner decided, and left the owner's questions about conflicting guardians, a reported adult, both players confirming and expired holds out of the open ones. In the table above, one row is a defect (B76); two are partly of kind 3 (staff
+Round 10 (5 November 2026) added six sections of accepted restrictions (rosters, launch and tide windows, messages between players, moving classes, lessons and registers, live accounting push, and ladders) and rewrote the Swiss one and one integration row, each beside what the work leaves and none a defect; the count above is as of round 9 and has not been redone. Round 11 (5 November 2026) rewrote the sections for rosters, launch and tide windows, messages between players, moving classes, ladders and Swiss for what the owner decided, and recorded one defect found on the way (B76). Round 12 (5 November 2026) rewrote the sections for messages between players (guardians in conflict, a reported adult not told) and ladders (an agreement counts, expired holds free the allowance) for what the owner decided, and left the owner's questions about conflicting guardians, a reported adult, both players confirming and expired holds out of the open ones. The 6 November 2026 business-process audit's items are in their own section and were not added to this count. In the table above, one row is a defect (B76); two are partly of kind 3 (staff
 messages in one language; what the counter's policies leave), and the
 e-invoice questions are decisions of kind 7.
 
@@ -429,7 +437,7 @@ manager adds the venue's pass products
 ([cash-up](../features/payments-and-credit.md#cash-up)) (P3).
 
 Also: a waiting-list offer's message does not say that online payment will be
-asked (its WhatsApp template is fixed; the offer page says it); whoever holds a
+asked (its WhatsApp template carries the offer's minutes and nothing else; the offer page says it); whoever holds a
 booking's link can do what its code and phone allow, until it expires after the
 booking; a promo code on a weekly series is checked on its first date only
 before booking (the booking checks every week)
@@ -992,10 +1000,12 @@ it. A division's board and rest count are its own: a call that would collide
 with another division's match is refused, but that match is not shown. Heats
 are not called. Notices name a match in English ("Semi-final 1"). An event with
 no age range cannot detect minors, so its live page shows full names unless set
-to short. **Open for the owner:** a tournament's main public page shows entry
-names in full, including declared minors; only the live page abbreviates them
-(rule 9: decide whether the main page should too, rather than have it changed
-silently).
+to short. A declared minor is shortened on the tournament's main public page and API as on the live page
+([names of minors](../features/tournaments.md#names-of-minors-on-public-pages), `src/lib/public-names.ts`; an earlier
+version of this paragraph said the main page showed them in full, which the code and
+the documents contradict; corrected on 6 November 2026 after the business-process audit's F13). **Open for the owner:**
+an event with no age range, and an entrant with no declared age or guardian, still shows the full name of somebody who typed an age under 18 elsewhere
+([audit F13](#business-process-audit-6-november-2026-open-items), DEC-54).
 
 ### Archiving past claims
 
@@ -1156,7 +1166,7 @@ exist (two changes from a date make one), an optional capability gap ([roadmap](
 move is refused whole where a members-only venue's
 membership does not cover a new date; the refund window after a move is install data
 with no screen for a class (a lesson's is a number in *Lessons and registers*); a
-waiting-list person's leave link cannot be resent; a class mover counts a check-in, not a register mark, as attendance
+waiting-list person's leave link cannot be resent; a class mover counts a verified check-in (a desk's, or a self check-in staff confirmed; an unconfirmed tap does not count, ADR 0058), not a register mark alone, as attendance
 taken, while a lesson with a mark of present or late is not moved; what a coach is paid
 for a class is not built (a lesson's hours are the class's hours); a coach's later
 change to a class is made only from the worklist; a class is marked by the desk or a
@@ -1230,6 +1240,104 @@ real deductions, at a venue that
 Also: a dispute on what a venue paid the platform that is lost only *in
 part* is reported to the owners and settled by hand; lost in full, the invoice
 or pack is owed again (resolved below) (P3).
+
+### Business-process audit, 6 November 2026: open items
+
+What the [business-process audit](../audits/findings-register-2026-11-06.md) found and
+the fix round left. Fixed items are under [fixed since the audit](#fixed-since-the-audit);
+this lists every finding still open, partly fixed or waiting for a decision, and the
+narrower gaps the fix workers noticed while fixing. The audit's numbers (*audit A1* to
+*audit H13*) are not the S, B and M numbers of this page; a finding's evidence and
+reasoning are in the [findings register](../audits/findings-register-2026-11-06.md)
+([E to H](../audits/findings-register-2026-11-06-e-to-h.md)); a question for the owner is
+a `DEC-nn` in the [business decisions](../audits/business-decisions-2026-11-06.md); and
+what to do first is in the [remediation roadmap](../audits/remediation-roadmap-2026-11-06.md).
+Nothing here is a decision. These items are not in the counts above, which were last
+made in round 9. Priorities are the auditors'.
+
+#### Open findings and decisions
+
+| Audit finding | What is open | Priority | Kind and next step |
+| ------------- | ------------ | -------- | ------------------ |
+| audit C2 | A consolidated e-invoice reports a stored-credit sale and the booking it pays: RM130 for RM30 of sales. Whether prepayment is e-invoiced when received is a tax question, unverified | P1 | 7: the venue's or platform's adviser (DEC-19); do not switch e-invoicing on for a venue that sells credit or vouchers meanwhile |
+| audit A5 = H8 (exit) | No way for a venue to close for good: nothing settles customers' credit, passes, memberships, tournament fees or owed refunds, and billing does not stop; a customer holding credit at a suspended venue cannot erase their account | P2 | 5 and 2: the owner (DEC-03); a large workflow with a migration |
+| audit A4 (rest) | Pass and membership validity is not paused or extended for the time a venue was off; no customer-visible "renewal paused" marker; no "the venue is back" email; the Stripe subscription pause is unverified against real Stripe | P2 | 5 and 6: DEC-02; the Stripe check |
+| audit A10 | Staff two-factor is off unless `MYSENAM_STAFF_2FA` is set, including for the owner | P2 | 5: DEC-05; set it by configuration for a pilot |
+| audit B9 = E10 | A class place enrolled directly is not held for payment at a venue that holds courts; the same place claimed from a waiting list is | P2 | 5: DEC-11 |
+| audit B11 | A rescheduled booking loses the last-minute discount a fresh booking at that time would get | P2 | 1 or 5: no `DEC-nn` written; the status file calls it a decision |
+| audit B12 | Cancellation terms (cutoff, late share) are read live at cancellation; a policy edit changes what existing bookings lose | P2 | 5: DEC-09; a migration to snapshot |
+| audit B6 (rest) | Class waiting lists still offer one place at a time though several are free | P2 | 2: small; or owner |
+| audit B16 = C12 = D15 | A paid booking moved to a cheaper time keeps the price paid and the customer is not told first | P2 | 5: DEC-16 |
+| audit C14 = D14 = H6 | A late cancellation of a pass-paid booking returns whole entries rounded down: the venue keeps 100% where it keeps 25 to 50% from other payers, and the screen states a sum | P2 | 5: DEC-30 |
+| audit C15, D21 | Gift vouchers expire after 12 months (not shown as a liability once lapsed) while redeemed credit never does; a voucher cannot be redeemed at the desk | P3 | 7: a lawyer (DEC-23) |
+| audit C18 = H7 | A payment that lands after a pay-to-hold booking was let go is refunded by hand even when the slot is free | P2 | 5: DEC-14; matters most while Billplz refunds are manual |
+| audit C19 | `settleBill` does not compare the amount the gateway reports with the amount billed | P3 | 6: the Billplz sandbox check |
+| audit C13 | A credit note and the amount owed back can differ by 1 sen at a half sen (`roundMoney` in JavaScript against SQL `ROUND`) | P3 | 1: left on purpose by ADR 0055; its own change |
+| audit C5 (rest) | A dearer reschedule of an invoiced company booking is reported, not billed (a debit line on the next invoice needs its own receipt) | P2 | 5: the owner |
+| audit D3 | A discount kept as an amount can make an hour free when an unpaid booking moves | P2 | 5: DEC-33 |
+| audit D6 | A membership tier's benefits are read live: editing a tier changes the term members already paid for | P2 | 5: DEC-34; a migration |
+| audit D8, D9 | A pass cannot be limited to off-peak, days or courts; a pass-paid booking waives the setup fee | P2, P3 | 5: DEC-31, DEC-32 |
+| audit D10 (rest) | A pass or membership cannot be corrected at the desk: holder phone, account link, entries (a manager can only extend a pass) | P2 | 2: a migration |
+| audit D11, G16 (rest) | No customer notice before a pass, voucher or membership expires, when a strike is recorded or a number struck out | P2 | 2 and 5: DEC-38 |
+| audit D13 | Strikes, blocks, notes, concession proofs and review slots key on the phone number, which is recycled and shared | P3 | 5: DEC-39 |
+| audit D16 | A credit note is written for a pass-paid booking, with no original receipt | P3 | 1: small |
+| audit D17 | "Spent" in the customer report counts unpaid, no-show and pass-paid bookings at face value | P3 | 1: small |
+| audit D18 | The booking form lists passes newest first, the counter oldest first, the gym desk soonest-expiry first | P3 | 1: small |
+| audit D19 | A tier can price members above the plain member rate with no warning | P3 | 1: small |
+| audit D22 | Voiding a membership refunds the whole receipt or nothing: nothing is prorated | P3 | 5: DEC-36 |
+| audit D23 | The documentation says a term started on the 31st ends on the last day of February; the code ends it on the 27th | P3 | 5: DEC-37 (rule 9: say which is intended) |
+| audit D24 | A customer note is overwritten or erased with no history | P3 | 1: small |
+| audit E11 | No coach-absence workflow: no lesson worklist, no bulk reassign, a pack works only with its own coach | P2 | 2 and 5: DEC-46 |
+| audit E15 | A term discount is kept for a lone session; full sessions are left out and not named | P3 | 5: DEC-43 |
+| audit E16 | Coach alerts are lost for lessons older than two days when the coach had no email; payouts count future lessons as held | P3 | 1: small |
+| audit E17 | Hire enquiries reach only an email address and have no nudge | P3 | 2: small |
+| audit E18 | A customer who revealed the door code or checked in can still cancel on late terms | P3 | 5: DEC-45; recorded in ADR 0058 |
+| audit E19 | Instructor pay for classes is not built | P3 | 2: a [roadmap](roadmap.md) row (coach pay for classes) |
+| audit A13 | API keys and webhooks outlive the manager who could read them | P3 | 1: small |
+| audit A14 | Second-factor ticket attempts are counted after the check (unverified, bounded by the per-address limit) | P3 | 1: small |
+| audit A15 | The draft purge can still delete the counter receipts and owed-back records of real money taken in a test booking | P3 | 1: small |
+| audit B14 | Hours and policy edits check then write against a concurrent booking | P3 | 1: small |
+| audit B15 | The venue API's availability and booking calls do not release lapsed holds as the grid does | P3 | 1: small |
+| audit F6 | A host's no-show mark is silent, irreversible and platform-wide | P2 | 5: DEC-50 |
+| audit F8 (rest) | A manager cannot escalate an adult-thread report to the owner; the reporter is not told the outcome | P2 | 2 and 5: DEC-48 |
+| audit F10 (rest) | A walkover a player reports still stands after 24 hours' silence | P3 | 5: DEC-52 |
+| audit F11 | Leaving an open game minutes before the start returns the whole share whatever the venue's cutoff | P3 | 5: DEC-51 |
+| audit F12 | A box league's fee paid online or at the counter has no refund trail on a staff removal or a league closed mid-season | P3 | 5: DEC-18 |
+| audit F13 | The *Tournament day* section above says the main page names minors in full; the code, the tournaments document and privacy say a declared minor is shortened. The text is corrected; the unknown-age case (an event with no age range and an entrant with no declared age) still shows the full name | P3 | 5: DEC-54 |
+| audit F14 | Competition notices are email only; none by WhatsApp for time-critical messages | P3 | 6: the WhatsApp check |
+| audit H12 | A staff cancellation, a membership void and a pass void cannot be undone | P3 | 5: DEC-15 |
+| audit H13 | The front desk may rain out a whole afternoon (a bulk cancel and refund, a safety closure included) but not close a day | P3 | 5: DEC-08 (documented) |
+| audit G17 | Webhook events that exhausted their 8 attempts are never redelivered | P3 | 2: small |
+| audit G18 | The scheduler runs a long backup and off-site upload in the same tick as the outbox and refund settling | P3 | 3: a separate lease |
+| audit G19 | The loyalty grant is not idempotent: two runs at once, or a stop between issuing and recording, give the free hour twice | P3 | 1: a unique key (a migration) |
+| audit G20 | The phone code allowance for a number can be burned by anyone; a guest booking is cancelled by whoever holds the typed email; the activity log is kept two years while receipts are kept seven (the WhatsApp double spend is fixed) | P3 | 5: DEC-58, DEC-59 |
+
+#### Left by a fix, or noticed while fixing
+
+Narrower gaps in what the fix round built, recorded rather than left unsaid. Each names
+the decision record that states it.
+
+| Audit finding | What is left | Priority |
+| ------------- | ------------ | -------- |
+| audit B1 | Waiting entries on a closed day stay waiting, silently (not dropped and told: DEC-13); offers withdrawn by a closure are not told; the class mover (`class-moves.ts`) does not re-ask the closure check inside its own transaction (ADR 0053) | P3 |
+| audit B10 | The booking's hold is set by the scheduler's sweep, not inside the booking's own transaction (ADR 0054) | P3 |
+| audit B13 | The WhatsApp template `mysenam_waitlist_offer` gained a parameter (the offer's minutes) and **must be resubmitted to Meta** before the WhatsApp offer is live-verified; no overnight pause was built; the lapse notice is email only, so a person with only a phone number is not told (ADR 0060) | P2 |
+| audit G11 | A series cancellation and a class enrolment owe no recovery row for a lost notice; the sweep's venue-cancel message lacks the reason staff typed (ADR 0056) | P3 |
+| audit G13 | Refund notices are email only (WhatsApp needs an approved template); a refund on a payment with no booking (a tournament fee, a share) cannot be told to the customer | P3 |
+| audit D1 | A pass cancelled without a refund still forfeits restored entries; a counter-sold pass or membership's refund value is a credit note and a log line, not a task on a cash list (ADR 0062) | P3 |
+| audit C6 | A part payment on a company invoice reaches the journal only as whole bookings are covered, and the customer's invoice page does not show it (ADR 0061) | P3 |
+| audit C10 | Hire deposits taken before migration 0308 show "not recorded" and need the method said to keep an amount (ADR 0061) | P3 |
+| audit C11 | A fee refunded at the counter is not in the till's payout list (ADR 0059) | P3 |
+| audit E2 | The desk can still check in a refused (blocked) number (ADR 0058) | P3 |
+| audit E3, E4 | A certification's expiry gives no warning to existing bookings; moving a booking into an unstaffed slot does not re-ask the sign-off; the induction note is not in the confirmation email (ADR 0058) | P3 |
+| audit F2 | Three accounts can still suspend a person platform-wide (accepted) | P3 |
+| audit F3 | Postponing a team-league night is not atomic (ADR 0059) | P3 |
+| audit A2 | The email-existence oracle in the linking flows (a pass, a membership, a sign-off, a guardian) remains for live venues, throttled; a customer who has never booked cannot be found at the counter (ADR 0057) | P3 |
+| audit G6 | Staff-alert messages naming a customer without a booking link keep the name for the 90-day retention; the payer's name and number on an online payment are anonymised after 730 days, an operational choice and not a statement of what the law requires for payment records (ADR 0057) | P3, 7 |
+| audit A8 | Business-level staff log entries written before migration 0301 have no business and stay the platform owner's to read | P3 |
+| audit C9, G16 | The liabilities block is provisional: voucher expiry, the pass value estimate and whether held deposits are a liability in the books are for the venue's adviser (ADR 0055) | P3, 7 |
+| audit G15 | A consolidated e-invoice made after day 7 of the month: LHDN's timing is unverified, and what a late one means is for the adviser; the retry and catch-up are tested against the stand-in only (ADR 0055) | P3, 6 |
+| audit D12 | A membership suspension does not pause collection at the gateway, tell the member at suspension that charges continue, or extend a dated suspension by default (ADR 0062) | P3 |
 
 ### Fixed since the audit
 
@@ -1378,6 +1486,87 @@ IDs are not reused. Each fix came with the test recommended above.
 | B74 | A finished climbing event's dashboard page hid the officials' correction requests, so a manager could not preview, apply or decline one sent in the seven days after the finish | A finished counted event shows the requests, and only them | `tests/components/counted-grid.test.tsx` and the browser scenario *Climbing A* |
 | B75 | Refusing a heat correction that would change a climbing final with results said *arrange a re-swim by hand* | It says *re-climb* for counted events | `tests/counted-performances.test.ts` |
 | B76 | Moving a booking to another resource at the same time (`moveBooking`) did not ask the target resource's launch or tide window, so a booking could be moved onto a resource whose window was closed then, past a hard window too | It asks the target's window and refuses (`LAUNCH_*`); a manager's override is not offered on a move | `tests/advisory-windows.test.ts` |
+
+#### Business-process audit, 6 November 2026
+
+The [business-process audit](../audits/findings-register-2026-11-06.md) numbered its
+findings by auditor and number (A1 to H13). Those are not the S, B and M numbers
+above, which are never reused: they are cited here as *audit A1* and so on, and the
+register holds each finding's evidence. Each fix has a decision record
+([ADR 0053 to 0063](../architecture/decisions/)) and, where a migration was needed, a
+number (0295 to 0311). The tests ran on PGlite and, for races and money, on Postgres,
+by the fix workers; the lead's validation is in
+[release records](../development/testing.md#release-records). A fix is not a live
+check: where a row sends a message, takes money or calls a provider, its leg is still
+`INTEGRATION_VERIFICATION_REQUIRED`. Rows say *in part* where something of the finding
+is still open (see [the open items](#business-process-audit-6-november-2026-open-items)).
+
+| Audit finding | Fixed by | Test |
+| ------------- | -------- | ---- |
+| audit A1 = H2 | One abandoned draft with a ladder stopped the daily retention run and every staff dashboard: the purge takes its deletion plan from the foreign keys, each business in its own savepoint, and skips and reports one it cannot delete; the dashboard's housekeeping is guarded (ADR 0057) | `tests/draft-purge.test.ts` |
+| audit A2 | Staff found any customer on the platform by email or phone: on a marketplace they find only customers with a booking, credit, pass, membership, access-list entry or guardianship at their venues, throttled; linking is refused from a venue not yet live (ADR 0057) | `tests/customer-lookup.test.ts` |
+| audit A3 | A manager invitation's link was readable by the front desk in the outbox while unsent or failed: every staff list masks account emails and any `token=` link (ADR 0057) | `tests/outbox-secrets.test.ts` |
+| audit A4, in part | A suspended venue told only its staff: customers holding a booking, pass, membership or credit are told once; passes, memberships, credit and vouchers are not sold at a suspended venue; Stripe subscriptions are paused at the gateway, unverified (ADR 0063) | `tests/venue-suspension-effects.test.ts`, `tests/membership-renewal-pause.test.ts` |
+| audit A6 = G12 | The owner's billing, grouping, approval and suspension actions and an API key's bookings left no log entry: they are logged, and marking an invoice paid or void needs a reason (ADR 0057) | `tests/owner-activity-log.test.ts`, `tests/staff-log-coverage.test.ts` |
+| audit A7 | An overdue venue could be restored only by marking an invoice paid or void: the owner can give time with a reason, and lifting a payment hold means doing so (ADR 0063, migration 0311) | `tests/venue-suspension-effects.test.ts` |
+| audit A8 | A business's managers could not see business-level staff changes: `staff_actions.business_id` (migration 0301) | `tests/business-activity-log.test.ts` |
+| audit A9 | The front desk's permissions were a deny-list with nothing to classify a new route: every admin route is classified in one table that fails for an unlisted one; the outages `PATCH` and the two-factor reset moved to manager-only (ADR 0057) | `tests/admin-route-classes.test.ts` |
+| audit A11 | An auto-approved branch ignored a suspended or held sibling: it needs another live, open branch and none suspended or held (ADR 0063) | `tests/venue-suspension-effects.test.ts`, `tests/branches.test.ts` |
+| audit A12 | Venue sign-up said whether an email was a staff account: every address gets the same answer and an email (ADR 0057) | `tests/venue-signup-privacy.test.ts` |
+| audit B1 = E9 = H3 | A closed day, rain-out and outage cancelled first and wrote the closure last: the closure is written first, nothing is offered for a closed day, a stray booking is swept (ADR 0053, migration 0295) | `tests/venue-closures-first.test.ts`, `tests/rain-out-closes-first.test.ts`, `tests/closure-races.test.ts` (Postgres) |
+| audit B2 | A court could not be taken out from the afternoon after a morning booking was played: ended bookings and classes are never in the way | `tests/venue-closures-first.test.ts` |
+| audit B3 | Credit or a pass could be taken for a booking cancelled a moment earlier: payment decides on the booking's status in its own transaction (ADR 0054) | `tests/payment-vs-cancellation.test.ts` (Postgres) |
+| audit B4 | A weekly series was booked outside the hours in force on its later dates: each week is checked on its own date | `tests/series-dated-hours.test.ts` |
+| audit B5 = E8 | A closure, rain-out or manual cancel refunded and cancelled classes that had already run; a past date was refused after everything was cancelled | `tests/venue-closures-first.test.ts`, `tests/rain-out-closes-first.test.ts` |
+| audit B6, in part | One live offer per court and day blocked every other, and a claim never led to the next: court-time offers are per time and swept again (ADR 0060, migration 0306) | `tests/waitlist-offer-windows.test.ts`, `tests/waitlist-offer-races.test.ts` |
+| audit B7 = E5 | An offer was made for a class that had started and ran past a session's start: capped at the start, none for a started class or under 5 minutes left | `tests/waitlist-offer-windows.test.ts` |
+| audit B8 | The unpaid-bookings brake counted only the typed number: it counts the signed-in account too (ADR 0054) | `tests/unpaid-brake-account.test.ts` |
+| audit B10 = C16 | A booking whose request died before its hold stayed confirmed, unpaid and unheld: the scheduler holds it or lets it go (ADR 0054, migration 0297) | `tests/booking-price-handshake.test.ts` |
+| audit B13 | A waiting-list offer was a fixed 30 minutes and its lapse silent: a venue setting (default 30), told when it lapses by email (ADR 0060) | `tests/waitlist-offer-windows.test.ts` |
+| audit B16 (deposit part) = C1 = H1 | A move to a cheaper time, a promo or a concession left a deposit above the price with nothing owed back: the excess is owed back on the deposit's payment with a credit note; friends' shares refuse the change (ADR 0054) | `tests/paid-within-price.test.ts` |
+| audit C3, D20 | A refused promo still let credit settle at full price and no price check existed: `DISCOUNT_NOT_APPLIED` and `expectedTotal` / `PRICE_CHANGED` (ADR 0054) | `tests/booking-price-handshake.test.ts` |
+| audit C4 | The booking form never showed that paying from credit failed: `walletErrorCode` and a sentence in four languages (ADR 0054); no rendering test | `tests/booking-price-handshake.test.ts` (the API half) |
+| audit C5, in part | An issued company invoice drifted when a booking on it was rescheduled: the invoiced amount is kept; a cheaper move is a credit on the account (ADR 0061, migration 0307) | `tests/account-invoice-snapshot.test.ts` |
+| audit C6 | Company credit notes were taken whole or not at all and an invoice could not be part-paid: credit is allocated part by part, invoices part-paid (ADR 0061) | `tests/account-credit-parts.test.ts` |
+| audit C7 | An overdue company account could keep booking, unseen: shown in *Needs attention*, reminded weekly, and blocked after a venue's number of days where set (default off) (ADR 0061) | `tests/account-overdue.test.ts` |
+| audit C8 = G4, G3, G5 | The report's *collected* and *outstanding* disagreed with the sales journal (adjustments, deposits, shares, pass-paid): one definition drawn from the journal's parts (ADR 0055) | `tests/report-reconciliation.test.ts` |
+| audit C9 | The venue's liabilities in ringgit were not reported: stored credit, vouchers, deposits and shares held, hire deposits and refunds owed, provisional (ADR 0055) | `tests/report-venue-owes.test.ts` |
+| audit C10 = E13 = H10 | Hire deposits were outside the cash-up and a kept amount defaulted to cash: the method is recorded when kit goes out, deposits and counted cash are in the cash-up (ADR 0061, migration 0308) | `tests/hire-cash-up.test.ts` |
+| audit C11 = F4 = H4 | Counter fees were not owed back when a tournament was called off: `counter_fee_refunds_owed`, settled by staff with a credit note (ADR 0059, migration 0304) | `tests/competition-fixes.test.ts` |
+| audit C17 = G11 | A customer's cancellation or confirmation message was lost with a request that died after the commit: owed in the same transaction and swept (ADR 0056, migration 0299) | `tests/notices-owed.test.ts` |
+| audit D1 = H5 | Entries given back to an expired or voided pass were dead: an ended pass reopens for a venue-set grace (default 30 days); a pass cancelled with a refund is credited, not revived; a manager can extend a pass (ADR 0062, migration 0309) | `tests/pass-restore-and-validity.test.ts` |
+| audit D2 | A double click on "no proof shown" charged the concession twice: decided once under the booking's lock; *Seen* is final | `tests/concession-check-once.test.ts` |
+| audit D4 | A pass was judged on today, not the session's date: judged on the date played | `tests/pass-restore-and-validity.test.ts` |
+| audit D5 | The review invitation was sent for bookings the link refused and the one invitation was spent: one predicate for both | `tests/reviews.test.ts` |
+| audit D7 | Giving days back could run a membership into its next term: refused, saying how many days fit | `tests/membership-extension-and-renewing-suspension.test.ts` |
+| audit D10, in part | A pass could not be extended: a manager can, with a reason | `tests/pass-restore-and-validity.test.ts` |
+| audit D12 | An open-ended suspension of a renewing membership gave the member nothing for the charges: the days are given back when it is lifted; collection is not paused | `tests/membership-extension-and-renewing-suspension.test.ts` |
+| audit E1 | A class called off raced an enrolment or a claim and left confirmed enrolments in a cancelled class: the roster is read under the class lock (ADR 0053) | `tests/closure-races.test.ts` (Postgres) |
+| audit E2 | A number the venue refused kept its door code, check-in and bookings: the unattended ways in are refused and its bookings listed for a manager (ADR 0058, migration 0303) | `tests/safety-and-access.test.ts` |
+| audit E3 | The sign-off or certification was not asked when an unstaffed slot was sold: asked at booking; an induction is told, not refused | `tests/safety-and-access.test.ts` |
+| audit E4, in part | A sign-off, certification or induction taken back left the person's bookings unflagged: flagged, the customer told, the door withheld until staff decide | `tests/safety-and-access.test.ts` |
+| audit E6 | Freed class places from a term cancel or a released hold were offered as court time: offered to the class's list (ADR 0060) | `tests/class-waitlist-closing.test.ts`, `tests/waitlist-offer-races.test.ts` |
+| audit E7 | A customer's own check-in cleared a no-show, froze a class move and made a lesson count as held: a self or door check-in is recorded apart and is not verified attendance until staff confirm it (ADR 0058) | `tests/safety-and-access.test.ts` |
+| audit E12 = H9 | A cancelled class left its waiting list waiting and told neither the list nor its coach: closed and told (ADR 0060) | `tests/class-waitlist-closing.test.ts` |
+| audit E14 | A rain-out or closure skipped a booking with kit still out silently: it is named for the desk | `tests/venue-closures-first.test.ts`, `tests/rain-out-closes-first.test.ts` |
+| audit F1 | Two draws at once made two brackets and a withdrawal could land inside a draw: the draw runs under the tournament's lock (ADR 0059) | `tests/tournament-draw-lock.test.ts` (Postgres) |
+| audit F2 | An automatic suspension of an adult could not be reviewed as promised: the owner reads the reports, a 14-day review date, auto-lift under three reports, a review on request (ADR 0059, migration 0305); no legal right is promised | `tests/message-suspension-review.test.ts` |
+| audit F3 | A lost court or closed day left drawn fixtures unannounced: shown, told once and postponable (ADR 0059) | `tests/competition-fixes.test.ts`, `tests/team-league-fixtures-lost.test.ts` |
+| audit F5 | An entrant removed, disqualified or forfeited by staff was never told: told once, with the reason | `tests/competition-fixes.test.ts` |
+| audit F7 | A tournament nobody drew took entries and fees after its first day: it stops, is closed by the scheduler and flagged | `tests/competition-fixes.test.ts` |
+| audit F8, in part | A report of an adult message raised no alert: managers are told (no text) and the panel shows the age | `tests/message-suspension-review.test.ts` |
+| audit F9 | A ladder challenge ignored for its window forfeited with no reminder: one reminder before | `tests/ladders.test.ts` |
+| audit F10, in part | A walkover reported by a player stood after 24 hours' silence: the silent side is reminded 12 hours before and it is flagged for staff when it stood by silence | `tests/match-reports.test.ts` |
+| audit G1 | A provider outage of 2.6 hours abandoned every waiting message: transient failures wait up to 7 days, staff resend everything that failed in a window (ADR 0056) | `tests/outbox-reliability.test.ts` |
+| audit G2 | The sales-journal CSV wrote every credit note as text: numbers are written as numbers, text is still guarded (ADR 0055) | `tests/export-credit-note-numbers.test.ts` |
+| audit G6 | Erasure and retention left the person in online payments, messages and webhook deliveries: reached, with a scan of every text column (ADR 0057) | `tests/erasure-scan.test.ts` |
+| audit G7, G8, G9 | A reminder was keyed by code alone, a campaign queued ahead of confirmations and ignored withdrawn consent, and urgent news was written off by the daily limit: re-read as sent, campaigns last and consent-checked, one urgent list (ADR 0056) | `tests/outbox-reliability.test.ts` |
+| audit G10 | One failing step before the drain stopped every message: each step is isolated | `tests/outbox-tick-isolation.test.ts` |
+| audit G13 | The customer was never told a refund was made, failed or late: told once per change, by email (ADR 0056) | `tests/refund-notices.test.ts` |
+| audit G14 | The platform's invoice to a venue was never sent: told on issue and before it is due (ADR 0056, migration 0300) | `tests/platform-invoice-notices.test.ts` |
+| audit G15 | One venue's e-invoicing error stopped all, consolidation ran only on days 1 to 7, and a document not sent was never retried: isolated, retried with back-off, alerted; against the stand-in only (ADR 0055) | `tests/einvoice-resilience.test.ts` |
+| audit G16, in part | The venue's liabilities had no ringgit and no vouchers: see audit C9 | `tests/report-venue-owes.test.ts` |
+| audit H11 | A WhatsApp message sent again after a crash was charged twice: spent once per message | `tests/whatsapp-usage.test.ts` |
 
 ### Resolved limitations without a number
 
