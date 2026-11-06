@@ -29,13 +29,14 @@ import type { StaffAction } from "./activity-labels";
  * written under a savepoint), except a serialization failure or deadlock, which runs the transaction again. No `id`: somebody without a staff account (a coach at their own link), by name. */
 export async function logAction(
   admin: Pick<Admin, "name"> & { id: number | null },
-  entry: { venueId: number | null; action: string; bookingCode?: string | null; detail?: string | null }
+  entry: { venueId: number | null; businessId?: number | null; action: string; bookingCode?: string | null; detail?: string | null }
 ): Promise<void> {
   try {
     await aside(() =>
       getDb()
-        .prepare("INSERT INTO staff_actions (admin_id, admin_name, venue_id, booking_code, action, detail) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(admin.id, admin.name, entry.venueId, entry.bookingCode ?? null, entry.action, entry.detail?.slice(0, 500) ?? null)
+        .prepare("INSERT INTO staff_actions (admin_id, admin_name, venue_id, business_id, booking_code, action, detail) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        // `businessId` is for what has no venue: a change at business level, which the business's own managers read.
+        .run(admin.id, admin.name, entry.venueId, entry.venueId === null ? entry.businessId ?? null : null, entry.bookingCode ?? null, entry.action, entry.detail?.slice(0, 500) ?? null)
     );
   } catch (err) {
     if (mustRethrow(err)) throw err;
@@ -52,17 +53,25 @@ export async function logFromRequest(
   if (admin) await logAction(admin, entry);
 }
 
-/** The log for these venues (all, for the platform owner), newest first. */
+/**
+ * The log for these venues (all, for the platform owner), newest first; with `businessId`, also what was done at that
+ * business's own level (its managers invited, removed, changed), which no venue holds.
+ */
 export async function listActivity(
   venueIds: number[] | null,
-  filter: { from?: string; to?: string; bookingCode?: string; limit?: number } = {}
+  filter: { from?: string; to?: string; bookingCode?: string; limit?: number; businessId?: number | null } = {}
 ): Promise<StaffAction[]> {
   const clauses: string[] = [];
   const params: (string | number)[] = [];
   if (venueIds) {
-    if (venueIds.length === 0) return [];
-    clauses.push(`venue_id IN (${venueIds.map(() => "?").join(",")})`);
-    params.push(...venueIds);
+    const business = filter.businessId ?? null;
+    if (venueIds.length === 0 && business === null) return [];
+    const parts = [
+      ...(venueIds.length > 0 ? [`venue_id IN (${venueIds.map(() => "?").join(",")})`] : []),
+      ...(business !== null ? ["business_id = ?"] : []),
+    ];
+    clauses.push(`(${parts.join(" OR ")})`);
+    params.push(...venueIds, ...(business !== null ? [business] : []));
   }
   if (filter.from) {
     clauses.push("created_at >= ?");

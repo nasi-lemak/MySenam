@@ -123,6 +123,15 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
   deletes with the account its playing profile, blocks either way, reports
   about it, community memberships and the groups it organised; reports it
   made stay with the reporter's name removed;
+- **online payments** it made (for its bookings, its top-ups, its membership or pass, its place in an open game or a tournament): the
+  payer's name and number typed when paying become `(removed)` and nothing; the payment (amount, refunds, gateway bill, who it was
+  for in the books) stays. A payment that is not provably theirs is never touched on the strength of a number
+  ([below](#online-payments-messages-and-webhook-deliveries));
+- **messages** to its account's email, to the number its account proved, or about its bookings: the address or number, subject, text
+  and parameters become `(removed)`; what remains is that a message of that kind went, and when (a venue's count of messages sent
+  needs it). One still waiting to go is given up, so nothing is sent to an erased person;
+- **webhook deliveries** about its bookings: one not yet sent to the venue's own systems is dropped, and one that was keeps only its
+  id, type and time; a cancellation or move **notice** for its bookings keeps only that it was made;
 - deletes the account and its sessions;
 - deletes its applications to be approved for an activity, with their
   answers, documents and any slot they held, keeping only the bare facts of
@@ -144,6 +153,33 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
 - keeps the e-invoices made for its receipts, with the buyer details the
   customer gave for their own, for the statutory period: a legal obligation
   of the venue, not part of the profile ([below](#e-invoice-records)).
+
+### Online payments, messages and webhook deliveries
+
+These were the records an erasure used to leave the person in (audit 9, G6). `src/lib/erasure-traces.ts` holds the one
+rule for each, run in the erasure's own transaction before the bookings stop being linked to the account, and the data export
+uses the same predicates, so what is erased and what is exported are the same set:
+
+- **`online_payments`**: `payer_name`, `payer_phone`. Provably the account's: linked to its bookings
+  (`online_payment_bookings`), or its top-up, membership, pass, open-game place or tournament entry. A payment made by a guest who
+  merely typed the same number is not matched: a number is not proof. After `bookingIdentityDays` (730) the retention run
+  anonymises the payer on every payment, account or not. **Nothing financial is deleted**: amounts, refunds, the gateway's bill and
+  the booking link stay, as the books and the gateway's own records need them.
+- **`messages`**: matched by booking, by the account's email, or by the number the account proved. Scrubbed, not deleted: the
+  venue's WhatsApp usage and its message counts read the rows' kind, status and date.
+- **`webhook_deliveries`**: matched by the booking code in the payload (the payload names the booking by it).
+- **`urgent_notices`**: matched by booking.
+
+What an erasure cannot reach: a message a venue's staff were sent about an erased customer that names them but is not tied to one of
+their bookings (kept until the 90 days above), and a copy of anything a venue's own system already received from a webhook, which is
+the venue's. The export (`exportCustomerData`) now lists the account's online payments with the payer's name and number as held,
+and the webhook deliveries still held about its bookings; a venue's export by number (`exportPhoneData`) lists payments with that
+number as the payer's.
+
+`tests/erasure-scan.test.ts` scans every text column of every table for an erased account's email, number and name, and fails for
+any table that still holds them; it also holds `HOLDS_PEOPLE`, the list of every table with a column that looks like a person's
+details (an email, number, payer, recipient, holder's or contact's name, payload) with how erasure or retention treats it, and fails
+when a new table with such a column is not named there.
 
 It refuses while the customer is owed something — stored credit, a live pass, a
 running membership — because `wallet_entries` cascades from `users`, so erasing
@@ -172,6 +208,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | A report in a **youth thread**, its case actions, and the safeguarding event store | **no period**: kept unless the install sets `SAFEGUARDING_EVIDENCE_RETENTION_DAYS` (closed cases only); the owner is prompted to decide about what is kept long ([below](#youth-messaging-evidence)) | not deleted by default |
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
+| The payer's name and number on an online payment (`online_payments`) | 730 days | anonymised, the payment (amount, refunds, gateway bill) kept ([erasure](#online-payments-messages-and-webhook-deliveries)) |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Court time held for a booking, class or block (ids, a court, minutes; no name, number or address) | with what it belongs to; where the install sets a horizon, moved to an archive once it is over ([archiving past claims](database.md#archiving-past-claims)) | deleted with what it belongs to; there is nothing in it to anonymise |
 | Names and numbers on receipts and credit notes, with every name inside their lines | 730 days after issue | anonymised; what was sold, the amounts and the tax kept ([below](#receipts-and-credit-notes)) |
@@ -193,7 +230,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | The bare facts of a deleted application, and who opened its documents | 730 days | deleted |
 | Venue applications never confirmed by email | 7 days | deleted |
 | Private hire enquiries | 365 days | deleted |
-| Draft venues never live, nobody signed in | 90 days | deleted, unless they hold a customer's pass, membership, credit or payment |
+| Draft venues never live, nobody signed in | 90 days | deleted with everything they set up, found from the database's foreign keys (`src/lib/drafts.ts`), unless they hold a customer's pass, membership, credit or payment; one that cannot be deleted is left, and the owners are told |
 | Expired sessions | — | deleted |
 
 Door logs go first and shortest: they tie a named person to a time and a
@@ -201,7 +238,11 @@ building, which is the most sensitive thing here and the least useful once an
 incident window has passed.
 
 The scheduler applies the policy once a day; where it is turned off, it
-applies itself the first time anyone opens the dashboard each day. An owner can see what is due, when it last ran, and
+applies itself the first time anyone opens the dashboard each day. A failure never stops a
+dashboard from opening (`/api/admin/auth/me` catches it, logs it and tells the owners, and does not try again for an hour from
+that process), and the scheduler raises an owner alert for a run that fails. Inside the run each stale draft is deleted in a
+savepoint of its own, so one that cannot be removed (a new table pointing at it that the foreign-key walk cannot clear) is skipped and
+reported (`retention:stale-draft-not-deleted`), never rolling back the other rules. An owner can see what is due, when it last ran, and
 run it early, under *Venues & staff → Keeping nothing too long*.
 
 ### Receipts and credit notes

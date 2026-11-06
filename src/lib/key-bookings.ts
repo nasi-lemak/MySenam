@@ -19,6 +19,8 @@ import { contactRefusal } from "./contact-fields";
 import { counterPaymentOn, venueCancel } from "./counter-refunds";
 import { refundCancelled } from "./payments";
 import { money } from "./region";
+import { logAction } from "./activity";
+import { getDb } from "./db";
 
 /**
  * Booking and cancelling through a venue's own API key: the one code
@@ -40,6 +42,12 @@ export const BOOKED_CUSTOMER_TOLD = "The customer is sent the venue's usual book
 /** What the customer is told, and what happens to money, when a booking is cancelled through a key. */
 export const CANCELLED_CUSTOMER_TOLD = "The customer is told the venue cancelled the booking.";
 
+/** Who the log names for what a key did: the key, by the name its venue gave it (no staff account stands behind it). */
+async function keyActor(caller: ApiCaller): Promise<{ id: null; name: string }> {
+  const row = (await getDb().prepare("SELECT name FROM venue_api_keys WHERE id = ?").get(caller.keyId)) as { name: string } | undefined;
+  return { id: null, name: `API key "${row?.name ?? caller.keyId}"` };
+}
+
 /**
  * `{ courtId, date, start, end, name, phone, … }` (see the route) → a booking,
  * as the venue's own system makes it; with `preview`, what it would be.
@@ -49,7 +57,8 @@ export async function bookThroughKey(
   body: Record<string, unknown> | null,
   // `actor`: who the participants' records name as booking them, where that is a member of staff acting through an
   // AI assistant they signed in from (lib/mcp/oauth.ts) rather than the key itself.
-  opts: { preview?: boolean; actor?: { adminId: number | null; name: string } } = {}
+  // `log`: the route answering a key's own call writes the entry that names the key; the MCP server writes its own, naming the member of staff.
+  opts: { preview?: boolean; actor?: { adminId: number | null; name: string }; log?: boolean } = {}
 ): Promise<NextResponse> {
   // A key never overrides the venue's policies, nor takes payment: refused, never ignored (lib/policy-overrides.ts).
   if (body && (asksStaffPowers(body) || body.override !== undefined))
@@ -183,6 +192,13 @@ export async function bookThroughKey(
   if (selection)
     await recordBookedFor(selection.participants, opts.actor ?? { adminId: null, name: `API key ${caller.keyId}` }, { venueId: caller.venueId, codes: [made.booking.code], how: "api" });
   await notifyBookingConfirmed([made.booking], "en", null);
+  if (opts.log)
+    await logAction(await keyActor(caller), {
+      venueId: caller.venueId,
+      action: "booking.created",
+      bookingCode: made.booking.code,
+      detail: `${made.booking.date}, ${made.booking.name}, ${money(made.booking.totalPrice)}; booked through the venue's API key`,
+    });
   return NextResponse.json(
     {
       booking: { ...apiBooking({ ...made.booking, courtName: court.name, sport: court.sport }), participants: await apiParticipants(made.booking.id) },
@@ -198,7 +214,7 @@ export async function bookThroughKey(
  * give as credit (lib/counter-refunds.ts `venueCancel`). With `preview`: the
  * booking and what cancelling it would do.
  */
-export async function cancelThroughKey(caller: ApiCaller, code: string, opts: { preview?: boolean } = {}): Promise<NextResponse> {
+export async function cancelThroughKey(caller: ApiCaller, code: string, opts: { preview?: boolean; log?: boolean } = {}): Promise<NextResponse> {
   const found = await bookingForVenue(caller.venueId, code);
   if (!found) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   if (opts.preview) {
@@ -226,5 +242,12 @@ export async function cancelThroughKey(caller: ApiCaller, code: string, opts: { 
   if (!done.ok) return NextResponse.json({ error: done.error, code: done.code }, { status: 409 });
   await refundCancelled([done.booking.id], { byVenue: true });
   await notifyVenueCancelled(done.booking);
+  if (opts.log)
+    await logAction(await keyActor(caller), {
+      venueId: caller.venueId,
+      action: "booking.cancelled",
+      bookingCode: done.booking.code,
+      detail: `${done.booking.date}, ${done.booking.name}, ${money(done.booking.totalPrice)}${done.booking.paymentStatus === "paid" ? " (was paid)" : ""}; cancelled through the venue's API key`,
+    });
   return NextResponse.json({ booking: await bookingForVenue(caller.venueId, code) });
 }

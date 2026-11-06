@@ -980,4 +980,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "A decision is recorded about a reported adult only. A minor's guardians follow the usual notices.": { ms: "Keputusan hanya direkodkan tentang orang dewasa yang dilaporkan. Penjaga seorang kanak-kanak mengikut pemberitahuan biasa.", zh: "决定只针对被举报的成年人记录。未成年人的监护人按通常的通知处理。" },
   "A decision has already been recorded for this restriction.": { ms: "Satu keputusan telah pun direkodkan untuk sekatan ini.", zh: "该限制已记录过决定。" },
   "Choose why: suspected abuse, imminent danger, a possibly reportable incident, or other.": { ms: "Pilih sebabnya: disyaki penderaan, bahaya yang hampir berlaku, insiden yang mungkin perlu dilaporkan, atau lain-lain.", zh: "请选择原因：疑似虐待、迫在眉睫的危险、可能须报告的事件，或其他。" },
+  "Say why (5 to 300 characters): it is kept in the staff activity log with your name.": {
+    ms: "Nyatakan sebabnya (5 hingga 300 aksara): ia disimpan dalam log aktiviti kakitangan bersama nama anda.",
+    zh: "请说明原因（5 至 300 个字符）：它会连同您的姓名一并记入员工活动日志。",
+  },
 };

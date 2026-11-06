@@ -101,7 +101,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/membership-plans$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/notices(\/\d+)?$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/online-payments$/, methods: ["POST"] },
-  { path: /^\/api\/admin\/outages$/, methods: ["POST", "DELETE"] },
+  // PATCH closes the late hours of an outage's last night, as taking a court out does: it was open to the desk while POST and DELETE are not (audit 9 A9).
+  { path: /^\/api\/admin\/outages$/, methods: ["POST", "DELETE", "PATCH"] },
   // A resource's launch and tide windows and the tide table behind them narrow what customers may book (lib/launch-windows.ts, ADR 0037); the desk reads them.
   { path: /^\/api\/admin\/launch-windows$/, methods: ["POST", "DELETE"] },
   { path: /^\/api\/admin\/tides$/, methods: ["POST"] },
@@ -133,7 +134,7 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   // Changing a booking's price, or giving it free, with a reason (lib/price-adjustments.ts).
   { path: /^\/api\/admin\/bookings\/adjust-price$/, methods: ["POST"] },
   // Staff accounts and their invitations (lib/staff-accounts.ts): the owner, a business manager, or a branch manager for their own front desk.
-  { path: /^\/api\/admin\/admins(\/\d+|\/invitations\/\d+)?$/, methods: "all" },
+  { path: /^\/api\/admin\/admins(\/\d+|\/invitations\/\d+|\/\d+\/two-factor-reset)?$/, methods: "all" },
   // Opening hours and rates from a later date, as changing them now is (lib/dated-changes.ts, ADR 0027); the desk may read them.
   { path: /^\/api\/admin\/venues\/\d+\/hours-changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },
   { path: /^\/api\/admin\/courts\/\d+\/changes(\/\d+)?$/, methods: ["POST", "PATCH", "DELETE"] },

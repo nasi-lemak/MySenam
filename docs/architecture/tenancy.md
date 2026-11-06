@@ -49,6 +49,33 @@ marking their invoices paid, customer notes, paper waivers, answering hire
 enquiries). `tests/roles.test.ts` checks each line names a real route, that
 front desk is refused there and a manager is not.
 
+Because open is the default, `tests/admin-route-classes.test.ts` makes the choice
+explicit: every `METHOD /api/admin/...` handler is listed in one table as `manager`
+(on `MANAGER_ONLY`), `owner` (the platform owner's, checked inside), `desk` (open to the
+desk on purpose) or `account` (signing in and one's own account), and the test fails for a
+handler that is not in the table, for one in it that no longer exists, and for a class
+that disagrees with `MANAGER_ONLY`. A new route cannot reach the desk by being forgotten. (Audit 9
+found two the desk could reach that its siblings refuse, and moved them to `manager`: `PATCH /api/admin/outages`,
+which closes the late hours of an outage as taking a court out does, and
+`POST /api/admin/admins/:id/two-factor-reset`, which the handler already refused the desk.)
+
+### Looking a customer up
+
+The customer table belongs to the whole marketplace and anybody can sign up as a venue, so what staff may learn of an
+account from an email or number is bounded (`src/lib/customer-lookup.ts`,
+[ADR 0057](decisions/0057-staff-lookups-masked-secrets-and-an-audit-trail-for-owner-decisions.md)):
+
+- **The counter's lookup** (`GET /api/admin/wallet?q=`) finds only a customer with a relationship with the member of staff's own venues:
+  a booking (by account, or by the email or number the venue was given), credit, a pass, a membership, an access-list
+  entry linked to the account, or a participant they are guardian of. Anybody else is "not found", whatever they hold elsewhere.
+  The platform owner, and an install that is one business's own (not the marketplace), are not narrowed. Every lookup is throttled:
+  30 an hour for one staff account, 120 for one address.
+- **Linking a sale or a record to an account by the email a customer read out** (a pass, a membership, a sign-off, a guardian, a coach,
+  an access-list entry) needs no relationship, since linking creates one. It is throttled the same way, is not offered from a venue that has
+  not gone live (`LOOKUP_NOT_LIVE`, 403), and a guardian invitation started with an email and no name does not show the account's name.
+- Lookups by number within one venue's own records (customer notes, participants, entries, strikes) are scoped to the venue and are not
+  affected.
+
 ### What the front desk is shown
 
 The dashboard shows the desk only what it may do (audit R8 X1-5), from the

@@ -1,3 +1,4 @@
+import { maskedName } from "./customer-lookup";
 import { getDb, isUniqueViolation, withTransaction } from "./db";
 import { translator } from "./i18n";
 import { accountLocale, baseUrl, enqueue } from "./outbox";
@@ -237,7 +238,8 @@ export async function requestAtVenue(input: {
       if (await db.prepare("SELECT 1 FROM participant_guardians WHERE participant_id = ? AND user_id = ? AND revoked_at IS NULL").get(p.id, account.id))
         return refused("PTC_GUARDIAN_ALREADY", "That account already acts for them.", 409);
       proposedUserId = account.id;
-      proposed = proposed || account.name;
+      // Staff typed an email and no name: the account's name is not shown them (it is the account holder's to give).
+      proposed = proposed || maskedName(account.name);
     }
     const req = (await db
       .prepare(

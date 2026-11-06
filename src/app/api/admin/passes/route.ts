@@ -1,6 +1,7 @@
 import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
+import { guardLinking } from "@/lib/customer-lookup";
 import { findAccountByEmail, issuePass, PASS_LIST_STATUSES, searchPassesForVenue } from "@/lib/store";
 import { COUNTER_METHODS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, PAID_VIA_LABELS, Sport, type CounterMethod } from "@/lib/types";
 import { logAction } from "@/lib/activity";
@@ -123,6 +124,8 @@ export async function POST(req: NextRequest) {
   // a phone number would let whoever registered it first claim the pass.
   let userId: number | undefined;
   if (typeof input.accountEmail === "string" && input.accountEmail.trim() !== "") {
+    const guarded = await guardLinking(req, admin);
+    if (guarded) return guarded;
     const account = await findAccountByEmail(input.accountEmail);
     if (!account)
       return NextResponse.json(

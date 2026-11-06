@@ -1,3 +1,4 @@
+import { guardLinking } from "@/lib/customer-lookup";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
@@ -31,6 +32,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (denied) return denied;
   const participant = await participantAtVenue(venueId, participantId);
   if (!participant) return NextResponse.json({ error: "No such participant here.", code: "PTC_NOT_FOUND" }, { status: 404 });
+  if (typeof body.email === "string" && body.email.trim() !== "") {
+    const guarded = await guardLinking(req, admin);
+    if (guarded) return guarded;
+  }
   const done = await requestAtVenue({ venueId, participantId, admin: { id: admin.id, name: admin.name }, proposedName: body.proposedName, email: body.email });
   if (!done.ok) return NextResponse.json({ error: done.error, code: done.code, ...(done.vars ? { vars: done.vars } : {}) }, { status: done.status });
   await logAction(admin, {

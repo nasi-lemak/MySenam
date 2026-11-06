@@ -1,3 +1,4 @@
+import { guardLinking } from "@/lib/customer-lookup";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, isOwner, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
@@ -95,6 +96,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ ok: true });
   }
   if (body.action === "link" && venueId !== null) {
+    const guarded = await guardLinking(req, admin);
+    if (guarded) return guarded;
     const done = await linkByStaff({ venueId, participantId, email: body.email, admin: by, reason: body.reason });
     if (!done.ok) return refusal(done);
     await logAction(admin, { venueId, action: "participant.linked", detail: `Linked ${who} to their own login: ${why}` });

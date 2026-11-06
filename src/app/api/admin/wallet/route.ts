@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canAccessVenue, denyVenue, requireAdmin } from "@/lib/admin-auth";
 import type { Admin } from "@/lib/admin-auth";
 import { creditScope } from "@/lib/mode";
+import { customerScope, lookupThrottle } from "@/lib/customer-lookup";
 import { findUserForWallet, listWalletEntries, topUpWallet } from "@/lib/store";
 import { COUNTER_METHODS, MAX_TOP_UP, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
 import { asStaff } from "@/lib/acting-staff";
@@ -35,7 +36,10 @@ function counterFor(admin: Admin, asked: unknown): number | null {
   return admin.venueIds?.length === 1 ? admin.venueIds[0] : null;
 }
 
-/** Look a customer up at the counter by email or phone. */
+/**
+ * Look a customer up at the counter by email or phone: one with a relationship with the member of staff's venues, and
+ * not more than a counter's worth an hour (lib/customer-lookup.ts).
+ */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (admin instanceof NextResponse) return admin;
@@ -46,7 +50,9 @@ export async function GET(req: NextRequest) {
 
   const venueId = venueFor(admin, req.nextUrl.searchParams.get("venueId"));
   if (venueId instanceof NextResponse) return venueId;
-  const customer = await findUserForWallet(query, venueId);
+  const limited = await lookupThrottle(req, admin);
+  if (limited) return limited;
+  const customer = await findUserForWallet(query, venueId, customerScope(admin));
   if (!customer) return NextResponse.json({ error: "Customer not found." }, { status: 404 });
   return NextResponse.json({
     scope: creditScope(),

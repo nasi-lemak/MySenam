@@ -121,7 +121,8 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0036 Who supervises a session: rosters, qualifications and supervision rules, asked in the one booking path](architecture/decisions/0036-who-supervises-a-session.md)
 [0048 Ladder court-time holds: configurable limits, tentative holds that expire, no overlap, limits that only refuse](architecture/decisions/0048-ladder-hold-limits-and-expiry.md) ·
 [0050 Ladder court time: an existing agreement counts as confirmation; expired and released holds do not count towards the active allowance](architecture/decisions/0050-ladder-agreement-counts-and-expired-holds-do-not.md) ·
-[0051 Ladder court time: a counter-proposal is its maker's agreement and holds nothing; an expired or unanswered hold is no one's fault](architecture/decisions/0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md)
+[0051 Ladder court time: a counter-proposal is its maker's agreement and holds nothing; an expired or unanswered hold is no one's fault](architecture/decisions/0051-a-counter-proposal-is-an-agreement-and-expired-holds-are-no-ones-fault.md) ·
+[0057 Staff find only their own customers, secrets are never in a staff view, the owner's decisions are logged, and a draft that cannot be deleted never stops the day](architecture/decisions/0057-staff-lookups-masked-secrets-and-an-audit-trail-for-owner-decisions.md)
 
 ## Integrations
 

@@ -49,7 +49,7 @@ async function reset(target: Admin, entry: { by: Admin | null; reason: string })
   });
   const who = (t: T) => (entry.by ? `${entry.by.name} (${entry.by.email})` : t("sl8.tfa.console"));
   if (entry.by)
-    await logAction(entry.by, { venueId: target.venueId, action: "staff.twoFactorReset", detail: `${target.name} (${target.email}): ${entry.reason.trim()}` });
+    await logAction(entry.by, { venueId: target.venueId, businessId: target.businessId, action: "staff.twoFactorReset", detail: `${target.name} (${target.email}): ${entry.reason.trim()}` });
   const site = siteName();
   const own = translator(staffReaderLocale(target.locale));
   await emailPlain({

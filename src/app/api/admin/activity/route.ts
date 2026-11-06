@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
       to: date(p.get("to")),
       bookingCode: p.get("code") ?? undefined,
       limit: Number(p.get("limit")) || 200,
+      // A business's managers also read what was done at business level, which has no venue, beside any venue's.
+      businessId: admin.businessId,
     }),
   });
 }

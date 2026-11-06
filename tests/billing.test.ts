@@ -248,6 +248,7 @@ describe("the billing route", () => {
     expect((await post(asDesk, { action: "pay", invoiceId: theirInvoice.id })).status).toBe(403);
     expect((await post(asDesk, { action: "markPaid", invoiceId: (await listInvoices(mine))[0].id })).status).toBe(403);
     expect((await post(asDesk, { action: "setPlan", venueId: mine, monthlyFee: 0 })).status).toBe(403);
-    expect((await post(asOwner, { action: "markPaid", invoiceId: theirInvoice.id })).status).toBe(200);
+    expect((await post(asOwner, { action: "markPaid", invoiceId: theirInvoice.id })).status).toBe(400);
+    expect((await post(asOwner, { action: "markPaid", invoiceId: theirInvoice.id, reason: "Bank transfer received, seen on the statement" })).status).toBe(200);
   });
 });

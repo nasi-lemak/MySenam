@@ -1,3 +1,4 @@
+import { logAction } from "@/lib/activity";
 import { NextRequest, NextResponse } from "next/server";
 import { readMinute } from "@/lib/api";
 import { isMinute } from "@/lib/interval";
@@ -46,5 +47,6 @@ export async function POST(req: NextRequest) {
     ...hours,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await logAction(admin, { venueId: result.venue.id, action: "venue.added", detail: `Added the venue ${result.venue.name} (platform)` });
   return NextResponse.json({ venue: result.venue }, { status: 201 });
 }

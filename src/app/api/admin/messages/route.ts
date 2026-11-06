@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin, requireOwner } from "@/lib/admin-auth";
-import { listMessages, listPlatformMessages, messageById, outboxSummary, retryMessage } from "@/lib/outbox";
+import { forStaff, listMessages, listPlatformMessages, messageById, outboxSummary, retryMessage } from "@/lib/outbox";
 import { tickOutbox } from "@/lib/notify";
 import { logAction } from "@/lib/activity";
 
@@ -64,5 +64,5 @@ export async function POST(req: NextRequest) {
     detail: `${existing.kind.replace(/_/g, " ")} (${existing.channel}) message ${existing.id}${redirected ? ` to ${retried.message.recipient}, not ${existing.recipient}` : ""}`,
   });
   await tickOutbox();
-  return NextResponse.json({ message: retried.message });
+  return NextResponse.json({ message: forStaff(retried.message) });
 }

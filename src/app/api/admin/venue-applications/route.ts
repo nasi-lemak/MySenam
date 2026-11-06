@@ -1,3 +1,4 @@
+import { logAction } from "@/lib/activity";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
 import { approveApplication, countDrafts, listApplications, rejectApplication } from "@/lib/applications";
@@ -44,5 +45,14 @@ export async function POST(req: NextRequest) {
         )
       : await rejectApplication(id as number, admin.id, typeof reason === "string" ? reason : "");
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  // Who let a venue onto the marketplace, or refused it, and on what grounds: in the log, beside the application's own record.
+  await logAction(admin, {
+    venueId: result.application.venueId,
+    action: decision === "approve" ? "venue.approved" : "venue.rejected",
+    detail:
+      decision === "approve"
+        ? `Approved the application of ${result.application.businessName} to list a venue (platform); checks ticked: ${Array.isArray(checks) ? checks.length : 0}`
+        : `Refused the application of ${result.application.businessName} to list a venue (platform): ${typeof reason === "string" ? reason.trim().slice(0, 300) : ""}`,
+  });
   return NextResponse.json({ application: result.application, emailed: result.emailed });
 }

@@ -1,3 +1,4 @@
+import { guardLinking } from "@/lib/customer-lookup";
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
@@ -23,6 +24,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "venueId and coachId are required." }, { status: 400 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
+  if (typeof body.email === "string" && body.email.trim() !== "") {
+    const guarded = await guardLinking(req, admin);
+    if (guarded) return guarded;
+  }
   const done = await linkCoachAccount(venueId, coachId, body.email ?? null);
   if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status });
   await logAction(admin, {
