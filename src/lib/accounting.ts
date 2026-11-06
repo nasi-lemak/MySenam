@@ -203,6 +203,42 @@ export const bookingCredited = (b: string, column: "total" | "tax_amount") =>
             OR r.source IN (SELECT 'account-credit:' || ac.id FROM account_credits ac WHERE ac.booking_id = ${b}.id)))`;
 
 /**
+ * What the journal holds, net, of the money that came in on a booking on receipts of their own and not on the
+ * booking's own receipt: its deposit paid online, friends' shares (a split's, a game's) and the part of a
+ * payment kept as a receipt when a share was handed back or a chargeback was lost (`booking-part:`, `booking-paid:`),
+ * less the credit notes on each. Where one deposit holds several bookings (a series), this booking's part of it
+ * and the credit notes keyed to this booking's code. SQL, for the booking aliased `b`. With `bookingGross` and
+ * `bookingCredited`, what the period report counts of a booking cancelled late (lib/reports.ts `bookingMoney`).
+ */
+export const bookingSideNet = (b: string) =>
+  `(SELECT COALESCE(SUM(l.received - (SELECT COALESCE(SUM(c.total), 0) FROM receipts c
+                                       WHERE c.credits_id = l.id AND (l.n <= 1 OR c.source = 'credit:' || l.id || ':' || ${b}.code))), 0)
+      FROM (
+        SELECT r.id, CASE WHEN n.n > 1 THEN COALESCE(pb.amount, r.total) ELSE r.total END AS received, n.n
+          FROM online_payment_bookings pb
+          JOIN online_payments p ON p.id = pb.payment_id AND p.deposit = 1 AND p.status = 'paid'
+          JOIN receipts r ON r.source = 'payment:' || p.id AND r.kind = 'receipt'
+          CROSS JOIN LATERAL (SELECT COUNT(*) AS n FROM online_payment_bookings x WHERE x.payment_id = p.id) n
+         WHERE pb.booking_id = ${b}.id
+        UNION ALL
+        SELECT r.id, r.total, 1
+          FROM online_payments p
+          JOIN booking_splits s ON s.id = p.split_id
+          JOIN receipts r ON r.source = 'payment:' || p.id AND r.kind = 'receipt'
+         WHERE s.booking_id = ${b}.id AND p.purpose = 'split' AND p.status = 'paid'
+        UNION ALL
+        SELECT r.id, r.total, 1
+          FROM online_payments p
+          JOIN open_game_players gp ON gp.id = p.game_player_id
+          JOIN open_games g ON g.id = gp.game_id
+          JOIN receipts r ON r.source = 'payment:' || p.id AND r.kind = 'receipt'
+         WHERE g.booking_id = ${b}.id AND p.purpose = 'share' AND p.status = 'paid'
+        UNION ALL
+        SELECT r.id, r.total, 1 FROM receipts r
+         WHERE r.kind = 'receipt' AND (r.source LIKE 'booking-part:' || ${b}.id || ':%' OR r.source LIKE 'booking-paid:' || ${b}.id || ':%')
+      ) l)`;
+
+/**
  * The booking a stored document was written for, where it was one's: its receipt kept or credit notes
  * (`booking:<id>…`, `booking-part:<id>…`, `booking-paid:<id>…`), a dearer coach's difference (`lesson-coach:<change>`),
  * its credit on a company account (`account-credit:<id>`), its deposit paid online (`payment:<id>`), or a credit note

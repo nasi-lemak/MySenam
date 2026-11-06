@@ -420,7 +420,10 @@ marketplace, not one venue.
   WhatsApp messages in packs — `MYSENAM_WHATSAPP_PACK` (200) for
   `MYSENAM_WHATSAPP_PACK_PRICE` (RM20) — paid online into the platform's
   Billplz account, or by transfer and marked paid by the owner. Each message
-  sent spends one; one that fails to send is given back.
+  sent spends one; one that fails to send is given back. A message is spent for
+  once: if the process stopped after the spend and before the message was marked
+  sent, the retry does not spend again (`spendCredit` nets the message's own
+  spend and give-backs; `tests/whatsapp-usage.test.ts`).
 - **At zero, those messages stop; nothing else does.** Email, the on-screen
   code and urgent news on WhatsApp carry on, and nothing is sent on credit. The venue's staff are
   emailed at 20 left and again at none. So a venue that stops paying costs

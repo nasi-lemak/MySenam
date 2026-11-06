@@ -27,7 +27,7 @@ const report = (venueId: number, venueName: string) => ({
     days: 30,
     closedDays: 0,
     bookings: { confirmed: 0, cancelled: 0, noShows: 0, hours: 0 },
-    revenue: { expected: 0, collected: 0, outstanding: 0, tax: 0 },
+    revenue: { expected: 0, collected: 0, outstanding: 0, lateKept: 0, adjusted: 0, passPaid: { bookings: 0, value: 0 }, tax: 0 },
     testTakings: { bookings: 0, collected: 0 },
     collectedBy: [],
     counterSales: { sales: 0, total: 0 },
@@ -36,7 +36,13 @@ const report = (venueId: number, venueName: string) => ({
     byCourt: [],
     byMonth: [],
     byHour: [],
-    liabilities: { passEntriesUnspent: 0, passesLive: 0, membershipsActive: 0, membershipsExpiringSoon: 0 },
+    liabilities: {
+      passEntriesUnspent: 0,
+      passesLive: 0,
+      membershipsActive: 0,
+      membershipsExpiringSoon: 0,
+      owed: { storedCredit: null, giftVouchers: 0, giftVouchersLapsed: 0, bookingDeposits: 0, hireDeposits: 0, refunds: 0, passValue: 0, total: 0 },
+    },
   },
   wallet: null,
 });

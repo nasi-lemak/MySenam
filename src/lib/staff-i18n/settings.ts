@@ -578,6 +578,12 @@ const en = {
   "bowl.pol.inheritsChosen": "Inherited: chosen when booking",
   "bowl.pol.onArrival": "Given on arrival",
   "bowl.pol.chosen": "Chosen when booking",
+  "fx5.ei.notSent.s": "E-invoice {code} was not sent",
+  "fx5.ei.notSent.b": "MySenam could not send e-invoice {code} for {venue} to LHDN: {why}. It did not reach LHDN, so nothing is lost. MySenam tries again by itself, every few hours, and tells you again while it keeps failing. Open E-invoicing in the dashboard to see it; once the cause is put right it goes without any other action.",
+  "fx5.ei.run.s": "E-invoicing stopped for {venue}",
+  "fx5.ei.run.b": "MySenam could not finish {step} the e-invoices for {venue}: {why}. Other venues carry on. It tries again by itself. If you keep getting this, tell the platform owner.",
+  "fx5.ei.step.consolidating": "consolidating",
+  "fx5.ei.step.sending": "sending",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1150,6 +1156,12 @@ const ms: Record<keyof typeof en, string> = {
   "bowl.pol.inheritsChosen": "Diwarisi: dipilih semasa menempah",
   "bowl.pol.onArrival": "Diberi semasa tiba",
   "bowl.pol.chosen": "Dipilih semasa menempah",
+  "fx5.ei.notSent.s": "E-invois {code} tidak dihantar",
+  "fx5.ei.notSent.b": "MySenam tidak dapat menghantar e-invois {code} untuk {venue} kepada LHDN: {why}. Ia tidak sampai kepada LHDN, jadi tiada yang hilang. MySenam mencuba semula dengan sendirinya, setiap beberapa jam, dan memberitahu anda lagi selagi ia gagal. Buka E-invois dalam papan pemuka untuk melihatnya; setelah puncanya dibetulkan, ia dihantar tanpa tindakan lain.",
+  "fx5.ei.run.s": "E-invois terhenti untuk {venue}",
+  "fx5.ei.run.b": "MySenam tidak dapat menyiapkan {step} e-invois untuk {venue}: {why}. Pusat lain diteruskan. Ia mencuba semula dengan sendirinya. Jika anda terus menerima ini, beritahu pemilik platform.",
+  "fx5.ei.step.consolidating": "penyatuan",
+  "fx5.ei.step.sending": "penghantaran",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1722,6 +1734,12 @@ const zh: Record<keyof typeof en, string> = {
   "bowl.pol.inheritsChosen": "继承：预订时选择",
   "bowl.pol.onArrival": "到场分配",
   "bowl.pol.chosen": "预订时选择",
+  "fx5.ei.notSent.s": "电子发票 {code} 未能发送",
+  "fx5.ei.notSent.b": "MySenam 无法将 {venue} 的电子发票 {code} 发送给 LHDN：{why}。它并未到达 LHDN，因此没有任何损失。MySenam 会每隔几小时自动重试，并在持续失败期间再次通知您。请在控制台打开“电子发票”查看；原因解决后会自动发送，无需其他操作。",
+  "fx5.ei.run.s": "{venue} 的电子发票处理已中断",
+  "fx5.ei.run.b": "MySenam 无法完成 {venue} 电子发票的{step}：{why}。其他场馆照常处理。系统会自动重试。若您持续收到此通知，请告知平台所有者。",
+  "fx5.ei.step.consolidating": "合并",
+  "fx5.ei.step.sending": "发送",
 };
 
 const area = { en, ms, zh };

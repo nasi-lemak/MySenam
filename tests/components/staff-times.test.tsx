@@ -208,7 +208,7 @@ describe("the reports", () => {
     days: 30,
     closedDays: 0,
     bookings: { confirmed: 6, cancelled: 0, noShows: 0, hours: 6 },
-    revenue: { expected: 150, collected: 150, outstanding: 0, tax: 0 },
+    revenue: { expected: 150, collected: 150, outstanding: 0, lateKept: 0, adjusted: 0, passPaid: { bookings: 0, value: 0 }, tax: 0 },
     testTakings: { bookings: 0, collected: 0 },
     collectedBy: [],
     counterSales: { sales: 0, total: 0 },
@@ -221,7 +221,13 @@ describe("the reports", () => {
       { hour: 18, hours: 4 },
       { hour: 23, hours: 1 },
     ],
-    liabilities: { passEntriesUnspent: 0, passesLive: 0, membershipsActive: 0, membershipsExpiringSoon: 0 },
+    liabilities: {
+      passEntriesUnspent: 0,
+      passesLive: 0,
+      membershipsActive: 0,
+      membershipsExpiringSoon: 0,
+      owed: { storedCredit: null, giftVouchers: 0, giftVouchersLapsed: 0, bookingDeposits: 0, hireDeposits: 0, refunds: 0, passValue: 0, total: 0 },
+    },
   };
   beforeEach(() => {
     answer = (url) =>

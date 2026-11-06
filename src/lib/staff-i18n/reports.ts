@@ -416,6 +416,18 @@ const en = {
   "cls3.act.approved": "Approved a request to move a class",
   "cls3.act.declined": "Declined a request to move a class",
   "cls3.act.closed": "A request to move a class closed without a decision",
+  "fx5.rpt.adjusted": "Given back after payment (adjustments, places taken off): {amount}",
+  "fx5.rpt.passPaid": "{n} paid with a pass ({amount} at their price) are not takings: the pass sale was the money.",
+  "fx5.rpt.basis": "Counted as the sales journal counts it, by the date played. Deposits and friends' shares paid are in it.",
+  "fx5.rpt.owedVouchers": "Gift vouchers not yet used",
+  "fx5.rpt.owedVouchersNote": "Past their date, not counted: {amount}",
+  "fx5.rpt.owedDeposits": "Deposits and shares held on bookings still to play",
+  "fx5.rpt.owedHire": "Deposits held on kit out on hire",
+  "fx5.rpt.owedRefunds": "Refunds owed to customers",
+  "fx5.rpt.owedTotal": "Held for customers, in ringgit",
+  "fx5.rpt.owedTotalNote": "Provisional: how each is treated in your books is for your adviser.",
+  "fx5.rpt.passValue": "Unspent pass value (estimate)",
+  "fx5.rpt.passValueNote": "At the price paid; not in the total above.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -828,6 +840,18 @@ const ms: Record<keyof typeof en, string> = {
   "cls3.act.approved": "Meluluskan permintaan memindahkan kelas",
   "cls3.act.declined": "Menolak permintaan memindahkan kelas",
   "cls3.act.closed": "Permintaan memindahkan kelas ditutup tanpa keputusan",
+  "fx5.rpt.adjusted": "Dipulangkan selepas bayaran (pelarasan, tempat dikeluarkan): {amount}",
+  "fx5.rpt.passPaid": "{n} dibayar dengan pas ({amount} pada harganya) bukan jualan: jualan pas itulah wangnya.",
+  "fx5.rpt.basis": "Dikira seperti jurnal jualan, mengikut tarikh bermain. Deposit dan bahagian rakan yang sudah dibayar termasuk.",
+  "fx5.rpt.owedVouchers": "Baucar hadiah yang belum digunakan",
+  "fx5.rpt.owedVouchersNote": "Telah tamat tarikh, tidak dikira: {amount}",
+  "fx5.rpt.owedDeposits": "Deposit dan bahagian yang dipegang bagi tempahan yang belum dimainkan",
+  "fx5.rpt.owedHire": "Deposit dipegang bagi peralatan yang disewa",
+  "fx5.rpt.owedRefunds": "Bayaran balik yang terhutang kepada pelanggan",
+  "fx5.rpt.owedTotal": "Dipegang untuk pelanggan, dalam ringgit",
+  "fx5.rpt.owedTotalNote": "Sementara: layanan setiap satu dalam akaun anda ditentukan oleh penasihat anda.",
+  "fx5.rpt.passValue": "Nilai pas yang belum digunakan (anggaran)",
+  "fx5.rpt.passValueNote": "Pada harga yang dibayar; tidak termasuk dalam jumlah di atas.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1240,6 +1264,18 @@ const zh: Record<keyof typeof en, string> = {
   "cls3.act.approved": "批准了课程调整申请",
   "cls3.act.declined": "拒绝了课程调整申请",
   "cls3.act.closed": "课程调整申请未经决定而关闭",
+  "fx5.rpt.adjusted": "付款后退回（调整、移除名额）：{amount}",
+  "fx5.rpt.passPaid": "{n} 个预订以通行证支付（按原价 {amount}），不计入收入：通行证的销售才是收款。",
+  "fx5.rpt.basis": "与销售日记账同一算法，按比赛日期计。已付的订金和朋友分摊款已包含在内。",
+  "fx5.rpt.owedVouchers": "尚未使用的礼券",
+  "fx5.rpt.owedVouchersNote": "已过期，不计入：{amount}",
+  "fx5.rpt.owedDeposits": "尚未进行的预订所持有的订金和分摊款",
+  "fx5.rpt.owedHire": "租出器材所持有的押金",
+  "fx5.rpt.owedRefunds": "应退还给顾客的款项",
+  "fx5.rpt.owedTotal": "为顾客持有的款项（令吉）",
+  "fx5.rpt.owedTotalNote": "暂定：各项在贵场馆账目中的处理，须由贵场馆的顾问决定。",
+  "fx5.rpt.passValue": "未使用的通行证价值（估算）",
+  "fx5.rpt.passValueNote": "按支付的价格计；不计入上方合计。",
 };
 
 const area = { en, ms, zh };

@@ -212,6 +212,15 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                   ))}
                 </ul>
               )}
+              <p className="mt-2 text-xs text-slate-500">{t("fx5.rpt.basis")}</p>
+              {report.revenue.adjusted > 0 && (
+                <div className="mt-1 text-xs text-slate-600">{t("fx5.rpt.adjusted", { amount: ringgit(report.revenue.adjusted) })}</div>
+              )}
+              {report.revenue.passPaid.bookings > 0 && (
+                <div className="mt-1 text-xs text-slate-600">
+                  {t("fx5.rpt.passPaid", { n: report.revenue.passPaid.bookings, amount: ringgit(report.revenue.passPaid.value) })}
+                </div>
+              )}
               {report.counterSales.sales > 0 && (
                 <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-600">
                   {t("rpt.counterSales")} <span className="font-medium">{ringgit(report.counterSales.total)}</span> ({report.counterSales.sales})
@@ -428,6 +437,17 @@ export function ReportsTab({ venues }: { venues: ManagedVenue[] }) {
                           t("rpt.overdrawnNote", { n: c!.overdrawn.customers }),
                         ] as [string, string, string]
                     ),
+                  // What is held for customers in ringgit (lib/reports.ts `venueOwes`); provisional, so it says so.
+                  ...(
+                    [
+                      [t("fx5.rpt.owedVouchers"), ringgit(report.liabilities.owed.giftVouchers), report.liabilities.owed.giftVouchersLapsed > 0 ? t("fx5.rpt.owedVouchersNote", { amount: ringgit(report.liabilities.owed.giftVouchersLapsed) }) : ""],
+                      [t("fx5.rpt.owedDeposits"), ringgit(report.liabilities.owed.bookingDeposits), ""],
+                      [t("fx5.rpt.owedHire"), ringgit(report.liabilities.owed.hireDeposits), ""],
+                      [t("fx5.rpt.owedRefunds"), ringgit(report.liabilities.owed.refunds), ""],
+                      [t("fx5.rpt.owedTotal"), ringgit(report.liabilities.owed.total), t("fx5.rpt.owedTotalNote")],
+                      [t("fx5.rpt.passValue"), ringgit(report.liabilities.owed.passValue), t("fx5.rpt.passValueNote")],
+                    ] as [string, string, string][]
+                  ),
                 ].map(([label, value, note]) => (
                   <div
                     key={label}
