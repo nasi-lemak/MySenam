@@ -5085,6 +5085,11 @@ const EN = {
   "msg4.review.received": "Your request was received.",
   "msg4.review.lifted": "After a review, the restriction was lifted.",
   "msg4.review.continues": "Your request was decided: the restriction continues.",
+  "err.PAID_ABOVE_PRICE": "Part of this booking has already been paid (a deposit, or shares paid by friends), and this change would take its price below what has been paid. Ask the venue to make the change.",
+  "err.PRICE_CHANGED": "The price of this booking is now {cur}{amount}, not the one you were shown. Nothing has been booked or charged: check it and press Book again to accept it.",
+  "err.DISCOUNT_NOT_APPLIED": "Your discount could not be applied (it may have run out), so nothing has been booked or charged. Check the price and try again.",
+  "receipt.why.priceLowered": "The booking's price came down below the deposit paid, and the difference was owed back.",
+  "pwp.walletNotUsed": "Your credit or pass was not used, so nothing has been paid: {reason} {cur}{amount} is still to pay.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10116,6 +10121,11 @@ const MS: Record<Phrase, string> = {
   "msg4.review.received": "Permintaan anda telah diterima.",
   "msg4.review.lifted": "Selepas semakan, sekatan itu telah ditarik balik.",
   "msg4.review.continues": "Permintaan anda telah diputuskan: sekatan itu diteruskan.",
+  "err.PAID_ABOVE_PRICE": "Sebahagian tempahan ini sudah dibayar (deposit, atau bahagian yang dibayar oleh rakan), dan perubahan ini akan menjadikan harganya kurang daripada yang telah dibayar. Minta pusat membuat perubahan itu.",
+  "err.PRICE_CHANGED": "Harga tempahan ini kini {cur}{amount}, bukan harga yang ditunjukkan kepada anda. Tiada tempahan dibuat dan tiada caj dikenakan: semak dan tekan Tempah sekali lagi untuk menerimanya.",
+  "err.DISCOUNT_NOT_APPLIED": "Diskaun anda tidak dapat digunakan (mungkin telah habis), jadi tiada tempahan dibuat dan tiada caj dikenakan. Semak harga dan cuba lagi.",
+  "receipt.why.priceLowered": "Harga tempahan turun di bawah deposit yang dibayar, dan bezanya perlu dipulangkan.",
+  "pwp.walletNotUsed": "Kredit atau pas anda tidak digunakan, jadi tiada bayaran dibuat: {reason} {cur}{amount} masih perlu dibayar.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

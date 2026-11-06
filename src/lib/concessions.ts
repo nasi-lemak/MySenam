@@ -12,6 +12,7 @@ import { errorText, translator, type ErrorCode, type Phrase } from "./i18n";
 import { isConcessionPreset, type ConcessionPreset } from "./concessions-shared";
 import { unchangedPreset } from "./concession-presets";
 import { CONCESSION_SCOPES, isDuplicateRedemption, isScope, placeFor, placeShares, placesOf, soldByPlace, type BenefitScope } from "./entitlements";
+import { keepPaidWithinPrice } from "./paid-within-price";
 import { allocatePromo, courtBeforePromo, stackRefusal } from "./discounts";
 
 /**
@@ -206,6 +207,9 @@ export async function applyConcession(
       if (done.changes !== 1) throw new ConcessionRefused(refuse("ONE_DISCOUNT"));
       // A code on it is worked out again on the lower price, so the order is the same whichever came first.
       await allocatePromo(bookingId);
+      // Below what a deposit or shares paid on it: that part owed back, or the concession refused (lib/paid-within-price.ts).
+      const kept = await keepPaidWithinPrice(bookingId);
+      if (!kept.ok) throw new ConcessionRefused(kept);
       return amount;
     });
     return { ok: true, off, check };
@@ -293,6 +297,9 @@ export async function applyPlaceConcession(
       await db.prepare("UPDATE bookings SET total_price = total_price - ? WHERE id = ?").run(amount, bookingId);
       // A code on it is worked out again on the lower price, so the order is the same whichever came first.
       await allocatePromo(bookingId);
+      // Below what a deposit or shares paid on it: that part owed back, or the concession refused (lib/paid-within-price.ts).
+      const kept = await keepPaidWithinPrice(bookingId);
+      if (!kept.ok) throw new ConcessionRefused(kept);
       return amount;
     });
     return { ok: true, off, check, placeId: place.placeId };

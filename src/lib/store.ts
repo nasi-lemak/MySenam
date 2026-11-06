@@ -33,6 +33,7 @@ import { phoneNumber } from "./phone-check";
 import { addonsFor, hasAddons, type BookingAddon } from "./addons";
 import { suspendedOn } from "./membership-suspensions";
 import { isDuplicateSpend, memberPrices, membersOnlyRefusal, participationLapses, PASS_SCOPES, placesOf as placeRows, refuse as refuseEnt, soldByPlace, type BenefitScope, type MemberCover } from "./entitlements";
+import { keepPaidWithinPrice } from "./paid-within-price";
 import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, stackRefusal } from "./discounts";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -3529,6 +3530,8 @@ export type RescheduleResult =
       unchargedDifference: number;
       /** A lesson the venue moved: its price stays as agreed whatever the new time costs (lib/lesson-venue-moves.ts). */
       keepsAgreedPrice?: boolean;
+      /** A deposit paid online was above the new, lower price: this much of it is owed back on its payment (lib/paid-within-price.ts). */
+      owedBack?: number;
       /** The court's rules staff went past, to be recorded. */
       overrides?: PolicyBreach[];
       /** Where it went (or, previewed or held, would go). */
@@ -3571,6 +3574,12 @@ async function gameSharesPaid(bookingId: number): Promise<number> {
 class BookingChanged extends Error {}
 /** A preview: everything done, then undone. */
 class PreviewOnly extends Error {}
+/** The new price is below what shares paid on the booking: the move is undone and refused (lib/paid-within-price.ts). */
+class PaidAboveNewPrice extends Error {
+  constructor(readonly refusal: Refusal) {
+    super("PAID_ABOVE_PRICE");
+  }
+}
 /** A lesson's coach was booked for the new time while it was being moved. */
 class CoachTaken extends Error {}
 
@@ -3876,8 +3885,10 @@ async function rescheduleBookingOnce(
       ...(keepsAgreed ? { keepsAgreedPrice: true } : {}),
       ...(breaches.length > 0 ? { overrides: breaches } : {}),
     };
+    let owedBack = 0;
     try {
       await withTransaction(async () => {
+        owedBack = 0;
         // Nothing changed since it was read: the game first, then the booking,
         // in the order every change to a game takes them (lib/games.ts).
         const g = live ? ((await db.prepare("SELECT status FROM open_games WHERE id = ? FOR UPDATE").get(game.id)) as { status: string }) : null;
@@ -4012,6 +4023,12 @@ async function rescheduleBookingOnce(
           }
           if (breaches.length > 0) await db.prepare("UPDATE bookings SET policy_override = true WHERE id = ?").run(booking.id);
           await db.prepare("UPDATE bookings SET total_price = total_price + ? WHERE id = ?").run(priceChange, booking.id);
+          // Lowered below what a deposit or shares paid on it: that part owed back, or the move refused (lib/paid-within-price.ts).
+          if (priceChange < 0) {
+            const kept = await keepPaidWithinPrice(booking.id);
+            if (!kept.ok) throw new PaidAboveNewPrice(kept);
+            if (kept.owedBack > 0) owedBack = kept.owedBack;
+          }
           // A lesson the venue moved to another day or time: on the record, with its customer's refund window, and its reminders re-armed.
           if (lesson && by === "staff" && (to.date !== booking.date || span.start !== booking.startMin))
             await (await import("./lesson-venue-moves")).recordLessonMove({
@@ -4035,7 +4052,8 @@ async function rescheduleBookingOnce(
         if (to.preview) throw new PreviewOnly();
       });
     } catch (err) {
-      if (err instanceof PreviewOnly) return { ...result, booking, preview: true, ...(coachChange ? { coachChange } : {}) };
+      if (err instanceof PreviewOnly) return { ...result, booking, preview: true, ...(owedBack > 0 ? { owedBack } : {}), ...(coachChange ? { coachChange } : {}) };
+      if (err instanceof PaidAboveNewPrice) return err.refusal;
       if (err instanceof BookingChanged) return refuse("RESCHEDULE_CHANGED");
       if (err instanceof SupervisorMissing) {
         firstRefusal ??= err.refusal;
@@ -4054,7 +4072,7 @@ async function rescheduleBookingOnce(
     // invited or is waiting hears the new time. (A game with players moves
     // through lib/game-moves.ts, which tells them itself.)
     if (live && !to.game) await (await import("./games")).gameTimeChanged(game.id);
-    return { ...result, booking: (await getBookingById(booking.id))!, ...(coachChange ? { coachChange } : {}) };
+    return { ...result, booking: (await getBookingById(booking.id))!, ...(owedBack > 0 ? { owedBack } : {}), ...(coachChange ? { coachChange } : {}) };
   }
   return firstRefusal ?? refuse("RESCHEDULE_TAKEN");
 }
@@ -7096,10 +7114,26 @@ export async function claimPayment(bookingId: number, via: "pass" | "credit"): P
   return (
     (await getDb()
       .prepare(
-        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now'), paid_via = ? WHERE id = ? AND payment_status = 'unpaid'"
+        "UPDATE bookings SET payment_status = 'paid', paid_at = datetime('now'), paid_via = ? WHERE id = ? AND payment_status = 'unpaid' AND status = 'confirmed'"
       )
       .run(via, bookingId)).changes === 1
   );
+}
+
+/**
+ * Read a booking about to be paid from credit or a pass, inside the paying transaction and under its row lock, so
+ * a cancellation (staff, the customer, a closure, the hold sweep) that commits first is seen here and one that
+ * comes after waits for this payment and then refunds it: credit or entries are never taken for a booking that is
+ * cancelled. Throws `CANCELLED` / `RACED` for the caller to turn into its refusal; returns the price as it stands now.
+ */
+async function lockPayable(bookingId: number): Promise<number> {
+  const live = (await getDb()
+    .prepare("SELECT status, payment_status, total_price::float AS total_price FROM bookings WHERE id = ? FOR UPDATE")
+    .get(bookingId)) as { status: string; payment_status: string; total_price: number } | undefined;
+  if (!live) throw new Error("CANCELLED");
+  if (live.status !== "confirmed") throw new Error("CANCELLED");
+  if (live.payment_status !== "unpaid") throw new Error("RACED");
+  return Number(live.total_price);
 }
 
 export async function payBookingFromWallet(bookingId: number): Promise<WalletResult> {
@@ -7123,7 +7157,8 @@ export async function payBookingFromWallet(bookingId: number): Promise<WalletRes
   const venueId = creditScope() === "venue" ? (await getCourt(booking.courtId))?.venueId : undefined;
   try {
     const entryId = await db.transaction(async () => {
-      const price = booking.totalPrice;
+      // The price as it stands now, and the booking still standing: read here, not before the transaction.
+      const price = await lockPayable(booking.id);
       if (await getWalletBalance(userId, venueId) < price) throw new Error("INSUFFICIENT");
       const charge = db.prepare(
         "INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, booking_id, venue_id) VALUES (?, ?, ?, ?, ?, ?)"
@@ -7153,6 +7188,7 @@ export async function payBookingFromWallet(bookingId: number): Promise<WalletRes
   } catch (err) {
     if (err instanceof Error && err.message === "INSUFFICIENT")
       return refuse("NOT_ENOUGH_CREDIT");
+    if (err instanceof Error && err.message === "CANCELLED") return refuse("BOOKING_WAS_CANCELLED");
     if (err instanceof Error && err.message === "RACED") return refuse("ALREADY_PAID");
     throw err;
   }
@@ -8084,6 +8120,9 @@ export async function applyPromo(bookingId: number, code: string): Promise<Promo
       // Worked out on the live price, after member prices and concessions, and shared between the places.
       const done = await allocatePromo(booking.id);
       if (!done || done.discount <= 0) throw new Error("BLOCKED:This code takes nothing off that price.");
+      // Below what a deposit or shares paid on it: that part owed back, or the code refused (lib/paid-within-price.ts).
+      const kept = await keepPaidWithinPrice(booking.id);
+      if (!kept.ok) throw new PromoRefused(kept);
     });
   } catch (err) {
     if (err instanceof PromoRefused) return err.refusal;
@@ -8628,6 +8667,8 @@ export async function payBookingWithPasses(
 
   try {
     await db.transaction(async () => {
+      // Still standing and unpaid, under its row lock, before any entry is spent (see lockPayable).
+      await lockPayable(booking.id);
       const needed = new Map<number, number>();
       for (const s of spends) needed.set(s.pass.id, (needed.get(s.pass.id) ?? 0) + s.units);
       for (const [passId, units] of needed) {
@@ -8644,6 +8685,7 @@ export async function payBookingWithPasses(
       if (!await claimPayment(booking.id, "pass")) throw new Error("RACED");
     })();
   } catch (err) {
+    if (err instanceof Error && err.message === "CANCELLED") return refuse("BOOKING_WAS_CANCELLED");
     if (err instanceof Error && err.message === "RACED") return refuse("ALREADY_PAID");
     if (isDuplicateSpend(err)) return refuse("ALREADY_PAID");
     if (err instanceof Error && err.message.startsWith("BLOCKED:"))

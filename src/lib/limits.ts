@@ -70,11 +70,15 @@ function refuse(code: ErrorCode, vars?: Record<string, string | number>): Refusa
   return refusal;
 }
 
-/** Commitments, not rows: a weekly series is one, however many weeks. */
+/**
+ * Commitments, not rows: a weekly series is one, however many weeks. Counted by the number AND by the signed-in
+ * account (the house rules count both), so one account cannot hold any number of unpaid bookings by typing
+ * a different number each time.
+ */
 const UNPAID_AHEAD = `
   SELECT COUNT(DISTINCT COALESCE(b.series_code, b.code)) AS n
     FROM bookings b JOIN courts c ON c.id = b.court_id
-   WHERE b.phone_key = phone_key(?) AND b.date >= ?
+   WHERE (b.phone_key = phone_key(?) OR b.user_id = ?::integer) AND b.date >= ?
      AND b.status = 'confirmed' AND b.payment_status = 'unpaid' AND b.total_price > 0
      AND b.account_id IS NULL`;
 
@@ -269,11 +273,11 @@ export async function policyCheck(path: BookingPath, input: PolicyInput): Promis
   }
   const db = getDb();
   const today = todayISO();
-  const here = (await db.prepare(`${UNPAID_AHEAD} AND c.venue_id = ?`).get(input.phone, today, input.venueId)) as {
+  const here = (await db.prepare(`${UNPAID_AHEAD} AND c.venue_id = ?`).get(input.phone, userId, today, input.venueId)) as {
     n: number;
   };
   if (here.n >= PHONE_LIMITS.venue) return done(refuse("PHONE_LIMIT_VENUE", { n: here.n }));
-  const everywhere = (await db.prepare(UNPAID_AHEAD).get(input.phone, today)) as { n: number };
+  const everywhere = (await db.prepare(UNPAID_AHEAD).get(input.phone, userId, today)) as { n: number };
   if (everywhere.n >= PHONE_LIMITS.platform) return done(refuse("PHONE_LIMIT_ALL", { n: everywhere.n }));
   return done(null);
 }

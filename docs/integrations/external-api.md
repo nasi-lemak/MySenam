@@ -90,6 +90,7 @@ through the same function, so the same request gives the same price
   concession on their place (`participantId: null` for the customer's), on a
   booking priced by the place.
 - `promoCode`: a code, as a customer would type it.
+- `expectedTotal`: the price the system was quoted, in whole cents (`400` for anything else). Where the booking now costs another price (a rate edit, a code that ran out, a lapsed membership) it is refused with `409 PRICE_CHANGED` (`vars.amount`, `vars.cents`: the price now) and nothing is kept ([ADR 0054](../architecture/decisions/0054-money-paid-never-above-price-and-no-silent-price.md)).
 
 They go on in the one order (concessions, then the code on what is left),
 with the venue's rule on discounts together, the same rounding, each place's

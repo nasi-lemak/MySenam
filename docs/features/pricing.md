@@ -276,7 +276,11 @@ pass happens afterwards and reads the discounted figure, and the day's takings
 are right without any of that code knowing promo codes exist. Claiming a code
 is best-effort in the same way as paying — a code that ran out between the
 customer typing it and pressing Book leaves the booking standing at full price
-with the reason, rather than losing the booking.
+with the reason, rather than losing the booking — except where the request
+settles at once (credit, a pass, the counter, an account), when it is a
+refusal and nothing is booked or charged (`DISCOUNT_NOT_APPLIED`), and where
+the request carries `expectedTotal`
+([nothing is charged at a price the customer did not accept](payments-and-credit.md#stored-credit)).
 
 Uses are counted as rows in `promo_uses`, one per booking, re-counted **inside**
 the claiming transaction so two customers cannot both take the last use of a

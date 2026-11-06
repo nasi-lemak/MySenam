@@ -1,7 +1,7 @@
 import { applyConcession, applyPlaceConcession } from "./concessions";
-import { placeFor } from "./entitlements";
+import { placeFor, refuse } from "./entitlements";
 import { applyPromo, getBookingById } from "./store";
-import type { Booking } from "./types";
+import type { Booking, Refusal } from "./types";
 
 /**
  * The discounts a booking just made asks for, put on in the one order
@@ -95,4 +95,35 @@ export async function applyAskedDiscounts(bookings: Booking[], asked: AskedDisco
     }
   }
   return { concessionError, promoError, promoErrorCode, discount };
+}
+
+/**
+ * The total the customer was shown, in cents, as a request carries it (`expectedTotal`): null where none was given,
+ * undefined where what was given is no whole number of cents (the caller answers 400).
+ */
+export function readExpectedTotal(value: unknown): number | null | undefined {
+  if (value === undefined || value === null) return null;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100_000_000 ? value : undefined;
+}
+
+/**
+ * Why a booking just made, with its discounts put on, must not go on to be settled or charged, or null (ADR 0054):
+ * a discount or concession that was asked for and refused, where the request settles the booking at once (credit, a
+ * pass, the counter, an account), is a refusal, never the full price taken quietly; and a total other than the one
+ * the customer was shown (`expectedTotal`, cents: over all the bookings the request made, within a sen for each
+ * booking's rounding) is refused with the price now, whatever the cause (a rate or tier edit, a code that ran out,
+ * a lapsed membership). The caller discards the bookings (lib/coaching.ts `discardBooking`) and answers the refusal.
+ */
+export function priceRefusal(
+  bookings: Pick<Booking, "totalPrice">[],
+  expectedCents: number | null,
+  discounts: Pick<DiscountOutcome, "promoError" | "promoErrorCode" | "concessionError">,
+  settlesNow: boolean
+): Refusal | null {
+  if (settlesNow && (discounts.promoError || discounts.concessionError))
+    return refuse("DISCOUNT_NOT_APPLIED", { reason: discounts.promoError ?? discounts.concessionError?.error ?? "" });
+  if (expectedCents === null) return null;
+  const now = Math.round(bookings.reduce((sum, b) => sum + b.totalPrice, 0) * 100);
+  if (Math.abs(now - expectedCents) <= bookings.length) return null;
+  return refuse("PRICE_CHANGED", { amount: (now / 100).toFixed(2), cents: now });
 }

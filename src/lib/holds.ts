@@ -70,9 +70,13 @@ export async function setHoldPolicy(
     return { ok: false, error: `A deposit of ${DEPOSIT_PERCENTS.join(", ")} percent, or the whole price.` };
   if (input.on && !(await takesPaymentOnline(venueId)))
     return { ok: false, error: "Set up taking payment online first: there is no way to pay without it." };
+  // Since when holds are asked for: from the moment it is turned on, kept while it stays on (`holdStrandedBookings`).
   await getDb()
-    .prepare("UPDATE venues SET pay_to_hold = ?, hold_minutes = ?, deposit_percent = ? WHERE id = ?")
-    .run(input.on ? 1 : 0, minutes, deposit, venueId);
+    .prepare(
+      `UPDATE venues SET pay_to_hold_since = CASE WHEN ? = 0 THEN NULL WHEN pay_to_hold = 1 THEN pay_to_hold_since ELSE datetime('now') END,
+              pay_to_hold = ?, hold_minutes = ?, deposit_percent = ? WHERE id = ?`
+    )
+    .run(input.on ? 1 : 0, input.on ? 1 : 0, minutes, deposit, venueId);
   return { ok: true, policy: await holdPolicy(venueId) };
 }
 
@@ -90,6 +94,49 @@ export async function holdNewBookings(bookingIds: number[], minutes: number): Pr
     .prepare(`SELECT MIN(hold_until) AS until FROM bookings WHERE id IN (${bookingIds.map(() => "?").join(",")})`)
     .get(...bookingIds)) as { until: string | null };
   return row.until;
+}
+
+/**
+ * A booking made online whose request died after the booking was saved and before its hold was applied
+ * (`holdNewBookings` runs last in the booking route) stands confirmed and unpaid with no hold at a venue that asks
+ * for payment online to hold, and nothing would ever let it go (ADR 0054). The scheduler's sweep puts the hold such
+ * a booking would have had, from when it was made: still running, the customer has the rest of their minutes; past,
+ * `releaseExpiredHolds` lets it go in the same tick. Idempotent and safe to run twice or concurrently: one UPDATE
+ * that only touches a booking still unpaid with no hold, and a hold that is there is never moved. Only what the
+ * booking route holds is swept: made online by a customer, not on an account, not a class place, unpaid with
+ * nothing paid towards it, no payment ever started for it, not made for an approval, at a venue whose holds are in
+ * force, and made since they were turned on. Returns how many were held.
+ */
+export async function holdStrandedBookings(): Promise<number> {
+  const db = getDb();
+  const rows = (await db
+    .prepare(
+      `SELECT b.id, c.venue_id, v.hold_minutes FROM bookings b JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+        WHERE v.pay_to_hold = 1 AND b.hold_until IS NULL AND b.status = 'confirmed' AND b.payment_status = 'unpaid'
+          AND b.total_price > 0 AND b.deposit_paid = 0 AND b.shares_paid = 0 AND b.account_id IS NULL AND b.class_id IS NULL AND b.demo = 0
+          AND b.made_on = 'customer'
+          AND b.created_at < datetime('now', '-5 minutes') AND b.created_at > datetime('now', '-3 hours')
+          AND (v.pay_to_hold_since IS NULL OR b.created_at >= v.pay_to_hold_since)
+          AND NOT EXISTS (SELECT 1 FROM online_payment_bookings pb WHERE pb.booking_id = b.id)
+          AND NOT EXISTS (SELECT 1 FROM approval_requests ar WHERE ar.booking_id = b.id)
+        ORDER BY b.id LIMIT 200`
+    )
+    .all()) as { id: number; venue_id: number; hold_minutes: number | null }[];
+  if (rows.length === 0) return 0;
+  const active = new Map<number, boolean>();
+  let held = 0;
+  for (const r of rows) {
+    if (!active.has(r.venue_id)) active.set(r.venue_id, (await holdPolicy(r.venue_id)).active);
+    if (!active.get(r.venue_id)) continue;
+    const done = await db
+      .prepare(
+        `UPDATE bookings SET hold_until = datetime(created_at, '+${Math.round(r.hold_minutes ?? 15)} minutes')
+          WHERE id = ? AND hold_until IS NULL AND status = 'confirmed' AND payment_status = 'unpaid' AND deposit_paid = 0`
+      )
+      .run(r.id);
+    held += done.changes;
+  }
+  return held;
 }
 
 /**

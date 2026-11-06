@@ -44,6 +44,16 @@ it is let go for somebody else and the customer is charged nothing.
   gateway account (Billplz or Stripe); without one it cannot be turned on.
 - A held booking with a deposit paid on it is never let go as unpaid, even in
   the moment before its hold is cleared.
+- **A request that dies half-way.** The booking is saved before its hold is
+  applied. Should the request die in between, the scheduler's tick puts the
+  hold the booking would have had, counted from when it was made (still
+  running, the customer has the rest of their minutes; past, it is let go at
+  once). It only touches a booking made online by a customer at a venue whose
+  holds are in force, unpaid with nothing paid towards it and no payment ever
+  started, not on an account, not a class place, not made for an approval,
+  and made since the venue turned holds on (`venues.pay_to_hold_since`,
+  migration 0297); it is idempotent and safe to run twice or at once
+  (`holdStrandedBookings`, [ADR 0054](../architecture/decisions/0054-money-paid-never-above-price-and-no-silent-price.md)).
 - Every page that shows a held booking says it is held and until when, in the
   reader's language, with the way to pay: the booking form's confirmation,
   My Booking, the account page (*Held*, never *Confirmed (pay at counter)*),
@@ -93,6 +103,17 @@ and *Pay a 30% deposit now: RM10.50*, and the booking terms say so.
   and the rest is owed back; a late cancellation with a deposit paid is not a
   strike, since the venue was paid something.
 - The customer can still move it themselves; only friends' shares stop that.
+  What has been paid never ends above the price: moved to a cheaper time or
+  court, or given a promo code or concession that takes the price below the
+  deposit, the part of the deposit above the new price comes off the booking
+  and is owed back on the deposit's payment under *Refunds owed*, with a credit
+  note on the deposit's receipt (the change's answer says how much,
+  `owedBack`); the rest of the deposit stays as the booking's. Where friends'
+  shares (not a deposit) would be above the new price, the change is refused
+  (`PAID_ABOVE_PRICE`: ask the venue, who can square it with them), as a
+  manager's own price change is (`P8B_ADJUST_BELOW_PAID`). One rule for all
+  of them (`keepPaidWithinPrice`, [ADR 0054](../architecture/decisions/0054-money-paid-never-above-price-and-no-silent-price.md)).
+  A booking paid in full keeps the price it was paid at, as before.
 - One person can be taken off it: off the balance first, then out of the
   deposit ([refunds for one person's place](#refunds-for-one-persons-place)).
 - A number past its no-show strikes is offered no deposit: it pays it all.
@@ -728,8 +749,29 @@ Three guards matter, and each has a test:
 - **A refund can only be claimed once per booking**, so cancelling twice cannot
   mint credit.
 - **Paying from credit is best-effort at booking time.** An empty wallet leaves
-  the booking standing as unpaid with a `walletError` explaining why, rather
-  than throwing the booking away.
+  the booking standing as unpaid with a `walletError` (and its `walletErrorCode`)
+  explaining why, rather than throwing the booking away; it stays held where
+  the venue holds, and can be paid or let go as any unpaid booking. The booking
+  form's confirmation says so in the customer's language (*your credit or pass
+  was not used, nothing has been paid, RM30 is still to pay*).
+- **Paying is decided with the booking's status, in the paying transaction.**
+  Credit and pass payments read the booking under its row lock and refuse a
+  cancelled one (`BOOKING_WAS_CANCELLED`) before anything is debited, and
+  `claimPayment` only marks a confirmed booking paid, so credit or entries are
+  never taken for a booking that is cancelled meanwhile (by staff, the
+  customer, a closure or the hold sweep); one cancelled just after is refunded
+  by the usual paths. The price charged is the one the booking has when it is
+  read there.
+- **Nothing is charged at a price the customer did not accept.** A promo code
+  or concession that was asked for and refused (the last use went meanwhile),
+  on a request that settles at once (credit, a pass, the counter, an account),
+  is a refusal (`DISCOUNT_NOT_APPLIED`): nothing is booked or charged. And a
+  booking request may carry `expectedTotal` (whole cents, over all the bookings
+  it makes): where they now cost another price (`PRICE_CHANGED`, with the price
+  now), nothing is booked or charged. The booking form sends the total it
+  showed, not for a weekly booking, a court picked for the customer or a
+  concession; after a `PRICE_CHANGED` the customer reads the new price and
+  pressing Book again accepts it.
 
 Cancelling a wallet-paid booking refunds it automatically, through every path:
 by code, from an account, a whole series, an admin cancellation, and the
