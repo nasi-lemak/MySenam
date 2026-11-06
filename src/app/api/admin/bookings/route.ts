@@ -5,6 +5,7 @@ import { isValidDateString, todayISO } from "@/lib/time";
 import { roundMoney } from "@/lib/region";
 import { refusal } from "@/lib/api";
 import { counterOwed, counterPayoutsOn } from "@/lib/counter-refunds";
+import { entryFeesOwed } from "@/lib/entry-fee-refunds";
 import { correctBookingDetails, type CorrectionScope } from "@/lib/booking-corrections";
 import { policyRefused } from "@/lib/counter-policy";
 import { overrideRefusal, readOverride } from "@/lib/policy-overrides";
@@ -43,6 +44,8 @@ export async function GET(req: NextRequest) {
     payouts: await counterPayoutsOn(admin.venueIds ?? null, date),
     // Counter payments still owed back on bookings the venue cancelled, whatever their day (lib/counter-refunds.ts).
     owed: await counterOwed(admin.venueIds ?? null, admin.role),
+    // Entry fees taken at the counter and owed back after a tournament was called off or an entrant taken out before the draw (lib/entry-fee-refunds.ts).
+    feesOwed: await entryFeesOwed(admin.venueIds ?? null, admin.role),
   });
 }
 

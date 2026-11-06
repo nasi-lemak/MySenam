@@ -12,6 +12,8 @@ import { staffReaderLocale } from "./staff-locales";
 export interface AlertOptions {
   exceptEmails?: string[];
   kind?: "staff_alert" | "safeguarding_notice";
+  /** The same alert twice (a job run on two servers, a repeat) is queued once per reader: the key is made unique for each by their email. */
+  dedupeKey?: string;
 }
 
 /** An alert no longer worth sending a week on (an outbox with no mail server set up for that long). */
@@ -48,6 +50,7 @@ export async function tellOwnersEach(write: WriteAlert, opts: AlertOptions = {})
       kind: opts.kind ?? "staff_alert",
       expiresMinutes: ALERT_EXPIRES_MINUTES,
       locale: t.locale,
+      ...(opts.dedupeKey ? { dedupeKey: `${opts.dedupeKey}:${owner.email.toLowerCase()}` } : {}),
     });
   }
 }
@@ -77,6 +80,7 @@ export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opt
       venueId: opts.kind === "safeguarding_notice" ? null : venueId,
       expiresMinutes: ALERT_EXPIRES_MINUTES,
       locale: t.locale,
+      ...(opts.dedupeKey ? { dedupeKey: `${opts.dedupeKey}:${p.email.toLowerCase()}` } : {}),
     });
   }
 }

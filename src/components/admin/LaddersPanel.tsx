@@ -119,7 +119,7 @@ function LaddersBody({ venue }: { venue: ManagedVenue }) {
   );
 }
 
-const NUMBERS: { key: keyof LadderSettings; min: number; max: number }[] = [
+const NUMBERS: { key: Exclude<keyof LadderSettings, "remindDays">; min: number; max: number }[] = [
   { key: "reach", min: 1, max: 10 },
   { key: "respondDays", min: 1, max: 14 },
   { key: "playDays", min: 3, max: 60 },
@@ -146,6 +146,7 @@ function Create({ t, venue, send }: { t: StaffT; venue: ManagedVenue; send: Send
     inactiveDrop: "1",
     freezeMaxDays: "60",
     declineIs: "free",
+    remindDays: "",
   });
   const [ct, setCt] = useState({ on: false, minutes: "" });
   return (
@@ -161,7 +162,7 @@ function Create({ t, venue, send }: { t: StaffT; venue: ManagedVenue; send: Send
           kind: f.kind,
           courtTime: { on: ct.on, minutes: ct.minutes ? Number(ct.minutes) : null },
           description: f.description,
-          settings: { ...Object.fromEntries(NUMBERS.map((n) => [n.key, Number(f[n.key as keyof typeof f])])), declineIs: f.declineIs },
+          settings: { ...Object.fromEntries(NUMBERS.map((n) => [n.key, Number(f[n.key as keyof typeof f])])), declineIs: f.declineIs, remindDays: f.remindDays === "" ? null : Number(f.remindDays) },
         });
         if (ok) setF({ ...f, name: "", description: "" });
       }}
@@ -245,6 +246,10 @@ function Settings({ t, values, onChange }: { t: StaffT; values: Record<string, s
           </label>
         ))}
         <label className={label}>
+          {t("lds.set.remindDays")}
+          <input type="number" min={1} max={14} value={values.remindDays ?? ""} onChange={(e) => onChange({ remindDays: e.target.value })} className={`w-24 ${input}`} />
+        </label>
+        <label className={label}>
           {t("lds.set.declineIs")}
           <select value={values.declineIs} onChange={(e) => onChange({ declineIs: e.target.value })} className={input}>
             <option value="free">{t("lds.set.declineFree")}</option>
@@ -263,7 +268,7 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
   const [reason, setReason] = useState("");
   const [rank, setRank] = useState<Record<number, string>>({});
   const [until, setUntil] = useState<Record<number, string>>({});
-  const [settings, setSettings] = useState<Record<string, string>>({ ...Object.fromEntries(NUMBERS.map((n) => [n.key, String(l.settings[n.key])])), declineIs: l.settings.declineIs });
+  const [settings, setSettings] = useState<Record<string, string>>({ ...Object.fromEntries(NUMBERS.map((n) => [n.key, String(l.settings[n.key])])), declineIs: l.settings.declineIs, remindDays: l.settings.remindDays === null ? "" : String(l.settings.remindDays) });
   const [counter, setCounter] = useState({ phone: "", name: "", adult: false, partnerName: "" });
   const [court, setCourt] = useState({ on: l.courtTime.on, courtIds: l.courtTime.courtIds, minutes: l.courtTime.minutes === null ? "" : String(l.courtTime.minutes), needsConfirmation: l.courtTime.needsConfirmation });
   // The limits on held court time (advanced, a manager's; blank: the default above it): holds live at once on the ladder and for each player, and the held courts a player may cancel themself before new holds pause.
@@ -552,7 +557,7 @@ function Manage({ t, l, venue, send, close, reload }: { t: StaffT; l: LadderDeta
           <div className="mt-2 space-y-2">
             <Settings t={t} values={settings} onChange={(v) => setSettings({ ...settings, ...v })} />
             <button
-              onClick={() => void act({ action: "settings", settings: { ...Object.fromEntries(NUMBERS.map((n) => [n.key, Number(settings[n.key])])), declineIs: settings.declineIs } })}
+              onClick={() => void act({ action: "settings", settings: { ...Object.fromEntries(NUMBERS.map((n) => [n.key, Number(settings[n.key])])), declineIs: settings.declineIs, remindDays: settings.remindDays === "" ? null : Number(settings.remindDays) } })}
               className={small}
             >
               {t("lds.saveSettings")}

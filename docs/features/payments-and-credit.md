@@ -552,6 +552,14 @@ credit note is written yet.
 - **The books.** The booking's receipt stands until it is settled; the
   credit note is dated the day the money goes back. Until then the money is
   in the till and the list shows it as owed.
+- **A tournament entry fee taken at the counter** is owed back the same way when the venue calls the
+  tournament off, or takes the entrant out before the draw where the tournament's rules refund before the draw
+  (`counter_fee_refunds_owed`, migration 0304; ADR 0059; [entry fees taken at the
+  counter](tournaments.md#entry-fees-taken-at-the-counter-owed-back)): written down at once, listed under the
+  same *Owed back at the counter* panel (`feesOwed` on `GET /api/admin/bookings`), settled with
+  `POST /api/admin/bookings/owed` and `kind: "entry_fee"` (handed back the way it was paid, the credit note on the
+  entry's receipt written then, who and when kept, `payment.paid_out`), once, the front desk only for a fee taken today.
+  Nothing is paid out automatically. A box league's place fee is not covered here yet (known limitations).
 - **A test booking cleared as real money** is owed back the same way (cause
   `test`, added to the cause check by migration 0259): a manager clearing the
   [test bookings](../product/marketplace.md#test-bookings-before-going-live)

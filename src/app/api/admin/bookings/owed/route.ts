@@ -5,6 +5,7 @@ import { logAction } from "@/lib/activity";
 import { readJsonObject, refusal } from "@/lib/api";
 import { isOwedOutcome, OWED_REFUSALS, owedRefund, settleOwed } from "@/lib/counter-refunds";
 import { money } from "@/lib/region";
+import { FEE_OWED_REFUSALS, owedEntryFee, settleEntryFee } from "@/lib/entry-fee-refunds";
 import { PAID_VIA_LABELS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
  * settled: `{id, outcome: "back"}` handed back at the counter the way it was
  * paid, or `{id, outcome: "credit"}` as stored credit on the account it was
  * booked from. The list is `owed` on `GET /api/admin/bookings`.
+ * `{id, kind: "entry_fee", outcome: "back"}`: an entry fee taken at the counter and owed back after the venue called the tournament off, or took the entrant out before
+ * the draw (lib/entry-fee-refunds.ts, ADR 0059), handed back the way it was paid; the list is `feesOwed` on the same GET.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -25,6 +28,21 @@ export async function POST(req: NextRequest) {
   if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "id is required." }, { status: 400 });
   if (!isOwedOutcome(outcome)) return NextResponse.json({ error: "outcome must be back or credit." }, { status: 400 });
 
+  if (body.kind === "entry_fee") {
+    if (outcome !== "back") return NextResponse.json({ error: "A fee is handed back the way it was paid." }, { status: 400 });
+    const fee = await owedEntryFee(id, admin.role);
+    if (!fee) return NextResponse.json({ error: FEE_OWED_REFUSALS.notFound }, { status: 404 });
+    const deniedFee = denyVenue(admin, fee.venueId);
+    if (deniedFee) return deniedFee;
+    const settledFee = await asStaff(admin, () => settleEntryFee(id, admin));
+    if (!settledFee.ok) return refusal(settledFee);
+    await logAction(admin, {
+      venueId: fee.venueId,
+      action: "payment.paid_out",
+      detail: `${money(fee.amount)} entry fee handed back at the counter${fee.via ? `, by ${PAID_VIA_LABELS[fee.via]}` : ""} (${fee.name}, ${fee.tournamentName}), owed since ${fee.cause === "tournament_cancelled" ? "the venue called the tournament off" : "the entrant was taken out before the draw"}`,
+    });
+    return NextResponse.json({ feeOwed: settledFee.owed });
+  }
   const owed = await owedRefund(id, admin.role);
   if (!owed) return NextResponse.json({ error: OWED_REFUSALS.notFound }, { status: 404 });
   const denied = denyVenue(admin, owed.venueId);

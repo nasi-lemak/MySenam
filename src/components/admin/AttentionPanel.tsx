@@ -15,6 +15,8 @@ import type { MoveRequestView } from "@/lib/class-move-requests";
 import { ClassMoveRequestList } from "./ClassMoveRequests";
 import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
+import type { CompetitionFixture, UndrawnTournament } from "@/lib/competition-fixtures";
+import type { ModerationAttention } from "@/lib/message-moderation";
 
 const REACH_STYLE: Record<UrgentNotice["reach"], string> = {
   unreachable: "bg-red-100 text-red-800",
@@ -95,8 +97,14 @@ export function AttentionPanel() {
       reviewsOpen: number;
       retention: { cases: number; holds: number; months: number } | null;
     } | null;
+    /** Fixtures left on a court out of service or a closed day, and tournaments past their first day with no draw (ADR 0059). */
+    competitions?: { stranded: CompetitionFixture[]; undrawn: UndrawnTournament[] } | null;
+    /** Open reports of messages, automatic suspensions to review and requests for a review (ADR 0059). */
+    messageModeration?: ModerationAttention | null;
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
+  const [moveTo, setMoveTo] = useState<Record<string, string>>({});
+  const [moved, setMoved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -127,7 +135,36 @@ export function AttentionPanel() {
   const overrideAlerts = data?.windowOverrideAlerts ?? [];
   const sg = data?.safeguarding ?? null;
   const sgLines = sg ? sg.overdue.length + sg.escalatedCases.length + sg.appealsWaiting + sg.reviewsOpen + (sg.retention ? 1 : 0) : 0;
-  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && sgLines === 0)) return null;
+  const comp = data?.competitions ?? null;
+  // Stranded fixtures grouped by what they belong to and the day, so one action moves the day.
+  const days = new Map<string, { kind: CompetitionFixture["kind"]; ownerId: number; name: string; date: string; why: CompetitionFixture["why"]; n: number }>();
+  for (const f of comp?.stranded ?? []) {
+    const k = `${f.kind}:${f.ownerId}:${f.date}`;
+    const had = days.get(k);
+    if (had) had.n++;
+    else days.set(k, { kind: f.kind, ownerId: f.ownerId, name: f.name, date: f.date, why: f.why, n: 1 });
+  }
+  const mod = data?.messageModeration ?? null;
+  const modLines = mod ? (mod.openReports > 0 ? 1 : 0) + mod.suspensionsToReview.length + (mod.reviewRequests > 0 ? 1 : 0) : 0;
+  const compLines = days.size + (comp?.undrawn.length ?? 0) + modLines;
+  if (!data?.open || !data.recent || (data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && sgLines === 0 && compLines === 0)) return null;
+
+  /** Postpone a day's fixtures of a tournament or a team league to another day (ADR 0059). */
+  async function postpone(d: { kind: CompetitionFixture["kind"]; ownerId: number; date: string }) {
+    setError(null);
+    setMoved(null);
+    const to = moveTo[`${d.kind}:${d.ownerId}:${d.date}`];
+    if (!to) return setError(t("fx10.att.pickDay"));
+    const res = await fetch(d.kind === "tournament" ? `/api/admin/tournaments/${d.ownerId}` : `/api/admin/team-leagues/${d.ownerId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "postpone_day", from: d.date, to }),
+    });
+    const out = await readJson(res);
+    if (!res.ok) return setError(t.err(out, t("fx10.att.postponeFailed")));
+    setMoved(t("fx10.att.postponed", { n: out.moved ?? 0, date: to }) + (Array.isArray(out.left) && out.left.length > 0 ? ` ${t("fx10.att.left", { n: out.left.length })}` : ""));
+    void load();
+  }
 
   /** A guardian recorded by name and number, told by staff of a change (lib/contact-guardians.ts). */
   async function guardianTold(taskId: number) {
@@ -145,6 +182,40 @@ export function AttentionPanel() {
   const reach = reachLabels(t);
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label={t("att.title")}>
+      {compLines > 0 && (
+        <div className="mb-3 space-y-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="competition-attention">
+          <strong>{t("fx10.att.title")}</strong>
+          {moved && <p role="status">{moved}</p>}
+          {[...days.values()].map((d) => {
+            const key = `${d.kind}:${d.ownerId}:${d.date}`;
+            return (
+              <p key={key} className="flex flex-wrap items-center gap-2">
+                <span>{t("fx10.att.stranded", { name: d.name, n: d.n, date: d.date, why: t(d.why === "closure" ? "fx10.att.why.closure" : "fx10.att.why.outage") })}</span>
+                <input type="date" aria-label={t("fx10.att.moveTo")} value={moveTo[key] ?? ""} onChange={(e) => setMoveTo((had) => ({ ...had, [key]: e.target.value }))} className="rounded-md border border-slate-300 px-2 py-1 text-xs" />
+                <button type="button" onClick={() => void postpone(d)} className="font-semibold text-teal-700 underline">
+                  {t("fx10.att.move")}
+                </button>
+              </p>
+            );
+          })}
+          {(comp?.undrawn ?? []).map((u) => (
+            <p key={`u${u.id}`}>
+              {t("fx10.att.undrawn", { name: u.name, date: u.startsOn, n: u.entered })}
+              {u.held.length > 0 && (
+                <span className="block text-xs">
+                  {t("fx10.att.held", { courts: u.held.slice(0, 6).map((h) => `${h.courtName} ${h.date} ${formatMinute(h.startMin, t.locale)}–${formatMinute(h.endMin, t.locale)}`).join("; ") })}
+                  {u.held.length > 6 ? ` ${t("fx10.att.heldMore", { n: u.held.length - 6 })}` : ""}
+                </span>
+              )}
+            </p>
+          ))}
+          {mod && mod.openReports > 0 && <p>{t("fx10.msg.att.reports", { n: mod.openReports, days: mod.waitingDays })}</p>}
+          {mod?.suspensionsToReview.map((x) => (
+            <p key={`s${x.id}`}>{t(x.overdue ? "fx10.msg.att.suspensionOverdue" : "fx10.msg.att.suspension", { id: x.id, date: x.reviewBy.slice(0, 10) })}</p>
+          ))}
+          {mod && mod.reviewRequests > 0 && <p>{t.plural("fx10.msg.att.requests", mod.reviewRequests)}</p>}
+        </div>
+      )}
       {sg && sgLines > 0 && (
         <div className="mb-3 space-y-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="safeguarding-attention">
           <strong>{t("msg4.att.title")}</strong>

@@ -324,6 +324,18 @@ export function MessageReportsPanel() {
             <li key={s.id} className="rounded-lg border border-slate-200 px-3 py-2">
               <p>{t("pmg.suspension", { who: s.who, id: s.userId, reason: s.reason })}</p>
               <p className="text-xs text-slate-500">{s.pendingReview ? t("pmg.suspensionAuto", { when: clock.when(s.createdAt) }) : t("pmg.suspensionBy", { name: s.adminName ?? "", when: clock.when(s.createdAt) })}</p>
+              {s.reviewBy && (
+                <p className={`text-xs ${s.overdue ? "font-semibold text-red-700" : "text-slate-500"}`}>
+                  {t(s.overdue ? "fx10.msg.reviewOverdue" : "fx10.msg.reviewBy", { date: s.reviewBy.slice(0, 10) })}
+                  {s.reportIds.length > 0 && ` ${t("fx10.msg.reportsBehind", { ids: s.reportIds.map((x) => `#${x}`).join(", ") })}`}
+                </p>
+              )}
+              {s.reviewRequested && (
+                <p className="text-xs font-medium text-amber-800">
+                  {t("fx10.msg.reviewAsked", { when: clock.when(s.reviewRequested.at) })}
+                  {s.reviewRequested.text ? ` “${s.reviewRequested.text}”` : ""}
+                </p>
+              )}
               <label className="mt-1 block text-xs font-medium text-slate-600">
                 {t("pmg.reasonLabel")}
                 <input value={reasonFor(key)} onChange={(e) => setReasons((had) => ({ ...had, [key]: e.target.value }))} maxLength={300} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
@@ -332,9 +344,14 @@ export function MessageReportsPanel() {
                 <button className={small} onClick={() => void act({ action: "lift", id: s.id, reason: reasonFor(key) })}>
                   {t("pmg.lift")}
                 </button>
-                {s.pendingReview && (
+                {s.pendingReview && scope === "platform" && (
                   <button className={small} onClick={() => void act({ action: "confirm", id: s.id, reason: reasonFor(key) })}>
                     {t("pmg.confirm")}
+                  </button>
+                )}
+                {s.reviewRequested && (
+                  <button className={small} onClick={() => void act({ action: "keep", id: s.id, reason: reasonFor(key) })}>
+                    {t("fx10.msg.keep")}
                   </button>
                 )}
               </div>

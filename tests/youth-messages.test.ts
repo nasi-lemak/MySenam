@@ -305,7 +305,7 @@ describe("never private", () => {
     walk(path.join(__dirname, "..", "src", "app", "api", "messages"));
     // The thread routes take a context kind and number; none takes a person.
     const routes = files.map((f) => path.relative(path.join(__dirname, "..", "src", "app", "api", "messages"), f).replace(/\\/g, "/")).sort();
-    expect(routes).toEqual(["[kind]/[id]/block/route.ts", "[kind]/[id]/report/route.ts", "[kind]/[id]/route.ts", "route.ts", "settings/route.ts", "youth/review/route.ts", "youth/route.ts"]);
+    expect(routes).toEqual(["[kind]/[id]/block/route.ts", "[kind]/[id]/report/route.ts", "[kind]/[id]/route.ts", "route.ts", "settings/route.ts", "suspension-review/route.ts", "youth/review/route.ts", "youth/route.ts"]);
     for (const f of files) expect(fs.readFileSync(f, "utf8")).not.toMatch(/recipient|toUser|userId:\s*body|body\.userId/);
   });
 });

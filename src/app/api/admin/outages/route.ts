@@ -56,7 +56,9 @@ export async function PATCH(req: NextRequest) {
 /**
  * `{ courtId, startsOn, endsOn: string | null, reason?, cancelAffected? }` —
  * take a court out. 409 with `affected` when something is booked in the
- * stretch and `cancelAffected` was not given.
+ * stretch and `cancelAffected` was not given. Answers `fixtures`: the tournament matches and
+ * team-league fixtures still drawn on it in those days, whose people are told and which staff
+ * rearrange (`POST /api/admin/tournaments/:id` `postpone_day`, team leagues likewise; ADR 0059).
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -94,7 +96,14 @@ export async function POST(req: NextRequest) {
   const why = `${court.name} out of service`;
   for (const c of result.classesOff ?? []) await logClassCancelled(admin, c.session, c.enrolments, why);
   await logCancelledBookings(admin, court.venueId, result.bookingsOff ?? [], why);
-  return NextResponse.json({ outage: result.outage, cancelled: result.cancelled }, { status: 201 });
+  const fixtures = result.fixtures ?? [];
+  if (fixtures.length > 0)
+    await logAction(admin, {
+      venueId: court.venueId,
+      action: "settings.changed",
+      detail: `${court.name} out of service: ${fixtures.length} tournament or team-league fixture(s) still drawn on it, their people told, to be rearranged`,
+    });
+  return NextResponse.json({ outage: result.outage, cancelled: result.cancelled, fixtures }, { status: 201 });
 }
 
 /** `?id=` — back in service from today. */

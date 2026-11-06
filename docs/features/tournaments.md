@@ -113,7 +113,14 @@ rules, which start from the sport's template
 - **Who may enter**, each optional, shown on the public page:
   - **Entries close** after a given day (before the first day), in the
     venue's time: entering is refused after it, and the scheduler closes the
-    tournament for the draw.
+    tournament for the draw. With no closing day, entries (and a new payment
+    page for an entry) stop after the **first day**, since nothing can be drawn
+    into days that have gone, and the scheduler closes the tournament then
+    ([ADR 0059](../architecture/decisions/0059-competition-notices-fees-owed-fixtures-lost-and-message-review.md)).
+    A tournament whose first day has arrived and that nobody has drawn or
+    called off is a **needs-attention** line for its venue's managers and the
+    owner, with the court time still held for it listed (`undrawnTournaments`,
+    on `GET /api/admin/attention`): draw it, or call it off.
   - **Ages** on the first day, from and to: the entrant declares a date of
     birth, and a partner's in doubles; a team's captain declares that the
     roster is within the ages. Nothing is checked against a document: the
@@ -405,6 +412,37 @@ emailed the new time, the move is in the activity log with the old time, and
 held time no longer needed goes back on sale. A decided match is corrected,
 not moved. Front desk staff cannot move fixtures.
 
+### When a court or the venue is lost after the draw
+
+A court taken out of service, or a day the venue closes, gives up the court time a tournament
+or a team league held, but not the fixtures drawn on it. They used to stay where they were
+drawn, on a court that was gone, with nobody told. Now (`src/lib/competition-fixtures.ts`;
+[ADR 0059](../architecture/decisions/0059-competition-notices-fees-owed-fixtures-lost-and-message-review.md)):
+
+- **Staff are shown them at the time.** Taking a court out (`POST /api/admin/outages`) and
+  closing a day (`POST /api/admin/venues/:id/closures`) answer `fixtures`: the tournament
+  matches and team-league fixtures still to play on that court (or that share its floor) in
+  those days, or at the venue that day, and say so in the activity log. It is a warning, not a
+  refusal: the outage or closure is made, and the fixtures are the next job. (Ladder holds have
+  their own notice.)
+- **The people are told, once.** Each side of a match, and both captains of a team-league
+  fixture, are emailed that it cannot go ahead where it is (the court is out of service, or the
+  venue is closed that day) and that the venue will rearrange it. The notice is keyed by the
+  fixture's place and time and the person, so a repeat, a second outage over the same day or a
+  closure as well tells nobody twice.
+- **Until they are moved they stay on the dashboard.** The needs-attention panel lists fixtures
+  still to play on a court out of service or a closed day (`strandedFixtures`, derived from the
+  outages and closures as they stand: a court back in service, or a fixture moved, takes it off).
+- **One action postpones the day.** `{ action: "postpone_day", from, to }` on `POST
+  /api/admin/tournaments/:id` moves every match still to play on `from` to the same times on
+  `to`, on the same court where it is free to hold and on another of the tournament's courts
+  where it is not, by the checks of any move (`placeMatch`); all or nothing under the
+  tournament's lock, refused (with nothing changed) if one cannot be placed, or a match is
+  called, or the day has gone by. Every side is told its new time. The same action on `POST
+  /api/admin/team-leagues/:id` moves each fixture of the night one at a time by `moveFixture`'s
+  checks and answers `moved` and `left` (what could not be placed, with why, still where it was).
+  Both are managers' (front desk cannot move fixtures) and logged.
+
 ### On the day
 
 - **Check-in:** staff mark each entrant arrived (*check in*), and can take it
@@ -520,6 +558,13 @@ length keeps the slots it always had. Otherwise the draw says how many did
 not fit and changes nothing. Everybody is emailed their first match, or their heat and
 lane.
 
+**The draw is made in one transaction under the tournament's row lock**, as
+every change to who is in it is (`makeDraw`; ADR 0059): it reads the entries as of the lock, so
+a withdrawal at the same moment lands before it (the entrant is not drawn, their place goes
+to the waiting list) or after it (the rules for leaving a drawn event apply), never inside
+it; and of two draws at once one is made and the other finds it made already, refused with
+nothing written (`tests/tournament-draw-lock.test.ts`, on Postgres).
+
 ### Results
 
 **Who enters them** is the tournament's choice when it is set up: its staff
@@ -534,7 +579,14 @@ lane.
   the other side leaves unanswered for 24 hours stands, recorded the same
   way (the scheduler checks every minute); one that can no longer be recorded by
   then (the match settled or changed meanwhile) goes to staff as disputed,
-  never dropped. A result staff or an
+  never dropped. The silent side is told when it is reported (silence lets it
+  stand) and, for a **walkover** (the gravest thing silence can do: out of a match, and with
+  progression, on one side's word), told **again, once, 12 hours before it stands**
+  (`REPORT_REMIND_HOURS`; ADR 0059). Who reported it and when stay visible to staff beside the
+  result ("Reported by … at …", and when the other side was reminded), and a result that stood
+  because nobody answered is flagged as such in the record and listed under *Results from the
+  players and officials* (`stood_by_silence`, `GET /api/admin/tournaments/:id` →
+  `stoodBySilence`), never made to look agreed. A result staff or an
   official enter at any time settles a report waiting on the match. Each
   result says who entered it (staff, the players, or the official by name).
 - **Officials** — a referee, a table official — are given a link of their
@@ -722,8 +774,36 @@ disqualified, unranked, with the marks kept. Nothing is owed back after the
 draw. Governing bodies treat these differently: the rules are the
 organiser's to set to the regulations they play under.
 
+**Whoever staff take out is told**, once (`takeOut`; the notice is keyed by the entry): that the
+venue did it and as what (withdrawn, retired, disqualified), the reason staff gave (when they gave
+one), what it means for the fee as the tournament's rules have it (owed back before the draw where the
+rule says so, otherwise not refunded once the draw is made), and who to contact if they think it is
+wrong. A guardian is told for a child's entry. An entrant who withdraws themselves is not told back
+what they did. A called match nobody came to, given as a walkover from the tournament day, tells the
+side that did not come, once, what was recorded and who to contact; if staff also take them out of the
+event, that one message (with the reason staff gave) says it. The words are the venue's decision as
+recorded; nothing here says anything about rights to a hearing or a review.
+
 **Calling it off** gives the courts back (offering them to the waiting
-list), tells every entrant, and owes back every fee paid online.
+list), tells every entrant, owes back every fee paid online, and writes down every fee taken at
+the counter as owed back (below).
+
+### Entry fees taken at the counter, owed back
+
+A fee taken at the counter (`setEntry`, receipted `entry:<id>@…`) is owed back when the venue
+calls the tournament off, and when an entrant is taken out before the draw where the rules refund
+before the draw, as a counter payment on a booking the venue cancels is
+([payments and credit](payments-and-credit.md#owed-back-after-the-venue-cancels)). The debt is
+written down at once (`counter_fee_refunds_owed`: how much, how it was paid, why, one per entry),
+the called-off email says a fee paid at the counter is owed back, and it is listed for staff on the
+bookings screen beside the bookings owed back (`feesOwed` on `GET /api/admin/bookings`). **Nothing is
+paid out automatically.** Staff settle it when the entrant comes (`POST /api/admin/bookings/owed`
+with `kind: "entry_fee"`): handed back the way it was paid, the credit note on the entry's receipt
+written then (so the till, the credit note and that day's cash-up agree), who settled it and when
+kept, and `payment.paid_out` in the activity log. Once (two staff at once settle it once); the front
+desk hands back only a fee taken today, anything older is a manager's. A fee paid online is the
+gateway's (`refund_due`), never here. Marking an entry unpaid by hand still credits it directly, as
+before.
 
 The public page shows entries, then the groups (with points and draws where
 the sport has them), the bracket, the heats and placings of a performance
@@ -2050,12 +2130,19 @@ numbers are the ladder's settings, shown on its page and changed by a manager fr
 | Places dropped | 1 | 1 to 10 |
 | Longest freeze, days | 60 | 1 to 180 |
 | Declining a challenge | free | free, or a forfeit |
+| Remind an unanswered challenge, days before the last day to answer | half the window (at least 1) | 1 to 14, or none for the default |
 
 **A challenge's life:** *pending*, the challenged to answer within the days given: they **accept**
 (optionally agreeing a day), **decline**, or **suggest a time**, which hands the answer to the
 challenger, who accepts it or withdraws; a challenger who does not answer lets it lapse, with no
 effect. **A challenged player who ignores a challenge forfeits** when the days are up: the scheduler
-records a walkover for the challenger, once, however often it runs. *Accepted:* the two **arrange the
+records a walkover for the challenger, once, however often it runs. **They are reminded once before that:**
+by email, **half the response window before it ends** (at least a day; the ladder's *remind
+days* setting, 1 to 14, overrides it), saying who challenged them, the last day to answer and what
+happens if nobody does (a forfeit, or on a ladder of teams that it lapses). It is claimed for the last day
+to answer, so a repeat run, a second server or an unchanged window reminds nobody twice, and a
+new last day (a counter-proposal restarts the window) is reminded again; an answered challenge is not
+(ADR 0059). *Accepted:* the two **arrange the
 match privately** (the day suggested is shown; on an adult ladder each sees the other's number and
 WhatsApp link for this challenge only, never on a junior ladder) and play it within the days given, or
 it **lapses** with no effect on the ranks. **By default no court time is held for a challenge**; a
@@ -2404,6 +2491,7 @@ it is for adults' teams (a ladder of teams is never a junior ladder; a team may 
 | Forfeits are a manager's; a captain's or staff's forfeit request, its confirmation or decline, expiry, withdrawal and audit | `src/lib/team-forfeits.ts`, `src/lib/roles.ts`, `src/app/api/admin/team-leagues/[id]/fixtures/[fixtureId]/forfeit`, `.../forfeit-requests`, `src/app/api/admin/team-leagues/[id]/forfeit-requests`, `src/components/admin/TeamLeaguesPanel.tsx`, `src/app/team-leagues/[id]/page.tsx` | `tests/team-forfeit-requests.test.ts` (PGlite and Postgres) |
 | The fixture generator: round robin, home and away, byes, match nights, blackouts, courts | `src/lib/fixtures.ts` | `tests/fixture-plan.test.ts` |
 | Who enters: a guardian for a participant, staff at the counter, members only by the entrant's own membership | `src/lib/competition-entrants.ts`, `src/components/admin/CounterEntry.tsx` | `tests/competition-entrants.test.ts`, `tests/components/competition-entrants.test.tsx` |
+| The draw under the tournament's lock; staff-removed entrants told; counter fees owed back; an undrawn tournament; fixtures lost with a court or a day and postponing a day; a walkover's reminder and evidence | `src/lib/tournaments.ts` (`makeDraw`, `takeOut`, `postponeTournamentDay`, `closeDueEntries`), `src/lib/entry-fee-refunds.ts`, `src/lib/competition-fixtures.ts`, `src/lib/team-leagues.ts` (`postponeLeagueDay`), `src/lib/match-reports.ts`, `src/lib/outages.ts`, `src/app/api/admin/bookings/owed/route.ts`, `src/app/api/admin/attention/route.ts`, `db/migrations/0304_competition_fixes_fee_refunds_reminders.sql` | `tests/tournament-draw-lock.test.ts` (Postgres), `tests/competition-fixes.test.ts`, `tests/team-league-fixtures-lost.test.ts`, `tests/tournament-day.test.ts`, `tests/match-reports.test.ts`, `tests/ladders.test.ts` (the ladder reminder) |
 | Staff screens | `src/components/admin/TournamentsTab.tsx`, `src/components/admin/LeaguesTab.tsx` | `tests/components/tournaments-tab.test.tsx` |
 | Officials of a climbing event: event-scoped entry of counts, open and finalised rounds, correction requests and their review, audit, what a link cannot do | `src/lib/official-performances.ts`, `src/lib/match-reports.ts`, `src/app/api/officials/[token]/route.ts`, `src/app/api/admin/tournaments/[id]/correction-requests/[requestId]/route.ts`, `src/app/officials/[token]/page.tsx`, `src/components/admin/CountedGrid.tsx`, `src/components/admin/CorrectionRequests.tsx`, `db/migrations/0276_forfeit_requests_official_marks_ladder_bookings.sql` | `tests/official-climbing.test.ts` |
 | Changing a tournament before its draw; each entry's own fee | `src/lib/tournaments.ts` (`changeTournament`), `src/components/admin/TournamentDetailsEditor.tsx` | `tests/tournament-changes.test.ts`, `tests/components/change-editors.test.tsx` |

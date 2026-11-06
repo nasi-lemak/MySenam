@@ -115,7 +115,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     action: "day.closed",
     detail: `${date}${safety ? " [safety closure]" : ""}${result.closure.reason ? ` (${result.closure.reason})` : ""}: ${offed.length} booking(s) and ${classesOff} class(es) with ${enrolments} enrolment(s) cancelled`,
   });
-  return NextResponse.json({ closure: result.closure, cancelled }, { status: 201 });
+  // Tournament matches and team-league fixtures drawn at the venue that day stay where they were drawn: staff are shown them, the entrants and captains
+  // are told once (the venue will rearrange them), and staff move them with one action per day (lib/competition-fixtures.ts, ADR 0059).
+  const competition = await import("@/lib/competition-fixtures");
+  const fixtures = await competition.fixturesOnVenueDay(venueId, date);
+  await competition.tellFixturesLost(fixtures, "closure");
+  if (fixtures.length > 0) {
+    await tickOutbox();
+    await logAction(admin, { venueId, action: "day.closed", detail: `${date}: ${fixtures.length} tournament or team-league fixture(s) still drawn that day, their people told, to be rearranged` });
+  }
+  return NextResponse.json({ closure: result.closure, cancelled, fixtures }, { status: 201 });
 }
 
 /** `?date=` — open a closed day again. */

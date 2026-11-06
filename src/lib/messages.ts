@@ -54,6 +54,7 @@ const REFUSALS = {
   PM_REASON: ["What is the report about?", 400],
   PM_REPORT_LIMIT: ["You have sent a lot of reports today. Please try again tomorrow.", 429],
   PM_OWN: ["That is your own message.", 400],
+  PM_REVIEW_DUP: ["Your request for a review has been received already.", 409],
   // The one line an adult is shown in place of a youth thread whose access is paused, whatever the reason (a pause or a report): a hold, not a finding.
   PM_ACCESS_PAUSED: ["Your access to this conversation is paused while the venue reviews it. This is not a finding.", 403],
   PM_ACCESS_DECIDED: ["Your access to this conversation has been changed following a review by the venue. You can ask for that to be looked at again.", 403],
@@ -669,11 +670,18 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
   const note = typeof input.note === "string" ? input.note.trim().slice(0, 1000) || null : null;
   // A report in a supervised youth group's thread is urgent: told at once to the supervisors, the guardians involved and the venue's
   // managers (the platform owner where there is no venue), with a longer frozen copy and the reported person muted until it is reviewed.
-  const urgent: { id: number | null; suspendedUser: number | null } = { id: null, suspendedUser: null };
+  const urgent: { id: number | null; suspendedUser: number | null; adult: { reportId: number; venueId: number | null; reportedId: number } | null; autoSuspended: { reportId: number; venueId: number | null } | null } = {
+    id: null,
+    suspendedUser: null,
+    adult: null,
+    autoSuspended: null,
+  };
   try {
     const result = await withTransaction(async () => {
       urgent.id = null;
       urgent.suspendedUser = null;
+      urgent.adult = null;
+      urgent.autoSuspended = null;
       const a = await access(userId, kind, id, { needOn: false });
       if ("ok" in a) throw new Refused(a);
       if (!a.thread || a.youth?.restricted) throw new Refused(refuse("PM_NOT_FOUND"));
@@ -722,13 +730,26 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
             .run(made.id);
         urgent.id = made.id;
       }
+      // A report in any other conversation, an adult's too, is told to the people who deal with it as it is made (a venue's managers, the platform's owners where the
+      // conversation has no venue): the same notice for every report, with no text of any message and no one named, never ranked by what the reporter wrote (ADR 0059).
+      if (!a.youth) urgent.adult = { reportId: made.id, venueId: a.thread.venue_id, reportedId: target.sender_id };
       const suspended = await autoSuspend(target.sender_id, made.id, a.youth !== null);
+      if (suspended && !a.youth) urgent.autoSuspended = { reportId: made.id, venueId: a.thread.venue_id };
       // The reported adult is never told of a report, so an automatic suspension a youth report brought about is not told to them either (a minor's guardians still are).
       if (suspended && !(a.youth && (await declaredAdult(target.sender_id)) === true)) urgent.suspendedUser = target.sender_id;
       return { ok: true as const, suspended };
     });
     // A messaging suspension, however it came about, is told at once to the person (and a minor's guardians): an urgent event, never digested.
     if (urgent.suspendedUser !== null) await (await import("./youth-safeguarding")).tellSuspended(urgent.suspendedUser).catch(() => undefined);
+    if (urgent.adult !== null || urgent.autoSuspended !== null) {
+      try {
+        const moderation = await import("./message-alerts");
+        if (urgent.adult !== null) await moderation.tellNewReport(urgent.adult.reportId, urgent.adult.venueId, urgent.adult.reportedId);
+        if (urgent.autoSuspended !== null) await moderation.tellAutoSuspension(urgent.autoSuspended.reportId, urgent.autoSuspended.venueId);
+      } catch (err) {
+        console.error("[mysenam] could not queue a moderation notice:", err instanceof Error ? err.message : "unknown error");
+      }
+    }
     if (urgent.id !== null) {
       try {
         await (await import("./youth-safeguarding")).tellUrgentReport(urgent.id);
@@ -744,18 +765,25 @@ export async function reportMessage(userId: number, kind: ContextKind, id: numbe
 }
 
 /** The published rule: three different people's reports within thirty days (none yet found to need no action) suspend somebody's messaging, until the owner reviews it. */
-async function autoSuspend(reportedId: number, reportId: number, inYouthThread = false): Promise<boolean> {
-  const db = getDb();
-  const { n } = (await db
+/** How many different people have reported somebody within the window, none of their reports yet found to need no action: what the published rule counts. */
+export async function countedReporters(reportedId: number): Promise<number> {
+  const { n } = (await getDb()
     .prepare(
       `SELECT COUNT(DISTINCT reporter_id)::int AS n FROM player_message_reports
         WHERE reported_id = ? AND reporter_id IS NOT NULL AND created_at >= ? AND (outcome IS NULL OR outcome <> 'no_action')`
     )
     .get(reportedId, nowStamp(-LIMITS.autoSuspendDays * 24 * 60 * MINUTE))) as { n: number };
+  return n;
+}
+
+async function autoSuspend(reportedId: number, reportId: number, inYouthThread = false): Promise<boolean> {
+  const db = getDb();
+  const n = await countedReporters(reportedId);
   if (n < LIMITS.autoSuspendReporters) return false;
   const made = await db
     .prepare(
-      `INSERT INTO player_message_suspensions (user_id, source, venue_id, reason, report_id) VALUES (?, 'automatic', NULL, ?, ?)
+      // It has a date to be reviewed by (ADR 0059; operational, not a legal period): passing it unreviewed is a line on the owner's needs-attention list.
+      `INSERT INTO player_message_suspensions (user_id, source, venue_id, reason, report_id, review_by) VALUES (?, 'automatic', NULL, ?, ?, datetime('now', '+${LIMITS.autoSuspendReviewDays} days'))
        ON CONFLICT DO NOTHING`
     )
     // The reason is shown to the person suspended: for a report in a youth thread it says nothing of reports (the count stays for the owner's review).

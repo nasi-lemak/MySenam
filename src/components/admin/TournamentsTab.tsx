@@ -856,7 +856,7 @@ function CreateCompetition({ venue, post }: { venue: ManagedVenue; post: (url: s
  */
 function ResultsByPeople({ tn, onTournament }: { tn: TournamentDetail; onTournament?: (d: TournamentDetail) => void }) {
   const t = useStaffT();
-  const [state, setState] = useState<{ reports: MatchReport[]; officials: Official[]; corrections: CorrectionRequest[] }>({ reports: [], officials: [], corrections: [] });
+  const [state, setState] = useState<{ reports: MatchReport[]; officials: Official[]; corrections: CorrectionRequest[]; stood: MatchReport[] }>({ reports: [], officials: [], corrections: [], stood: [] });
   const [link, setLink] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -865,7 +865,7 @@ function ResultsByPeople({ tn, onTournament }: { tn: TournamentDetail; onTournam
     const res = await fetch(base, { cache: "no-store" });
     if (res.ok) {
       const data = await readJson(res);
-      setState({ reports: data.reports ?? [], officials: data.officials ?? [], corrections: data.correctionRequests ?? [] });
+      setState({ reports: data.reports ?? [], officials: data.officials ?? [], corrections: data.correctionRequests ?? [], stood: data.stoodBySilence ?? [] });
     }
   }, [base]);
   useEffect(() => {
@@ -879,6 +879,8 @@ function ResultsByPeople({ tn, onTournament }: { tn: TournamentDetail; onTournam
         ? t("tn.report.draw", { score: r.score ?? "" })
         : t("tn.report.won", { name: names.get(r.winner) ?? "", score: r.score ?? "" });
   const live = state.officials.filter((o) => !o.revokedAt);
+  /** When, in the reader's own time, a stamp the database wrote in UTC. */
+  const at = (stamp: string | null) => (stamp ? new Date(`${stamp.replace(" ", "T")}Z`).toLocaleString(t.locale) : "");
   // A finished event: only its officials' correction requests, to review (a link is no longer given, and nobody reports a result).
   if (tn.status === "finished") {
     if (state.corrections.length === 0) return null;
@@ -912,7 +914,18 @@ function ResultsByPeople({ tn, onTournament }: { tn: TournamentDetail; onTournam
                     { name: names.get(r.entryId) ?? "", what: said(r), note: r.disputeNote ?? "" },
                   )}{" "}
                   {r.status === "disputed" && t("tn.report.enterBelow")}
+                  <span className="block text-xs text-slate-500">
+                    {t("fx10.report.evidence", { name: names.get(r.entryId) ?? "", when: at(r.createdAt) })}
+                    {r.remindedAt ? ` ${t("fx10.report.reminded", { when: at(r.remindedAt) })}` : ""}
+                  </span>
                 </li>
+              ))}
+            </ul>
+          )}
+          {state.stood.length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs text-slate-600" data-testid="stood-by-silence">
+              {state.stood.map((r) => (
+                <li key={r.id}>{t("fx10.report.stood", { name: names.get(r.entryId) ?? "", what: said(r), when: at(r.createdAt), stood: at(r.answeredAt) })}</li>
               ))}
             </ul>
           )}

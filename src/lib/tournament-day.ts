@@ -739,6 +739,15 @@ async function forfeit(matchId: number, decision: Extract<NoShowDecision, { acti
   if (!done.ok) return done;
   await noteResultBy(matchId, "staff");
   let detail = `${absentName} did not come: walkover to ${c.entries.get(winner)?.name ?? ""}.`;
+  // The side that did not come is told, once, what was recorded and who to contact (ADR 0059); when they are also taken out of the event that one message (with the reason staff gave) says it.
+  if (!decision.outOfEvent)
+    await tellEntry(
+      decision.absent,
+      c.t,
+      (tr) => tr("fx10.noshow.s", { t: c.t.name }),
+      (tr) => tr("fx10.noshow.b", { t: c.t.name, venue: c.t.venueName }),
+      `tour-noshow:${matchId}:${decision.absent}`
+    );
   if (decision.outOfEvent) {
     // And out of the event, as anybody who leaves is: the tournament's rules decide what their results and matches become.
     const preview = await previewTakeOut(decision.absent, "withdrawn");

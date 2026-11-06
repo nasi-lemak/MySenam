@@ -2,6 +2,7 @@ import { isActivity } from "./activities";
 import { isConflict } from "./claims";
 import { getDb, isBusy, withTransaction } from "./db";
 import { receiptFee } from "./documents";
+import { oweEntryFee } from "./entry-fee-refunds";
 import {
   bracketSize,
   consolationDraw,
@@ -1181,6 +1182,7 @@ export async function cancelTournament(id: number): Promise<Result> {
     .prepare("SELECT DISTINCT court_id, date FROM blocks WHERE tournament_id = ? AND date >= ?")
     .all(id, todayISO())) as { court_id: number; date: string }[];
   let owed: number[] = [];
+  const owedAtCounter = new Set<number>();
   await db.transaction(async () => {
     await db.prepare("UPDATE tournaments SET status = 'cancelled' WHERE id = ?").run(id);
     // Its holds go, and their claims with them.
@@ -1195,12 +1197,23 @@ export async function cancelTournament(id: number): Promise<Result> {
         )
         .all(id)) as { id: number }[]
     ).map((r) => r.id);
+    // A fee taken at the counter is owed back too, for staff to settle with the bookings owed back: written down here, never paid out by itself (ADR 0059).
+    for (const e of (await db
+      .prepare("SELECT id FROM tournament_entries WHERE tournament_id = ? AND status <> 'withdrawn' AND paid_at IS NOT NULL ORDER BY id")
+      .all(id)) as { id: number }[])
+      if (await oweEntryFee(e.id, "tournament_cancelled")) owedAtCounter.add(e.id);
   })();
   // Fees paid online go back as the venue's policy for what it cancels has it: through the gateway where it can, else owed for staff.
   if (owed.length > 0) await (await import("./payments")).refundOwedByVenue(owed);
   // Whoever is waiting for one of those courts is offered it.
   for (const day of freed) await offerSlotPlace(day.court_id, day.date);
-  for (const entryId of await entrants(id)) await tellEntry(entryId, t, (tr) => tr("mail.tour.calledOff.s", { t: t.name }), (tr) => tr("mail.tour.calledOff.b", { t: t.name, venue: t.venueName }));
+  for (const entryId of await entrants(id))
+    await tellEntry(
+      entryId,
+      t,
+      (tr) => tr("mail.tour.calledOff.s", { t: t.name }),
+      (tr) => sentences(tr, tr("mail.tour.calledOff.b", { t: t.name, venue: t.venueName }), owedAtCounter.has(entryId) && tr("fx10.calledOff.counter"))
+    );
   // A division: the competition's time it would have used goes back once nothing else needs it.
   if (t.competition) await releaseCompetitionTime(t.competition.id);
   await ratingsAfter(id);
@@ -1220,6 +1233,15 @@ export async function closeDueEntries(): Promise<number> {
   let closed = 0;
   for (const t of due) {
     if (todayISO((await venueHours(t.venue_id)).zone) <= t.entries_close_on) continue;
+    const done = await db.prepare("UPDATE tournaments SET status = 'closed' WHERE id = ? AND status = 'open'").run(t.id);
+    closed += done.changes;
+  }
+  // An event with no closing day takes entries until its first day is over (ADR 0059): then entries close, the draw still possible, and it is a line on the staff dashboard (`undrawnTournaments`).
+  const undated = (await db
+    .prepare("SELECT id, venue_id, starts_on FROM tournaments WHERE status = 'open' AND entries_close_on IS NULL AND starts_on < ?")
+    .all(addDays(todayISO("UTC"), 1))) as { id: number; venue_id: number; starts_on: string }[];
+  for (const t of undated) {
+    if (todayISO((await venueHours(t.venue_id)).zone) <= t.starts_on) continue;
     const done = await db.prepare("UPDATE tournaments SET status = 'closed' WHERE id = ? AND status = 'open'").run(t.id);
     closed += done.changes;
   }
@@ -1323,6 +1345,8 @@ async function enterLocked(entrant: Entrant, tournamentId: number, input: EntryI
   if (!t || t.status !== "open") return { ok: false, error: "Entries are not open." };
   const today = todayISO((await venueHours(t.venueId)).zone);
   if (t.entriesCloseOn && today > t.entriesCloseOn) return { ok: false, error: `Entries closed on ${t.entriesCloseOn}.` };
+  // With no closing day of its own an event takes entries no later than its first day: after that nothing can be drawn into the days that have gone (ADR 0059).
+  if (!t.entriesCloseOn && today > t.startsOn) return { ok: false, error: `Entries closed on ${t.startsOn}, the first day.` };
   const userId = entrantUserId(entrant);
   const participantId = entrantParticipantId(entrant);
   // The entrant's own membership, or a family one naming them; never a guardian's (ADR 0025).
@@ -1570,7 +1594,7 @@ export async function setRules(tournamentId: number, input: unknown, opts: { con
 
 /** Out, as a player who withdrew. Kept for the callers that only ever meant that. */
 export async function withdraw(entryId: number): Promise<Result<Entry>> {
-  const done = await takeOut(entryId, "withdrawn");
+  const done = await takeOut(entryId, "withdrawn", undefined, undefined, { tellEntrant: false });
   return done.ok ? { ok: true, value: done.value.entry } : done;
 }
 
@@ -1591,7 +1615,9 @@ export async function takeOut(
   reason: OutReason,
   note?: string,
   /** The token its preview gave: when given, it is made only against the tournament as previewed. */
-  confirm?: { token: string }
+  confirm?: { token: string },
+  /** Who is taken out is told, with the reason staff gave (ADR 0059); not when the entrant withdrew themselves (`withdraw`). */
+  opts: { tellEntrant?: boolean } = {}
 ): Promise<Result<{ entry: Entry } & Changes>> {
   if (confirm && (await takeOutToken(entryId, reason)) !== confirm.token)
     return { ok: false, error: "The tournament has changed since you looked. Review it again.", code: "CHANGED" };
@@ -1607,8 +1633,37 @@ export async function takeOut(
   if (out.tournamentId !== null) {
     await announceAfter(out.tournamentId);
     await ratingsAfter(out.tournamentId);
+    if (opts.tellEntrant !== false) await tellTakenOut(entryId, reason, out.tournamentId);
   }
   return { ok: true, value: out.value };
+}
+
+/**
+ * Whoever staff took out of an event is told once (an entry is taken out once: the notice is keyed by it): that the venue did it, what kind of
+ * exit it is, the reason staff gave, what it means for the fee as the tournament's rules have it, and who to contact. The account that holds the entry
+ * is told, a guardian for a child's. Told only what the venue decided, never what anybody else said.
+ */
+async function tellTakenOut(entryId: number, reason: OutReason, tournamentId: number): Promise<void> {
+  const t = await tournamentById(tournamentId);
+  const row = (await getDb().prepare("SELECT out_note, out_stage, COALESCE(fee, 0)::float AS fee FROM tournament_entries WHERE id = ?").get(entryId)) as
+    | { out_note: string | null; out_stage: OutStage | null; fee: number }
+    | undefined;
+  if (!t || !row) return;
+  const refunded = row.out_stage === "before_draw" && t.rules.refundBeforeDraw;
+  await tellEntry(
+    entryId,
+    t,
+    (tr) => tr("fx10.out.s", { t: t.name }),
+    (tr) =>
+      sentences(
+        tr,
+        tr(reason === "disqualified" ? "fx10.out.disqualified" : reason === "retired" ? "fx10.out.retired" : "fx10.out.withdrawn", { venue: t.venueName, t: t.name }),
+        row.out_note && tr("fx10.out.reason", { note: row.out_note }),
+        row.fee > 0 && tr(refunded ? "fx10.out.feeBack" : "fx10.out.feeKept"),
+        tr("fx10.out.ask", { venue: t.venueName })
+      ),
+    `tour-out:${entryId}`
+  );
 }
 
 /**
@@ -1684,10 +1739,13 @@ async function takeOutOnce(entryId: number, reason: OutReason, note?: string): P
     return { ok: true, value: (await entryById(entryId))! };
   }
 
-  if (t.rules.refundBeforeDraw)
+  if (t.rules.refundBeforeDraw) {
     await db
       .prepare("UPDATE online_payments SET refund_due = amount WHERE purpose = 'entry' AND status = 'paid' AND tournament_entry_id = ?")
       .run(entryId);
+    // A fee taken at the counter is owed back for staff to settle, as one the venue's cancellation owes (ADR 0059): the desk's own unmark still credits it by hand.
+    await oweEntryFee(entryId, "before_draw");
+  }
   if (row.status === "entered") {
     const next = (await db
       .prepare("SELECT id, user_id FROM tournament_entries WHERE tournament_id = ? AND status = 'waitlisted' ORDER BY id LIMIT 1")
@@ -2115,7 +2173,27 @@ export async function siblingMatches(competitionId: number, exceptTournamentId: 
     }));
 }
 
+/**
+ * Make the draw, in one transaction under the tournament's row lock, as every
+ * change to who is in it is (`enterAs`, `takeOutOnce`): the entries are read
+ * as of the lock, so a withdrawal lands before the draw (the entrant is not
+ * drawn) or after it (the rules for leaving a drawn event apply), and of two
+ * draws at once one is made and the other finds it made already.
+ */
 export async function makeDraw(tournamentId: number, random: () => number = Math.random): Promise<Result<TournamentDetail>> {
+  try {
+    return await withTransaction(async () => {
+      await getDb().prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(tournamentId);
+      return await makeDrawLocked(tournamentId, random);
+    });
+  } catch (err) {
+    if (isBusy(err)) return { ok: false, error: "So many changes were being made at once that the draw could not be made. Nothing was changed: please try again.", code: "BUSY" };
+    throw err;
+  }
+}
+
+/** `makeDraw`, inside its transaction, under the lock it took. */
+async function makeDrawLocked(tournamentId: number, random: () => number): Promise<Result<TournamentDetail>> {
   const db = getDb();
   const t = await tournamentById(tournamentId);
   if (!t || (t.status !== "open" && t.status !== "closed")) return { ok: false, error: "The draw is made already, or it is over." };
@@ -2353,7 +2431,8 @@ export async function makeDraw(tournamentId: number, random: () => number = Math
       await db
         .prepare("UPDATE tournament_matches SET next_match_id = ?, loser_next_match_id = ? WHERE id = ?")
         .run(m.nextKey ? ids.get(m.nextKey) ?? null : null, m.loserNextKey ? ids.get(m.loserNextKey) ?? null : null, ids.get(m.key)!);
-    await db.prepare("UPDATE tournaments SET status = 'drawn', draw_order = ? WHERE id = ?").run(JSON.stringify(ranked), tournamentId);
+    const drawn = await db.prepare("UPDATE tournaments SET status = 'drawn', draw_order = ? WHERE id = ? AND status IN ('open', 'closed')").run(JSON.stringify(ranked), tournamentId);
+    if (drawn.changes === 0) throw new Error("The draw was made while this one was being written.");
   })();
 
   await releaseUnneeded(tournamentId);
@@ -3368,6 +3447,88 @@ export async function moveMatch(matchId: number, to: MatchSlot & { minutes?: num
 }
 
 /**
+ * Postpone a day's fixtures: every fixture still to play on `from` (a court out of service, a venue closed, a rain-out) is moved to the same
+ * times on `to`, on the same court where it is free to hold and on another of the tournament's courts where it is not, by the same checks as any
+ * move (`placeMatch`: the venue open, the time held or free to hold, neither side playing elsewhere, every match after the ones feeding it). All
+ * or nothing, under the tournament's row lock: one fixture that cannot be placed leaves the day as it was and says which. A match that has been
+ * called is not moved (release the call first). Each side is told its match's new time, as when one match is moved (`moveMatch`).
+ */
+export async function postponeTournamentDay(tournamentId: number, from: string, to: string): Promise<Result<{ detail: TournamentDetail; moved: number }>> {
+  if (!isValidDateString(from) || !isValidDateString(to)) return { ok: false, error: "Give the day to postpone and the day to move it to." };
+  if (from === to) return { ok: false, error: "Choose another day to move it to." };
+  const movedIds: number[] = [];
+  let result: Result<{ detail: TournamentDetail; moved: number }>;
+  try {
+    result = await withTransaction(async (): Promise<Result<{ detail: TournamentDetail; moved: number }>> => {
+      movedIds.length = 0;
+      const db = getDb();
+      await db.prepare("SELECT id FROM tournaments WHERE id = ? FOR UPDATE").get(tournamentId);
+      const t = await tournamentById(tournamentId);
+      if (!t) return { ok: false, error: "Tournament not found." };
+      if (t.status !== "drawn") return { ok: false, error: "Fixtures are moved once the draw is made, until it is over." };
+      if (to < todayISO(await tournamentZone(tournamentId))) return { ok: false, error: "That day has gone by." };
+      const d = (await tournamentDetail(tournamentId, { forStaff: true }))!;
+      const day = d.matches.filter((m) => m.status === "scheduled" && m.date === from && m.courtId !== null && m.minute !== null).sort((x, y) => x.minute! - y.minute! || x.id - y.id);
+      if (day.length === 0) return { ok: false, error: "Nothing is left to play on that day." };
+      const called = (await db
+        .prepare(`SELECT id FROM tournament_matches WHERE id IN (${day.map(() => "?").join(",")}) AND called_at IS NOT NULL LIMIT 1`)
+        .get(...day.map((m) => m.id))) as { id: number } | undefined;
+      if (called) return { ok: false, error: `${matchName(d, day.find((m) => m.id === called.id)!)} is called: release the call first, or move it from the day board.` };
+      const ignoring = new Set(day.map((m) => m.id));
+      const taken = new Set<string>();
+      const courts = (c: number) => [c, ...t.courtIds.filter((x) => x !== c)];
+      for (const m of day) {
+        let why: string | null = "none";
+        for (const courtId of courts(m.courtId!)) {
+          if (taken.has(`${courtId}:${m.minute}`)) continue;
+          why = await placeMatch(t, d, m, { courtId, date: to, startMin: m.minute! }, m.minutes, ignoring);
+          if (why === null) {
+            taken.add(`${courtId}:${m.minute}`);
+            break;
+          }
+          // `placeMatch` writes nothing when it refuses (the hold it began is undone): the next court is tried.
+        }
+        if (why !== null) throw new IssueRefused(`${matchName(d, m)} cannot go to ${to} ${formatMinute(m.minute!)}: ${why === "none" ? "no court is free" : why}`);
+        movedIds.push(m.id);
+      }
+      // Moved together, they keep their order; but each is still after the matches feeding it and before those it feeds, wherever those are.
+      const after = (await tournamentDetail(tournamentId, { forStaff: true }))!;
+      const at = (m: Match) => `${m.date}T${String(m.minute ?? 0).padStart(5, "0")}`;
+      const endOf = (m: Match) => `${m.date}T${String((m.minute ?? 0) + m.minutes).padStart(5, "0")}`;
+      for (const m of after.matches.filter((x) => movedIds.includes(x.id))) {
+        for (const fed of after.matches.filter((x) => x.status === "scheduled" && (x.id === m.next || x.id === m.loserNext)))
+          if (endOf(m) > at(fed)) throw new IssueRefused(`${matchName(after, m)} would end after ${matchName(after, fed)} starts: move that one too, or choose another day.`);
+        for (const feeder of after.matches.filter((x) => x.status === "scheduled" && (x.next === m.id || x.loserNext === m.id)))
+          if (endOf(feeder) > at(m)) throw new IssueRefused(`${matchName(after, m)} would start before ${matchName(after, feeder)} ends: move that one too, or choose another day.`);
+      }
+      return { ok: true, value: { detail: after, moved: movedIds.length } };
+    });
+  } catch (err) {
+    if (err instanceof IssueRefused) return { ok: false, error: err.message };
+    if (isConflict(err)) return { ok: false, error: "A booking or a block took that time just now: try again, or choose another day." };
+    if (isBusy(err)) return { ok: false, error: "So many changes were being made at once that nothing was moved: please try again.", code: "BUSY" };
+    throw err;
+  }
+  if (!result.ok) return result;
+  // Time the old slots no longer need goes back on sale; each side is told its match's new time.
+  await releaseUnneeded(tournamentId);
+  const d = result.value.detail;
+  for (const id of movedIds) {
+    const m = d.matches.find((x) => x.id === id)!;
+    for (const entryId of [m.a, m.b])
+      if (entryId !== null)
+        await tellEntry(
+          entryId,
+          d,
+          (tr) => tr("mail.tour.moved.s", { t: d.name }),
+          (tr) => tr("mail.tour.moved.b", { match: matchName(d, m), t: d.name, date: m.date!, time: formatMinute(m.minute!, tr.locale), court: m.courtName ?? "" }),
+          `tour-postponed:${m.id}:${m.date}:${m.minute}:${entryId}`
+        );
+  }
+  return { ok: true, value: { detail: (await tournamentDetail(tournamentId, { forStaff: true }))!, moved: movedIds.length } };
+}
+
+/**
  * Resolve a progression issue, as an organiser who reviewed it, with a
  * reason. "stand": the results as played stand, the wrong advancement
  * accepted (the other side agreed, say), and it is recorded so. "replay":
@@ -3850,8 +4011,8 @@ async function entrants(tournamentId: number): Promise<number[]> {
 }
 
 /** An email to an entrant, written in their language (subject and body take the lookup). */
-export async function tellEntrant(userId: number, t: Tournament, subject: Written, body: Written): Promise<void> {
-  await emailPlayer({ venueId: t.venueId, userId, subject, body, link: `${baseUrl()}/tournaments/${t.id}` });
+export async function tellEntrant(userId: number, t: Tournament, subject: Written, body: Written, dedupeKey?: string): Promise<void> {
+  await emailPlayer({ venueId: t.venueId, userId, subject, body, link: `${baseUrl()}/tournaments/${t.id}`, ...(dedupeKey ? { dedupeKey } : {}) });
 }
 
 /**
@@ -3860,7 +4021,7 @@ export async function tellEntrant(userId: number, t: Tournament, subject: Writte
  * Alya.*), as league emails do, so a guardian with several entered knows
  * which. Nothing with no account to tell.
  */
-export async function tellEntry(entryId: number, t: Tournament, subject: Written, body: Written): Promise<void> {
+export async function tellEntry(entryId: number, t: Tournament, subject: Written, body: Written, dedupeKey?: string): Promise<void> {
   const e = (await getDb()
     .prepare(
       `SELECT e.user_id, e.participant_id, p.display_name FROM tournament_entries e
@@ -3869,7 +4030,7 @@ export async function tellEntry(entryId: number, t: Tournament, subject: Written
     .get(entryId)) as { user_id: number | null; participant_id: number | null; display_name: string | null } | undefined;
   if (!e?.user_id) return;
   const forName = e.participant_id !== null ? e.display_name : null;
-  await tellEntrant(e.user_id, t, subject, (tr) => sentences(tr, forName && tr("lg5.mail.entryFor", { name: forName }), body(tr)));
+  await tellEntrant(e.user_id, t, subject, (tr) => sentences(tr, forName && tr("lg5.mail.entryFor", { name: forName }), body(tr)), dedupeKey);
 }
 
 async function tellFirstMatches(d: TournamentDetail): Promise<void> {

@@ -507,6 +507,37 @@ describe("a called fixture nobody comes to", () => {
     // The court is free again, nothing is left called.
     expect((await dayBoard(t.id))!.courts.find((c) => c.id === m1.courtId)!.now).toBeNull();
   });
+
+  it("tells the side that did not come, once, what was recorded and who to contact (ADR 0059)", async () => {
+    const { t, field, zone } = await robin();
+    const m1 = pairs(await detail(t.id))[0];
+    at(t, zone, m1.minute! + 5);
+    ok(await callFixture(m1.id, manager));
+    at(t, zone, m1.minute! + 16);
+    const absent = field.find((f) => f.entryId === m1.a)!;
+    ok(await decideNoShow(m1.id, { action: "forfeit", absent: m1.a! }, manager));
+    const told = (await db_messages(t.id)).filter((m) => m.dedupe_key === `tour-noshow:${m1.id}:${m1.a}`);
+    expect(told).toHaveLength(1);
+    expect(told[0].recipient).toBe(await emailOf(absent.user.id));
+    expect(told[0].body).toContain("walkover");
+    expect(told[0].body).toContain("contact");
+    // Not told twice, and the one who came is not told it.
+    expect((await db_messages(t.id)).filter((m) => m.dedupe_key?.startsWith(`tour-noshow:${m1.id}:`))).toHaveLength(1);
+  });
+
+  it("tells one who is taken out of the event too in one message, with the reason staff gave", async () => {
+    const { t, field, zone } = await robin();
+    const m1 = pairs(await detail(t.id))[0];
+    at(t, zone, m1.minute! + 5);
+    ok(await callFixture(m1.id, manager));
+    at(t, zone, m1.minute! + 16);
+    const absent = field.find((f) => f.entryId === m1.a)!;
+    ok(await decideNoShow(m1.id, { action: "forfeit", absent: m1.a!, outOfEvent: true, note: "Did not come when called" }, manager));
+    const messages = (await db_messages(t.id)).filter((m) => m.dedupe_key === `tour-out:${m1.a}` || m.dedupe_key === `tour-noshow:${m1.id}:${m1.a}`);
+    expect(messages.map((m) => m.dedupe_key)).toEqual([`tour-out:${m1.a}`]);
+    expect(messages[0].recipient).toBe(await emailOf(absent.user.id));
+    expect(messages[0].body).toContain("Did not come when called");
+  });
 });
 
 describe("the swap", () => {

@@ -49,7 +49,14 @@ export interface MatchReport {
   walkover: boolean;
   status: "pending" | "confirmed" | "disputed" | "superseded";
   disputeNote: string | null;
+  /** When it was reported (the evidence staff keep: who reported it is `entryId`, and when is this). */
   createdAt: string;
+  /** When the silent side was reminded before it stood, if it was (a walkover only). */
+  remindedAt: string | null;
+  /** It stands because the other side said nothing for `REPORT_STANDS_HOURS`: not because they agreed. */
+  stoodBySilence: boolean;
+  /** When it stood or was answered. */
+  answeredAt: string | null;
 }
 
 interface ReportRow {
@@ -63,6 +70,9 @@ interface ReportRow {
   status: MatchReport["status"];
   dispute_note: string | null;
   created_at: string;
+  reminded_at?: string | null;
+  stood_by_silence?: boolean | null;
+  answered_at?: string | null;
 }
 
 const toReport = (r: ReportRow): MatchReport => ({
@@ -75,6 +85,9 @@ const toReport = (r: ReportRow): MatchReport => ({
   status: r.status,
   disputeNote: r.dispute_note,
   createdAt: r.created_at,
+  remindedAt: r.reminded_at ?? null,
+  stoodBySilence: r.stood_by_silence === true,
+  answeredAt: r.answered_at ?? null,
 });
 
 /** Reports still waiting (pending) or disputed, for a tournament: for its staff, and for the players in them. */
@@ -82,6 +95,14 @@ export async function openReports(tournamentId: number): Promise<MatchReport[]> 
   const rows = (await getDb()
     .prepare("SELECT * FROM tournament_reports WHERE tournament_id = ? AND status IN ('pending', 'disputed') ORDER BY id")
     .all(tournamentId)) as ReportRow[];
+  return rows.map(toReport);
+}
+
+/** The results that stood because the other side said nothing, newest first: who reported each and when stay in the record for staff (ADR 0059). */
+export async function standingBySilence(tournamentId: number, limit = 20): Promise<MatchReport[]> {
+  const rows = (await getDb()
+    .prepare("SELECT * FROM tournament_reports WHERE tournament_id = ? AND stood_by_silence = true ORDER BY id DESC LIMIT ?")
+    .all(tournamentId, limit)) as ReportRow[];
   return rows.map(toReport);
 }
 
@@ -121,6 +142,9 @@ function sideOf(m: MatchSides, userId: number): number | null {
 
 /** A player's report the other side says nothing about stands after this long: a tournament keeps moving. */
 export const REPORT_STANDS_HOURS = 24;
+
+/** A walkover a player reported is reminded to the silent side once, this long after it was reported, before it stands (half the time; ADR 0059). */
+export const REPORT_REMIND_HOURS = REPORT_STANDS_HOURS / 2;
 
 /**
  * A player reports their match: who won, and the score (or a walkover), their
@@ -183,6 +207,7 @@ export async function reportResult(userId: number, matchId: number, input: { win
  */
 export async function standUnansweredReports(): Promise<number> {
   const db = getDb();
+  await remindSilentSide();
   const due = (await db
     .prepare(
       `SELECT r.* FROM tournament_reports r JOIN tournaments t ON t.id = r.tournament_id
@@ -193,7 +218,7 @@ export async function standUnansweredReports(): Promise<number> {
   for (const open of due) {
     // Claimed first, so two servers stand it once.
     const claimed = await db
-      .prepare("UPDATE tournament_reports SET status = 'confirmed', answered_at = datetime('now') WHERE id = ? AND status = 'pending'")
+      .prepare("UPDATE tournament_reports SET status = 'confirmed', answered_at = datetime('now'), stood_by_silence = true WHERE id = ? AND status = 'pending'")
       .run(open.id);
     if (claimed.changes !== 1) continue;
     const done = await recordResult(open.match_id, { winner: open.winner, score: open.score ?? undefined, walkover: open.walkover === 1 });
@@ -213,6 +238,41 @@ export async function standUnansweredReports(): Promise<number> {
     stood++;
   }
   return stood;
+}
+
+/**
+ * A walkover a player reported, which will stand in `REPORT_STANDS_HOURS - REPORT_REMIND_HOURS` hours of the other side's silence, is told to that side again, once,
+ * before it stands (they were told when it was reported): out of a match, and with progression, on one side's word is the gravest thing silence can do, so the silent
+ * side is asked twice, and the second is in good time to answer (ADR 0059). Claimed first (`reminded_at`), so a repeat or a second server tells nobody twice.
+ */
+async function remindSilentSide(): Promise<number> {
+  const db = getDb();
+  const due = (await db
+    .prepare(
+      `SELECT r.* FROM tournament_reports r JOIN tournaments t ON t.id = r.tournament_id
+        WHERE r.status = 'pending' AND r.walkover = 1 AND r.reminded_at IS NULL AND t.status = 'drawn'
+          AND r.created_at < datetime('now', '-${REPORT_REMIND_HOURS} hours') AND r.created_at >= datetime('now', '-${REPORT_STANDS_HOURS} hours') ORDER BY r.id`
+    )
+    .all()) as ReportRow[];
+  let told = 0;
+  for (const r of due) {
+    const claimed = await db.prepare("UPDATE tournament_reports SET reminded_at = datetime('now') WHERE id = ? AND status = 'pending' AND reminded_at IS NULL").run(r.id);
+    if (claimed.changes !== 1) continue;
+    const m = await matchSides(r.match_id);
+    const t = await tournamentById(r.tournament_id);
+    if (!m || !t) continue;
+    const theirs = r.entry_id === m.entry_a ? m.entry_b : m.entry_a;
+    if (theirs === null) continue;
+    await tellEntry(
+      theirs,
+      t,
+      (tr) => tr("fx10.report.remind.s", { t: t.name }),
+      (tr) => tr("fx10.report.remind.b", { t: t.name, hours: REPORT_STANDS_HOURS - REPORT_REMIND_HOURS }),
+      `report-remind:${r.id}`
+    );
+    told++;
+  }
+  return told;
 }
 
 /**

@@ -56,6 +56,50 @@ describe("the needs-attention panel", () => {
     expect(screen.getByText("Stored long ago.")).toBeTruthy();
   });
 
+  it("lists fixtures on a lost court with one action to move the day, tournaments nobody drew, and the messaging lines (ADR 0059)", async () => {
+    const stranded = { kind: "tournament", id: 5, ownerId: 7, name: "Spring Cup", venueId: 1, date: "2026-11-20", startMin: 540, minutes: 30, courtId: 2, courtName: "Court 2", why: "outage" };
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) =>
+      init?.method === "POST"
+        ? json({ moved: 2 })
+        : json({
+            open: [],
+            recent: [],
+            competitions: {
+              stranded: [stranded, { ...stranded, id: 6 }],
+              undrawn: [{ id: 8, name: "Autumn Open", venueId: 1, startsOn: "2026-11-06", endsOn: "2026-11-06", status: "open", entered: 3, held: [{ courtName: "Court 1", date: "2026-11-06", startMin: 540, endMin: 720 }] }],
+            },
+            messageModeration: { openReports: 2, oldestOpenReport: "2026-11-01 10:00:00", waitingDays: 5, suspensionsToReview: [{ id: 4, since: "2026-11-01 10:00:00", reviewBy: "2026-11-15 10:00:00", overdue: false }], reviewRequests: 1 },
+          })
+    );
+    const { container } = render(
+      <LanguageProvider locale="en">
+        <AttentionPanel />
+      </LanguageProvider>
+    );
+    await act(async () => {});
+    const text = container.textContent ?? "";
+    expect(text).toContain("Spring Cup: 2 fixture(s) still to play on 2026-11-20");
+    expect(text).toContain("court out of service");
+    expect(text).toContain("Autumn Open was to start on 2026-11-06 and has not been drawn (3 entered)");
+    expect(text).toContain("Court 1 2026-11-06");
+    expect(text).toContain("2 report(s) of messages are open, the oldest for 5 day(s).");
+    expect(text).toContain("Messaging suspension 4 was made by the rule: review it by 2026-11-15.");
+    expect(text).toContain("1 request for a review of a messaging suspension is waiting");
+    // One action moves the day: it posts to the tournament with the day to move to.
+    const input = container.querySelector('input[type="date"]') as HTMLInputElement;
+    const { fireEvent } = await import("@testing-library/react");
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "2026-11-21" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Move the day"));
+    });
+    const call = fetchMock.mock.calls.find((c) => (c[1] as { method?: string } | undefined)?.method === "POST")!;
+    expect(call[0]).toBe("/api/admin/tournaments/7");
+    expect(JSON.parse((call[1] as { body: string }).body)).toEqual({ action: "postpone_day", from: "2026-11-20", to: "2026-11-21" });
+    expect(container.textContent).toContain("2 fixture(s) moved to 2026-11-21");
+  });
+
   it("is not there when nothing needs attention", async () => {
     const { container } = render(<AttentionPanel />);
     await act(async () => {});
