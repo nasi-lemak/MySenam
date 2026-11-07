@@ -580,6 +580,7 @@ export interface CustomerExport {
   concessionProofs: unknown[];
   /** Notes venues' staff keep on their number (lib/customer-notes.ts). */
   staffNotes: unknown[];
+  staffNoteHistory: unknown[];
   /** Private hire enquiries they sent from their number or address (lib/enquiries.ts). */
   enquiries: unknown[];
   /** Venues' waivers agreed to from their number: kept, as each venue's record of consent (lib/waivers.ts). */
@@ -812,6 +813,12 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
         WHERE n.phone_key = phone_key(?) ORDER BY v.name`,
       account.phone
     ),
+    // What each venue's note said before it was changed or taken away (lib/customer-notes.ts): the person's own data as the note is.
+    staffNoteHistory: await all(
+      `SELECT v.name AS venue, h.action, h.previous_note, h.new_note, h.changed_at FROM customer_note_history h JOIN venues v ON v.id = h.venue_id
+        WHERE h.phone_key = phone_key(?) ORDER BY v.name, h.id`,
+      account.phone
+    ),
     enquiries: await all(
       `SELECT v.name AS venue, e.created_at, e.kind, e.wanted_on, e.people, e.message, e.status
          FROM hire_enquiries e JOIN venues v ON v.id = e.venue_id
@@ -904,6 +911,7 @@ export interface PhoneExport {
   accountBookers: unknown[];
   /** The venue's staff's note on this customer (lib/customer-notes.ts). */
   staffNotes: unknown[];
+  staffNoteHistory: unknown[];
   /** Online payments made to these venues with this number as the payer's. */
   onlinePayments: unknown[];
   /** Private hire enquiries from this number (lib/enquiries.ts). */
@@ -1045,6 +1053,12 @@ export async function exportPhoneData(venueIds: number[], phone: string): Promis
     staffNotes: await all(
       `SELECT v.name AS venue, n.note, n.updated_at FROM customer_notes n JOIN venues v ON v.id = n.venue_id
         WHERE n.venue_id IN (${marks}) AND n.phone_key = phone_key(?)`,
+      ...venueIds,
+      phone
+    ),
+    staffNoteHistory: await all(
+      `SELECT v.name AS venue, h.action, h.previous_note, h.new_note, h.changed_at FROM customer_note_history h JOIN venues v ON v.id = h.venue_id
+        WHERE h.venue_id IN (${marks}) AND h.phone_key = phone_key(?) ORDER BY v.name, h.id`,
       ...venueIds,
       phone
     ),
@@ -1235,6 +1249,13 @@ export async function eraseCustomer(userId: number, opts: { reapplying?: boolean
       .prepare(
         `DELETE FROM customer_notes WHERE phone_key IN (SELECT phone_key(phone) FROM users WHERE id = ?
                                                         UNION SELECT phone_key(verified_phone) FROM users WHERE id = ? AND verified_phone IS NOT NULL)`
+      )
+      .run(userId, userId);
+    // Its history goes with it: what a note said before is as much the person's as what it says now.
+    await db
+      .prepare(
+        `DELETE FROM customer_note_history WHERE phone_key IN (SELECT phone_key(phone) FROM users WHERE id = ?
+                                                               UNION SELECT phone_key(verified_phone) FROM users WHERE id = ? AND verified_phone IS NOT NULL)`
       )
       .run(userId, userId);
     // Nor on a company's list of who may book on its account, by that number or the one proved.

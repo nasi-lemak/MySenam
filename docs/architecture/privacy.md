@@ -146,7 +146,7 @@ A booking is also the venue's accounting record, so "forget me" cannot mean
   behind counts for anybody; their places on bookings, sign-offs, inductions
   and waivers signed on their behalf stay as the venue's records, linked to
   nobody;
-- also removes, by the account's numbers, staff notes, places on company
+- also removes, by the account's numbers, staff notes and their history, places on company
   accounts' booker lists, concession proofs, private hire enquiries and
   marketing consent; and keeps signed waivers, as the venue's record of
   consent ([venue operations](../features/venue-operations.md#waivers));
@@ -231,7 +231,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | The bare facts of a deleted application, and who opened its documents | 730 days | deleted |
 | Venue applications never confirmed by email | 7 days | deleted |
 | Private hire enquiries | 365 days | deleted |
-| Draft venues never live, nobody signed in | 90 days | deleted with everything they set up, found from the database's foreign keys (`src/lib/drafts.ts`), unless they hold a customer's pass, membership, credit or payment; one that cannot be deleted is left, and the owners are told |
+| Draft venues never live, nobody signed in | 90 days | deleted with everything they set up, found from the database's foreign keys (`src/lib/drafts.ts`), unless they hold a customer's pass, membership, credit or payment, **or a record of money taken at the counter in a test booking** (a receipt or credit note, a refund owed or paid back, a counter sale, a booking marked paid, a hire deposit: a receipt is never deleted, [ADR 0064](decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md)); one that cannot be deleted is left, and the owners are told |
 | Expired sessions | — | deleted |
 
 Door logs go first and shortest: they tie a named person to a time and a

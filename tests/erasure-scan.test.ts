@@ -205,6 +205,7 @@ const HOLDS_PEOPLE: Record<string, string> = {
   concession_proofs: "erased with the person",
   counter_sales: "the venue's counter record: the receipt's names are cleared (lib/receipt-names.ts) with the booking's",
   customer_notes: "erased with the person; a venue's note kept against a number",
+  customer_note_history: "erased with the person, as the note is (lib/privacy.ts eraseCustomer); the venue's staff read it, as they read the note",
   e_invoices: "the buyer's details are the legal record, kept for the statutory period (lib/myinvois.ts), account or not",
   einvoice_settings: "the venue's own details",
   entries: "anonymised on erasure; retention after checkInDays",

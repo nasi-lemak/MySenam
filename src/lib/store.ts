@@ -369,6 +369,16 @@ async function numberRefusedAt(courtId: number, phone: string): Promise<boolean>
   return isBlocked(court.venueId, phone);
 }
 
+/**
+ * What the desk is told when somebody it is asked to check in (or hand kit to, or mark as arrived) is on a number the venue
+ * refuses (ADR 0064): nothing admits a refused number, the desk included, because a person standing there is the very case
+ * the venue refused them for. The manager lifts the refusal, with a reason, if that was a mistake. Null for any other booking.
+ */
+async function deskBlockedRefusal(booking: Pick<Booking, "courtId" | "phone">): Promise<Refusal | null> {
+  if (!(await numberRefusedAt(booking.courtId, booking.phone))) return null;
+  return refuse("SEC_CHECKIN_BLOCKED");
+}
+
 /** The time zone of the venue a court belongs to. */
 export async function courtZone(courtId: number): Promise<string> {
   return (await courtVenueHours(courtId)).zone;
@@ -4471,7 +4481,9 @@ export async function checkInOnLane(code: string, laneId: number, opts: { admit?
   if (!booking) return refuse("BOOKING_NOT_FOUND");
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
   if (booking.checkedInAt) return { ok: false, error: "Already checked in." };
-  // Not moved for a check-in that would not happen: too early, or after it ended.
+  // Not moved for a check-in that would not happen: a refused number, too early, or after it ended.
+  const blocked = await deskBlockedRefusal(booking);
+  if (blocked) return blocked;
   const windowError = checkInWindowError(booking, await courtZone(booking.courtId));
   if (windowError) return { ok: false, error: windowError };
   let moved: { from: Court; to: Court } | undefined;
@@ -5242,14 +5254,14 @@ async function confirmSelfCheckIn(booking: Booking, by: { adminId: number | null
 
 async function checkInBooking(booking: Booking, how: { desk: boolean; admit?: MembershipAdmit; by?: { adminId: number | null; name: string } }): Promise<DeskCheckInResult> {
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+  // A number the venue refuses is admitted by nobody (ADR 0058, ADR 0064): not the QR code, and not the desk either.
+  if (await numberRefusedAt(booking.courtId, booking.phone)) return how.desk ? (await deskBlockedRefusal(booking))! : refuse("FX9_DOOR_BLOCKED");
   if (booking.checkedInAt) {
     // The desk meeting somebody who checked themselves in is the confirmation: the one tap on Arrived.
     if (how.desk && (await confirmSelfCheckIn(booking, how.by ?? { adminId: null, name: "Front desk" })))
       return { ok: true, booking: (await bookingByCode(booking.code))! };
     return { ok: false, error: "Already checked in." };
   }
-  // A number the venue refuses is let in by nobody unattended (ADR 0058): the QR code is no way past that. The desk sees them.
-  if (!how.desk && (await numberRefusedAt(booking.courtId, booking.phone))) return refuse("FX9_DOOR_BLOCKED");
   const windowError = checkInWindowError(booking, await courtZone(booking.courtId));
   if (windowError) return { ok: false, error: windowError };
   // Revalidated before taking part (the owner's decision of 27 October 2026): a membership cancelled,
@@ -5903,6 +5915,9 @@ export async function takeHire(code: string, deposit?: number, via?: CounterMeth
   const booking = await bookingByCode(code);
   if (!booking) return refuse("BOOKING_NOT_FOUND");
   if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+  // Handing the kit over checks the customer in: a refused number is admitted by nobody (ADR 0064).
+  const blockedHire = await deskBlockedRefusal(booking);
+  if (blockedHire) return blockedHire;
 
   const court = await getCourt(booking.courtId);
   if (!court) return refuse("COURT_NOT_FOUND");
@@ -6212,6 +6227,11 @@ export async function markPlace(
     await db.prepare("SELECT id FROM bookings WHERE id = ? FOR UPDATE").get(found.id);
     const booking = (await bookingByCode(code))!;
     if (booking.status === "cancelled") return refuse("BOOKING_WAS_CANCELLED");
+    // Marking somebody arrived checks the booking in: a refused number is admitted by nobody (ADR 0064).
+    if (mark === "arrived") {
+      const blocked = await deskBlockedRefusal(booking);
+      if (blocked) return blocked;
+    }
     const place = (await db
       .prepare("SELECT id FROM booking_participants WHERE id = ? AND booking_id = ?")
       .get(placeId, booking.id)) as { id: number } | undefined;

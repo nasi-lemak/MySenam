@@ -431,9 +431,13 @@ Scanning the code never admits somebody to a members-only session whose
 membership no longer covers its date: it is refused with the reason, and they
 check in at the desk, where staff decide (above;
 `MV6_CHECKIN_ENDED`, `MV6_CHECKIN_CANCELLED`, `MV6_CHECKIN_NONE`). Nor does it
-for a number the venue has refused (`FX9_DOOR_BLOCKED`, "see the venue"): the
-desk, a person looking at them, can still check them in
-([bookings that need a decision](#bookings-that-need-a-decision)).
+for a number the venue has refused (`FX9_DOOR_BLOCKED`, "see the venue"). Nor does
+the desk: a number the venue refuses is checked in by nobody, so the desk's check-in,
+a lane given on arrival (the booking is not moved), marking a person arrived and handing
+kit over are refused too (`SEC_CHECKIN_BLOCKED`, "a manager can lift the refusal, with a
+reason"), and there is no override ([ADR 0064](../architecture/decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md),
+owner decision DEC-40; the booking is left for a manager to decide,
+[below](#bookings-that-need-a-decision)).
 
 ### Self check-in is not verified attendance
 
@@ -735,8 +739,8 @@ why, for staff to decide ([ADR 0058](../architecture/decisions/0058-safety-and-a
   paid, the customer is told, and the booking leaves the list), or **Leave
   it**, with a note kept in the activity log (a manager's, not the front
   desk's). Nothing is cancelled or refunded by the system. Taking the number off
-  the refused list settles what was listed for it. The desk can still check
-  such a customer in: a person is looking at them.
+  the refused list settles what was listed for it. Nobody checks such a customer in
+  while the number is refused, the desk included.
 - **A sign-off, certification or induction taken back** (*Sign-offs*,
   *Courts & rates → Cleared for unstaffed hours*): the person's upcoming
   confirmed bookings it affected are listed with what was taken back, who took
@@ -1006,6 +1010,17 @@ writes a note against their phone number, one per number per venue (however
 the number is typed), and it shows on every booking of theirs from then on
 (`src/lib/customer-notes.ts`). Anyone at the desk can write, change or clear
 it; each change is in the activity log, and the note says who last wrote it.
+
+**A note keeps its history** (`customer_note_history`, migration 0314,
+[ADR 0064](../architecture/decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md)):
+each write, change and erase is a row appended in the same transaction, with the text
+before and after, who and when; a save that changes nothing adds none. 🕘 beside a
+note shows it, newest first, to the venue's own staff only, who may read the note
+(`GET /api/admin/customer-notes?history=1`). Rows are never edited (a trigger refuses
+it). Notes that existed when this was built start with one *baseline* row, the note as
+it stood and who last wrote it: what was changed before is not known and is not made
+up. The history is the customer's data as the note is: it goes out with their data and
+is erased with their account.
 
 A note is personal data, so staff are told as they write it to keep it
 factual: it goes out with what the venue holds against the number and with

@@ -5166,6 +5166,7 @@ const EN = {
   "err.FX8_PASS_NOT_LATER": "The new end must be today or later, and after the pass's present end, {date}.",
   "err.FX8_PASS_TOO_FAR": "A pass cannot run beyond {date}.",
   "err.FX8_GRACE_RANGE": "Give whole days from 0 to {max}; 0 turns it off.",
+  "err.SEC_CHECKIN_BLOCKED": "This number is refused at this venue, so it is not checked in. A manager can lift the refusal, with a reason.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10277,6 +10278,7 @@ const MS: Record<Phrase, string> = {
   "err.FX8_PASS_NOT_LATER": "Tarikh tamat baharu mestilah hari ini atau lebih lewat, dan selepas tarikh tamat pas sekarang, {date}.",
   "err.FX8_PASS_TOO_FAR": "Pas tidak boleh sah melepasi {date}.",
   "err.FX8_GRACE_RANGE": "Berikan bilangan hari penuh dari 0 hingga {max}; 0 mematikannya.",
+  "err.SEC_CHECKIN_BLOCKED": "Nombor ini ditolak di pusat ini, jadi ia tidak didaftar masuk. Pengurus boleh mengangkat penolakan itu, dengan satu sebab.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

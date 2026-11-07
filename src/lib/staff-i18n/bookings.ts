@@ -931,6 +931,12 @@ const en = {
   "fx4.att.accLine": "{account}: invoice {number} was due on {due}, {days} days ago, and {amount} is still to pay.",
   "fx4.att.accBlocking": "New bookings on this account are stopped.",
   "fx4.att.accHelp": "The account's contact is reminded by email each week. Under Company and school accounts you can set after how many days overdue new bookings are stopped.",
+  "sec.note.historyButton": "What this note said before, and who changed it",
+  "sec.note.historyTitle": "Changes to the note on {name}, newest first:",
+  "sec.note.noHistory": "No changes have been kept for this note.",
+  "sec.note.set": "now “{note}” (was: {was})",
+  "sec.note.erased": "taken away (it said: “{was}”)",
+  "sec.note.baseline": "the note as it stood when history began: “{note}”",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1844,6 +1850,12 @@ const ms: Record<keyof typeof en, string> = {
   "fx4.att.accLine": "{account}: invois {number} perlu dibayar pada {due}, {days} hari lalu, dan {amount} masih belum dibayar.",
   "fx4.att.accBlocking": "Tempahan baharu pada akaun ini dihentikan.",
   "fx4.att.accHelp": "Pegawai perhubungan akaun diingatkan melalui e-mel setiap minggu. Di bawah Akaun syarikat dan sekolah anda boleh menetapkan selepas berapa hari tertunggak tempahan baharu dihentikan.",
+  "sec.note.historyButton": "Apa yang nota ini katakan sebelum ini, dan siapa yang mengubahnya",
+  "sec.note.historyTitle": "Perubahan pada nota tentang {name}, terbaharu dahulu:",
+  "sec.note.noHistory": "Tiada perubahan disimpan untuk nota ini.",
+  "sec.note.set": "kini “{note}” (sebelum ini: {was})",
+  "sec.note.erased": "dibuang (ia berbunyi: “{was}”)",
+  "sec.note.baseline": "nota seperti keadaannya apabila sejarah bermula: “{note}”",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2757,6 +2769,12 @@ const zh: Record<keyof typeof en, string> = {
   "fx4.att.accLine": "{account}：账单 {number} 应于 {due} 付款，已逾期 {days} 天，仍有 {amount} 未付。",
   "fx4.att.accBlocking": "该账户的新预订已被停止。",
   "fx4.att.accHelp": "账户联系人每周会收到一封电邮提醒。您可以在“公司和学校账户”中设置逾期多少天后停止新预订。",
+  "sec.note.historyButton": "此备注此前的内容及修改人",
+  "sec.note.historyTitle": "关于 {name} 的备注的修改记录（最新在前）：",
+  "sec.note.noHistory": "此备注没有保留任何修改记录。",
+  "sec.note.set": "现为“{note}”（原为：{was}）",
+  "sec.note.erased": "已删除（原内容：“{was}”）",
+  "sec.note.baseline": "开始保留记录时的备注：“{note}”",
 };
 
 const area = { en, ms, zh };

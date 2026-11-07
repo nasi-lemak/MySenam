@@ -23,6 +23,7 @@ import {
   attendanceVerified,
   checkIn,
   checkInByToken,
+  checkInOnLane,
   createBooking,
   createClassSessions,
   createCourt,
@@ -31,14 +32,17 @@ import {
   findBookingByCode,
   inductionStillNeeded,
   listBookingsForDate,
+  markPlace,
   recordInduction,
   setNoShow,
   setPaymentStatus,
+  takeHire,
   updateCourt,
   updateVenue,
 } from "../src/lib/store";
 import { addDays, todayISO } from "../src/lib/time";
 import * as attentionRoute from "../src/app/api/admin/attention/route";
+import * as checkInRoute from "../src/app/api/admin/check-in/route";
 import { DELETE as signOffsDelete } from "../src/app/api/admin/sign-offs/route";
 import { DELETE as inductionsDelete } from "../src/app/api/admin/inductions/[id]/route";
 import { POST as blockedPost } from "../src/app/api/admin/venues/[id]/blocked-phones/route";
@@ -205,7 +209,7 @@ describe("E2: a number the venue refuses", () => {
     expect((await safetyFlags([venueId]))[0]).toMatchObject({ bookingCode: e.booking.code, classId: made.classes[0].id });
   });
 
-  it("refuses the QR check-in of a refused number, while the desk (a person looking at them) can still check them in", async () => {
+  it("refuses the QR check-in of a refused number, and the desk's too (ADR 0064); lifting the refusal lets the desk check them in", async () => {
     const venueId = await newVenue("Blocked QR");
     const gym = await createCourt({ venueId, name: `Gym ${++seq}`, sport: "gym", offPeakRate: 5, peakRate: 8, capacity: 10 });
     if (!gym.ok) throw new Error("gym");
@@ -219,7 +223,50 @@ describe("E2: a number the venue refuses", () => {
     const token = ((await getDb().prepare("SELECT check_in_token FROM bookings WHERE id = ?").get(booking.id)) as { check_in_token: string }).check_in_token;
     expect(await checkInByToken(token)).toMatchObject({ ok: false, code: "FX9_DOOR_BLOCKED" });
     expect((await findBookingByCode(booking.code))?.checkedInAt).toBeNull();
+    // The desk is refused as well, in words that say what to do; nothing was checked in.
+    expect(await checkIn(booking.code)).toMatchObject({ ok: false, code: "SEC_CHECKIN_BLOCKED" });
+    expect((await findBookingByCode(booking.code))?.checkedInAt).toBeNull();
+    expect(await unblockPhone(venueId, who, "Mgr")).toBe(true);
     expect((await checkIn(booking.code)).ok).toBe(true);
+  });
+
+  it("refuses a refused number on every desk path: the route, a lane given on arrival (nothing moved), a register mark and a kit hand-over", async () => {
+    const venueId = await newVenue("Blocked desk");
+    const gym = await createCourt({ venueId, name: `Gym ${++seq}`, sport: "gym", offPeakRate: 5, peakRate: 8, capacity: 10 });
+    const kayaks = await createCourt({ venueId, name: `Kayak ${++seq}`, sport: "kayak", offPeakRate: 5, peakRate: 8, deposit: 50 });
+    if (!gym.ok || !kayaks.ok) throw new Error("courts");
+    const who = phone();
+    const date = todayISO(ZONE);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${date}T08:30:00+08:00`));
+    const booking = await book(gym.court.id, who, date, 10);
+    const hire = await book(kayaks.court.id, who, date, 11);
+    const staff = await staffCookie(venueId, "desk");
+    await blockPhone({ venueId, phone: who, adminId: staff.id, adminName: staff.name });
+    vi.setSystemTime(new Date(`${date}T10:05:00+08:00`));
+    const post = (body: unknown) =>
+      checkInRoute.POST(
+        new NextRequest("http://localhost/api/admin/check-in", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie: staff.cookie },
+          body: JSON.stringify(body),
+        })
+      );
+    const refused = await post({ code: booking.code });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).code).toBe("SEC_CHECKIN_BLOCKED");
+    const other = await createCourt({ venueId, name: `Gym ${++seq}`, sport: "gym", offPeakRate: 5, peakRate: 8, capacity: 10 });
+    if (!other.ok) throw new Error("other");
+    expect(await checkInOnLane(booking.code, other.court.id)).toMatchObject({ ok: false, code: "SEC_CHECKIN_BLOCKED" });
+    expect((await findBookingByCode(booking.code))?.courtId).toBe(gym.court.id);
+    expect(await markPlace(booking.code, 1, "arrived", { id: staff.id, name: staff.name })).toMatchObject({ ok: false, code: "SEC_CHECKIN_BLOCKED" });
+    // A mark that is not an arrival is not an admission.
+    expect(await markPlace(booking.code, 1, "clear", { id: staff.id, name: staff.name })).not.toMatchObject({ code: "SEC_CHECKIN_BLOCKED" });
+    expect(await takeHire(hire.code, 50, "cash")).toMatchObject({ ok: false, code: "SEC_CHECKIN_BLOCKED" });
+    for (const b of [booking, hire]) expect((await findBookingByCode(b.code))?.checkedInAt).toBeNull();
+    // Another number at the same venue is checked in as ever, and so is this one once the refusal is lifted.
+    expect(await unblockPhone(venueId, who, "Mgr")).toBe(true);
+    expect((await post({ code: booking.code })).status).toBe(200);
   });
 });
 

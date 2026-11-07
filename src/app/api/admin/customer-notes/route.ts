@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
-import { customerNote, setCustomerNote } from "@/lib/customer-notes";
+import { customerNote, noteHistory, setCustomerNote } from "@/lib/customer-notes";
 import { phoneKey } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +14,16 @@ async function staffAt(req: NextRequest, raw: unknown) {
   return denyVenue(admin, venueId) ?? { admin, venueId };
 }
 
-/** `?venueId&phone` → the venue's note on that customer (lib/customer-notes.ts). */
+/**
+ * `?venueId&phone` → the venue's note on that customer (lib/customer-notes.ts); with `history=1`, the note's changes too, newest first,
+ * each with the text before and after, who and when. The same staff see both: the venue's, checked here for either.
+ */
 export async function GET(req: NextRequest) {
   const at = await staffAt(req, req.nextUrl.searchParams.get("venueId"));
   if (at instanceof NextResponse) return at;
+  const phone = req.nextUrl.searchParams.get("phone") ?? "";
   return NextResponse.json(
-    { note: await customerNote(at.venueId, req.nextUrl.searchParams.get("phone") ?? "") },
+    { note: await customerNote(at.venueId, phone), ...(req.nextUrl.searchParams.get("history") === "1" ? { history: await noteHistory(at.venueId, phone) } : {}) },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
