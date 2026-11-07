@@ -1,6 +1,6 @@
 import { describe, expect, inject, vi } from "vitest";
 import type { Page } from "playwright-core";
-import { dayAhead, fitsScreen, scenario, signInOwner, signUp, type Actor, type Device, type Scenario } from "./harness";
+import { dayAhead, fitsScreen, openDashboardTab, scenario, signInOwner, signUp, type Actor, type Device, type Scenario } from "./harness";
 import { clockedServer, instantOfDay, rebase, type ClockedServer } from "./day-support";
 import { enterOnDashboard, formatsVenue, nameOf, openTournament, seed, sentEmails, staffApi, staffDetail, staffOnTournaments, type Match } from "./formats-support";
 
@@ -198,7 +198,7 @@ async function run(s: Scenario, server: ClockedServer): Promise<void> {
 
   await s.step(organiser, "checks in the rest: what stopped each fixture goes from the board, and it says Ready", async () => {
     await page.reload();
-    await page.getByRole("button", { name: "Tournaments", exact: true }).click();
+    await openDashboardTab(page, "Tournaments");
     await openTournament(page, name);
     await board(page).waitFor();
     await waiting(page, ainaName, oppName).getByText(`${ainaName} is not checked in`, { exact: false }).waitFor();
@@ -277,7 +277,7 @@ async function run(s: Scenario, server: ClockedServer): Promise<void> {
   await s.step(desk, "sees the wait run out on the board, and still has no button to decide it", async () => {
     // A called match waits one real minute for its players: the board's own refresh shows when it is over.
     await desk.page.reload();
-    await desk.page.getByRole("button", { name: "Tournaments", exact: true }).click();
+    await openDashboardTab(desk.page, "Tournaments");
     await openTournament(desk.page, name);
     await board(desk.page).getByText("Nobody came in time. Decide:").first().waitFor({ timeout: 120_000 });
     for (const b of ["Swap in the next ready match", /^Wait \d+ more minutes/, /did not come: give the match to the other side/]) expect(await board(desk.page).getByRole("button", { name: b }).count()).toBe(0);

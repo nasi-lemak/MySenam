@@ -2,7 +2,7 @@ import fs from "fs";
 import type { Locator, Page } from "playwright-core";
 import { inject } from "vitest";
 import { OWNER } from "../e2e/server";
-import { dayAhead, signUp, url, type Actor, type Scenario } from "./harness";
+import { dayAhead, openDashboardTab, signUp, url, type Actor, type Scenario } from "./harness";
 
 /**
  * What the climbing, ladder and rankings scenarios share (setup, not their subject): a venue of their own for one sport with a manager and a
@@ -52,7 +52,7 @@ export async function staffSignIn(a: Actor, email: string): Promise<void> {
 
 /** A dashboard tab opened by its name. */
 export async function openTab(page: Page, tab: string, heading: string | null = tab): Promise<void> {
-  await page.getByRole("button", { name: tab, exact: true }).click();
+  await openDashboardTab(page, tab);
   if (heading) await page.getByRole("heading", { name: heading, exact: true }).waitFor();
 }
 

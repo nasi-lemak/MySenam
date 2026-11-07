@@ -255,6 +255,25 @@ export async function courtFor(sport = "badminton"): Promise<{ venueId: number; 
   return { venueId: v.id, courtId: courts[0].id, venueName: v.name, area: v.area, courtIds: courts.map((c) => c.id) };
 }
 
+/**
+ * A dashboard tab opened, and known to be open: its button is the current one (`aria-current="page"`). A click on the tab is
+ * lost when the dashboard's panels arrive between the mouse going down and coming up and move the tab bar under the pointer
+ * (they load after "Sign out" is first on the screen), and it is lost silently: no error, no navigation. So the click is
+ * repeated until the tab is current, which is the state a person waits for; it is harmless once it is.
+ */
+export async function openDashboardTab(page: Page, tab: string): Promise<void> {
+  const button = page.getByRole("button", { name: tab, exact: true });
+  for (let attempt = 1; ; attempt++) {
+    await button.click();
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      if ((await button.getAttribute("aria-current", { timeout: 2_000 })) === "page") return;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (attempt >= 5) throw new Error(`The ${tab} tab was clicked ${attempt} times and is not the open one`);
+  }
+}
+
 /** A date `days` ahead in Malaysia. */
 export function dayAhead(days: number): string {
   return new Date(Date.now() + 8 * 3_600_000 + days * 86_400_000).toISOString().slice(0, 10);
