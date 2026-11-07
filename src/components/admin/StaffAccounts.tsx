@@ -181,7 +181,12 @@ export function StaffAccounts({ admin, venues, onError, onNotice }: { admin: Adm
                           <button
                             onClick={() => {
                               if (!window.confirm(t("vn.removeConfirm", { email: a.email }))) return;
-                              void send(`/api/admin/admins/${a.id}`, "DELETE", undefined, t("vn.removed"));
+                              void send(`/api/admin/admins/${a.id}`, "DELETE", undefined, (data) => {
+                                // What happened to the API keys and webhook addresses around the account (ADR 0064).
+                                const c = data.credentials as { stopped: number; review: { keys: number; webhooks: number } } | undefined;
+                                const review = (c?.review.keys ?? 0) + (c?.review.webhooks ?? 0);
+                                return c && c.stopped + review > 0 ? t("sec.removedNote", { stopped: c.stopped, review }) : t("vn.removed");
+                              });
                             }}
                             className="ml-1.5 rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                           >

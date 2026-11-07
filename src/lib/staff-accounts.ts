@@ -9,6 +9,7 @@ import { errorText, translator, type ErrorCode } from "./i18n";
 import { linkIn } from "./link-locale";
 import { chosenStaffLocale, staffReaderLocale } from "./staff-locales";
 import { logAction } from "./activity";
+import { credentialsToReview, endOwnedCredentials, type CredentialsToReview } from "./credential-owners";
 import { MIN_PASSWORD } from "./password-reset";
 import { deleteAdmin, getAdminById, isManager, isOwner, listAdminsFor, setStaffRole, type Admin } from "./admin-auth";
 import type { StaffRole } from "./roles";
@@ -391,6 +392,9 @@ export async function acceptInvitation(token: string, password: string): Promise
 
 type Done = { ok: true } | Refusal;
 
+/** What removing an account did to the credentials around it: what stopped with it, and what is the venue's and was made by them (to review). */
+export type RemovedAccount = { ok: true; credentials: { stopped: number; review: CredentialsToReview } } | Refusal;
+
 /** The account `id`, if `by` manages it (as it is now). */
 async function managedAccount(by: Admin, id: number): Promise<{ ok: true; target: Admin } | Refusal> {
   const target = (await listAdminsFor(by)).find((a) => a.id === id);
@@ -413,7 +417,12 @@ export async function changeRole(by: Admin, id: number, role: StaffRole): Promis
   if (target.role === role) return { ok: true };
   if (role === "manager" && isBranchManager(by))
     return refuse("At your own branch you add, change and remove front-desk staff; a business manager makes somebody a manager.", 403);
-  await setStaffRole(id, role);
+  await withTransaction(async () => {
+    await setStaffRole(id, role);
+    // A manager made front desk no longer holds what only a manager may: the API keys and webhook addresses that were theirs stop with the
+    // role (they would stop at their next use anyway, the authority being read each time; this writes down which, ADR 0064).
+    if (role === "desk") await endOwnedCredentials(by, id, target.name, { all: false, reason: "owner_demoted", why: "who is no longer a manager here" });
+  });
   await logAction(by, { venueId: target.venueId, businessId: target.businessId, action: "staff.role", detail: `${target.name}: ${target.role} → ${role}` });
   return { ok: true };
 }
@@ -482,16 +491,22 @@ export async function correctStaff(by: Admin, id: number, change: { name?: unkno
  * sessions go with it), and any invitations it sent that are still out are
  * withdrawn. The last platform owner, and a business's last manager, stay.
  */
-export async function removeStaff(by: Admin, id: number): Promise<Done> {
+export async function removeStaff(by: Admin, id: number): Promise<RemovedAccount> {
   if (id === by.id) return refuse("You cannot remove your own account.", 409);
   const found = await managedAccount(by, id);
   if (!found.ok) return found;
   const { target } = found;
+  let credentials!: { stopped: number; review: CredentialsToReview };
   try {
     await withTransaction(async () => {
       await getDb()
         .prepare("UPDATE staff_invitations SET withdrawn_at = datetime('now') WHERE invited_by = ? AND accepted_at IS NULL AND withdrawn_at IS NULL")
         .run(id);
+      // What they owned stops with them, and what they made that is the venue's is counted for the manager to review (ADR 0064): both are
+      // read before the account goes, while the rows still say who it was.
+      const stopped = await endOwnedCredentials(by, id, target.name, { all: true, reason: "owner_removed", why: "whose account was removed" });
+      const review = await credentialsToReview(id, target.venueIds ?? []);
+      credentials = { stopped: stopped.length, review };
       // Its sessions and sign-in tickets go with the account (ON DELETE CASCADE): signed out at once.
       const result = await deleteAdmin(id);
       if (!result.ok) throw new Refused(refuse(result.error ?? "Admin not found.", 409));
@@ -500,6 +515,15 @@ export async function removeStaff(by: Admin, id: number): Promise<Done> {
     if (err instanceof Refused) return err.refusal;
     throw err;
   }
-  await logAction(by, { venueId: target.venueId, businessId: target.businessId, action: "staff.removed", detail: `${target.name} (${target.email})` });
-  return { ok: true };
+  await logAction(by, {
+    venueId: target.venueId,
+    businessId: target.businessId,
+    action: "staff.removed",
+    detail: `${target.name} (${target.email})${
+      credentials.stopped + credentials.review.keys + credentials.review.webhooks > 0
+        ? `. Credentials: ${credentials.stopped} stopped with the account, ${credentials.review.keys} API keys and ${credentials.review.webhooks} webhook addresses they made are the venue's, to review`
+        : ""
+    }`,
+  });
+  return { ok: true, credentials };
 }

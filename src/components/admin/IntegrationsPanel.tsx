@@ -26,8 +26,10 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [google, setGoogle] = useState(false);
   const [ai, setAi] = useState<AiPersonalData>({ on: false, changedAt: null, changedBy: null });
-  const [keyForm, setKeyForm] = useState({ name: "", scope: "read" });
+  const [keyForm, setKeyForm] = useState({ name: "", scope: "read", venueOwned: false });
   const [url, setUrl] = useState("");
+  const [hookVenueOwned, setHookVenueOwned] = useState(false);
+  const [me, setMe] = useState(0);
   const [shown, setShown] = useState<{ label: string; value: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
@@ -38,6 +40,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
     const d = await readJson(res);
     if (!res.ok) return setError(t.err(d, t("int.couldNotLoad")));
     setKeys(d.keys);
+    setMe(d.me ?? 0);
     setEndpoints(d.endpoints);
     setGoogle(d.google);
     setAi(d.aiPersonalData);
@@ -65,6 +68,21 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
   }
 
   const input = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
+  /** Whose a key or address is, and why it stopped where the system stopped it (ADR 0064). */
+  const whose = (x: { ownership: string; ownerName: string | null; madeBy: string | null; ownerLost: boolean }, stopped: string | null) =>
+    stopped === "owner_removed"
+      ? t("sec.stopped.owner_removed")
+      : stopped === "owner_demoted"
+        ? t("sec.stopped.owner_demoted")
+        : stopped === "rotated"
+          ? t("sec.stopped.rotated")
+          : x.ownerLost
+            ? t("sec.stopped.ownerLost")
+            : x.ownership === "person"
+              ? t("sec.owner.person", { name: x.ownerName ?? "" })
+              : x.madeBy
+                ? t("sec.owner.venueMadeBy", { name: x.madeBy })
+                : t("sec.owner.venue");
   return (
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -123,17 +141,47 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
                     ? t("int.lastUsed", { date: clock.when(k.lastUsedAt, venueId) })
                     : t("int.notUsedYet")}
               </span>
+              <span className={`block text-xs ${k.ownerLost || k.revokedReason ? "text-amber-700" : "text-slate-500"}`}>{whose(k, k.revokedReason)}</span>
             </span>
             {!k.revokedAt && (
-              <button
-                type="button"
-                className="font-medium text-rose-700 underline"
-                onClick={() => {
-                  if (window.confirm(t("int.revokeConfirm", { name: k.name }))) void act({ action: "revoke", id: k.id });
-                }}
-              >
-                {t("int.revoke")}
-              </button>
+              <span className="flex gap-3">
+                {!k.ownerLost &&
+                  (k.ownership === "venue" ? (
+                    <button type="button" className="font-medium text-teal-700 underline" onClick={() => void act({ action: "handOver", kind: "key", id: k.id, to: me })}>
+                      {t("sec.hand.toMe")}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="font-medium text-teal-700 underline"
+                      onClick={() => {
+                        if (window.confirm(t("sec.hand.confirmVenue", { name: k.name, owner: k.ownerName ?? "" }))) void act({ action: "handOver", kind: "key", id: k.id, to: "venue" });
+                      }}
+                    >
+                      {t("sec.hand.toVenue")}
+                    </button>
+                  ))}
+                <button
+                  type="button"
+                  className="font-medium text-teal-700 underline"
+                  onClick={async () => {
+                    if (!window.confirm(t("sec.rotateKeyConfirm", { name: k.name }))) return;
+                    const d = await act({ action: "rotate", kind: "key", id: k.id });
+                    if (d) setShown({ label: t("int.apiKeyLabel", { name: d.record.name }), value: d.key });
+                  }}
+                >
+                  {t("sec.rotate")}
+                </button>
+                <button
+                  type="button"
+                  className="font-medium text-rose-700 underline"
+                  onClick={() => {
+                    if (window.confirm(t("int.revokeConfirm", { name: k.name }))) void act({ action: "revoke", id: k.id });
+                  }}
+                >
+                  {t("int.revoke")}
+                </button>
+              </span>
             )}
           </li>
         ))}
@@ -149,15 +197,19 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
           type="button"
           className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white"
           onClick={async () => {
-            const d = await act({ action: "key", ...keyForm });
+            const d = await act({ action: "key", name: keyForm.name, scope: keyForm.scope, ownership: keyForm.venueOwned ? "venue" : "person" });
             if (d) {
               setShown({ label: t("int.apiKeyLabel", { name: d.record.name }), value: d.key });
-              setKeyForm({ name: "", scope: "read" });
+              setKeyForm({ name: "", scope: "read", venueOwned: false });
             }
           }}
         >
           {t("int.makeKey")}
         </button>
+        <label className="flex basis-full items-center gap-2 text-xs text-slate-600">
+          <input type="checkbox" checked={keyForm.venueOwned} onChange={(e) => setKeyForm({ ...keyForm, venueOwned: e.target.checked })} />
+          {t("sec.venueOwnedCheck")}
+        </label>
       </div>
 
       <h3 className="mt-4 font-semibold">{t("int.webhooks")}</h3>
@@ -180,6 +232,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
                 <span className={`text-xs ${e.active ? (e.failingSince ? "text-amber-700" : "text-emerald-700") : "text-rose-700"}`}>
                   {e.active ? (e.failingSince ? t("int.failingSince", { date: clock.when(e.failingSince, venueId) }) : t("int.on")) : t("int.turnedOff")}
                 </span>
+                <span className={`block text-xs ${e.ownerLost || e.stoppedReason ? "text-amber-700" : "text-slate-500"}`}>{whose(e, e.stoppedReason)}</span>
               </span>
               <span className="flex gap-3">
                 {e.active ? (
@@ -187,10 +240,39 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
                     {t("int.sendTest")}
                   </button>
                 ) : (
-                  <button type="button" className="font-medium text-teal-700 underline" onClick={() => void act({ action: "resume", id: e.id })}>
-                    {t("int.turnBackOn")}
-                  </button>
+                  !e.ownerLost && (
+                    <button type="button" className="font-medium text-teal-700 underline" onClick={() => void act({ action: "resume", id: e.id })}>
+                      {t("int.turnBackOn")}
+                    </button>
+                  )
                 )}
+                {!e.ownerLost &&
+                  (e.ownership === "venue" ? (
+                    <button type="button" className="font-medium text-teal-700 underline" onClick={() => void act({ action: "handOver", kind: "webhook", id: e.id, to: me })}>
+                      {t("sec.hand.toMe")}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="font-medium text-teal-700 underline"
+                      onClick={() => {
+                        if (window.confirm(t("sec.hand.confirmVenue", { name: e.url, owner: e.ownerName ?? "" }))) void act({ action: "handOver", kind: "webhook", id: e.id, to: "venue" });
+                      }}
+                    >
+                      {t("sec.hand.toVenue")}
+                    </button>
+                  ))}
+                <button
+                  type="button"
+                  className="font-medium text-teal-700 underline"
+                  onClick={async () => {
+                    if (!window.confirm(t("sec.rotateHookConfirm", { name: e.url }))) return;
+                    const d = await act({ action: "rotate", kind: "webhook", id: e.id });
+                    if (d) setShown({ label: t("int.signingSecret"), value: d.secret });
+                  }}
+                >
+                  {t("sec.rotate")}
+                </button>
                 <button type="button" className="font-medium text-rose-700 underline" onClick={() => void act({ action: "remove", id: e.id })}>
                   {t("c.remove")}
                 </button>
@@ -219,15 +301,20 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
           type="button"
           className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white"
           onClick={async () => {
-            const d = await act({ action: "webhook", url });
+            const d = await act({ action: "webhook", url, ownership: hookVenueOwned ? "venue" : "person" });
             if (d) {
               setShown({ label: t("int.signingSecret"), value: d.secret });
               setUrl("");
+              setHookVenueOwned(false);
             }
           }}
         >
           {t("int.addAddress")}
         </button>
+        <label className="flex basis-full items-center gap-2 text-xs text-slate-600">
+          <input type="checkbox" checked={hookVenueOwned} onChange={(e) => setHookVenueOwned(e.target.checked)} />
+          {t("sec.venueOwnedCheck")}
+        </label>
       </div>
 
       <h3 className="mt-4 font-semibold">{t("int.google")}</h3>

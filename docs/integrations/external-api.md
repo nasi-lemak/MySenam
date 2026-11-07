@@ -17,6 +17,26 @@ shown once when made; only its SHA-256 is kept. Up to 10 per venue, each
 revoked at once and for good. The list shows when each was last used. Calls
 are limited to 120 a minute per key.
 
+**Whose a key or an address is** ([ADR 0064](../architecture/decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md),
+migration 0312, `src/lib/credential-owners.ts`). Made by a manager, a key or a webhook
+address is **that person's** unless they tick *The venue's own*. A person's works only
+while its owner is the platform owner, a manager of the venue's business or a manager
+(not front desk) of that branch, **read again on every request**: remove the person,
+make them front desk, move them to another venue or take the venue out of their
+business and it stops at that request (`401`, no secret anywhere), with the log saying
+which stopped and why (`integration.changed`, and the account's removal says how many).
+A **venue's** key or address does not depend on whoever made it: it keeps working
+when they leave, is listed as the venue's with who made it, and a manager can *Take it
+over*, *Make it the venue's* or **Rotate** it (a new key, or a new signing secret, shown
+once, the old one dead at once), each on the record. A stopped one is never brought
+back by handing it over, since its secret was the owner's: it is rotated. Keys and
+addresses from before ownership was recorded are the venue's, so nothing in use
+stopped when this was built; the removal of a person says how many the venue's keys and
+addresses they made keep working, to rotate any that should not. A webhook queued
+before its owner left is not sent after. While the venue (or its whole business) is
+suspended, a key **reads but does not write**, through the API and the MCP server's
+tools (`403` on a write); a person's key at a venue moved to another business stops.
+
 **API** (`/api/v1`, header `Authorization: Bearer <key>`, JSON):
 
 | Call | Scope | What |
@@ -200,7 +220,8 @@ there when an address is added are not sent.
   trusting a message; use `id` to recognise a repeat.
 - **Retries:** 1, 2, 4… minutes, at most six hours apart, eight tries. An
   address failing for a day is turned off and the venue's staff are emailed;
-  *Turn back on* resumes it. *Send a test* sends a `ping`.
+  *Turn back on* resumes it (not one stopped because its owner left: that is rotated).
+  *Send a test* sends a `ping`.
 - **Only the public internet:** the address must be HTTPS, and a host that
   resolves to a private, loopback, link-local or similar address is refused
   when sending, so a webhook cannot be pointed at the server's own network.
