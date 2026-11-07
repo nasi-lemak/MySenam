@@ -173,6 +173,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | The questions to put to a Malaysian lawyer before youth messaging is enabled, with the interim measure for each, and the launch gate | [Legal review: youth messaging](operations/legal-review-youth-messaging.md) |
 | What to do when something goes wrong: severity, containment, evidence, recovery, breach notification in Malaysia and Singapore | [Incident response](operations/incident-response.md) |
 | Whether a restricted pilot can start: the capability matrix, integrations, operating conditions, acceptance criteria | [Pilot readiness](operations/pilot-readiness-2026-11-07.md) |
+| What must be proven against the real services before the pilot (SES, B2, Billplz): the checks, the proof, today's results | [Pilot provider verification](operations/pilot-provider-verification.md) |
 | Installs from before Postgres or before the rename from MudahTempah, and outages from before migration 0090 | [Legacy installs](archive/migrations/legacy-installs.md) |
 
 ## Plans, research and audits
