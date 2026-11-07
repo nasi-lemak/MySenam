@@ -977,9 +977,17 @@ A live offer holds **only its own time**: waiters for different times on one
 court and day are each offered theirs at once, an overlapping time is not free
 while an offer holds it (so one time is never promised to two people), and
 nobody is offered a second place on that court and day while they hold one. A
-class has one live offer at a time, so two cancellations do not hand the same
-place to two people; when it is taken up, lapses or another place frees, the
-next person is offered the next place.
+class offers **every free place at once** (several places free: several offers,
+[ADR 0070](../architecture/decisions/0070-class-places-held-for-payment-and-several-offers-at-once.md)):
+each waiting entry in turn that fits the places left is offered the places it
+asked for (one for a person, two for a person and a child), each for its own
+window, so three places freed with five people waiting make three offers and
+never more places than are free. Places held by live offers, and by enrolments
+(held for payment or not), are not free: the count is taken under the class's
+row lock, the one enrolling in it and claiming a place take, so two places freed
+at the same moment cannot promise four and a stranger enrolling directly is
+refused while the offers stand. When an offer is taken up, lapses or another
+place frees, the next entry that fits is offered the place.
 
 ### How long an offer lasts
 
@@ -1041,8 +1049,10 @@ limit all apply, so a queue is not a way round them. The place is claimed
 later through the offer's link, so it is paid as a claim is: no-show strikes
 and the limit on online bookings without an account refuse only where claimed court time could not be held
 until paid online. A class's queue asks exactly what enrolling asks: the house
-rules for the session's date, and strikes refused online (an enrolment is
-never held until paid).
+rules for the session's date, and strikes refused online (a class place is
+not given the pay-to-hold way out a court is: known limitation B43). A venue that
+holds for payment holds an enrolment made online as it holds a claim
+([programmes](programmes.md#classes)).
 
 When a place is offered and again when it is claimed, the entry is asked
 what the booking the claim makes would be asked on the path the entry was

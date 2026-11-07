@@ -20,7 +20,7 @@ import { useT } from "@/components/Language";
 import { translateError } from "@/lib/i18n";
 import { sportLabel } from "@/lib/i18n";
 import type { T } from "@/lib/i18n";
-import { money, shortDate } from "@/lib/region";
+import { localTimeOf, money, shortDate } from "@/lib/region";
 
 function dateLabel(t: T, date: string): string {
   return shortDate(date, t.locale, true);
@@ -209,6 +209,8 @@ function EnrolModal({
   const [code, setCode] = useState<string | null>(null);
   // Still to pay, where the venue takes payment online: the codes, the amount, and the first one's signed link (lib/booking-access.ts).
   const [toPay, setToPay] = useState<{ codes: string[]; amount: number; link: string } | null>(null);
+  // Held until paid, at a venue that asks for payment online to hold (lib/holds.ts): until when, in the venue's time.
+  const [held, setHeld] = useState<{ until: string; timeZone?: string } | null>(null);
   const [queued, setQueued] = useState<number | null>(null);
   // The private link that takes this entry off the list again (lib/store.ts leaveWaitlistByToken).
   const [leaveToken, setLeaveToken] = useState<string | null>(null);
@@ -288,6 +290,8 @@ function EnrolModal({
           translateError(t, data) || (isFull ? t("classes.joinFailed") : t("classes.enrolFailed"))
         );
       if (!signedIn) rememberGuest({ name, phone, email });
+      if (!isFull && typeof data.holdUntil === "string")
+        setHeld({ until: data.holdUntil, ...(typeof data.timeZone === "string" ? { timeZone: data.timeZone } : {}) });
       if (!isFull && data.payOnline && typeof data.link === "string") {
         const unpaid = ((data.bookings ?? [data.booking]) as { code: string; totalPrice: number; paymentStatus: string; sharesPaid?: number }[]).filter(
           (b) => b.paymentStatus === "unpaid" && b.totalPrice > 0
@@ -347,14 +351,19 @@ function EnrolModal({
           </div>
         ) : code ? (
           <div className="text-center">
-            <div className="text-4xl" aria-hidden="true">✅</div>
-            <h2 id="class-dialog-title" className="mt-2 text-xl font-bold">{t("classes.enrolledTitle")}</h2>
+            <div className="text-4xl" aria-hidden="true">{held ? "⏳" : "✅"}</div>
+            <h2 id="class-dialog-title" className="mt-2 text-xl font-bold">{held ? t("hold.title") : t("classes.enrolledTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
               {t("classes.enrolledWith", {
                 name: session.name,
                 instructor: session.instructor,
               })}
             </p>
+            {held && (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900" data-testid="hold-notice">
+                {t("hold.body", { time: localTimeOf(held.until, held.timeZone, t.locale) })}
+              </p>
+            )}
             <div id="class-dialog-code" className="mt-4 rounded-xl bg-teal-50 py-3 text-2xl font-bold tracking-widest text-teal-700">
               {code}
             </div>
@@ -362,10 +371,12 @@ function EnrolModal({
             {termNote && <p className="mt-2 text-xs text-slate-600">{termNote}</p>}
             <ChatLink t={t} number={chat} code={code} />
             {/* Pay now online, as a court booking's confirmation offers it (the counter still takes it otherwise). */}
-            {toPay && <PayOnline codes={toPay.codes} link={toPay.link} amount={toPay.amount} />}
-            <p className="mt-2 text-xs text-slate-500">
-              {t("classes.enrolledNote")}
-            </p>
+            {toPay && <PayOnline codes={toPay.codes} link={toPay.link} amount={toPay.amount} held={held !== null} />}
+            {!held && (
+              <p className="mt-2 text-xs text-slate-500">
+                {t("classes.enrolledNote")}
+              </p>
+            )}
             <button
               onClick={onDone}
               className="mt-5 w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"

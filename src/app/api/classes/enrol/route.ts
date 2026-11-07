@@ -12,7 +12,9 @@ import { COUNTER_METHODS, PAID_VIA_LABELS, type Booking, type CounterMethod } fr
 import { signWaiver, waiverRefusal } from "@/lib/waivers";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
-import { classTerm, enrolInTerm, enrolPeople, getClass, payBookingFromWallet, setPaymentStatus } from "@/lib/store";
+import { classTerm, enrolInTerm, enrolPeople, getClass, payBookingFromWallet, setPaymentStatus, venueHours } from "@/lib/store";
+import { holdNewBookings } from "@/lib/holds";
+import { claimHold } from "@/lib/waitlist-offer";
 import { canAccessVenue, getActingStaff, twoFactorRefusal } from "@/lib/admin-auth";
 import { logAction } from "@/lib/activity";
 import { isRefusal, refused, type ParticipantRefusal } from "@/lib/participants";
@@ -34,6 +36,24 @@ import { bookingLinkToken } from "@/lib/booking-access";
 async function payOnlineFor(venueId: number | undefined, byStaff: boolean, bookings: Booking[]) {
   if (byStaff || venueId === undefined || bookings.length === 0) return { payOnline: false, link: null };
   return { payOnline: await takesPaymentOnline(venueId), link: bookingLinkToken(bookings[0].code, bookings[0].date) };
+}
+
+/**
+ * Where the venue asks for payment online to hold what is booked (lib/holds.ts), an enrolment made online and still to pay
+ * is held for the venue's minutes, never past the class's start, and let go to the class's waiting list if it is not paid
+ * (ADR 0070): the rule a place claimed from a waiting list has always followed (app/api/waitlist/claim), asked through
+ * the same `claimHold`. The counter's enrolments (paid as they are made, or on the venue's word, pay later) are not held.
+ * What is held is marked on the bookings returned; the earliest end is answered.
+ */
+async function holdUnpaid(venueId: number | undefined, byStaff: boolean, phone: string, signedIn: boolean, bookings: Booking[]): Promise<string | null> {
+  if (byStaff || venueId === undefined) return null;
+  const unpaid = bookings.filter((b) => b.paymentStatus === "unpaid" && b.totalPrice > 0);
+  if (unpaid.length === 0) return null;
+  const hold = await claimHold(venueId, phone, signedIn);
+  if (!hold.hold) return null;
+  const until = await holdNewBookings(unpaid.map((b) => b.id), hold.minutes);
+  if (until) for (const b of unpaid) b.holdUntil = until;
+  return until;
 }
 
 export const dynamic = "force-dynamic";
@@ -133,8 +153,9 @@ export async function POST(req: NextRequest) {
     const termInfo = term === true ? await classTerm(forClass.id) : null;
     // The venue's policies as a booking asks them, online and at the counter alike (lib/limits.ts `policyCheck`):
     // the house rules for the class's date (or every session of the term), as booking and joining its waiting
-    // list ask them. An enrolment online is not held until paid, so a number past its no-shows, or a guest
-    // in a flood of unpaid guest bookings, is refused online; at the counter it is paid as it is enrolled.
+    // list ask them. A number past its no-shows, or a guest in a flood of unpaid guest bookings, is refused online
+    // (a class place is not offered the pay-to-hold way out a court is: known limitation B43); at the counter it is
+    // paid as it is enrolled. A venue that holds for payment holds what is enrolled online (`holdUnpaid`, ADR 0070).
     const path = byStaff ? ("staff" as const) : ("customer" as const);
     const answer = await policyCheck(path, {
       venueId: forClass.venueId,
@@ -232,9 +253,11 @@ export async function POST(req: NextRequest) {
         if (paid.ok) b.paymentStatus = "paid";
         else walletError ??= paid.error;
       }
+    const holdUntil = await holdUnpaid(forClass?.venueId, byStaff, phone.trim(), user !== null, joined.bookings);
     const locale = await currentLocale();
     await rememberLocale(joined.bookings.map((b) => b.id), locale);
-    await notifyBookingConfirmed(joined.bookings, locale, joined.seriesCode);
+    // Held until paid: told once it is paid (lib/payments.ts), as a held court booking is.
+    if (!holdUntil) await notifyBookingConfirmed(joined.bookings, locale, joined.seriesCode);
     await tickOutbox();
     return NextResponse.json(
       {
@@ -243,6 +266,8 @@ export async function POST(req: NextRequest) {
         seriesCode: joined.seriesCode,
         session: await getClass(classId as number),
         walletError,
+        holdUntil,
+        timeZone: forClass ? (await venueHours(forClass.venueId)).zone : null,
         ...(await payOnlineFor(forClass?.venueId, byStaff, joined.bookings)),
       },
       { status: 201 }
@@ -287,11 +312,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const holdUntil = await holdUnpaid(forClass?.venueId, byStaff, phone.trim(), user !== null, [result.booking, ...others]);
   const session = await getClass(classId as number);
   const locale = await currentLocale();
   await rememberLocale([result.booking, ...others].map((b) => b.id), locale);
-  // Each enrolment told to the customer (the guardian), naming who it is for.
-  if (session) for (const b of [result.booking, ...others]) await notifyClassEnrolled(b, locale, session);
+  // Each enrolment told to the customer (the guardian), naming who it is for; a held one once it is paid (lib/payments.ts).
+  if (session) for (const b of [result.booking, ...others]) if (!b.holdUntil) await notifyClassEnrolled(b, locale, session);
   await tickOutbox();
 
   return NextResponse.json({
@@ -299,6 +325,8 @@ export async function POST(req: NextRequest) {
       bookings: [result.booking, ...others],
       session,
       walletError,
+      holdUntil,
+      timeZone: forClass ? (await venueHours(forClass.venueId)).zone : null,
       addons: addonLines,
       addonError,
       chatNumber: session && (await chatOfferedFor(session.venueId)) ? chatNumber() : null,

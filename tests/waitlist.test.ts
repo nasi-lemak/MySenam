@@ -153,18 +153,21 @@ describe("offering a freed place", () => {
     expect(queue[0].expiresInSeconds).toBeGreaterThan(0);
   });
 
-  it("holds the place for one person at a time", async () => {
+  it("holds one place for each person offered, as many as are free (ADR 0070; once one at a time)", async () => {
     const { classId, holders } = await fullClass(2);
     await joinClassWaitlist({ classId, name: "First", phone: "0185550001" });
     await joinClassWaitlist({ classId, name: "Second", phone: "0185550002" });
+    await joinClassWaitlist({ classId, name: "Third", phone: "0185550003" });
 
     await adminCancelBooking(holders[0].booking.code);
+    // one place freed: one live offer, to whoever has waited longest
+    expect((await listClassWaitlist(classId)).filter((e) => e.status === "offered").map((e) => e.name)).toEqual(["First"]);
     await adminCancelBooking(holders[1].booking.code);
 
-    // two places freed, but only one live offer — the queue is served in turn
+    // two places freed: two live offers, in the order they joined, and the third waits for a place that is not there
     const offered = (await listClassWaitlist(classId)).filter((e) => e.status === "offered");
-    expect(offered).toHaveLength(1);
-    expect(offered[0].name).toBe("First");
+    expect(offered.map((e) => e.name)).toEqual(["First", "Second"]);
+    expect((await listClassWaitlist(classId)).find((e) => e.name === "Third")?.status).toBe("waiting");
   });
 
   it("passes to the next person once an offer times out", async () => {

@@ -133,6 +133,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0061 Company accounts and the cash-up: credit notes taken off part by part, an issued invoice never drifts, overdue accounts reminded and optionally blocked, hire deposits and the counted till](architecture/decisions/0061-company-accounts-and-the-cash-up.md)
 [0063 A suspended venue tells its customers and sells nothing new; an overdue one can be given time; a branch is not approved on its own under a business not in good standing](architecture/decisions/0063-a-suspended-venue-tells-its-customers-sells-nothing-new-and-an-overdue-one-can-be-given-time.md)
 [0062 Passes judged on the session's date and entries given back are not dead; a membership's days given back never run into its renewal; a suspension of a renewing membership gives its days back; the concession check and the review invitation are decided once](architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md)
+[0070 A venue that holds for payment holds class places too, never past the class's start; a class offers every free place at once (amends 0060)](architecture/decisions/0070-class-places-held-for-payment-and-several-offers-at-once.md)
 
 ## Integrations
 

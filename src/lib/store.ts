@@ -9702,19 +9702,24 @@ async function classQueue(classId: number): Promise<WaitlistRow[]> {
  * offered two places, never one; an entry that does not fit waits, as a
  * time that is not free does on the slot queue). Each entry is checked
  * again first: still for whom it was made, by an account acting for them.
- * Does nothing if someone already holds a live offer for it.
+ * Every place that is free is offered, in turn, to the next entry it fits (ADR 0070): where three places are free and
+ * the list is long, three entries hold one place each at the same time, never more places than are free, each for its
+ * own window. Places already held by live offers (and by enrolments, held for payment or not) are not free. Answers the
+ * first entry offered by this call, or null when nothing was.
  */
 export async function offerClassPlace(classId: number): Promise<WaitlistEntry | null> {
   return withTransaction(async () => {
     await expireStaleOffers();
+    // The class's lock, the one enrolling in it, claiming a place and calling it off take: two places freed at once are
+    // each counted against the offers already made, so their offers can never promise more places than there are.
+    await getDb().prepare("SELECT id FROM classes WHERE id = ? FOR UPDATE").get(classId);
     const queue = await classQueue(classId);
-    if (queue.some((row) => row.status === "offered")) return null;
 
     const session = await getClass(classId);
     if (!session || session.status === "cancelled") return null;
     // Nothing is offered for a day the venue is shut.
     if (await getVenueClosure(session.venueId, session.date)) return null;
-    const free = session.capacity - session.enrolled - (await classOfferHolds(classId));
+    let free = session.capacity - session.enrolled - (await classOfferHolds(classId));
     if (free <= 0) return null;
     // Nor for a class that has begun, nor with so little time left that the offer could only lapse in the desk's way; and never
     // for longer than the time left (ADR 0060): the claim would be refused `CLASS_STARTED`.
@@ -9722,7 +9727,9 @@ export async function offerClassPlace(classId: number): Promise<WaitlistEntry | 
     if (minutes === null) return null;
 
     const db = getDb();
+    let first: number | null = null;
     for (const next of queue) {
+      if (free <= 0) break;
       if (next.status !== "waiting" || (next.places ?? 1) > free) continue;
       const named = await entryStillTheirs(next);
       if (named === null) {
@@ -9736,9 +9743,10 @@ export async function offerClassPlace(classId: number): Promise<WaitlistEntry | 
       await db.prepare(
         "UPDATE waitlist SET status = 'offered', offered_at = datetime('now'), offer_minutes = ?, offer_token = ? WHERE id = ?"
       ).run(minutes, randomBytes(16).toString("hex"), next.id);
-      return await readEntry(next.id, true);
+      free -= next.places ?? 1;
+      first ??= next.id;
     }
-    return null;
+    return first === null ? null : await readEntry(first, true);
   });
 }
 

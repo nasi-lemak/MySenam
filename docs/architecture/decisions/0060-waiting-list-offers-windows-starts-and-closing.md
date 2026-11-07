@@ -17,8 +17,8 @@
 holds is a claim, so an overlapping time is not free (`slotTimeFree`, and the claim's constraints), and several offers for different times, or for places of a shared
 facility that still fit, stand together. One person still holds **one place at a time** on a court and day: somebody with a live offer is not offered a second. A taken-up
 offer sweeps the day (and the class) again (`offerFreedPlace`), and the scheduler also offers again the places of offers that lapsed in the last hour (offers let go while
-somebody was reading a list or claiming something else were never passed on). A **class** keeps its one live offer at a time (several places freed are offered one after
-the other, as the programme documentation says and `tests/waitlist.test.ts` holds); offering several places at once is left as an option for the owner.
+somebody was reading a list or claiming something else were never passed on). A **class** kept its one live offer at a time (several places freed were offered one after
+the other); [ADR 0070](0070-class-places-held-for-payment-and-several-offers-at-once.md) changed that: a class offers every free place at once.
 
 ## Decision 2: no offer for what has begun, and no offer past the start
 

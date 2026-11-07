@@ -35,6 +35,12 @@ it is let go for somebody else and the customer is charged nothing.
   is sent again only while it has time left. Billplz pages cannot be closed: a
   payment that still lands after the hold was let go is listed under *Refunds
   owed*, as for any booking cancelled after paying.
+- **Class places are held the same way** ([ADR 0070](../architecture/decisions/0070-class-places-held-for-payment-and-several-offers-at-once.md)):
+  an enrolment made online and still to pay (one session, a term, a family's or
+  group's places) is held for the same minutes and let go the same way, its place
+  offered to the class's waiting list, and a place claimed from that list is held
+  by the same rule (`claimHold`). A class place is never held past the start of its
+  class, nor by an open payment page. See [programmes](programmes.md#classes).
 - A held slot comes free on time: holds are let go on the scheduler's tick,
   and on the way past whenever anybody books, searches or opens a day's
   availability. The waitlist is offered it.
