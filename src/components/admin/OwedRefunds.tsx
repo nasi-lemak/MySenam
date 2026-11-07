@@ -5,6 +5,7 @@ import { readJson } from "@/lib/read-response";
 import { money, shortDate } from "@/lib/region";
 import { formatMinute } from "@/lib/interval";
 import type { OwedCause, OwedRefund } from "@/lib/counter-refunds";
+import { COUNTER_METHODS, type CounterMethod } from "@/lib/types";
 import type { OwedEntryFee } from "@/lib/entry-fee-refunds";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
@@ -18,6 +19,8 @@ const CAUSES: Record<OwedCause, StaffPhrase> = {
   test: "r10a.owed.cause.test",
   lesson_moved: "clsb.s.owed.cause.lessonMoved",
   moved_cheaper: "p67.owed.cause.movedCheaper",
+  customer_cancelled: "rf74.owed.cause.customer",
+  place_withdrawn: "rf74.owed.cause.place",
 };
 
 /**
@@ -30,6 +33,8 @@ const CAUSES: Record<OwedCause, StaffPhrase> = {
 export function OwedRefunds({ owed, fees = [], onDone, onError }: { owed: OwedRefund[]; fees?: OwedEntryFee[]; onDone: (notice: string) => void; onError: (error: string) => void }) {
   const t = useStaffT();
   const [busy, setBusy] = useState<number | null>(null);
+  // The way a customer agreed to be handed it where that is not the way they paid (a customer's cancellation only): by row, "" is as paid.
+  const [handBy, setHandBy] = useState<Record<number, CounterMethod | "">>({});
   if (owed.length === 0 && fees.length === 0) return null;
   // Entry fees, and (ADR 0068) the refund of a counter-sold pass or membership, whose credit note is written already and is not cash paid.
   const entryFees = fees.filter((f) => f.kind === "entry");
@@ -60,11 +65,16 @@ export function OwedRefunds({ owed, fees = [], onDone, onError }: { owed: OwedRe
       const res = await fetch("/api/admin/bookings/owed", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: o.id, outcome }),
+        body: JSON.stringify({ id: o.id, outcome, ...(outcome === "back" && o.byCustomer && handBy[o.id] ? { via: handBy[o.id] } : {}) }),
       });
       const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("r9e.owed.failed")));
-      onDone(t(outcome === "back" ? "r9e.owed.doneBack" : "r9e.owed.doneCredit", { amount: money(o.amount), code: o.bookingCode }));
+      const other = outcome === "back" && o.byCustomer && handBy[o.id] && handBy[o.id] !== o.via ? handBy[o.id] : null;
+      onDone(
+        other
+          ? t("rf74.owed.doneVia", { amount: money(o.amount), code: o.bookingCode, via: t(`c.via.${other}`) })
+          : t(outcome === "back" ? "r9e.owed.doneBack" : "r9e.owed.doneCredit", { amount: money(o.amount), code: o.bookingCode })
+      );
     } catch (err) {
       onError(err instanceof Error ? err.message : t("r9e.owed.failed"));
     } finally {
@@ -91,10 +101,40 @@ export function OwedRefunds({ owed, fees = [], onDone, onError }: { owed: OwedRe
                 why: t(CAUSES[o.cause]),
               })}
             </span>
+            <span className="basis-full text-amber-900" data-testid="owed-detail">
+              {[
+                t("rf74.owed.status"),
+                t("rf74.owed.arose", { date: shortDate(o.owedSince.slice(0, 10), t.locale, true) }),
+                ...(o.creditNote ? [t("rf74.owed.note", { note: o.creditNote })] : []),
+                ...(o.byCustomer
+                  ? [o.notifiedAt ? t("rf74.owed.told", { date: shortDate(o.notifiedAt.slice(0, 10), t.locale, true) }) : t(o.hasEmail ? "rf74.owed.notToldEmail" : "rf74.owed.notToldNoEmail")]
+                  : []),
+              ].join(" · ")}
+              <br />
+              {t("rf74.owed.action", { amount: money(o.amount), via: o.via ? t(`c.via.${o.via}`) : t("p8a.day.viaUnrecorded") })}
+            </span>
             {o.managerOnly ? (
               <span className="font-medium text-amber-800">{t("r9e.owed.manager")}</span>
             ) : (
               <>
+                {o.byCustomer && (
+                  <label className="flex items-center gap-1 text-amber-900">
+                    {t("rf74.owed.viaLabel")}
+                    <select
+                      value={handBy[o.id] ?? ""}
+                      disabled={busy !== null}
+                      onChange={(e) => setHandBy({ ...handBy, [o.id]: e.target.value as CounterMethod | "" })}
+                      className="rounded-md border border-amber-300 bg-white px-1 py-0.5"
+                    >
+                      <option value="">{o.via ? t("rf74.owed.viaAsPaid", { via: t(`c.via.${o.via}`) }) : t("rf74.owed.viaAsPaidNone")}</option>
+                      {COUNTER_METHODS.filter((m) => m !== o.via).map((m) => (
+                        <option key={m} value={m}>
+                          {t(`c.via.${m}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <button
                   type="button"
                   disabled={busy !== null}

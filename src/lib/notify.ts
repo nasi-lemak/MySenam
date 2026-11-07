@@ -367,7 +367,7 @@ export async function notifyBookingCancelled(
   // Only customers cancel through here (api/bookings/cancel, api/my/bookings/cancel): the venue hears, if it asked.
   await alertVenueChange("cancelled", [booking], venue, court.name);
 
-  return await deliver(booking, {
+  const sent = await deliver(booking, {
     bookingId: booking.id,
     venueId: venue.id,
     kind: "booking_cancelled",
@@ -383,6 +383,13 @@ export async function notifyBookingCancelled(
       money: cancelMoney(locale, outcome),
     },
   });
+  await markCounterOwedTold(sent, [booking.id]);
+  return sent;
+}
+
+/** The customer was told the venue will return what they paid at the counter: recorded on what is owed (ADR 0074), unless the message was never to be sent. */
+async function markCounterOwedTold(message: OutboxMessage | null, bookingIds: number[]): Promise<void> {
+  if (message && message.status !== "abandoned") await (await import("./counter-refunds")).counterOwedNotified(bookingIds);
 }
 
 /** Tell a customer the weeks of a series they cancelled are off: one message, not one a week. */
@@ -401,7 +408,7 @@ export async function notifySeriesCancelled(
   const where = slot(locale, customerCourtName(court.name, first, locale), venue.name, first);
   // Only customers cancel a series through here (api/bookings/cancel-series): the venue hears of the weeks soon enough to matter.
   await alertVenueChange("cancelled", [...bookings].sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin), venue, court.name);
-  return await deliver(first, {
+  const sent = await deliver(first, {
     bookingId: first.id,
     venueId: venue.id,
     kind: "booking_cancelled",
@@ -418,6 +425,8 @@ export async function notifySeriesCancelled(
       money: cancelMoney(locale, outcome),
     },
   });
+  await markCounterOwedTold(sent, bookings.map((b) => b.id));
+  return sent;
 }
 
 /** The money line of a cancellation: a fee kept, refunds on their way, or nothing owed. */
@@ -1838,6 +1847,8 @@ async function tellOwed(kind: OwedKind, bookingId: number): Promise<{ written: b
           : null
     )
     .filter((r): r is CancelRefund => r !== null);
+  // What was paid at the counter is owed back there, and is said so, not said to have gone back (lib/counter-refunds.ts, ADR 0074).
+  refunds.push(...(await (await import("./counter-refunds")).counterRefundLines([b.id])));
   const message = await notifyBookingCancelled(b, await localeOf(b.id), { kept, refunds });
   return { written: message !== null, bookingIds: [b.id] };
 }

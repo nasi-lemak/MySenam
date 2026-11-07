@@ -2955,6 +2955,8 @@ export async function cancelSeries(
       if (week.outcome === "late")
         await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(week.keptPercent, row.id);
       await refundBooking(row.id, share);
+      // Paid at the counter: the credit note is not the refund. The venue owes it back there, less the late share (ADR 0074).
+      await (await import("./counter-refunds")).oweCounterToCustomer(row.id, share);
       claimed.push(row);
     }
   })();
@@ -3096,6 +3098,8 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
       await releaseBooking(booking.id);
       if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keptPercent, booking.id);
       await refundBooking(booking.id, share);
+      // Paid at the counter: the credit note is not the refund. The venue owes it back there, less the late share kept (ADR 0074).
+      await (await import("./counter-refunds")).oweCounterToCustomer(booking.id, share);
       // Both routes that call this tell the customer; a stop before they do is found again (lib/notices-owed.ts, C17).
       await noticeOwed(booking.id, "booking_cancelled", true);
       return true;
@@ -5220,7 +5224,9 @@ export async function setPaymentStatus(
   return withTransaction(async () => {
     const db = getDb();
     const row = await db
-      .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?)")
+      // Locked: a customer cancelling it at the same moment is either seen here (cancelled) or sees this (unpaid), never neither, so a
+      // cancellation never writes a counter payment owed back for a tick being taken back (ADR 0074).
+      .prepare("SELECT b.*, ci.checked_in_at, ci.checked_out_at FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE UPPER(b.code) = UPPER(?) FOR UPDATE OF b")
       .get(code.trim()) as BookingRow | undefined;
     if (!row) return refuse("BOOKING_NOT_FOUND");
     const booking = toBooking(row);
@@ -7865,6 +7871,8 @@ export async function cancelForErasure(bookingId: number): Promise<ErasedBooking
   await releaseBooking(booking.id);
   if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keep, booking.id);
   await refundBooking(booking.id, (100 - keep) / 100);
+  // A counter payment is owed back at the counter, as for any cancellation by the customer (ADR 0074).
+  await (await import("./counter-refunds")).oweCounterToCustomer(booking.id, (100 - keep) / 100);
   return { bookingId: booking.id, courtId: booking.courtId, date: booking.date, classId: booking.classId ?? null };
 }
 

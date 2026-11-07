@@ -5,6 +5,7 @@ import { cancelBooking } from "@/lib/store";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingCancelled, tickOutbox } from "@/lib/notify";
 import { refundCancelled } from "@/lib/payments";
+import { counterRefundLines } from "@/lib/counter-refunds";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,8 @@ export async function POST(req: NextRequest) {
   const result = await cancelBooking(code, phone);
   if (!result.ok) return refusal(result);
   // Money paid online goes back as the venue chose, before the customer is told.
-  const refunds = await refundCancelled([result.booking.id]);
+  // Money paid at the counter is not returned by cancelling: the customer is told the venue will return it there (ADR 0074).
+  const refunds = [...(await refundCancelled([result.booking.id])), ...(await counterRefundLines([result.booking.id]))];
 
   await notifyBookingCancelled(result.booking, await currentLocale(), { kept: result.kept ?? null, refunds });
   // A cancellation is what frees a place, so it is also what makes an

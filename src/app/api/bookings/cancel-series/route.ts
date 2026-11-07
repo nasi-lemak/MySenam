@@ -5,6 +5,7 @@ import { cancelSeries, getBookingById, seriesCancelPlan } from "@/lib/store";
 import { notifySeriesCancelled, tickOutbox } from "@/lib/notify";
 import { currentLocale } from "@/lib/locale";
 import { refundCancelled } from "@/lib/payments";
+import { counterRefundLines } from "@/lib/counter-refunds";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,8 @@ export async function POST(req: NextRequest) {
     codes !== undefined ? { codes: list(codes)!, acceptLate: list(acceptLate) ?? [] } : undefined
   );
   if (!result.ok) return refusal(result);
-  const refunds = await refundCancelled(result.bookingIds);
+  // Money paid at the counter is not returned by cancelling: the customer is told the venue will return it there (ADR 0074).
+  const refunds = [...(await refundCancelled(result.bookingIds)), ...(await counterRefundLines(result.bookingIds))];
   const cancelled = (await Promise.all(result.bookingIds.map((id) => getBookingById(id)))).filter((b): b is NonNullable<typeof b> => b !== null);
   await notifySeriesCancelled(cancelled, await currentLocale(), { refunds });
   await tickOutbox();

@@ -1823,9 +1823,12 @@ export async function refundOnline(paymentId: number, venueId: number | null, ad
   return { ok: true, payment: await reread(row.id), pending: result.pending };
 }
 
-/** How money paid online for a booking a customer cancelled went back, or is to. */
+/**
+ * How money paid online for a booking a customer cancelled went back, or is to; `counter`: a payment made at the counter, which the venue
+ * will hand back there (lib/counter-refunds.ts `counterRefundLines`, ADR 0074), never said to have been returned.
+ */
 export interface CancelRefund {
-  how: OnlineRefunds;
+  how: OnlineRefunds | "counter";
   amount: number;
   /** Through the gateway, and it has not finished yet. */
   pending?: boolean;

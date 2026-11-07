@@ -5,6 +5,7 @@ import { cancelMovedLesson } from "@/lib/lesson-venue-moves";
 import { currentLocale } from "@/lib/locale";
 import { notifyBookingCancelled, tickOutbox } from "@/lib/notify";
 import { refundCancelled } from "@/lib/payments";
+import { counterRefundLines } from "@/lib/counter-refunds";
 import { getBookingById } from "@/lib/store";
 import { getDb } from "@/lib/db";
 
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (!booking) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   const result = await cancelMovedLesson(booking);
   if (!result.ok) return refusal(result);
-  const refunds = await refundCancelled([result.booking.id], { byVenue: true });
+  const refunds = [...(await refundCancelled([result.booking.id], { byVenue: true })), ...(await counterRefundLines([result.booking.id]))];
   await notifyBookingCancelled(result.booking, await currentLocale(), { refunds });
   await tickOutbox();
   return NextResponse.json({ booking: result.booking, refunds });

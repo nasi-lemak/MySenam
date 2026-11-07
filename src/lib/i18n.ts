@@ -5262,6 +5262,8 @@ const EN = {
   "hd1.pay.overBody": "Thank you. {amount} has been paid for {codes}. You paid {extra} more than was asked: the venue owes that back to you.",
   "err.CANCEL_AFTER_ARRIVAL": "You have already arrived for this booking, so it can no longer be cancelled or reduced online. If you cannot play after all, please speak to the venue's staff.",
   "series.staysArrived": "Stays booked: you have arrived for it, so the venue's staff decide",
+  // ADR 0074: money paid at the counter and a booking cancelled: the venue hands it back at the counter, and nothing is said to have been returned before it has.
+  "rf74.refundCounter": "The venue will return {amount} to you at the counter, where you paid it. It has not been returned yet: the credit note is only the record of the cancellation, not the refund.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10469,6 +10471,7 @@ const MS: Record<Phrase, string> = {
   "hd1.pay.overBody": "Terima kasih. {amount} telah dibayar untuk {codes}. Anda membayar {extra} lebih daripada yang diminta: pusat terhutang jumlah itu kepada anda.",
   "err.CANCEL_AFTER_ARRIVAL": "Anda sudah tiba untuk tempahan ini, jadi ia tidak lagi boleh dibatalkan atau dikurangkan dalam talian. Jika anda tidak dapat bermain, sila hubungi kakitangan pusat.",
   "series.staysArrived": "Kekal ditempah: anda sudah tiba, jadi kakitangan pusat yang memutuskan",
+  "rf74.refundCounter": "Pusat akan memulangkan {amount} kepada anda di kaunter, tempat anda membayarnya. Ia belum dipulangkan: nota kredit hanyalah rekod pembatalan, bukan bayaran balik.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

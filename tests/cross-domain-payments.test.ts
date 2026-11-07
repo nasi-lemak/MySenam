@@ -448,6 +448,8 @@ describe("a membership's benefits, a booking's cancellation terms and a cheaper 
     const note = (await getDb().prepare("SELECT COALESCE(SUM(total), 0)::float AS total FROM receipts WHERE source = ? AND kind = 'credit_note'").get(`booking:${b.booking.id}`)) as { total: number };
     expect(note.total).toBe(4);
     const owed = (await counterOwed([venueId], "manager")).filter((o) => o.bookingCode === b.booking.code);
-    expect(owed.map((o) => [o.cause, o.amount])).toEqual([["moved_cheaper", 10]]);
+    // Both are owed back at the counter (ADR 0074: a customer's cancellation is an obligation too, not only the credit note): the move's 10 and
+    // the cancellation's 4, together the whole 14 that was paid, each settled on its own.
+    expect(owed.map((o) => [o.cause, o.amount])).toEqual([["moved_cheaper", 10], ["customer_cancelled", 4]]);
   });
 });

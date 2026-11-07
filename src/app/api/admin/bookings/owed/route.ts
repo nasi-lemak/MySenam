@@ -6,7 +6,7 @@ import { readJsonObject, refusal } from "@/lib/api";
 import { isOwedOutcome, OWED_REFUSALS, owedRefund, settleOwed } from "@/lib/counter-refunds";
 import { money } from "@/lib/region";
 import { FEE_OWED_REFUSALS, owedEntryFee, settleEntryFee } from "@/lib/entry-fee-refunds";
-import { PAID_VIA_LABELS } from "@/lib/types";
+import { COUNTER_METHODS, PAID_VIA_LABELS, type CounterMethod } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +16,9 @@ export const dynamic = "force-dynamic";
  * settled: `{id, outcome: "back"}` handed back at the counter the way it was
  * paid, or `{id, outcome: "credit"}` as stored credit on the account it was
  * booked from. The list is `owed` on `GET /api/admin/bookings`.
+ * A customer's own cancellation of a booking paid at the counter, or a person they took off it (ADR 0074), is on the same list (`cause`
+ * `customer_cancelled` / `place_withdrawn`); it may carry `via` (cash, qr, transfer or card): the customer agreed to be handed it another way
+ * than they paid, recorded as the method used. Its credit note was written when they cancelled and is not rewritten.
  * `{id, kind: "entry_fee", outcome: "back"}`: an entry fee taken at the counter and owed back after the venue called the tournament off, or took the entrant out before
  * the draw (lib/entry-fee-refunds.ts, ADR 0059), handed back the way it was paid; the list is `feesOwed` on the same GET.
  */
@@ -47,23 +50,34 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ feeOwed: settledFee.owed });
   }
+  const via = body.via;
+  if (via !== undefined && !(typeof via === "string" && (COUNTER_METHODS as readonly string[]).includes(via)))
+    return NextResponse.json({ error: "via must be cash, qr, transfer or card." }, { status: 400 });
   const owed = await owedRefund(id, admin.role);
   if (!owed) return NextResponse.json({ error: OWED_REFUSALS.notFound }, { status: 404 });
   const denied = denyVenue(admin, owed.venueId);
   if (denied) return denied;
 
   // As the member of staff, so the credit note says who gave the money back (lib/acting-staff.ts) and the cash-up counts it.
-  const done = await asStaff(admin, () => settleOwed(id, outcome, admin));
+  const done = await asStaff(admin, () => settleOwed(id, outcome, admin, via === undefined ? {} : { via: via as CounterMethod }));
   if (!done.ok) return refusal(done);
   const { settled } = done;
-  const owedSince = owed.cause === "moved_cheaper" ? "the booking was moved to a cheaper time" : `the venue cancelled it (${owed.cause})`;
+  const owedSince =
+    owed.cause === "moved_cheaper"
+      ? "the booking was moved to a cheaper time"
+      : owed.cause === "customer_cancelled"
+        ? "the customer cancelled it"
+        : owed.cause === "place_withdrawn"
+          ? "the customer took a person off it"
+          : `the venue cancelled it (${owed.cause})`;
   if (outcome === "back") {
-    const via = settled.paidOut?.via ?? owed.via;
+    const usedVia = settled.paidOut?.via ?? owed.via;
+    const other = owed.via !== usedVia ? `, not the way it was paid${owed.via ? ` (${PAID_VIA_LABELS[owed.via]})` : ""}` : "";
     await logAction(admin, {
       venueId: owed.venueId,
       action: "payment.paid_out",
       bookingCode: owed.bookingCode,
-      detail: `${money(settled.paidOut?.amount ?? owed.amount)} handed back at the counter${via ? `, by ${PAID_VIA_LABELS[via]}` : ""}, owed since ${owedSince}`,
+      detail: `${money(settled.paidOut?.amount ?? owed.amount)} handed back at the counter${usedVia ? `, by ${PAID_VIA_LABELS[usedVia]}` : ""}${other}, owed since ${owedSince}`,
     });
   }
   else
