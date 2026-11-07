@@ -33,7 +33,7 @@ export function forgotRoute(kind: AccountKind) {
     if (!body) return invalid();
     if (typeof body.email !== "string" || body.email.trim() === "")
       return NextResponse.json({ error: "email is required." }, { status: 400 });
-    const limited = await rateLimit(req, "login", body.email.trim().toLowerCase());
+    const limited = (await rateLimit(req, "login", body.email.trim().toLowerCase())) ?? (await rateLimit(req, "forgot"));
     if (limited) return limited;
     const locale = req.cookies.get(LOCALE_COOKIE)?.value;
     return NextResponse.json(await requestReset(kind, body.email, isLocale(locale) ? locale : "en"));

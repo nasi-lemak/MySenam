@@ -253,7 +253,7 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 | Endpoint | Budget |
 | -------- | ------ |
 | Admin & customer sign-in | 10 per 10 min, per pair of IP and email; and 20 wrong passwords per 30 min for one account from any address (a right password is never counted; somebody failing on purpose can hold an account at this for the window) |
-| Forgot / reset / change password | Same budget as signing in |
+| Forgot / reset / change password | Same budget as signing in; asking for a link (`/api/auth/forgot`, `/api/admin/auth/forgot`) is also 30 per hour per client address, whichever accounts it names |
 | Registration (asking for the emailed link) | 5 per hour; and at most 3 emails an hour and 5 a day to one address, with the same answer past them ([signing up](authentication.md#signing-up)) |
 | Checking or using a sign-up link | Same budget as signing in |
 | Booking lookup / cancel by code | 20 per 10 min |

@@ -292,7 +292,9 @@ proves it holds its number, once. *Verify your phone number* offers two ways:
   joining a league — the account is sent to *Your phone number*, and then
   straight back to the same court, day and hour. An account made with Google
   adds its number there.
-- **The code** lasts 10 minutes and allows 5 tries; an account may ask for 3
+- **The code** lasts 10 minutes and allows 5 tries, each counted in the
+  statement that checks the count, before the code is looked at, so tries made
+  at once cannot all pass it; an account may ask for 3
   an hour (6 WhatsApp verifications) and a number be sent 5 a day, so nobody
   can use it to flood a phone. Only a keyed hash of the code is stored, and
   codes are deleted after a day by the retention run
@@ -338,7 +340,15 @@ message to whoever runs the site (`src/lib/password-reset.ts`).
   and on the scheduler's next tick, so the time taken does not tell either.
   A request not worked through within the link's 30 minutes is dropped, and
   the address is kept only until it is worked through. An account gets at
-  most three links an hour, and the endpoints share the sign-in rate limit.
+  most three links an hour, and the endpoints share the sign-in rate limit;
+  asking is also limited per client address whichever accounts it names (30
+  an hour), so one place cannot send a link to every account it can name or
+  fill the queue ahead of everybody else's
+  ([rate limiting](security.md#rate-limiting)).
+- A link for an account that has been erased or removed since it was sent is
+  refused like any other that cannot be used (`RESET_INVALID`): nobody is
+  signed in. Changing the password signed in voids the links still out, as
+  using one does (`tests/auth-review.test.ts`).
 - Customers get the email in the language they asked in. Staff get it in
   their own language (`admins.locale`, else the install's first staff
   language, [regions](../product/regions-and-tax.md#a-language-of-their-own-for-staff-and-coaches)),
@@ -355,6 +365,18 @@ then it can sign in with email too.
 The links go out by email (Amazon SES or SMTP, with `MAIL_FROM`: [email transports](../integrations/messaging.md#email-transports)). An install with no email set up cannot
 send them; with `MYSENAM_SEND=log` they are written to the server log instead,
 which is how to test it locally.
+
+What the person sees when no email arrives is always *check your email*: the
+answer must not depend on the address. The email is queued and retried while
+its link could still be used; one the mail server could not take before the link
+ran out is dropped (*not sent: it ran out*) and the person asks again. Nobody is
+told of that, and the outbox's daily limit per address (8 messages, of every
+kind) applies to these emails too: an address already sent that many today is
+sent no link, and the message is kept marked not sent
+([security](security.md#limits-that-follow-the-phone-number)). Whether mail
+reaches an inbox at all also depends on the domain's SPF, DKIM and DMARC
+records and the mail provider's sender verification, which are set up outside
+the code and are not checked by it.
 
 ## Staff invitations
 

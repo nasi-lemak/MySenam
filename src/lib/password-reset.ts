@@ -172,7 +172,9 @@ export async function resetPassword(kind: AccountKind, token: string, password: 
       )
       .get(kind, hashOf(token))) as { account_id: number } | undefined;
     if (!claimed) return refuse("RESET_INVALID");
-    await db.prepare(`UPDATE ${t.accounts} SET password_hash = ? WHERE id = ?`).run(hashPassword(password), claimed.account_id);
+    const set = await db.prepare(`UPDATE ${t.accounts} SET password_hash = ? WHERE id = ?`).run(hashPassword(password), claimed.account_id);
+    // The account was erased or removed since the link was sent: there is nobody to sign in, and no session to make.
+    if (set.changes === 0) return refuse("RESET_INVALID");
     // The link went to the account's address, so whoever set this password holds it (lib/oauth.ts keeps it).
     if (kind === "user")
       await db.prepare("UPDATE users SET email_confirmed_at = COALESCE(email_confirmed_at, datetime('now')) WHERE id = ?").run(claimed.account_id);
@@ -208,6 +210,8 @@ export async function changePassword(
     return refuse("PASSWORD_WRONG");
   await db.prepare(`UPDATE ${t.accounts} SET password_hash = ? WHERE id = ?`).run(hashPassword(next), accountId);
   await db.prepare(`DELETE FROM ${t.sessions} WHERE ${t.sessionColumn} = ? AND token <> ?`).run(accountId, keepToken ? sessionKey(keepToken) : "");
+  // A link emailed before the change must not set another password after it.
+  await db.prepare("UPDATE password_resets SET used_at = datetime('now') WHERE kind = ? AND account_id = ? AND used_at IS NULL").run(kind, accountId);
   if (kind === "admin") await endAssistants(accountId, "the password was changed");
   return { ok: true };
 }
