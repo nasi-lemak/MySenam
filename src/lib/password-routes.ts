@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, createAdminSession, getSessionAdmin } from "./admin-auth";
+import { accountEmailRefusal } from "./account-email-gate";
 import { createSession, getSessionUser, SESSION_COOKIE } from "./auth";
 import { isLocale, LOCALE_COOKIE } from "./i18n";
 import { changePassword, hasPassword, requestReset, resetPassword, type AccountKind } from "./password-reset";
@@ -33,6 +34,9 @@ export function forgotRoute(kind: AccountKind) {
     if (!body) return invalid();
     if (typeof body.email !== "string" || body.email.trim() === "")
       return NextResponse.json({ error: "email is required." }, { status: 400 });
+    // A production marketplace whose email cannot deliver takes no request it could not answer by email (lib/account-email-gate.ts).
+    const unavailable = accountEmailRefusal();
+    if (unavailable) return unavailable;
     const limited = (await rateLimit(req, "login", body.email.trim().toLowerCase())) ?? (await rateLimit(req, "forgot"));
     if (limited) return limited;
     const locale = req.cookies.get(LOCALE_COOKIE)?.value;

@@ -253,14 +253,23 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 | Endpoint | Budget |
 | -------- | ------ |
 | Admin & customer sign-in | 10 per 10 min, per pair of IP and email; and 20 wrong passwords per 30 min for one account from any address (a right password is never counted; somebody failing on purpose can hold an account at this for the window) |
-| Forgot / reset / change password | Same budget as signing in; asking for a link (`/api/auth/forgot`, `/api/admin/auth/forgot`) is also 30 per hour per client address, whichever accounts it names |
-| Registration (asking for the emailed link) | 5 per hour; and at most 3 emails an hour and 5 a day to one address, with the same answer past them ([signing up](authentication.md#signing-up)) |
+| Forgot / reset / change password | Same budget as signing in; asking for a link (`/api/auth/forgot`, `/api/admin/auth/forgot`) is also 30 per hour per client address, whichever accounts it names (`MYSENAM_RESETS_PER_ADDRESS_PER_HOUR`); and an account is made at most 3 links an hour, one a minute, none while the last is waiting to be sent ([forgotten passwords](authentication.md#forgotten-passwords)) |
+| Registration (asking for the emailed link) | 5 per hour per client address (`MYSENAM_SIGNUPS_PER_ADDRESS_PER_HOUR`); and at most 3 emails an hour and 5 a day to one address, with the same answer past them ([signing up](authentication.md#signing-up)) |
 | Checking or using a sign-up link | Same budget as signing in |
 | Booking lookup / cancel by code | 20 per 10 min |
 | Booking creation | 20 per hour |
 | The MCP server without a key | 60 per minute ([MCP server](../integrations/mcp.md)); with a key, the public API's 120 per minute per key; signed in from an assistant, 120 per minute per connection |
 | Registering an AI assistant's connector (`/api/oauth/register`) | 30 per hour (a provider registers for all its users from few addresses) |
 | Exchanging or revoking an assistant's tokens (`/api/oauth/token`, `/api/oauth/revoke`) | 600 per 10 min (every connection of a provider refreshes from few addresses; the tokens cannot be guessed) |
+
+**Many customers behind one network** (a venue's own Wi-Fi, a mobile carrier's shared
+address) count together against every per-address number above: ten people asking for reset
+links from one lounge are well inside 30 an hour, but a sixth sign-up request in an hour from
+one address is turned away with `429`, and the pages that use a link or a password share the
+sign-in budget of 10 in 10 minutes. The two numbers a venue is likely to meet, sign-up
+requests and reset requests per address, can be raised by the operator
+(`MYSENAM_SIGNUPS_PER_ADDRESS_PER_HOUR`, `MYSENAM_RESETS_PER_ADDRESS_PER_HOUR`, read when the server
+starts); the sign-in budget is not a setting, since it also guards passwords.
 
 Second-factor codes are limited apart, in the database and not in memory, so
 parallel requests and several instances count against one number: 5 tries per

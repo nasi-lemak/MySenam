@@ -2,12 +2,12 @@ import crypto from "crypto";
 import { getDb } from "./db";
 import { hashPassword, type User } from "./auth";
 import { keyedHash } from "./secrets";
-import { baseUrl, drainOutbox, enqueue } from "./outbox";
+import { baseUrl, drainOutbox, enqueue, type OutboxMessage } from "./outbox";
 import { siteName } from "./site";
 import { errorText, isLocale, translator, type ErrorCode, type Locale } from "./i18n";
 import { linkIn } from "./link-locale";
 import { googleConfig } from "./oauth";
-import { MIN_PASSWORD } from "./password-reset";
+import { AUTH_MAIL_COOLDOWN_SECONDS, MIN_PASSWORD } from "./password-reset";
 import type { Refusal } from "./types";
 import { REGISTRATION_MINUTES } from "./registration-shared";
 import { nameRefusal } from "./contact-fields";
@@ -135,6 +135,8 @@ async function answerRequest(email: string, locale: Locale): Promise<boolean> {
   const db = getDb();
   const token = newToken();
   return db.transaction(async (): Promise<boolean> => {
+    // Requests for one address take turns, so that ones that arrive together make one email (ADR 0073).
+    await db.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(`auth-mail:register:${email.toLowerCase()}`);
     const sent = (await db
       .prepare(
         `SELECT COUNT(*)::int AS day, (COUNT(*) FILTER (WHERE created_at > datetime('now', '-1 hour')))::int AS hour
@@ -142,6 +144,17 @@ async function answerRequest(email: string, locale: Locale): Promise<boolean> {
       )
       .get(email)) as { day: number; hour: number };
     if (sent.hour >= REGISTRATION_EMAILS_PER_HOUR || sent.day >= REGISTRATION_EMAILS_PER_DAY) return false;
+    // A moment after the last one, or while the last one has not gone yet (the provider is down, or it waits its turn), another is
+    // not made: that one is sent as soon as it can be, and clicking again makes no second link and no second email.
+    const open = (await db
+      .prepare(
+        `SELECT (l.created_at > datetime('now', '-${AUTH_MAIL_COOLDOWN_SECONDS} seconds')) AS cooling,
+                (l.expires_at > datetime('now') AND l.used_at IS NULL AND l.replaced_at IS NULL AND COALESCE(m.status IN ('queued', 'failed'), false)) AS waiting
+           FROM registration_links l LEFT JOIN messages m ON m.id = l.message_id
+          WHERE l.email = ? AND l.created_at > datetime('now', '-1 day')`
+      )
+      .all(email)) as { cooling: boolean; waiting: boolean }[];
+    if (open.some((r) => r.cooling || r.waiting)) return false;
     const account = (await db
       .prepare(
         `SELECT u.id, u.name, u.email, u.password_hash <> '' AS has_password,
@@ -152,9 +165,9 @@ async function answerRequest(email: string, locale: Locale): Promise<boolean> {
     const t = translator(locale);
     const site = siteName();
     if (account) {
-      await db
-        .prepare(`INSERT INTO registration_links (email, kind, locale, expires_at) VALUES (?, 'notice', ?, datetime('now', '+${REGISTRATION_MINUTES} minutes'))`)
-        .run(account.email, locale);
+      const row = (await db
+        .prepare(`INSERT INTO registration_links (email, kind, locale, expires_at) VALUES (?, 'notice', ?, datetime('now', '+${REGISTRATION_MINUTES} minutes')) RETURNING id`)
+        .get(account.email, locale)) as { id: number };
       const parts = [
         t("su7.mail.existing.b", { name: account.name.split(/\s+/)[0], site }),
         t("su7.mail.existing.signIn", { link: linkIn(`${baseUrl()}/login`, locale) }),
@@ -163,28 +176,32 @@ async function answerRequest(email: string, locale: Locale): Promise<boolean> {
         t(account.has_password ? "su7.mail.existing.reset" : "su7.mail.existing.setPassword", { link: linkIn(`${baseUrl()}/forgot-password`, locale) }),
         t("su7.mail.existing.notYou"),
       ];
-      await send(account.email, locale, t("su7.mail.existing.s", { site }), parts.filter((p): p is string => Boolean(p)).join("\n\n"));
+      const queued = await send(account.email, locale, t("su7.mail.existing.s", { site }), parts.filter((p): p is string => Boolean(p)).join("\n\n"));
+      await db.prepare("UPDATE registration_links SET message_id = ? WHERE id = ?").run(queued.id, row.id);
     } else {
       await db
         .prepare("UPDATE registration_links SET replaced_at = datetime('now') WHERE email = ? AND kind = 'link' AND used_at IS NULL AND replaced_at IS NULL")
         .run(email);
-      await db
+      const row = (await db
         .prepare(
-          `INSERT INTO registration_links (email, kind, token_hash, locale, expires_at) VALUES (?, 'link', ?, ?, datetime('now', '+${REGISTRATION_MINUTES} minutes'))`
+          `INSERT INTO registration_links (email, kind, token_hash, locale, expires_at) VALUES (?, 'link', ?, ?, datetime('now', '+${REGISTRATION_MINUTES} minutes')) RETURNING id`
         )
-        .run(email, hashOf(token), locale);
+        .get(email, hashOf(token), locale)) as { id: number };
       const link = linkIn(`${baseUrl()}/register?token=${token}`, locale);
-      await send(email, locale, t("su7.mail.new.s", { site }), t("su7.mail.new.b", { site, link, minutes: REGISTRATION_MINUTES }));
+      const queued = await send(email, locale, t("su7.mail.new.s", { site }), t("su7.mail.new.b", { site, link, minutes: REGISTRATION_MINUTES }));
+      // Written off for the security-mail allowance: nobody has this link, so it is void.
+      if (queued.status === "abandoned") await db.prepare("UPDATE registration_links SET replaced_at = datetime('now') WHERE id = ?").run(row.id);
+      else await db.prepare("UPDATE registration_links SET message_id = ? WHERE id = ?").run(queued.id, row.id);
     }
     return true;
   })();
 }
 
-/** Queued like a password reset's: no venue's, its text not kept once sent, not sent once it is out of date. */
-async function send(to: string, locale: Locale, subject: string, text: string): Promise<void> {
-  await enqueue({
+/** Queued like a password reset's, as security mail (`auth_email`, ADR 0073): no venue's, its text not kept once sent, not sent once it is out of date. */
+async function send(to: string, locale: Locale, subject: string, text: string): Promise<OutboxMessage> {
+  return enqueue({
     venueId: null,
-    kind: "account_email",
+    kind: "auth_email",
     channel: "email",
     recipient: to,
     locale,

@@ -450,6 +450,22 @@ const en = {
   "srv.fx6.invSoon.s": "Your {site} invoice for {period} falls due on {due}",
   "srv.fx6.invSoon.b": "The invoice for {period}, {amount}, falls due on {due}. Pay it by then under {place} to keep {names} listed.",
   "srv.fx4.movedCheaper": "{code}, moved to a court or time that costs less",
+  // Security mail and email configuration (ADR 0073)
+  "srv.msgKind.auth_email": "Sign-in and account security email",
+  "srv.authmail.ceiling.alert": "A sign-in or sign-up email was not sent: an address reached its security-mail allowance",
+  "srv.authmail.ceiling.detail": "An address was sent {n} sign-up, password-reset or security emails in a day, which is the most it is sent, so another was written off and no link was made available. A person locked out because of this needs help: see Messages (platform messages) for the one marked Not sent, and the steps in docs/integrations/messaging.md (Security mail). Many of these to one address can also be somebody sending requests to an address that is not theirs.",
+  "srv.authmail.expired.alert": "Sign-in or sign-up emails ran out before they could be sent",
+  "srv.authmail.expired.detail": "{n} sign-in, sign-up or password-reset emails waited past the life of their link and were dropped unsent (the person has to ask again). This usually means the email provider is down or refusing mail: check the email settings and the provider.",
+  "srv.email.blocked.alert": "Email is not set up: sign-up and forgotten-password requests are switched off",
+  "srv.email.blocked.detail": "{problems}\n\nThis is a production marketplace, so customers are told that sign-up and password reset are unavailable and to contact the venue, and no request is taken that could not be answered by email. Correct the email settings and restart (docs/integrations/messaging.md, docs/operations/email-ses-checklist.md).",
+  "srv.email.warn.alert": "Email is not set up properly on this install",
+  "srv.email.warn.detail": "{problems}\n\nSign-up and password reset are not switched off here (this is not a production marketplace, or synthetic data is declared), but messages will not reach anybody until email works.",
+  "srv.email.unverified.alert": "Email delivery has not been verified",
+  "srv.email.unverified.detail": "Email is configured ({provider}) but no controlled delivery check is recorded. Run node scripts/verify-integrations.mjs email --send to an address you control, confirm in its inbox that the message arrived and passed SPF, DKIM and DMARC, then set MAIL_DELIVERY_VERIFIED to the value the script prints and restart. Until then this install says \"configured, unverified\".",
+  "srv.email.failing.alert": "The email provider is failing to send mail",
+  "srv.email.failing.detail": "{failed} of {total} messages tried in the last hour failed. The last error: {error}.\n\nSign-in and sign-up emails are queued and tried again while their links are valid; check the provider's status, the credentials and the sender identity.",
+  "srv.email.backlog.alert": "Email has been waiting to be sent for a long time",
+  "srv.email.backlog.detail": "The oldest email still waiting was written {minutes} minutes ago ({queued} waiting). Check that the email provider is working and that the scheduler is running.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -894,6 +910,22 @@ const ms: Record<keyof typeof en, string> = {
   "srv.fx6.invSoon.s": "Invois {site} anda untuk {period} perlu dibayar pada {due}",
   "srv.fx6.invSoon.b": "Invois untuk {period}, {amount}, perlu dibayar pada {due}. Bayar sebelum tarikh itu di bawah {place} supaya {names} kekal disenaraikan.",
   "srv.fx4.movedCheaper": "{code}, dipindahkan ke gelanggang atau masa yang lebih murah",
+  // Security mail and email configuration (ADR 0073)
+  "srv.msgKind.auth_email": "E-mel log masuk dan keselamatan akaun",
+  "srv.authmail.ceiling.alert": "E-mel log masuk atau pendaftaran tidak dihantar: satu alamat telah mencapai had e-mel keselamatan",
+  "srv.authmail.ceiling.detail": "Satu alamat telah dihantar {n} e-mel pendaftaran, tetapan semula kata laluan atau keselamatan dalam sehari, iaitu had maksimum, maka satu lagi tidak dihantar dan tiada pautan disediakan. Orang yang tidak dapat masuk kerananya memerlukan bantuan: lihat Mesej (mesej platform) untuk yang bertanda Not sent, dan langkah dalam docs/integrations/messaging.md (Security mail). Banyak e-mel sebegini ke satu alamat juga mungkin bermakna seseorang menghantar permintaan ke alamat yang bukan miliknya.",
+  "srv.authmail.expired.alert": "E-mel log masuk atau pendaftaran tamat tempoh sebelum sempat dihantar",
+  "srv.authmail.expired.detail": "{n} e-mel log masuk, pendaftaran atau tetapan semula kata laluan menunggu melepasi hayat pautannya dan digugurkan tanpa dihantar (orang itu perlu meminta semula). Ini biasanya bermakna pembekal e-mel terhenti atau menolak mel: semak tetapan e-mel dan pembekal.",
+  "srv.email.blocked.alert": "E-mel belum disediakan: permintaan pendaftaran dan kata laluan terlupa dimatikan",
+  "srv.email.blocked.detail": "{problems}\n\nIni pasaran pengeluaran, maka pelanggan dimaklumkan bahawa pendaftaran dan tetapan semula kata laluan tidak tersedia dan supaya menghubungi pusat, dan tiada permintaan diterima yang tidak boleh dijawab melalui e-mel. Betulkan tetapan e-mel dan mulakan semula (docs/integrations/messaging.md, docs/operations/email-ses-checklist.md).",
+  "srv.email.warn.alert": "E-mel belum disediakan dengan betul pada pemasangan ini",
+  "srv.email.warn.detail": "{problems}\n\nPendaftaran dan tetapan semula kata laluan tidak dimatikan di sini (ini bukan pasaran pengeluaran, atau data sintetik diisytiharkan), tetapi mesej tidak akan sampai kepada sesiapa sehingga e-mel berfungsi.",
+  "srv.email.unverified.alert": "Penghantaran e-mel belum disahkan",
+  "srv.email.unverified.detail": "E-mel dikonfigurasi ({provider}) tetapi tiada semakan penghantaran terkawal direkodkan. Jalankan node scripts/verify-integrations.mjs email --send ke alamat yang anda kawal, sahkan dalam peti masuknya bahawa mesej sampai dan lulus SPF, DKIM dan DMARC, kemudian tetapkan MAIL_DELIVERY_VERIFIED kepada nilai yang dicetak skrip dan mulakan semula. Sehingga itu pemasangan ini menyatakan \"dikonfigurasi, belum disahkan\".",
+  "srv.email.failing.alert": "Pembekal e-mel gagal menghantar mel",
+  "srv.email.failing.detail": "{failed} daripada {total} mesej yang dicuba dalam sejam lalu gagal. Ralat terakhir: {error}.\n\nE-mel log masuk dan pendaftaran dibarisgilir dan dicuba semula selagi pautannya sah; semak status pembekal, kelayakan dan identiti penghantar.",
+  "srv.email.backlog.alert": "E-mel telah menunggu lama untuk dihantar",
+  "srv.email.backlog.detail": "E-mel paling lama yang masih menunggu ditulis {minutes} minit lalu ({queued} menunggu). Semak bahawa pembekal e-mel berfungsi dan penjadual sedang berjalan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1338,6 +1370,22 @@ const zh: Record<keyof typeof en, string> = {
   "srv.fx6.invSoon.s": "您的 {site} {period} 账单将于 {due} 到期",
   "srv.fx6.invSoon.b": "{period} 的账单 {amount} 将于 {due} 到期。请在此之前在 {place} 中付款，以便 {names} 继续上架。",
   "srv.fx4.movedCheaper": "{code}，已改到费用较低的场地或时间",
+  // Security mail and email configuration (ADR 0073)
+  "srv.msgKind.auth_email": "登录与账户安全电邮",
+  "srv.authmail.ceiling.alert": "一封登录或注册电邮未发出：某个地址已达到安全电邮的上限",
+  "srv.authmail.ceiling.detail": "某个地址在一天内已收到 {n} 封注册、重设密码或安全电邮，这是上限，因此又一封被作废，也没有提供任何链接。因此无法登录的人需要协助：请在“消息”（平台消息）中查看标记为 Not sent 的那一封，并参阅 docs/integrations/messaging.md（Security mail）中的步骤。同一地址收到大量此类电邮，也可能是有人在向不属于自己的地址发送请求。",
+  "srv.authmail.expired.alert": "登录或注册电邮在发出之前已过期",
+  "srv.authmail.expired.detail": "有 {n} 封登录、注册或重设密码电邮等到链接过期仍未发出，已被丢弃（当事人需要重新申请）。这通常表示电邮服务商已停止服务或拒收邮件：请检查电邮设置和服务商。",
+  "srv.email.blocked.alert": "电邮尚未设置：注册和忘记密码的请求已关闭",
+  "srv.email.blocked.detail": "{problems}\n\n这是正式运营的平台，因此顾客会被告知注册和重设密码暂时无法使用，请联系场馆，也不会接受无法通过电邮回复的请求。请更正电邮设置并重新启动（docs/integrations/messaging.md、docs/operations/email-ses-checklist.md）。",
+  "srv.email.warn.alert": "此安装的电邮设置有问题",
+  "srv.email.warn.detail": "{problems}\n\n此处没有关闭注册和重设密码（这不是正式运营的平台，或已声明使用合成数据），但在电邮可用之前，消息不会送达任何人。",
+  "srv.email.unverified.alert": "电邮投递尚未验证",
+  "srv.email.unverified.detail": "电邮已配置（{provider}），但没有记录受控的投递检查。请运行 node scripts/verify-integrations.mjs email --send，发往您掌控的地址，在其收件箱中确认邮件已送达且通过 SPF、DKIM 和 DMARC，然后将 MAIL_DELIVERY_VERIFIED 设为脚本打印的值并重新启动。在此之前，此安装显示为“已配置，未验证”。",
+  "srv.email.failing.alert": "电邮服务商发送邮件失败",
+  "srv.email.failing.detail": "过去一小时尝试的 {total} 条消息中有 {failed} 条失败。最近的错误：{error}。\n\n登录和注册电邮会排队，并在链接有效期内重试；请检查服务商状态、凭据和发件人身份。",
+  "srv.email.backlog.alert": "电邮已等待发送很长时间",
+  "srv.email.backlog.detail": "仍在等待的最早一封电邮写于 {minutes} 分钟前（共 {queued} 封在等待）。请检查电邮服务商是否正常，以及调度器是否在运行。",
 };
 
 const area = { en, ms, zh };

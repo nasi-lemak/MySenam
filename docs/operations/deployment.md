@@ -282,7 +282,12 @@ these once with a real account, in its sandbox where it has one:
       shows the mail app's own unsubscribe button. With SES, the account has
       production access (not the sandbox), the sending domain is verified,
       and `node scripts/verify-integrations.mjs email --send` passes
-      ([email transports](../integrations/messaging.md#email-transports)).
+      ([email transports](../integrations/messaging.md#email-transports)). On a
+      production marketplace sign-up and forgotten-password requests are refused
+      until email is set up and valid, and `MYSENAM_SEND=log` is refused too, and the
+      owners are alerted until a person has confirmed the test message in an inbox
+      and set `MAIL_DELIVERY_VERIFIED`: follow the
+      [SES checklist](email-ses-checklist.md).
 - [ ] **WhatsApp**: every template under *Messages to customers* submitted
       and approved by Meta in each language, word for word; a confirmation
       and a waitlist offer arrive; the delivery webhook reaches

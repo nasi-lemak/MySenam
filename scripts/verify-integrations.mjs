@@ -344,9 +344,20 @@ async function email() {
     const info = await transport.sendMail({ from: process.env.MAIL_FROM, to: process.env.VERIFY_EMAIL_TO, subject: `MySenam integration check ${new Date().toISOString()}`, text: "A synthetic message from scripts/verify-integrations.mjs. Check it arrived in the inbox, not spam, and that SPF, DKIM and DMARC pass in its headers." });
     p.step("message accepted for the test address", info.accepted.length > 0, info.messageId);
     p.step("arrived in the inbox, with SPF/DKIM/DMARC passing", null, "read the message's headers at the test address: not visible from here");
+    if (info.accepted.length > 0) await recordDeliveryStep(p);
   } else p.step("send a message", null, "give --send and VERIFY_EMAIL_TO (an address you control)");
   p.step("bounces", null, "not read back by the app: watch the provider's dashboard (known limitations)");
   return p.result;
+}
+
+/**
+ * After a message was accepted for the test address: how the install records that delivery was checked. Never recorded by this script:
+ * acceptance is not delivery. A person confirms the message in the inbox, then sets MAIL_DELIVERY_VERIFIED (src/lib/email-config.ts).
+ */
+async function recordDeliveryStep(p) {
+  const { deliveryRecordInstruction } = await import("../src/lib/email-config.ts");
+  const how = deliveryRecordInstruction();
+  p.step("record delivery as verified", null, how ?? "the configuration is not one the app would use (see the app's start-up log)");
 }
 
 /** What AWS answers when the key itself is refused (not merely not allowed to read something). */
@@ -439,6 +450,7 @@ async function emailSes() {
       const sent = await sendRawEmail(config, { from: config.from, to: process.env.VERIFY_EMAIL_TO, raw: mime.message });
       p.step("message accepted by SES for the test address", !!sent.providerId, sent.providerId ?? "no message id");
       p.step("arrived in the inbox, with SPF/DKIM/DMARC passing", null, "read the message's headers at the test address: not visible from here");
+      if (sent.providerId) await recordDeliveryStep(p);
     } catch (err) {
       p.step("message accepted by SES for the test address", false, err instanceof Error ? err.message : String(err));
     }

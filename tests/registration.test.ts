@@ -64,6 +64,10 @@ async function tokenFor(address: string): Promise<string> {
 
 /** Ask to sign up, and wait for the request to be worked through (that happens after the reply). */
 async function ask(email: string, locale: "en" | "ms" | "zh" | "ta" = "en") {
+  // A while after the last request, whose email has gone: asking again makes a new link (ADR 0073 holds a request made within a minute of
+  // the last, or while its email has not gone, to the link already out; tests/auth-mail-allowance.test.ts covers that).
+  await getDb().prepare("UPDATE messages SET status = 'sent' WHERE kind = 'auth_email' AND status IN ('queued', 'failed')").run();
+  await getDb().prepare("UPDATE registration_links SET created_at = datetime(created_at, '-2 minutes')").run();
   const answer = await requestRegistration(email, locale);
   await settleRegistrationRequests();
   return answer;
@@ -157,7 +161,7 @@ describe("the email", () => {
     const mails = await mailsTo("first-time@signup.my");
     expect(mails).toHaveLength(1);
     const [mail] = mails;
-    expect(mail).toMatchObject({ subject: en("su7.mail.new.s"), kind: "account_email", venue_id: null, locale: "en" });
+    expect(mail).toMatchObject({ subject: en("su7.mail.new.s"), kind: "auth_email", venue_id: null, locale: "en" });
     const token = await tokenFor("first-time@signup.my");
     expect(token).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(mail.body).toContain(`/register?token=${token}&lang=en`);
@@ -188,7 +192,7 @@ describe("the email", () => {
     const mails = await mailsTo("existing@signup.my");
     expect(mails).toHaveLength(had + 1);
     const mail = mails.at(-1)!;
-    expect(mail).toMatchObject({ subject: en("su7.mail.existing.s"), kind: "account_email", venue_id: null });
+    expect(mail).toMatchObject({ subject: en("su7.mail.existing.s"), kind: "auth_email", venue_id: null });
     expect(mail.body).toContain("Hi Existing,");
     expect(mail.body).toContain("/login?lang=en");
     expect(mail.body).toContain("/forgot-password?lang=en");

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isLocale, LOCALE_COOKIE, offeredLocales, type Locale } from "@/lib/i18n";
+import { accountEmailRefusal } from "@/lib/account-email-gate";
 import { rateLimit } from "@/lib/rate-limit";
 import { EMAIL_SHAPE, requestRegistration } from "@/lib/registration";
 
@@ -25,6 +26,9 @@ export async function POST(req: NextRequest) {
   if (typeof email !== "string" || email.trim().length > 320 || !EMAIL_SHAPE.test(email.trim()))
     return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
 
+  // A production marketplace whose email cannot deliver takes no request it could not answer by email (lib/account-email-gate.ts).
+  const unavailable = accountEmailRefusal();
+  if (unavailable) return unavailable;
   const limited = await rateLimit(req, "register");
   if (limited) return limited;
   // A field no person sees: a form that fills it in is a script. It is told what everybody is, and nothing is sent.

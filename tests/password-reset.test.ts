@@ -51,6 +51,10 @@ let userId: number;
 
 /** Ask for a link, and wait for the request to be worked through: that happens after the reply (lib/password-reset.ts). */
 async function ask(...args: Parameters<typeof requestReset>) {
+  // A while after the last request, whose email has gone: asking again makes a new link (ADR 0073 holds a request made within a minute of
+  // the last, or while its email has not gone, to the link already out; tests/auth-mail-allowance.test.ts covers that).
+  await getDb().prepare("UPDATE messages SET status = 'sent' WHERE kind = 'auth_email' AND status IN ('queued', 'failed')").run();
+  await getDb().prepare("UPDATE password_resets SET created_at = datetime(created_at, '-2 minutes')").run();
   const answer = await requestReset(...args);
   await settleResetRequests();
   return answer;
@@ -202,6 +206,8 @@ describe("staff", () => {
 describe("customers signed in", () => {
   it("change their password, and are signed in after a reset through the route", async () => {
     await getDb().prepare("DELETE FROM password_resets").run();
+    // The earlier tests asked for more links than one address is sent in a day (the security-mail allowance, ADR 0073).
+    await getDb().prepare("DELETE FROM messages WHERE kind = 'auth_email'").run();
     await forgotUser(req("/api/auth/forgot", { email: "aisyah@example.com" }));
     await settleResetRequests();
     const token = linkTokenFor("aisyah@example.com");

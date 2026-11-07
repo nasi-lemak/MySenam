@@ -26,6 +26,22 @@ So the platform owners are told (`src/lib/alerts.ts`) when:
 - the **nightly backup** or its **off-site copy** fails;
 - **messages to customers stop going out**: five or more failed in an hour and
   none sent (one bad address is not news; a rejected SMTP login is).
+- **email cannot deliver, or is failing** (`config:email`, `email:failing`,
+  `email:backlog`; [email configuration](../integrations/messaging.md#email-configuration-and-its-checks)):
+  at start-up and after each outbox pass (at most every five minutes) the install's
+  email is checked, without sending anything. `config:email` says email is not set up
+  (and, on a production marketplace, that sign-up and forgotten-password requests are
+  refused until it is), or that it is configured and delivery has not been verified
+  (`MAIL_DELIVERY_VERIFIED`). `email:failing` is raised when at least 5 sends in the
+  last hour were tried and at least half were refused, `email:backlog` when the oldest
+  email still waiting (a venue's bulk news excluded) is 30 minutes old. Each clears when
+  it stops. Two more are about security mail: `auth-mail-ceiling` (an address used up its
+  allowance of sign-in and account emails, so a link was withheld) and `auth-mail-expired`
+  (a sign-in or sign-up link ran out before the provider took it); what to do for a
+  person locked out is in [security mail](../integrations/messaging.md#security-mail).
+  The numbers are in the owner's system answer (`GET /api/admin/system`, `email`), and
+  the owner can ask the provider whether it answers (`POST /api/admin/system`
+  `{"check":"email"}`), which sends nothing;
 - **bookings and the court time they hold disagree** (`src/lib/integrity.ts`,
   once a day from the scheduler): a live booking that holds no court time
   (anybody could book over it), one holding a different court or time from

@@ -32,6 +32,8 @@ export type AccountKind = "user" | "admin";
 
 export const RESET_MINUTES = 30;
 export const RESETS_PER_HOUR = 3;
+/** Seconds after a link was made before another is made for the same account: repeated clicks are one email (ADR 0073). */
+export const AUTH_MAIL_COOLDOWN_SECONDS = 60;
 export const MIN_PASSWORD = 8;
 
 const TABLES: Record<AccountKind, { accounts: string; sessions: string; sessionColumn: string }> = {
@@ -104,7 +106,19 @@ export async function processResetRequests(limit = 25): Promise<number> {
   return made;
 }
 
-/** The work only a request for an account's address does: a link made and its email queued. */
+/**
+ * The work only a request for an account's address does: a link made and its email queued, unless the account asked a moment ago
+ * or a link for it is still waiting to be sent.
+ *
+ * Asking is answered the same whatever happens here, so none of this says anything to the asker (docs/architecture/authentication.md):
+ *  - **Three links an hour** (RESETS_PER_HOUR); a link lives 30 minutes, so at most three are open at once.
+ *  - **A cooldown** (`AUTH_MAIL_COOLDOWN_SECONDS`) after a link was made, so repeated clicks make one email, not ten.
+ *  - **A link whose email has not gone yet** (the provider is down, or it waits its turn) is reused: no second link, no second
+ *    email; that one is sent as soon as it can be, while it is valid.
+ * The check, the token and its email are one transaction under a lock on the account, so requests that arrive together make one.
+ * The email is security mail (`auth_email`): held to its own allowance, not the day's limit for ordinary mail (ADR 0073); if that
+ * allowance is used up it is written off with the reason, the owners are told, and the link it would have carried is void.
+ */
 async function sendResetLink(kind: AccountKind, email: string, locale: Locale): Promise<boolean> {
   const db = getDb();
   const t = TABLES[kind];
@@ -113,33 +127,50 @@ async function sendResetLink(kind: AccountKind, email: string, locale: Locale): 
     | undefined;
   if (!account) return false;
   await db.prepare("DELETE FROM password_resets WHERE created_at < datetime('now', '-1 day')").run();
-  const { n } = (await db
-    .prepare("SELECT COUNT(*)::int AS n FROM password_resets WHERE kind = ? AND account_id = ? AND created_at > datetime('now', '-1 hour')")
-    .get(kind, account.id)) as { n: number };
-  if (n >= RESETS_PER_HOUR) return false;
-  const token = crypto.randomBytes(24).toString("base64url");
-  await db
-    .prepare(
-      `INSERT INTO password_resets (kind, account_id, token_hash, expires_at) VALUES (?, ?, ?, datetime('now', '+${RESET_MINUTES} minutes'))`
-    )
-    .run(kind, account.id, hashOf(token));
-  // A customer's is in the language they asked in; staff's in their own (else the install's first staff language),
-  // whatever the browser that asked was reading. The link opens in the same (lib/link-locale.ts).
-  const writeIn = kind === "admin" ? staffReaderLocale(account.locale) : locale;
-  const tr = translator(writeIn);
-  const link = linkIn(`${baseUrl()}/reset-password?kind=${kind}&token=${token}`, writeIn);
-  // Queued, so a mail server that is down delays the link rather than losing
-  // it; not sent once the link has run out, and never sent again to another
-  // address.
-  await emailPlain({
-    to: account.email,
-    subject: tr("reset.emailSubject", { site: siteName() }),
-    text: tr("reset.emailBody", { name: account.name.split(/\s+/)[0], link, minutes: RESET_MINUTES }),
-    kind: "account_email",
-    expiresMinutes: RESET_MINUTES,
-    locale: writeIn,
-  });
-  return true;
+  return db.transaction(async (): Promise<boolean> => {
+    await db.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(`auth-mail:reset:${kind}:${account.id}`);
+    const { n } = (await db
+      .prepare("SELECT COUNT(*)::int AS n FROM password_resets WHERE kind = ? AND account_id = ? AND created_at > datetime('now', '-1 hour')")
+      .get(kind, account.id)) as { n: number };
+    if (n >= RESETS_PER_HOUR) return false;
+    const open = (await db
+      .prepare(
+        `SELECT (r.created_at > datetime('now', '-${AUTH_MAIL_COOLDOWN_SECONDS} seconds')) AS cooling, COALESCE(m.status IN ('queued', 'failed'), false) AS waiting
+           FROM password_resets r LEFT JOIN messages m ON m.id = r.message_id
+          WHERE r.kind = ? AND r.account_id = ? AND r.used_at IS NULL AND r.expires_at > datetime('now')`
+      )
+      .all(kind, account.id)) as { cooling: boolean; waiting: boolean }[];
+    if (open.some((r) => r.cooling || r.waiting)) return false;
+    const token = crypto.randomBytes(24).toString("base64url");
+    const made = (await db
+      .prepare(
+        `INSERT INTO password_resets (kind, account_id, token_hash, expires_at) VALUES (?, ?, ?, datetime('now', '+${RESET_MINUTES} minutes')) RETURNING id`
+      )
+      .get(kind, account.id, hashOf(token))) as { id: number };
+    // A customer's is in the language they asked in; staff's in their own (else the install's first staff language),
+    // whatever the browser that asked was reading. The link opens in the same (lib/link-locale.ts).
+    const writeIn = kind === "admin" ? staffReaderLocale(account.locale) : locale;
+    const tr = translator(writeIn);
+    const link = linkIn(`${baseUrl()}/reset-password?kind=${kind}&token=${token}`, writeIn);
+    // Queued, so a mail server that is down delays the link rather than losing
+    // it; not sent once the link has run out, and never sent again to another
+    // address.
+    const queued = await emailPlain({
+      to: account.email,
+      subject: tr("reset.emailSubject", { site: siteName() }),
+      text: tr("reset.emailBody", { name: account.name.split(/\s+/)[0], link, minutes: RESET_MINUTES }),
+      kind: "auth_email",
+      expiresMinutes: RESET_MINUTES,
+      locale: writeIn,
+    });
+    // Written off for the allowance: nobody has this link, so it is void and cannot be used from anywhere.
+    if (queued.status === "abandoned") {
+      await db.prepare("UPDATE password_resets SET used_at = datetime('now') WHERE id = ?").run(made.id);
+      return false;
+    }
+    await db.prepare("UPDATE password_resets SET message_id = ? WHERE id = ?").run(queued.id, made.id);
+    return true;
+  })();
 }
 
 type Refusal = { ok: false; error: string; code: ErrorCode; vars?: Record<string, number> };

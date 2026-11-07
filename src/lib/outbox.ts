@@ -66,6 +66,15 @@ export type MessageKind =
   | "programme"
   /** By email only, about somebody's own account: confirming a venue application's address, its decision, a password reset link. */
   | "account_email"
+  /**
+   * By email only: the mail a person cannot get into, or keep, their account without: a sign-up's link, a password reset's link
+   * (customers and staff), and the notices of a security change (two-factor sign-in reset, a staff account's address moved;
+   * lib/registration.ts, lib/password-reset.ts, lib/two-factor-reset.ts, lib/staff-accounts.ts, ADR 0073). Handled as `account_email`
+   * is (link never shown or kept, never readdressed) but counted apart: not held to, and never counted in, the day's limit for
+   * ordinary mail, and held to an allowance of its own (`authMailPerRecipientPerDay`), so eight booking mails cannot make a
+   * reset link vanish and a flood of reset requests cannot use up a customer's booking confirmations.
+   */
+  | "auth_email"
   /** By email only, to the platform's owners or a venue's staff: something they would want to know (lib/owner-alerts.ts, alerts.ts). */
   | "staff_alert"
   /** By email only, to somebody who applied to list a venue: the decision on it (lib/applications.ts). */
@@ -174,6 +183,17 @@ export function maxMessageAgeDays(): number {
   return Number.isInteger(n) && n >= 1 && n <= 60 ? n : 7;
 }
 
+/** The most security mail (`auth_email`) one address is sent in a day (MYSENAM_AUTH_MAIL_PER_RECIPIENT_PER_DAY, default 10; 5 to 100). */
+export function authMailPerRecipientPerDay(): number {
+  const n = Number(process.env.MYSENAM_AUTH_MAIL_PER_RECIPIENT_PER_DAY ?? 10);
+  return Number.isInteger(n) && n >= 5 && n <= 100 ? n : 10;
+}
+
+/** Kinds whose text is a link into somebody's account, or says something about its security: not shown to staff, not kept once gone. */
+const ACCOUNT_LINK_KINDS: readonly MessageKind[] = ["account_email", "auth_email"];
+const isAccountLink = (kind: string) => (ACCOUNT_LINK_KINDS as readonly string[]).includes(kind);
+const ACCOUNT_LINK_SQL = `kind IN (${ACCOUNT_LINK_KINDS.map((k) => `'${k}'`).join(", ")})`;
+
 export interface OutboxMessage {
   id: number;
   bookingId: number | null;
@@ -279,8 +299,12 @@ function parseParams(json: string | null): Vars | null {
  */
 const BACKOFF_MINUTES = [1, 5, 30, 120];
 
-function backoffFor(attempts: number): number {
-  return BACKOFF_MINUTES[Math.min(attempts, BACKOFF_MINUTES.length - 1)];
+/** Security mail carries a link that lives 30 or 60 minutes, so it is tried again sooner: a provider back within the link's life still delivers it. */
+const AUTH_BACKOFF_MINUTES = [1, 2, 5, 10];
+
+function backoffFor(attempts: number, kind: MessageKind = "programme"): number {
+  const steps = kind === "auth_email" ? AUTH_BACKOFF_MINUTES : BACKOFF_MINUTES;
+  return steps[Math.min(attempts, steps.length - 1)];
 }
 
 // ---------------------------------------------------------------- composing
@@ -330,15 +354,20 @@ export const MESSAGES_PER_RECIPIENT_PER_DAY = 8;
 
 const RECIPIENT_KEY = "(CASE WHEN channel = 'email' THEN lower(recipient) ELSE phone_key(recipient) END)";
 
-/** Messages written for this recipient in the last day, sent or not; only of these kinds when they are given. */
-export async function sentToday(channel: Channel, recipient: string, kinds?: readonly string[]): Promise<number> {
+/**
+ * Messages written for this recipient in the last day, sent or not; only of these kinds when they are given, and never of the
+ * kinds in `except`. The day's limit for ordinary mail is counted without security mail (`auth_email`), which has its own.
+ */
+export async function sentToday(channel: Channel, recipient: string, kinds?: readonly string[], except?: readonly string[]): Promise<number> {
   const { n } = (await getDb()
     .prepare(
       `SELECT COUNT(*) AS n FROM messages
         WHERE ${RECIPIENT_KEY} = (CASE WHEN ? = 'email' THEN lower(?) ELSE phone_key(?) END)
-          AND created_at >= datetime('now', '-1 day')${kinds ? ` AND kind IN (${kinds.map(() => "?").join(",")})` : ""}`
+          AND created_at >= datetime('now', '-1 day')${kinds ? ` AND kind IN (${kinds.map(() => "?").join(",")})` : ""}${
+            except ? ` AND kind NOT IN (${except.map(() => "?").join(",")})` : ""
+          }`
     )
-    .get(channel, recipient.trim(), recipient.trim(), ...(kinds ?? []))) as { n: number };
+    .get(channel, recipient.trim(), recipient.trim(), ...(kinds ?? []), ...(except ?? []))) as { n: number };
   return n;
 }
 
@@ -351,13 +380,21 @@ export async function sentToday(channel: Channel, recipient: string, kinds?: rea
 async function limitReached(kind: MessageKind, channel: Channel, recipient: string, includesThis = false): Promise<string | null> {
   if (UNCAPPED_KINDS.includes(kind)) return null;
   const extra = includesThis ? 1 : 0;
+  // Security mail: its own allowance, counted among security mail alone (an attacker's reset requests never use up booking mail,
+  // and booking mail never uses up a reset link).
+  if (kind === "auth_email") {
+    const ceiling = authMailPerRecipientPerDay();
+    return (await sentToday(channel, recipient, ["auth_email"])) >= ceiling + extra
+      ? `Not sent: already ${ceiling} sign-in and account emails to this address today (the allowance for security mail). No link was made available to anybody; they can ask again once the day's count falls.`
+      : null;
+  }
   if (URGENT_NEWS_KINDS.includes(kind)) {
     const ceiling = urgentPerRecipientPerDay();
     return (await sentToday(channel, recipient, URGENT_NEWS_KINDS)) >= ceiling + extra
       ? `Not sent: already ${ceiling} urgent notices to this recipient today.`
       : null;
   }
-  return (await sentToday(channel, recipient)) >= MESSAGES_PER_RECIPIENT_PER_DAY + extra
+  return (await sentToday(channel, recipient, undefined, ["auth_email"])) >= MESSAGES_PER_RECIPIENT_PER_DAY + extra
     ? `Not sent: already ${MESSAGES_PER_RECIPIENT_PER_DAY} messages to this recipient today.`
     : null;
 }
@@ -414,7 +451,22 @@ export async function enqueue(input: Compose): Promise<OutboxMessage> {
   }
   const written = (await messageById(info.lastInsertRowid as number))!;
   if (capped) await forgetAccountLink(written);
+  // Security mail written off for the allowance is somebody who cannot sign in or sign up: the owners are told (once in a while, not
+  // for each), because recovering them needs a person (docs/integrations/messaging.md#security-mail).
+  if (capped && input.kind === "auth_email") await tellAuthMailHeld("auth-mail-ceiling", "srv.authmail.ceiling.alert", "srv.authmail.ceiling.detail", { n: authMailPerRecipientPerDay() });
   return written;
+}
+
+/** Tell the platform's owners that security mail did not go and a person must look (deduped by `raiseAlert`). Never throws, never names the address. */
+async function tellAuthMailHeld(key: string, subject: "srv.authmail.ceiling.alert" | "srv.authmail.expired.alert", detail: "srv.authmail.ceiling.detail" | "srv.authmail.expired.detail", vars: Record<string, number>): Promise<void> {
+  try {
+    const { said, englishOf } = await import("./staff-text");
+    const { raiseAlert } = await import("./alerts");
+    const phrase = said(detail, vars);
+    await raiseAlert(key, said(subject), englishOf(phrase), [phrase]);
+  } catch (err) {
+    console.error("[mysenam] could not tell about held security mail:", err instanceof Error ? err.message : "unknown error");
+  }
 }
 
 // ------------------------------------------------------------- chat replies
@@ -470,7 +522,7 @@ export async function messageById(id: number): Promise<OutboxMessage | null> {
  * sending code reads the message itself.
  */
 export function forStaff(m: OutboxMessage): OutboxMessage {
-  if (m.kind === "account_email") return { ...m, body: ACCOUNT_LINK_HIDDEN, params: null, calendar: null };
+  if (isAccountLink(m.kind)) return { ...m, body: ACCOUNT_LINK_HIDDEN, params: null, calendar: null };
   const hide = (text: string) => text.replace(SECRET_LINK, LINK_HIDDEN);
   const params = m.params
     ? (Object.fromEntries(Object.entries(m.params).map(([k, v]) => [k, typeof v === "string" ? hide(v) : v])) as Vars)
@@ -512,10 +564,10 @@ const ACCOUNT_LINK_HIDDEN = "(Not shown or kept: it carries a link into somebody
  * message still holding its link; its one parameter is ACCOUNT_LINK_HIDDEN.
  */
 const FORGET_ACCOUNT_LINK =
-  "body = CASE WHEN kind = 'account_email' THEN ? ELSE body END, params = CASE WHEN kind = 'account_email' THEN NULL ELSE params END";
+  `body = CASE WHEN ${ACCOUNT_LINK_SQL} THEN ? ELSE body END, params = CASE WHEN ${ACCOUNT_LINK_SQL} THEN NULL ELSE params END`;
 
 async function forgetAccountLink(message: OutboxMessage): Promise<void> {
-  if (message.kind !== "account_email") return;
+  if (!isAccountLink(message.kind)) return;
   await getDb().prepare(`UPDATE messages SET ${FORGET_ACCOUNT_LINK} WHERE id = ?`).run(ACCOUNT_LINK_HIDDEN, message.id);
 }
 
@@ -728,6 +780,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
   const db = getDb();
   const result: DrainResult = { sent: 0, failed: 0, abandoned: 0, transport: post.name };
   const givenUpForAge: OutboxMessage[] = [];
+  let securityMailRanOut = 0;
 
   for (const message of await dueMessages(limit)) {
     // Claimed before it is tried: two drains at once (two requests, two servers) each see it due, and
@@ -735,7 +788,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
     // message is tried again when that runs out.
     const claimed = await db
       .prepare(
-        `UPDATE messages SET next_attempt_at = datetime('now', '+10 minutes')
+        `UPDATE messages SET next_attempt_at = datetime('now', '+10 minutes'), last_attempt_at = datetime('now')
           WHERE id = ? AND status IN ('queued','failed') AND next_attempt_at <= datetime('now')`
       )
       .run(message.id);
@@ -750,6 +803,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
         .prepare(`UPDATE messages SET status = 'abandoned', last_error = ?, ${FORGET_ACCOUNT_LINK} WHERE id = ?`)
         .run("Not sent: it ran out before it could go (the link in it no longer works).", ACCOUNT_LINK_HIDDEN, message.id);
       result.abandoned++;
+      if (message.kind === "auth_email") securityMailRanOut++;
       continue;
     }
     // Looked at again as it is about to go: a cancelled booking's reminder, a withdrawn consent.
@@ -802,12 +856,14 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
               SET status = 'failed', attempts = ?, last_error = ?,
                   next_attempt_at = datetime('now', ?)
             WHERE id = ?`
-        ).run(attempts, reason, `+${backoffFor(message.attempts)} minutes`, message.id);
+        ).run(attempts, reason, `+${backoffFor(message.attempts, message.kind)} minutes`, message.id);
         result.failed++;
       }
     }
   }
   if (givenUpForAge.length > 0) await tellAgedOut(givenUpForAge);
+  // A sign-in or sign-up link that waited out its life (the provider was down) is somebody who has to ask again: the owners are told.
+  if (securityMailRanOut > 0) await tellAuthMailHeld("auth-mail-expired", "srv.authmail.expired.alert", "srv.authmail.expired.detail", { n: securityMailRanOut });
   return result;
 }
 
@@ -818,7 +874,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
  * venue's account was not set up yet. Staff fix the cause and ask again.
  */
 /** Kinds sent to people who did not book: never to an address staff type in. */
-const NOT_READDRESSED: MessageKind[] = ["campaign", "review_request", "marketing_confirm", "account_email"];
+const NOT_READDRESSED: MessageKind[] = ["campaign", "review_request", "marketing_confirm", "account_email", "auth_email"];
 
 export async function retryMessage(
   id: number,
@@ -830,7 +886,7 @@ export async function retryMessage(
   if (existing.status !== "failed" && existing.status !== "abandoned")
     return { ok: false, error: "Only a message that was not sent can be sent again." };
   // Its link is not kept once it has gone or been given up; a new one is asked for instead.
-  if (existing.kind === "account_email")
+  if (isAccountLink(existing.kind))
     return { ok: false, error: "This carried a link into somebody's account, which is not kept. They can ask for a new one." };
   const to = recipient?.trim() || null;
   if (to && to !== existing.recipient) {
@@ -881,7 +937,7 @@ export async function retryFailedMessages(
       `SELECT id, created_at <= datetime('now', ?) AS too_old, (expires_at IS NOT NULL AND expires_at <= datetime('now')) AS expired
          FROM messages
         WHERE venue_id = ? AND status IN ('failed','abandoned') AND created_at >= ? AND created_at <= ?
-          AND kind NOT IN ('account_email', 'safeguarding_notice')
+          AND NOT (${ACCOUNT_LINK_SQL}) AND kind <> 'safeguarding_notice'
           AND COALESCE(last_error, '') NOT LIKE 'Not sent: the booking%' AND COALESCE(last_error, '') NOT LIKE 'Not sent: they withdrew%'
           AND COALESCE(last_error, '') NOT LIKE 'Not sent: it ran out%'
         ORDER BY id LIMIT ?`
@@ -961,7 +1017,7 @@ export async function emailPlain(input: {
   to: string;
   subject: string;
   text: string;
-  kind: "account_email" | "staff_alert" | "applicant" | "safeguarding_notice";
+  kind: "account_email" | "auth_email" | "staff_alert" | "applicant" | "safeguarding_notice";
   /** The venue it is about, where there is one; null for the platform's own. */
   venueId?: number | null;
   dedupeKey?: string;

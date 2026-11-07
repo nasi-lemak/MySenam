@@ -104,7 +104,7 @@ describe("a password reset link", () => {
     await requestReset("user", email);
     // Worked through after the reply, as is its first try at sending: wait for both.
     await settleResetRequests();
-    const { id } = (await db().prepare("SELECT id FROM messages WHERE recipient = ? AND kind = 'account_email' ORDER BY id DESC").get(email)) as { id: number };
+    const { id } = (await db().prepare("SELECT id FROM messages WHERE recipient = ? AND kind = 'auth_email' ORDER BY id DESC").get(email)) as { id: number };
     // It is tried at once, in the background (the reply does not wait for it): wait for that try.
     for (let i = 0; i < 200 && (await row(id)).attempts === 0 && (await row(id)).status === "queued"; i++) await new Promise((r) => setTimeout(r, 10));
     return { id };
@@ -142,6 +142,8 @@ describe("a password reset link", () => {
     down = true;
     const { id } = await resetFor();
     down = false;
+    // The owners' alert that the earlier test's link ran out unsent (ADR 0073) is queued too: only this message is to be tried here.
+    await db().prepare("UPDATE messages SET status = 'abandoned' WHERE id <> ? AND status IN ('queued', 'failed')").run(id);
     await dueNow();
     // Any statement after the one saying it went fails, as if the process stopped there.
     const real = db().prepare.bind(db());
@@ -165,7 +167,7 @@ describe("a password reset link", () => {
   it("is never shown in the owners' list, only that it went", async () => {
     const { id } = await resetFor();
     const listed = (await listPlatformMessages()).find((m) => m.id === id)!;
-    expect(listed.kind).toBe("account_email");
+    expect(listed.kind).toBe("auth_email");
     expect(listed.body).not.toMatch(/token=/);
   });
 });

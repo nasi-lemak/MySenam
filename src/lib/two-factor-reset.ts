@@ -58,7 +58,7 @@ async function reset(target: Admin, entry: { by: Admin | null; reason: string })
     to: target.email,
     subject: own("sl8.tfa.subject", { site }),
     text: own("sl8.tfa.body", { name: target.name, who: who(own), site }),
-    kind: "account_email",
+    kind: "auth_email",
     venueId: target.venueId,
     locale: own.locale,
   });

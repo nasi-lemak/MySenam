@@ -19,6 +19,15 @@ export interface Policy {
 
 const MINUTE = 60_000;
 
+/**
+ * A limit an operator may raise for a place where many customers share one address (a venue's own Wi-Fi, a mobile carrier): read
+ * once, when the server starts. A value that is not a whole number from 1 to 1000 is not read.
+ */
+function configuredLimit(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return process.env[name] && Number.isInteger(n) && n >= 1 && n <= 1000 ? n : fallback;
+}
+
 export const POLICIES = {
   /** Password endpoints: slow guessing without locking out a shared office IP. */
   login: { limit: 10, windowMs: 10 * MINUTE },
@@ -29,13 +38,14 @@ export const POLICIES = {
    * failing on purpose, which is the price of stopping the guessing.
    */
   loginFailures: { limit: 20, windowMs: 30 * MINUTE },
-  register: { limit: 5, windowMs: 60 * MINUTE },
+  /** Sign-up requests per client address (MYSENAM_SIGNUPS_PER_ADDRESS_PER_HOUR, default 5): people sharing one network count together. */
+  register: { limit: configuredLimit("MYSENAM_SIGNUPS_PER_ADDRESS_PER_HOUR", 5), windowMs: 60 * MINUTE },
   /**
    * Asking for password-reset links, per address, whichever accounts are asked about: the sign-in limit counts each
    * pair of address and email apart, so on its own it lets one place ask for a link for every account it can name.
    * Far more than people who forgot make from one office; each account is held to its own three an hour besides.
    */
-  forgot: { limit: 30, windowMs: 60 * MINUTE },
+  forgot: { limit: configuredLimit("MYSENAM_RESETS_PER_ADDRESS_PER_HOUR", 30), windowMs: 60 * MINUTE },
   /** Each photo is drawn three times over; plenty for a venue, too few to keep a server busy. */
   photoUpload: { limit: 30, windowMs: 60 * MINUTE },
   /** Sending or trying a code to check a phone number: a person needs a few, a script many. */

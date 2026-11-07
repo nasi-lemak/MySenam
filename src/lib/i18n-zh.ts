@@ -2466,7 +2466,7 @@ export const ZH: Record<Phrase, string> = {
   "su7.intro": "请输入您的电邮地址。我们会把链接发送到您的电邮，以完成创建账户。",
   "su7.send": "发送链接到我的电邮",
   "su7.checkTitle": "请查看您的电邮",
-  "su7.check": "我们已发送电邮至 {email}。请在 {minutes} 分钟内打开其中的链接，以完成创建账户。如果此地址已有账户，电邮会说明如何登录。",
+  "su7.check": "一封电邮正在发往 {email}。请在 {minutes} 分钟内打开其中的链接，以完成创建账户。如果此地址已有账户，电邮会说明如何登录。",
   "su7.notArrived": "几分钟后仍未收到？请查看垃圾邮件文件夹，或再试一次。",
   "su7.otherAddress": "使用其他地址",
   "su7.finishTitle": "完成创建账户",
@@ -5094,6 +5094,7 @@ export const ZH: Record<Phrase, string> = {
   "hd1.pay.overBody": "谢谢。已为 {codes} 支付 {amount}。您多付了 {extra}，场馆会把这部分退还给您。",
   "err.CANCEL_AFTER_ARRIVAL": "您已到达此预订的场地，因此无法再在线取消或减少人数。如果您确实无法使用，请联系场馆工作人员。",
   "series.staysArrived": "保留预订：您已到达，由场馆工作人员决定",
+  "err.EMAIL_UNAVAILABLE": "目前无法注册或重设密码。请联系您预订的场馆，或稍后再试。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

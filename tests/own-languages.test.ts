@@ -149,7 +149,7 @@ describe("staff password resets", () => {
     await requestReset("admin", "reset-plain@bahasa.my", "ms");
     await settleResetRequests();
     const [zh] = await mailTo("reset-zh@bahasa.my");
-    expect(zh).toMatchObject({ locale: "zh", kind: "account_email" });
+    expect(zh).toMatchObject({ locale: "zh", kind: "auth_email" });
     expect(zh.subject).toContain("设置新密码");
     expect(zh.body).toMatch(/reset-password\?kind=admin&token=[A-Za-z0-9_-]+&lang=zh/);
     const [plain] = await mailTo("reset-plain@bahasa.my");

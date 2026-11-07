@@ -11,6 +11,7 @@ import { createBackup, hoursSinceLastBackup } from "./backup";
 import { copyOffsite } from "./offsite";
 import { backupHealth } from "./backup-health";
 import { tickOutbox } from "./notify";
+import { checkEmailHealth } from "./email-health";
 import { issueDueInvoices } from "./billing";
 import { issueDueAccountInvoices, remindOverdueAccountInvoices } from "./accounts";
 import { applyPaymentHolds, notifyInvoiceStages } from "./payment-holds";
@@ -100,6 +101,8 @@ async function runShortWork(now: Date, result: TickResult): Promise<void> {
     if (drained.transport) result.outbox = { sent: drained.sent, failed: drained.failed };
     // Several failing and none getting through: the account, not one address.
     if (drained.failed > 0) await checkMessages();
+    // The email provider failing, mail piling up, a configuration that cannot deliver (lib/email-health.ts); at most every five minutes.
+    await checkEmailHealth();
   } catch (err) {
     console.error("[mysenam] sending messages failed:", err);
     await raiseAlert("scheduler:sending-messages-failed", failed("srv.work.sendingMessages"), err instanceof Error ? err.stack ?? err.message : String(err));
