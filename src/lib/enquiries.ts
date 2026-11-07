@@ -189,3 +189,60 @@ export async function setEnquiryStatus(venueId: number, id: number, status: unkn
     .run(status, adminId, id, venueId);
   return done.changes > 0 ? enquiryById(id) : null;
 }
+
+/** An enquiry unanswered this many days is nudged on the needs-attention list (not an email: the list is where staff look). */
+export const ENQUIRY_NUDGE_DAYS = 2;
+/** The most enquiries the needs-attention list carries at once; `total` says how many there are. */
+const ATTENTION_LIMIT = 20;
+
+export interface EnquiryAttention {
+  id: number;
+  venueId: number;
+  venueName: string;
+  kind: EnquiryKind;
+  name: string;
+  wantedOn: string | null;
+  createdAt: string;
+  /** Whole days since it was asked. */
+  ageDays: number;
+  /** Unanswered for `ENQUIRY_NUDGE_DAYS` or more: the customer is waiting to hear. */
+  nudge: boolean;
+}
+
+/**
+ * The needs-attention entry for private hire enquiries nobody has answered (status `new`), oldest first, at these venues (null: every
+ * venue, the platform owners'). It stands whether or not the venue set an alert email or a WhatsApp number: the email is a courtesy,
+ * this list is the record that somebody must answer. An enquiry leaves it when staff mark it replied, booked or declined
+ * (`setEnquiryStatus`), the same as leaves the Bookings tab's *new* count. Names and kinds only, never the message or the
+ * number: those are on the enquiry itself.
+ */
+export async function enquiriesAttention(venueIds: number[] | null, now = new Date()): Promise<{ total: number; items: EnquiryAttention[] }> {
+  if (venueIds && venueIds.length === 0) return { total: 0, items: [] };
+  const only = venueIds ? ` AND e.venue_id IN (${venueIds.map(() => "?").join(",")})` : "";
+  const params = venueIds ?? [];
+  const db = getDb();
+  const total = (await db.prepare(`SELECT COUNT(*)::int AS n FROM hire_enquiries e WHERE e.status = 'new'${only}`).get(...params)) as { n: number };
+  const rows = (await db
+    .prepare(
+      `SELECT e.id, e.venue_id, v.name AS venue_name, e.kind, e.name, e.wanted_on, e.created_at
+         FROM hire_enquiries e JOIN venues v ON v.id = e.venue_id WHERE e.status = 'new'${only} ORDER BY e.id LIMIT ${ATTENTION_LIMIT}`
+    )
+    .all(...params)) as { id: number; venue_id: number; venue_name: string; kind: EnquiryKind; name: string; wanted_on: string | null; created_at: string }[];
+  return {
+    total: total.n,
+    items: rows.map((r) => {
+      const ageDays = Math.max(0, Math.floor((now.getTime() - Date.parse(`${r.created_at.replace(" ", "T")}Z`)) / 86_400_000));
+      return {
+        id: r.id,
+        venueId: r.venue_id,
+        venueName: r.venue_name,
+        kind: r.kind,
+        name: r.name,
+        wantedOn: r.wanted_on,
+        createdAt: r.created_at,
+        ageDays,
+        nudge: ageDays >= ENQUIRY_NUDGE_DAYS,
+      };
+    }),
+  };
+}

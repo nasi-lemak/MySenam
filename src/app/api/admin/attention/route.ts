@@ -16,6 +16,7 @@ import { resolveSafetyFlag, safetyFlags, safetyFlagVenue } from "@/lib/safety-fl
 import { strandedFixtures, undrawnTournaments } from "@/lib/competition-fixtures";
 import { moderationAttention } from "@/lib/message-moderation";
 import { overdueAccountsAttention } from "@/lib/accounts";
+import { enquiriesAttention } from "@/lib/enquiries";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,8 @@ async function windowOverrideAlerts(venueIds: number[] | null) {
  * closed day, to be postponed or moved; and `undrawn`, tournaments whose first day has arrived and that nobody drew or called off, with the court time held for each.
  * And `accountsOverdue`: invoices to company and school accounts unpaid past their due day, oldest first, each with what is still to pay, the days
  * overdue and whether the venue's block now stops new bookings on that account (lib/accounts.ts; the desk sees them as it takes their payments).
+ * And `enquiries` (everyone who may see enquiries, desk included): private hire enquiries nobody has answered, oldest first (`total`, and the first 20 as `items`
+ * with their age and whether they have waited long enough to be nudged), whether or not the venue set an alert email (lib/enquiries.ts).
  * And `messageModeration` (same readers): open reports of messages by number and age, automatic suspensions to review with their date, and requests for a review (ADR 0059).
  */
 export async function GET(req: NextRequest) {
@@ -86,6 +89,8 @@ export async function GET(req: NextRequest) {
     messageModeration: admin.role === "desk" ? null : await moderationAttention(admin),
     // Invoices to company and school accounts past their day (lib/accounts.ts).
     accountsOverdue: await overdueAccountsAttention(admin.venueIds ?? null),
+    // Private hire enquiries nobody has answered, with a nudge for the ones waiting longest (lib/enquiries.ts).
+    enquiries: await enquiriesAttention(admin.venueIds ?? null),
   });
 }
 
