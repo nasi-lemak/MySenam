@@ -66,12 +66,16 @@ Several app instances can share one database. Four things need attention:
   Postgres ([security](security.md#rate-limiting)).
 - **Scheduled work** (messages, released holds, interrupted refunds, invoices,
   overdue checks, league housekeeping, retention, the nightly backup): each instance ticks,
-  but only the one holding the **scheduler's lease** works. The lease is a row
-  in `settings` naming the instance and when it runs out
-  (`holdSchedulerLease` in `src/lib/scheduler.ts`). The holder renews it every
-  minute; if it stops, another instance takes over within three minutes. No
-  setting is needed; `MYSENAM_SCHEDULER=off` is only for an install that runs
-  the work from its own cron instead.
+  but only the one holding a **scheduler lease** works. A lease is a row in `settings`
+  naming the instance and when it runs out (`holdLease` in `src/lib/scheduler.ts`). The
+  holder renews it every minute; if it stops, another instance takes over within three
+  minutes. There are **two leases and two units** ([ADR 0066](decisions/0066-operations-hardening-grants-deliveries-leases-and-the-worklist.md)):
+  the *short* work (everything above except the backup, with the heartbeat) and the *long*
+  work (the nightly backup, its off-site copy and the erasure ledger's), each ticked
+  every minute on its own lease. A backup of a large database and its upload can take an
+  hour, and for that hour the outbox, refunds and the heartbeat still run; one instance
+  may hold either lease or both, and another the other. No setting is needed;
+  `MYSENAM_SCHEDULER=off` is only for an install that runs the work from its own cron instead.
 - **`MYSENAM_SECRET`** must be the same on every instance. Without it, each
   instance makes its own `secret.key`, and payment keys, reset tokens, phone
   codes and recovery codes sealed or hashed by one cannot be read by another
@@ -80,13 +84,17 @@ Several app instances can share one database. Four things need attention:
   (`PHOTOS_S3_*`), so behind several instances each would see only its own
   uploads. Set the bucket ([discovery](../features/discovery.md)).
 
-The lease (three minutes) is renewed when a tick starts and every minute while
-it runs, so a long tick (a large `pg_dump` plus its upload) keeps it. Outgoing
-webhook deliveries are each claimed before they are sent, so two instances
+A lease (three minutes) is renewed when its unit starts and every minute while it
+runs, so a long backup (a large `pg_dump` plus its upload) keeps its own. The long unit is
+bounded: after `MYSENAM_LONG_JOB_MINUTES` (default 120) the lease stops being renewed, so
+it runs out and another instance may take the work, and the owners are told
+(`scheduler:long-jobs-overran`). The work itself is not cancelled (a request in flight
+cannot be taken back), so the process that started it starts no second backup until it
+ends. Outgoing webhook deliveries are each claimed before they are sent, so two instances
 delivering at once send each one once.
 
 Backups are written to the data folder of whichever instance holds the lease,
-so with several instances set up an [off-site copy](../operations/backups.md#off-site-copies)
+so with several instances (whichever holds the long lease takes the backup) set up an [off-site copy](../operations/backups.md#off-site-copies)
 to keep them in one place.
 
 ## One codebase, two shapes
