@@ -1306,6 +1306,10 @@ made in round 9. Priorities are the auditors'.
 | audit C18 (rest) | A payment after a hold lapsed is owed back, listed, and told only to a confirmed account address (a guest's typed email is not used; they appear as "no usable contact"); approval bookings keep ADR 0020's revival rule; Billplz refunds stay manual (ADR 0065) | P2 | 5: DEC-14 (built); the Billplz refund route (DEC-24) |
 | audit C2 (guard) | Enabling e-invoicing is refused at a venue that has sold credit or a voucher unless the owner acknowledges the stored-value question; a venue already on is not switched off; a venue that starts selling credit after e-invoicing is on is not warned in code ([memo](../operations/einvoice-stored-credit-memo.md)) | P1 | 7 |
 | audit G15 (rest) | A late consolidated e-invoice carries a "Late: after <date>" marker; what LHDN makes of it is unverified | P3 | 6 and 7 |
+| audit review of sign-up and reset (L1) | Account emails count against the outbox's daily cap of 8 messages per address: a reset or sign-up link can be silently dropped for an address already sent 8 that day, and an attacker's reset requests (3 an hour per account) can fill it; an exemption for security mail only needs a new message kind, not a flag on invitations. **For a pilot: verify email first, and keep the cap in mind** | P2 | 5 (owner) |
+| audit review of sign-up and reset (L2) | Sign-up and token pages share a per-IP limit of 10 in 10 minutes, and asking to sign up is 5 an hour per IP, so many people behind one venue network are throttled; sign-in has no per-IP total across accounts (deliberate, to avoid locking out shared addresses) | P2 | 5 |
+| audit review of sign-up and reset (L4) | Nobody is alerted when account emails expire unsent, and there is no start-up warning when production has no email transport: sign-up and reset then never deliver while the page says "check your email" | P2 | 1 (small) |
+| audit review of sign-up and reset (L3, L5, L6) | No password breach or reuse check; no "your password was changed" email; erasing an account needs no password re-entry; the terms state no minimum account age (a legal question for the owner) | P3 | 5 and 7 |
 
 #### Left by a fix, or noticed while fixing
 
@@ -1611,6 +1615,10 @@ is still open (see [the open items](#business-process-audit-6-november-2026-open
 | audit E16 | Coach alerts were lost for older lessons and payouts counted future lessons as held: every future lesson is told once, coaches without an email are on the list, payouts keep scheduled apart from held (ADR 0072) | `tests/coach-untold-and-payouts.test.ts` |
 | audit D11, G16, in part | Nothing told staff or customers of an ending pass or membership or a strike: needs-attention lines and one email each (ADR 0072) | `tests/standing-notices.test.ts` |
 | audit C2, in part | Not resolved: the memo, the enabling guard and the test that pins RM100 plus RM30 as RM130 (pending the adviser) are in (ADR 0065) | `tests/einvoice-stored-credit.test.ts` |
+| audit review of sign-up and reset: reset link for an erased account | A reset link for an erased or removed account (customer and staff) claimed the token and raised a foreign-key error (a 500), and a link mailed before an erasure stayed live: refused as invalid | `tests/auth-review.test.ts` |
+| audit review of sign-up and reset: asking for links | The only limit on asking for reset links was per IP and address pair, so one IP could ask for links for any number of accounts: 30 an hour per client address, customer and staff | `tests/auth-review.test.ts` |
+| audit review of sign-up and reset: change password | Changing a password while signed in left earlier reset links alive for 30 minutes: they are voided | `tests/auth-review.test.ts` |
+| audit review of sign-up and reset: phone codes | Phone code tries were counted after the check, so twelve parallel guesses passed the cap of five: counted in the checking statement | `tests/auth-review.test.ts` |
 
 ### Resolved limitations without a number
 

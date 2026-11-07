@@ -97,5 +97,33 @@ risk; everything else stays off. A sandbox result does not prove all production 
 
 ## Customer registration and password reset
 
-*To be completed from the end-to-end review run during the hardening round; this section is
-not filled until that review's findings are in.*
+Reviewed end to end this round (sign-up, sign-in, sessions, forgotten password, reset,
+change, Google linking, phone codes, erasure, staff sharing the same code), with tests in
+`tests/auth-review.test.ts`. The logic is sound: sign-up links and reset tokens are 24
+random bytes, stored keyed-hashed, single-use and short-lived; six parallel uses of one
+reset link give exactly one success on both engines; every answer about an address is the
+same whether or not it exists; a reset ends every session; Google joins only a verified
+email; the reset token cannot be burned by a mail scanner's pre-fetch; the token never
+reaches a referrer or an access log.
+
+Four defects were found and fixed: a reset link for an erased or removed account caused a
+500 (now refused); nothing capped reset links asked for from one address (30 an hour per
+client address now, staff and customer); changing a password left earlier reset links
+alive (now voided); and phone-code tries were counted after the check, so parallel guesses
+passed the cap (now counted in the checking statement).
+
+**Both are *ready only with manual safeguards*.** The safeguards:
+
+1. Real email delivery and domain authentication (SPF, DKIM, DMARC) verified first. The
+   page always says "check your email"; with no working mail transport nothing arrives and
+   nobody is told. There is no start-up warning for that yet.
+2. Awareness that an address already sent 8 messages that day (the outbox's daily cap
+   counts every kind) gets no reset or sign-up link, silently. Owner decision pending: a
+   separate allowance for security mail.
+3. Awareness that sign-up and token pages share a per-IP limit (10 in 10 minutes, and 5
+   sign-up requests an hour): many people behind one venue network are throttled.
+
+Not checkable without real email: delivery and inbox placement; that SES click tracking is
+off (it would rewrite the link); behaviour in an SES outage against real error codes;
+bounces and complaints; the Malay, Chinese and Tamil wording in real clients; WhatsApp and
+SMS delivery of phone codes; Google sign-in against live Google.
