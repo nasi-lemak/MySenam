@@ -441,7 +441,13 @@ drawn, on a court that was gone, with nobody told. Now (`src/lib/competition-fix
   called, or the day has gone by. Every side is told its new time. The same action on `POST
   /api/admin/team-leagues/:id` moves each fixture of the night one at a time by `moveFixture`'s
   checks and answers `moved` and `left` (what could not be placed, with why, still where it was).
-  Both are managers' (front desk cannot move fixtures) and logged.
+  Both are managers' (front desk cannot move fixtures) and logged. No move or postponement puts a
+  match or fixture on a day the venue has closed (`TL_MOVE_CLOSED` for a league; "The venue is
+  closed on …" for a tournament): it would be on the stranded list the moment it was moved, so
+  it is refused, with nothing changed, and `postpone_day` leaves such a fixture where it was and says why
+  (`tests/cross-domain-closures.test.ts`). A booking that takes the time at the very moment a
+  fixture is being moved there is the database's exclusion refusing it: the move is refused as
+  any other time that is not free (`TL_NO_COURT`) and the fixture stays, never an error.
 
 ### On the day
 

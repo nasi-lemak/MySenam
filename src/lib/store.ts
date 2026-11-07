@@ -4027,9 +4027,14 @@ async function rescheduleBookingOnce(
       continue;
     }
     // A sign-off the activity asks for there must still hold on the new date, and be the customer's own.
-    const need = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
+    let need: "certification" | "any" | null = day.policy.certification ? "certification" : day.policy.signOff ? "any" : null;
+    // And at a time the door is the way in (an unmanned resource outside staffed hours) the door asks the same of everybody, as it does at
+    // booking (ADR 0058): a booking moved from the counter's hours into the dark is asked now, not at the door with the money taken. A
+    // booking made for an approval's in-person step is the assessment itself and is not asked.
+    if (need === null && !booking.classId && (await opensByDoor(court, span.start, span.end)) && !(await db.prepare("SELECT 1 FROM approval_requests WHERE booking_id = ?").get(booking.id)))
+      need = await signOffNeeded(court, court.venueId, booking.sport);
     if (need) {
-      const bookedBy = ((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null }).user_id;
+      const bookedBy =((await db.prepare("SELECT user_id FROM bookings WHERE id = ?").get(booking.id)) as { user_id: number | null }).user_id;
       // Everybody taking part, each still on their own (lib/participants.ts); the first without one named.
       let lacking: { name: string | null } | null = null;
       for (const place of await bookingPlaces(booking.id)) {

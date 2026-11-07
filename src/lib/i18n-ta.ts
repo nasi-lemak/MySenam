@@ -3668,6 +3668,7 @@ export const TA: Record<Phrase, string> = {
   "err.TL_MOVE_PAST": "புதிய நேரம் கடந்துவிட்டது.",
   "err.TL_MOVE_BLACKOUT": "{team} {date} அன்று விளையாட முடியாது.",
   "err.TL_MOVE_CLASH": "{team} அப்போது வேறொரு ஆட்டத்தில் விளையாடுகிறது.",
+  "err.TL_MOVE_CLOSED": "{date} அன்று மையம் மூடப்பட்டிருக்கும்.",
   "err.TL_LINEUP_COUNT": "{n} ஆட்டங்களில் ஒவ்வொன்றுக்கும் வீரர்களைத் தேர்ந்தெடுங்கள்.",
   "err.TL_LINEUP_SIZE": "ஆட்டம் {n} க்கு {size} வீரர்(கள்) தேவை.",
   "err.TL_LINEUP_NOT_ROSTER": "தேர்ந்தெடுக்கப்பட்ட ஒரு வீரர் இந்த லீக்கிற்கான {team} பட்டியலில் இல்லை.",

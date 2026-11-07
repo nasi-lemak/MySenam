@@ -1,4 +1,5 @@
 import { isActivity } from "./activities";
+import { isConflict } from "./claims";
 import { getDb, isBusy, withTransaction } from "./db";
 import { scoreRefusal, standings, type Standing, type TableResult } from "./brackets";
 import { templateByKey, templateFor, type RubberKind } from "./competition-templates";
@@ -791,8 +792,10 @@ export interface MoveInput {
  */
 export async function moveFixture(fixtureId: number, to: MoveInput, expected: { version?: number } = {}): Promise<TeamResult<null>> {
   const freed: { court_id: number; date: string }[] = [];
+  let tried: { court: string; time: string; date: string } | null = null;
   const done = await withTransaction(async (): Promise<TeamResult<{ leagueId: number }>> => {
     freed.length = 0;
+    tried = null;
     const db = getDb();
     const first = await fixtureRow(fixtureId);
     if (!first) return teamRefusal("TL_NOT_FOUND", {}, 404);
@@ -808,6 +811,8 @@ export async function moveFixture(fixtureId: number, to: MoveInput, expected: { 
     if (!isValidDateString(date) || !Number.isInteger(startMin) || startMin < 0 || startMin > 1439 || !league.courts.some((c) => c.id === courtId)) return teamRefusal("TL_NIGHTS", {}, 400);
     const today = await zoneToday(league.venueId);
     if (date < today) return teamRefusal("TL_MOVE_PAST");
+    // A day the venue has closed is not one a fixture can be put on: it would be listed as stranded the moment it was moved (competition-fixtures.ts).
+    if (await db.prepare("SELECT 1 FROM venue_closures WHERE venue_id = ? AND date = ?").get(league.venueId, date)) return teamRefusal("TL_MOVE_CLOSED", { date });
     const end = startMin + f.minutes;
     for (const lt of [f.home_team, f.away_team]) {
       const t = (await leagueTeam(lt))!;
@@ -825,9 +830,11 @@ export async function moveFixture(fixtureId: number, to: MoveInput, expected: { 
     const old = (await db.prepare("SELECT id FROM blocks WHERE team_fixture_id = ?").all(f.id)) as { id: number }[];
     freed.push(...((await db.prepare("SELECT DISTINCT court_id, date FROM blocks WHERE team_fixture_id = ? AND date >= ?").all(f.id, todayISO())) as { court_id: number; date: string }[]));
     if (old.length > 0) await db.prepare(`DELETE FROM blocks WHERE id IN (${old.map(() => "?").join(",")})`).run(...old.map((o) => o.id));
+    const noCourt = { court: league.courts.find((c) => c.id === courtId)?.name ?? "", time: `${formatMinute(startMin)}–${formatMinute(end)}`, date };
+    tried = noCourt;
     if (!(await holdFixture(league, f.id, courtId, date, startMin, f.minutes))) {
       // Put back as it was: nothing changes.
-      throw new FixtureRefusal(teamRefusal("TL_NO_COURT", { court: league.courts.find((c) => c.id === courtId)?.name ?? "", time: `${formatMinute(startMin)}–${formatMinute(end)}`, date }));
+      throw new FixtureRefusal(teamRefusal("TL_NO_COURT", noCourt));
     }
     await db
       .prepare("UPDATE team_fixtures SET court_id = ?, date = ?, start_min = ?, night_id = (SELECT id FROM team_league_nights WHERE league_id = ? AND date = ?), moved_at = datetime('now'), version = version + 1, updated_at = datetime('now') WHERE id = ?")
@@ -835,6 +842,9 @@ export async function moveFixture(fixtureId: number, to: MoveInput, expected: { 
     return { ok: true, value: { leagueId: f.league_id } };
   }).catch((err) => {
     if (err instanceof FixtureRefusal) return err.refusal;
+    // A booking or block that took the time at the very moment it was being held: the database's exclusion refused it, so the time is
+    // not free, and the fixture stays where it was (the whole move was rolled back), as when the time was taken a moment earlier.
+    if (isConflict(err) && tried) return teamRefusal("TL_NO_COURT", tried);
     throw err;
   });
   if (!done.ok) return done;

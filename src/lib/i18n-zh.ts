@@ -3665,6 +3665,7 @@ export const ZH: Record<Phrase, string> = {
   "err.TL_MOVE_PAST": "新的时间已经过去。",
   "err.TL_MOVE_BLACKOUT": "{team} 无法在 {date} 比赛。",
   "err.TL_MOVE_CLASH": "{team} 那时有另一场比赛。",
+  "err.TL_MOVE_CLOSED": "场馆在 {date} 不营业。",
   "err.TL_LINEUP_COUNT": "请为 {n} 局中的每一局选择球员。",
   "err.TL_LINEUP_SIZE": "第 {n} 局需要 {size} 名球员。",
   "err.TL_LINEUP_NOT_ROSTER": "所选球员不在 {team} 在本联赛的名单中。",
