@@ -1239,3 +1239,26 @@ product, at the price paid.
 Tested against stand-ins for Stripe's and Billplz's APIs and signed
 callbacks, on PGlite and Postgres (`tests/passes-online.test.ts`), never
 against the real gateways.
+
+## A free hour for regulars
+
+A venue can turn on a free hour for regulars (*Courts & rates*, `venues.loyalty_every`, 5 to 50): every N paid hours a phone
+number plays there earns one hour free, given as a one-entry pass at that venue (90 days to use it) and told by email
+(`src/lib/loyalty.ts`, `grantLoyalty`, once a day from the scheduler). What counts is a court hour that went ahead and was paid for:
+not a class, not cancelled, not a no-show, dated before today, at a price above nothing, and not itself paid with a free hour.
+
+- **Given once** ([ADR 0066](../architecture/decisions/0066-operations-hardening-grants-deliveries-leases-and-the-worklist.md)).
+  Each reward is the Nth one given to a number at a venue (`loyalty_rewards.n`), and (venue, number, N) is unique in the
+  database (migration 0320). A reward is one transaction: its place is claimed first (insert-or-ignore on the key), then the
+  pass is issued and tied to it, then the email is queued. Two runs at once (two instances, a lease lost mid-run, a retry) both
+  find the hour due, one claims the place and the other finds it taken and issues nothing; a stop part way gives all of it or
+  none, and the next run gives it. The scheduler's once-a-day marker is only a saving of work, not the guard.
+- **Free hours given twice before migration 0320** are kept: the migration numbers existing rewards in the order they were
+  recorded and deletes or merges nothing. Which of them were duplicates is for a person to review:
+  `psql "$DATABASE_URL" -f scripts/reconcile-loyalty.sql` is read only and lists (1) numbers with more free hours recorded than
+  their played, paid hours earn at the venue's present rule (or at a venue that has since switched it off), and (2) free-hour
+  passes no reward row points at (issued, then a stop before the row was written). It is a lead, not proof: the rule may have
+  changed since and the date is compared against the UTC day. Voiding or keeping a pass is the venue's decision; nothing in
+  the app does it for them.
+
+Tested on PGlite and Postgres (`tests/loyalty-grant-once.test.ts`, `tests/loyalty-migration.test.ts`, `tests/loyalty.test.ts`).
