@@ -87,3 +87,15 @@
   tests and reports that read it. Adding the task and the payout record gives the outcome without moving the books.
 - **Fill in `deposit_via` for a legacy deposit:** rejected; it would erase the marker that the method was not recorded and make a guess look recorded.
 - **Count a customer's friends' shares in their "spent":** rejected; they are other people's money on their own receipts.
+
+## Addendum, 7 November 2026: more than one hand-back for one booking
+
+The cross-domain tests found that `counter_payouts.booking_id` was `UNIQUE` (migration
+0231, written when a booking had one cancellation and so one hand-back). A paid booking
+moved cheaper owes a difference for each move ([ADR 0067](0067-a-paid-booking-moved-cheaper-gives-the-difference-back-and-a-move-never-silently-changes-a-discount.md)),
+so a second hand-back (a second move, an outage's share, a cancellation after a move) threw,
+the booking stayed confirmed and the sum stayed owed with no way to settle it in the app.
+Migration 0342 replaces the constraint with a plain index. A hand-back is still claimed once,
+by its own owed row, so the constraint was not what prevented a double payout; two staff
+settling one difference at once still pay it once (`tests/counter-payouts-many.test.ts`,
+on both engines).

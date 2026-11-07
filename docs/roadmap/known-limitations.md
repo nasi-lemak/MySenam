@@ -1310,6 +1310,8 @@ made in round 9. Priorities are the auditors'.
 | audit review of sign-up and reset (L2) | Sign-up and token pages share a per-IP limit of 10 in 10 minutes, and asking to sign up is 5 an hour per IP, so many people behind one venue network are throttled; sign-in has no per-IP total across accounts (deliberate, to avoid locking out shared addresses) | P2 | 5 |
 | audit review of sign-up and reset (L4) | Nobody is alerted when account emails expire unsent, and there is no start-up warning when production has no email transport: sign-up and reset then never deliver while the page says "check your email" | P2 | 1 (small) |
 | audit review of sign-up and reset (L3, L5, L6) | No password breach or reuse check; no "your password was changed" email; erasing an account needs no password re-entry; the terms state no minimum account age (a legal question for the owner) | P3 | 5 and 7 |
+| cross-domain tests: customer cancels a counter-paid booking | A customer cancelling a booking paid at the counter writes a credit note but no owed-back row, so nothing is listed for staff to hand back; only staff and venue cancellations create the row. Existing behaviour, found while testing | P2 | 1 |
+| cross-domain tests: a short Billplz payment on a held class place | The place stays held until the hold ends, then is let go and offered; the short money stays owed whole | P3 | 1 |
 
 #### Left by a fix, or noticed while fixing
 
@@ -1619,6 +1621,10 @@ is still open (see [the open items](#business-process-audit-6-november-2026-open
 | audit review of sign-up and reset: asking for links | The only limit on asking for reset links was per IP and address pair, so one IP could ask for links for any number of accounts: 30 an hour per client address, customer and staff | `tests/auth-review.test.ts` |
 | audit review of sign-up and reset: change password | Changing a password while signed in left earlier reset links alive for 30 minutes: they are voided | `tests/auth-review.test.ts` |
 | audit review of sign-up and reset: phone codes | Phone code tries were counted after the check, so twelve parallel guesses passed the cap of five: counted in the checking statement | `tests/auth-review.test.ts` |
+| cross-domain tests: counter hand-backs | `counter_payouts.booking_id` was unique, so a second hand-back for one booking (a second cheaper move, an outage share, a cancellation after a move) threw: the booking stayed confirmed and the sum stayed owed, unsettleable in the app. No money was lost. Migration 0342 (ADR 0068, addendum) | `tests/counter-payouts-many.test.ts` (Postgres included) |
+| cross-domain tests: moving into unstaffed hours | Moving a booking into hours the door is the way in skipped the sign-off check a new booking asks (the customer was refused at the door with money taken): a move asks it, and a move past a certification's last day is refused (ADR 0058) | `tests/cross-domain-safety.test.ts` |
+| cross-domain tests: fixtures and matches on a closed day | A league fixture or tournament match could be moved onto a day the venue had closed: refused | `tests/cross-domain-closures.test.ts` |
+| cross-domain tests: a booking racing a fixture move | A booking racing a league fixture move made `postponeLeagueDay` throw halfway: a refusal (`TL_NO_COURT`) | `tests/cross-domain-closures.test.ts` (Postgres) |
 
 ### Resolved limitations without a number
 
