@@ -208,7 +208,7 @@ safety or dispute reason ([below](#holds)), and says so.
 | A report in a **youth thread**, its case actions, and the safeguarding event store | **no period**: kept unless the install sets `SAFEGUARDING_EVIDENCE_RETENTION_DAYS` (closed cases only); the owner is prompted to decide about what is kept long ([below](#youth-messaging-evidence)) | not deleted by default |
 | WhatsApp and email messages, once sent or given up on | 90 days | deleted |
 | The record that a customer was owed a message (`notices_owed`: a booking and a kind, nothing personal), once it was told | 60 days | deleted |
-| Webhook deliveries to a venue's own systems, delivered or given up on | 30 days | deleted |
+| Webhook deliveries to a venue's own systems, delivered or given up on (eight attempts used, or waiting on an address turned off), so also the list of failed deliveries staff see ([webhooks](../integrations/external-api.md#webhooks)) | 30 days from the event | deleted; sending one again does not extend it, and one sent again is back among those still to go until it is delivered or used its attempts again |
 | The payer's name and number on an online payment (`online_payments`) | 730 days | anonymised, the payment (amount, refunds, gateway bill) kept ([erasure](#online-payments-messages-and-webhook-deliveries)) |
 | Names and numbers on bookings | 730 days | anonymised, money kept |
 | Court time held for a booking, class or block (ids, a court, minutes; no name, number or address) | with what it belongs to; where the install sets a horizon, moved to an archive once it is over ([archiving past claims](database.md#archiving-past-claims)) | deleted with what it belongs to; there is nothing in it to anonymise |

@@ -4,7 +4,8 @@ import { logAction } from "@/lib/activity";
 import { aiPersonalData, setAiPersonalData } from "@/lib/ai-personal-data";
 import { createApiKey, listApiKeys, revokeApiKey } from "@/lib/api-keys";
 import { googleReserveOn, setGoogleReserve } from "@/lib/google-feeds";
-import { addEndpoint, listEndpoints, pingEndpoint, removeEndpoint, resumeEndpoint } from "@/lib/webhooks";
+import { RETENTION } from "@/lib/privacy";
+import { MAX_ATTEMPTS, REDELIVER_AT_MOST, addEndpoint, listEndpoints, pingEndpoint, redeliverFailed, removeEndpoint, resumeEndpoint } from "@/lib/webhooks";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     keys: await listApiKeys(venueId),
     endpoints: await listEndpoints(venueId),
+    // What the failed-deliveries panel says: tries before giving up, days a delivery is kept.
+    webhookRetry: { tries: MAX_ATTEMPTS, days: RETENTION.webhookDeliveryDays, most: REDELIVER_AT_MOST },
     google: await googleReserveOn(venueId),
     // Whether AI assistants using the venue's keys through the MCP server see customers' personal data (lib/ai-personal-data.ts).
     aiPersonalData: await aiPersonalData(venueId),
@@ -28,7 +31,9 @@ export async function GET(req: NextRequest) {
 /**
  * `{ venueId, action }`: `key` with `name`, `scope` (the key is in the answer,
  * this once); `revoke` with `id`; `webhook` with `url` (its signing secret in
- * the answer, this once); `remove`, `ping` or `resume` with `id`; `google`
+ * the answer, this once); `remove`, `ping` or `resume` with `id`; `redeliver` with
+ * `deliveryId` (one failed delivery) or `id` (an address's failed deliveries, at
+ * most 50 at once): the same events sent again, audited (docs/integrations/external-api.md#webhooks); `google`
  * with `on`; `aiPersonalData` with `on` (true or false): whether AI assistants
  * using the venue's keys through the MCP server see customers' names, phone
  * numbers and emails, recorded with who and when (managers only, as all of
@@ -70,6 +75,19 @@ export async function POST(req: NextRequest) {
       if (!done) return NextResponse.json({ error: "Address not found, or turned off." }, { status: 404 });
       if (body.action !== "ping") await log(`Webhook ${body.action === "remove" ? "removed" : "turned back on"}: ${id}`);
       return NextResponse.json({ endpoints: await listEndpoints(venueId) });
+    }
+    case "redeliver": {
+      const deliveryId = body.deliveryId as number;
+      const target = Number.isInteger(deliveryId) ? { deliveryId } : Number.isInteger(id) ? { endpointId: id } : null;
+      if (!target) return NextResponse.json({ error: "Say which delivery or address to send again." }, { status: 400 });
+      const again = await redeliverFailed(venueId, target);
+      if (!again.ok)
+        return again.reason === "NOT_FOUND"
+          ? NextResponse.json({ error: "That delivery was not found for this venue." }, { status: 404 })
+          : NextResponse.json({ error: "Turn the address back on before sending an event again." }, { status: 409 });
+      // Every press is logged, with how many were sent again (none: it was already waiting or delivered).
+      await log(`Webhook events sent again: ${"deliveryId" in target ? `delivery ${target.deliveryId}` : `address ${target.endpointId}`}, ${again.requeued} queued`);
+      return NextResponse.json({ requeued: again.requeued, endpoints: await listEndpoints(venueId) });
     }
     case "google":
       await setGoogleReserve(venueId, body.on === true);

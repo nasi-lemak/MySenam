@@ -23,6 +23,10 @@ import { addDays } from "./time";
  * - **Retried** with growing waits (1, 2, 4… minutes, at most six hours) up
  *   to eight times; an endpoint failing for a day is turned off and the
  *   venue's staff told. Each event has an `id` to recognise a repeat by.
+ * - **Given up on, not lost:** a delivery that used its eight attempts is listed with the address (its last status and error, when it
+ *   was last tried, how many times) until retention removes it, and a manager can send it again (`redeliverFailed`): the same
+ *   payload and so the same event `id`, which a receiver can use to ignore a repeat. Sending again says it was sent, never that
+ *   the receiver did anything with it.
  * - **Only to the public internet:** an address must be HTTPS and must not
  *   resolve to a private, loopback or link-local address. The check is the
  *   lookup the connection itself uses (`pinnedLookup`), so a name that
@@ -32,7 +36,25 @@ import { addDays } from "./time";
 export const WEBHOOK_EVENTS = ["booking.created", "booking.cancelled", "booking.paid", "booking.changed"] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number] | "ping";
 export const MAX_ENDPOINTS = 5;
-const MAX_ATTEMPTS = 8;
+export const MAX_ATTEMPTS = 8;
+/** The most failed deliveries listed for one address, and the most sent again by one request. */
+export const FAILED_LISTED = 20;
+export const REDELIVER_AT_MOST = 50;
+
+/** A delivery that used up its attempts without being delivered: what staff see, never the payload (it names the customer). */
+export interface FailedDelivery {
+  id: number;
+  event: string;
+  /** The event's own id, the same on every attempt and every redelivery. */
+  eventId: string | null;
+  attempts: number;
+  lastStatus: number | null;
+  lastError: string | null;
+  lastAttemptAt: string | null;
+  createdAt: string;
+  redeliveries: number;
+  redeliveredAt: string | null;
+}
 
 export interface Endpoint {
   id: number;
@@ -40,6 +62,9 @@ export interface Endpoint {
   active: boolean;
   createdAt: string;
   failingSince: string | null;
+  /** How many deliveries to this address used up their attempts and are still held (the newest are in `failed`). */
+  failedCount: number;
+  failed: FailedDelivery[];
   recent: { event: string; status: number | null; deliveredAt: string | null; attempts: number; error: string | null; at: string }[];
 }
 
@@ -133,16 +158,88 @@ export async function listEndpoints(venueId: number): Promise<Endpoint[]> {
         "SELECT event, last_status, delivered_at, attempts, last_error, created_at FROM webhook_deliveries WHERE endpoint_id = ? ORDER BY id DESC LIMIT 10"
       )
       .all(r.id)) as { event: string; last_status: number | null; delivered_at: string | null; attempts: number; last_error: string | null; created_at: string }[];
+    const failedCount = (await db.prepare(`SELECT COUNT(*) AS n FROM webhook_deliveries WHERE endpoint_id = ? AND ${FAILED}`).get(r.id, MAX_ATTEMPTS)) as { n: number | string };
+    const failed = (await db
+      .prepare(
+        `SELECT id, event, payload::json ->> 'id' AS event_id, attempts, last_status, last_error, last_attempt_at, created_at, redeliveries, redelivered_at
+           FROM webhook_deliveries WHERE endpoint_id = ? AND ${FAILED} ORDER BY id DESC LIMIT ?`
+      )
+      .all(r.id, MAX_ATTEMPTS, FAILED_LISTED)) as {
+      id: number;
+      event: string;
+      event_id: string | null;
+      attempts: number;
+      last_status: number | null;
+      last_error: string | null;
+      last_attempt_at: string | null;
+      created_at: string;
+      redeliveries: number;
+      redelivered_at: string | null;
+    }[];
     out.push({
       id: r.id,
       url: r.url,
       active: r.active === 1,
       createdAt: r.created_at,
       failingSince: r.failing_since,
+      failedCount: Number(failedCount.n),
+      failed: failed.map((d) => ({
+        id: d.id,
+        event: d.event,
+        eventId: d.event_id,
+        attempts: d.attempts,
+        lastStatus: d.last_status,
+        lastError: d.last_error,
+        lastAttemptAt: d.last_attempt_at,
+        createdAt: d.created_at,
+        redeliveries: d.redeliveries,
+        redeliveredAt: d.redelivered_at,
+      })),
       recent: recent.map((d) => ({ event: d.event, status: d.last_status, deliveredAt: d.delivered_at, attempts: d.attempts, error: d.last_error, at: d.created_at })),
     });
   }
   return out;
+}
+
+/** A delivery that used its attempts (bind MAX_ATTEMPTS first) and was never delivered. */
+const FAILED = "delivered_at IS NULL AND attempts >= ?";
+
+/**
+ * Send failed deliveries again, by a manager's hand: all the same payload (the event keeps its id), attempts counted from
+ * nothing, due now. One address at a time (`endpointId`), or one delivery (`deliveryId`). Only this venue's: a delivery is found
+ * through its address's venue, never by its id alone. One statement does the claiming, so pressing it twice, or two managers at
+ * once, sends it again once: the second finds it already waiting (`requeued` 0). An address turned off is refused first (its
+ * deliveries would not be sent): turn it back on, which is a decision of its own. `NOT_FOUND`: no such delivery or address at
+ * the venue (another venue's is the same answer). At most REDELIVER_AT_MOST, oldest first, to a request.
+ */
+export async function redeliverFailed(
+  venueId: number,
+  target: { deliveryId: number } | { endpointId: number },
+  now = new Date()
+): Promise<{ ok: true; requeued: number } | { ok: false; reason: "NOT_FOUND" | "ENDPOINT_OFF" }> {
+  const db = getDb();
+  const byDelivery = "deliveryId" in target;
+  const row = (await db
+    .prepare(
+      byDelivery
+        ? "SELECT e.id, e.active FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id = d.endpoint_id WHERE d.id = ? AND e.venue_id = ?"
+        : "SELECT e.id, e.active FROM webhook_endpoints e WHERE e.id = ? AND e.venue_id = ?"
+    )
+    .get(byDelivery ? target.deliveryId : target.endpointId, venueId)) as { id: number; active: number } | undefined;
+  if (!row) return { ok: false, reason: "NOT_FOUND" };
+  if (row.active !== 1) return { ok: false, reason: "ENDPOINT_OFF" };
+  const stamp = now.toISOString().replace("T", " ").slice(0, 19);
+  const done = (await db
+    .prepare(
+      // The failed test is on the row being changed itself, so that of two requests at once the second, finding the row already
+      // changed when it gets to it, changes nothing.
+      `UPDATE webhook_deliveries SET attempts = 0, next_at = ?, redeliveries = redeliveries + 1, redelivered_at = ?
+        WHERE ${FAILED} AND id IN (SELECT d.id FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id = d.endpoint_id
+                                    WHERE e.venue_id = ? AND e.active = 1 AND ${byDelivery ? "d.id = ?" : "d.endpoint_id = ?"} ORDER BY d.id LIMIT ?)
+        RETURNING id`
+    )
+    .all(stamp, stamp, MAX_ATTEMPTS, venueId, byDelivery ? target.deliveryId : target.endpointId, REDELIVER_AT_MOST)) as { id: number }[];
+  return { ok: true, requeued: done.length };
 }
 
 async function queue(venueId: number, event: WebhookEvent, data: Record<string, unknown>, onlyEndpoint?: number): Promise<number> {
@@ -360,7 +457,9 @@ export async function deliverWebhooks(now = new Date()): Promise<{ sent: number;
       error = err instanceof Error ? err.message.slice(0, 300) : "Could not be reached";
     }
     if (!error) {
-      await db.prepare("UPDATE webhook_deliveries SET delivered_at = ?, attempts = attempts + 1, last_status = ?, last_error = NULL WHERE id = ?").run(stamp, status, d.id);
+      await db
+        .prepare("UPDATE webhook_deliveries SET delivered_at = ?, attempts = attempts + 1, last_status = ?, last_error = NULL, last_attempt_at = ? WHERE id = ?")
+        .run(stamp, status, stamp, d.id);
       await db.prepare("UPDATE webhook_endpoints SET failing_since = NULL WHERE id = ?").run(d.endpoint_id);
       sent++;
       continue;
@@ -368,8 +467,8 @@ export async function deliverWebhooks(now = new Date()): Promise<{ sent: number;
     failed++;
     const wait = Math.min(2 ** d.attempts, 360) * 60_000;
     await db
-      .prepare("UPDATE webhook_deliveries SET attempts = attempts + 1, last_status = ?, last_error = ?, next_at = ? WHERE id = ?")
-      .run(status, error, new Date(now.getTime() + wait).toISOString().replace("T", " ").slice(0, 19), d.id);
+      .prepare("UPDATE webhook_deliveries SET attempts = attempts + 1, last_status = ?, last_error = ?, last_attempt_at = ?, next_at = ? WHERE id = ?")
+      .run(status, error, stamp, new Date(now.getTime() + wait).toISOString().replace("T", " ").slice(0, 19), d.id);
     if (!d.failing_since) {
       await db.prepare("UPDATE webhook_endpoints SET failing_since = ? WHERE id = ?").run(stamp, d.endpoint_id);
     } else if (Date.parse(`${d.failing_since.replace(" ", "T")}Z`) < now.getTime() - 86_400_000) {

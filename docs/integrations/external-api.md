@@ -201,6 +201,20 @@ there when an address is added are not sent.
 - **Retries:** 1, 2, 4… minutes, at most six hours apart, eight tries. An
   address failing for a day is turned off and the venue's staff are emailed;
   *Turn back on* resumes it. *Send a test* sends a `ping`.
+- **Given up on, not lost** ([ADR 0066](../architecture/decisions/0066-operations-hardening-grants-deliveries-leases-and-the-worklist.md)):
+  a delivery that used its eight attempts stays in the delivery list, held 30 days
+  like any delivery ([retention](../architecture/privacy.md)), with its last status,
+  last error, when it was last tried and how many times, shown under its address in
+  *Events that could not be delivered* (never the payload, which names the customer).
+  A manager of the venue can *Send again* one delivery, or all of an address's (at
+  most 50 a time): the **same payload, so the same event `id`**, signed afresh, attempts
+  counted from nothing. A receiver can use the `id` to ignore a repeat. Pressing it
+  twice, or two managers at once, sends it again once. It is refused while the
+  address is turned off (turn it back on first). Each press is in the activity log.
+  *Sent* means MySenam made the request and got a 2xx: it never means the receiver
+  processed the event. Tested only against a stand-in receiver, never a real one.
+  Events missed because the address was off, or for a booking more than two days old or
+  further than 120 days ahead when first seen, are still not replayed ([known limitations](../roadmap/known-limitations.md)).
 - **Only the public internet:** the address must be HTTPS, and a host that
   resolves to a private, loopback, link-local or similar address is refused
   when sending, so a webhook cannot be pointed at the server's own network.

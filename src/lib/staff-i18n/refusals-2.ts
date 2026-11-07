@@ -1010,4 +1010,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "The date must be after today.": { ms: "Tarikh mestilah selepas hari ini.", zh: "日期必须晚于今天。" },
   "At most 90 days at a time.": { ms: "Paling lama 90 hari pada satu masa.", zh: "每次最多 90 天。" },
   "Hold a waiting-list offer for 5 to 120 minutes.": { ms: "Tahan tawaran senarai menunggu selama 5 hingga 120 minit.", zh: "候补名额的提供时间须为 5 至 120 分钟。" },
+  // Hardening round (G17): sending failed webhook events again
+  "That delivery was not found for this venue.": { ms: "Penghantaran itu tidak ditemui untuk pusat ini.", zh: "在本场馆未找到该推送。" },
+  "Turn the address back on before sending an event again.": { ms: "Hidupkan semula alamat itu sebelum menghantar semula sesuatu acara.", zh: "请先重新开启该地址，再重新发送事件。" },
+  "Say which delivery or address to send again.": { ms: "Nyatakan penghantaran atau alamat yang hendak dihantar semula.", zh: "请指明要重新发送的推送或地址。" },
 };
