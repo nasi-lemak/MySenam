@@ -163,15 +163,19 @@ describe("a coach's own schedule", () => {
 });
 
 describe("what a coach is owed", () => {
-  it("is their fee on lessons that went ahead, paid and not yet, with no-shows apart", async () => {
-    const lessons = (await getDb().prepare("SELECT id, payment_status FROM bookings WHERE coach_id = ? AND status = 'confirmed' ORDER BY id").all(coach.id)) as { id: number; payment_status: string }[];
+  it("is their fee on lessons that went ahead, paid and not yet, with no-shows apart; lessons still to come are apart (ADR 0072)", async () => {
+    const lessons = (await getDb().prepare("SELECT id, date, payment_status FROM bookings WHERE coach_id = ? AND status = 'confirmed' ORDER BY id").all(coach.id)) as { id: number; date: string; payment_status: string }[];
     // One paid (by the pack, above), one unpaid marked a no-show, the rest unpaid.
     await getDb().prepare("UPDATE bookings SET no_show = 1 WHERE id = ?").run(lessons.find((l) => l.payment_status !== "paid")!.id);
     const [ana] = await coachPayouts(venueId, todayISO(), addDays(todayISO(), 30));
     expect(ana).toMatchObject({ coach: "Ana Lim", noShows: 1, noShowFees: 80 });
-    expect(ana.paidFees).toBe(80);
-    expect(ana.lessons).toBe(lessons.length - 1);
-    expect(ana.unpaidFees).toBe((lessons.length - 2) * 80);
+    // Changed by ADR 0072: every lesson here is still to come, so it is booked and not delivered, and none is owed yet (this test used to count them as having gone ahead).
+    expect(ana).toMatchObject({ lessons: 0, paidFees: 0, unpaidFees: 0, scheduledLessons: lessons.length - 1, scheduledPaidFees: 80, scheduledUnpaidFees: (lessons.length - 2) * 80 });
+    // Once they have been held (here: moved to yesterday) they are owed as they always were.
+    await getDb().prepare("UPDATE bookings SET date = ? WHERE coach_id = ? AND status = 'confirmed'").run(addDays(todayISO(), -1), coach.id);
+    const [held] = await coachPayouts(venueId, addDays(todayISO(), -1), addDays(todayISO(), 30));
+    expect(held).toMatchObject({ noShows: 1, noShowFees: 80, paidFees: 80, lessons: lessons.length - 1, unpaidFees: (lessons.length - 2) * 80, scheduledLessons: 0 });
+    for (const l of lessons) await getDb().prepare("UPDATE bookings SET date = ? WHERE id = ?").run(l.date, l.id);
     const csv = await coachPayoutsCsv(venueId, todayISO(), addDays(todayISO(), 30));
     expect(csv.split("\n")[0]).toContain(`"Coach","Date","Time","Booking","Student","Court","Coach fee","Paid","Status"`);
     expect(csv).toContain("No-show");
@@ -185,6 +189,7 @@ describe("what a coach is owed", () => {
       .prepare("UPDATE bookings SET status = 'cancelled', late_cancelled = 1, late_kept_percent = 50, payment_status = 'paid' WHERE id = ?")
       .run(one.id);
     const [ana] = await coachPayouts(venueId, todayISO(), addDays(todayISO(), 30));
-    expect(ana).toMatchObject({ lateCancels: 1, lateCancelFees: 40, noShows: 1, paidFees: 80 });
+    // (ADR 0072: the paid lesson is still to come, so its fee is scheduled, not yet owed.)
+    expect(ana).toMatchObject({ lateCancels: 1, lateCancelFees: 40, noShows: 1, paidFees: 0, scheduledPaidFees: 80 });
   });
 });

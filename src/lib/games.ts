@@ -84,9 +84,19 @@ export const LEVELS = ["beginner", "intermediate", "advanced", "competitive"] as
 export type Level = (typeof LEVELS)[number];
 /** Players a game can look for, unless the court lets one booking take more (`mostSpots`). */
 export const MAX_SPOTS = OPEN_GAME_SPOTS;
-/** Joining stops after this many no-shows in NO_SHOW_DAYS. */
+/** Joining stops after this many no-shows in NO_SHOW_DAYS that count where the game is (lib/no-show-marks.ts). */
 export const MAX_NO_SHOWS = 3;
 export const NO_SHOW_DAYS = 90;
+
+/**
+ * What makes a no-show mark count (ADR 0072): a mark that stands (in force, or kept by a reviewer), not one the player has answered
+ * and is waiting for a review, nor one taken back; made within NO_SHOW_DAYS of its game. One parameter: the first day it counts from.
+ * A mark from before statuses (`no_show_status` NULL) is read as in force and platform-wide, as it always was.
+ */
+export const NO_SHOW_COUNTS = (p: string, b: string) =>
+  `${p}.no_show = 1 AND COALESCE(${p}.no_show_status, 'in_force') IN ('in_force', 'upheld') AND ${b}.date >= ?`;
+/** ...and where it counts: a venue-scoped mark only at its own venue; the other scopes everywhere. One parameter: the venue. */
+export const NO_SHOW_HERE = (p: string) => `(COALESCE(${p}.no_show_scope, 'legacy_platform') <> 'venue' OR ${p}.no_show_venue_id = ?)`;
 
 export type GameStatus = "open" | "closed" | "cancelled";
 export type PlayerStatus = "requested" | "accepted" | "declined" | "left" | "removed" | "invited" | "waitlisted" | "offered" | "expired";
@@ -114,6 +124,8 @@ export interface GamePlayer {
   status: PlayerStatus;
   paid: boolean;
   noShow: boolean;
+  /** For the host: where the mark stands (lib/no-show-marks.ts); null where there is none. */
+  noShowStatus?: "in_force" | "disputed" | "upheld" | "reversed" | "withdrawn" | null;
   /** An invitation or a held place: when it runs out. */
   expiresAt: string | null;
   /** Invited, rather than asking. */
@@ -421,7 +433,7 @@ export async function openGame(
 export async function gamePlayers(gameId: number): Promise<GamePlayer[]> {
   const rows = (await getDb()
     .prepare(
-      `SELECT p.id, p.user_id, u.name, pl.level, p.status, p.paid_at, p.no_show, p.expires_at, p.invited_by, p.move_id
+      `SELECT p.id, p.user_id, u.name, pl.level, p.status, p.paid_at, p.no_show, p.no_show_status, p.expires_at, p.invited_by, p.move_id
          FROM open_game_players p
          JOIN users u ON u.id = p.user_id
          JOIN open_games g ON g.id = p.game_id
@@ -432,7 +444,7 @@ export async function gamePlayers(gameId: number): Promise<GamePlayer[]> {
     )
     .all(gameId)) as {
     id: number; user_id: number; name: string; level: Level | null; status: PlayerStatus; paid_at: string | null; no_show: number;
-    expires_at: string | null; invited_by: number | null; move_id: number | null;
+    no_show_status: GamePlayer["noShowStatus"]; expires_at: string | null; invited_by: number | null; move_id: number | null;
   }[];
   return rows.map((r) => ({
     id: r.id,
@@ -442,6 +454,7 @@ export async function gamePlayers(gameId: number): Promise<GamePlayer[]> {
     status: r.status,
     paid: r.paid_at !== null,
     noShow: r.no_show === 1,
+    noShowStatus: r.no_show_status,
     expiresAt: r.expires_at,
     invited: r.invited_by !== null,
     toConfirm: r.status === "accepted" && r.move_id !== null,
@@ -518,7 +531,7 @@ async function fillPlaces(game: OpenGame): Promise<void> {
 }
 
 /** The host deciding about one player: in, not this time, out, or did not come. */
-export async function decide(hostId: number, playerId: number, action: PlayerAction): Promise<GameResult> {
+export async function decide(hostId: number, playerId: number, action: PlayerAction, opts: { reason?: unknown } = {}): Promise<GameResult> {
   const db = getDb();
   const row = (await db
     .prepare("SELECT p.status, g.id AS game_id, g.host_id FROM open_game_players p JOIN open_games g ON g.id = p.game_id WHERE p.id = ?")
@@ -529,7 +542,9 @@ export async function decide(hostId: number, playerId: number, action: PlayerAct
   if (action === "no_show") {
     if (row.status !== "accepted") return { ok: false, error: "Only somebody who was in the game can miss it." };
     if (!isPastSlot(game.date, game.startHour, game.timeZone)) return { ok: false, error: "Only once the game has started." };
-    await db.prepare("UPDATE open_game_players SET no_show = 1 WHERE id = ?").run(playerId);
+    // A mark has a reason, a venue and a notice to the player, and can be answered and reviewed (lib/no-show-marks.ts, ADR 0072).
+    const marked = await (await import("./no-show-marks")).markNoShow(hostId, playerId, opts.reason);
+    if (!marked.ok) return marked;
     return { ok: true, game: (await gameById(game.id))! };
   }
   if (game.status !== "open") return { ok: false, error: "That game is closed." };
@@ -612,15 +627,18 @@ export async function cancelGame(hostId: number, gameId: number): Promise<GameRe
 
 // ------------------------------------------------------------ joining
 
-/** No-shows somebody has had marked against them lately. */
-export async function recentNoShows(userId: number): Promise<number> {
+/**
+ * The no-show marks that count against somebody lately. `venueId`: those that count at that venue (its own venue-scoped ones, and
+ * every platform-wide one); null: only the platform-wide ones, which count everywhere (ADR 0072).
+ */
+export async function recentNoShows(userId: number, venueId: number | null): Promise<number> {
   const row = (await getDb()
     .prepare(
       `SELECT COUNT(*)::int AS n FROM open_game_players p
          JOIN open_games g ON g.id = p.game_id JOIN bookings b ON b.id = g.booking_id
-        WHERE p.user_id = ? AND p.no_show = 1 AND b.date >= ?`
+        WHERE p.user_id = ? AND ${NO_SHOW_COUNTS("p", "b")} AND ${venueId === null ? "COALESCE(p.no_show_scope, 'legacy_platform') <> 'venue'" : NO_SHOW_HERE("p")}`
     )
-    .get(userId, addDays(todayISO(), -NO_SHOW_DAYS))) as { n: number };
+    .get(userId, addDays(todayISO(), -NO_SHOW_DAYS), ...(venueId === null ? [] : [venueId]))) as { n: number };
   return row.n;
 }
 
@@ -637,8 +655,8 @@ async function eligibility(user: { id: number; phone: string }, game: OpenGame):
   if (notFor) return { error: notFor.error, code: notFor.code, status: 403 };
   if (game.adultsOnly && (await declaredAdult(user.id)) !== true)
     return { error: "This game is for players who say they are 18 or over.", code: "ADULTS_ONLY", status: 403 };
-  if ((await recentNoShows(user.id)) >= MAX_NO_SHOWS)
-    return { error: `You missed ${MAX_NO_SHOWS} games you joined in the last ${NO_SHOW_DAYS} days, so you cannot join games for now.` };
+  if ((await recentNoShows(user.id, game.venueId)) >= MAX_NO_SHOWS)
+    return { error: `You missed ${MAX_NO_SHOWS} games you joined in the last ${NO_SHOW_DAYS} days, so you cannot join games for now.`, code: "NO_SHOW_LIMIT" };
   if (await isBlocked(game.venueId, user.phone)) return { error: "This venue is not taking bookings from your number." };
   const notHere = await accessRefusal(game.venueId, user.id);
   if (notHere) return { error: notHere.error, code: notHere.code, status: 403 };

@@ -1010,4 +1010,10 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "The date must be after today.": { ms: "Tarikh mestilah selepas hari ini.", zh: "日期必须晚于今天。" },
   "At most 90 days at a time.": { ms: "Paling lama 90 hari pada satu masa.", zh: "每次最多 90 天。" },
   "Hold a waiting-list offer for 5 to 120 minutes.": { ms: "Tahan tawaran senarai menunggu selama 5 hingga 120 minit.", zh: "候补名额的提供时间须为 5 至 120 分钟。" },
+  // Hardening, people (ADR 0072): reviewing a host's no-show mark
+  "Reverse it, let it stand, or make it count everywhere.": { ms: "Batalkannya, biarkan ia kekal, atau jadikan ia dikira di semua pusat.", zh: "请选择撤销、维持，或改为在所有场馆计入。" },
+  "Write why this mark should count at every venue.": { ms: "Tulis sebab tanda ini patut dikira di semua pusat.", zh: "请写明为什么这个标记应在所有场馆计入。" },
+  "Only a manager reviews a mark.": { ms: "Hanya pengurus yang menyemak tanda.", zh: "只有经理才能审核标记。" },
+  "Only the platform owner decides a mark that counts at every venue.": { ms: "Hanya pemilik platform yang memutuskan tanda yang dikira di semua pusat.", zh: "只有平台所有者才能决定在所有场馆计入的标记。" },
+  "That mark is not waiting for a decision.": { ms: "Tanda itu tidak menunggu keputusan.", zh: "该标记没有在等待决定。" },
 };

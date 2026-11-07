@@ -16,6 +16,7 @@ import { resolveSafetyFlag, safetyFlags, safetyFlagVenue } from "@/lib/safety-fl
 import { strandedFixtures, undrawnTournaments } from "@/lib/competition-fixtures";
 import { moderationAttention } from "@/lib/message-moderation";
 import { overdueAccountsAttention } from "@/lib/accounts";
+import { peopleAttention } from "@/lib/people-attention";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,9 @@ async function windowOverrideAlerts(venueIds: number[] | null) {
  * And `accountsOverdue`: invoices to company and school accounts unpaid past their due day, oldest first, each with what is still to pay, the days
  * overdue and whether the venue's block now stops new bookings on that account (lib/accounts.ts; the desk sees them as it takes their payments).
  * And `messageModeration` (same readers): open reports of messages by number and age, automatic suspensions to review with their date, and requests for a review (ADR 0059).
+ * And `people` (ADR 0072): players' answers to hosts' no-show marks waiting for a decision, older marks that count everywhere, and hosts whose marks are
+ * often reversed (managers and the owner); passes, memberships and vouchers ending within two weeks; passes nearly used; strikes lately and numbers at the limit;
+ * coaches with lessons coming and no email address (lib/people-attention.ts).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -86,6 +90,8 @@ export async function GET(req: NextRequest) {
     messageModeration: admin.role === "desk" ? null : await moderationAttention(admin),
     // Invoices to company and school accounts past their day (lib/accounts.ts).
     accountsOverdue: await overdueAccountsAttention(admin.venueIds ?? null),
+    // People (lib/people-attention.ts): no-show marks answered, what ends soon, strikes, coaches nobody can tell.
+    people: await peopleAttention(admin),
   });
 }
 

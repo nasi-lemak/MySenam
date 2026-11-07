@@ -709,7 +709,8 @@ export async function exportCustomerData(userId: number): Promise<CustomerExport
     games: await all(
       `SELECT b.date, b.start_min, v.name AS venue, b.sport,
               CASE WHEN g.host_id = ? THEN 'host' ELSE p.status END AS role,
-              g.share, p.paid_at AS share_paid_at, p.no_show
+              g.share, p.paid_at AS share_paid_at, p.no_show, p.no_show_status, p.no_show_scope, p.no_show_reason, p.no_show_at,
+              p.no_show_dispute_note, p.no_show_review_note
          FROM open_games g
          JOIN bookings b ON b.id = g.booking_id
          JOIN courts c ON c.id = b.court_id

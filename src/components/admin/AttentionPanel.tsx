@@ -19,6 +19,8 @@ import { useStaffT } from "./StaffLanguage";
 import type { CompetitionFixture, UndrawnTournament } from "@/lib/competition-fixtures";
 import type { ModerationAttention } from "@/lib/message-moderation";
 import type { OverdueInvoice } from "@/lib/accounts";
+import type { PeopleAttention as PeopleData } from "@/lib/people-attention";
+import { PeopleAttention, peopleLineCount } from "./PeopleAttention";
 
 const REACH_STYLE: Record<UrgentNotice["reach"], string> = {
   unreachable: "bg-red-100 text-red-800",
@@ -107,6 +109,8 @@ export function AttentionPanel() {
     messageModeration?: ModerationAttention | null;
     /** Invoices to company and school accounts unpaid past their day, oldest first, and whether the venue's block stops new bookings on each (lib/accounts.ts). */
     accountsOverdue?: (OverdueInvoice & { blocking: boolean })[];
+    /** No-show marks players answered, passes and memberships ending, strikes, coaches with no email (lib/people-attention.ts, ADR 0072). */
+    people?: PeopleData;
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [moveTo, setMoveTo] = useState<Record<string, string>>({});
@@ -155,7 +159,8 @@ export function AttentionPanel() {
   const modLines = mod ? (mod.openReports > 0 ? 1 : 0) + mod.suspensionsToReview.length + (mod.reviewRequests > 0 ? 1 : 0) : 0;
   const compLines = days.size + (comp?.undrawn.length ?? 0) + modLines;
   const overdueAccounts = data?.accountsOverdue ?? [];
-  if (!data?.open || !data.recent || (overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
+  const peopleLines = peopleLineCount(data?.people);
+  if (!data?.open || !data.recent || (peopleLines === 0 && overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
 
   /** Postpone a day's fixtures of a tournament or a team league to another day (ADR 0059). */
   async function postpone(d: { kind: CompetitionFixture["kind"]; ownerId: number; date: string }) {
@@ -219,6 +224,7 @@ export function AttentionPanel() {
   const reach = reachLabels(t);
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label={t("att.title")}>
+      {data.people && peopleLines > 0 && <PeopleAttention data={data.people} />}
       {compLines > 0 && (
         <div className="mb-3 space-y-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="competition-attention">
           <strong>{t("fx10.att.title")}</strong>

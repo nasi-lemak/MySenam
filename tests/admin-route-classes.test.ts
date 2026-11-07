@@ -239,6 +239,8 @@ const ROUTE_CLASS: Record<string, "manager" | "owner" | "desk" | "account"> = {
   "POST /api/admin/memberships/flags": "desk",
   "GET /api/admin/message-moderation": "manager",
   "POST /api/admin/message-moderation": "manager",
+  "GET /api/admin/no-show-marks": "manager",
+  "POST /api/admin/no-show-marks": "manager",
   "GET /api/admin/messages": "desk",
   "POST /api/admin/messages": "desk",
   "POST /api/admin/no-show": "desk",

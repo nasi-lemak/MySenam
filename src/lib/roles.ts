@@ -82,6 +82,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/ratings$/, methods: "all" },
   // Reports of messages between players, suspending somebody's messaging, muting or closing a thread (lib/message-moderation.ts): safety decisions, a manager's.
   { path: /^\/api\/admin\/message-moderation$/, methods: "all" },
+  // A host's no-show mark in an open game: the answers waiting for a decision, reversing one or letting it stand (lib/no-show-marks.ts, ADR 0072): a manager's.
+  { path: /^\/api\/admin\/no-show-marks$/, methods: "all" },
   // Supervised youth groups that asked this venue to look after them: answering, ending, taking an adult out, and reading a group's conversation for safeguarding review (each reading recorded): a manager's (lib/youth-safeguarding.ts).
   { path: /^\/api\/admin\/youth-groups$/, methods: "all" },
   // What a correction left wrong in a tournament: letting it stand or replaying is the organiser's.

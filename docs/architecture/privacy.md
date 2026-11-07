@@ -70,7 +70,7 @@ against the account: bookings, credit, passes and memberships sold to it
 each [suspension](../features/pricing.md#suspending-a-membership) of it with
 its dates and reasons, and memberships bought online as chosen and what
 became of each), places on
-venues' lists linked to it, games, the playing profile, people blocked, reports made and community
+venues' lists linked to it, games (with any no-show mark made about them: its reason, status, scope, the player's own answer and the review's note; [open games](../features/matchmaking.md#no-show-marks)), the playing profile, people blocked, reports made and community
 groups, teams, leagues, tournaments, receipts and credit notes, the e-invoices made
 for its receipts with the buyer details given ([below](#e-invoice-records)), each authorisation it gave for a child's full name on public pages
 ([below](#minors-names-on-public-pages)), waiting-list places,

@@ -23,6 +23,7 @@ import { SystemHealth } from "@/components/admin/SystemHealth";
 import { ErrorsPanel } from "@/components/admin/ErrorsPanel";
 import { IntegrityCheck } from "@/components/admin/IntegrityCheck";
 import { PlayerReportsPanel } from "@/components/admin/PlayerReportsPanel";
+import { NoShowMarksPanel } from "@/components/admin/NoShowMarksPanel";
 import { MessageReportsPanel } from "@/components/admin/MessageReportsPanel";
 import { YouthGroupsPanel } from "@/components/admin/YouthGroupsPanel";
 import { VenuesTab } from "@/components/admin/VenuesTab";
@@ -298,6 +299,8 @@ export default function AdminPage() {
       {isOwner && <PlayerReportsPanel />}
       {/* Reports of messages between players: a venue's manager for its own conversations, the owner for those with no venue (lib/message-moderation.ts). */}
       {!desk && <MessageReportsPanel />}
+      {/* Hosts' no-show marks in open games, and players' answers to them: a venue's manager for its own venues, the owner for all (lib/no-show-marks.ts). */}
+      {!desk && <NoShowMarksPanel />}
       {!desk && <YouthGroupsPanel />}
       {isOwner && <FirstRun onSeeded={refreshVenues} />}
       {/* One for each branch still being set up; each disappears once its branch is ready. */}
