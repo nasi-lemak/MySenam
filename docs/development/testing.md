@@ -964,6 +964,41 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 7 November 2026, commit `c23ca9e` (post-audit hardening round, release verification on the AI VM: PASS)
+
+`node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
+on a loopback port), of commit `c23ca9ebd2d9a0a24de0c943aac0f3411df083e1`, tree clean, source digest `2692a0302b45af11c4dcb8ac5a5142d5813c990a24d734f3805d9c57186150ed` (the same
+before and after the run). Started 13:04 UTC, 4556 seconds. Report: `artifacts/verify/c23ca9ebd2d9-1794056682453.json` (not committed). This verifies the source of the
+[hardening round](../audits/hardening-2026-11-07.md) (nine branches, one cross-domain suite, the sign-up review, migrations 0312 to 0342). **This is not CI** (no GitHub Actions job
+was started) **and not production readiness**; the [pilot readiness assessment](../operations/pilot-readiness-2026-11-07.md) says what stands between the two.
+
+| Step | Result |
+| ---- | ------ |
+| Type-check | Passed |
+| Lint (`--max-warnings 0`) | Passed |
+| Documentation checks | 169 of 169 passed |
+| Suite on PGlite | 6845 passed, 0 failed, 15 skipped (the 15 Postgres-only tests listed in `scripts/lib/expected-skips.mjs`), of 6860 |
+| Suite on PostgreSQL 16 | 6861 passed, 0 failed, **0 skipped**, of 6861; the server committed 2401 transactions during it (Postgres was used) |
+| Production build (`.next` removed first) | Succeeded |
+| Browser end-to-end tests | 12 of 12 passed |
+| Acceptance scenarios (UAT) | 27 files; 95 of 95 passed, none skipped |
+| CI | Not run: GitHub Actions workflows start only by hand |
+| Real services | None exercised (below) |
+
+**How it got there.** Two complete runs failed first; neither was retried into a pass, and a failed run's report is kept as it was.
+
+| Run | Commit | Failed | Cause and fix |
+| --- | ------ | ------ | ------------- |
+| 1 | `bd9cc5f` | Three acceptance scenarios (everything else passed: PGlite 6845 of 6860, Postgres 6861 of 6861, end-to-end 12 of 12) | The scenarios encoded behaviour the round changed on purpose: a customer changing a booking's time now sees what it does to the price and confirms (`change-time`, `round6` Coaches U), and a booking keeps the cancellation terms shown when it was made, so the venue turns on *give the court back after the cutoff* before she books (`round8` Late AK). Corrected, not loosened |
+| 2 | `8af12df` | Postgres: two tests; one acceptance scenario | `no-enumeration-timing` counted queued sign-up requests after the reply while the background worker could already have taken them (a defect of a test: it reads the table's counter); `team-forfeit-requests` expected one of two names for the same refusal (*fixture decided*, *season over*) of a request racing the result that finished the season (a defect of a test: it accepts both); `tournament-day` timed out once waiting for a heading and passed twice alone straight afterwards (**unexplained**; a timing flake under load is the best reading, recorded as such in [known limitations](../roadmap/known-limitations.md)) |
+| 3 | `c23ca9e` | Nothing | PASS |
+
+Two defects of the product were found by the round's own tests, not by these runs, and are in the [hardening record](../audits/hardening-2026-11-07.md#found-by-the-rounds-own-tests-and-reviews). Commits after `c23ca9e` that change only this file leave the verification standing; `node scripts/verify.mjs check` says so.
+
+**Not verified by this run, by name** (each is in the report's `integrations`, with the command that checks it): Billplz (FPX, cards, refunds, and the new settlement checks against a real sandbox), Stripe
+(cards, refunds, disputes, subscriptions, `pause_collection`), email through SES or SMTP, WhatsApp (and the changed waitlist offer template, which needs resubmitting to Meta), SMS, Backblaze B2 / S3
+off-site storage, MyInvois, Xero, Google sign-in, ClamAV on the Droplet. The suites use stand-ins for all of them.
+
 #### 6 November 2026, commit `1737cc2` (release verification on the AI VM: PASS)
 
 The first complete release run that passed: `node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker 29 with
