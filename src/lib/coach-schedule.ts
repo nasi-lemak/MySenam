@@ -13,7 +13,7 @@ import { staffLocales } from "./staff-locales";
 import { siteName } from "./site";
 import { venueBaseUrl } from "./storefront";
 import { shiftEvents } from "./roster-calendar";
-import { addDays, formatHour, todayISO } from "./time";
+import { addDays, currentTime, formatHour, todayISO } from "./time";
 import { venueZoneOf } from "./zones";
 
 /**
@@ -256,10 +256,15 @@ export async function coachCalendar(found: CoachByToken, venueId: number, locale
 /**
  * Tell coaches, by email, of lessons booked with them and of lessons since
  * cancelled. Once each: a lesson's cancellation only if its booking was told.
+ *
+ * **Every lesson still to come that its coach has not been told of**, however long ago it was booked: a coach whose address was
+ * set later, or whose lessons were reassigned to them, hears of all of them (ADR 0072; it used to look only at lessons booked in
+ * the last two days, so the rest were never told). Lessons of a coach with no address are not lost: the needs-attention list names
+ * those coaches (`coachesWithoutEmail`). The coach's emails are not held to the day's limit per recipient (lib/outbox.ts): the address
+ * is one the venue's manager gave, and a limit would write off a backlog for good.
  */
 export async function notifyCoaches(now = new Date()): Promise<number> {
   const db = getDb();
-  const since = new Date(now.getTime() - 2 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
   const rows = (await db
     .prepare(
       `SELECT b.id, b.code, b.date, b.start_min, b.end_min, COALESCE(b.participant_name, b.name) AS name, b.status, k.id AS coach_id, k.name AS coach, k.email, k.locale,
@@ -267,11 +272,11 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
               EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id) AS told
          FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
         WHERE k.email IS NOT NULL AND b.demo = 0 AND b.date >= ?
-          AND ((b.status = 'confirmed' AND b.created_at >= ?
-                AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id))
-               OR (b.status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-cancel:' || b.id)))`
+          AND ((b.status = 'confirmed' AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-new:' || b.id))
+               OR (b.status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.dedupe_key = 'coach-cancel:' || b.id)))
+        ORDER BY b.date, b.start_min, b.id`
     )
-    .all(now.toISOString().slice(0, 10), since)) as {
+    .all(now.toISOString().slice(0, 10))) as {
     id: number;
     code: string;
     date: string;
@@ -318,6 +323,38 @@ export async function notifyCoaches(now = new Date()): Promise<number> {
     sent++;
   }
   return sent;
+}
+
+export interface UntoldCoach {
+  coachId: number;
+  coach: string;
+  venueId: number;
+  venueName: string;
+  /** Lessons still to come with this coach, none of which MySenam can tell them of. */
+  lessons: number;
+  firstDate: string;
+  /** The coach has a schedule link that works, so can see their lessons without an email. */
+  hasLink: boolean;
+}
+
+/**
+ * The coaches who have lessons still to come and no email address: nothing is sent to them (`notifyCoaches` needs an address), so staff
+ * tell them another way or set the address, after which they are told of every one. Needs-attention list; soonest lesson first.
+ */
+export async function coachesWithoutEmail(venueIds: number[] | null): Promise<UntoldCoach[]> {
+  if (venueIds !== null && venueIds.length === 0) return [];
+  const rows = (await getDb()
+    .prepare(
+      `SELECT k.id, k.name, v.id AS venue_id, v.name AS venue, COUNT(*)::int AS n, MIN(b.date) AS first_date,
+              (k.link_hash IS NOT NULL AND k.link_expires_at > now()) AS has_link
+         FROM bookings b JOIN coaches k ON k.id = b.coach_id JOIN courts c ON c.id = b.court_id JOIN venues v ON v.id = c.venue_id
+        WHERE (k.email IS NULL OR k.email = '') AND b.status = 'confirmed' AND b.demo = 0 AND NOT b.test AND b.date >= ?
+          ${venueIds === null ? "" : `AND v.id IN (${venueIds.map(() => "?").join(",")})`}
+        GROUP BY k.id, k.name, v.id, v.name, k.link_hash, k.link_expires_at
+        ORDER BY first_date, k.id`
+    )
+    .all(todayISO(), ...(venueIds ?? []))) as { id: number; name: string; venue_id: number; venue: string; n: number; first_date: string; has_link: boolean }[];
+  return rows.map((r) => ({ coachId: r.id, coach: r.name, venueId: r.venue_id, venueName: r.venue, lessons: r.n, firstDate: r.first_date, hasLink: r.has_link === true }));
 }
 
 /**
@@ -377,12 +414,18 @@ export async function notifyLessonMoved(bookingId: number, was: { date: string; 
 export interface CoachPayout {
   coachId: number;
   coach: string;
+  /** Lessons that have been held: they ended before now, on the venue's clock, and were not marked a no-show. */
   lessons: number;
   hours: number;
   /** Coach fees on lessons that went ahead and are paid. */
   paidFees: number;
   /** On lessons that went ahead and are not paid yet: owed once the venue collects. */
   unpaidFees: number;
+  /** Lessons in the period still to come (not yet ended), and their fees: booked, not delivered, so not owed yet (ADR 0072). */
+  scheduledLessons: number;
+  scheduledHours: number;
+  scheduledPaidFees: number;
+  scheduledUnpaidFees: number;
   /** Lessons the student did not turn up to, and the fees on them: the venue decides. */
   noShows: number;
   noShowFees: number;
@@ -391,20 +434,41 @@ export interface CoachPayout {
   lateCancelFees: number;
 }
 
-/** Per coach, the lessons in a period (on the lesson's date) and the coach's fees on them. */
+/** Whether a lesson has ended, on the venue's own clock: its date has passed, or it is today and its last minute has. */
+const heldSql = (alias: string) => `(${alias}.date < ? OR (${alias}.date = ? AND ${alias}.end_min <= ?))`;
+
+/** The venue's date today and the minute of its day now, for `heldSql`. */
+async function venueClock(venueId: number): Promise<[string, string, number]> {
+  const row = (await getDb().prepare("SELECT time_zone, lat, lng FROM venues WHERE id = ?").get(venueId)) as { time_zone: string | null; lat: number | null; lng: number | null } | undefined;
+  const zone = venueZoneOf(row ?? {});
+  const today = todayISO(zone);
+  return [today, today, Math.floor(currentTime(zone) * 60)];
+}
+
+/**
+ * Per coach, the lessons in a period (on the lesson's date) and the coach's fees on them. What is owed (`lessons`, `paidFees`,
+ * `unpaidFees`) counts only lessons that have ended; lessons still to come are `scheduled…`, booked and not yet delivered (ADR 0072).
+ */
 export async function coachPayouts(venueId: number, from: string, to: string): Promise<CoachPayout[]> {
   const rows = (await getDb()
     .prepare(
       `SELECT k.id, k.name,
-              COUNT(b.id) FILTER (WHERE b.no_show = 0) AS lessons,
-              COALESCE(SUM(b.end_min - b.start_min) FILTER (WHERE b.no_show = 0) / 60.0, 0)::float AS hours,
-              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.payment_status = 'paid'), 0)::float AS paid,
-              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.payment_status <> 'paid'), 0)::float AS unpaid,
+              COUNT(b.id) FILTER (WHERE b.no_show = 0 AND b.held) AS lessons,
+              COALESCE(SUM(b.end_min - b.start_min) FILTER (WHERE b.no_show = 0 AND b.held) / 60.0, 0)::float AS hours,
+              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.held AND b.payment_status = 'paid'), 0)::float AS paid,
+              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND b.held AND b.payment_status <> 'paid'), 0)::float AS unpaid,
+              COUNT(b.id) FILTER (WHERE b.no_show = 0 AND NOT b.held) AS scheduled,
+              COALESCE(SUM(b.end_min - b.start_min) FILTER (WHERE b.no_show = 0 AND NOT b.held) / 60.0, 0)::float AS scheduled_hours,
+              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND NOT b.held AND b.payment_status = 'paid'), 0)::float AS scheduled_paid,
+              COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 0 AND NOT b.held AND b.payment_status <> 'paid'), 0)::float AS scheduled_unpaid,
               COUNT(b.id) FILTER (WHERE b.no_show = 1) AS no_shows,
               COALESCE(SUM(b.coach_fee) FILTER (WHERE b.no_show = 1), 0)::float AS no_show_fees,
               MAX(late.n) AS late_cancels, MAX(late.fees)::float AS late_fees
          FROM coaches k
-         LEFT JOIN bookings b ON b.coach_id = k.id AND b.status = 'confirmed' AND b.demo = 0 AND b.date BETWEEN ? AND ?
+         LEFT JOIN (
+           SELECT x.*, ${heldSql("x")} AS held FROM bookings x
+            WHERE x.status = 'confirmed' AND x.demo = 0 AND x.date BETWEEN ? AND ?
+         ) b ON b.coach_id = k.id
          CROSS JOIN LATERAL (
            SELECT COUNT(*) AS n, COALESCE(SUM(x.coach_fee * x.late_kept_percent / 100.0), 0) AS fees
              FROM bookings x
@@ -415,13 +479,17 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
         GROUP BY k.id, k.name
         ORDER BY k.name`
     )
-    .all(from, to, from, to, venueId)) as {
+    .all(...(await venueClock(venueId)), from, to, from, to, venueId)) as {
     id: number;
     name: string;
     lessons: number | string;
     hours: number;
     paid: number;
     unpaid: number;
+    scheduled: number | string;
+    scheduled_hours: number;
+    scheduled_paid: number;
+    scheduled_unpaid: number;
     no_shows: number | string;
     no_show_fees: number;
     late_cancels: number | string;
@@ -435,12 +503,16 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
       hours: Number(r.hours),
       paidFees: roundMoney(Number(r.paid)),
       unpaidFees: roundMoney(Number(r.unpaid)),
+      scheduledLessons: Number(r.scheduled),
+      scheduledHours: Number(r.scheduled_hours),
+      scheduledPaidFees: roundMoney(Number(r.scheduled_paid)),
+      scheduledUnpaidFees: roundMoney(Number(r.scheduled_unpaid)),
       noShows: Number(r.no_shows),
       noShowFees: roundMoney(Number(r.no_show_fees)),
       lateCancels: Number(r.late_cancels),
       lateCancelFees: roundMoney(Number(r.late_fees)),
     }))
-    .filter((p) => p.lessons > 0 || p.noShows > 0 || p.lateCancels > 0);
+    .filter((p) => p.lessons > 0 || p.scheduledLessons > 0 || p.noShows > 0 || p.lateCancels > 0);
 }
 
 /**
@@ -449,6 +521,7 @@ export async function coachPayouts(venueId: number, from: string, to: string): P
  * students in their own lessons, never another coach's (a child among them).
  */
 export async function coachPayoutsCsv(venueId: number, from: string, to: string, coachId?: number): Promise<string> {
+  const clock = await venueClock(venueId);
   const rows = (await getDb()
     .prepare(
       `SELECT k.name AS coach, b.date, b.start_min, b.end_min, b.code, COALESCE(b.participant_name, b.name) AS student, c.name AS court,
@@ -480,7 +553,7 @@ export async function coachPayoutsCsv(venueId: number, from: string, to: string,
       r.court,
       money(Number(r.fee)),
       r.payment_status === "paid" ? "Yes" : "No",
-      r.no_show === 1 ? "No-show" : "Went ahead",
+      r.no_show === 1 ? "No-show" : r.date < clock[0] || (r.date === clock[0] && r.end_min <= clock[2]) ? "Went ahead" : "Scheduled",
     ])
   );
 }

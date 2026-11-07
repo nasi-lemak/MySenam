@@ -171,7 +171,8 @@ describe("joining", () => {
       // The game has been and gone.
       await getDb().prepare("UPDATE bookings SET date = ? WHERE id = ?").run(addDays(todayISO(), -1), b.id);
       const me = (await myGames(host.id)).hosting.find((g) => g.id === game.id)!.players![0];
-      expect((await decide(host.id, me.id, "no_show")).ok).toBe(true);
+      // A mark needs a reason since ADR 0072 (this call used to need none).
+      expect((await decide(host.id, me.id, "no_show", { reason: "Did not turn up" })).ok).toBe(true);
     }
     const { game } = await hostGame();
     expect(await askToJoin(flake, game.id)).toMatchObject({ ok: false, error: expect.stringContaining("missed") });

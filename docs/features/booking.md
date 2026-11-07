@@ -1430,6 +1430,16 @@ refunds and no-shows* on the Venues tab (`lib/cancel-policy.ts`):
   paid as it is booked, or a manager overrides it where the venue allows; the
   venue's API key is refused
   ([the same policies on every path](#the-same-policies-on-every-path)).
+  When staff mark a booking a no-show where the venue counts strikes, its customer is
+  emailed once: which strike it is, what happens at the limit and the venue's number to
+  ask if it is a mistake (an account's own address, or a guest's on the booking; not to an account that said it is
+  under 18; [messaging](../integrations/messaging.md#no-show-marks-and-what-ends-soon)). Staff see numbers with a strike
+  lately and every number at the limit under *Needs attention*
+  ([people needing attention](venue-operations.md#people-needing-attention)).
+  **Strikes follow the phone number** at the venue, whoever booked: a number
+  recycled to somebody else brings the earlier owner's strikes, and a guest can type
+  a number. That is the behaviour today (the owner's decision DEC-39 on it is open; a manager can forgive a
+  number's strikes), tested in `tests/standing-notices.test.ts`.
 
 
 ### Taking one person off a booking

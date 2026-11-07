@@ -99,6 +99,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "membership.flag_resolved": "Decided a booking a membership no longer covers",
   "checkin.confirmed": "Confirmed a customer's own check-in as attendance",
   "safety.flag_resolved": "Decided a booking left for a decision",
+  "no-show.reviewed": "Reviewed a host's no-show mark in an open game",
   "signoff.bookings_flagged": "Flagged bookings after a sign-off was taken back",
   "lesson.coach_changed": "Gave a lesson to another coach",
   "lesson.coach_difference_paid": "Took the difference for a dearer coach",

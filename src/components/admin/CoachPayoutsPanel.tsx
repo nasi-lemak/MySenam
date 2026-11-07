@@ -34,6 +34,7 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
       <p className="mt-1 text-xs text-slate-500">
         {t("cpay.intro")}
       </p>
+      <p className="mt-1 text-xs text-slate-500">{t("ppls.cpay.scheduledNote")}</p>
       <table className="mt-2 w-full text-left">
         <thead className="text-xs text-slate-500">
           <tr>
@@ -42,6 +43,7 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
             <th className="py-1 text-right">{t("cpay.hours")}</th>
             <th className="py-1 text-right">{t("cpay.feesPaid")}</th>
             <th className="py-1 text-right">{t("cpay.feesUnpaid")}</th>
+            <th className="py-1 text-right">{t("ppls.cpay.scheduled")}</th>
             <th className="py-1 text-right">{t("cpay.noShows")}</th>
             <th className="py-1 text-right">{t("cpay.lateCancels")}</th>
           </tr>
@@ -63,6 +65,9 @@ export function CoachPayoutsPanel({ venueId, from, to }: { venueId: number; from
               <td className="py-1 text-right tabular-nums">{p.hours}</td>
               <td className="py-1 text-right tabular-nums">{money(p.paidFees)}</td>
               <td className="py-1 text-right tabular-nums">{money(p.unpaidFees)}</td>
+              <td className="py-1 text-right tabular-nums">
+                {p.scheduledLessons > 0 ? t("ppls.cpay.scheduledCell", { n: p.scheduledLessons, paid: money(p.scheduledPaidFees), unpaid: money(p.scheduledUnpaidFees) }) : "0"}
+              </td>
               <td className="py-1 text-right tabular-nums">
                 {p.noShows}
                 {p.noShows > 0 && ` (${money(p.noShowFees)})`}

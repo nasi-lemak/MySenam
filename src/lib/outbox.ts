@@ -121,14 +121,27 @@ export type MessageKind =
    * overdue invoice): what stands, what waits and whom to ask, once per suspension (lib/suspension-notices.ts). Urgent news: not held
    * to the daily limit.
    */
-  | "venue_suspension_notice";
+  | "venue_suspension_notice"
+  /**
+   * By email only, to a player: a host's mark that they did not come to an open game was made, taken back or decided (lib/no-show-marks.ts,
+   * ADR 0072). The venue's decision about a person, so not held to the day's limit per recipient.
+   */
+  | "no_show_notice"
+  /**
+   * By email only, to a customer: a pass or a membership of theirs ends within days, or a no-show was recorded against their number
+   * (lib/standing-notices.ts). Once per item; held to the day's limit per recipient like any other.
+   */
+  | "customer_notice";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
  * daily limit per recipient, which is there to keep the site from being used
  * to flood somebody else's phone. A busy venue takes more bookings than that.
+ * Also a coach's lesson emails (the address is one a manager gave, and a limit
+ * wrote a backlog off for good) and a player's no-show notices (the venue's
+ * decision about a person), ADR 0072.
  */
-const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day", "team_decision", "safeguarding_notice", "booking_safety_notice"];
+const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_change", "hire_enquiry", "staff_alert", "tournament_day", "team_decision", "safeguarding_notice", "booking_safety_notice", "no_show_notice", "coach_lesson"];
 
 /**
  * The urgent news a customer must not miss, in one place: what the venue does to their booking (cancelled, moved, changed), the

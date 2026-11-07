@@ -53,11 +53,13 @@ and only that (`src/lib/games.ts`).
   owed back at once. The host owes a handed-back share again; one who had
   already paid the rest online owes just that share, and what they paid keeps
   its own receipt ([business rules](../product/business-rules.md#money)).
-- **No-shows.** After the game, the host can mark a player who did not come.
-  Three in 90 days, and that player cannot join games until they age out.
+- **No-shows.** After the game, the host can mark a player who did not come, with a reason; the
+  player is told and can answer it, a manager reviews it, and it counts only at the game's venue
+  ([no-show marks](#no-show-marks)). Three that count at a venue in 90 days, and that player cannot
+  join games there until they age out.
 - **The host's tools**: accept, decline, remove a player (who is emailed and
   owed back), invite players, share a link, close the game to new requests,
-  call it off while keeping the court, and mark no-shows. Moving the game to
+  call it off while keeping the court, and mark no-shows (and take a mark back). Moving the game to
   another time is [below](#moving-a-game-to-another-time); staff can also
   move its booking to another court.
 - Everyone is emailed through the message queue when it matters: the host
@@ -74,6 +76,43 @@ and only that (`src/lib/games.ts`).
   the groups they organised; the
   personal data export includes games, levels, the playing profile, blocks,
   reports they made and groups.
+
+## No-show marks
+
+A host's mark that somebody did not come is told, answered and reviewed, and counts at its own venue
+(`src/lib/no-show-marks.ts`, [ADR 0072](../architecture/decisions/0072-a-hosts-no-show-mark-is-told-answered-and-reviewed-and-counts-at-its-venue.md),
+the owner's decision DEC-50; migration 0341). The mark is a record on the player's row of the game
+(`open_game_players`), not a new table.
+
+- **Making one.** Only the game's host, only for somebody who was in the game, only once it has started and
+  within 7 days after it, and only with a **reason** of 3 to 300 characters, which the player is shown. A host
+  can make 12 in a week. Making it twice changes nothing and tells nobody twice. A mark that was taken back
+  cannot be made again.
+- **The player is told** by email, in their language (English, Malay, Chinese, Tamil): who marked them, the
+  game, the reason, where it counts and how to answer ([messaging](../integrations/messaging.md#no-show-marks-and-what-ends-soon)).
+  An account that said it is under 18 is not emailed (as the venue's other notices to account holders); its marks
+  are on its own *Your games* page, and nothing about a child is said to anybody else.
+- **It counts at the venue of the game**, for 90 days from the game: three that count there refuse the player
+  that venue's open games (and its games are left out of what is suggested to them, and they of its hosts'
+  suggested players). It counts at **every** venue only when the platform owner has reviewed it and written why.
+  A mark answered by the player and not yet decided does not count; one taken back never does.
+- **The player answers** under *Your games* (*Marks that you did not come*): it lists each mark that counts or waits,
+  where it counts, the reason, and *This is wrong*, with what happened in a few words (3 to 500 characters). One answer per mark;
+  3 answers can wait at once; after 3 answers in 180 days that a reviewer let stand, new ones are refused in the app and the player
+  is told to ask the venue.
+- **A manager reviews** (for the venue's own marks; the owner for any) in *No-show marks in open games* on the dashboard,
+  and the dashboard's *Needs attention* says how many answers are waiting and for how long. Each is *taken off*, *let
+  stand* or (the owner's alone) *made to count at every venue*, with a note that is kept; the player is told, and
+  the decision is in the staff activity log. A mark can be reversed later by a reviewer, whatever it was decided before. Front desk
+  cannot. A manager sees first names only.
+- **The host can take their own mark back** (a misclick) until a reviewer has decided it; it is not counted against them.
+  Hosts whose marks reviewers reversed 3 times or more in 180 days are shown to the venue's staff and the owner.
+- **Marks made before this** stay in force and are scoped to the venue of their game; they have no reason, host or time (the
+  reviewer reads that) and can be answered and reviewed like any other. Where the venue cannot be found a mark counts everywhere,
+  as it did, until the owner reviews it.
+- **Limits of this:** there is no email to a guardian of an under-18 account (none is linked); delivery of the emails is unverified;
+  the limits above are constants the owner can change. Tests: `tests/no-show-marks.test.ts` (also on Postgres, with the races),
+  `tests/no-show-marks-migration.test.ts`.
 
 ## Moving a game to another time
 

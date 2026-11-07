@@ -49,6 +49,8 @@ down](#when-a-provider-is-down-and-what-keeps-a-message-from-being-lost)).
 | The customer cancels | Cancelled | email; WhatsApp on *everything* |
 | Money paid online for a booking comes back, cannot be sent back, is later than the venue said, or is the venue's to send by a date | **Refund** notice (kind `refund_notice`): made (amount, date), problem, late, or owed by a date; once per change, in the language the booking was made in ([refund notices](#refund-notices)) | email only; urgent (not held to the daily limit) |
 | A venue they hold a booking, pass, membership or credit at is suspended or held for an invoice | **Venue suspension** notice (kind `venue_suspension_notice`): what stands, what waits, whom to ask; once per suspension ([a venue taken off the marketplace](#a-venue-taken-off-the-marketplace)) | email only; urgent (not held to the daily limit) |
+| A host marks a player who did not come to an open game; the mark is taken back, let stand or made to count at every venue | **No-show mark** notice (kind `no_show_notice`): who, the game, the reason, where it counts, how to answer; once per change ([no-show marks](#no-show-marks-and-what-ends-soon)) | email only; not held to the daily limit |
+| A pass or membership of an account ends within 14 days; staff mark a no-show where the venue counts strikes | **Ending soon** / **missed booking** notice (kind `customer_notice`), once per item ([no-show marks and what ends soon](#no-show-marks-and-what-ends-soon)) | email only |
 | The venue cancels — at the desk, by closing the day, by taking the court out of service, or by calling off the class | **Cancelled by the venue**, with a *seen it* link (urgent) | email; WhatsApp unless *off* |
 | The venue moves a booking to another court | **Moved**, with the new court and a *seen it* link (urgent) | email; WhatsApp unless *off* |
 | A waitlist place frees up | Offer, with a link to claim it (urgent: it expires); the page it opens can also turn the offer down | email; WhatsApp unless *off* |
@@ -189,7 +191,7 @@ looks like in practice is recorded then.
   day over everything) is held back for marketing, reminders, confirmations and
   the like. The urgent set (`URGENT_NEWS_KINDS`, `lib/outbox.ts`: what the venue
   does to a booking, a waitlist offer, a guardian's notice, `refund_notice`, `venue_suspension_notice`;
-  safeguarding notices, team decisions, tournament-day notices and staff alerts
+  safeguarding notices, team decisions, tournament-day notices, no-show notices, coach lesson emails and staff alerts
   are exempt as before) has a ceiling of its own, `MYSENAM_URGENT_PER_RECIPIENT_PER_DAY`
   (default 30, at least 8, at most 1000), counted among urgent notices alone, so the
   site still cannot be used to flood a number.
@@ -247,6 +249,23 @@ and the scheduler's holds check tells any suspension a stop left untold. An acco
 is under 18 is not written to; a pass or membership sold at the counter to nobody with an
 account has no address, and its venue tells them. Suspensions already in force when migration
 0311 ran were not told. Passes and memberships are not extended for the time off.
+
+#### No-show marks and what ends soon
+
+*Hosts' marks* (`no_show_notice`, `src/lib/no-show-marks.ts`, [ADR 0072](../architecture/decisions/0072-a-hosts-no-show-mark-is-told-answered-and-reviewed-and-counts-at-its-venue.md)):
+the player is emailed when a host marks them, when the mark is taken off (by the host or a reviewer), when a reviewer lets it stand, and when the platform's owner makes it count at every venue,
+in their language (English, Malay, Chinese, Tamil), with the host's first name, the game, the host's reason and what to do. Once per change, under a key of the mark and the stamp of the change.
+Not held to the day's limit per recipient (the venue's decision about a person); never WhatsApp. An account that said it is under 18 is not written to.
+
+*What ends soon* (`customer_notice`, `src/lib/standing-notices.ts`): an account holder who is an adult, with an address, is emailed once for each pass or membership that ends within 14 days
+(under a key of the item and its end date, so an extension is a new notice and a second run writes nothing), by the scheduler. Not for an item under 7 days old, a pass with no entries left, or a membership that
+renews itself, has a later term or is suspended; nor for a venue that is suspended. And once when staff mark a booking a no-show at a venue that counts strikes: which strike it is, what happens at the limit (pay
+online to book, or book at the counter), and the venue's number to ask; to the account's own address or a guest's on the booking. These are held to the day's limit per recipient like any other message.
+Email only: no WhatsApp template exists for any of it. Gift vouchers are not written about (only the buyer's address is held); a late-cancellation strike is not written about.
+**Not verified against a real mailbox** (`INTEGRATION_VERIFICATION_REQUIRED`: email); the tests read the outbox.
+
+*Coaches* (`coach_lesson`): a coach is told of every lesson still to come that they have not heard of, however long ago it was booked, and these emails are no longer held to the day's limit
+([programmes](../features/programmes.md#a-coachs-own-schedule-no-account-needed)).
 
 #### The platform's invoice to a venue
 

@@ -17,6 +17,7 @@ import { strandedFixtures, undrawnTournaments } from "@/lib/competition-fixtures
 import { moderationAttention } from "@/lib/message-moderation";
 import { overdueAccountsAttention } from "@/lib/accounts";
 import { enquiriesAttention } from "@/lib/enquiries";
+import { peopleAttention } from "@/lib/people-attention";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,9 @@ async function windowOverrideAlerts(venueIds: number[] | null) {
  * And `enquiries` (everyone who may see enquiries, desk included): private hire enquiries nobody has answered, oldest first (`total`, and the first 20 as `items`
  * with their age and whether they have waited long enough to be nudged), whether or not the venue set an alert email (lib/enquiries.ts).
  * And `messageModeration` (same readers): open reports of messages by number and age, automatic suspensions to review with their date, and requests for a review (ADR 0059).
+ * And `people` (ADR 0072): players' answers to hosts' no-show marks waiting for a decision, older marks that count everywhere, and hosts whose marks are
+ * often reversed (managers and the owner); passes, memberships and vouchers ending within two weeks; passes nearly used; strikes lately and numbers at the limit;
+ * coaches with lessons coming and no email address (lib/people-attention.ts).
  */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -91,6 +95,8 @@ export async function GET(req: NextRequest) {
     accountsOverdue: await overdueAccountsAttention(admin.venueIds ?? null),
     // Private hire enquiries nobody has answered, with a nudge for the ones waiting longest (lib/enquiries.ts).
     enquiries: await enquiriesAttention(admin.venueIds ?? null),
+    // People (lib/people-attention.ts): no-show marks answered, what ends soon, strikes, coaches nobody can tell.
+    people: await peopleAttention(admin),
   });
 }
 

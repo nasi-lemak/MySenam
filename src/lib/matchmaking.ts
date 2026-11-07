@@ -10,7 +10,7 @@ import { addDays, isPastSlot, todayISO } from "./time";
 import { allows, playerGender, type Gender, type Who } from "./who";
 import { blockedInGame } from "./player-safety";
 import { dayPart, playerProfile, toProfile, type DayPart, type Intensity, type PlayerProfile, type ProfileRow } from "./player-profiles";
-import { gameById, gamesByIds, LEVELS, NO_SHOW_DAYS, MAX_NO_SHOWS, playerLevels, recentNoShows, type Level, type OpenGame } from "./games";
+import { gameById, gamesByIds, LEVELS, NO_SHOW_COUNTS, NO_SHOW_DAYS, NO_SHOW_HERE, MAX_NO_SHOWS, playerLevels, recentNoShows, type Level, type OpenGame } from "./games";
 import { earnedRatingsOf, gameFormat, gameReferenceRatings, poolEarned, ratingKey, ratingRulesNow } from "./ratings";
 import { levelOfRating, type RatingRules } from "./rating-math";
 import type { Sport } from "./types";
@@ -174,8 +174,9 @@ export async function recommendGames(
   userId: number,
   opts: { sport?: Sport; limit?: number; offset?: number; venueIds?: number[] } = {}
 ): Promise<GameRecommendations> {
-  const [profile, levels, gender, noShows] = await Promise.all([playerProfile(userId), playerLevels(userId), playerGender(userId), recentNoShows(userId)]);
+  const [profile, levels, gender, noShows] = await Promise.all([playerProfile(userId), playerLevels(userId), playerGender(userId), recentNoShows(userId, null)]);
   const basis = { levels, hasPoint: profile.near !== null, area: profile.area, levelBasis: profile.levelBasis };
+  // Marks that count everywhere stop every suggestion; a venue-scoped one stops only that venue's games (below).
   if (noShows >= MAX_NO_SHOWS) return { games: [], excluded: {}, considered: 0, stopped: "NO_SHOWS", basis };
   // Only a player who chose to be matched on their earned level has it used (the default is the level they declared); their non-provisional ratings by venue, sport and format.
   const earned = profile.levelBasis === "declared" ? null : await earnedRatingsOf(userId);
@@ -266,7 +267,10 @@ export async function recommendGames(
       continue;
     }
     if (!venueOk.has(game.venueId))
-      venueOk.set(game.venueId, !(await isBlocked(game.venueId, user.phone)) && !(await accessRefusal(game.venueId, userId)));
+      venueOk.set(
+        game.venueId,
+        !(await isBlocked(game.venueId, user.phone)) && !(await accessRefusal(game.venueId, userId)) && (await recentNoShows(userId, game.venueId)) < MAX_NO_SHOWS
+      );
     if (!venueOk.get(game.venueId) || (await blockedInGame(userId, game.id))) {
       leaveOut("UNAVAILABLE");
       continue;
@@ -350,13 +354,13 @@ export async function recommendPlayers(
         WHERE pp.discoverable = 1 AND pp.adult = 1 AND pp.user_id <> ?
           AND NOT EXISTS (SELECT 1 FROM open_game_players p WHERE p.game_id = ? AND p.user_id = pp.user_id AND p.status NOT IN ('left', 'expired'))
           AND (SELECT COUNT(*) FROM open_game_players p JOIN open_games og ON og.id = p.game_id JOIN bookings ob ON ob.id = og.booking_id
-                WHERE p.user_id = pp.user_id AND p.no_show = 1 AND ob.date >= ?) < ?
+                WHERE p.user_id = pp.user_id AND ${NO_SHOW_COUNTS("p", "ob")} AND ${NO_SHOW_HERE("p")}) < ?
           AND NOT EXISTS (SELECT 1 FROM player_blocks k
                            WHERE (k.blocker_id = pp.user_id AND (k.blocked_id = ? OR k.blocked_id IN (SELECT user_id FROM open_game_players WHERE game_id = ? AND status IN ('accepted', 'offered'))))
                               OR (k.blocked_id = pp.user_id AND (k.blocker_id = ? OR k.blocker_id IN (SELECT user_id FROM open_game_players WHERE game_id = ? AND status IN ('accepted', 'offered')))))
         ORDER BY pp.user_id LIMIT 500`
     )
-    .all(game.sport, hostId, gameId, addDays(todayISO(), -NO_SHOW_DAYS), MAX_NO_SHOWS, hostId, gameId, hostId, gameId)) as (Record<string, unknown> & {
+    .all(game.sport, hostId, gameId, addDays(todayISO(), -NO_SHOW_DAYS), game.venueId, MAX_NO_SHOWS, hostId, gameId, hostId, gameId)) as (Record<string, unknown> & {
     user_id: number; name: string; gender: Gender | null; level: Level;
   })[];
 

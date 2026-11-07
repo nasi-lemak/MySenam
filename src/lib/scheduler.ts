@@ -345,6 +345,14 @@ async function runShortWork(now: Date, result: TickResult): Promise<void> {
   }
 
   try {
+    // Customers hear, once, that a pass or membership of theirs ends within two weeks (lib/standing-notices.ts).
+    await (await import("./standing-notices")).tellExpiring(now);
+  } catch (err) {
+    console.error("[mysenam] telling customers what ends soon failed:", err);
+    await raiseAlert("scheduler:expiry-notices-failed", failed("srv.work.expiryNotices"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // One email, the day after a first visit to a venue, asking how it was.
     await askForReviews(now);
   } catch (err) {

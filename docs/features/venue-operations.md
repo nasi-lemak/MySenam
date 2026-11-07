@@ -758,6 +758,28 @@ why, for staff to decide ([ADR 0058](../architecture/decisions/0058-safety-and-a
 A customer who revealed the door code or checked in can still cancel on the
 venue's late terms; that is a known limitation, not a rule.
 
+## People needing attention
+
+The dashboard's *Needs attention* list has a block, *People: marks, endings and strikes*
+(`src/lib/people-attention.ts`, `GET /api/admin/attention`, [ADR 0072](../architecture/decisions/0072-a-hosts-no-show-mark-is-told-answered-and-reviewed-and-counts-at-its-venue.md)),
+for the staff member's own venues (the owner's, all):
+
+- **No-show marks in open games** (managers and the owner): players' answers waiting for a decision and how long the oldest
+  has waited, older marks that count everywhere and have not been reviewed (the owner's), and hosts whose marks are often
+  reversed; decided in *No-show marks in open games* ([open games](matchmaking.md#no-show-marks)).
+- **What ends soon**: passes with entries left, memberships that will not renew themselves and gift vouchers that end within 14
+  days, soonest first, saying whether MySenam writes to the holder (an account's address) or staff must; and passes down
+  to their last 2 entries. Memberships that renew themselves, or have a later term, are not listed.
+  Customers with an account are emailed once ([messaging](../integrations/messaging.md#no-show-marks-and-what-ends-soon)).
+- **Strikes** (where the venue counts them): numbers with a strike in the last 7 days and every number at the venue's limit
+  (who must pay online to book, or book at the counter). Strikes follow the **phone number** at the venue, whoever booked: a number
+  recycled to somebody else brings the earlier owner's strikes (the owner's decision on this, DEC-39, is open; a manager can forgive them).
+- **Coaches with lessons coming and no email address** ([programmes](programmes.md#a-coachs-own-schedule-no-account-needed)):
+  nothing can be sent to them; the line says how many lessons and from when, and whether they have a schedule link.
+
+Not built: a second reminder close to the end, a voucher email, a campaign. Tests: `tests/standing-notices.test.ts`,
+`tests/coach-untold-and-payouts.test.ts`.
+
 ## Who supervises a session
 
 A range, a pool, open water and a climbing wall are never left to run unstaffed

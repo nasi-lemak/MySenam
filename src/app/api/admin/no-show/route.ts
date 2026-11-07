@@ -29,5 +29,7 @@ export async function POST(req: NextRequest) {
   const result = await setNoShow(code, noShow);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   await logAction(admin, { venueId, action: "booking.no_show", bookingCode: result.booking.code, detail: noShow ? "no-show" : "cleared" });
+  // Where the venue counts strikes, the customer hears of this one, once (lib/standing-notices.ts). A mail that cannot be written does not undo the mark.
+  if (noShow) await (await import("@/lib/standing-notices")).tellStrike(result.booking.code).catch((err) => console.error("[mysenam] strike notice failed:", err));
   return NextResponse.json({ booking: result.booking });
 }

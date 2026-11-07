@@ -693,7 +693,16 @@ On each coach under *Coaches* (`lib/coach-schedule.ts`):
   with them and when one is cancelled, once each (`notifyCoaches`, every
   scheduler tick, dedupe keys `coach-new:<id>` and `coach-cancel:<id>`), in
   the coach's own language (`coachLocale`), the lesson's hours as it writes
-  them.
+  them. Every lesson still to come that the coach has not been told of is
+  covered, however long ago it was booked: a coach whose address was set later,
+  or whose lessons were reassigned, hears of all of them
+  ([ADR 0072](../architecture/decisions/0072-a-hosts-no-show-mark-is-told-answered-and-reviewed-and-counts-at-its-venue.md)),
+  and these emails are not held to the day's limit per recipient (the address is one
+  a manager gave; a limit wrote a backlog off for good). A coach with lessons to come
+  and **no address** is on the dashboard's *Needs attention* list (how many lessons, from
+  when, whether they have a schedule link): nothing is sent to them until an address is set.
+  Lessons already past, demonstration bookings and a lesson cancelled before the coach
+  heard of it are never told.
 - **Language.** Any language the install offers customers, Tamil included,
   chosen by the coach at their link (*Your language*) or by staff beside
   their email; none chosen is the install's first staff language. Their
@@ -739,9 +748,11 @@ coach's venue only, not to another coach, not once inactive).
 ### What coaches are owed
 
 *Reports* shows *Coaches: lessons and fees* for the period: per coach, lessons
-that went ahead and their hours, the coach's fees on those paid and on those
-not yet paid, and no-shows apart (whether a coach is paid for those is the
-venue's call). *Every lesson (CSV)* has one row per lesson for the venue's
+that went ahead (**that have ended**, on the venue's own clock) and their hours, the coach's fees on
+those paid and on those not yet paid, and no-shows apart (whether a coach is paid for those is the
+venue's call). Lessons in the period **still to come** are counted apart, as *Still to come*
+(`scheduled…` in `coachPayouts`): booked, not delivered, and not yet owed; the lessons file says
+*Scheduled* for them. The instructor's register of who was absent still feeds nothing here, by design. *Every lesson (CSV)* has one row per lesson for the venue's
 books (`/api/admin/coach-payouts`, managers only); *Their lessons (CSV)*
 beside each coach (`coachId`) holds that coach's own lessons only, the file
 to hand to the coach, naming no other coach's students.

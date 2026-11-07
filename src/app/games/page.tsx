@@ -14,6 +14,7 @@ import { addDays, formatHour, slotStartsAt, todayISO } from "@/lib/time";
 import { type Sport } from "@/lib/types";
 import { useOfferedSports } from "@/components/OfferedSports";
 import type { GamePlayer, Level, OpenGame } from "@/lib/games";
+import type { MyMark } from "@/lib/no-show-marks";
 import { shortDate } from "@/lib/region";
 import type { Intensity } from "@/lib/player-profiles";
 import { Suggested } from "./Suggested";
@@ -60,7 +61,7 @@ export default function GamesPage() {
   const [near, setNear] = useState<NearChoice | null>(null);
   const [games, setGames] = useState<OpenGame[] | null>(null);
   const [signedIn, setSignedIn] = useState(false);
-  const [mine, setMine] = useState<{ hosting: OpenGame[]; playing: OpenGame[]; noShows: number; maxNoShows: number } | null>(null);
+  const [mine, setMine] = useState<{ hosting: OpenGame[]; playing: OpenGame[]; noShows: number; maxNoShows: number; marks: MyMark[] } | null>(null);
   const [levels, setLevels] = useState<Partial<Record<Sport, Level>>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -384,7 +385,7 @@ function MyGames({
   say,
 }: {
   t: T;
-  mine: { hosting: OpenGame[]; playing: OpenGame[]; noShows: number; maxNoShows: number };
+  mine: { hosting: OpenGame[]; playing: OpenGame[]; noShows: number; maxNoShows: number; marks: MyMark[] };
   act: (url: string, body: object, done?: string) => Promise<void>;
   refresh: () => Promise<void>;
   say: (msg: string | null, error?: string) => void;
@@ -399,6 +400,7 @@ function MyGames({
       {mine.noShows > 0 && (
         <p className="text-sm text-amber-800">{t("games.noShowWarning", { n: mine.noShows, max: mine.maxNoShows })}</p>
       )}
+      {(mine.marks ?? []).length > 0 && <MyMarks t={t} marks={mine.marks} act={act} max={mine.maxNoShows} />}
       {mine.hosting.map((g) => (
         <div key={g.id} className="rounded-lg bg-white p-3 text-sm shadow-sm" data-testid={`hosted-${g.id}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -434,6 +436,9 @@ function MyGames({
                             ? `${t("games.joined")}, ${t("games.paid").toLowerCase()}`
                             : t("games.joined")}
                       {p.noShow && ` · ${t("games.noShow")}`}
+                      {p.noShowStatus === "disputed" && ` · ${t("ppl.host.answered")}`}
+                      {p.noShowStatus === "upheld" && ` · ${t("ppl.host.kept")}`}
+                      {(p.noShowStatus === "reversed" || p.noShowStatus === "withdrawn") && ` · ${t("ppl.host.off")}`}
                       {p.toConfirm && ` · ${t("move.toConfirm")}`}
                     </span>
                     {(p.status === "requested" || (p.status === "waitlisted" && g.joined + g.held < g.spots)) && (
@@ -452,9 +457,21 @@ function MyGames({
                       </button>
                     )}
                     <SafetyButtons t={t} userId={p.userId} gameId={g.id} done={say} />
-                    {p.status === "accepted" && started(g) && !p.noShow && (
-                      <button onClick={() => void act(`/api/games/${g.id}/players/${p.id}`, { action: "no_show" })} className={small}>
+                    {p.status === "accepted" && started(g) && !p.noShow && !p.noShowStatus && (
+                      <button
+                        onClick={() => {
+                          // The player is shown the reason, and can answer it (lib/no-show-marks.ts).
+                          const reason = window.prompt(t("ppl.host.reasonPrompt"));
+                          if (reason !== null) void act(`/api/games/${g.id}/players/${p.id}`, { action: "no_show", reason });
+                        }}
+                        className={small}
+                      >
                         {t("games.noShow")}
+                      </button>
+                    )}
+                    {(p.noShowStatus === "in_force" || p.noShowStatus === "disputed") && (
+                      <button onClick={() => void act(`/api/games/${g.id}/players/${p.id}`, { action: "take_back_no_show" })} className={small}>
+                        {t("ppl.host.takeBack")}
                       </button>
                     )}
                   </li>
@@ -547,6 +564,59 @@ function MyGames({
         </div>
       ))}
     </section>
+  );
+}
+
+/**
+ * The no-show marks a host made against this player that count, or wait for a review (lib/no-show-marks.ts, ADR 0072): where each counts,
+ * the reason the host gave, and a way to say it is wrong. An answered mark does not count until a manager has looked at it.
+ */
+function MyMarks({ t, marks, act, max }: { t: T; marks: MyMark[]; act: (url: string, body: object, done?: string) => Promise<void>; max: number }) {
+  const [answering, setAnswering] = useState<number | null>(null);
+  const [text, setText] = useState("");
+  return (
+    <div className="space-y-2 rounded-lg bg-white p-3 text-sm shadow-sm" data-testid="my-marks">
+      <h3 className="font-semibold text-amber-900">{t("ppl.marks.title")}</h3>
+      <p className="text-xs text-slate-600">{t("ppl.marks.intro", { days: 90, max })}</p>
+      <ul className="space-y-2">
+        {marks.map((m) => (
+          <li key={m.playerId} className="rounded-md border border-slate-200 px-2 py-1.5" data-testid={`my-mark-${m.playerId}`}>
+            <div className="font-medium">
+              {t("ppl.marks.line", { venue: m.venueName, when: `${m.date} ${formatHour(m.startHour, t.locale)}`, host: m.hostName })}
+            </div>
+            <div>{m.reason ? t("ppl.marks.reason", { reason: m.reason }) : t("ppl.marks.noReason")}</div>
+            <div className="text-xs text-slate-600">
+              {t(`ppl.marks.scope.${m.scope}`, { venue: m.venueName })} · {t(`ppl.marks.state.${m.status === "disputed" || m.status === "upheld" ? m.status : "in_force"}`)}
+            </div>
+            {m.answer && <div className="text-xs">{t("ppl.marks.yourAnswer", { answer: m.answer })}</div>}
+            {m.canAnswer &&
+              (answering === m.playerId ? (
+                <div className="mt-1 space-y-1">
+                  <label className="block text-xs text-slate-600">
+                    {t("ppl.marks.answerLabel")}
+                    <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={500} rows={2} className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void act("/api/my/no-show-marks", { playerId: m.playerId, answer: text }, t("ppl.marks.sent"));
+                      setAnswering(null);
+                      setText("");
+                    }}
+                    className="rounded-md bg-teal-600 px-2 py-1 text-xs font-semibold text-white hover:bg-teal-700"
+                  >
+                    {t("ppl.marks.send")}
+                  </button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setAnswering(m.playerId)} className="mt-1 rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium hover:border-teal-500">
+                  {t("ppl.marks.answer")}
+                </button>
+              ))}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

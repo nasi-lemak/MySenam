@@ -1020,4 +1020,10 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That address's owner no longer manages this venue, so it stays stopped. Add it again, or rotate it, instead.": { ms: "Pemilik alamat itu tidak lagi menguruskan pusat ini, jadi ia kekal dihentikan. Tambah semula, atau putarkannya, sebaliknya.", zh: "该地址的所有者不再管理本场馆，因此它保持停止。请重新添加，或改为轮换。" },
   "That person does not manage this venue.": { ms: "Orang itu tidak menguruskan pusat ini.", zh: "该人员并不管理本场馆。" },
   "Address not found.": { ms: "Alamat tidak ditemui.", zh: "找不到该地址。" },
+  // Hardening, people (ADR 0072): reviewing a host's no-show mark
+  "Reverse it, let it stand, or make it count everywhere.": { ms: "Batalkannya, biarkan ia kekal, atau jadikan ia dikira di semua pusat.", zh: "请选择撤销、维持，或改为在所有场馆计入。" },
+  "Write why this mark should count at every venue.": { ms: "Tulis sebab tanda ini patut dikira di semua pusat.", zh: "请写明为什么这个标记应在所有场馆计入。" },
+  "Only a manager reviews a mark.": { ms: "Hanya pengurus yang menyemak tanda.", zh: "只有经理才能审核标记。" },
+  "Only the platform owner decides a mark that counts at every venue.": { ms: "Hanya pemilik platform yang memutuskan tanda yang dikira di semua pusat.", zh: "只有平台所有者才能决定在所有场馆计入的标记。" },
+  "That mark is not waiting for a decision.": { ms: "Tanda itu tidak menunggu keputusan.", zh: "该标记没有在等待决定。" },
 };
