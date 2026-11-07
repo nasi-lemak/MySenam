@@ -54,6 +54,19 @@ How MySenam reaches MyInvois (`src/lib/myinvois/client.ts`):
   other venue carries on in the same run
   ([ADR 0055](../architecture/decisions/0055-reports-reconcile-with-the-journal-and-einvoicing-keeps-going.md);
   `tests/einvoice-resilience.test.ts`).
+- **A late one is marked.** A consolidated e-invoice (or its credit notes) sent, or still to be sent,
+  after the seventh day of the month following its period shows *Late: after <date>* beside its status
+  (`late`, `lateAfter` on each e-invoice in the list). Only a marker, for staff and the adviser: nothing
+  is done differently for it, and LHDN's sources say what the seven days are but not what follows a late one
+  (audit G15).
+- **Credit and gift vouchers are an open tax question** (audit C2, DEC-19). The consolidated one
+  carries a credit top-up or a voucher's sale *and* the bookings paid from it, so it can report more
+  than was sold; whether and when prepaid value is e-invoiced is for the venue's adviser
+  ([memo](../operations/einvoice-stored-credit-memo.md)). Meanwhile switching e-invoicing on at a venue
+  that has sold stored credit or a gift voucher is refused unless its manager ticks that they understand
+  (`acknowledgeStoredValue` on `POST /api/admin/einvoicing`; the settings screen explains); that is
+  written to the activity log. A venue already on is not switched off, and nothing is excluded from
+  the e-invoice on a guess.
 - **Credit notes**, by the e-invoice that carried what they reverse: the
   month's consolidated one, or a customer's own, as consolidated credit notes
   (`CCN-2026-11-CON-2026-10`) naming it by LHDN's UUID. A credit note waits
@@ -290,8 +303,11 @@ code where it is used, and has not been checked against the MyInvois
 sandbox or LHDN's current guidance. None is presented to staff as settled:
 
 - the consolidated e-invoice sent in the first seven days after the month
-  (`runEInvoicing`; made late, after the seventh day, where an outage or a
-  failure stopped it, which LHDN may treat differently: for the venue's
+  (`runEInvoicing`; LHDN's FAQ, question 38, and Specific Guideline v4.9, section 3.6.2,
+  both read on 7 November 2026, say "within seven (7) calendar days after the month
+  end", and say nothing on what follows a late one; made late, after the seventh day,
+  where an outage or a failure stopped it, it is marked *Late* and otherwise treated
+  as any other, which LHDN may treat differently: for the venue's
   adviser), made out to the general public (TIN `EI00000000010`,
   state 17) with classification 004, and consolidated credit notes made the
   same way;

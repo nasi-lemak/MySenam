@@ -77,6 +77,34 @@ export interface EInvoiceSettings {
   missingPhrases: StaffText[];
   /** The platform can act as intermediary on this install. */
   intermediaryAvailable: boolean;
+  /**
+   * Whether the venue has sold stored credit or gift vouchers (audit C2, DEC-19). While what a consolidated e-invoice does with
+   * those is unsettled, e-invoicing is not switched on here without the manager saying so (`acknowledgeStoredValue`).
+   */
+  storedValueSales: StoredValueSales;
+}
+
+export interface StoredValueSales {
+  credit: boolean;
+  vouchers: boolean;
+}
+
+/**
+ * Whether the venue has sold stored credit (a top-up at the counter or online) or gift vouchers: a receipt for either, a paid
+ * online top-up or voucher, or a voucher issued. Read, never assumed: a venue that has sold neither is not held back.
+ */
+export async function storedValueSales(venueId: number): Promise<StoredValueSales> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT
+         (EXISTS (SELECT 1 FROM receipts WHERE venue_id = ? AND kind = 'receipt' AND source LIKE 'wallet:%')
+          OR EXISTS (SELECT 1 FROM online_payments WHERE venue_id = ? AND purpose = 'topup' AND status = 'paid'))::int AS credit,
+         (EXISTS (SELECT 1 FROM receipts WHERE venue_id = ? AND kind = 'receipt' AND source LIKE 'voucher:%')
+          OR EXISTS (SELECT 1 FROM online_payments WHERE venue_id = ? AND purpose = 'voucher' AND status = 'paid')
+          OR EXISTS (SELECT 1 FROM gift_vouchers WHERE venue_id = ? AND status IN ('active', 'redeemed')))::int AS vouchers`
+    )
+    .get(venueId, venueId, venueId, venueId, venueId)) as { credit: number; vouchers: number };
+  return { credit: Number(row.credit) === 1, vouchers: Number(row.vouchers) === 1 };
 }
 
 interface SettingsRow {
@@ -159,8 +187,13 @@ export async function einvoiceSettings(venueId: number): Promise<EInvoiceSetting
     missing: missingOf(r),
     missingPhrases: missingPhrases(r),
     intermediaryAvailable: intermediaryAvailable(),
+    storedValueSales: await storedValueSales(venueId),
   };
 }
+
+/** The refusal (said in the staff language by lib/staff-i18n/refusals-2.ts): the exact English is its key. */
+export const STORED_VALUE_REFUSAL =
+  "This venue has sold stored credit or gift vouchers, and what a consolidated e-invoice does with them is not settled (a question for your tax adviser). Tick that you understand before turning e-invoicing on.";
 
 const text = (v: unknown, max = 200) => (typeof v === "string" && v.trim() !== "" ? v.trim().slice(0, max) : null);
 
@@ -201,6 +234,12 @@ export async function saveEInvoiceSettings(
   if (row.enabled === 1) {
     const missing = missingOf({ venue_id: venueId, ...row });
     if (missing.length > 0) return { ok: false, error: `Still needed before turning it on: ${missing.join(", ")}.` };
+    // Switching it on where credit or vouchers are sold: what a consolidated e-invoice does with them is not settled (a tax
+    // adviser's question, audit C2), so it is not done by accident. Saying so is enough; a venue already on is not switched off.
+    if (before?.enabled !== 1 && input.acknowledgeStoredValue !== true) {
+      const sold = await storedValueSales(venueId);
+      if (sold.credit || sold.vouchers) return { ok: false, error: STORED_VALUE_REFUSAL };
+    }
   }
   const cols = Object.keys(row) as (keyof typeof row)[];
   await getDb()
@@ -382,6 +421,13 @@ export interface EInvoice {
   clearedAt: string | null;
   /** A credit note waiting for what it corrects to be valid: that document's number. */
   waitingFor: string | null;
+  /**
+   * A consolidated document (or its credit notes) sent, or still to be sent, after the seventh day of the month following
+   * its period (`lateAfter`, YYYY-MM-DD). A marker only, so staff see it and the adviser can be asked: what LHDN makes of
+   * a late one is not verified here (docs/integrations/myinvois.md, audit G15), and nothing is done differently for it.
+   */
+  late: boolean;
+  lateAfter: string | null;
   actions: EInvoiceAction[];
   /**
    * Why one LHDN refused may not be replaced: a customer's own whose sale
@@ -557,6 +603,7 @@ async function toEInvoice(r: EInvoiceRow): Promise<EInvoice> {
     correctedBy,
     clearedAt: r.cleared_at,
     waitingFor,
+    ...(await lateMarker(r)),
     actions,
     replaceBlocked,
   };
@@ -792,6 +839,26 @@ async function zoneOf(venueId: number): Promise<string> {
     | { time_zone: string | null; lat: number | null; lng: number | null }
     | undefined;
   return venueZoneOf(v ?? {});
+}
+
+/** The seventh day of the month after a period: "2026-10" gives "2026-11-07". UNVERIFIED as LHDN's rule (see `runEInvoicing`). */
+export function seventhDayAfter(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  return m === 12 ? `${y + 1}-01-07` : `${y}-${String(m + 1).padStart(2, "0")}-07`;
+}
+
+/** A stored UTC time, as the day it fell on where the venue is. */
+function localDay(utc: string, zone: string): string {
+  const at = new Date(utc.includes("T") ? utc : `${utc.replace(" ", "T")}Z`);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+}
+
+/** Whether a consolidated document went (or is still to go) after the seventh day of the month following its period. */
+async function lateMarker(r: EInvoiceRow): Promise<{ late: boolean; lateAfter: string | null }> {
+  if ((r.kind !== "consolidated" && r.kind !== "consolidated_credit") || !r.period) return { late: false, lateAfter: null };
+  const lateAfter = seventhDayAfter(r.period);
+  const when = r.submitted_at ?? new Date().toISOString();
+  return { late: localDay(when, await zoneOf(r.venue_id)) > lateAfter, lateAfter };
 }
 
 /** A stored UTC time, as the month it fell in where the venue is. */

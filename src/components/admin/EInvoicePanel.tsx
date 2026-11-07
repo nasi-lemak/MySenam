@@ -99,6 +99,8 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
   const [recording, setRecording] = useState<number | null>(null);
   const [ids, setIds] = useState({ submissionUid: "", documentUuid: "" });
   const [historyOf, setHistoryOf] = useState<number | null>(null);
+  /** The manager has said they understand credit or vouchers have been sold and their e-invoicing is unsettled (audit C2). */
+  const [ackStored, setAckStored] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -236,7 +238,7 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
               className="mt-3 space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                void act({ action: "save", ...form }, t("c.saved"));
+                void act({ action: "save", ...form, acknowledgeStoredValue: ackStored }, t("c.saved"));
               }}
             >
               <div className="grid gap-3 sm:grid-cols-2">
@@ -302,6 +304,17 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                   {t("einv.on")}
                 </label>
               </div>
+              {(settings.storedValueSales.credit || settings.storedValueSales.vouchers) && (
+                <div className="rounded-md bg-amber-50 p-2 text-sm text-amber-900" data-testid="stored-value-warning">
+                  <p>{t("hd1.ei.storedValue")}</p>
+                  {!settings.enabled && (
+                    <label className="mt-1 flex items-center gap-2">
+                      <input type="checkbox" checked={ackStored} onChange={(e) => setAckStored(e.target.checked)} />
+                      {t("hd1.ei.storedValueAck")}
+                    </label>
+                  )}
+                </div>
+              )}
               <p className="text-sm text-slate-600">{t("ei8.namesNever")}</p>
               {form.enabled && !form.sandbox && (
                 <p className="rounded-md bg-rose-50 p-2 text-sm text-rose-800">
@@ -373,6 +386,11 @@ export function EInvoicePanel({ venues }: { venues: ManagedVenue[] }) {
                   <span className={`rounded px-2 py-0.5 text-xs font-semibold ${e.outcomeUnknown ? UNKNOWN_TONE : TONE[e.status]}`}>
                     {e.outcomeUnknown ? t("ei10.status.unknown") : STATUS[e.status]}
                   </span>
+                  {e.late && e.lateAfter && (
+                    <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900" title={t("hd1.ei.lateHelp")}>
+                      {t("hd1.ei.late", { date: e.lateAfter })}
+                    </span>
+                  )}
                   {e.link && (
                     <a href={e.link} target="_blank" rel="noreferrer" className="text-teal-700 hover:underline">
                       {t("einv.viewAtLhdn")}

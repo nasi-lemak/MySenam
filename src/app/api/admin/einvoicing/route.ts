@@ -66,7 +66,11 @@ export async function POST(req: NextRequest) {
       await logAction(admin, {
         venueId,
         action: "einvoice.settings",
-        detail: `${saved.settings.enabled ? "On" : "Off"}, ${saved.settings.sandbox ? "sandbox" : "production"}, ${saved.settings.mode === "own" ? "own credentials" : "through the platform"}`,
+        detail: `${saved.settings.enabled ? "On" : "Off"}, ${saved.settings.sandbox ? "sandbox" : "production"}, ${saved.settings.mode === "own" ? "own credentials" : "through the platform"}${
+          saved.settings.enabled && body.acknowledgeStoredValue === true && (saved.settings.storedValueSales.credit || saved.settings.storedValueSales.vouchers)
+            ? "; the manager acknowledged that stored credit or vouchers have been sold and their e-invoicing is unsettled (audit C2)"
+            : ""
+        }`,
       });
       return NextResponse.json({ settings: saved.settings });
     }
