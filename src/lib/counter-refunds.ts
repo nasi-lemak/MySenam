@@ -1,6 +1,6 @@
 import { logAction } from "./activity";
 import { getDb, withTransaction } from "./db";
-import { creditBooking } from "./documents";
+import { creditBooking, creditBookingMove } from "./documents";
 import { creditScope } from "./mode";
 import { money, roundMoney } from "./region";
 import { said, withPhrase } from "./staff-text";
@@ -466,6 +466,8 @@ export async function counterPayoutsOn(venueIds: number[] | null, date: string):
  */
 export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api", "class", "test", "lesson_moved"] as const;
 export type VenueCancelCause = (typeof VENUE_CANCEL_CAUSES)[number];
+/** What the list of counter money owed back holds: what the venue cancelled, and a paid booking moved to a cheaper time (lib/move-money.ts). */
+export type OwedCause = VenueCancelCause | "moved_cheaper";
 export type OwedOutcome = Extract<CancelOutcome, "back" | "credit">;
 export const isOwedOutcome = (v: unknown): v is OwedOutcome => v === "back" || v === "credit";
 
@@ -512,7 +514,7 @@ export interface OwedRefund {
   startMin: number;
   amount: number;
   via: CounterMethod | null;
-  cause: VenueCancelCause;
+  cause: OwedCause;
   owedSince: string;
   /** When it was paid at the counter. */
   paidAt: string | null;
@@ -540,7 +542,7 @@ interface OwedRow {
   booking_id: number;
   amount: number;
   via: CounterMethod | null;
-  cause: VenueCancelCause;
+  cause: OwedCause;
   owed_since: string | Date;
   settled_at: string | Date | null;
   outcome: OwedOutcome | null;
@@ -620,6 +622,8 @@ export async function settleOwed(
       .prepare("UPDATE counter_refunds_owed SET settled_at = now(), outcome = ?, admin_id = ?, admin_name = ? WHERE id = ? AND settled_at IS NULL")
       .run(outcome, staff.id, staff.name, id);
     if (claimed.changes !== 1) return null;
+    // A difference owed back after a paid booking was moved to a cheaper time: that sum alone, not the booking (lib/move-money.ts).
+    if (owed.cause === "moved_cheaper") return settleMoveDifference(owed, outcome, staff);
     // The credit note the cancellation left for now, written by whoever settles it: as stored credit, or the way it was paid.
     await creditBooking(owed.bookingId, "receipt.why.cancelled", 1, await paidPartLeft(owed.bookingId), outcome === "credit" ? PAID_VIA_LABELS.credit : undefined);
     return (await settleCounter(owed.bookingId, outcome, 1, null, staff)) ?? {};
@@ -630,6 +634,35 @@ export async function settleOwed(
     owed: (await owedRefund(id, staff.role)) ?? owed,
     settled: { outcome, refund: owed.amount, kept: 0, ...done },
   };
+}
+
+/**
+ * A difference owed back at the counter after a paid booking was moved to a cheaper time, settled in the claiming transaction: its credit
+ * note now (so the till, the credit note and the cash-up agree), then handed back the way it was paid (a payout with who and which note)
+ * or, at the customer's request, as stored credit on the account it was booked from. Only this sum: never the booking's whole price.
+ */
+async function settleMoveDifference(owed: OwedRefund, outcome: OwedOutcome, staff: CancellingStaff): Promise<Partial<Settled>> {
+  const db = getDb();
+  const move = (await db.prepare("SELECT move_refund_id AS id FROM counter_refunds_owed WHERE id = ?").get(owed.id)) as { id: number | null } | undefined;
+  if (!move?.id) throw new Error("move row missing");
+  const note = await creditBookingMove(owed.bookingId, move.id, owed.amount, outcome === "credit" ? PAID_VIA_LABELS.credit : undefined);
+  const row = (await db
+    .prepare("SELECT b.code, b.user_id, c.venue_id FROM bookings b JOIN courts c ON c.id = b.court_id WHERE b.id = ?")
+    .get(owed.bookingId)) as { code: string; user_id: number | null; venue_id: number };
+  if (outcome === "credit") {
+    if (row.user_id === null) throw new Error("credit without an account");
+    await db
+      .prepare("INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, booking_id, venue_id, admin_id, move_refund_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.user_id, owed.amount, ...withPhrase(said("srv.wallet.refund", { code: row.code })), owed.bookingId, creditScope() === "venue" ? row.venue_id : null, staff.id, move.id);
+    return { credited: owed.amount };
+  }
+  await db
+    .prepare(
+      `INSERT INTO counter_payouts (venue_id, booking_id, credit_note_id, amount, via, kept_percent, admin_id, admin_name)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`
+    )
+    .run(row.venue_id, owed.bookingId, note?.id ?? null, owed.amount, owed.via, staff.id, staff.name);
+  return { paidOut: { amount: owed.amount, via: owed.via } };
 }
 
 /* ---------------- Saying what was done ---------------- */

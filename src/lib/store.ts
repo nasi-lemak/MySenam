@@ -34,6 +34,7 @@ import { addonsFor, hasAddons, type BookingAddon } from "./addons";
 import { suspendedOn, termAfter } from "./membership-suspensions";
 import { isDuplicateSpend, memberPrices, membersOnlyRefusal, participationLapses, PASS_SCOPES, placesOf as placeRows, refuse as refuseEnt, soldByPlace, type BenefitScope, type MemberCover } from "./entitlements";
 import { keepPaidWithinPrice } from "./paid-within-price";
+import { MoveRefused, movedTotal, planDifference, returnDifference, type DifferenceChoice, type MoveMoney } from "./move-money";
 import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, stackRefusal } from "./discounts";
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
@@ -3670,6 +3671,12 @@ export type RescheduleResult =
       priceChange: number;
       /** What the new time costs against the old at today's rates, when the price was left as paid. */
       unchargedDifference: number;
+      /**
+       * What the move does to the money (lib/move-money.ts): the price now and at the new time, and where the difference goes: the
+       * price (unpaid), back the way it was paid (paid and cheaper), the account (invoiced), or nowhere (kept as paid). Shown before
+       * the move is confirmed, in a preview, and the same as what the move then does.
+       */
+      money: MoveMoney;
       /** A lesson the venue moved: its price stays as agreed whatever the new time costs (lib/lesson-venue-moves.ts). */
       keepsAgreedPrice?: boolean;
       /** A deposit paid online was above the new, lower price: this much of it is owed back on its payment (lib/paid-within-price.ts). */
@@ -3823,6 +3830,11 @@ async function rescheduleBookingOnce(
     fromHold?: number;
     /** A lesson, staff only: to this coach of the venue instead of its own. */
     coachId?: number;
+    /**
+     * Staff moving a paid booking to a cheaper time: give the difference back the way it was paid (`refund`, the default while the
+     * customer could still have changed it themselves) or keep it (`keep`, the default after). A customer's move always gives it back.
+     */
+    difference?: DifferenceChoice;
     /** A paid lesson to another coach: keep the price as paid, or adjust it by the difference (lib/lesson-coaches.ts). */
     coachMoney?: "keep" | "adjust";
     /** Who gave it to another coach, for the record. */
@@ -3943,7 +3955,10 @@ async function rescheduleBookingOnce(
   // What the old time cost when booked: a last-minute price stays with the time
   // it was given for, so moving away from it costs the difference.
   const fromPolicy = await policyFor(fromCourt);
-  const oldPrice = quoteBooking(fromCourt, fromPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await member(booking.date), rules, bookedAtOf(booking), players, booking.games ?? null).total;
+  // A booking given a last-minute price keeps it where its terms still hold at the new time (the minutes of it that start within the
+  // window from when it was made), and not otherwise; one never given it never earns one by moving (pricing.md, last-minute prices).
+  const lastMinuteAt = (row as { last_minute?: number | boolean }).last_minute ? bookedAtOf(booking) : undefined;
+  const oldPrice = quoteBooking(fromCourt, fromPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await member(booking.date), rules, lastMinuteAt, players, booking.games ?? null).total;
   const newMember = await member(to.date);
   let firstRefusal: Refusal | null = null;
 
@@ -4015,53 +4030,90 @@ async function rescheduleBookingOnce(
     }
     // Another coach's fee in place of the one on it.
     const feeChange = lesson ? lesson.fee - (booking.coachFee ?? 0) : 0;
-    const delta = Math.round((quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players, booking.games ?? null).total - oldPrice + feeChange) * 100) / 100;
+    const newQuote = quoteBooking(court, day.policy, to.date, span, newMember, rules, lastMinuteAt, players, booking.games ?? null).total;
+    const delta = Math.round((newQuote - oldPrice + feeChange) * 100) / 100;
     const paid = booking.paymentStatus === "paid";
     // On an account's invoice already issued: its price stands as invoiced, as a paid booking's does (a move is never a
     // silent change to what was issued). Cheaper, the difference is credited to the account; dearer, it is not charged.
-    const invoiced = (row as { account_invoice_id?: number | null }).account_invoice_id != null && !paid && !coachChanging;
+    const invoiced = (row as { account_invoice_id?: number | null }).account_invoice_id != null && !coachChanging;
     const settled = paid || invoiced;
     let coachChange: import("./lesson-coaches").CoachChange | undefined;
     if (settled && delta > 0 && by === "customer") return refuse("RESCHEDULE_DEARER", { amount: delta.toFixed(2) });
     // A lesson the venue moves keeps the price agreed: the new time may price differently, but the customer is not charged more or
     // given back less without a choice (a manager's price adjustment); only another coach's fee still changes it (lib/lesson-venue-moves.ts).
     const keepsAgreed = by === "staff" && !!booking.coachId;
+    // Staff moving a booking on an issued invoice to a dearer time: it would not be billed (a debit line on the next invoice is a
+    // receipt of its own, not built), so it is refused, with the way out, rather than reported and left uncharged (audit C5).
+    if (invoiced && by === "staff" && !keepsAgreed && delta > 0.005) return refuse("RESCHEDULE_INVOICED_DEARER", { amount: delta.toFixed(2) });
     const chargeDelta = keepsAgreed ? (coachChanging ? feeChange : 0) : delta;
     // A payment page open for the old price would settle it short.
     if (!settled && chargeDelta > 0 && (await paymentPageOpen(booking.id))) return refuse("RESCHEDULE_PAGE_OPEN");
-    const priceChange = settled ? 0 : Math.max(-booking.totalPrice, chargeDelta);
+    // The price at the new time: the discounts it was given stay as the amounts they took off, but never make the time free (audit D3).
+    const priceChange = settled ? 0 : roundMoney(movedTotal(booking.totalPrice, oldPrice, newQuote, chargeDelta) - booking.totalPrice);
     // The part of a cheaper move the account is credited for (a lesson keeps its agreed price, so nothing).
-    const accountCredit = invoiced && !keepsAgreed && delta < 0 ? roundMoney(-delta) : 0;
+    const accountCredit = invoiced && !keepsAgreed && delta < 0 ? roundMoney(Math.min(-delta, booking.totalPrice)) : 0;
+    // A paid booking moved to a cheaper time: the difference goes back the way it was paid (lib/move-money.ts), unless staff keep it. Staff's
+    // move past the time the customer could still have changed it themselves keeps it by default, as every staff move did.
+    const cheaperPaid = paid && !invoiced && !keepsAgreed && !coachChanging && !to.hold && delta < -0.005;
+    const beforeCutoff = by === "customer" || (await customerChangeRefusal(booking)) === null;
+    const choice: DifferenceChoice = by === "customer" ? "refund" : (to.difference ?? (beforeCutoff ? "refund" : "keep"));
     const from = { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, startHour: booking.startHour, endHour: booking.endHour, courtId: fromCourt.id };
     const where = { date: to.date, startMin: span.start, endMin: span.end, courtId: court.id, courtName: court.name };
+    // The money as it is before the transaction reads the booking under its lock; what it finds there replaces this.
+    let money: MoveMoney = {
+      oldPrice: booking.totalPrice,
+      newPrice: roundMoney(booking.totalPrice + priceChange),
+      difference: settled ? delta : priceChange,
+      settles: invoiced ? (accountCredit > 0 ? "account" : "kept") : paid ? "kept" : priceChange === 0 ? "none" : "price",
+      ...(accountCredit > 0 ? { account: accountCredit } : {}),
+      // The booking was given a last-minute price at its first time, and none of the new time still qualifies for one.
+      ...(lastMinuteAt !== undefined && !keepsAgreed && quoteBooking(court, day.policy, to.date, span, newMember, rules, undefined, players, booking.games ?? null).total - newQuote < 0.005
+        ? { lastMinuteLost: true }
+        : {}),
+    };
     const result = {
       ok: true as const,
       from,
       to: where,
       priceChange,
       // A paid lesson's coach fee is settled as the manager chose (lib/lesson-coaches.ts), not left uncharged here.
-      unchargedDifference: paid || keepsAgreed || (invoiced && accountCredit === 0) ? Math.round((delta - (coachChanging ? feeChange : 0)) * 100) / 100 : 0,
+      unchargedDifference: (paid && accountCredit === 0) || keepsAgreed || (invoiced && accountCredit === 0) ? Math.round((delta - (coachChanging ? feeChange : 0)) * 100) / 100 : 0,
       ...(accountCredit > 0 ? { accountCredited: accountCredit } : {}),
       ...(keepsAgreed ? { keepsAgreedPrice: true } : {}),
       ...(breaches.length > 0 ? { overrides: breaches } : {}),
     };
+    // What the transaction gave back of a paid, cheaper booking, if it did.
+    const gave: { back: { amount: number; how: "online" | "counter" | "credit" } | null } = { back: null };
     let owedBack = 0;
     try {
       await withTransaction(async () => {
         owedBack = 0;
+        gave.back = null;
         // Nothing changed since it was read: the game first, then the booking,
         // in the order every change to a game takes them (lib/games.ts).
         const g = live ? ((await db.prepare("SELECT status FROM open_games WHERE id = ? FOR UPDATE").get(game.id)) as { status: string }) : null;
         const now = (await db
-          .prepare("SELECT status, date, start_min, end_min, court_id, coach_id, payment_status, shares_paid::float AS shares_paid FROM bookings WHERE id = ? FOR UPDATE")
+          .prepare(
+            `SELECT status, date, start_min, end_min, court_id, coach_id, payment_status, paid_via, user_id, total_price::float AS total_price,
+                    shares_paid::float AS shares_paid, deposit_paid::float AS deposit_paid, account_invoice_id
+               FROM bookings WHERE id = ? FOR UPDATE`
+          )
           .get(booking.id)) as {
-          status: string; date: string; start_min: number; end_min: number; court_id: number; coach_id: number | null; payment_status: string; shares_paid: number;
+          status: string; date: string; start_min: number; end_min: number; court_id: number; coach_id: number | null; payment_status: string; paid_via: string | null;
+          user_id: number | null; total_price: number; shares_paid: number; deposit_paid: number; account_invoice_id: number | null;
         };
         if (now.status !== booking.status || now.date !== booking.date || now.start_min !== booking.startMin || now.end_min !== booking.endMin || now.court_id !== booking.courtId)
           throw new BookingChanged();
         if ((now.coach_id ?? null) !== (booking.coachId ?? null)) throw new BookingChanged();
-        // Paid (or part-paid) meanwhile: what was decided about the money no longer holds.
-        if (coachChanging && (now.payment_status !== booking.paymentStatus || Math.abs(Number(now.shares_paid) - booking.sharesPaid) > 0.005)) throw new BookingChanged();
+        // Paid, part-paid, re-priced or put on an invoice meanwhile: what was decided about the money no longer holds, and the move is
+        // refused rather than settled on figures that are not the booking's now.
+        if (
+          now.payment_status !== booking.paymentStatus ||
+          Math.abs(Number(now.shares_paid) - booking.sharesPaid) > 0.005 ||
+          Math.abs(Number(now.total_price) - booking.totalPrice) > 0.005 ||
+          (now.account_invoice_id !== null) !== ((row as { account_invoice_id?: number | null }).account_invoice_id != null)
+        )
+          throw new BookingChanged();
         if (g && g.status !== "cancelled" && !to.game) {
           const again = await gameUnder(booking.id);
           if (again && (again.players > 0 || (again.pendingMove !== null && again.pendingMove !== to.hold?.moveId))) throw new BookingChanged();
@@ -4193,6 +4245,48 @@ async function rescheduleBookingOnce(
             if (!kept.ok) throw new PaidAboveNewPrice(kept);
             if (kept.owedBack > 0) owedBack = kept.owedBack;
           }
+          // Paid and moved to a cheaper time: what the customer paid above the new price goes back the way it was paid, or is kept
+          // where staff chose so, in this same transaction, under the booking's lock (lib/move-money.ts; ADR 0067).
+          if (cheaperPaid) {
+            const plan = await planDifference({
+              bookingId: booking.id,
+              paidVia: now.paid_via,
+              totalPrice: Number(now.total_price),
+              sharesPaid: Number(now.shares_paid),
+              depositPaid: Number(now.deposit_paid ?? 0),
+              oldQuote: oldPrice,
+              newQuote,
+              delta,
+              choice,
+            });
+            if (!("kind" in plan)) throw new MoveRefused(plan);
+            const total = Number(now.total_price);
+            const priceAfter = plan.kind === "refund" ? plan.priceAfter : movedTotal(total, oldPrice, newQuote, delta);
+            if (plan.kind === "refund") {
+              await returnDifference(
+                { id: booking.id, code: booking.code, venueId: court.venueId, paidVia: now.paid_via, userId: now.user_id },
+                plan,
+                { by, admin: by === "staff" && to.changedBy ? { adminId: to.changedBy.adminId, name: to.changedBy.name } : null },
+                { date: booking.date, startMin: booking.startMin, courtId: fromCourt.id },
+                { date: to.date, startMin: span.start, courtId: court.id }
+              );
+              gave.back = { amount: plan.amount, how: plan.how };
+              money = {
+                oldPrice: roundMoney(plan.paidBefore + Number(now.shares_paid)),
+                newPrice: plan.priceAfter,
+                difference: roundMoney(-plan.amount),
+                settles: "refund",
+                refund: { amount: plan.amount, how: plan.how },
+                ...(by === "staff" ? { canKeep: true } : {}),
+              };
+            } else if (plan.kind === "pass") {
+              money = { oldPrice: total, newPrice: total, difference: 0, settles: "pass" };
+            } else if (plan.kind === "kept") {
+              money = { oldPrice: total, newPrice: priceAfter, difference: roundMoney(priceAfter - total), settles: "kept", canKeep: true };
+            } else {
+              money = { oldPrice: total, newPrice: total, difference: 0, settles: "none" };
+            }
+          }
           // A lesson the venue moved to another day or time: on the record, with its customer's refund window, and its reminders re-armed.
           if (lesson && by === "staff" && (to.date !== booking.date || span.start !== booking.startMin))
             await (await import("./lesson-venue-moves")).recordLessonMove({
@@ -4216,8 +4310,10 @@ async function rescheduleBookingOnce(
         if (to.preview) throw new PreviewOnly();
       });
     } catch (err) {
-      if (err instanceof PreviewOnly) return { ...result, booking, preview: true, ...(owedBack > 0 ? { owedBack } : {}), ...(coachChange ? { coachChange } : {}) };
+      if (err instanceof PreviewOnly)
+        return { ...result, unchargedDifference: gave.back ? 0 : result.unchargedDifference, money, booking, preview: true, ...(owedBack > 0 ? { owedBack } : {}), ...(coachChange ? { coachChange } : {}) };
       if (err instanceof PaidAboveNewPrice) return err.refusal;
+      if (err instanceof MoveRefused) return err.refusal;
       if (err instanceof BookingChanged) return refuse("RESCHEDULE_CHANGED");
       if (err instanceof SupervisorMissing) {
         firstRefusal ??= err.refusal;
@@ -4227,7 +4323,7 @@ async function rescheduleBookingOnce(
       if (isConflict(err)) continue;
       throw err;
     }
-    if (to.hold) return { ...result, booking, held: true };
+    if (to.hold) return { ...result, money, booking, held: true };
     // The coach hears of it: the new time, or (another coach) the lesson now theirs and no longer the other's.
     if (lesson && !to.quietCoach) await (await import("./coach-schedule")).notifyLessonMoved(booking.id, { date: booking.date, startMin: booking.startMin, endMin: booking.endMin, coachId: booking.coachId! });
     // The time it left may now be free for somebody waiting on it.
@@ -4236,7 +4332,13 @@ async function rescheduleBookingOnce(
     // invited or is waiting hears the new time. (A game with players moves
     // through lib/game-moves.ts, which tells them itself.)
     if (live && !to.game) await (await import("./games")).gameTimeChanged(game.id);
-    return { ...result, booking: (await getBookingById(booking.id))!, ...(owedBack > 0 ? { owedBack } : {}), ...(coachChange ? { coachChange } : {}) };
+    // Money owed back on an online payment goes back as the venue's one policy has it for what it changes: through the gateway where
+    // that can, else listed for staff, never credit the customer did not choose (lib/payments.ts `refundCancelled`).
+    if (gave.back?.how === "online" && money.refund) {
+      const sent = (await (await import("./payments")).refundCancelled([booking.id], { byVenue: true })).find((r) => r.how !== "credit") ?? null;
+      if (sent) money = { ...money, refund: { ...money.refund, sent: { how: sent.how === "gateway" ? "gateway" : "staff", ...(sent.pending ? { pending: true } : {}), ...(sent.dueBy ? { dueBy: sent.dueBy } : {}) } } };
+    }
+    return { ...result, unchargedDifference: gave.back ? 0 : result.unchargedDifference, money, booking: (await getBookingById(booking.id))!, ...(owedBack > 0 ? { owedBack } : {}), ...(coachChange ? { coachChange } : {}) };
   }
   return firstRefusal ?? refuse("RESCHEDULE_TAKEN");
 }
@@ -4284,7 +4386,10 @@ export async function rescheduleOptions(code: string, date: string, opts: { coac
   const rules = await peakRules(court.venueId);
   const players = booking.players ?? 1;
   const ownPolicy = await policyFor(court);
-  const now = quoteBooking(court, ownPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await memberPricing(court.venueId, booking.phone, booking.date), rules, undefined, players, booking.games ?? null).total;
+  // A booking given a last-minute price is priced as it was made for the times that still qualify (see rescheduleBooking).
+  const marked = ((await getDb().prepare("SELECT last_minute FROM bookings WHERE id = ?").get(booking.id)) as { last_minute: number } | undefined)?.last_minute;
+  const lastMinuteAt = marked ? bookedAtOf(booking) : undefined;
+  const now = quoteBooking(court, ownPolicy, booking.date, { start: booking.startMin, end: booking.endMin }, await memberPricing(court.venueId, booking.phone, booking.date), rules, lastMinuteAt, players, booking.games ?? null).total;
   const courts = [
     court,
     ...(
@@ -4309,7 +4414,7 @@ export async function rescheduleOptions(code: string, date: string, opts: { coac
       if (coachFree && !coachFree.some((f) => f.start <= span.start && span.end <= f.end)) continue;
       if (day.unsupervised?.some((g) => overlaps(g, span))) continue;
       if (!fits(held.get(c.id)!, c.capacity, span, policyBuffers(day.policy), own, players)) continue;
-      const price = quoteBooking(c, day.policy, date, span, member, rules, undefined, players, booking.games ?? null).total;
+      const price = quoteBooking(c, day.policy, date, span, member, rules, lastMinuteAt, players, booking.games ?? null).total;
       options.set(start, {
         startMin: start,
         startHour: hoursOf(start),
@@ -7515,7 +7620,7 @@ export async function refundBookingToWallet(bookingId: number, share = 1): Promi
   const db = getDb();
   // Credit given back for a place taken off it (lib/place-withdrawals.ts), or for a cheaper coach (lib/lesson-coaches.ts), is not the booking's own refund.
   const refunded = await db
-    .prepare("SELECT id FROM wallet_entries WHERE booking_id = ? AND amount > 0 AND withdrawal_id IS NULL AND coach_change_id IS NULL")
+    .prepare("SELECT id FROM wallet_entries WHERE booking_id = ? AND amount > 0 AND withdrawal_id IS NULL AND coach_change_id IS NULL AND move_refund_id IS NULL")
     .get(bookingId);
   if (refunded) return { ok: false, error: "This booking has already been refunded." };
 
@@ -7637,7 +7742,9 @@ export async function paidPartLeft(bookingId: number): Promise<number> {
               ((SELECT COALESCE(SUM(w.price - w.deposit_part), 0) FROM place_withdrawals w WHERE w.booking_id = b.id AND w.paid)
                + (SELECT COALESCE(SUM(l.refunded), 0) FROM lesson_coach_changes l WHERE l.booking_id = b.id AND l.paid)
                + (SELECT COALESCE(SUM(-a.delta), 0) FROM booking_price_adjustments a WHERE a.booking_id = b.id AND a.paid)
-               + (SELECT COALESCE(SUM(ac.amount), 0) FROM account_credits ac WHERE ac.booking_id = b.id AND ac.for_adjustment))::float AS gone
+               + (SELECT COALESCE(SUM(ac.amount), 0) FROM account_credits ac WHERE ac.booking_id = b.id AND ac.for_adjustment)
+               -- What went back when it was moved to a cheaper time (lib/move-money.ts).
+               + (SELECT COALESCE(SUM(m.amount), 0) FROM booking_move_refunds m WHERE m.booking_id = b.id))::float AS gone
          FROM bookings b WHERE b.id = ?`
     )
     .get(bookingId)) as { base: number; gone: number } | undefined;

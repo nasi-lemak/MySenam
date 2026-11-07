@@ -52,13 +52,14 @@ export async function POST(req: NextRequest) {
   const done = await asStaff(admin, () => settleOwed(id, outcome, admin));
   if (!done.ok) return refusal(done);
   const { settled } = done;
+  const owedSince = owed.cause === "moved_cheaper" ? "the booking was moved to a cheaper time" : `the venue cancelled it (${owed.cause})`;
   if (outcome === "back") {
     const via = settled.paidOut?.via ?? owed.via;
     await logAction(admin, {
       venueId: owed.venueId,
       action: "payment.paid_out",
       bookingCode: owed.bookingCode,
-      detail: `${money(settled.paidOut?.amount ?? owed.amount)} handed back at the counter${via ? `, by ${PAID_VIA_LABELS[via]}` : ""}, owed since the venue cancelled it (${owed.cause})`,
+      detail: `${money(settled.paidOut?.amount ?? owed.amount)} handed back at the counter${via ? `, by ${PAID_VIA_LABELS[via]}` : ""}, owed since ${owedSince}`,
     });
   }
   else
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
       venueId: owed.venueId,
       action: "payment.owed_credited",
       bookingCode: owed.bookingCode,
-      detail: `${money(settled.credited ?? owed.amount)} given as stored credit, owed since the venue cancelled it (${owed.cause})`,
+      detail: `${money(settled.credited ?? owed.amount)} given as stored credit, owed since ${owedSince}`,
     });
   return NextResponse.json({ owed: done.owed, settled });
 }

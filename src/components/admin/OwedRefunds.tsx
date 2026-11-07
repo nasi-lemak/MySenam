@@ -4,12 +4,12 @@ import { useState } from "react";
 import { readJson } from "@/lib/read-response";
 import { money, shortDate } from "@/lib/region";
 import { formatMinute } from "@/lib/interval";
-import type { OwedRefund, VenueCancelCause } from "@/lib/counter-refunds";
+import type { OwedCause, OwedRefund } from "@/lib/counter-refunds";
 import type { OwedEntryFee } from "@/lib/entry-fee-refunds";
 import type { StaffPhrase } from "@/lib/staff-i18n";
 import { useStaffT } from "./StaffLanguage";
 
-const CAUSES: Record<VenueCancelCause, StaffPhrase> = {
+const CAUSES: Record<OwedCause, StaffPhrase> = {
   closure: "r9e.owed.cause.closure",
   outage: "r9e.owed.cause.outage",
   rain: "r9e.owed.cause.rain",
@@ -17,6 +17,7 @@ const CAUSES: Record<VenueCancelCause, StaffPhrase> = {
   class: "r9e.owed.cause.class",
   test: "r10a.owed.cause.test",
   lesson_moved: "clsb.s.owed.cause.lessonMoved",
+  moved_cheaper: "p67.owed.cause.movedCheaper",
 };
 
 /**

@@ -1015,7 +1015,9 @@ export async function notifyRescheduled(
   by: "staff" | "customer",
   priceChange: number,
   /** Where it was before, for the venue's change alert (`alertVenueChange`). */
-  was?: Pick<Booking, "date" | "startMin"> | null
+  was?: Pick<Booking, "date" | "startMin"> | null,
+  /** A paid booking moved to a cheaper time: what goes back and the way it goes (lib/move-money.ts), told in place of "same price". */
+  back?: { amount: number; how: "online" | "counter" | "credit" } | null
 ): Promise<number | null> {
   const court = await getCourt(booking.courtId);
   if (!court) return null;
@@ -1026,8 +1028,9 @@ export async function notifyRescheduled(
   // A lane given on arrival is not named before it is given (lib/lanes.ts).
   const theirCourt = customerCourtName(court.name, booking, locale);
   const { where, when } = slot(locale, theirCourt, venue.name, booking);
-  let money =
-    priceChange !== 0 && booking.paymentStatus !== "paid"
+  let money = back
+    ? t(back.how === "online" ? "msg.refundOnline" : back.how === "credit" ? "msg.refundCredit" : "msg.refundCounter", { amount: back.amount.toFixed(2) })
+    : priceChange !== 0 && booking.paymentStatus !== "paid"
       ? t("msg.priceNow", { total: booking.totalPrice.toFixed(2) })
       : t("msg.priceSame");
   // A lesson the venue moved: the customer may cancel it with everything back for a while (lib/lesson-venue-moves.ts).

@@ -931,6 +931,11 @@ const en = {
   "fx4.att.accLine": "{account}: invoice {number} was due on {due}, {days} days ago, and {amount} is still to pay.",
   "fx4.att.accBlocking": "New bookings on this account are stopped.",
   "fx4.att.accHelp": "The account's contact is reminded by email each week. Under Company and school accounts you can set after how many days overdue new bookings are stopped.",
+  // A paid booking moved to a cheaper time: the difference goes back (ADR 0067)
+  "p67.owed.cause.movedCheaper": "a paid booking moved to a cheaper time",
+  "p67.bk.changedRefundOnline": "{code} is now {date}, {time}. Same code; {amount} is owed back on its online payment (see Refunds owed). The customer has been sent the news.",
+  "p67.bk.changedRefundCounter": "{code} is now {date}, {time}. Same code; {amount} is owed back at the counter (see the counter money owed back). The customer has been sent the news.",
+  "p67.bk.changedRefundCredit": "{code} is now {date}, {time}. Same code; {amount} went back to the customer's stored credit. The customer has been sent the news.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1844,6 +1849,10 @@ const ms: Record<keyof typeof en, string> = {
   "fx4.att.accLine": "{account}: invois {number} perlu dibayar pada {due}, {days} hari lalu, dan {amount} masih belum dibayar.",
   "fx4.att.accBlocking": "Tempahan baharu pada akaun ini dihentikan.",
   "fx4.att.accHelp": "Pegawai perhubungan akaun diingatkan melalui e-mel setiap minggu. Di bawah Akaun syarikat dan sekolah anda boleh menetapkan selepas berapa hari tertunggak tempahan baharu dihentikan.",
+  "p67.owed.cause.movedCheaper": "tempahan berbayar yang dipindahkan ke masa yang lebih murah",
+  "p67.bk.changedRefundOnline": "{code} kini pada {date}, {time}. Kod sama; {amount} terhutang untuk dipulangkan pada bayaran dalam talian (lihat Bayaran balik terhutang). Pelanggan sudah dimaklumkan.",
+  "p67.bk.changedRefundCounter": "{code} kini pada {date}, {time}. Kod sama; {amount} terhutang untuk dipulangkan di kaunter (lihat wang kaunter terhutang). Pelanggan sudah dimaklumkan.",
+  "p67.bk.changedRefundCredit": "{code} kini pada {date}, {time}. Kod sama; {amount} dipulangkan ke kredit tersimpan pelanggan. Pelanggan sudah dimaklumkan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2757,6 +2766,10 @@ const zh: Record<keyof typeof en, string> = {
   "fx4.att.accLine": "{account}：账单 {number} 应于 {due} 付款，已逾期 {days} 天，仍有 {amount} 未付。",
   "fx4.att.accBlocking": "该账户的新预订已被停止。",
   "fx4.att.accHelp": "账户联系人每周会收到一封电邮提醒。您可以在“公司和学校账户”中设置逾期多少天后停止新预订。",
+  "p67.owed.cause.movedCheaper": "已付款预订改到较便宜的时段",
+  "p67.bk.changedRefundOnline": "{code} 现为 {date}，{time}。编号不变；{amount} 应退回其在线付款（见“待退款”）。已通知顾客。",
+  "p67.bk.changedRefundCounter": "{code} 现为 {date}，{time}。编号不变；{amount} 应在柜台退还（见待退还的柜台款项）。已通知顾客。",
+  "p67.bk.changedRefundCredit": "{code} 现为 {date}，{time}。编号不变；{amount} 已退回顾客的储值。已通知顾客。",
 };
 
 const area = { en, ms, zh };

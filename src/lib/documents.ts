@@ -813,6 +813,36 @@ export async function creditBookingCoach(bookingId: number, changeId: number, wh
 }
 
 /**
+ * A paid booking moved to a cheaper time (lib/move-money.ts): a credit note for the difference that goes back, at the tax the booking
+ * was sold at, on the way it was paid (or `backAs`, a counter payment given as stored credit). The booking's receipt stays what was
+ * sold. Once per move: it is keyed by the move's row.
+ */
+export async function creditBookingMove(bookingId: number, moveId: number, amount: number, backAs?: string): Promise<Document | null> {
+  const full = await bookingSale(bookingId);
+  if (!full || full.paymentStatus !== "paid" || amount <= 0) return null;
+  const total = roundMoney(amount);
+  const tax = full.taxRate ? await venueTax(full.venueId) : null;
+  return write({
+    venue_id: full.venueId,
+    kind: "credit_note",
+    source: `booking:${bookingId}:move:${moveId}`,
+    credits_id: null,
+    credits_ref: full.code,
+    user_id: full.userId,
+    customer_name: full.name,
+    customer_phone: full.phone,
+    lines: JSON.stringify([{ description: `${full.code}: moved to a time that costs less, the difference`, amount: total }]),
+    total,
+    tax_name: full.taxRate ? tax!.name : null,
+    tax_rate: full.taxRate,
+    tax_amount: full.taxRate ? taxIncluded(total, full.taxRate) : 0,
+    tax_reg_no: full.taxRate ? tax!.regNo : null,
+    paid_via: backAs ?? paidVia(full.paidVia),
+    note: "receipt.why.movedCheaperBack",
+  });
+}
+
+/**
  * A paid booking's price lowered by a manager afterwards
  * (lib/price-adjustments.ts): a credit note for the difference, at the tax the
  * booking was sold at, given back the way it was paid. The booking's receipt

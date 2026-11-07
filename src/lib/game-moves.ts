@@ -7,6 +7,7 @@ import { changeDeadline, rescheduleBooking, type RescheduleResult } from "./stor
 import { gameById, gamePlayers, gameTimeChanged, moveOf, pendingMove, resumeGame, type GameMove, type OpenGame } from "./games";
 import type { Refusal } from "./types";
 import type { CoachChange } from "./lesson-coaches";
+import type { DifferenceChoice, MoveMoney } from "./move-money";
 import type { WindowOverrideRecord } from "./window-overrides";
 
 /**
@@ -57,6 +58,8 @@ type To = {
   changedBy?: { adminId: number | null; name: string };
   /** A lesson's coach told by the caller, once for a series moved together (lib/series-moves.ts). */
   quietCoach?: boolean;
+  /** Staff moving a paid booking to a cheaper time: give the difference back or keep it (lib/move-money.ts). */
+  difference?: DifferenceChoice;
 };
 
 export interface MovePreview {
@@ -64,6 +67,8 @@ export interface MovePreview {
   to: { date: string; startMin: number; endMin: number; courtId: number; courtName: string };
   priceChange: number;
   unchargedDifference: number;
+  /** What the move does to the money: the price now and then, and where the difference goes (lib/move-money.ts). */
+  money: MoveMoney;
   /** A lesson the venue moves keeps the price agreed; `unchargedDifference` is what the new time comes to against it. */
   keepsAgreedPrice?: boolean;
   overrides?: string[];
@@ -169,6 +174,7 @@ export async function previewMove(bookingCode: string, to: To, by: "customer" | 
     to: r.to,
     priceChange: r.priceChange,
     unchargedDifference: r.unchargedDifference,
+    money: r.money,
     ...(r.keepsAgreedPrice ? { keepsAgreedPrice: true } : {}),
     ...(r.overrides ? { overrides: r.overrides } : {}),
     outcome,

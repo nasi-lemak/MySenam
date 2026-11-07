@@ -1264,16 +1264,33 @@ the time goes while the customer rebooks.
 - Only times free for the whole length are offered (`rescheduleOptions`), its
   own court first, then another court offering the same activity. The booking's own
   time counts as free, so it can slide by a few minutes.
-- **The price follows the court time.** Unpaid, it is repriced at the new
-  time's rate, up or down, by the same pricing as a new booking; with a deposit
-  or friends' shares paid, never below what was paid on it (the excess of a
-  deposit is owed back, friends' shares refuse the move:
-  [a deposit instead of the whole price](payments-and-credit.md#paying-online-to-hold-a-booking)). Paid, it keeps what was paid: a customer cannot move
-  it somewhere dearer (that would be peak hours at an off-peak price), and
-  staff who do have chosen not to charge the difference. Its concessions and
-  promo code stay as they were given, the same amounts, and are not asked
-  about again ([discounts together](pricing.md#discounts-together)). The one
-  exception is a coached lesson **staff** move: it keeps the price agreed, paid
+- **The price follows the court time, and is shown before the change is
+  confirmed.** Every choice of a new time first answers (`money`; a preview
+  changes nothing) with what the booking costs now, what it costs at the new
+  time, the difference and what becomes of it, and the customer or staff then
+  confirm ([ADR 0067](../architecture/decisions/0067-a-paid-booking-moved-cheaper-gives-the-difference-back-and-a-move-never-silently-changes-a-discount.md)).
+  - **Unpaid**, it is repriced at the new time's rate, up or down, by the same
+    pricing as a new booking, never below what a deposit or friends' shares paid
+    on it (the excess of a deposit is owed back, friends' shares refuse the move:
+    [a deposit instead of the whole price](payments-and-credit.md#paying-online-to-hold-a-booking)).
+    Its concessions and promo code stay as they were given, the same amounts,
+    and are not asked about again, but a move never takes the time to nothing
+    ([discounts together](pricing.md#discounts-together)). A last-minute price it
+    was made with keeps where its terms still hold at the new time and goes with the
+    old time otherwise, which the quote says ([last-minute prices](pricing.md#last-minute-prices)).
+  - **Paid, moved to a cheaper time:** the difference goes back the way it was
+    paid (owed back on the online payment, owed back at the counter, back to
+    stored credit, or a credit note on an issued company invoice; nothing for a
+    pass), never converted into credit the customer did not choose
+    ([a paid booking moved to a cheaper time](payments-and-credit.md#a-paid-booking-moved-to-a-cheaper-time)).
+    Staff can instead keep the difference (by default only past the time the
+    customer could still have changed it themselves); it is refused, the booking
+    staying put, where others' shares are in it.
+  - **Paid, moved to a dearer time:** a customer cannot (that would be peak hours
+    at an off-peak price); staff who do have chosen not to charge the difference,
+    and are told what it was. A booking on an issued company invoice is not moved
+    to a dearer time by staff either (`RESCHEDULE_INVOICED_DEARER`).
+  The one exception is a coached lesson **staff** move: it keeps the price agreed, paid
   or not, whatever the new time costs, and its customer may cancel with everything
   back for a while ([a lesson moved by the venue](programmes.md#a-lesson-moved-by-the-venue)).
 - A lesson moves with its coach, to a time the coach takes lessons and is

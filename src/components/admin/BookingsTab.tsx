@@ -1214,20 +1214,23 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
               body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...coachBody, preview: true }),
             })
           }
-          submit={(o, day, reason) =>
+          submit={(o, day, reason, extra) =>
             fetch("/api/admin/bookings/reschedule", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...coachBody, ...(reason ? { reason } : {}) }),
+              body: JSON.stringify({ code: changing.code, date: day, start: o.startMin, courtId: o.courtId, ...coachBody, ...(reason ? { reason } : {}), ...(extra?.difference ? { difference: extra.difference } : {}) }),
             })
           }
-          onDone={(booking) => {
+          onDone={(booking, _message, data) => {
             setChanging(null);
             const when = { code: booking.code, date: booking.date, time: `${formatHour(booking.startHour, t.locale)}–${formatHour(booking.endHour, t.locale)}` };
+            const back = data?.money?.settles === "refund" ? data.money.refund : undefined;
             setNotice(
-              booking.paymentStatus === "paid"
-                ? t("bk.changedPaid", when)
-                : t("bk.changedToPay", { ...when, amount: money(booking.totalPrice) })
+              back
+                ? t(back.how === "online" ? "p67.bk.changedRefundOnline" : back.how === "credit" ? "p67.bk.changedRefundCredit" : "p67.bk.changedRefundCounter", { ...when, amount: money(back.amount) })
+                : booking.paymentStatus === "paid"
+                  ? t("bk.changedPaid", when)
+                  : t("bk.changedToPay", { ...when, amount: money(booking.totalPrice) })
             );
             load();
             window.dispatchEvent(new Event("attention:refresh"));

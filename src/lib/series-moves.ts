@@ -46,6 +46,8 @@ export interface SeriesMoveWeek {
   priceChange: number;
   /** A paid week: what the new time costs against the old at today's rates, not charged. */
   unchargedDifference: number;
+  /** A paid week moved cheaper: the difference that goes back the way it was paid (lib/move-money.ts), unless staff keep it. */
+  refund?: { amount: number; how: "online" | "counter" | "credit" };
   /** The court's rules a manager's override would go past. */
   overrides?: string[];
   /** `venue`: an open game with players on it, moved only by a manager with a reason the players are given. */
@@ -141,6 +143,7 @@ export async function previewSeriesMove(seriesCode: string, to: SeriesMoveTo): P
       movable: true,
       priceChange: p.priceChange,
       unchargedDifference: p.unchargedDifference,
+      ...(p.money.settles === "refund" && p.money.refund ? { refund: { amount: p.money.refund.amount, how: p.money.refund.how } } : {}),
       ...(p.overrides ? { overrides: p.overrides } : {}),
       outcome: p.outcome === "venue" ? "venue" : "move",
     });
@@ -154,6 +157,8 @@ export interface SeriesWeekMoved {
   from: { date: string; startMin: number; endMin: number; courtId: number };
   priceChange: number;
   unchargedDifference: number;
+  /** A paid week moved cheaper: what went back, and how (owed back, or to credit). */
+  refund?: { amount: number; how: "online" | "counter" | "credit" };
   overrides?: PolicyBreach[];
   outcome: "move" | "venue";
 }
@@ -192,6 +197,7 @@ export async function moveSeries(
       from: { date: r.from.date, startMin: r.from.startMin, endMin: r.from.endMin, courtId: r.from.courtId },
       priceChange: r.priceChange,
       unchargedDifference: r.unchargedDifference,
+      ...(r.money.settles === "refund" && r.money.refund ? { refund: { amount: r.money.refund.amount, how: r.money.refund.how } } : {}),
       ...(r.overrides ? { overrides: r.overrides } : {}),
       outcome: done.outcome,
     });

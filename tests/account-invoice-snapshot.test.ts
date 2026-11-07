@@ -124,7 +124,7 @@ describe("an issued invoice and a booking moved afterwards", () => {
     expect(given).toBe(20);
   });
 
-  it("moved to a dearer court: the invoice stays, the booking is not charged more, and staff are told what was not charged", async () => {
+  it("moved by staff to a dearer court: refused with the reason, the booking and the invoice as they were (a debit line on the next invoice is not built, audit C5)", async () => {
     const accountId = await account("Dearer Sdn Bhd");
     const date = day(8);
     const b = await onAccount(accountId, [9], date);
@@ -132,7 +132,8 @@ describe("an issued invoice and a booking moved afterwards", () => {
     const invoice = (await issueInvoice(accountId, date.slice(0, 7), { email: false }))!;
     vi.useRealTimers();
     const moved = await rescheduleBooking(b.code, { date, start: 9 * 60, courtId: dearCourtId }, "staff");
-    expect(moved).toMatchObject({ ok: true, priceChange: 0, unchargedDifference: 10 });
+    expect(moved).toMatchObject({ ok: false, code: "RESCHEDULE_INVOICED_DEARER" });
+    expect(((await getDb().prepare("SELECT court_id FROM bookings WHERE code = ?").get(b.code)) as { court_id: number }).court_id).toBe(courtId);
     expect((await live(b.code)).price).toBe(20);
     expect(await lineSum(invoice.id)).toBe(20);
     expect((await listAccounts(venueId)).find((a) => a.id === accountId)!.credit).toBe(0);

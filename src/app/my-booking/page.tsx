@@ -540,6 +540,13 @@ export default function MyBookingPage() {
                       booking={b}
                       lastDate={result.venue.lastDate}
                       optionsUrl={optionsUrl}
+                      quote={(o, date) =>
+                        fetch("/api/bookings/reschedule", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ code, phone, date, start: o.startMin, preview: true }),
+                        })
+                      }
                       submit={(o, date) =>
                         fetch("/api/bookings/reschedule", {
                           method: "POST",

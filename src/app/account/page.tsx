@@ -689,6 +689,13 @@ function BookingCard({
               optionsUrl={(date) =>
                 `/api/bookings/reschedule?code=${encodeURIComponent(b.code)}&phone=${encodeURIComponent(b.phone)}&date=${date}`
               }
+              quote={(o, date) =>
+                fetch("/api/bookings/reschedule", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ code: b.code, phone: b.phone, date, start: o.startMin, preview: true }),
+                })
+              }
               submit={(o, date) =>
                 fetch("/api/bookings/reschedule", {
                   method: "POST",
