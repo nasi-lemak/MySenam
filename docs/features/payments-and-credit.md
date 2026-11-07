@@ -726,6 +726,57 @@ Tested in `tests/lesson-coach-changes.test.ts` and, for the difference paid
 online, `tests/coach-difference-online.test.ts`, on PGlite and Postgres,
 against stand-in gateways for the online case.
 
+### A paid booking moved to a cheaper time
+
+A booking paid in full and moved to a time or court that costs less
+([changing the date or time](booking.md#changing-the-date-or-time); the
+owner's decision DEC-16, [ADR 0067](../architecture/decisions/0067-a-paid-booking-moved-cheaper-gives-the-difference-back-and-a-move-never-silently-changes-a-discount.md);
+`src/lib/move-money.ts`) gives the difference back by the way it was paid, in
+the move's own transaction, and shows it before the move is confirmed. The
+booking's price and its receipt stay as sold; each move that returns money is a
+row of `booking_move_refunds` (migration 0324), added and never edited, which
+`paidPartLeft` takes off what a later cancellation gives back, so the total
+returned is never more than was paid, however often the booking moves.
+
+- **Paid online:** owed back on the payment, never more than it took, with a
+  credit note on the booking's receipt, and sent through the venue's refund path
+  the moment the move commits: Stripe through its refund call (once, keyed on
+  what has been owed in all); Billplz, or a refusal, stays under *Refunds owed*
+  for staff with its due date ([refunds made by hand](#refunds-made-by-hand)),
+  never said to be refunded. Never credit the customer did not choose, whatever
+  the venue's setting for money paid online that a customer cancels.
+- **Paid at the counter** (cash, QR, transfer, card, or a method never
+  recorded): owed back at the counter, on the same list as money owed after the
+  venue cancels (`counter_refunds_owed`, cause *a paid booking moved to a cheaper
+  time*, migration 0325, one row for each move), settled when the customer comes:
+  handed back the way it was paid (a payout in that day's cash-up) or, at the
+  customer's request and for an account, as stored credit. The credit note is
+  written then. Only the difference is settled, never the booking's price; the
+  front desk hands back only a payment taken today.
+- **Paid from stored credit:** back to the pots it was taken from, in
+  proportion, as entries marked with the move (`wallet_entries.move_refund_id`),
+  apart from the booking's own refund on cancelling, with a credit note.
+- **Paid with a pass:** no money moves; the same entries cover the same length.
+- **Charged to a company or school account** whose invoice is issued (paid or
+  not): the invoice stays as issued and the difference is a credit note on the
+  account ([company and school accounts](#company-and-school-accounts)).
+- **Refused, the booking staying where it was**, rather than left unsettled:
+  friends' or players' shares paid (`MOVE_DIFFERENCE_SHARED`; staff may keep
+  the difference instead), a price at the new time below what a deposit or
+  shares paid (`MOVE_DIFFERENCE_BELOW_PAID`), a payment or credit that cannot be
+  found (`MOVE_DIFFERENCE_UNTRACED`).
+- **Who may keep the difference:** only a manager. A customer's move always gives
+  it back (they can move only before the cancellation cutoff). Staff's move gives
+  it back by default before that cutoff and keeps it after (the desk's default
+  too), and staff can say which (`difference`; the front desk cannot choose to keep
+  it, `MOVE_KEEP_MANAGER`); keeping it is in the activity log with the amount. The
+  customer's notice of the change says what goes back and how, instead of "same price".
+
+Tested in `tests/move-cheaper.test.ts` (PGlite and Postgres),
+`tests/move-cheaper-stripe.test.ts` (a stand-in for Stripe: what MySenam asks
+of the gateway, not that Stripe refunds it) and, for the migrations,
+`tests/move-cheaper-migration.test.ts`.
+
 ### Receipts for a guardian
 
 A guardian paying for children (ADR 0023; [booking for somebody
@@ -1163,9 +1214,11 @@ cancellation, follow that and never the booking's live price. A booking on an is
 invoice **moved to a cheaper court or time** keeps the price it was invoiced at, and
 the difference is a credit note on the account against that invoice, waiting for the
 next one (a later cancellation gives back only what is left); moved to a dearer one, it
-is not charged more, and staff are told what the new time costs against the price
-(`unchargedDifference`), as for a paid booking. A booking not yet invoiced is
-re-priced when it moves, as before. Tested in `tests/account-invoice-snapshot.test.ts`. Credit can also be paid
+is not charged more: for staff it is **refused** (`RESCHEDULE_INVOICED_DEARER`,
+with the way out: a time that costs the same or less, or cancel it and book the
+other time on the account), since a debit line on the next invoice is a receipt
+of its own and is not built; a customer is refused as for any paid booking. A
+booking not yet invoiced is re-priced when it moves, as before. Tested in `tests/account-invoice-snapshot.test.ts`. Credit can also be paid
 back to the account some other way (a bank transfer, or an account closed
 with no more to invoice): a manager records it with *Paid back by hand* and
 what they wrote down to find it again (`settleAccountCredit`, migration

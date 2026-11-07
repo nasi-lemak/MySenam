@@ -137,6 +137,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0071 A membership keeps the benefits it was sold with; renewals take the plan as it is then; a plan is not silently priced above the member rate; one order in which passes are offered](architecture/decisions/0071-a-membership-keeps-the-benefits-it-was-sold-with.md)
 [0066 A free hour is given once by the database's rule, a failed webhook delivery can be sent again, the backup has a lease of its own, lapsed holds are let go for the venue's API, and an unanswered hire enquiry is on the worklist](architecture/decisions/0066-operations-hardening-grants-deliveries-leases-and-the-worklist.md)
 [0068 A credit note is not cash paid; a booking a pass paid takes back entries and no money; "spent" is money paid; the till lists every payout; a hire deposit's method can be stated once; an invoice shows what was paid](architecture/decisions/0068-money-hardening-credit-notes-are-not-cash-spent-is-money-paid-and-the-till-lists-every-payout.md)
+[0067 A paid booking moved to a cheaper time gives the difference back; a move never silently creates, removes or wastes a discount; a dearer move of an invoiced booking is refused](architecture/decisions/0067-a-paid-booking-moved-cheaper-gives-the-difference-back-and-a-move-never-silently-changes-a-discount.md)
 
 ## Integrations
 

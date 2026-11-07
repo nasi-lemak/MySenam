@@ -116,9 +116,15 @@ are discounted and the rest are not.
   the venue's usual cancellation rules apply. Search results show the price
   as it is now.
 - It is a price for a booking made now (`priceBooking({ ..., at })`): a booking
-  already made keeps what it cost, a booking moved into such time keeps
-  the price it was booked at, and later weeks of a weekly series are too far
-  ahead to qualify.
+  already made keeps what it cost, and later weeks of a weekly series are too far
+  ahead to qualify. It is an entitlement fixed when the booking was made (the
+  booking carries the mark `last_minute`) and tied to the time: a booking moved to
+  another time is priced as it was made, minute by minute, so the minutes that
+  still start within the window from when it was made keep the discount and the
+  rest do not; a booking that never had it never earns it by moving into the
+  window (a change of price is shown before it is confirmed,
+  [changing the date or time](booking.md#changing-the-date-or-time), ADR 0067,
+  DEC-60).
 - It cannot be had by cancelling and booking again: somebody who cancelled a
   booking at that venue for that day pays the usual price for a new one there
   that day. A booking at a last-minute price is marked (`last_minute`,
@@ -420,12 +426,17 @@ that history is not recalculated):
   rule ([changing the date or time](booking.md#changing-the-date-or-time)): an unpaid booking
   changes by the difference between what the court time cost when booked
   and what it costs at the new time (RM20 less a RM4 concession and a RM2
-  code is RM14; moved to a RM30 court it is RM24); a paid one keeps what was
-  paid, the customer unable to move it somewhere dearer and staff choosing
-  not to charge the difference. A last-minute price stays with the time it
-  was given for: moving away from it costs the difference, and a move never
-  earns one. A booking keeps its last-minute mark when moved; no discount
-  can be added after booking on any path, so it decides nothing more.
+  code is RM14; moved to a RM30 court it is RM24), **but never to nothing**:
+  where the amounts kept would take the price to zero, it is the share of the
+  new court time the booking was paying (RM60 with RM30 off moved to an RM20
+  hour is RM10, not RM0; ADR 0067, audit D3). A paid one is not charged more: a
+  customer cannot move it somewhere dearer and staff choosing not to charge the
+  difference; moved cheaper, what it was paid above the new price goes back the
+  way it was paid ([a paid booking moved to a cheaper time](payments-and-credit.md#a-paid-booking-moved-to-a-cheaper-time)).
+  A last-minute price stays with its time, as above, and a move never earns one. A booking keeps its
+  last-minute mark when moved; no discount can be added after booking on any
+  path, so it decides nothing more. Whether a percentage should always be worked
+  out again on the new time is the owner's open question (DEC-33).
 
 ## Memberships and member rates
 

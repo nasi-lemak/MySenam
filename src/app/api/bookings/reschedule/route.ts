@@ -33,7 +33,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ options: options.map((o) => ({ ...o, courtId: booking.courtId, courtName: customerCourtName(o.courtName, booking, locale) })) });
 }
 
-/** `{ code, phone, date, start }` → the booking, at its new time (`start` in minutes of the day or HH:MM; `startHour` the older form). */
+/**
+ * `{ code, phone, date, start, preview? }` → the booking, at its new time (`start` in minutes of the day or HH:MM; `startHour` the older
+ * form), with `money`: what the booking costs now and at the new time, and where the difference goes (a paid booking moved cheaper has it
+ * given back the way it was paid; lib/move-money.ts). With `preview: true` nothing is changed: the answer is the same, as `preview`, to be
+ * shown before the customer confirms.
+ */
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -41,7 +46,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, phone, date, startHour } = body ?? {};
+  const { code, phone, date, startHour, preview } = body ?? {};
   const start =
     body.start !== undefined ? (typeof body.start === "string" ? parseClock(body.start) : body.start) : typeof startHour === "number" ? Math.round(startHour * 60) : null;
   if (typeof code !== "string" || typeof phone !== "string" || typeof date !== "string" || !isMinute(start))
@@ -60,9 +65,14 @@ export async function POST(req: NextRequest) {
     const tooMany = await houseRuleRefusal({ venueId, phone: booking.phone, userId: madeBy, dates: [date], excluding: booking.id, online: true });
     if (tooMany) return refusal(tooMany);
   }
+  if (preview === true) {
+    const seen = await rescheduleBooking(booking.code, { date, start, preview: true }, "customer");
+    if (!seen.ok) return refusal(seen);
+    return NextResponse.json({ preview: { from: seen.from, to: seen.to, priceChange: seen.priceChange, money: seen.money } });
+  }
   const result = await rescheduleBooking(booking.code, { date, start }, "customer");
   if (!result.ok) return refusal(result);
-  await notifyRescheduled(result.booking, "customer", result.priceChange, booking);
+  await notifyRescheduled(result.booking, "customer", result.priceChange, booking, result.money.settles === "refund" ? result.money.refund : null);
   await tickOutbox();
-  return NextResponse.json({ booking: result.booking, priceChange: result.priceChange });
+  return NextResponse.json({ booking: result.booking, priceChange: result.priceChange, money: result.money });
 }

@@ -11,6 +11,23 @@ import type { Booking } from "@/lib/types";
 import { MAX_ADVANCE_DAYS } from "@/lib/types";
 import { money } from "@/lib/region";
 import type { MovePreview } from "@/lib/game-moves";
+import type { DifferenceChoice, MoveMoney } from "@/lib/move-money";
+
+/** What a change does to the price, said before it is confirmed (lib/move-money.ts): the price now and at the new time, and where the difference goes. */
+function moneyLines(t: ReturnType<typeof useT>, m: MoveMoney): string[] {
+  const p = (x: number) => money(x.toFixed(2));
+  const vars = { old: p(m.oldPrice), new: p(m.newPrice), amount: p(Math.abs(m.difference)) };
+  const lines: string[] = [];
+  if (m.settles === "none") lines.push(t("mv67.same", { price: p(m.newPrice) }));
+  else if (m.settles === "price") lines.push(t(m.difference > 0 ? "mv67.pay" : "mv67.less", vars));
+  else if (m.settles === "refund" && m.refund)
+    lines.push(t(m.refund.how === "online" ? "mv67.refundOnline" : m.refund.how === "credit" ? "mv67.refundCredit" : "mv67.refundCounter", { ...vars, amount: p(m.refund.amount) }));
+  else if (m.settles === "kept") lines.push(m.difference < 0 ? t("mv67.kept", vars) : m.difference > 0 ? t("mv67.keptDearer", vars) : t("mv67.same", { price: p(m.newPrice) }));
+  else if (m.settles === "pass") lines.push(t("mv67.pass"));
+  else if (m.settles === "account") lines.push(t("mv67.account", { amount: p(m.account ?? 0) }));
+  if (m.lastMinuteLost) lines.push(t("mv67.lastMinuteLost"));
+  return lines;
+}
 
 /**
  * Pick a new day and start time for a booking: only times free for its
@@ -25,6 +42,7 @@ export function ChangeTime({
   optionsUrl,
   submit,
   preview,
+  quote,
   staff = false,
   lastDate,
   onDone,
@@ -32,13 +50,16 @@ export function ChangeTime({
 }: {
   booking: Booking;
   optionsUrl: (date: string) => string;
-  submit: (option: RescheduleOption, date: string, reason?: string) => Promise<Response>;
+  /** `extra.difference`: staff moving a paid booking cheaper, give the difference back or keep it (lib/move-money.ts). */
+  submit: (option: RescheduleOption, date: string, reason?: string, extra?: { difference?: DifferenceChoice }) => Promise<Response>;
   /** What moving there would do, changing nothing (lib/game-moves.ts, previewMove). */
   preview?: (option: RescheduleOption, date: string) => Promise<Response>;
+  /** Without `preview`: the price now and at the new time, changing nothing, shown before the customer confirms (the answer's `preview.money`). */
+  quote?: (option: RescheduleOption, date: string) => Promise<Response>;
   staff?: boolean;
   /** The last day it may move to: the venue's window for this customer, up to 90 days. */
   lastDate?: string;
-  onDone: (booking: Booking, message: string) => void;
+  onDone: (booking: Booking, message: string, data?: { money?: MoveMoney }) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -49,6 +70,10 @@ export function ChangeTime({
   // The time chosen, and what moving there would do, before anything changes.
   const [checking, setChecking] = useState<{ option: RescheduleOption; preview: MovePreview } | null>(null);
   const [reason, setReason] = useState("");
+  // A time chosen where the price is quoted first (a customer's own booking, not an open game): what it would do to the price.
+  const [quoted, setQuoted] = useState<{ option: RescheduleOption; money: MoveMoney } | null>(null);
+  // Staff moving a paid booking to a cheaper time: the difference given back (the default offered) or kept.
+  const [difference, setDifference] = useState<DifferenceChoice>("refund");
   const length = booking.endMin - booking.startMin;
   // A customer who has paid may not move to a dearer time; staff may.
   const paidLimit = !staff && booking.paymentStatus === "paid";
@@ -79,7 +104,24 @@ export function ChangeTime({
         const res = await preview(o, date);
         const data = await readJson(res);
         if (!res.ok) throw new Error(translateError(t, data) || "Could not change it");
-        setChecking({ option: o, preview: data.preview as MovePreview });
+        const seen = data.preview as MovePreview;
+        setDifference(seen.money?.settles === "kept" ? "keep" : "refund");
+        setChecking({ option: o, preview: seen });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not change it");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (quote) {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await quote(o, date);
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(translateError(t, data) || "Could not change it");
+        setQuoted({ option: o, money: (data.preview as { money: MoveMoney }).money });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not change it");
       } finally {
@@ -91,15 +133,25 @@ export function ChangeTime({
     await commit(o);
   }
 
-  async function commit(o: RescheduleOption, why?: string) {
+  async function commit(o: RescheduleOption, why?: string, extra?: { difference?: DifferenceChoice }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await submit(o, date, why);
+      const res = extra ? await submit(o, date, why, extra) : await submit(o, date, why);
       const data = await readJson(res);
       if (!res.ok) throw new Error(translateError(t, data) || "Could not change it");
       setChecking(null);
-      onDone((data.booking as Booking | undefined) ?? booking, data.outcome === "proposal" ? t("move.proposed") : t("resched.done", { when: when(o) }));
+      setQuoted(null);
+      const m = data.money as MoveMoney | undefined;
+      onDone(
+        (data.booking as Booking | undefined) ?? booking,
+        data.outcome === "proposal"
+          ? t("move.proposed")
+          : m?.settles === "refund" && m.refund
+            ? t("mv67.doneBack", { when: when(o), amount: money(m.refund.amount.toFixed(2)) })
+            : t("resched.done", { when: when(o) }),
+        m ? { money: m } : undefined
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change it");
     } finally {
@@ -133,6 +185,7 @@ export function ChangeTime({
           )}
           {p.keepsAgreedPrice && <li>{t("clsb.move.adjustHint")}</li>}
           {p.keepsAgreedPrice && <li>{t("clsb.move.told")}</li>}
+          {p.money && !p.keepsAgreedPrice && moneyLines(t, p.money).map((line) => <li key={line} data-testid="move-money">{line}</li>)}
           {p.players.length > 0 && <li>{t("move.players", { names: p.players.map((x) => x.name).join(", ") })}</li>}
           {pendingCount > 0 && <li>{t("move.pending", { n: pendingCount })}</li>}
           {p.clashes > 0 && <li>{t("move.clashes", { n: p.clashes })}</li>}
@@ -149,6 +202,19 @@ export function ChangeTime({
                 : t("move.venue")}
           </li>
         </ul>
+        {p.money?.canKeep && (
+          <fieldset className="mt-2 text-xs text-slate-700" data-testid="move-difference">
+            <legend className="font-medium">{t("mv67.choose")}</legend>
+            <label className="mr-4 inline-flex items-center gap-1">
+              <input type="radio" name="difference" checked={difference === "refund"} onChange={() => setDifference("refund")} />
+              {t("mv67.choiceRefund")}
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="radio" name="difference" checked={difference === "keep"} onChange={() => setDifference("keep")} />
+              {t("mv67.choiceKeep")}
+            </label>
+          </fieldset>
+        )}
         {needsReason && (
           <label className="mt-2 block text-xs font-medium text-slate-700">
             {t("move.reason")}
@@ -165,13 +231,39 @@ export function ChangeTime({
         <div className="mt-3 flex gap-2">
           <button
             disabled={busy || (needsReason && reason.trim().length < 3)}
-            onClick={() => void commit(checking.option, needsReason ? reason.trim() : undefined)}
+            onClick={() => void commit(checking.option, needsReason ? reason.trim() : undefined, p.money?.canKeep ? { difference } : undefined)}
             className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
           >
             {t("move.confirm")}
           </button>
           <button onClick={() => setChecking(null)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium">
             {t("move.back")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (quoted) {
+    return (
+      <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3" data-testid="move-quote">
+        <p className="text-sm font-semibold">{t("mv67.title")}</p>
+        <p className="mt-1 text-sm">{t("resched.confirm", { code: booking.code, when: when(quoted.option) })}</p>
+        <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-slate-700">
+          {moneyLines(t, quoted.money).map((line) => (
+            <li key={line} data-testid="move-money">{line}</li>
+          ))}
+        </ul>
+        {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
+        <div className="mt-3 flex gap-2">
+          <button
+            disabled={busy}
+            onClick={() => void commit(quoted.option)}
+            className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            {t("mv67.confirm")}
+          </button>
+          <button onClick={() => setQuoted(null)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium">
+            {t("mv67.back")}
           </button>
         </div>
       </div>

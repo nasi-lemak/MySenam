@@ -58,19 +58,24 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const { code, date, startHour, courtId, coachId, coachMoney, override, preview, reason } = body ?? {};
+  const { code, date, startHour, courtId, coachId, coachMoney, override, preview, reason, difference } = body ?? {};
   const start =
     body.start !== undefined ? (typeof body.start === "string" ? parseClock(body.start) : body.start) : typeof startHour === "number" ? Math.round(startHour * 60) : null;
   if (typeof code !== "string" || typeof date !== "string" || !isMinute(start))
     return NextResponse.json({ error: "code, date and start (minutes of the day or HH:MM) are required." }, { status: 400 });
   if (override === true && admin.role === "desk")
     return NextResponse.json({ error: "Only a manager may move a booking outside the court's booking rules.", code: "OVERRIDE_NOT_ALLOWED" }, { status: 403 });
+  // Keeping the difference of a cheaper time is the venue keeping a customer's money: a manager's decision (the desk gives it back).
+  if (difference === "keep" && admin.role === "desk")
+    return NextResponse.json({ error: "Only a manager can keep the difference when a paid booking moves to a cheaper time. The front desk gives it back, or asks a manager.", code: "MOVE_KEEP_MANAGER" }, { status: 403 });
   if (courtId !== undefined && courtId !== null && !Number.isInteger(courtId))
     return NextResponse.json({ error: "courtId must be a court's id." }, { status: 400 });
   if (coachId !== undefined && coachId !== null && !Number.isInteger(coachId))
     return NextResponse.json({ error: "coachId must be a coach's id." }, { status: 400 });
   if (coachMoney !== undefined && coachMoney !== null && coachMoney !== "keep" && coachMoney !== "adjust")
     return NextResponse.json({ error: "coachMoney is keep or adjust." }, { status: 400 });
+  if (difference !== undefined && difference !== null && difference !== "refund" && difference !== "keep")
+    return NextResponse.json({ error: "difference is refund or keep." }, { status: 400 });
   const venueId = await getVenueIdForBookingCode(code);
   if (venueId === null) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   const denied = denyVenue(admin, venueId);
@@ -95,6 +100,7 @@ export async function POST(req: NextRequest) {
     ...(typeof courtId === "number" ? { courtId } : {}),
     ...(typeof coachId === "number" ? { coachId } : {}),
     ...(coachMoney === "keep" || coachMoney === "adjust" ? { coachMoney: coachMoney as "keep" | "adjust" } : {}),
+    ...(difference === "refund" || difference === "keep" ? { difference: difference as "refund" | "keep" } : {}),
     changedBy: { adminId: admin.id, name: admin.name },
     override: override === true,
     ...(windowAsk.record ? { windowOverride: windowAsk.record } : {}),
@@ -119,7 +125,13 @@ export async function POST(req: NextRequest) {
       result.keepsAgreedPrice && result.unchargedDifference !== 0
         ? `; lesson keeps the price agreed, the new time ${result.unchargedDifference > 0 ? "costs" : "is"} ${money(Math.abs(result.unchargedDifference))} ${result.unchargedDifference > 0 ? "more, not charged" : "less, not given back"}`
         : ""
-    }${result.accountCredited ? `; on an invoice already issued to its account: ${money(result.accountCredited)} credited to the account, the invoice as issued` : ""}${moved.outcome === "venue" ? `; open game with players moved by the venue: ${String(reason).trim().slice(0, 300)}` : ""}${
+    }${result.accountCredited ? `; on an invoice already issued to its account: ${money(result.accountCredited)} credited to the account, the invoice as issued` : ""}${
+      result.money.settles === "refund" && result.money.refund
+        ? `; paid ${money(result.money.oldPrice)}, the new time costs ${money(result.money.newPrice)}: ${money(result.money.refund.amount)} given back ${result.money.refund.how === "online" ? "on the online payment (owed back, see Refunds owed)" : result.money.refund.how === "credit" ? "to the customer's stored credit" : "at the counter (owed back, on the counter list)"}`
+        : result.money.settles === "kept" && result.money.canKeep
+          ? `; paid ${money(result.money.oldPrice)}, the new time costs ${money(result.money.newPrice)}: the ${money(Math.abs(result.money.difference))} difference kept by the venue (staff's choice, or past the customer's cutoff)`
+          : ""
+    }${moved.outcome === "venue" ? `; open game with players moved by the venue: ${String(reason).trim().slice(0, 300)}` : ""}${
       typeof coachId === "number" && result.booking.coachId === coachId ? `; lesson with ${(await coachNames([result.booking.id])).get(result.booking.id) ?? `coach ${coachId}`}` : ""
     }`,
   });
@@ -150,12 +162,13 @@ export async function POST(req: NextRequest) {
     await notifyCoachChanged(result.booking, change, await bookingLocale(result.booking.id));
   }
   // A new time or court is the venue's change of time as ever: the notice the customer acknowledges.
-  if (!change || timeChanged) await notifyRescheduled(result.booking, "staff", result.priceChange);
+  if (!change || timeChanged) await notifyRescheduled(result.booking, "staff", result.priceChange, null, result.money.settles === "refund" ? result.money.refund : null);
   await tickOutbox();
   return NextResponse.json({
     booking: result.booking,
     priceChange: result.priceChange,
     unchargedDifference: result.unchargedDifference,
+    money: result.money,
     ...(result.accountCredited ? { accountCredited: result.accountCredited } : {}),
     ...(change ? { coachChange: change } : {}),
   });

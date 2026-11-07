@@ -428,10 +428,11 @@ describe("a last-minute price and a move", () => {
     expect(after.totalPrice).toBe(24);
     expect(after.concessionOff).toBe(4);
     expect(await codeTakenOff(after.id)).toBe(2);
-    // Paid, moved back by staff to the cheaper hall: what was charged stands, nothing recalculated.
+    // Paid, moved back by staff to the cheaper hall: the price as sold stands, nothing recalculated, and the RM10 the cheaper hall saves is
+    // owed back at the counter (ADR 0067; this said "not given back" before the owner's decision DEC-16).
     expect((await setPaymentStatus(after.code, true, "cash")).ok).toBe(true);
     const back = await rescheduleBooking(after.code, { date: day(12), start: at(17), courtId: hall }, "staff");
-    expect(back).toMatchObject({ ok: true, priceChange: 0, unchargedDifference: -10 });
+    expect(back).toMatchObject({ ok: true, priceChange: 0, unchargedDifference: 0, money: { settles: "refund", refund: { amount: 10, how: "counter" } } });
     expect((await getBookingById(after.id))!.totalPrice).toBe(24);
   });
 });

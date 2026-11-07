@@ -93,6 +93,8 @@ export async function POST(req: NextRequest) {
       action: "booking.rescheduled",
       bookingCode: b.code,
       detail: `${m.from.date} ${formatMinute(m.from.startMin)} → ${b.date} ${formatMinute(b.startMin)}${m.priceChange !== 0 ? `, price ${m.priceChange > 0 ? "+" : ""}${money(m.priceChange)}` : ""}; with series ${seriesCode.trim().toUpperCase()}${
+        m.refund ? `; ${money(m.refund.amount)} given back (${m.refund.how === "online" ? "owed back on the online payment" : m.refund.how === "credit" ? "to the customer's stored credit" : "owed back at the counter"})` : ""
+      }${
         m.outcome === "venue" ? `; open game with players moved by the venue: ${String(reason).trim().slice(0, 300)}` : ""
       }`,
     });
@@ -120,7 +122,7 @@ export async function POST(req: NextRequest) {
     await tickOutbox();
   }
   return NextResponse.json({
-    moved: result.moved.map((m) => ({ code: m.booking.code, date: m.booking.date, startMin: m.booking.startMin, courtId: m.booking.courtId, priceChange: m.priceChange })),
+    moved: result.moved.map((m) => ({ code: m.booking.code, date: m.booking.date, startMin: m.booking.startMin, courtId: m.booking.courtId, priceChange: m.priceChange, ...(m.refund ? { refund: m.refund } : {}) })),
     left: result.left,
   });
 }
