@@ -204,12 +204,13 @@ export async function confirmPhoneCode(userId: number, code: string): Promise<Ch
     )
     .get(userId)) as { id: number; phone: string; number: string; code_hash: string; attempts: number } | undefined;
   if (!pending) return { ok: false, error: "That code has run out. Ask for a new one.", code: "PHONE_CODE_EXPIRED" };
-  if (pending.attempts >= MAX_TRIES) return { ok: false, error: "Too many wrong tries. Ask for a new code.", code: "PHONE_CODE_EXPIRED" };
+  // The try is counted before the code is looked at, in the statement that checks the count, so tries made at once cannot all pass the cap.
+  const counted = await db.prepare("UPDATE phone_codes SET attempts = attempts + 1 WHERE id = ? AND attempts < ? RETURNING id").get(pending.id, MAX_TRIES);
+  if (!counted) return { ok: false, error: "Too many wrong tries. Ask for a new code.", code: "PHONE_CODE_EXPIRED" };
   const given = code.replace(/\D/g, "");
   const expected = Buffer.from(pending.code_hash, "hex");
   const actual = Buffer.from(keyedHash("phone-code", `${userId}:${pending.number}:${given}`), "hex");
   if (given.length !== 6 || !crypto.timingSafeEqual(expected, actual)) {
-    await db.prepare("UPDATE phone_codes SET attempts = attempts + 1 WHERE id = ?").run(pending.id);
     return { ok: false, error: "That is not the code. Check it and try again.", code: "PHONE_CODE_WRONG" };
   }
   await markChecked(userId, pending.phone, pending.number);

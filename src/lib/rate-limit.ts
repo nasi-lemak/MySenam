@@ -30,6 +30,12 @@ export const POLICIES = {
    */
   loginFailures: { limit: 20, windowMs: 30 * MINUTE },
   register: { limit: 5, windowMs: 60 * MINUTE },
+  /**
+   * Asking for password-reset links, per address, whichever accounts are asked about: the sign-in limit counts each
+   * pair of address and email apart, so on its own it lets one place ask for a link for every account it can name.
+   * Far more than people who forgot make from one office; each account is held to its own three an hour besides.
+   */
+  forgot: { limit: 30, windowMs: 60 * MINUTE },
   /** Each photo is drawn three times over; plenty for a venue, too few to keep a server busy. */
   photoUpload: { limit: 30, windowMs: 60 * MINUTE },
   /** Sending or trying a code to check a phone number: a person needs a few, a script many. */
