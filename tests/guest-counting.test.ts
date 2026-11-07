@@ -84,7 +84,7 @@ async function staffMember(venueId: number, name: string, role: "manager" | "des
   return { id: made.admin.id, name, cookie: `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(made.admin.id)).token}` };
 }
 async function keyFor(venueId: number, by: number) {
-  const made = await createApiKey(venueId, { name: "Venue system", scope: "write" }, by);
+  const made = await createApiKey(venueId, { name: "Venue system", scope: "write", ownership: "venue" }, by);
   if (!made.ok) throw new Error("key");
   return made.key;
 }

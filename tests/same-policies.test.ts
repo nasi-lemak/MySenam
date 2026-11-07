@@ -194,7 +194,7 @@ beforeAll(async () => {
   waiverManager = await staffMember(waivered, "Wan Manager");
   earlyManager = await staffMember(early, "Eli Manager");
   const keyFor = async (venueId: number, by: number) => {
-    const made = await createApiKey(venueId, { name: "Venue system", scope: "write" }, by);
+    const made = await createApiKey(venueId, { name: "Venue system", scope: "write", ownership: "venue" }, by);
     if (!made.ok) throw new Error("key");
     return made.key;
   };
