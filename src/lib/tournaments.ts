@@ -3363,6 +3363,8 @@ async function holdMatchSlot(t: Tournament, match: Match, slot: MatchSlot, ignor
  */
 export async function placeMatch(t: Tournament, d: TournamentDetail, m: Match, to: MatchSlot, minutes: number, ignoring: Set<number>, started = false): Promise<string | null> {
   const db = getDb();
+  // A day the venue has closed is not one a match can be put on: it would be listed as stranded the moment it was moved (competition-fixtures.ts).
+  if (await db.prepare("SELECT 1 FROM venue_closures WHERE venue_id = ? AND date = ?").get(t.venueId, to.date)) return `The venue is closed on ${to.date}.`;
   const start = { date: to.date, minute: to.startMin };
   const end = { date: to.date, minute: to.startMin + minutes };
   const before = (x: { date: string; minute: number }, y: { date: string; minute: number }) => x.date < y.date || (x.date === y.date && x.minute <= y.minute);

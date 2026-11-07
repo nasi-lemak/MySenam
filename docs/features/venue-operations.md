@@ -647,7 +647,13 @@ staffed), the customer is asked at **booking** for the same sign-off or
 certification the door asks for: the activity's booking rules, and an activity
 the venue takes approval applications for (`SIGN_OFF_NEEDED`,
 `CERTIFICATION_NEEDED`, before any payment); a manager can still book past it on
-record, and the door still waits. A **staffed** time is unchanged. An
+record, and the door still waits. A **staffed** time is unchanged. Moving a
+booking is asked the same at its new time: one moved from the counter's hours
+into hours the door is the way in is refused for a missing sign-off or
+certification (nothing moves), and a move to a date past a certification's last
+day is refused, as a booking for that day would be; a booking made for an
+approval's in-person step is the assessment itself and is not asked
+(`tests/cross-domain-safety.test.ts`). An
 **induction** is taken in person, so it is told rather than refused: the
 confirmation and the booking's page say the time is unstaffed and a run-through
 at the desk comes first (`inductionNeeded`), and the door's own check stays the
