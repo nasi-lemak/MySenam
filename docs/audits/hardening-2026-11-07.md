@@ -151,11 +151,28 @@ Behaviour changes a customer or venue will notice: an unpaid online class place 
 vanishes when its hold ends; a cheaper move shows and returns the difference; a
 cancellation after the customer's own check-in goes to staff; a no-show mark now tells the
 player; a production marketplace asks every owner and manager to enrol in two-factor.
-Migrations added: 0312 to 0314, 0316, 0320, 0321, 0324 to 0327, 0330, 0337, 0338, 0341:
+Migrations added: 0312 to 0314, 0316, 0320, 0321, 0324 to 0327, 0330, 0337, 0338, 0341, 0342:
 new columns and tables, one `NOT VALID` then validated constraint at a time, no backfill that
 invents a past term (legacy cancellation terms are left empty and read as the current
 terms; legacy memberships are backfilled from the plan as it stands and marked), none
 deletes data.
+
+### Found by the round's own tests and reviews
+
+Beyond the selected findings, two checks the round ran found real defects, fixed with tests:
+
+- **The cross-domain suite** (`tests/cross-domain-*.test.ts`, 41 tests, six files): a
+  second counter hand-back for one booking threw because of a unique constraint from before
+  cheaper moves existed, leaving money owed and unsettleable (migration 0342, P1 for
+  counter venues: found *because* two branches of this round met); moving a booking into
+  hours the door is the way in skipped the sign-off check (P2); a league fixture or
+  tournament match could be moved onto a closed day (P3); a booking racing a fixture move
+  threw halfway through a postponement (P3).
+- **The customer sign-up and password-reset review** (`tests/auth-review.test.ts`): a
+  reset link for an erased account caused a 500; reset links could be asked for without a
+  per-address cap; changing a password left earlier links alive; phone-code tries were
+  counted after the check. Both journeys are *ready only with manual safeguards*
+  ([pilot readiness](../operations/pilot-readiness-2026-11-07.md#customer-registration-and-password-reset)).
 
 ## 5. Restricted-pilot operating policy for a venue that cannot yet leave (A5 = H8)
 
