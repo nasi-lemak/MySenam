@@ -1,7 +1,7 @@
 import fs from "fs";
 import type { Locator, Page } from "playwright-core";
 import { expect, inject } from "vitest";
-import { dayAhead, signUp, url, type Actor, type Scenario } from "./harness";
+import { dayAhead, openDashboardTab, signUp, url, type Actor, type Scenario } from "./harness";
 
 /**
  * What the tournament-format and tournament-day scenarios share (setup, not
@@ -74,7 +74,7 @@ export async function staffOnTournaments(a: Actor, email: string, base: string =
     await a.page.getByRole("button", { name: "Sign in" }).click();
   }
   await signOut.waitFor({ timeout: 15_000 });
-  await a.page.getByRole("button", { name: "Tournaments", exact: true }).click();
+  await openDashboardTab(a.page, "Tournaments");
   await a.page.getByRole("heading", { name: "Tournaments", exact: true }).waitFor();
 }
 
