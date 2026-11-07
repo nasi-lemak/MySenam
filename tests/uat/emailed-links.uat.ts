@@ -256,6 +256,9 @@ describe.skipIf(!serverLog)("following the links the app emails", () => {
 
     const stranger = await s.actor("Stranger");
     await s.step(stranger, "types the newcomer's address into Register and is shown exactly what the newcomer was", async () => {
+      // A moment after an account's own sign-up link, no second email goes to that address (security mail has a cooldown per address,
+      // ADR 0073: it is what stops a stranger mailing someone over and over); the stranger types it once that minute has passed.
+      await new Promise((resolve) => setTimeout(resolve, 61_000));
       await stranger.page.goto(`${url}/login?mode=register`);
       await stranger.page.getByLabel("Email").fill(newcomer.email);
       await stranger.page.getByRole("button", { name: "Email me a link" }).click();
