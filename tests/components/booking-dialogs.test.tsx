@@ -235,6 +235,40 @@ describe("enrolling in a class", () => {
     fireEvent.keyDown(queued, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("a place held until it is paid says so, and until when, instead of calling the customer enrolled (ADR 0070)", async () => {
+    const open = { ...CLASS, enrolled: 4 };
+    const enrolled = { id: 9, code: "MS-HELD01", totalPrice: 20, paymentStatus: "unpaid", holdUntil: "2031-01-02 03:04:05" };
+    const answer = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { method?: string }) => {
+        const u = String(url);
+        if (u.includes("/api/classes/enrol") && init?.method === "POST")
+          return answer(201, { booking: enrolled, bookings: [enrolled], holdUntil: enrolled.holdUntil, timeZone: "Asia/Kuala_Lumpur", payOnline: true, link: "tok", session: open });
+        if (u.includes("/api/auth/me")) return answer(200, { user: null });
+        if (u.includes("/api/classes")) return answer(200, { classes: [open] });
+        return answer(404, {});
+      })
+    );
+    render(
+      <LanguageProvider locale="en">
+        <ClassesPage />
+      </LanguageProvider>
+    );
+    await settle(0);
+    await act(async () => screen.getByRole("button", { name: /Enrol|Join/ }).click());
+    const dialog = screen.getByRole("dialog", { name: "Morning Spin" });
+    fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Siti Test" } });
+    fireEvent.change(within(dialog).getByLabelText("Phone"), { target: { value: "0123456789" } });
+    await act(async () => void fireEvent.submit(dialog.querySelector("form")!));
+    await settle(0);
+    const held = screen.getByRole("dialog", { name: "Held for you: pay to confirm" });
+    // 03:04 UTC is 11:04 in Malaysia, on the day it falls.
+    expect(within(held).getByTestId("hold-notice").textContent).toMatch(/Pay online by .*11:04/);
+    expect(screen.queryByText("You're enrolled")).toBeNull();
+    expect(within(held).getByText("MS-HELD01")).toBeTruthy();
+  });
 });
 
 describe("Dialog", () => {

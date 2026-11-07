@@ -2,7 +2,8 @@ import { getDb } from "./db";
 import { releaseBooking } from "./claims";
 import { takesPaymentOnline } from "./payments";
 import { DEPOSIT_PERCENTS, WAITLIST_OFFER_LEAST_MINUTES, WAITLIST_OFFER_MINUTES, WAITLIST_OFFER_MOST_MINUTES } from "./types";
-import { offerFreedPlace, settleCancelled } from "./store";
+import { instantOf } from "./interval";
+import { offerFreedPlace, settleCancelled, venueHours } from "./store";
 
 /**
  * Paying online to hold a booking.
@@ -93,7 +94,33 @@ export async function setHoldPolicy(
   return { ok: true, policy: await holdPolicy(venueId) };
 }
 
-/** Hold these new, unpaid bookings for the venue's minutes. Returns until when, or null if none was held. */
+/**
+ * A class place held for payment is let go at the latest when its class starts (ADR 0070), as a waiting-list offer is
+ * (ADR 0060): a place nobody paid for is never kept into the lesson, and its release has time to offer it to the list.
+ * Only the enrolments among `bookingIds` that have a hold are touched, and a hold only ever moves earlier.
+ */
+async function capHoldsAtClassStart(bookingIds: number[]): Promise<void> {
+  if (bookingIds.length === 0) return;
+  const db = getDb();
+  const rows = (await db
+    .prepare(
+      `SELECT b.id, cl.date, cl.start_min, c.venue_id FROM bookings b
+         JOIN classes cl ON cl.id = b.class_id JOIN courts c ON c.id = b.court_id
+        WHERE b.id IN (${bookingIds.map(() => "?").join(",")}) AND b.hold_until IS NOT NULL`
+    )
+    .all(...bookingIds)) as { id: number; date: string; start_min: number; venue_id: number }[];
+  const zones = new Map<number, string>();
+  for (const r of rows) {
+    if (!zones.has(r.venue_id)) zones.set(r.venue_id, (await venueHours(r.venue_id)).zone);
+    const starts = instantOf(r.date, r.start_min, zones.get(r.venue_id)!).toISOString().replace("T", " ").slice(0, 19);
+    await db.prepare("UPDATE bookings SET hold_until = ? WHERE id = ? AND hold_until > ?").run(starts, r.id, starts);
+  }
+}
+
+/**
+ * Hold these new, unpaid bookings for the venue's minutes. Returns until when, or null if none was held. A class enrolment is
+ * held no later than the start of its class (`capHoldsAtClassStart`).
+ */
 export async function holdNewBookings(bookingIds: number[], minutes: number): Promise<string | null> {
   if (bookingIds.length === 0) return null;
   const db = getDb();
@@ -103,6 +130,7 @@ export async function holdNewBookings(bookingIds: number[], minutes: number): Pr
         WHERE id IN (${bookingIds.map(() => "?").join(",")}) AND payment_status = 'unpaid' AND total_price > 0`
     )
     .run(...bookingIds);
+  await capHoldsAtClassStart(bookingIds);
   const row = (await db
     .prepare(`SELECT MIN(hold_until) AS until FROM bookings WHERE id IN (${bookingIds.map(() => "?").join(",")})`)
     .get(...bookingIds)) as { until: string | null };
@@ -167,6 +195,8 @@ export async function extendHolds(bookingIds: number[]): Promise<void> {
           AND hold_until < datetime('now', '+${PAYMENT_PAGE_MINUTES} minutes')`
     )
     .run(...bookingIds);
+  // An open payment page does not hold a class place past the class's start either (ADR 0070).
+  await capHoldsAtClassStart(bookingIds);
 }
 
 /**

@@ -21,6 +21,24 @@ cancellation and no-shows — instead of growing a parallel system. The only
 override is price: an enrolment is charged the class's per-person rate rather
 than the court's hourly one.
 
+**Paying online to hold a place.** At a venue that asks for payment online to
+hold what is booked ([paying online to hold a booking](payments-and-credit.md#paying-online-to-hold-a-booking)),
+an enrolment made online and still to pay is **held**: for the venue's minutes
+(`hold_minutes`), never past the start of the class, and let go if it is not paid,
+its place offered to the class's waiting list, exactly as a place claimed from
+the waiting list is held ([ADR 0070](../architecture/decisions/0070-class-places-held-for-payment-and-several-offers-at-once.md)).
+A held place counts against the class's places while it is held, so it cannot be
+sold twice; paid, it stands and the confirmation goes out; the customer is told the
+time it is held until, and nobody is told the place is theirs before then. It holds
+every kind of enrolment alike: one session, a whole term (each session's place, paid
+in one bill, each let go on its own class's terms), and a family's or group's
+places (one enrolment per person, held and let go together). What is **not** held:
+enrolments made at the counter (paid as they are made, or on the venue's word to
+pay later), ones paid at once from credit or a pass, free ones, and venues that do
+not ask for it. A payment that lands after the place was let go is owed back
+(*Refunds owed*), never reviving it ([DEC-14](../audits/business-decisions-2026-11-06.md)
+is not changed).
+
 Classes can repeat weekly for a term (up to 12 weeks) under a shared `CL-`
 series code. Cancelling a class releases every enrolment and returns the hours
 to general booking. The class is locked and its roster read in the same transaction as the cancellation, so an
@@ -102,9 +120,10 @@ Its instructor is a name typed, or one of the venue's coaches
 - **More places**, up to what the room holds: the first person on the class's
   waiting list is offered a place at once, through the waiting list's own
   offer (`offerClassPlace`), as when somebody cancels. The waiting list offers
-  one place at a time, so a rise of several places offers the next one when
-  that offer is taken up, lapses or another place frees; until then the
-  other new places are open to enrol. No place is offered once the class has
+  every free place, to as many entries as the places fit
+  ([several places free](booking.md#waitlists), [ADR 0070](../architecture/decisions/0070-class-places-held-for-payment-and-several-offers-at-once.md)),
+  so a rise of several places offers them all at once; a place no entry is
+  waiting for is open to enrol. No place is offered once the class has
   started or with fewer than 5 minutes to go, and an offer ends at the start at the
   latest ([how long an offer lasts](booking.md#how-long-an-offer-lasts)).
 - **Fewer places**: never below the people enrolled and the places held by
