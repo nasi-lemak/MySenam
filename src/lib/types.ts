@@ -697,6 +697,11 @@ export interface HireRecord {
   deposit: number;
   /** How the deposit was held at handover (cash, QR, transfer, card); null where it was taken before that was recorded, or waived. */
   depositVia: CounterMethod | null;
+  /**
+   * For a deposit taken before the method was recorded (`depositVia` null, kept as the marker): how staff said it was held, who said so and when. Never
+   * replaces `depositVia`; counts as the method from then on (ADR 0068).
+   */
+  depositViaStated?: { via: CounterMethod; by: string | null; at: string } | null;
   takenAt: string;
   returnedAt: string | null;
   /** Kept back out of the deposit. null until the kit comes back. */

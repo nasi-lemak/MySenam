@@ -205,6 +205,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "block.removed": "p8c.act.blockRemoved",
   "hire.taken": "p8c.act.hireTaken",
   "hire.returned": "p8c.act.hireReturned",
+  "hire.method_stated": "m68.act.hireMethodStated",
   "addon.created": "p8c.act.addonCreated",
   "addon.changed": "p8c.act.addonChanged",
   "addon.retired": "p8c.act.addonRetired",

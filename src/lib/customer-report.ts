@@ -1,3 +1,4 @@
+import { bookingCredited, bookingGross } from "./accounting";
 import { getDb } from "./db";
 import { roundMoney } from "./region";
 import { addDays, todayISO } from "./time";
@@ -58,6 +59,16 @@ export const REGULAR_BOOKINGS = 4;
 /** Bookings that name a customer: not demo, not a test from before going live, not anonymised, not a class enrolment. */
 const COUNTED = "b.demo = 0 AND NOT b.test AND b.phone <> '' AND b.class_id IS NULL";
 
+/**
+ * What a customer actually paid on a booking (SQL, for the booking aliased `b`; ADR 0068): its own receipt as the sales journal draws it
+ * (`bookingGross`) when it is paid, less the credit notes taken off it, and the deposit they paid online towards it (net of what places
+ * taken off it took of it). Not what it was priced at: an unpaid booking, a booking a pass paid (the pass was the sale; entries are not
+ * money) and a friend's share on their own receipt are not this customer's spending. A paid no-show counts: the money was paid and kept.
+ */
+const SPENT = `(CASE WHEN b.payment_status = 'paid' AND COALESCE(b.paid_via, '') <> 'pass'
+                    THEN GREATEST(0, ${bookingGross("b")} - ${bookingCredited("b", "total")}) ELSE 0 END
+                + GREATEST(0, b.deposit_paid - COALESCE((SELECT SUM(w.deposit_part) FROM place_withdrawals w WHERE w.booking_id = b.id), 0)))`;
+
 export async function customerReport(venueId: number, from: string, to: string): Promise<CustomerReport> {
   const db = getDb();
   const at = "b.court_id IN (SELECT id FROM courts WHERE venue_id = ?)";
@@ -93,7 +104,7 @@ export async function customerReport(venueId: number, from: string, to: string):
     .prepare(
       `SELECT b.phone_key, (array_agg(b.name ORDER BY b.date DESC, b.id DESC))[1] AS name,
               (array_agg(b.phone ORDER BY b.date DESC, b.id DESC))[1] AS phone,
-              COUNT(*)::int AS bookings, (SUM(b.end_min - b.start_min) / 60.0)::float AS hours, SUM(b.total_price)::float AS spent,
+              COUNT(*)::int AS bookings, (SUM(b.end_min - b.start_min) / 60.0)::float AS hours, SUM(${SPENT})::float AS spent,
               (SELECT MIN(x.date) FROM bookings x WHERE x.phone_key = b.phone_key AND x.court_id IN (SELECT id FROM courts WHERE venue_id = ?)
                  AND x.status = 'confirmed' AND x.demo = 0 AND NOT x.test) AS since
          FROM bookings b

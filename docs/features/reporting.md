@@ -141,7 +141,10 @@ Below the money, *Reports* says who the customers were in the period
 (`src/lib/customer-report.ts`): how many, how many booked here for the first
 time ever and how many came back, bookings per customer, the share of bookings
 played that nobody turned up for, and late cancellations. Then the ten best
-customers by what they spent, with their hours and since when they have been
+customers by what they spent (money they paid: a paid booking at what its receipt shows less the credit notes
+taken off it, plus a deposit paid online towards one; not the price of an unpaid booking, nor of one a pass paid, whose
+entries are not money, nor a friend's share; a paid no-show counts, as the money was kept; [ADR 0068](../architecture/decisions/0068-money-hardening-credit-notes-are-not-cash-spent-is-money-paid-and-the-till-lists-every-payout.md),
+`tests/customer-spent.test.ts`), with their hours and since when they have been
 coming; and the regulars who have stopped: four or more bookings in the six
 months before, none in the last 45 days and none coming, with a number to
 call. A customer is a phone number however it was typed; demo bookings,

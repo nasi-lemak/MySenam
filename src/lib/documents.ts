@@ -654,6 +654,9 @@ export async function creditBooking(
 ): Promise<Document | null> {
   const full = await bookingSale(bookingId);
   if (!full || full.paymentStatus !== "paid" || full.total <= 0 || share <= 0 || remaining <= 0) return null;
+  // A booking a pass paid has no receipt (the pass was the sale) and takes back entries, not money (ADR 0068): there is nothing to credit.
+  // The trail is the pass's own ledger (lib/store.ts `refundBookingToPass`) and the activity log.
+  if (full.paidVia === "pass") return null;
   // A late cancellation gives back only part: the credit note is for that part, the fee kept stays sold.
   const amount = roundMoney(full.total * share * remaining);
   const sale =

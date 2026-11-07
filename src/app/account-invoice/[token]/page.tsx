@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { accountById, invoiceByToken, invoiceCredits, invoiceLines } from "@/lib/accounts";
+import { accountById, invoiceByToken, invoiceCredits, invoiceLines, invoicePayments } from "@/lib/accounts";
 import { getVenue } from "@/lib/store";
 import { venueTax } from "@/lib/tax";
 import { money } from "@/lib/region";
@@ -24,12 +24,13 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
 export default async function AccountInvoicePage({ params }: { params: Promise<{ token: string }> }) {
   const invoice = await invoiceByToken((await params).token);
   if (!invoice) notFound();
-  const [account, venue, lines, tax, credits] = await Promise.all([
+  const [account, venue, lines, tax, credits, payments] = await Promise.all([
     accountById(invoice.accountId, true),
     getVenue(invoice.venueId),
     invoiceLines(invoice.id),
     venueTax(invoice.venueId),
     invoiceCredits(invoice.id),
+    invoicePayments(invoice.id),
   ]);
   if (!account || !venue) notFound();
   const t = translator(account.locale, await currentSiteName());
@@ -119,6 +120,23 @@ export default async function AccountInvoicePage({ params }: { params: Promise<{
               <td className="pt-2 text-right text-base font-bold tabular-nums">{money(invoice.due)}</td>
             </tr>
           )}
+          {/* What the account has paid on it so far, each amount when and how it was received, and what is left (ADR 0068). */}
+          {payments.map((p, i) => (
+            <tr key={`${p.receivedOn}-${i}`}>
+              <td colSpan={3} className="pt-2 pr-3 text-slate-600">
+                {t("m68.inv.received", { date: p.receivedOn, via: account.locale === "en" ? PAID_VIA_LABELS[p.via].toLowerCase() : PAID_VIA_LABELS[p.via] })}
+              </td>
+              <td className="pt-2 text-right tabular-nums text-slate-600">−{money(p.amount)}</td>
+            </tr>
+          ))}
+          {payments.length > 0 && !invoice.paidOn && (
+            <tr>
+              <td colSpan={3} className="pt-2 pr-3 font-semibold">
+                {t("m68.inv.balance")}
+              </td>
+              <td className="pt-2 text-right text-base font-bold tabular-nums">{money(invoice.balance)}</td>
+            </tr>
+          )}
         </tfoot>
       </table>
 
@@ -127,7 +145,9 @@ export default async function AccountInvoicePage({ params }: { params: Promise<{
           ? via
             ? t("ainv.paidVia", { date: invoice.paidOn, via: account.locale === "en" ? via.toLowerCase() : via })
             : t("ainv.paid", { date: invoice.paidOn })
-          : t("ainv.due", { due: invoice.dueOn, number: invoice.number })}
+          : invoice.received > 0
+            ? t("m68.inv.part", { received: money(invoice.received), balance: money(invoice.balance), due: invoice.dueOn, number: invoice.number })
+            : t("ainv.due", { due: invoice.dueOn, number: invoice.number })}
       </p>
     </article>
   );

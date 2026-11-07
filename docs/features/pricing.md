@@ -815,7 +815,9 @@ under *Plans and tiers*; `membership_plans.offered_for`, migration 0167;
   credited and what its payment took is owed back in the same change, in full
   (nothing is prorated), and refunded from *Refunds owed*
   ([refunds](payments-and-credit.md#paying-online)); if not, nothing is owed
-  back and nothing credited (`tests/void-credit-notes.test.ts`).
+  back and nothing credited (`tests/void-credit-notes.test.ts`). A membership sold at the counter and voided with a refund
+  writes its credit note as before, which is the tax document and not cash paid, and the amount is also written as owed back at the
+  counter until a named member of staff says it was handed over ([owed back](payments-and-credit.md#owed-back-after-the-venue-cancels), ADR 0068).
 
 #### Changing whom a family membership covers
 
@@ -1110,6 +1112,15 @@ manager hands back the unused part (asked when voiding), it is the pass's
 price times the share of entries (or minutes) left, and a credit note is
 written for that much only, at the tax the pass was sold at; what was spent
 stays revenue (`voidPass` in `src/lib/store.ts`; `tests/void-credit-notes.test.ts`).
+For a pass sold at the counter that credit note is the tax document, **not cash paid**: the amount is
+also written as owed back at the counter until a named member of staff says it was handed over, and is then in the day's payouts
+([owed back](payments-and-credit.md#owed-back-after-the-venue-cancels), ADR 0068).
+
+**A booking a pass paid gives entries back, never money** (ADR 0068, `creditBooking` in `src/lib/documents.ts`): cancelling it
+(the customer, the venue, staff) returns the entries to the pass's ledger (*Refund for MS-…*) and writes **no credit note**, because
+no money was taken for it: it has no receipt, and a credit note for it would be a document for money never paid, a gap in
+the credit-note numbers the journal hides. The activity log says what went back (*1 entry went back to the pass, no money
+paid out*). A credit note written for such a booking before this change stays as it was (`tests/pass-paid-cancel-trail.test.ts`).
 Customers see their passes with a used/remaining meter on `/account`,
 and staff sell and cancel them from the *Credit & passes* tab.
 

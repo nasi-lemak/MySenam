@@ -4998,6 +4998,9 @@ export const ZH: Record<Phrase, string> = {
   "err.FX8_PASS_NOT_LATER": "新的到期日必须是今天或之后，并且晚于次卡现有的到期日 {date}。",
   "err.FX8_PASS_TOO_FAR": "次卡的有效期不能超过 {date}。",
   "err.FX8_GRACE_RANGE": "请填写 0 到 {max} 的整数天数；0 表示关闭。",
+  "m68.inv.received": "{date} 已收到付款，方式：{via}",
+  "m68.inv.balance": "待付余额",
+  "m68.inv.part": "目前已收到 {received}。余额 {balance} 请于 {due} 前支付，并注明 {number}。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

@@ -7,7 +7,8 @@ import { roundMoney } from "./region";
  * (lib/reports.ts `venueOwes`, ADR 0055) and the cash-up's "held for customers" lines (lib/cash-up.ts): a deposit is held
  * from the moment the kit goes out until it comes back, and what is kept back becomes a sale then (lib/counter-sales.ts
  * `sellKeptDeposit`), not before. How it was held at handover (`deposit_via`) says which till, terminal or account it sits in;
- * null for a deposit taken before that was recorded, or a waived one.
+ * null for a deposit taken before that was recorded, or a waived one; for one taken before it was recorded, what staff stated since
+ * (`deposit_via_stated`, migration 0327) counts, and the NULL `deposit_via` stays as the marker.
  */
 
 export interface HeldByMethod {
@@ -31,11 +32,11 @@ export async function hireDepositsHeld(venueId: number, at?: { day: string; zone
   const db = getDb();
   const rows = (await db
     .prepare(
-      `SELECT h.deposit_via AS method, COALESCE(SUM(h.deposit), 0)::float AS amount
+      `SELECT COALESCE(h.deposit_via, h.deposit_via_stated) AS method, COALESCE(SUM(h.deposit), 0)::float AS amount
          FROM hire_records h JOIN bookings b ON b.id = h.booking_id
         WHERE b.court_id IN (SELECT id FROM courts WHERE venue_id = ?) AND h.deposit > 0
           AND ${at ? `${hireDay("h.taken_at")} <= ? AND (h.returned_at IS NULL OR ${hireDay("h.returned_at")} > ?)` : "h.returned_at IS NULL"}
-        GROUP BY h.deposit_via ORDER BY h.deposit_via`
+        GROUP BY COALESCE(h.deposit_via, h.deposit_via_stated) ORDER BY COALESCE(h.deposit_via, h.deposit_via_stated)`
     )
     .all(...(at ? [venueId, at.zone, at.day, at.zone, at.day] : [venueId]))) as { method: string | null; amount: number }[];
   const byMethod = rows.map((r) => ({ method: r.method, amount: roundMoney(Number(r.amount)) }));

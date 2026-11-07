@@ -199,7 +199,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "guest.registered": "Registered a member's or resident's guest at the counter",
   "booking.details_corrected": "Corrected a booking's name, number or email",
   "booking.series_cancelled": "Cancelled weeks of a weekly series",
-  "payment.paid_out": "Handed money back at the counter for a cancelled booking",
+  "payment.paid_out": "Handed money back at the counter (a cancelled booking, an entry fee, a pass or a membership)",
   // p8c: staff writes logged since round 8 (tests/staff-log-coverage.test.ts), and kinds written before without words.
   "day.closed": "Closed the venue for a day",
   "day.reopened": "Opened a closed day again",
@@ -215,6 +215,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "block.removed": "Unblocked a court's time",
   "hire.taken": "Handed out hired kit, holding a deposit",
   "hire.returned": "Took hired kit back, keeping or giving back the deposit",
+  "hire.method_stated": "Said how a hire deposit taken before the method was recorded was held",
   "addon.created": "Added an extra",
   "addon.changed": "Changed an extra",
   "addon.retired": "Retired an extra",
