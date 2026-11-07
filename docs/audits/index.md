@@ -36,6 +36,7 @@ validation of the integration branch is in
 | [Findings register](findings-register-2026-11-06.md) and its [second half](findings-register-2026-11-06-e-to-h.md) | Every finding once, with evidence, cause, recommendation and status |
 | [Remediation roadmap](remediation-roadmap-2026-11-06.md) | What is open, in the order it matters, the owner decisions that gate it, the integrations still to verify, and a controlled-pilot recommendation |
 | [Post-audit hardening round, 7 November 2026](hardening-2026-11-07.md) | The bounded round that followed: baseline, what happened to each remaining finding, severity changes, decisions built, the restricted-pilot policy for a venue exit; the [pilot readiness assessment](../operations/pilot-readiness-2026-11-07.md) |
+| [Final operational hardening, 7 November 2026](final-operational-hardening-2026-11-07.md) | The three last operational defects (security mail dropped by the daily limit, no refund task for a customer's counter-paid cancellation, production without working email), the tournament-day timeout, and what is still unverified against real providers |
 | [Business-process inventory](business-process-inventory-2026-11-06.md) | 149 workflows, who starts them, and how far the audit followed each |
 | [Cross-domain consistency matrix](cross-domain-consistency-2026-11-06.md) | The same concept in two places, and whether they differ |
 | [State transitions and recovery](state-transitions-and-recovery-2026-11-06.md) | Each long-lived object as a state machine, where something strands, and who recovers it |

@@ -28,7 +28,7 @@ safeguards are in place. Until then nothing is offered to a real customer.
 | Booking and availability | Ready for restricted pilot | Claims under exclusion constraints; races tested on Postgres; cancellation terms snapshotted; edits and bookings meet in one transaction. Staffed hours only |
 | Counter payments (cash, DuitNow QR, transfer) | Ready for restricted pilot | Recorded with the method; the cash-up and one payout list cover refunds handed back; a credit note is not money paid and the screen says so |
 | Billplz checkout | **Blocked pending verification** | Settlement checks are built against stand-in payloads only. Billplz sandbox keys and the check (`node scripts/verify-integrations.mjs billplz`) must show that `paid_amount` is on the callback and what a short payment looks like. Until then a paid callback without `paid_amount` is held, and online payment must not be offered |
-| Refund reconciliation | Ready only with manual safeguards | Billplz refunds are by hand: the *Refunds owed*, *Payments to check* and counter-owed lists exist, and a named person (section below) must clear them daily. A payment after a hold lapsed is owed back, never revived |
+| Refund reconciliation | Ready only with manual safeguards | A customer's cancellation of a counter-paid booking is now a task on the owed-back list (ADR 0074), settled once by a named staff member; past cancellations are listed by `scripts/reconcile-counter-cancellations.sql` for manual review before the pilot. Billplz refunds are by hand: the *Refunds owed*, *Payments to check* and counter-owed lists exist, and a named person (section below) must clear them daily. A payment after a hold lapsed is owed back, never revived |
 | Classes | Ready for restricted pilot | Pay-to-hold, waiting-list offers and moves tested; counter payment unaffected. Online class payment waits on the Billplz row |
 | Memberships and passes | Ready only with manual safeguards | Sold at the counter; terms kept for the paid term; no pre-renewal notice; validity is not paused during a suspension (DEC-02); **gateway auto-renewal (Stripe) stays disabled**: its pause is unverified against real Stripe |
 | Venue cancellation and closures | Ready only with manual safeguards | The closure is written first, refunds owed are tracked; Billplz refunds by hand; waiting entries on a closed day stay silent |
@@ -112,16 +112,27 @@ client address now, staff and customer); changing a password left earlier reset 
 alive (now voided); and phone-code tries were counted after the check, so parallel guesses
 passed the cap (now counted in the checking statement).
 
-**Both are *ready only with manual safeguards*.** The safeguards:
+**Both are *ready only with manual safeguards*.** Three safeguards named on 7 November are
+now built; one remains:
 
-1. Real email delivery and domain authentication (SPF, DKIM, DMARC) verified first. The
-   page always says "check your email"; with no working mail transport nothing arrives and
-   nobody is told. There is no start-up warning for that yet.
-2. Awareness that an address already sent 8 messages that day (the outbox's daily cap
-   counts every kind) gets no reset or sign-up link, silently. Owner decision pending: a
-   separate allowance for security mail.
-3. Awareness that sign-up and token pages share a per-IP limit (10 in 10 minutes, and 5
-   sign-up requests an hour): many people behind one venue network are throttled.
+1. *Built (final operational hardening, ADR 0073):* a sign-up or reset link is **security mail**,
+   its own class with its own allowance (10 a day per address by default,
+   `MYSENAM_AUTH_MAIL_PER_RECIPIENT_PER_DAY`), a 60-second cooldown and no second link while one
+   is waiting; eight ordinary messages to an address no longer make its link vanish. Past its own
+   allowance a message is not sent, is shown to the operator with the reason, and raises an alert.
+2. *Built:* a production marketplace whose email cannot deliver (no provider, no sender, both SES
+   and SMTP set, `MYSENAM_SEND=log`) refuses sign-up and forgotten-password requests with a plain
+   "temporarily unavailable" and alerts the owner; nothing says "check your email" when no email
+   can go. The health view shows the email state, the last hour's sent and failed counts, the
+   queue's age and what was given up.
+3. *Built:* the per-address sign-up and reset limits are settings; many people behind one venue
+   network still count together (the sign-in budget is fixed).
+4. **Remains:** real email delivery and domain authentication verified
+   ([SES checklist](email-ses-checklist.md), [provider verification](pilot-provider-verification.md)).
+   The application cannot know that mail reaches an inbox; `MAIL_DELIVERY_VERIFIED` is set only by
+   an operator after a person confirmed one. Until then both journeys stay *ready only with manual
+   safeguards*, and a person locked out by the security-mail allowance has only "ask again later"
+   or Google sign-in (there is no tool to send a link by hand).
 
 Not checkable without real email: delivery and inbox placement; that SES click tracking is
 off (it would rewrite the link); behaviour in an SES outage against real error codes;

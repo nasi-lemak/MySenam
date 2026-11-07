@@ -26,7 +26,7 @@ Run `node scripts/verify-integrations.mjs email --send` with the SES key, `MAIL_
 verified identity). It reads the account (sandbox or production, quota), the sending identity
 (verified, DKIM status), the domain's DMARC and SPF, and sends one synthetic message. The
 step-by-step setup and what each setting means are in the
-SES checklist (docs/operations/email-ses-checklist.md, added with the email changes).
+[SES checklist](email-ses-checklist.md).
 
 Pass means all of: the account is in production access (or every pilot recipient is a verified
 identity); the domain identity is verified with **DKIM successful**; DMARC and SPF are

@@ -146,7 +146,7 @@ export async function up() {
     const dbUrl = `postgres://postgres:${dbPassword}@db:5432/mysenam`;
     for (let i = 0; i < 120 && !dockerOk(["exec", `${id}-db`, "pg_isready", "-U", "postgres", "-h", "127.0.0.1"]); i++) await new Promise((r) => setTimeout(r, 500));
     docker(["run", "-d", "--name", `${id}-app`, ...labels, "--network", `${id}-net`, "-p", `127.0.0.1:${port}:3000`,
-      "-e", `DATABASE_URL=${dbUrl}`, "-e", `MYSENAM_URL=${url}`, "-e", "MYSENAM_COUNTRY=MY", "-e", "MYSENAM_SEND=log", "-e", "MYSENAM_GEOCODER=off",
+      "-e", `DATABASE_URL=${dbUrl}`, "-e", `MYSENAM_URL=${url}`, "-e", "MYSENAM_COUNTRY=MY", "-e", "MYSENAM_SEND=log", "-e", "MYSENAM_SYNTHETIC_DATA=on", "-e", "MYSENAM_GEOCODER=off",
       "-e", "MYSENAM_SCHEDULER=on", "-e", `ADMIN_EMAIL=${owner.email}`, "-e", `ADMIN_PASSWORD=${owner.password}`,
       "-e", `MYSENAM_SECRET=${crypto.randomBytes(32).toString("hex")}`, image.tag]);
     if (!(await waitHealthy(url, 120_000))) throw new Error(`The app did not become healthy:\n${docker(["logs", "--tail", "60", `${id}-app`])}`);

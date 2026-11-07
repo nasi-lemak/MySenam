@@ -102,7 +102,7 @@ docker run -d --name db --network mysenam --restart unless-stopped -e POSTGRES_P
 until docker exec db pg_isready -U postgres; do sleep 2; done
 docker run -d --name app --network mysenam --restart unless-stopped \\
   -e DATABASE_URL='postgres://postgres:${dbPassword}@db:5432/mysenam' -e MYSENAM_URL="https://$HOST" \\
-  -e MYSENAM_COUNTRY=MY -e MYSENAM_SEND=log -e MYSENAM_GEOCODER=off -e MYSENAM_SCHEDULER=on \\
+  -e MYSENAM_COUNTRY=MY -e MYSENAM_SEND=log -e MYSENAM_SYNTHETIC_DATA=on -e MYSENAM_GEOCODER=off -e MYSENAM_SCHEDULER=on \\
   -e ADMIN_EMAIL='${owner.email}' -e ADMIN_PASSWORD='${owner.password}' -e MYSENAM_SECRET='${secret}' '${image}'
 docker run -d --name caddy --network mysenam --restart unless-stopped -p 80:80 -p 443:443 caddy:2 caddy reverse-proxy --from "$HOST" --to app:3000
 until docker exec app curl -fsS http://127.0.0.1:3000/api/health; do sleep 5; done
