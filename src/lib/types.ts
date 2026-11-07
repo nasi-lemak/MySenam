@@ -633,12 +633,36 @@ export interface Membership {
   holderParticipantName?: string | null;
   /** Participants a family membership covers besides its holder (`membership_participants`). */
   covers?: { id: number; name: string }[];
+  /**
+   * The benefits this term carries and where they came from (ADR 0071): `sold` (taken at the sale), `backfilled` (a term
+   * sold before they were kept: its tier's benefits when migration 0338 ran) or `live` (a row with no snapshot, read from
+   * its tier as it stands). `version` is the tier version they were taken at, `tierVersion` the tier's now: they differ
+   * when the tier has been edited since, which the term does not feel until it is renewed.
+   */
+  benefits?: MembershipBenefits & { source: "sold" | "backfilled" | "live"; version: number | null; tierVersion: number | null };
   /** Why it is not giving member rates today, if it is not. */
   unusableReason?: string;
   /** The same, as a phrase a staff screen says in the staff language. */
   unusablePhrase?: StaffText;
   /** Its suspensions, oldest first (lib/membership-suspensions.ts): on their dates it covers nobody. */
   suspensions?: MembershipSuspensionSummary[];
+}
+
+/**
+ * What a membership carries of its tier, taken when the term is sold (ADR 0071, migration 0337): the benefits its holder paid
+ * for, which a later edit of the tier does not change. `lib/membership-plans.ts` `benefitsOf` makes it from a plan.
+ */
+export interface MembershipBenefits {
+  /** This share of the public price, instead of each court's member rate; null: the venue's member rates. */
+  ratePercent: number | null;
+  /** How far ahead its holder may book; null: the venue's members' window. */
+  aheadDays: number | null;
+  scope: BenefitScope;
+  /** Let in with no booking where a resource takes entries (lib/entries.ts), anywhere or only for `admitsEntrySport`. */
+  admitsEntry: boolean;
+  admitsEntrySport: string | null;
+  /** A suspension moves its end by the days suspended (lib/membership-suspensions.ts). */
+  extendOnSuspension: boolean;
 }
 
 /** A suspension of a membership, as its holder and staff see it on the membership (who did it: its history, for staff). */

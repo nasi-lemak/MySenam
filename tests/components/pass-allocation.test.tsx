@@ -179,3 +179,30 @@ describe("at the counter", () => {
     expect(within(panel).getByText(/Still to pay for: Badrul/)).toBeTruthy();
   });
 });
+
+describe("the order passes are offered in (MEMB D18, ADR 0071)", () => {
+  it("lists the pass that ends soonest first, then the older, whatever order they arrive in; nothing is chosen for the customer", () => {
+    const list = [
+      pass(1, { name: "Late", scope: "booking", expiresOn: "2027-06-30" }),
+      pass(3, { name: "Same B", scope: "booking", expiresOn: "2027-02-01" }),
+      pass(2, { name: "Same A", scope: "booking", expiresOn: "2027-02-01" }),
+      pass(4, { name: "Soon", scope: "booking", expiresOn: "2027-01-15" }),
+    ];
+    render(
+      <PassAllocation
+        places={[{ placeId: null, customer: true, participantId: null, name: "Mum" }]}
+        passes={list}
+        players={1}
+        minutes={60}
+        soldByPlace={false}
+        bookerName="Mum"
+        codes={[]}
+        onChange={() => {}}
+        words={words}
+      />
+    );
+    const choice = screen.getByRole("combobox", { name: "Which pass pays for whom" }) as HTMLSelectElement;
+    expect([...choice.options].map((o) => o.textContent)).toEqual(["No pass", "Soon · 5 left", "Same A · 5 left", "Same B · 5 left", "Late · 5 left"]);
+    expect(choice.value).toBe("");
+  });
+});

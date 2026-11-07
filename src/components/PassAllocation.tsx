@@ -1,6 +1,6 @@
 "use client";
 
-import { planPassSpends, planTotals, type PassPlan, type PlanPass, type PlanPlace } from "@/lib/pass-rules";
+import { comparePassesForUse, planPassSpends, planTotals, type PassPlan, type PlanPass, type PlanPlace } from "@/lib/pass-rules";
 
 /** A pass as the allocation shows it: what it is, whose, and what is left on it. */
 export type AllocPass = PlanPass & { name: string };
@@ -57,9 +57,11 @@ export default function PassAllocation({
   onChange: (codes: string[]) => void;
   words: AllocationWords;
 }) {
-  const whole = passes.filter((p) => p.scope !== "participant");
+  // Offered in the one order passes are used by default: the soonest to end first (lib/pass-rules.ts).
+  const ordered = [...passes].sort(comparePassesForUse);
+  const whole = ordered.filter((p) => p.scope !== "participant");
   const ownOf = (place: PlanPlace) =>
-    passes.filter((p) => p.scope === "participant" && (p.holderParticipantId ? p.holderParticipantId === place.participantId : place.customer));
+    ordered.filter((p) => p.scope === "participant" && (p.holderParticipantId ? p.holderParticipantId === place.participantId : place.customer));
   const anyOwn = places.some((p) => ownOf(p).length > 0);
   const byCode = new Map(passes.map((p) => [p.code, p]));
   const chosen = codes.map((c) => byCode.get(c)).filter((p): p is AllocPass => !!p);

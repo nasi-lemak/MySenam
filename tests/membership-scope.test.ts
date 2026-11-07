@@ -323,7 +323,8 @@ describe("a membership's price, by what it covers", () => {
     expect((await book(parent, { courtId: openHall, date: day(11), start: at(9), end: at(10), participantIds: [member.id] })).body.booking.totalPrice).toBe(10);
     expect((await book(parent, { courtId: openHall, date: day(11), start: at(11), end: at(12), participantIds: [member.id, other.id] })).body.booking.totalPrice).toBe(20);
     // Changing the plan's other benefits keeps what its price covers.
-    const changed = await setPlanBenefits(open, plan.plan.id, { ratePercent: 60, aheadDays: null });
+    // (60% of 20 is 12, above the courts' member rate of 10: saved once confirmed, MEMB D19.)
+    const changed = await setPlanBenefits(open, plan.plan.id, { ratePercent: 60, aheadDays: null, confirmAboveMemberRate: true });
     expect(changed.ok && changed.plan.scope).toBe("participant");
   });
 });

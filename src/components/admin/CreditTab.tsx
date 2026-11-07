@@ -1557,6 +1557,16 @@ function MembershipsPanel({ venues }: { venues: ManagedVenue[] }) {
                     {m.holderPhone}
                     {m.tierName && ` · ${m.tierName}`}
                   </span>
+                  {m.tierName && m.benefits && (
+                    <span className="block text-xs text-slate-600" data-testid="membership-benefits">
+                      {m.benefits.source === "backfilled"
+                        ? t("mbr.cr.termsBackfilled", { benefits: tierBenefits(t, m.benefits) })
+                        : t("mbr.cr.terms", { benefits: tierBenefits(t, m.benefits), v: m.benefits.version ?? "" })}
+                      {m.benefits.version !== null && m.benefits.tierVersion !== null && m.benefits.tierVersion !== m.benefits.version && (
+                        <span className="block text-amber-700">{t("mbr.cr.planChanged")}</span>
+                      )}
+                    </span>
+                  )}
                   {m.holderParticipantName && <span className="block text-xs text-slate-600">{t("ent.cr.forName", { name: m.holderParticipantName })}</span>}
                   {m.covers && m.covers.length > 0 && (
                     <span className="block text-xs text-slate-600">{t("ent.cr.coversNames", { names: m.covers.map((c) => c.name).join(", ") })}</span>
@@ -1655,7 +1665,7 @@ const RATE_CHOICES = [95, 90, 85, 80, 75, 70, 60, 50];
 const AHEAD_CHOICES = [7, 14, 21, 30, 45, 60, 90];
 
 /** What a tier gives, in a few words. */
-function tierBenefits(t: StaffT, p: Plan): string {
+function tierBenefits(t: StaffT, p: Pick<Plan, "ratePercent" | "aheadDays">): string {
   const parts = [
     p.ratePercent !== null ? t("cr.tierPays", { percent: p.ratePercent }) : t("cr.tierMemberRates"),
     p.aheadDays !== null ? t("cr.tierBooksAhead", { days: p.aheadDays }) : null,
@@ -1686,19 +1696,27 @@ function MembershipPlans({ venueId }: { venueId: number }) {
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const res = await fetch("/api/admin/membership-plans", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        venueId,
-        name: form.name,
-        months: Number(form.months),
-        price: Number(form.price),
-        ratePercent: form.ratePercent ? Number(form.ratePercent) : null,
-        aheadDays: form.aheadDays ? Number(form.aheadDays) : null,
-      }),
-    });
-    const data = await readJson(res).catch(() => ({}));
+    const send = (confirmAboveMemberRate: boolean) =>
+      fetch("/api/admin/membership-plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          venueId,
+          name: form.name,
+          months: Number(form.months),
+          price: Number(form.price),
+          ratePercent: form.ratePercent ? Number(form.ratePercent) : null,
+          aheadDays: form.aheadDays ? Number(form.aheadDays) : null,
+          ...(confirmAboveMemberRate ? { confirmAboveMemberRate: true } : {}),
+        }),
+      });
+    let res = await send(false);
+    let data = await readJson(res).catch(() => ({}));
+    // A price level above a court's member rate: the server's warning, saved only when the manager confirms it.
+    if (res.status === 409 && data.needsConfirm && window.confirm(t.err(data))) {
+      res = await send(true);
+      data = await readJson(res).catch(() => ({}));
+    }
     if (!res.ok) return setError(t.err(data, t("cr.planAddFailed")));
     setForm({ name: "", months: "12", price: "", ratePercent: "", aheadDays: "" });
     await load();
@@ -1718,12 +1736,19 @@ function MembershipPlans({ venueId }: { venueId: number }) {
     }
   ) {
     setError(null);
-    const res = await fetch("/api/admin/membership-plans", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ venueId, id: plan.id, ratePercent: plan.ratePercent, aheadDays: plan.aheadDays, ...change }),
-    });
-    const data = await readJson(res).catch(() => ({}));
+    const send = (confirmAboveMemberRate: boolean) =>
+      fetch("/api/admin/membership-plans", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ venueId, id: plan.id, ratePercent: plan.ratePercent, aheadDays: plan.aheadDays, ...change, ...(confirmAboveMemberRate ? { confirmAboveMemberRate: true } : {}) }),
+      });
+    let res = await send(false);
+    let data = await readJson(res).catch(() => ({}));
+    // A price level above a court's member rate: the server's warning, saved only when the manager confirms it.
+    if (res.status === 409 && data.needsConfirm && window.confirm(t.err(data))) {
+      res = await send(true);
+      data = await readJson(res).catch(() => ({}));
+    }
     if (!res.ok) return setError(t.err(data, t("cr.planChangeFailed")));
     await load();
   }

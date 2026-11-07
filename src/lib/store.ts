@@ -38,7 +38,7 @@ import { allocatePromo, courtBeforePromo, promoDiscount, releasePromoShares, sta
 import { errorText, translator } from "./i18n";
 import type { ErrorCode } from "./i18n";
 import { emailRefusal, nameRefusal } from "./contact-fields";
-import { Booking, busyness, Refusal, Court, type CourtActivity, type CourtHoursChange, type CourtRateChange, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, type MembershipSuspensionSummary, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, WAITLIST_OFFER_LEAST_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
+import { Booking, busyness, Refusal, Court, type CourtActivity, type CourtHoursChange, type CourtRateChange, CourtAvailability, type SlotInfo, type StartOption, LATEST_CLOSE_HOUR, DEFAULT_OPEN_HOUR, DEFAULT_CLOSE_HOUR, MAX_ADVANCE_DAYS, MAX_VENUE_AHEAD_DAYS, COUNTER_METHODS, type CounterMethod, type PaidVia, MAX_HOURS_PER_BOOKING, MAX_COURT_HOURS, MAX_GROUP_COURTS, CHECK_IN_OPENS_MINUTES_BEFORE, ClassSession, ClassStatus, LiveOccupancy, MAX_CLASS_WEEKS, AccessResult, ACCESS_CODE_STALE_DAYS, Induction, doorFor, MAX_ACCESS_CODE, MIN_ACCESS_CODE, MAX_DEPOSIT, MAX_HIRE_NOTE, HIRE_CONDITIONS, HireCondition, HireRecord, MAX_TOP_UP, MAX_MEMBERSHIP_MONTHS, MAX_MEMBERSHIP_COVERS, MAX_PASS_ENTRIES, MAX_PASS_MINUTES, Membership, type MembershipBenefits, type MembershipSuspensionSummary, MembershipStatus, MAX_PROMO_AMOUNT, MAX_PROMO_PERCENT, PromoCode, PromoKind, PromoStatus, MAX_PASS_MONTHS, Pass, PassEntry, PassKind, PassStatus, WalletBalance, WalletEntry, WaitlistEntry, WaitlistStatus, WAITLIST_OFFER_MINUTES, WAITLIST_OFFER_LEAST_MINUTES, Sport, Venue, VenueClosure, type BookingStatus, type PaymentStatus } from "./types";
 import {
   addDays,
   formatHour,
@@ -89,7 +89,7 @@ import {
   type Occupant,
 } from "./claims";
 export { releaseBooking } from "./claims";
-import { planPassSpends } from "./pass-rules";
+import { PASS_USE_ORDER_SQL, planPassSpends } from "./pass-rules";
 export { passCost } from "./pass-rules";
 import {
   breachMessage,
@@ -7767,6 +7767,11 @@ interface MembershipRow {
   tier_rate?: number | null;
   tier_ahead?: number | null;
   tier_scope?: BenefitScope | null;
+  /** The benefits the term was sold with (migration 0337), and where they came from; none: read from the tier as it is. */
+  benefits?: Partial<MembershipBenefits> | string | null;
+  benefits_version?: number | null;
+  benefits_source?: "sold" | "backfilled" | null;
+  tier_version?: number | null;
   holder_kind?: "customer" | "participant";
   holder_participant_id?: number | null;
   holder_participant_name?: string | null;
@@ -7777,7 +7782,12 @@ interface MembershipRow {
 const MEMBERSHIP_SELECT = `
   SELECT m.id, m.code, m.venue_id, v.name AS venue_name, m.holder_name, m.holder_phone,
          m.starts_on, m.expires_on, m.price, m.status, m.plan_id,
-         m.tier_id, t.name AS tier_name, t.rate_percent AS tier_rate, t.ahead_days AS tier_ahead, t.scope AS tier_scope,
+         m.tier_id, t.name AS tier_name,
+         -- The benefits the term was sold with (ADR 0071); a row with no snapshot reads its tier as it is.
+         CASE WHEN m.benefits IS NULL THEN t.rate_percent ELSE (m.benefits->>'ratePercent')::int END AS tier_rate,
+         CASE WHEN m.benefits IS NULL THEN t.ahead_days ELSE (m.benefits->>'aheadDays')::int END AS tier_ahead,
+         COALESCE(m.benefits->>'scope', t.scope) AS tier_scope,
+         m.benefits, m.benefits_version, m.benefits_source, t.version AS tier_version,
          m.holder_kind, m.holder_participant_id, hp.display_name AS holder_participant_name,
          (SELECT json_agg(json_build_object('id', cp.id, 'name', cp.display_name) ORDER BY cp.id)
             FROM membership_participants mp JOIN participants cp ON cp.id = mp.participant_id WHERE mp.membership_id = m.id) AS covers,
@@ -7788,6 +7798,23 @@ const MEMBERSHIP_SELECT = `
   LEFT JOIN membership_plans t ON t.id = m.tier_id
   LEFT JOIN participants hp ON hp.id = m.holder_participant_id
 `;
+
+/** The benefits a term carries, for staff to see (ADR 0071): its snapshot, or its tier as it is where it has none. */
+function membershipBenefits(r: MembershipRow): Membership["benefits"] {
+  const raw = typeof r.benefits === "string" ? (JSON.parse(r.benefits) as Partial<MembershipBenefits>) : r.benefits;
+  const snap = raw ?? null;
+  return {
+    ratePercent: snap ? (snap.ratePercent ?? null) : (r.tier_rate ?? null),
+    aheadDays: snap ? (snap.aheadDays ?? null) : (r.tier_ahead ?? null),
+    scope: snap ? (snap.scope ?? "booking") : (r.tier_scope ?? "booking"),
+    admitsEntry: snap?.admitsEntry === true,
+    admitsEntrySport: snap?.admitsEntry === true ? (snap.admitsEntrySport ?? null) : null,
+    extendOnSuspension: snap?.extendOnSuspension === true,
+    source: snap ? (r.benefits_source ?? "sold") : "live",
+    version: r.benefits_version ?? null,
+    tierVersion: r.tier_version ?? null,
+  };
+}
 
 function toMembership(r: MembershipRow): Membership {
   const m: Membership = {
@@ -7807,6 +7834,7 @@ function toMembership(r: MembershipRow): Membership {
     ratePercent: r.tier_rate ?? null,
     aheadDays: r.tier_ahead ?? null,
     scope: r.tier_scope ?? "booking",
+    benefits: membershipBenefits(r),
     // A participant's membership whose participant has gone covers nobody: -1, never the number's holder.
     holderParticipantId: r.holder_kind === "participant" ? (r.holder_participant_id ?? -1) : null,
     holderParticipantName: r.holder_kind === "participant" ? (r.holder_participant_name ?? null) : null,
@@ -8039,17 +8067,24 @@ export async function sellMembership(input: {
       }
     }
 
+    // The benefits it is sold with, from its tier as it is now (ADR 0071): a later edit of the tier does not change this
+    // term, and a renewal, sold when its charge comes in, takes the tier as it is then.
+    const tierId = input.tierId ?? input.planId ?? null;
+    const { benefitsOf, PLAIN_BENEFITS, planById } = await import("./membership-plans");
+    const tier = tierId === null ? null : await planById(tierId, { retired: true });
     const info = await db
       .prepare(`
         INSERT INTO memberships (code, venue_id, holder_name, holder_phone, user_id,
-                                 starts_on, expires_on, price, admin_id, plan_id, tier_id, holder_kind, holder_participant_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 starts_on, expires_on, price, admin_id, plan_id, tier_id, holder_kind, holder_participant_id,
+                                 benefits, benefits_version, benefits_source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, 'sold')
       `)
       .run(
         randomCode("MB-"), input.venueId, holderName, holderPhone, input.userId ?? null,
         input.startsOn, input.expiresOn, input.price, input.adminId ?? null, input.planId ?? null,
-        input.tierId ?? input.planId ?? null,
-        participantHolder === null ? "customer" : "participant", participantHolder
+        tierId,
+        participantHolder === null ? "customer" : "participant", participantHolder,
+        JSON.stringify(tier ? benefitsOf(tier) : PLAIN_BENEFITS), tier?.version ?? null
       );
     // The dependants a family membership covers, named as it is sold.
     for (const participantId of covers) {
@@ -8624,7 +8659,7 @@ export async function listPassesFor(userId: number): Promise<Pass[]> {
  */
 export async function usablePassesForHolder(venueId: number, phone: string, onDate?: string): Promise<Pass[]> {
   const rows = (await getDb()
-    .prepare(`${PASS_SELECT} WHERE p.venue_id = ? AND phone_key(p.holder_phone) = phone_key(?) ORDER BY p.id`)
+    .prepare(`${PASS_SELECT} WHERE p.venue_id = ? AND phone_key(p.holder_phone) = phone_key(?) ORDER BY ${PASS_USE_ORDER_SQL}`)
     .all(venueId, phone)) as PassRow[];
   // Good today, and on the date of the session it would pay for (`passBlocked`).
   return rows.map(toPass).filter((p) => !p.unusableReason && !passBlocked(p, onDate));

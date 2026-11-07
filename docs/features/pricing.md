@@ -433,7 +433,11 @@ Every court carries an optional **member rate** beside its public one, per
 band: `member_off_peak_rate` and `member_peak_rate`. `NULL` means members pay
 the public price on that court, so a venue can discount its quiet courts and
 not its premium one. A member rate above the public rate is refused — that is
-not a member rate.
+not a member rate. However a rate or a tier's share comes to be set, a member
+is never charged more than a non-member for the same slot: pricing holds a
+member rate above the public rate, or a share over 100%, to the public price
+([ADR 0071](../architecture/decisions/0071-a-membership-keeps-the-benefits-it-was-sold-with.md);
+`tests/membership-term-benefits.test.ts`).
 
 A **membership** belongs to one venue and is held against a **phone number**,
 not an account. That is the point: a member who books as a guest, without
@@ -936,8 +940,35 @@ set under *Credit → Plans and tiers*:
   else stays on theirs, refused with the reason.
 - A membership sold at the counter can be put on a plan too, for its
   benefits (`memberships.tier_id`); one bought online is on the plan it was
-  bought on. Changing a tier's benefits applies to its members from then on;
-  bookings already made keep their price.
+  bought on.
+- **A term keeps the benefits it was sold with**
+  ([ADR 0071](../architecture/decisions/0071-a-membership-keeps-the-benefits-it-was-sold-with.md),
+  the owner's decision DEC-34, migrations 0337–0338). When a membership is sold
+  (a purchase, a renewal's charge, a counter sale) it records a snapshot of its
+  tier's benefits: the price share, the booking window, what the price covers,
+  whether its members come in with no booking (and where), and whether a
+  suspension extends its end (`memberships.benefits`, with the tier's
+  `version` it was taken at and where it came from: `sold`, or `backfilled`).
+  Every reader uses the snapshot: the price of a booking, the member's window
+  (and the venue's outer window, which reaches as far as any running term's
+  does), entry at the desk and a suspension's extension. **Editing a tier
+  changes terms sold from then on**, a **renewal** included (it takes the tier
+  as it is when it is sold, and the tier's `version` goes up on each edit that
+  changes a benefit a membership carries); the term already paid for runs out
+  with the benefits it had, in either direction, and bookings already made keep
+  their price. Nothing tells a member that a renewal will come on changed
+  terms: no message exists for an upcoming renewal ([known limitations](../roadmap/known-limitations.md)).
+  The membership list shows a staff member, under each term's plan, the
+  benefits that term has, the version, and that the plan has been edited since.
+  Terms sold before this was kept were given their tier's benefits as they stood
+  when migration 0338 ran (recorded `backfilled`: earlier terms are not
+  reconstructed); a row with no snapshot is read from its tier as it stands.
+- **A price share above a court's member rate is asked about.** Saving a plan
+  whose share of the public price comes to more than a court's member rate
+  (Silver at 90% of RM20 is RM18 against a member rate of RM15) is answered
+  with the prices and not saved until the manager confirms it (`409`,
+  `needsConfirm`, sent again with `confirmAboveMemberRate`); a plan already
+  above it is not asked again when something else about it changes.
 - The venue page lists each plan's benefits beside its price.
 - **A suspension extends the end** (off unless set): a plan's memberships
   run on by the days a suspension takes out of their term
@@ -1056,6 +1087,16 @@ nothing (`/api/admin/bookings/passes`). Both show the booking engine's own
 plan (`planPassSpends` in `src/lib/pass-rules.ts`), which the engine then
 spends under its transaction, re-reading every balance: nothing is decided on
 the screen that the server does not decide again.
+
+**Which pass comes first** is one rule on every path where the order decides the
+default (`comparePassesForUse`, `PASS_USE_ORDER_SQL`: the booking form's list
+and the counter's *Passes…*, and the entry desk): the pass that ends **soonest**
+first, so it is spent before it lapses, then the **older** (the lower id). A
+customer or the desk who chooses another pass keeps that choice; nothing is
+chosen for them. The entry desk keeps one exception: a day pass already used
+today comes first, as it costs nothing more today. The customer's own list of
+passes stays newest first, as a history. Option labels say the name and what is
+left, not the date it ends (a [known limitation](../roadmap/known-limitations.md)).
 
 Entries and minutes are an append-only ledger (`pass_entries`), the same shape as the credit
 wallet: `remaining = entries + SUM(delta)`, spends negative and refunds

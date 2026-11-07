@@ -156,10 +156,13 @@ interface MembershipRow {
   starts_on: string;
   expires_on: string;
   plan: number | null;
+  /** Whether a suspension extends it, as the term was sold (ADR 0071); null: no snapshot, its plan as it is. */
+  snap_extends: boolean | null;
 }
 
 const MEMBERSHIP_COLUMNS = `m.id, m.code, m.venue_id, v.name AS venue_name, m.user_id, m.holder_kind, m.holder_phone, m.holder_name,
-  m.holder_participant_id, m.status, m.starts_on, m.expires_on, COALESCE(m.tier_id, m.plan_id) AS plan`;
+  m.holder_participant_id, m.status, m.starts_on, m.expires_on, COALESCE(m.tier_id, m.plan_id) AS plan,
+  CASE WHEN m.benefits IS NULL THEN NULL ELSE COALESCE((m.benefits->>'extendOnSuspension')::boolean, FALSE) END AS snap_extends`;
 
 async function lockedMembership(id: number): Promise<MembershipRow | undefined> {
   return (await getDb()
@@ -308,10 +311,14 @@ async function settleExtension(s: SuspensionRow): Promise<{ moved: number; until
   return { moved: delta, until, blockedBy: null };
 }
 
-/** Does this membership's plan extend its end by the time suspended? */
-async function planExtends(planId: number | null): Promise<boolean> {
-  if (planId === null) return false;
-  const row = (await getDb().prepare("SELECT extend_on_suspension FROM membership_plans WHERE id = ?").get(planId)) as { extend_on_suspension: boolean | number } | undefined;
+/**
+ * Does this membership extend its end by the time suspended? As the term was sold (ADR 0071), so a later edit of its plan
+ * does not change it; a row with no snapshot reads its plan as it is.
+ */
+async function planExtends(m: Pick<MembershipRow, "plan" | "snap_extends">): Promise<boolean> {
+  if (m.snap_extends !== null && m.snap_extends !== undefined) return m.snap_extends === true;
+  if (m.plan === null) return false;
+  const row = (await getDb().prepare("SELECT extend_on_suspension FROM membership_plans WHERE id = ?").get(m.plan)) as { extend_on_suspension: boolean | number } | undefined;
   return row?.extend_on_suspension === true || row?.extend_on_suspension === 1;
 }
 
@@ -355,7 +362,7 @@ export async function suspendMembership(admin: Staff, membershipId: number, inpu
     if (clash) return refused(409, clash.ends_on ? "MS7_OVERLAP" : "MS7_OVERLAP_OPEN", { from: clash.starts_on, until: clash.ends_on ?? "" });
     // Open-ended and renewing by itself: the gateway keeps charging, so the days it takes are given back whatever the plan says.
     const renews = until === null && (await renewsByItself(m.id));
-    const extendsExpiry = (await planExtends(m.plan)) || renews;
+    const extendsExpiry = (await planExtends(m)) || renews;
     const info = await db
       .prepare(
         `INSERT INTO membership_suspensions (membership_id, venue_id, starts_on, until_on, ends_on, reason, by_admin_id, by_name, extends_expiry)
@@ -488,7 +495,7 @@ export async function carrySuspensions(membershipId: number): Promise<number> {
     )
     .all(m.venue_id, m.id, m.starts_on, m.holder_kind === "participant" ? m.holder_participant_id : m.holder_phone, m.expires_on, m.starts_on)) as SuspensionRow[];
   if (carried.length === 0) return 0;
-  const planExtendsEnd = await planExtends(m.plan);
+  const planExtendsEnd = await planExtends(m);
   let n = 0;
   for (const s of carried) {
     // An open-ended one that extends (its plan's setting, or the holder renewing by itself) goes on extending in the renewal.

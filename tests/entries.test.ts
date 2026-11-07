@@ -181,9 +181,13 @@ describe("what lets somebody in", () => {
     const supporter = { name: "Sam Supporter", phone: phone() };
     await sellMembership({ venueId, holderName: supporter.name, holderPhone: supporter.phone, startsOn: today, expiresOn: addDays(today, 30), price: 50, adminId: manager.id, tierId: plainPlan.plan.id });
     expect(await desk(gym, supporter, { kind: "membership" })).toMatchObject({ ok: false, code: "NBK_NO_MEMBERSHIP" });
-    // Turned on later for that plan: its members come in from now.
+    // Turned on later for that plan (MEMB D6, ADR 0071): the term already sold keeps what it was sold with, so it does not
+    // come in; a term sold after the change does.
     expect((await setPlanBenefits(venueId, plainPlan.plan.id, { ratePercent: null, aheadDays: null, admitsEntry: true })).ok).toBe(true);
-    expect(await desk(gym, supporter, { kind: "membership" })).toMatchObject({ ok: true });
+    expect(await desk(gym, supporter, { kind: "membership" })).toMatchObject({ ok: false, code: "NBK_NO_MEMBERSHIP" });
+    const later = { name: "Lena Later", phone: phone() };
+    await sellMembership({ venueId, holderName: later.name, holderPhone: later.phone, startsOn: today, expiresOn: addDays(today, 30), price: 50, adminId: manager.id, tierId: plainPlan.plan.id });
+    expect(await desk(gym, later, { kind: "membership" })).toMatchObject({ ok: true });
   });
 
   it("a membership suspended today lets nobody in", async () => {
@@ -357,6 +361,31 @@ describe("what every admission asks, as a booking does", () => {
     await updatePolicy({ court: made.courts[0].id }, { entryMode: true, entryPrice: 10 });
     await setAccessSettings(v.venue.id, { access: "members" });
     expect(await desk(made.courts[0].id, { name: "Not A Member", phone: phone() }, { kind: "walk_in", via: "cash" })).toMatchObject({ ok: false, code: "R9_NOT_MEMBER" });
+  });
+
+  it("offers a person's passes in the one order of use: the soonest to end first, then the older; a day pass already used today first (MEMB D18)", async () => {
+    const who = { name: "Order Ola", phone: phone() };
+    const mk = async (name: string, days: number) => {
+      const made = await issuePass({
+        venueId, name, entries: 5, entryMinutes: null, price: 50, holderName: who.name, holderPhone: who.phone,
+        expiresOn: addDays(today, days), adminId: manager.id, scope: "booking", paidVia: "Cash",
+      });
+      if (!made.ok) throw new Error(made.error);
+      return made.pass.id;
+    };
+    const late = await mk("Late", 60);
+    const soon = await mk("Soon", 10);
+    const sameA = await mk("Same A", 20);
+    const sameB = await mk("Same B", 20);
+    const dayPass = (await pass(venueId, who, { dayPass: true })).id; // ends in 30 days, unused
+    // The gym, with places to spare: the wall's three are counted by later tests.
+    const resource = (await entryResource(gym))!;
+    const order = async () => (await entryOptions(resource, { participantId: null, name: who.name, phone: who.phone }, "desk")).passes.map((p) => p.id);
+    // An unused day pass is a pass like another: by when it ends, not ahead of the others.
+    expect(await order()).toEqual([soon, sameA, sameB, dayPass, late]);
+    // Used today it costs nothing more today, so it is offered first.
+    expect(await desk(gym, who, { kind: "pass", passId: dayPass })).toMatchObject({ ok: true, admittedBy: "day_pass" });
+    expect(await order()).toEqual([dayPass, soon, sameA, sameB, late]);
   });
 
   it("a child is let in as themself, only on a guardian's number", async () => {

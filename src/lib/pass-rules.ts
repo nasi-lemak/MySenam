@@ -19,6 +19,20 @@ export function passCost(
   return { ok: true, units: pass.entryMinutes === null ? 1 : Math.ceil(minutes / pass.entryMinutes) };
 }
 
+/**
+ * The one order in which passes are offered wherever the order decides which is used by default (D18, ADR 0071): the booking
+ * form, the counter and the entry desk. The pass that ends soonest first, so it is spent before it lapses; the older one
+ * (the lower id) first among those ending the same day. Somebody who chooses another keeps their choice.
+ */
+export function comparePassesForUse(a: { id: number; expiresOn?: string }, b: { id: number; expiresOn?: string }): number {
+  const x = a.expiresOn ?? "9999-12-31";
+  const y = b.expiresOn ?? "9999-12-31";
+  return x < y ? -1 : x > y ? 1 : a.id - b.id;
+}
+
+/** The same order for a query over `passes p`. */
+export const PASS_USE_ORDER_SQL = "p.expires_on, p.id";
+
 /** A place a pass may pay for: the customer's own, or a participant's (lib/entitlements.ts `placesOf`). */
 export interface PlanPlace {
   /** Its `booking_participants` row; null before the booking is made, or for the customer taking it alone. */
@@ -30,7 +44,7 @@ export interface PlanPlace {
 
 /** What the plan needs of a pass. */
 export type PlanPass = Pick<Pass, "id" | "code" | "kind" | "entryMinutes" | "maxMinutes" | "holderName" | "remaining"> &
-  Partial<Pick<Pass, "scope" | "holderParticipantId" | "holderParticipantName">>;
+  Partial<Pick<Pass, "scope" | "holderParticipantId" | "holderParticipantName" | "expiresOn">>;
 
 /** One spend: this pass, for this place, so many units. */
 export interface PlannedSpend<P extends PlanPass = PlanPass> {

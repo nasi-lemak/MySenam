@@ -24,7 +24,8 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * `{ venueId, name, months, price, ratePercent?, aheadDays?, scope?, offeredFor?, familyLimit?, coverSwaps?, extendOnSuspension? }`: offer a new plan,
+ * `{ venueId, name, months, price, ratePercent?, aheadDays?, scope?, offeredFor?, familyLimit?, coverSwaps?, extendOnSuspension?,
+ * confirmAboveMemberRate? }`: offer a new plan (a `ratePercent` above a court's member rate is asked to be confirmed, as for PATCH),
  * a tier with its own benefits where given. `scope`: the member's price for the whole booking (`booking`, the
  * default) or for the members' own places only (`participant`; lib/entitlements.ts). `offeredFor`: whom customers
  * buy it for online (`account`, the default; `participant`, `individual`, or `family` with its `familyLimit`;
@@ -52,8 +53,9 @@ export async function POST(req: NextRequest) {
     extendOnSuspension: body.extendOnSuspension,
     admitsEntry: body.admitsEntry,
     admitsEntrySport: body.admitsEntrySport,
+    confirmAboveMemberRate: body.confirmAboveMemberRate,
   });
-  if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 });
+  if (!made.ok) return NextResponse.json({ error: made.error, ...(made.needsConfirm ? { needsConfirm: made.needsConfirm } : {}) }, { status: made.needsConfirm ? 409 : 400 });
   await logAction(admin, {
     venueId: venueId as number,
     action: "membership.plan_added",
@@ -79,10 +81,13 @@ export async function DELETE(req: NextRequest) {
 
 /**
  * `{ venueId, id, ratePercent, aheadDays, scope?, offeredFor?, familyLimit?, coverSwaps?, extendOnSuspension?, admitsEntry?,
- * admitsEntrySport? }`: a plan's benefits, each
+ * admitsEntrySport?, confirmAboveMemberRate? }`: a plan's benefits, each
  * null for the venue's; `scope` left out keeps what the price covers, `offeredFor` whom it is sold to online,
  * `extendOnSuspension` whether a suspension moves its memberships' end (off unless set; lib/membership-suspensions.ts).
- * Memberships on it get the benefits from now; those already sold keep whom they cover.
+ * The benefits are those of memberships sold from now on (a renewal included): a term already sold keeps the benefits it was
+ * sold with, and the plan's `version` goes up (ADR 0071). A `ratePercent` that comes to more than a court's member rate is
+ * answered 409 with `needsConfirm: "above-member-rate"` and nothing saved, until it is sent again with
+ * `confirmAboveMemberRate: true`.
  */
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -103,12 +108,13 @@ export async function PATCH(req: NextRequest) {
     extendOnSuspension: body.extendOnSuspension,
     admitsEntry: body.admitsEntry,
     admitsEntrySport: body.admitsEntrySport,
+    confirmAboveMemberRate: body.confirmAboveMemberRate,
   });
-  if (!set.ok) return NextResponse.json({ error: set.error }, { status: 400 });
+  if (!set.ok) return NextResponse.json({ error: set.error, ...(set.needsConfirm ? { needsConfirm: set.needsConfirm } : {}) }, { status: set.needsConfirm ? 409 : 400 });
   await logAction(admin, {
     venueId: venueId as number,
     action: "membership.plan_added",
-    detail: `${set.plan.name}: ${set.plan.ratePercent ?? "member rates"}${set.plan.ratePercent ? "% of the price" : ""}, ${set.plan.aheadDays ?? "the venue's"} days ahead${
+    detail: `${set.plan.name} (version ${set.plan.version}, for terms sold from now on): ${set.plan.ratePercent ?? "member rates"}${set.plan.ratePercent ? "% of the price" : ""}, ${set.plan.aheadDays ?? "the venue's"} days ahead${
       set.plan.scope === "participant" ? ", members' own places only" : ""
     }, sold online for ${
       set.plan.offeredFor === "family"
