@@ -37,7 +37,12 @@ it is let go for somebody else and the customer is charged nothing.
   owed*, as for any booking cancelled after paying.
 - A held slot comes free on time: holds are let go on the scheduler's tick,
   and on the way past whenever anybody books, searches or opens a day's
-  availability. The waitlist is offered it.
+  availability, the venue's own system through its API key and the MCP server
+  included (`GET /api/v1/availability`, `POST /api/v1/bookings`, `my_availability`,
+  `create_booking`: the same `releaseExpiredHolds`, so the venue's system never sees a slot
+  taken that the public grid shows free). The waitlist is offered it. The key's *lists of
+  bookings* are not a slot's availability and read the bookings as they stand: a lapsed hold
+  there shows as unpaid until the next tick or visitor lets it go.
 - Staff see *held till 3:45 PM* on the booking, and *released (unpaid)* after.
   Bookings staff make at the counter, ones paid at once from credit or a
   pass, and free ones are never held. It needs the venue's own payment

@@ -8,6 +8,7 @@ import { bookingForVenue } from "./public-api";
 import { createBooking, findBookingByCode, getCourt, quoteFor } from "./store";
 import { applyAskedDiscounts, priceRefusal, readExpectedTotal } from "./booking-discounts";
 import { discardBooking } from "./coaching";
+import { releaseExpiredHolds } from "./holds";
 import { readPlaceConcessions } from "./entitlements";
 import { mayBookOn, saidOn } from "./limits";
 import { asksStaffPowers } from "./policy-overrides";
@@ -65,6 +66,8 @@ export async function bookThroughKey(
   if (body && (asksStaffPowers(body) || body.override !== undefined))
     return NextResponse.json({ error: errorText(translator("en"), "R9_API_NO_OVERRIDE"), code: "R9_API_NO_OVERRIDE" }, { status: 400 });
   if (!body || !Number.isInteger(body.courtId)) return NextResponse.json({ error: "courtId is required." }, { status: 400 });
+  // Holds nobody paid for are let go first, as the public booking route does (lib/holds.ts), so a slot whose hold has just lapsed can be booked now.
+  await releaseExpiredHolds();
   const court = await getCourt(body.courtId as number);
   if (!court || court.venueId !== caller.venueId) return NextResponse.json({ error: "That court is not at this key's venue." }, { status: 404 });
   if (typeof body.date !== "string" || !isValidDateString(body.date)) return NextResponse.json({ error: "date (YYYY-MM-DD) is required." }, { status: 400 });

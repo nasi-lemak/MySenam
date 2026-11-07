@@ -11,6 +11,7 @@ import { bookThroughKey, cancelThroughKey } from "../key-bookings";
 import { apiCourtDays, apiVenue, bookingForVenue, bookingsBetween, MAX_RANGE_DAYS, spanDays } from "../public-api";
 import { staffTranslator, type StaffT } from "../staff-i18n";
 import { STAFF_LOCALES, type StaffLocale } from "../staff-locales";
+import { releaseExpiredHolds } from "../holds";
 import { getAvailability, getVenue } from "../store";
 import { todayISO } from "../time";
 import type { Sport } from "../types";
@@ -85,6 +86,8 @@ const myAvailability: McpTool = {
     const date = optDate(args, "date") ?? todayISO();
     const sport = optString(args, "activity", 60);
     if (sport && !(await isActivity(sport))) throw new ArgError("Unknown sport.");
+    // Holds nobody paid for are let go first, as the public grid and /api/v1/availability do (lib/holds.ts).
+    await releaseExpiredHolds();
     // The venue's own system sees everything it may hire out, rooms run as classes included (as /api/v1/availability).
     const days = apiCourtDays(await getAvailability(caller(ctx).venueId, date, (sport as Sport) || undefined, false, true));
     const courts = days.map((d) => courtDay(d as unknown as Parameters<typeof courtDay>[0]));

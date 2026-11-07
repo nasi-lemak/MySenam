@@ -1,6 +1,7 @@
 import { isActivity } from "@/lib/activities";
 import { NextRequest, NextResponse } from "next/server";
 import { apiCaller } from "@/lib/api-keys";
+import { releaseExpiredHolds } from "@/lib/holds";
 import { apiCourtDays } from "@/lib/public-api";
 import { getAvailability } from "@/lib/store";
 import { isValidDateString } from "@/lib/time";
@@ -23,6 +24,8 @@ export async function GET(req: NextRequest) {
   const sport = req.nextUrl.searchParams.get("sport");
   if (!isValidDateString(date)) return NextResponse.json({ error: "date (YYYY-MM-DD) is required." }, { status: 400 });
   if (sport && !(await isActivity(sport))) return NextResponse.json({ error: "Unknown sport." }, { status: 400 });
+  // Holds nobody paid for are let go first, as the public grid does (lib/holds.ts), so the venue's own system and its customers see the same free slots.
+  await releaseExpiredHolds();
   // The venue's own system sees everything it may hire out, rooms run as classes included.
   const grid = await getAvailability(caller.venueId, date, (sport as Sport) || undefined, false, true);
   return NextResponse.json({ date, courts: apiCourtDays(grid) });
