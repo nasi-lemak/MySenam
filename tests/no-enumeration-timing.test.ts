@@ -149,15 +149,19 @@ describe("asking to sign up", () => {
     await requestRegistration("pending-signup@timing.my");
     await settleRegistrationRequests();
     const mails = async (email: string) => ((await getDb().prepare("SELECT COUNT(*)::int AS n FROM messages WHERE recipient = ?").get(email)) as { n: number }).n;
+    // How many requests the reply wrote down is read from the table's own counter, not by counting the rows left: the background worker may
+    // already have taken the row by the time a count asks (it runs on the next turn of the event loop, and a slow database lets it in).
+    const written = async () => ((await getDb().prepare("SELECT last_value::int AS n FROM registration_requests_id_seq").get()) as { n: number }).n;
     const counted = async (email: string) => {
       const had = await mails(email);
+      const first = await written();
       const before = transactionStats().queries;
       const answer = await requestRegistration(email);
       const statements = transactionStats().queries - before;
-      const queued = (await getDb().prepare("SELECT COUNT(*)::int AS n FROM registration_requests WHERE email = ?").get(email)) as { n: number };
+      const queued = (await written()) - first;
       const messages = (await mails(email)) - had;
       await settleRegistrationRequests();
-      return { answer, statements, queued: queued.n, messages };
+      return { answer, statements, queued, messages };
     };
     const known = await counted("timed@timing.my");
     const unknown = await counted("nobody-signup@timing.my");

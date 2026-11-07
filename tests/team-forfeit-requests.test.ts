@@ -603,6 +603,8 @@ describe("races (the league's lock serialises them)", () => {
     // Whichever came first: no open request is left on a decided fixture.
     expect(rows.every((r) => r.status !== "open")).toBe(true);
     if (raced[0].ok) expect(rows).toHaveLength(1);
-    else expect(raced[0]).toMatchObject({ code: "TL_FIXTURE_DECIDED" });
+    // Refused because the fixture is decided, or, when that result was the season's last and finished it first, because the season is over:
+    // two names for the same condition, and the order of the checks (the season's, then the fixture's) decides which is said.
+    else expect(["TL_FIXTURE_DECIDED", "TL_SEASON_OVER"]).toContain((raced[0] as { code: string }).code);
   });
 });
