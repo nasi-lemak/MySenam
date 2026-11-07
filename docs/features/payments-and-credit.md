@@ -592,6 +592,26 @@ credit note is written yet.
   `POST /api/admin/bookings/owed` and `kind: "entry_fee"` (handed back the way it was paid, the credit note on the
   entry's receipt written then, who and when kept, `payment.paid_out`), once, the front desk only for a fee taken today.
   Nothing is paid out automatically. A box league's place fee is not covered here yet (known limitations).
+- **A pass or a membership sold at the counter and cancelled with a refund** is on the same list
+  ([ADR 0068](../architecture/decisions/0068-money-hardening-credit-notes-are-not-cash-spent-is-money-paid-and-the-till-lists-every-payout.md); `counter_fee_refunds_owed`, migration 0326, with a `pass_id` or `membership_id`
+  where an entry fee has a `tournament_entry_id`). The manager's *refund the unused part* writes the credit note as it always
+  did (it is the tax document, dated that day and in that day's cash-up as given back), and now also writes the amount as **owed back**:
+  *Refunds of passes and memberships sold at the counter, still to hand back*, with the holder, the pass or membership, how it was
+  paid and the credit note's number. **A credit note is not cash paid**: nothing is handed over until a named member of staff
+  says so (`POST /api/admin/bookings/owed`, `kind: "entry_fee"` with the row's id), and the list says it in those words. The entries a
+  cancelled booking later gives back to a pass that was cancelled with a refund, handed back as money (a credit note per spend), are
+  written the same way. One row per credit note, so a repeat writes nothing twice; two members of staff settling at once settle it once;
+  the front desk hands back a refund written today, a manager one from an earlier day; another venue's staff see and settle nothing of it.
+  Only money taken at the counter is handed back across the desk: a pass bought online is owed on its payment (*Refunds owed*,
+  as before), one bought with stored credit is not a counter payout. Refunds written before this change are not turned into
+  tasks (nobody can say whether the money was handed over); their credit notes stand as they always did.
+- **Every money handed back at the counter is in one list.** The day's payouts on the bookings screen (*Handed back at the
+  counter on…*, `payouts` on `GET /api/admin/bookings`, each with a `kind`: `booking`, `entry`, `pass` or `membership`) hold a
+  booking's payout and, once settled from the owed list, an entry fee, a pass's refund and a membership's, each with how it
+  was paid, the credit note, who handed it back and when. Settled, an entry fee's credit note is in that day's cash-up under
+  the method it was paid by, so the payout list and the till agree (`tests/counter-payouts-owed.test.ts`). Taking an entry's
+  *paid* mark off by hand still credits it directly, as a booking's *Mark unpaid* does: that is the undo of a mistaken tick, in the
+  cash-up as a credit note, not a payout.
 - **A test booking cleared as real money** is owed back the same way (cause
   `test`, added to the cause check by migration 0259): a manager clearing the
   [test bookings](../product/marketplace.md#test-bookings-before-going-live)
@@ -1018,7 +1038,14 @@ who counted and who checked it.
   journal, as before, so each till's **expected** amount is the journal's net plus
   deposits taken less every deposit let go of (given back and kept, the kept part
   being already in the journal): *What each till should hold*. A deposit taken before
-  the method was recorded shows as *not recorded*, never as cash.
+  the method was recorded shows as *not recorded*, never as cash, and that marker stays. Staff can say, **once**, how it was held
+  (*How was it held?* in the kit's return panel, `POST /api/admin/hire` with `action: "state_method"`;
+  `hire_records.deposit_via_stated`, with who said it and when, migration 0327, [ADR 0068](../architecture/decisions/0068-money-hardening-credit-notes-are-not-cash-spent-is-money-paid-and-the-till-lists-every-payout.md)): the statement is written
+  beside the marker and never over it, the deposit is counted under that method from then on (what is held, taken and given back
+  by method, and what is kept back goes in the takings under it, with no method to say again), saying the same again changes
+  nothing and saying another is refused, and a deposit whose method was recorded when it was taken, or said when the kit came back,
+  takes none (`tests/hire-deposit-method-stated.test.ts`). The cash-up of a day already counted does not change: a count keeps what
+  was expected when it was made.
 - **What was counted** is recorded under the sheet: the cashier enters what they counted
   in each till (`POST /api/admin/cash-up`), and the sheet shows, beside what was
   expected, what was counted, the **variance** (short or over, worked out by the server
@@ -1097,7 +1124,14 @@ cancelled since included, as the invoice charged it. An account that pays in
 parts records each amount received (*Mark paid* with an amount, and how): the bookings
 the money covers are paid in the order played, by that means, and the invoice is paid
 when the last part is in, until then showing what was *received* and the *balance*
-(`account_invoice_payments`, migration 0307; `tests/account-credit-parts.test.ts`). An
+(`account_invoice_payments`, migration 0307; `tests/account-credit-parts.test.ts`). The invoice the account opens from its link
+shows each amount received (the day and how), the **balance to pay** and, until it is paid, how much is still to pay by its day
+([ADR 0068](../architecture/decisions/0068-money-hardening-credit-notes-are-not-cash-spent-is-money-paid-and-the-till-lists-every-payout.md); `tests/invoice-part-payments.test.ts`), in the account's language. **In the sales journal** a booking enters
+when the money received covers it, in the order played, at the day it was marked paid, as before: an amount received that covers no
+whole booking is on the invoice's payments and not yet in the journal, and so not in the cash-up's expected till for that day; the
+journal and the payments agree to the sen once the invoice is paid. That granularity is kept: allocating a part to a booking's tax
+and receipt would put an invalid part of a receipt in the books, and what is correct for the tax is the owner's and an adviser's
+decision, so it is recorded as a limitation, not guessed. An
 unpaid invoice can be withdrawn; its bookings go on the next one; not once any money
 was received on it, nor once a booking on it was cancelled or moved with a credit note
 against it, as that credit note stands.

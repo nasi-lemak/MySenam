@@ -5805,6 +5805,9 @@ interface HireRow {
   booking_id: number;
   deposit: number;
   deposit_via: CounterMethod | null;
+  deposit_via_stated: CounterMethod | null;
+  deposit_via_stated_by_name: string | null;
+  deposit_via_stated_at: string | Date | null;
   taken_at: string;
   returned_at: string | null;
   withheld: number | null;
@@ -5840,6 +5843,9 @@ function toHire(r: HireRow): HireRecord {
     participantName: r.participant_name ?? null,
     deposit: r.deposit,
     depositVia: r.deposit_via ?? null,
+    depositViaStated: r.deposit_via_stated
+      ? { via: r.deposit_via_stated, by: r.deposit_via_stated_by_name ?? null, at: new Date(r.deposit_via_stated_at ?? 0).toISOString() }
+      : null,
     takenAt: r.taken_at,
     returnedAt: r.returned_at,
     withheld: r.withheld,
@@ -6010,9 +6016,11 @@ export async function returnHire(
 
   if (input.via !== undefined && !COUNTER_METHODS.includes(input.via)) return { ok: false, error: "Say how the deposit was held: cash, QR, transfer or card." };
   // The method recorded at handover is the one; a deposit taken before it was recorded needs it said for anything kept (never cash by default).
-  if (hire.depositVia && input.via && input.via !== hire.depositVia)
-    return { ok: false, error: `This deposit was held by ${hire.depositVia}, so what is kept back is too. Leave the method out, or say ${hire.depositVia}.` };
-  const via: CounterMethod | null = hire.depositVia ?? input.via ?? null;
+  // A method recorded at handover, or one staff stated since for a deposit taken before it was recorded (`stateDepositMethod`), is the one.
+  const known = hire.depositVia ?? hire.depositViaStated?.via ?? null;
+  if (known && input.via && input.via !== known)
+    return { ok: false, error: `This deposit was held by ${known}, so what is kept back is too. Leave the method out, or say ${known}.` };
+  const via: CounterMethod | null = known ?? input.via ?? null;
   if (withheld > 0 && via === null) return { ok: false, error: "Say how the deposit was held (cash, QR, transfer or card): the part kept goes in the takings under it." };
   const court = await getCourt(booking.courtId);
 
@@ -6050,6 +6058,39 @@ export async function returnHire(
   if (!returned) return { ok: false, error: "This kit has already been taken back." };
 
   return { ok: true, hire: (await hireFor(booking.id))!, booking: (await bookingByCode(booking.code))! };
+}
+
+/**
+ * Say how a hire deposit was held, once, for one taken before the method was recorded (migration 0308; ADR 0068): `deposit_via` stays null, the
+ * marker that it was not recorded, and the statement is written beside it with who said it and when. From then on the deposit is counted under that
+ * method (the cash-up's lines, what is held, what is kept back and given back). Not for a deposit whose method is recorded, nor one said when the kit
+ * came back; saying the same again is not an error and changes nothing, saying something else is refused.
+ */
+export async function stateDepositMethod(code: string, via: unknown): Promise<HireResult & { changed?: boolean }> {
+  if (!COUNTER_METHODS.includes(via as CounterMethod)) return { ok: false, error: "Say how the deposit was held: cash, QR, transfer or card." };
+  const method = via as CounterMethod;
+  const booking = await bookingByCode(code);
+  if (!booking) return refuse("BOOKING_NOT_FOUND");
+  const by = actingStaff();
+  const claimed = await getDb().transaction(async () => {
+    const db = getDb();
+    const row = (await db
+      .prepare("SELECT id, deposit, deposit_via, deposit_via_stated, returned_via FROM hire_records WHERE booking_id = ? FOR UPDATE")
+      .get(booking.id)) as { id: number; deposit: number; deposit_via: CounterMethod | null; deposit_via_stated: CounterMethod | null; returned_via: CounterMethod | null } | undefined;
+    if (!row || !(Number(row.deposit) > 0)) return { error: "No deposit is held on this booking." };
+    if (row.deposit_via) return { error: `This deposit's method was recorded when it was taken (${row.deposit_via}).` };
+    if (row.deposit_via_stated) return row.deposit_via_stated === method ? { changed: false } : { error: `This deposit was already stated as held by ${row.deposit_via_stated}.` };
+    if (row.returned_via) return { error: `This deposit's method was said when the kit came back (${row.returned_via}).` };
+    await db
+      .prepare(
+        `UPDATE hire_records SET deposit_via_stated = ?, deposit_via_stated_by_admin_id = ?, deposit_via_stated_by_name = ?, deposit_via_stated_at = now()
+          WHERE id = ? AND deposit_via IS NULL AND deposit_via_stated IS NULL`
+      )
+      .run(method, by?.id ?? null, by?.name ?? null, row.id);
+    return { changed: true };
+  })();
+  if ("error" in claimed) return { ok: false, error: claimed.error as string };
+  return { ok: true, hire: (await hireFor(booking.id))!, booking: (await bookingByCode(booking.code))!, changed: claimed.changed };
 }
 
 /**
@@ -8141,7 +8182,11 @@ export async function voidMembership(id: number, opts: { refund?: boolean } = {}
     if (!m) return { ok: false as const, error: "Membership not found." };
     if (m.status === "void") return { ok: false as const, error: "This membership is already cancelled." };
     await getDb().prepare("UPDATE memberships SET status = 'void' WHERE id = ?").run(id);
-    if (opts.refund) await creditReceipt(`membership:${id}`, "receipt.why.voided");
+    if (opts.refund) {
+      const note = await creditReceipt(`membership:${id}`, "receipt.why.voided");
+      // Not cash paid until somebody hands it back: written as owed back at the counter (lib/entry-fee-refunds.ts, ADR 0068).
+      if (note) await (await import("./entry-fee-refunds")).oweCounterRefund(note, { membershipId: id });
+    }
     const { flagAfterMembershipLoss } = await import("./membership-flags");
     const flagged = await flagAfterMembershipLoss(id, "cancelled");
     return { ok: true as const, membership: (await membershipById(id))!, flagged };
@@ -8906,6 +8951,9 @@ export async function voidPass(passId: number, opts: { refund?: boolean } = {}):
             ? await creditReceipt(`pass:${passId}`, "receipt.why.voided")
             : await creditReceipt(`pass:${passId}`, "receipt.why.voided", 1, { key: "unused", amount: unused, text: "unused" });
       refunded = note?.total ?? 0;
+      // The credit note is the tax document, not cash paid: money taken at the counter is also written as owed back, until a named member of
+      // staff says it was handed over (lib/entry-fee-refunds.ts, ADR 0068). Money paid online is owed on its payment by the caller.
+      if (note) await (await import("./entry-fee-refunds")).oweCounterRefund(note, { passId });
     }
     return { ok: true, pass: (await passById(passId))!, ...(refunded !== undefined ? { refunded } : {}) };
   });
@@ -9135,6 +9183,8 @@ export async function giveBackToPass(
     if (handed > 0) {
       // Where the pass was bought online, the money is owed back on its payment, to refund through the gateway (as voiding it did).
       const owed = await (await import("./payments")).oweBackPass(pass.id, handed);
+      // Not online: a counter sale's money is handed back at the counter, and is a task until somebody says it was (ADR 0068).
+      if (owed === null && note) await (await import("./entry-fee-refunds")).oweCounterRefund(note, { passId: pass.id });
       const { logAction } = await import("./activity");
       await logAction(
         { id: null, name: "MySenam" },

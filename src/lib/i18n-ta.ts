@@ -5002,6 +5002,9 @@ export const TA: Record<Phrase, string> = {
   "err.FX8_PASS_NOT_LATER": "புதிய முடிவு இன்று அல்லது அதற்குப் பிறகு இருக்க வேண்டும், மேலும் பாஸின் தற்போதைய முடிவு {date} க்குப் பிறகு இருக்க வேண்டும்.",
   "err.FX8_PASS_TOO_FAR": "பாஸ் {date} க்கு மேல் செல்லுபடியாகாது.",
   "err.FX8_GRACE_RANGE": "0 முதல் {max} வரை முழு நாட்களைத் தாருங்கள்; 0 என்றால் அணைக்கப்படும்.",
+  "m68.inv.received": "{date} அன்று பணம் பெறப்பட்டது, {via} மூலம்",
+  "m68.inv.balance": "செலுத்த வேண்டிய மீதி",
+  "m68.inv.part": "இதுவரை {received} பெறப்பட்டது. மீதி {balance} ஐ {due} க்குள் செலுத்துங்கள், {number} என்று குறிப்பிடுங்கள்.",
 };
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */

@@ -57,7 +57,8 @@ describe("the customer report", () => {
   it("puts the best customers first, with what they spent and since when", async () => {
     const r = await customerReport(venueId, addDays(today, -29), today);
     expect(r.top.map((c) => c.name)).toEqual(["Ben", "Aisyah"]);
-    expect(r.top[1]).toMatchObject({ bookings: 2, spent: 40, since: addDays(today, -300) });
+    // Nothing here was paid: "spent" is money paid, not the price of the bookings (D17, ADR 0068; tests/customer-spent.test.ts).
+    expect(r.top[1]).toMatchObject({ bookings: 2, spent: 0, since: addDays(today, -300) });
   });
 
   it("finds regulars who have stopped coming", async () => {

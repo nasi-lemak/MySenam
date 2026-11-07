@@ -238,7 +238,7 @@ async function depositsOn(venueId: number, date: string, staffId: number | null)
   const base = `FROM hire_records h JOIN bookings b ON b.id = h.booking_id JOIN courts c ON c.id = b.court_id WHERE c.venue_id = ? AND h.deposit > 0`;
   const taken = (await db
     .prepare(
-      `SELECT h.taken_at AS at, b.code, b.name, h.deposit_via AS method, h.deposit::float AS amount, h.taken_by_admin_id AS staff_id, h.taken_by_name AS staff_name
+      `SELECT h.taken_at AS at, b.code, b.name, COALESCE(h.deposit_via, h.deposit_via_stated) AS method, h.deposit::float AS amount, h.taken_by_admin_id AS staff_id, h.taken_by_name AS staff_name
          ${base} AND ${hireDay("h.taken_at")} = ?${staffId === null ? "" : " AND h.taken_by_admin_id = ?"}`
     )
     .all(venueId, zone, date, ...(staffId === null ? [] : [staffId]))) as {
@@ -246,7 +246,7 @@ async function depositsOn(venueId: number, date: string, staffId: number | null)
   }[];
   const back = (await db
     .prepare(
-      `SELECT h.returned_at AS at, b.code, b.name, COALESCE(h.deposit_via, h.returned_via) AS method, h.deposit::float AS deposit, COALESCE(h.withheld, 0)::float AS kept,
+      `SELECT h.returned_at AS at, b.code, b.name, COALESCE(h.deposit_via, h.deposit_via_stated, h.returned_via) AS method, h.deposit::float AS deposit, COALESCE(h.withheld, 0)::float AS kept,
               h.returned_by_admin_id AS staff_id, h.returned_by_name AS staff_name
          ${base} AND h.returned_at IS NOT NULL AND ${hireDay("h.returned_at")} = ?${staffId === null ? "" : " AND h.returned_by_admin_id = ?"}`
     )

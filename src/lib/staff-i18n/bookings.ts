@@ -711,7 +711,7 @@ const en = {
   "p8a.sch.freeTitle": "Free: click to book it or block it",
   "p8a.act.detailsCorrected": "Corrected a booking's name, number or email",
   "p8a.act.seriesCancelled": "Cancelled weeks of a weekly series",
-  "p8a.act.paidOut": "Handed money back at the counter for a cancelled booking",
+  "p8a.act.paidOut": "Handed money back at the counter (a cancelled booking, an entry fee, a pass or a membership)",
   // Round 8 (P8b): a manager's price adjustment on one booking
   "p8b.adj.open": "Adjust price",
   "p8b.adj.unpaidNote": "A new price for this booking, or complimentary. The receipt shows the difference after any discounts; no code or concession can be added afterwards.",
@@ -1624,7 +1624,7 @@ const ms: Record<keyof typeof en, string> = {
   "p8a.sch.freeTitle": "Kosong: klik untuk menempah atau menyekatnya",
   "p8a.act.detailsCorrected": "Membetulkan nama, nombor atau e-mel tempahan",
   "p8a.act.seriesCancelled": "Membatalkan minggu dalam siri mingguan",
-  "p8a.act.paidOut": "Memulangkan wang di kaunter bagi tempahan yang dibatalkan",
+  "p8a.act.paidOut": "Memulangkan wang di kaunter (tempahan dibatalkan, yuran penyertaan, pas atau keahlian)",
   // Round 8 (P8b): a manager's price adjustment on one booking
   "p8b.adj.open": "Laraskan harga",
   "p8b.adj.unpaidNote": "Harga baharu untuk tempahan ini, atau percuma. Resit menunjukkan perbezaannya selepas sebarang diskaun; tiada kod atau konsesi boleh ditambah selepas itu.",
@@ -2537,7 +2537,7 @@ const zh: Record<keyof typeof en, string> = {
   "p8a.sch.freeTitle": "空闲：点击以预订或封锁",
   "p8a.act.detailsCorrected": "更正了预订的姓名、号码或电邮",
   "p8a.act.seriesCancelled": "取消了每周系列中的几周",
-  "p8a.act.paidOut": "为已取消的预订在柜台退还款项",
+  "p8a.act.paidOut": "在柜台退还款项（已取消的预订、报名费、次卡或会员）",
   // Round 8 (P8b): a manager's price adjustment on one booking
   "p8b.adj.open": "调整价格",
   "p8b.adj.unpaidNote": "为此预订设定新价格，或免费。收据会在所有折扣之后列出差额；此后不能再使用优惠码或优惠价。",

@@ -116,8 +116,11 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     mode: "take" | "return";
     deposit: number;
     courtName: string;
-    /** How the deposit was held at handover, where that was recorded. */
+    /** How the deposit was held at handover, where that was recorded, or stated since for one taken before it was (ADR 0068). */
     via: "cash" | "qr" | "transfer" | "card" | null;
+    /** Taken before the method was recorded: the marker stays, whatever staff have said since. */
+    legacy?: boolean;
+    stated?: { via: "cash" | "qr" | "transfer" | "card"; by: string | null; at: string } | null;
   } | null>(null);
   const [deposit, setDeposit] = useState("0");
   const [condition, setCondition] = useState<HireCondition>("ok");
@@ -318,7 +321,9 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       mode,
       deposit: mode === "take" ? b.courtDeposit : (b.hire?.deposit ?? 0),
       courtName: b.courtName,
-      via: mode === "return" ? (b.hire?.depositVia ?? null) : null,
+      via: mode === "return" ? (b.hire?.depositVia ?? b.hire?.depositViaStated?.via ?? null) : null,
+      legacy: mode === "return" && !!b.hire && b.hire.deposit > 0 && !b.hire.depositVia,
+      stated: mode === "return" ? (b.hire?.depositViaStated ?? null) : null,
     });
     setHeldVia("");
     setDeposit(String(b.courtDeposit));
@@ -330,6 +335,28 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         .then((r) => readJson(r))
         .then((d) => setTreatments(Array.isArray(d.deductions) ? d.deductions : []))
         .catch(() => setTreatments([]));
+  }
+
+  /** Say, once, how a deposit taken before the method was recorded was held (lib/store.ts `stateDepositMethod`, ADR 0068). */
+  async function stateMethod() {
+    if (!kit || heldVia === "") return setError(t("fx4.bk.needMethod"));
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/hire", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: kit.code, action: "state_method", via: heldVia }),
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(t.err(data, t("m68.hire.failed")));
+      const stated = data.hire?.depositViaStated ?? null;
+      setKit({ ...kit, via: stated?.via ?? heldVia, stated });
+      setHeldVia("");
+      setNotice(t("m68.hire.saved", { method: heldVia === "qr" ? "QR" : t(`c.via.${heldVia}` as "c.via.cash") }));
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("m68.hire.failed"));
+    }
   }
 
   /** Hand the kit over, or take it back and settle the deposit. */
@@ -1173,7 +1200,8 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
                   time: clock.time(p.paidOutAt, p.venueId),
                   amount: money(p.amount),
                   via: p.via ? t(`c.via.${p.via}`) : t("p8a.day.viaUnrecorded"),
-                  code: p.creditNote ? `${p.bookingCode} (${p.creditNote})` : p.bookingCode,
+                  // A booking's payout, or (ADR 0068) an entry fee, a pass or a membership handed back from the owed list; a list from before `kind` was sent is bookings'.
+                  code: `${p.kind === undefined || p.kind === "booking" ? p.bookingCode : `${t(`m68.payout.${p.kind}`)}: ${p.what}`}${p.creditNote ? ` (${p.creditNote})` : ""}`,
                   by: p.adminName,
                 })}
               </li>
@@ -1278,6 +1306,27 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
           <p className="text-sm font-semibold">{t("bk.takeBackTitle", { kit: kit.courtName, code: kit.code })}</p>
           <p className="mt-0.5 text-xs text-slate-600">{t("bk.takeBackHelp", { amount: money(kit.deposit) })}</p>
+          {kit.legacy && kit.deposit > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-700" data-testid="deposit-method">
+              {kit.stated ? (
+                <span>{t("m68.hire.statedBy", { method: kit.stated.via === "qr" ? "QR" : t(`c.via.${kit.stated.via}` as "c.via.cash"), by: kit.stated.by ?? "", when: clock.time(kit.stated.at, null) })}</span>
+              ) : (
+                <>
+                  <span>{t("m68.hire.legacy")}</span>
+                  <select aria-label={t("fx4.bk.depositHeldVia")} value={heldVia} onChange={(e) => setHeldVia(e.target.value as typeof heldVia)} className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-teal-500 focus:outline-none">
+                    <option value="">{t("fx4.bk.chooseMethod")}</option>
+                    <option value="cash">{t("c.via.cash")}</option>
+                    <option value="qr">QR</option>
+                    <option value="transfer">{t("bk.heldVia.transfer")}</option>
+                    <option value="card">{t("bk.heldVia.card")}</option>
+                  </select>
+                  <button type="button" onClick={() => void stateMethod()} className="rounded-md border border-amber-400 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100">
+                    {t("m68.hire.save")}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <div>
               <label className="block text-xs font-medium text-slate-600">{t("bk.condition")}</label>

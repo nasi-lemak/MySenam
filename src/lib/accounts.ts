@@ -95,6 +95,13 @@ export interface AccountInvoice {
   paidVia: CounterMethod | null;
 }
 
+/** An amount received on an invoice (`account_invoice_payments`), as the invoice lists it: what the account paid, when and how. */
+export interface InvoicePayment {
+  receivedOn: string;
+  via: CounterMethod;
+  amount: number;
+}
+
 /** A credit note on the account taken off an invoice, as the invoice lists it. */
 export interface InvoiceCredit {
   number: string;
@@ -785,6 +792,17 @@ export async function invoiceLines(invoiceId: number): Promise<InvoiceLine[]> {
 }
 
 /** The credit notes on the account taken off this invoice, oldest first. */
+/**
+ * What the account has paid on an invoice, in the order it was received (ADR 0068): the customer's invoice page shows each, and the balance. An
+ * invoice paid in one go before part payments were recorded has none listed (its paid line says it).
+ */
+export async function invoicePayments(invoiceId: number): Promise<InvoicePayment[]> {
+  const rows = (await getDb()
+    .prepare("SELECT received_on, via, amount::float AS amount FROM account_invoice_payments WHERE invoice_id = ? ORDER BY id")
+    .all(invoiceId)) as { received_on: string; via: CounterMethod; amount: number }[];
+  return rows.map((r) => ({ receivedOn: r.received_on, via: r.via, amount: roundMoney(Number(r.amount)) }));
+}
+
 export async function invoiceCredits(invoiceId: number): Promise<InvoiceCredit[]> {
   const rows = (await getDb()
     .prepare(

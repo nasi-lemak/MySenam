@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
-import { getVenue, getVenueIdForBookingCode, listOpenHires, returnHire, takeHire } from "@/lib/store";
+import { getVenue, getVenueIdForBookingCode, listOpenHires, returnHire, stateDepositMethod, takeHire } from "@/lib/store";
 import { deductionTreatments } from "@/lib/deposit-deductions";
 import { logAction } from "@/lib/activity";
 import { asStaff } from "@/lib/acting-staff";
@@ -27,6 +27,8 @@ export async function GET(req: NextRequest) {
 /**
  * Hand kit over (`action: "take"`, with `via`: how the deposit is held, cash, qr, transfer or card, for any deposit above nothing) or take it
  * back in (`action: "return"`). As the member of staff doing it: the cash-up lists the deposits each took and gave back (lib/cash-up.ts).
+ * `action: "state_method"` with `via`: say, once, how a deposit taken before the method was recorded was held (lib/store.ts `stateDepositMethod`,
+ * ADR 0068): written beside the "not recorded" marker with who said it and when, never over it; the deposit is counted under that method from then on.
  */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin(req);
@@ -44,13 +46,28 @@ export async function POST(req: NextRequest) {
   >;
   if (typeof code !== "string" || code.trim() === "")
     return NextResponse.json({ error: "code is required." }, { status: 400 });
-  if (action !== "take" && action !== "return")
-    return NextResponse.json({ error: 'action must be "take" or "return".' }, { status: 400 });
+  if (action !== "take" && action !== "return" && action !== "state_method")
+    return NextResponse.json({ error: 'action must be "take", "return" or "state_method".' }, { status: 400 });
 
   const venueId = await getVenueIdForBookingCode(code);
   if (venueId === null) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
   const denied = denyVenue(admin, venueId);
   if (denied) return denied;
+
+  if (action === "state_method") {
+    if (!COUNTER_METHODS.includes(via as CounterMethod)) return NextResponse.json({ error: "via is cash, qr, transfer or card." }, { status: 400 });
+    const stated = await asStaff(admin, () => stateDepositMethod(code, via));
+    if (!stated.ok) return NextResponse.json({ error: stated.error }, { status: 409 });
+    // Said once: a repeat of the same words writes nothing and logs nothing.
+    if (stated.changed)
+      await logAction(admin, {
+        venueId,
+        action: "hire.method_stated",
+        bookingCode: stated.hire.bookingCode,
+        detail: `${stated.hire.name}: the ${money(stated.hire.deposit)} deposit, taken before its method was recorded, was held by ${via as string}`,
+      });
+    return NextResponse.json({ hire: stated.hire, booking: stated.booking, changed: stated.changed === true });
+  }
 
   if (action === "take") {
     if (deposit !== undefined && typeof deposit !== "number")

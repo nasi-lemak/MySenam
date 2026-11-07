@@ -30,6 +30,9 @@ export function OwedRefunds({ owed, fees = [], onDone, onError }: { owed: OwedRe
   const t = useStaffT();
   const [busy, setBusy] = useState<number | null>(null);
   if (owed.length === 0 && fees.length === 0) return null;
+  // Entry fees, and (ADR 0068) the refund of a counter-sold pass or membership, whose credit note is written already and is not cash paid.
+  const entryFees = fees.filter((f) => f.kind === "entry");
+  const saleRefunds = fees.filter((f) => f.kind !== "entry");
 
   /** An entry fee taken at the counter, owed back after the tournament was called off or the entrant taken out (lib/entry-fee-refunds.ts). */
   async function settleFee(f: OwedEntryFee) {
@@ -42,7 +45,7 @@ export function OwedRefunds({ owed, fees = [], onDone, onError }: { owed: OwedRe
       });
       const data = await readJson(res);
       if (!res.ok) throw new Error(t.err(data, t("fx10.fee.failed")));
-      onDone(t("fx10.fee.done", { amount: money(f.amount), name: f.name }));
+      onDone(t(f.kind === "entry" ? "fx10.fee.done" : "m68.owed.done", { amount: money(f.amount), name: f.name }));
     } catch (err) {
       onError(err instanceof Error ? err.message : t("fx10.fee.failed"));
     } finally {
@@ -117,12 +120,12 @@ export function OwedRefunds({ owed, fees = [], onDone, onError }: { owed: OwedRe
       <p className="mt-2 text-xs font-semibold text-amber-900">{t("r9e.owed.total", { amount: money(owed.reduce((sum, o) => sum + o.amount, 0)) })}</p>
     </div>
     )}
-    {fees.length > 0 && (
+    {entryFees.length > 0 && (
       <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm" data-testid="owed-fees">
         <p className="font-semibold text-amber-900">{t("fx10.fee.title")}</p>
         <p className="mt-0.5 text-xs text-amber-900">{t("fx10.fee.help")}</p>
         <ul className="mt-2 space-y-2">
-          {fees.map((f) => (
+          {entryFees.map((f) => (
             <li key={f.id} className="flex flex-wrap items-center gap-2 text-xs text-amber-950">
               <span>
                 {t("fx10.fee.line", {
@@ -148,7 +151,41 @@ export function OwedRefunds({ owed, fees = [], onDone, onError }: { owed: OwedRe
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-xs font-semibold text-amber-900">{t("r9e.owed.total", { amount: money(fees.reduce((sum, f) => sum + f.amount, 0)) })}</p>
+        <p className="mt-2 text-xs font-semibold text-amber-900">{t("r9e.owed.total", { amount: money(entryFees.reduce((sum, f) => sum + f.amount, 0)) })}</p>
+      </div>
+    )}
+    {saleRefunds.length > 0 && (
+      <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm" data-testid="owed-sales">
+        <p className="font-semibold text-amber-900">{t("m68.owed.title")}</p>
+        <p className="mt-0.5 text-xs text-amber-900">{t("m68.owed.help")}</p>
+        <ul className="mt-2 space-y-2">
+          {saleRefunds.map((f) => (
+            <li key={f.id} className="flex flex-wrap items-center gap-2 text-xs text-amber-950">
+              <span>
+                {t(f.kind === "pass" ? "m68.owed.linePass" : "m68.owed.lineMembership", {
+                  name: f.name,
+                  what: f.what,
+                  amount: money(f.amount),
+                  via: f.via ? t(`c.via.${f.via}`) : t("p8a.day.viaUnrecorded"),
+                  note: f.creditNote ?? "",
+                })}
+              </span>
+              {f.managerOnly ? (
+                <span className="font-medium text-amber-800">{t("r9e.owed.manager")}</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void settleFee(f)}
+                  className="rounded-md border border-amber-400 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  {t("r9e.owed.back", { amount: money(f.amount) })}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-xs font-semibold text-amber-900">{t("r9e.owed.total", { amount: money(saleRefunds.reduce((sum, f) => sum + f.amount, 0)) })}</p>
       </div>
     )}
     </>

@@ -803,7 +803,9 @@ written then (so the till, the credit note and that day's cash-up agree), who se
 kept, and `payment.paid_out` in the activity log. Once (two staff at once settle it once); the front
 desk hands back only a fee taken today, anything older is a manager's. A fee paid online is the
 gateway's (`refund_due`), never here. Marking an entry unpaid by hand still credits it directly, as
-before.
+before. Handed back, it is in the day's list of money handed back at the counter on the bookings screen, beside the bookings'
+payouts, with who handed it back and the credit note ([payments and credit](payments-and-credit.md#owed-back-after-the-venue-cancels),
+[ADR 0068](../architecture/decisions/0068-money-hardening-credit-notes-are-not-cash-spent-is-money-paid-and-the-till-lists-every-payout.md)).
 
 The public page shows entries, then the groups (with points and draws where
 the sport has them), the bracket, the heats and placings of a performance

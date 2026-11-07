@@ -36,10 +36,14 @@ export async function POST(req: NextRequest) {
     if (deniedFee) return deniedFee;
     const settledFee = await asStaff(admin, () => settleEntryFee(id, admin));
     if (!settledFee.ok) return refusal(settledFee);
+    const how = fee.via ? `, by ${PAID_VIA_LABELS[fee.via]}` : "";
     await logAction(admin, {
       venueId: fee.venueId,
       action: "payment.paid_out",
-      detail: `${money(fee.amount)} entry fee handed back at the counter${fee.via ? `, by ${PAID_VIA_LABELS[fee.via]}` : ""} (${fee.name}, ${fee.tournamentName}), owed since ${fee.cause === "tournament_cancelled" ? "the venue called the tournament off" : "the entrant was taken out before the draw"}`,
+      detail:
+        fee.kind === "entry"
+          ? `${money(fee.amount)} entry fee handed back at the counter${how} (${fee.name}, ${fee.tournamentName}), owed since ${fee.cause === "tournament_cancelled" ? "the venue called the tournament off" : "the entrant was taken out before the draw"}`
+          : `${money(fee.amount)} refund of a ${fee.kind === "pass" ? "pass" : "membership"} handed back at the counter${how} (${fee.name}, ${fee.what}${fee.creditNote ? `, credit note ${fee.creditNote}` : ""}), owed since it was cancelled with a refund`,
     });
     return NextResponse.json({ feeOwed: settledFee.owed });
   }

@@ -25,6 +25,7 @@ import guideSetup from "./guide-setup";
 import guidePlaybook from "./guide-playbook";
 import guideHelp from "./guide-help";
 import playerMessages from "./player-messages";
+import money from "./money";
 import { REFUSALS as REFUSALS_1 } from "./refusals-1";
 import { REFUSALS as REFUSALS_2 } from "./refusals-2";
 import { sayWith, type StaffText } from "../staff-text";
@@ -42,7 +43,7 @@ import { sayWith, type StaffText } from "../staff-text";
  */
 export { STAFF_LOCALES, staffLocale, staffLocales, type StaffLocale };
 
-export const STAFF_AREAS = { common, approvals, server, bookings, competitions, teams, ratings, ladders, accounting, rosters, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp, playerMessages };
+export const STAFF_AREAS = { common, approvals, server, bookings, competitions, teams, ratings, ladders, accounting, rosters, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp, playerMessages, money };
 
 const EN = {
   ...common.en,
@@ -68,6 +69,7 @@ const EN = {
   ...guidePlaybook.en,
   ...guideHelp.en,
   ...playerMessages.en,
+  ...money.en,
 };
 
 export type StaffPhrase = keyof typeof EN;
@@ -96,6 +98,7 @@ const merged = (l: "ms" | "zh"): Record<StaffPhrase, string> => ({
   ...guidePlaybook[l],
   ...guideHelp[l],
   ...playerMessages[l],
+  ...money[l],
 });
 
 export const STAFF_DICTIONARIES: Record<StaffLocale, Record<StaffPhrase, string>> = { en: EN, ms: merged("ms"), zh: merged("zh") };

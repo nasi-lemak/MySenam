@@ -5166,6 +5166,9 @@ const EN = {
   "err.FX8_PASS_NOT_LATER": "The new end must be today or later, and after the pass's present end, {date}.",
   "err.FX8_PASS_TOO_FAR": "A pass cannot run beyond {date}.",
   "err.FX8_GRACE_RANGE": "Give whole days from 0 to {max}; 0 turns it off.",
+  "m68.inv.received": "Payment received {date}, by {via}",
+  "m68.inv.balance": "Balance to pay",
+  "m68.inv.part": "{received} received so far. {balance} is still to pay by {due}, quoting {number}.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10277,6 +10280,9 @@ const MS: Record<Phrase, string> = {
   "err.FX8_PASS_NOT_LATER": "Tarikh tamat baharu mestilah hari ini atau lebih lewat, dan selepas tarikh tamat pas sekarang, {date}.",
   "err.FX8_PASS_TOO_FAR": "Pas tidak boleh sah melepasi {date}.",
   "err.FX8_GRACE_RANGE": "Berikan bilangan hari penuh dari 0 hingga {max}; 0 mematikannya.",
+  "m68.inv.received": "Bayaran diterima {date}, melalui {via}",
+  "m68.inv.balance": "Baki yang perlu dibayar",
+  "m68.inv.part": "{received} telah diterima setakat ini. {balance} masih perlu dibayar menjelang {due}, dengan menyebut {number}.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

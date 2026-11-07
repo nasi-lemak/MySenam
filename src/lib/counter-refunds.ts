@@ -1,6 +1,7 @@
 import { logAction } from "./activity";
 import { getDb, withTransaction } from "./db";
 import { creditBooking } from "./documents";
+import { feePayoutsOn } from "./entry-fee-refunds";
 import { creditScope } from "./mode";
 import { money, roundMoney } from "./region";
 import { said, withPhrase } from "./staff-text";
@@ -389,7 +390,15 @@ export async function staffCancelSeries(
 export interface CounterPayout {
   id: number;
   venueId: number;
+  /**
+   * What the money went back on: a booking's payout, or (ADR 0068) a tournament entry fee, a pass or a membership handed back from the owed list
+   * (lib/entry-fee-refunds.ts). Ids are of their own table: `kind` and `id` together are the key.
+   */
+  kind: "booking" | "entry" | "pass" | "membership";
+  /** A booking's code; empty for the others (see `what`). */
   bookingCode: string;
+  /** For an entry fee, a pass or a membership: who and which. */
+  what: string;
   amount: number;
   via: CounterMethod | null;
   keptPercent: number | null;
@@ -399,8 +408,29 @@ export interface CounterPayout {
   paidOutAt: string;
 }
 
-/** Money handed back at the counter on a day (the venue's own day), for the till: newest first. */
+/**
+ * Money handed back at the counter on a day (the venue's own day), for the till: newest first. A booking's payouts, and what staff handed back
+ * from the owed list for a tournament entry fee, a counter-sold pass or membership (ADR 0068), so every counter payout is in one list.
+ */
 export async function counterPayoutsOn(venueIds: number[] | null, date: string): Promise<CounterPayout[]> {
+  const bookings = await bookingPayoutsOn(venueIds, date);
+  const fees: CounterPayout[] = (await feePayoutsOn(venueIds, date)).map((f) => ({
+    id: f.id,
+    venueId: f.venueId,
+    kind: f.kind,
+    bookingCode: "",
+    what: f.what,
+    amount: f.amount,
+    via: f.via,
+    keptPercent: null,
+    creditNote: f.creditNote,
+    adminName: f.adminName,
+    paidOutAt: f.paidOutAt,
+  }));
+  return [...bookings, ...fees].sort((a, b) => b.paidOutAt.localeCompare(a.paidOutAt));
+}
+
+async function bookingPayoutsOn(venueIds: number[] | null, date: string): Promise<CounterPayout[]> {
   const rows = (await getDb()
     .prepare(
       `SELECT p.id, p.venue_id, b.code, p.amount::float AS amount, p.via, p.kept_percent, r.number AS note_number, p.admin_name, p.paid_out_at
@@ -430,7 +460,9 @@ export async function counterPayoutsOn(venueIds: number[] | null, date: string):
     out.push({
       id: r.id,
       venueId: r.venue_id,
+      kind: "booking",
       bookingCode: r.code,
+      what: "",
       amount: Number(r.amount),
       via: r.via,
       keptPercent: r.kept_percent,
@@ -636,8 +668,11 @@ export async function settleOwed(
 
 /** In the activity log: the cancellation, how the money was settled, and any cash handed back at the counter. */
 export async function logCancelled(admin: { id: number; name: string }, venueId: number, booking: Booking, settled: Settled | null): Promise<void> {
+  // A booking a pass paid gives entries back, never money (ADR 0068): the log says what the pass's ledger took back.
   const how =
-    settled && settled.refund + settled.kept > 0
+    booking.paymentStatus === "paid" && booking.paidVia === "pass"
+      ? await passGivenBackWords(booking.id)
+      : settled && settled.refund + settled.kept > 0
       ? settled.outcome === "credit"
         ? `; ${money(settled.credited ?? settled.refund)} given as stored credit`
         : settled.outcome === "keep"
@@ -659,6 +694,19 @@ export async function logCancelled(admin: { id: number; name: string }, venueId:
       bookingCode: booking.code,
       detail: `${money(settled.paidOut.amount)} handed back at the counter${settled.paidOut.via ? `, by ${PAID_VIA_LABELS[settled.paidOut.via]}` : ""}`,
     });
+}
+
+/** For the activity log: what a cancelled pass-paid booking took back into the pass (entries or minutes), and that no money moved. */
+export async function passGivenBackWords(bookingId: number): Promise<string> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(e.delta), 0)::int AS back, MIN(p.kind) AS kind FROM pass_entries e JOIN passes p ON p.id = e.pass_id
+        WHERE e.booking_id = ? AND e.delta > 0`
+    )
+    .get(bookingId)) as { back: number; kind: string | null };
+  if (!row || row.back <= 0) return "; paid with a pass, and nothing went back to it (a late cancellation), no money paid out";
+  const unit = row.kind === "time" ? (row.back === 1 ? "minute" : "minutes") : row.back === 1 ? "entry" : "entries";
+  return `; ${row.back} ${unit} went back to the pass, no money paid out`;
 }
 
 /** What the customer is told of the money, where it was not all given back the way it was paid. */

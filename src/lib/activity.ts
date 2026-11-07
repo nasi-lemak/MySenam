@@ -120,16 +120,19 @@ export async function listActivity(
 export async function logCancelledBookings(
   admin: Pick<Admin, "name"> & { id: number | null },
   venueId: number,
-  bookings: Pick<Booking, "code" | "date" | "startMin" | "name" | "totalPrice" | "paymentStatus">[],
+  bookings: (Pick<Booking, "code" | "date" | "startMin" | "name" | "totalPrice" | "paymentStatus"> & Partial<Pick<Booking, "id" | "paidVia">>)[],
   why: string
 ): Promise<void> {
-  for (const b of bookings)
+  for (const b of bookings) {
+    // A booking a pass paid gives entries back, never money (ADR 0068): say what the pass took back.
+    const pass = b.paymentStatus === "paid" && b.paidVia === "pass" && b.id !== undefined ? (await import("./counter-refunds")).passGivenBackWords(b.id) : null;
     await logAction(admin, {
       venueId,
       action: "booking.cancelled",
       bookingCode: b.code,
-      detail: `${b.date} ${formatMinute(b.startMin)}, ${b.name}, ${money(b.totalPrice)}${b.paymentStatus === "paid" ? " (was paid)" : ""}; ${why}`,
+      detail: `${b.date} ${formatMinute(b.startMin)}, ${b.name}, ${money(b.totalPrice)}${b.paymentStatus === "paid" ? " (was paid)" : ""}; ${why}${pass ? await pass : ""}`,
     });
+  }
 }
 
 /** A class called off: one `class.cancelled` entry with its count, and a `booking.cancelled` for each enrolment it cancelled. */
