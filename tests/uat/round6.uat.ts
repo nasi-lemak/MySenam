@@ -465,8 +465,9 @@ describe("lessons given to another coach, and coaches the venue assigns", () => 
       await p.getByRole("button", { name: "Change date or time" }).click();
       await p.getByText("Your lesson keeps its coach: the times shown are when they take lessons and are free. To change the coach, ask the venue.").waitFor();
       expect(await coachPick(p).count()).toBe(0);
-      p.once("dialog", (d) => void d.accept());
       await p.getByRole("button", { name: /^2:00 PM–3:00 PM/ }).first().click();
+      // The customer is told what the change does to the price, then confirms it (ADR 0067).
+      await p.getByRole("button", { name: "Confirm the change" }).click();
       await p.getByText(/^Changed to .*2:00 PM–3:00 PM/).waitFor();
       expect(await myLesson(customer, lesson1)).toMatchObject({ coachId: coach["Ben Tan"], startMin: 14 * 60 });
     });

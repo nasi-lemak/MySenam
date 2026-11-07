@@ -307,15 +307,8 @@ describe("customers' own changes", () => {
     // Cancelling free until 48 hours before (setup: the venue's own settings).
     const cut = await owner.api("PATCH", `/api/admin/venues/${club.venueId}`, { cancelCutoffHours: 48 });
     expect(cut.status, JSON.stringify(cut.body)).toBe(200);
-    const deskApi = await staffApi(await s.actor("Desk API"), club.desk.email);
-    const customer = await signUp(await s.actor("Customer", "phone"));
-    const slot = await tennisHour(club.venueId, 1, 1, [13, 14, 15, 16, 17, 18, 19, 20]);
-    const code = (await bookCourt(customer, slot.courtId, slot.date, slot.hour)).code;
-    const paid = await deskApi.api("POST", "/api/admin/payments", { code, paid: true, via: "cash" });
-    expect(paid.status, JSON.stringify(paid.body)).toBe(200);
     const manager = await s.actor("Manager");
-    const card = (p: Page) => p.locator("div").filter({ hasText: code }).filter({ has: p.getByRole("button", { name: /^(Cancel booking|Give the court back \(no refund\))$/ }) }).last();
-
+    // The terms shown at booking govern a booking (ADR 0069): the venue lets customers give a court back after the cutoff *before* she books.
     await s.step(manager, "under Cancellations, refunds and no-shows, lets customers give a court back after the cutoff with no refund", async () => {
       await staffSignIn(manager, club.manager.email);
       await manager.page.getByRole("navigation", { name: "Dashboard sections" }).getByRole("button", { name: "Venue details", exact: true }).click();
@@ -324,6 +317,15 @@ describe("customers' own changes", () => {
       await policy.getByRole("button", { name: "Save", exact: true }).click();
       await policy.getByText("Saved.").waitFor();
     });
+
+    const deskApi = await staffApi(await s.actor("Desk API"), club.desk.email);
+    const customer = await signUp(await s.actor("Customer", "phone"));
+    const slot = await tennisHour(club.venueId, 1, 1, [13, 14, 15, 16, 17, 18, 19, 20]);
+    const code = (await bookCourt(customer, slot.courtId, slot.date, slot.hour)).code;
+    const paid = await deskApi.api("POST", "/api/admin/payments", { code, paid: true, via: "cash" });
+    expect(paid.status, JSON.stringify(paid.body)).toBe(200);
+    const card = (p: Page) => p.locator("div").filter({ hasText: code }).filter({ has: p.getByRole("button", { name: /^(Cancel booking|Give the court back \(no refund\))$/ }) }).last();
+
 
     await s.step(customer, "on her phone, finds tomorrow's paid booking on her account offering to give the court back, with no refund", async () => {
       await customer.page.goto(`${url}/account`);

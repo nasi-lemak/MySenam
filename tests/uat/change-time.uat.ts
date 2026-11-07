@@ -90,11 +90,12 @@ describe("changing a booking's time", () => {
       await customer.page.getByText("Same length, same booking code.", { exact: false }).waitFor();
       // Its own hour is not offered again; the hour it moves to is.
       expect(await customer.page.getByRole("button", { name: /^10:00 AM–11:00 AM/ }).count()).toBe(0);
-      customer.page.once("dialog", (d) => {
-        expect(d.message()).toBe(`Change booking ${code} to ${date}, 2:00 PM–3:00 PM?`);
-        void d.accept();
-      });
       await customer.page.getByRole("button", { name: /^2:00 PM–3:00 PM/ }).click();
+      // The price is said before anything changes (ADR 0067): this booking costs the same at 2 PM, and the customer confirms.
+      const quote = customer.page.getByTestId("move-quote");
+      await quote.getByText(`Change booking ${code} to ${date}, 2:00 PM–3:00 PM?`).waitFor();
+      await quote.getByTestId("move-money").first().waitFor();
+      await quote.getByRole("button", { name: "Confirm the change" }).click();
       await customer.page.getByRole("status").getByText(`Changed to ${date}, 2:00 PM–3:00 PM.`).waitFor();
       await customer.page.getByText("2:00 PM – 3:00 PM").waitFor();
       expect(await shownTime(customer).textContent()).toBe("2:00 PM – 3:00 PM");

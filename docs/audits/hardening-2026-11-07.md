@@ -174,6 +174,28 @@ Beyond the selected findings, two checks the round ran found real defects, fixed
   counted after the check. Both journeys are *ready only with manual safeguards*
   ([pilot readiness](../operations/pilot-readiness-2026-11-07.md#customer-registration-and-password-reset)).
 
+### Existing tests the round changed, and why
+
+No assertion was loosened. Each of these encoded behaviour that a decision of the round changed on purpose:
+
+- `tests/waitlist.test.ts` (one offer at a time, now one per free place: ADR 0070); `tests/entries.test.ts`
+  and `tests/membership-scope.test.ts` (a term keeps the benefits it was sold with; a share above the member
+  rate needs confirming: ADR 0071); `tests/benefits-paths.test.ts` and `tests/account-invoice-snapshot.test.ts`
+  (a cheaper move owes the difference back; staff cannot move an invoiced booking dearer: ADR 0067);
+  `tests/series-cancel.test.ts`, `tests/lesson-moves.test.ts`, `tests/reschedule.test.ts` (the terms a booking was
+  sold on govern it: ADR 0069); `tests/customer-report.test.ts` ("spent" is money paid: ADR 0068);
+  `tests/coaching-two.test.ts` (scheduled lessons apart from held: ADR 0072); `tests/safety-and-access.test.ts`
+  (the desk refuses a blocked number); `tests/payments.test.ts`, `tests/passes-online.test.ts`,
+  `tests/membership-purchase-holds.test.ts`, `tests/coach-difference-online.test.ts` (Billplz fixtures carry
+  the collection and amounts the documented callback has: ADR 0065); `tests/games.test.ts` (a no-show needs a reason).
+- `tests/guest-counting.test.ts` and `tests/same-policies.test.ts` made a venue's system key through a desk
+  member or another venue's manager; under ADR 0064 a person's key stops with them, so the fixture now makes it
+  the venue's (found by the full suite on the merged tree).
+- Three browser scenarios failed the first complete release run of the round (`tests/uat/change-time.uat.ts`,
+  `round6.uat.ts`, `round8.uat.ts`): a customer changing a booking's time now sees what it does to the price and
+  confirms (no browser dialog), and a booking keeps the cancellation terms shown when it was made, so the venue
+  turns on *give the court back after the cutoff* before the customer books, not after.
+
 ## 5. Restricted-pilot operating policy for a venue that cannot yet leave (A5 = H8)
 
 A venue-exit workflow is not built. Until it is (a requirement for general availability,
