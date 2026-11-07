@@ -1026,4 +1026,7 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Only a manager reviews a mark.": { ms: "Hanya pengurus yang menyemak tanda.", zh: "只有经理才能审核标记。" },
   "Only the platform owner decides a mark that counts at every venue.": { ms: "Hanya pemilik platform yang memutuskan tanda yang dikira di semua pusat.", zh: "只有平台所有者才能决定在所有场馆计入的标记。" },
   "That mark is not waiting for a decision.": { ms: "Tanda itu tidak menunggu keputusan.", zh: "该标记没有在等待决定。" },
+  // Hardening (BILL, ADR 0065)
+  "This venue has sold stored credit or gift vouchers, and what a consolidated e-invoice does with them is not settled (a question for your tax adviser). Tick that you understand before turning e-invoicing on.": { ms: "Pusat ini telah menjual kredit tersimpan atau baucar hadiah, dan apa yang dilakukan e-invois disatukan terhadapnya belum ditetapkan (soalan untuk penasihat cukai anda). Tandakan bahawa anda faham sebelum menghidupkan e-invois.", zh: "本场馆已售出储值或礼券，而合并电子发票如何处理它们尚无定论（需请教税务顾问）。开启电子发票前，请勾选表示您已了解。" },
+  "That payment is not waiting to be checked.": { ms: "Bayaran itu tidak menunggu untuk disemak.", zh: "该付款不在待核查之列。" },
 };

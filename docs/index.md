@@ -141,6 +141,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0064 Credentials follow their owners, staff two-factor is on by default for managers of a production marketplace, second-factor attempts are counted before they are checked, a refused number is admitted by nobody](architecture/decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md)
 [0062 Passes judged on the session's date and entries given back are not dead; a membership's days given back never run into its renewal; a suspension of a renewing membership gives its days back; the concession check and the review invitation are decided once](architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md) ·
 [0072 A host's no-show mark is told, answered and reviewed, and counts at its own venue; coaches are told of every lesson; what ends and what is struck is seen](architecture/decisions/0072-a-hosts-no-show-mark-is-told-answered-and-reviewed-and-counts-at-its-venue.md)
+[0065 A payment is settled for the amount the gateway took and never into a lapsed hold; stored value and e-invoicing wait for the adviser](architecture/decisions/0065-a-payment-is-settled-for-the-amount-the-gateway-took-and-never-into-a-lapsed-hold.md)
 
 ## Integrations
 
@@ -167,6 +168,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Production, proxies, upgrading, staging before a release, the launch checklist | [Deployment](operations/deployment.md); kit in [`deploy/digitalocean`](../deploy/digitalocean/README.md) |
 | Backups, off-site copies, restoring (disaster recovery) | [Backups](operations/backups.md) |
 | Alerts, errors, health checks | [Monitoring](operations/monitoring.md) |
+| What the consolidated e-invoice does with stored credit and gift vouchers today, where it counts them twice, what LHDN's FAQ and Guideline say (read 7 November 2026), and the questions for a Malaysian tax adviser (audit C2, DEC-19; no treatment chosen) | [E-invoicing and stored value: a memo for the tax adviser](operations/einvoice-stored-credit-memo.md) |
 | The questions to put to a Malaysian lawyer before youth messaging is enabled, with the interim measure for each, and the launch gate | [Legal review: youth messaging](operations/legal-review-youth-messaging.md) |
 | What to do when something goes wrong: severity, containment, evidence, recovery, breach notification in Malaysia and Singapore | [Incident response](operations/incident-response.md) |
 | Installs from before Postgres or before the rename from MudahTempah, and outages from before migration 0090 | [Legacy installs](archive/migrations/legacy-installs.md) |

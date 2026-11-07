@@ -79,6 +79,22 @@ export default async function setup(project: TestProject) {
           if (collection[1] !== BILLPLZ_STAND_IN.collectionId) return json(404, { error: { type: "RecordNotFound" } });
           return json(200, { id: collection[1], title: "UAT stand-in collection" });
         }
+        // The app asking for a bill as it stands (what a redirect cannot say: the amounts), as Billplz's GET /api/v3/bills/:id answers.
+        const asked = /^\/api\/v3\/bills\/([\w-]+)$/.exec(at.pathname);
+        if (req.method === "GET" && asked) {
+          if (!authorised) return json(401, { error: { type: "Unauthorized" } });
+          const found = bills.get(asked[1]);
+          if (!found) return json(404, { error: { type: "RecordNotFound" } });
+          const paid = found.state === "paid";
+          return json(200, {
+            id: found.id,
+            collection_id: BILLPLZ_STAND_IN.collectionId,
+            paid,
+            state: paid ? "paid" : "due",
+            amount: found.amount,
+            paid_amount: paid ? found.amount : 0,
+          });
+        }
         // The app opening a payment page.
         if (req.method === "POST" && at.pathname === "/api/v3/bills") {
           if (!authorised) return json(401, { error: { type: "Unauthorized" } });

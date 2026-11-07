@@ -93,6 +93,28 @@ export interface PaymentResult {
   paidAt: string | null;
   /** A page that started a subscription: the gateway's id for it. */
   subscriptionId?: string | null;
+  /**
+   * What the gateway says the page was for and what it says it took, in the currency's smallest unit (sen, cents), and
+   * the currency: set only for a payment report that carries them (Billplz's callback, Stripe's session, Billplz's bill
+   * fetched for a redirect). `null` says the gateway gave none; absent says whoever made the result had none to give
+   * (a renewal charge, a test). Held against the amount the page asked for before anything is applied
+   * (lib/payment-settlement.ts `assessSettlement`, ADR 0065).
+   */
+  billedMinor?: number | null;
+  receivedMinor?: number | null;
+  currency?: string | null;
+  /**
+   * The report is signed and says paid, but cannot be matched to the account or checked: `collection` (the bill is in
+   * another collection than the one this account pays into) or `unverified` (a paid report without the amounts it is
+   * documented to carry). Never applied; held for staff.
+   */
+  mismatch?: "collection" | "unverified";
+  /**
+   * The signature is good and says paid, but what the amount was could not be confirmed just now (a redirect carries none, and
+   * the gateway could not be asked): the outcome is not known here. Settles nothing; the payment's own state is all that is
+   * shown, and the callback, which carries the amounts, decides.
+   */
+  unconfirmed?: boolean;
 }
 
 /**

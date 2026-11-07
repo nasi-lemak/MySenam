@@ -66,6 +66,9 @@ interface Session {
   status?: "open" | "complete" | "expired";
   payment_intent?: string | null;
   subscription?: string | null;
+  /** What the session charges, in the currency's smallest unit, and the currency (lower case). */
+  amount_total?: number | null;
+  currency?: string | null;
 }
 
 interface Invoice {
@@ -143,6 +146,15 @@ function result(session: Session, paidAt: string | null): PaymentResult {
     paid: session.payment_status === "paid",
     paidAt,
     ...(session.subscription ? { subscriptionId: session.subscription } : {}),
+    // What the session charged and in which currency, held against what the page asked for before anything is applied
+    // (lib/payment-settlement.ts). Left out where Stripe's answer carries neither.
+    ...(Number.isSafeInteger(session.amount_total) && typeof session.currency === "string"
+      ? {
+          billedMinor: session.amount_total as number,
+          receivedMinor: session.payment_status === "paid" ? (session.amount_total as number) : null,
+          currency: session.currency.toUpperCase(),
+        }
+      : {}),
   };
 }
 

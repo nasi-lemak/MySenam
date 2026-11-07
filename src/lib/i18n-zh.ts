@@ -5081,6 +5081,16 @@ export const ZH: Record<Phrase, string> = {
   "ppl.mail.strike.b": "您在{venue}于 {date} 的预订 {code} 被标记为未到场。这是{venue}在 {days} 天内计算的 {limit} 次中的第 {n} 次。达到 {limit} 次后，您需要在线付款才能在那里预订。如果这是误记，请致电 {phone} 联系{venue}：经理可以撤销。{link}",
   "ppl.mail.strikeOut.s": "您在{venue}的未到场预订已达上限",
   "ppl.mail.strikeOut.b": "您在{venue}于 {date} 的预订 {code} 被标记为未到场。{days} 天内共 {n} 次，已达{venue}计算的 {limit} 次上限。在这些记录过期之前，您需要在线付款才能在那里预订（如果该场馆不接受在线付款，则须在柜台预订）。如果这是误记，请致电 {phone} 联系{venue}：经理可以撤销。{link}",
+  // Hardening (BILL, ADR 0065): a payment that was not applied, and what its payer is told
+  "hd1.pna.subject": "您向 {venue} 的付款未用于预订 {code}",
+  "hd1.pna.body.lapsed": "您好，{name}！\n\n您向 {venue} 支付的 {amount} 到账时，预订 {code} 的保留时间已经结束。该预订已被释放，因此这笔付款没有使其生效。这 {amount} 应退还给您，场馆会为您退款。\n\n您可在此查看进展：{link}\n\n如果您仍想打球，请重新预订：能否预订取决于该时段是否仍有空位。",
+  "hd1.pna.body.underpaid": "您好，{name}！\n\n我们收到了您向 {venue} 为预订 {code} 支付的款项，但金额少于要求的金额，因此没有用于该预订。我们收到的 {amount} 应退还给您，场馆会为您退款。\n\n您可在此查看进展：{link}",
+  "hd1.pna.body.held": "您好，{name}！\n\n我们收到了您向 {venue} 为预订 {code} 支付的款项，但它与您所付的项目无法对应，因此没有生效。这 {amount} 应退还给您，场馆会核查并为您退款。\n\n您可在此查看进展：{link}",
+  "hd1.pay.lateTitle": "已收到付款，但预订未生效",
+  "hd1.pay.lateBody": "您支付的 {amount} 到账时，预订的保留时间已经结束，预订已被释放，这笔付款没有使其生效。这 {amount} 应退还给您，场馆会为您退款。如果您仍想打球，请重新预订。",
+  "hd1.pay.heldTitle": "已收到付款，但未生效",
+  "hd1.pay.heldBody": "我们收到了 {amount}，但它与所要求的不符，因此无法用于您所付的项目，也没有使任何事项生效。这 {amount} 应退还给您，场馆会为您退款。如需帮助，请联系场馆。",
+  "hd1.pay.overBody": "谢谢。已为 {codes} 支付 {amount}。您多付了 {extra}，场馆会把这部分退还给您。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

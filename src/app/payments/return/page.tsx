@@ -55,6 +55,36 @@ export default async function PaymentReturnPage({
     </a>
   );
 
+  // Money that arrived and was applied to nothing (ADR 0065): a payment after the booking's hold was let go, one short of
+  // what the page asked for, one that could not be matched to it. Said plainly whatever it was for, never as "received, thank you".
+  const settled = payment?.status === "paid" ? payment : null;
+  const notApplied =
+    settled?.settlementIssue &&
+    (settled.settlementIssue === "hold_lapsed"
+      ? settled.refundOwed + settled.refunded >= settled.amount - 0.005
+      : settled.settlementIssue !== "overpaid" && settled.settlementIssue !== "short_after_settled");
+  if (settled && notApplied) {
+    const lapsed = settled.settlementIssue === "hold_lapsed";
+    return (
+      <div className="mx-auto max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm" data-testid="payment-not-applied">
+          <div className="text-4xl">↩️</div>
+          <h1 className="mt-2 text-xl font-bold">{lapsed ? t("hd1.pay.lateTitle") : t("hd1.pay.heldTitle")}</h1>
+          <p className="mt-2 text-sm text-slate-600">{lapsed ? t("hd1.pay.lateBody", { amount: money(settled.amount) }) : t("hd1.pay.heldBody", { amount: money(settled.amount) })}</p>
+          {settled.bookingCodes.length > 0 && (
+            <div className="mt-4 rounded-xl bg-slate-50 py-3 font-mono text-xl font-bold tracking-widest text-slate-700">{settled.bookingCodes.join(", ")}</div>
+          )}
+          <Link
+            href={settled.bookingCodes.length > 0 ? await myBookingLink(settled.bookingCodes) : "/my-booking"}
+            className="mt-5 inline-block w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white hover:bg-teal-700"
+          >
+            {t("pay.toMyBooking")}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // A venue paying its marketplace invoice, rather than a customer paying for
   // a booking: staff, in English like the rest of the admin, and back to it.
   if (payment?.purpose === "invoice")
@@ -328,7 +358,9 @@ export default async function PaymentReturnPage({
               : t("pay.unknownTitle")}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          {outcome === "paid" && payment
+          {outcome === "paid" && payment && payment.settlementIssue === "overpaid" && payment.billedAmount !== undefined
+            ? t("hd1.pay.overBody", { amount: money(payment.billedAmount), extra: money(payment.amount - payment.billedAmount), codes: payment.bookingCodes.join(", ") })
+            : outcome === "paid" && payment
             ? t("pay.receivedBody", { amount: payment.amount, codes: payment.bookingCodes.join(", ") })
             : outcome === "notPaid"
               ? holdEnds

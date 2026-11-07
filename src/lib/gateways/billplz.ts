@@ -1,5 +1,5 @@
-import { billplzHost, createBill, redirectBillId, verifyCallback, verifyRedirect } from "../billplz";
-import type { GatewayAccount, PaymentGateway } from "./types";
+import { billplzHost, createBill, fetchBill, redirectBillId, verifyCallback, verifyRedirect, type BillResult } from "../billplz";
+import type { GatewayAccount, PaymentGateway, PaymentResult } from "./types";
 import { englishOf, said } from "../staff-text";
 
 /** Billplz (Malaysia): FPX online banking and cards. The protocol itself is in lib/billplz.ts. */
@@ -49,14 +49,29 @@ export const billplz: PaymentGateway = {
     for (const [k, v] of new URLSearchParams(body)) fields[k] = v;
     return {
       billId: fields.id || null,
-      verify: async (account) => verifyCallback(fields, account.credentials.xSignatureKey),
+      verify: async (account) => {
+        const result = verifyCallback(fields, account.credentials.xSignatureKey);
+        return result && resultOf(result, account);
+      },
     };
   },
 
   readRedirect(query) {
     const billId = redirectBillId(query);
     if (!billId) return null;
-    return { billId, verify: async (account) => verifyRedirect(query, account.credentials.xSignatureKey) };
+    return {
+      billId,
+      verify: async (account) => {
+        const seen = verifyRedirect(query, account.credentials.xSignatureKey);
+        if (!seen || !seen.paid) return seen;
+        // The redirect says nothing of the amount (Billplz sends the id, the paid flag, the time and the signature),
+        // so a paid one is believed only once the bill itself says the same. If Billplz cannot be asked, or does not
+        // say paid, the outcome is unconfirmed here and the callback, which carries the amounts, decides.
+        const bill = await fetchBill(toBillplz(account), seen.billId).catch(() => null);
+        if (!bill || !bill.paid) return { billId: seen.billId, paid: true, paidAt: seen.paidAt, unconfirmed: true };
+        return resultOf({ ...bill, paidAt: seen.paidAt ?? bill.paidAt }, account);
+      },
+    };
   },
 
   platformAccount(env) {
@@ -65,6 +80,21 @@ export const billplz: PaymentGateway = {
     return { provider: "billplz", sandbox: env.BILLPLZ_SANDBOX === "on", credentials: { apiKey, collectionId, xSignatureKey } };
   },
 };
+
+/**
+ * A signed report as the settlement sees it: the amounts Billplz gave, in sen and ringgit (Billplz takes ringgit only),
+ * or why it cannot be checked. A paid report in another collection than the account pays into, or without the amounts
+ * Billplz documents on it, is held for staff and applied to nothing (lib/payment-settlement.ts).
+ */
+function resultOf(r: BillResult, account: GatewayAccount): PaymentResult {
+  const out: PaymentResult = { billId: r.billId, paid: r.paid, paidAt: r.paidAt };
+  if (!r.paid) return out;
+  const known = { billedMinor: r.billedMinor ?? null, receivedMinor: r.receivedMinor ?? null, currency: "MYR" };
+  const collection = account.credentials.collectionId;
+  if (r.collectionId && collection && r.collectionId !== collection) return { ...out, ...known, mismatch: "collection" };
+  if (known.billedMinor === null || known.receivedMinor === null) return { ...out, ...known, mismatch: "unverified" };
+  return { ...out, ...known };
+}
 
 function toBillplz(account: GatewayAccount) {
   const { apiKey, collectionId, xSignatureKey } = account.credentials;

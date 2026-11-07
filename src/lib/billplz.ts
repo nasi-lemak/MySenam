@@ -113,6 +113,20 @@ export interface BillResult {
   billId: string;
   paid: boolean;
   paidAt: string | null;
+  /**
+   * What Billplz says the bill was for (`amount`) and took (`paid_amount`), in sen, and the collection it is in
+   * (`collection_id`): only on the callback and the bill itself, never on the redirect, which carries the id, the paid
+   * flag, the time and the signature and nothing else. Null where the field was not there or not a whole number.
+   */
+  billedMinor?: number | null;
+  receivedMinor?: number | null;
+  collectionId?: string | null;
+}
+
+/** A whole number of sen, or null. */
+function sen(value: string | number | undefined | null): number | null {
+  if (typeof value === "number") return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  return typeof value === "string" && /^\d{1,12}$/.test(value) ? Number(value) : null;
 }
 
 /** The server-to-server callback: its form fields, checked. Null if forged. */
@@ -122,7 +136,15 @@ export function verifyCallback(
 ): BillResult | null {
   if (!fields.id || !sameSignature(fields.x_signature, xSignature(fields, signatureKey)))
     return null;
-  return { billId: fields.id, paid: fields.paid === "true", paidAt: fields.paid_at || null };
+  return {
+    billId: fields.id,
+    // Billplz's `state` is due, paid or deleted: a report that says paid under any other state is not believed.
+    paid: fields.paid === "true" && (fields.state === undefined || fields.state === "paid"),
+    paidAt: fields.paid_at || null,
+    billedMinor: sen(fields.amount),
+    receivedMinor: sen(fields.paid_amount),
+    collectionId: fields.collection_id || null,
+  };
 }
 
 /**
@@ -153,4 +175,32 @@ export function verifyRedirect(
 /** Which bill a redirect is about, before it is checked — to find whose key checks it. */
 export function redirectBillId(query: URLSearchParams): string | null {
   return query.get("billplz[id]");
+}
+
+/**
+ * The bill itself, from Billplz's API (`GET /api/v3/bills/:id`, the account's secret key): what the redirect cannot say.
+ * Null when Billplz does not answer with a bill of that id; throws when it cannot be reached (the caller leaves the
+ * outcome unknown and the callback decides). Documented fields only: `paid`, `state` (due, paid or deleted), `amount`,
+ * `paid_amount` and `collection_id`, as docs/integrations/payment-gateways.md records; not yet exercised against
+ * Billplz's sandbox.
+ */
+export async function fetchBill(account: BillplzAccount, billId: string): Promise<BillResult | null> {
+  const res = await fetch(`${billplzHost(account.sandbox)}/api/v3/bills/${encodeURIComponent(billId)}`, {
+    headers: { Authorization: `Basic ${Buffer.from(`${account.apiKey}:`).toString("base64")}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Billplz answered ${res.status} for the bill.`);
+  const data = (await res.json().catch(() => null)) as
+    | { id?: string; paid?: boolean; state?: string; amount?: number | string; paid_amount?: number | string; collection_id?: string; paid_at?: string | null }
+    | null;
+  if (!data || data.id !== billId) return null;
+  return {
+    billId: data.id,
+    paid: data.paid === true && data.state === "paid",
+    paidAt: data.paid_at || null,
+    billedMinor: sen(data.amount),
+    receivedMinor: sen(data.paid_amount),
+    collectionId: data.collection_id || null,
+  };
 }
