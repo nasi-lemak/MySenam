@@ -122,7 +122,7 @@ import { mayGoPastWindow, recordWindowOverride, windowOverridesFor, type Booking
 import type { WindowCode } from "./restriction-strength";
 import { coachSupervising, recordSupervisors, supervisionRefusal, supervisorsOf, unsupervisedOn, type Supervisor } from "./rosters";
 import { utilisationByDay, type UseSplit } from "./reports";
-import { cancelPolicy, cancelPolicyFor, lateCancelTerms } from "./cancel-policy";
+import { bookingCancelTerms, cancelPolicy, lateCancelTerms } from "./cancel-policy";
 import { seriesWeeks, venueAheadDays } from "./house-rules";
 import { creditBooking, creditReceipt, documentFor, issueReceipt, paidVia as paidViaLabel, saidLine, WHO } from "./documents";
 import { gatewayFor } from "./gateways";
@@ -2597,6 +2597,14 @@ export async function createBookingSeries(
       // (lib/membership-suspensions.ts, lib/membership-flags.ts): the transactions are serializable, so never neither.
       const lapsed = await membersOnlyRefusal(membersAsk);
       if (lapsed) throw new MembershipLapsed(lapsed);
+      // The cancellation terms in force now are the terms of every booking made here (ADR 0069, DEC-09): read in this transaction, once,
+      // so a policy edit committing at the same moment is wholly before or wholly after it (never a mix), and a series' weeks all carry
+      // what the customer was shown when they booked it.
+      const termsKept = await (await import("./booking-terms")).cancelTermsSnapshot(court.venueId, court.sport);
+      // The court as it is now: its own hours and rates set from a date, which the one read above may be older than.
+      const liveFound = await getCourt(courtId);
+      if (!liveFound) throw new MembershipLapsed(refuse("COURT_NOT_FOUND"));
+      const liveCourt = courtFor(liveFound, input.sport ?? liveFound.sport);
       // The offer being claimed holds the time for this booking: let it go first.
       if (offer) await release({ kind: "offer", waitlistId: offer });
       // So does an approval request's hold on the slot it asked for.
@@ -2615,9 +2623,16 @@ export async function createBookingSeries(
         // Each later week keeps to the hours, the closed weekdays and the court's rules in force on its own date, as its
         // price is its own (ADR 0027): a change from a later date reaches the weeks that fall after it.
         let weekOverridden = false;
-        if (!reason && week > 0 && !input.classId) {
-          const that = await courtDay(court, weekDate);
+        // The first week too, in this transaction and from the court as it is now (ADR 0069, B14): the hours and rules it was checked
+        // against above are read before this transaction, so a manager narrowing them in between either is seen here, or sees this booking
+        // when the edit reads what is booked (updateVenue, setHoursChange, updatePolicyKeepingBookings): the transactions are
+        // serializable, so never neither. Nothing a manager's override goes past: a closed day or a changed clock is still refused.
+        if (!reason && !input.classId) {
+          const that = await courtDay(liveCourt, weekDate);
+          if (week === 0 && that.closed) throw new MembershipLapsed(refuse("VENUE_CLOSED"));
           const out = policyBreaches(that.policy, span, that, minutesUntil(weekDate, span.start, that.zone)).filter((b) => b !== "NOTICE" && b !== "WINDOW");
+          if (week === 0 && out.includes("CLOCK")) throw new MembershipLapsed(breachRefusal(that.policy, span, "CLOCK"));
+          if (week === 0 && out.length > 0 && !override) throw new MembershipLapsed(breachRefusal(that.policy, span, out[0], that.launch));
           if (out.includes("CLOCK")) reason = "the clocks change that day";
           else if (out.length > 0 && !override) reason = out.includes("HOURS") ? "outside the opening hours" : "outside the court's booking rules";
           else if (out.length > 0) {
@@ -2626,7 +2641,7 @@ export async function createBookingSeries(
           }
         }
         if (!reason && week > 0 && windowed) {
-          const that = (await courtDay(court, weekDate)).launch;
+          const that = (await courtDay(liveCourt, weekDate)).launch;
           if (that && !launchOk(that, span)) {
             const why = launchRefusal(that, span).code;
             if (mayGoPastWindow(input.windowOverride, that)) windowWent = { code: why, day: that };
@@ -2662,8 +2677,8 @@ export async function createBookingSeries(
                 .prepare(
                   `INSERT INTO bookings (code, court_id, sport, date, start_min, end_min, starts_at, ends_at, name, phone, email, total_price,
                      fee_amount, user_id, series_code, check_in_token, class_id, players, policy_override, last_minute, made_on, guest_of_entry,
-                     games, lane_on_arrival)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                     games, lane_on_arrival, cancel_terms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb) RETURNING id`
                 )
                 .get(
                   bookingCode, courtId, court.sport, weekDate, span.start, span.end,
@@ -2673,7 +2688,7 @@ export async function createBookingSeries(
                   input.classId ?? null, players, breaches.length > 0 || weekOverridden,
                   quote.total < quoteBooking(court, policy, weekDate, span, member, rules, undefined, players, games).total ? 1 : 0,
                   input.madeOn ?? input.by ?? "customer", input.guestOf ?? null,
-                  games, laneOnArrival
+                  games, laneOnArrival, termsKept ? JSON.stringify(termsKept) : null
                 )) as { id: number };
               // A booking whose confirmation is owed (made through the booking route) is found again if the server stops before it is written (lib/notices-owed.ts).
               await noticeOwed(id.id, "booking_confirmed");
@@ -2818,8 +2833,8 @@ export interface SeriesWeek {
   owed: number;
   /** A late cancel of a week never paid counts towards the venue's strikes. */
   strike: boolean;
-  /** Why it stays: the cutoff, or kit on hire. */
-  reason?: "cutoff" | "kit";
+  /** Why it stays: the cutoff, kit on hire, or they have arrived for it (staff decide). */
+  reason?: "cutoff" | "kit" | "arrived";
 }
 
 /** How a late cancel of this booking goes, if the venue allows one; null where it is free or not allowed. */
@@ -2827,9 +2842,9 @@ export async function lateTerms(booking: Booking): Promise<{ late: boolean; shar
   const cutoff = await cancelCutoffForBooking(booking.id);
   const zone = await courtZone(booking.courtId);
   if (isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone)) return { late: false, share: 1, keptPercent: null, allowed: true };
-  const court = await getCourt(booking.courtId);
-  // The share kept, or all of it where the venue lets a court be given back late (lib/cancel-policy.ts).
-  const terms = court ? lateCancelTerms(await cancelPolicyFor(court.venueId, booking.sport)) : null;
+  // The share kept, or all of it where the venue lets a court be given back late (lib/cancel-policy.ts): the booking's own terms (ADR 0069).
+  const own = await bookingCancelTerms(booking.id);
+  const terms = own ? lateCancelTerms(own) : null;
   if (terms === null || isPastSlot(booking.date, booking.startHour, zone)) return { late: true, share: 0, keptPercent: null, allowed: false };
   return { late: true, share: (100 - terms.keep) / 100, keptPercent: terms.keep, allowed: true };
 }
@@ -2865,7 +2880,9 @@ export async function seriesCancelPlan(
         ? roundMoney((booking.totalPrice - (booking.sharesPaid ?? 0)) * (await paidPartLeft(booking.id)))
         : roundMoney(booking.depositPaid ?? 0);
     const kit = await hasOpenHire(booking.id);
-    const outcome = kit || !terms.allowed ? "stays" : terms.late ? "late" : "free";
+    // A week they have arrived for stays: staff decide, as for a single booking (ADR 0069, DEC-45).
+    const arrived = !kit && ["verified", "self_checked_in"].includes(await accessGivenTo(booking.id));
+    const outcome = kit || arrived || !terms.allowed ? "stays" : terms.late ? "late" : "free";
     const kept = outcome === "stays" ? 0 : roundMoney(paid * (1 - terms.share));
     weeks.push({
       code: booking.code,
@@ -2879,7 +2896,7 @@ export async function seriesCancelPlan(
       kept,
       owed: outcome === "stays" && booking.paymentStatus !== "paid" ? roundMoney(booking.totalPrice - (booking.sharesPaid ?? 0) - paid) : 0,
       strike: outcome === "late" && paid === 0,
-      ...(outcome === "stays" ? { reason: kit ? ("kit" as const) : ("cutoff" as const) } : {}),
+      ...(outcome === "stays" ? { reason: kit ? ("kit" as const) : arrived ? ("arrived" as const) : ("cutoff" as const) } : {}),
     });
   }
   return { ok: true, weeks };
@@ -2929,6 +2946,8 @@ export async function cancelSeries(
     for (const week of chosen) {
       const row = rows.get(week.code.toUpperCase());
       if (!row) continue;
+      // Arrived since the plan was made: it stays, for staff (ADR 0069, DEC-45). Asked in this transaction, before it is claimed.
+      if (["verified", "self_checked_in"].includes(await accessGivenTo(row.id))) continue;
       const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(row.id);
       if (done.changes !== 1) continue;
       await releaseBooking(row.id);
@@ -2983,19 +3002,12 @@ export type CancelResult =
     }
   | Refusal;
 
-/** The cancellation cutoff of the venue a booking belongs to. */
+/**
+ * The cancellation cutoff that governs a booking: the one it was sold on (ADR 0069), or for a booking made before that was
+ * kept, the venue's current one for its sport.
+ */
 export async function cancelCutoffForBooking(bookingId: number): Promise<number> {
-  const row = await getDb()
-    .prepare(`
-      SELECT COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS hours FROM bookings b
-      JOIN courts c ON c.id = b.court_id
-      JOIN venues v ON v.id = c.venue_id
-      -- The sport's own, where the venue gave it one (lib/sport-rules.ts).
-      LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = b.sport
-      WHERE b.id = ?
-    `)
-    .get(bookingId) as { hours: number } | undefined;
-  return row?.hours ?? 0;
+  return (await bookingCancelTerms(bookingId))?.cutoffHours ?? 0;
 }
 
 /**
@@ -3023,6 +3035,13 @@ function cutoffMessage(hours: number): string {
     : `Bookings can only be cancelled at least ${hours} hour${hours === 1 ? "" : "s"} before they start. Please call the venue.`;
 }
 
+/** An arrival recorded while a customer's cancellation was being made: it is rolled back and goes to staff. */
+class ArrivedWhileCancelling extends Error {
+  constructor() {
+    super("arrived while cancelling");
+  }
+}
+
 async function cancelBookingOnce(code: string, phone: string): Promise<CancelResult> {
   const booking = await findBooking(code, phone);
   if (!booking) return refuse("BOOKING_NOT_FOUND_CODE");
@@ -3040,6 +3059,11 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   if (booking.status === "cancelled") return refuse("ALREADY_CANCELLED");
   if (await hasOpenHire(booking.id))
     return refuse("KIT_STILL_OUT");
+  // Arrived (a desk's check-in, or their own tap on the QR link): the court is being used, so not a refund and the court freed for
+  // somebody else in one click. Staff decide, on the record (ADR 0069, DEC-45). A door code only shown on their phone is not that:
+  // it cancels on the booking's own terms, and the refund is never taken for having looked (`accessGivenTo`).
+  const access = await accessGivenTo(booking.id);
+  if (access === "verified" || access === "self_checked_in") return refuse("CANCEL_AFTER_ARRIVAL");
   const cutoff = await cancelCutoffForBooking(booking.id);
   const zone = await courtZone(booking.courtId);
   let share = 1;
@@ -3047,9 +3071,10 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   // Late: past the free-cancellation cutoff, which the venue may allow for a share of the price.
   const late = !isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone);
   if (late) {
-    const court = await getCourt(booking.courtId);
-    // The share the venue keeps; or, giving the court back where the venue allows that, all of it (lib/cancel-policy.ts).
-    const terms = court ? lateCancelTerms(await cancelPolicyFor(court.venueId, booking.sport)) : null;
+    // The share the venue keeps; or, giving the court back where the venue allows that, all of it (lib/cancel-policy.ts):
+    // the terms this booking was sold on (ADR 0069).
+    const own = await bookingCancelTerms(booking.id);
+    const terms = own ? lateCancelTerms(own) : null;
     if (terms === null || isPastSlot(booking.date, booking.startHour, zone))
       return { ok: false, error: cutoffMessage(cutoff) };
     share = (100 - terms.keep) / 100;
@@ -3059,16 +3084,26 @@ async function customerCancel(booking: Booking): Promise<CancelResult> {
   const db = getDb();
   // Claimed in one statement: of two cancels at the same moment, only one refunds.
   // Refunded in the same transaction (M15): cancelled means refunded, even if the server stops a moment later.
-  const claimed = await db.transaction(async () => {
-    const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
-    if (done.changes !== 1) return false;
-    await releaseBooking(booking.id);
-    if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keptPercent, booking.id);
-    await refundBooking(booking.id, share);
-    // Both routes that call this tell the customer; a stop before they do is found again (lib/notices-owed.ts, C17).
-    await noticeOwed(booking.id, "booking_cancelled", true);
-    return true;
-  })();
+  let claimed: boolean;
+  try {
+    claimed = await db.transaction(async () => {
+      const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
+      if (done.changes !== 1) return false;
+      // Asked again with the row claimed: an arrival recorded at the same moment either is seen here or sees this cancellation
+      // (its own transaction asks the status again), never neither (ADR 0069, DEC-45).
+      const arrived = await accessGivenTo(booking.id);
+      if (arrived === "verified" || arrived === "self_checked_in") throw new ArrivedWhileCancelling();
+      await releaseBooking(booking.id);
+      if (late) await db.prepare("UPDATE bookings SET late_cancelled = 1, late_kept_percent = ? WHERE id = ?").run(keptPercent, booking.id);
+      await refundBooking(booking.id, share);
+      // Both routes that call this tell the customer; a stop before they do is found again (lib/notices-owed.ts, C17).
+      await noticeOwed(booking.id, "booking_cancelled", true);
+      return true;
+    })();
+  } catch (err) {
+    if (err instanceof ArrivedWhileCancelling) return refuse("CANCEL_AFTER_ARRIVAL");
+    throw err;
+  }
   if (!claimed) return refuse("ALREADY_CANCELLED");
   // A freed place goes to whoever has waited longest.
   if (booking.classId) await offerClassPlace(booking.classId);
@@ -4134,6 +4169,18 @@ async function rescheduleBookingOnce(
         // A day closed while this was being moved onto it: asked again here, where a closure that reads what is booked meets it (closeVenueDay).
         if (to.date !== booking.date && (await getVenueClosure(court.venueId, to.date))) throw new SupervisorMissing(refuse("VENUE_CLOSED"));
         if (movesSession) {
+          // The hours and rules at the new time, asked again here from the court as it is now (ADR 0069, B14): the ones it was checked
+          // against above are older than this transaction. Only what is new since is refused (NOTICE is a matter of the clock, not an edit),
+          // and a manager's override goes past what it went past before, never past the clocks changing or a window.
+          const liveHome = await getCourt(court.id);
+          if (liveHome) {
+            const liveDay = await courtDay(courtFor(liveHome, booking.sport), to.date);
+            const fresh = policyBreaches(liveDay.policy, span, liveDay, minutesUntil(to.date, span.start, liveDay.zone)).filter(
+              (b) => b !== "NOTICE" && b !== "WINDOW" && !allBreaches.includes(b)
+            );
+            if (fresh.length > 0 && (fresh.includes("CLOCK") || !(by === "staff" && to.override === true)))
+              throw new SupervisorMissing(breachRefusal(liveDay.policy, span, fresh.includes("CLOCK") ? "CLOCK" : fresh[0], liveDay.launch));
+          }
           const bare = await supervisionRefusal({ venueId: court.venueId, courtId: court.id, sport: booking.sport, date: to.date, span, zone, exceptBookingId: booking.id });
           if (bare) throw new SupervisorMissing(bare);
         }
@@ -4883,6 +4930,10 @@ export async function updateVenue(
   // Hours set from a date that has come are the current ones before these change (ADR 0027).
   const dated = await import("./dated-changes");
   await dated.applyDueHours(venueId);
+  // Read, checked against what is booked, and written in one transaction (ADR 0069, B14): a booking made while the hours are being
+  // narrowed either is seen by the check below, or finds the new hours when it asks again in its own transaction
+  // (`createBookingSeries`). Serializable, so never neither; one of them is run again.
+  return withTransaction(async () => {
   const row = await db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow | undefined;
   if (!row) return refuse("VENUE_NOT_FOUND");
   const current = toVenue(row);
@@ -4951,6 +5002,7 @@ export async function updateVenue(
     ok: true,
     venue: toVenue(await db.prepare("SELECT * FROM venues WHERE id = ?").get(venueId) as VenueRow),
   };
+  });
 }
 
 /** Which venue a booking code belongs to — used to scope admin actions. */
@@ -5076,9 +5128,13 @@ export async function listUserBookings(userId: number): Promise<UserBookingRow[]
              c.capacity AS court_capacity, c.per_player AS court_per_player, c.max_players AS court_max_players,
              v.name AS venue_name, v.area AS venue_area, v.address AS venue_address,
              v.time_zone AS venue_time_zone, v.lat AS venue_lat, v.lng AS venue_lng,
-             COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS venue_cutoff,
-             CASE WHEN sr.late_keep = -1 THEN NULL ELSE COALESCE(sr.late_keep, v.late_cancel_keep) END AS venue_late_keep,
-             v.strike_limit AS venue_strike_limit, v.late_give_back AS venue_give_back, v.id AS venue_id,
+             -- The terms the booking was sold on where it kept them (ADR 0069), else the venue's current ones for its sport.
+             COALESCE((b.cancel_terms->>'cutoffHours')::integer, sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS venue_cutoff,
+             CASE WHEN b.cancel_terms->>'v' = '1' THEN (b.cancel_terms->>'lateKeep')::integer
+                  WHEN sr.late_keep = -1 THEN NULL ELSE COALESCE(sr.late_keep, v.late_cancel_keep) END AS venue_late_keep,
+             v.strike_limit AS venue_strike_limit,
+             CASE WHEN b.cancel_terms->>'v' = '1' THEN (b.cancel_terms->>'giveBack')::boolean ELSE v.late_give_back END AS venue_give_back,
+             v.id AS venue_id,
              v.phone AS venue_phone, v.phone_whatsapp AS venue_phone_whatsapp,
              ci.checked_in_at, ci.checked_out_at
       FROM bookings b
@@ -5346,6 +5402,27 @@ export async function attendanceVerified(bookingId: number): Promise<boolean> {
   return !!(await getDb().prepare("SELECT 1 AS x FROM check_ins WHERE booking_id = ? AND (source = 'desk' OR confirmed_at IS NOT NULL)").get(bookingId));
 }
 
+/**
+ * What a booking's customer has been given or has done at the venue, short of playing (ADR 0069, DEC-45), the strongest first:
+ * `verified` (a desk's check-in, or one staff confirmed: attendance), `self_checked_in` (their own tap on the QR link, unconfirmed),
+ * `code_viewed` (the door code was shown on their phone, nothing else) and `none`. A cancellation by the customer is judged on it
+ * (`customerCancel`): the first two go to staff, the last two cancel on the booking's own terms.
+ */
+export type AccessGiven = "none" | "code_viewed" | "self_checked_in" | "verified";
+
+export async function accessGivenTo(bookingId: number): Promise<AccessGiven> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT ci.source, ci.confirmed_at, EXISTS (SELECT 1 FROM access_reveals r WHERE r.booking_id = b.id) AS revealed
+         FROM bookings b LEFT JOIN check_ins ci ON ci.booking_id = b.id WHERE b.id = ?`
+    )
+    .get(bookingId)) as { source: string | null; confirmed_at: string | null; revealed: boolean } | undefined;
+  if (!row) return "none";
+  if (row.source === "desk" || (row.source !== null && row.confirmed_at !== null)) return "verified";
+  if (row.source === "self") return "self_checked_in";
+  return row.revealed || row.source === "door" ? "code_viewed" : "none";
+}
+
 /** Staff confirm a customer's own check-in as attendance: on the record, and a no-show the desk had marked is cleared with it. */
 async function confirmSelfCheckIn(booking: Booking, by: { adminId: number | null; name: string }): Promise<boolean> {
   const db = getDb();
@@ -5376,12 +5453,18 @@ async function checkInBooking(booking: Booking, how: { desk: boolean; admit?: Me
   if (lapses.length > 0 && !how.admit) return { ok: false, error: deskWarning(lapses), code: "MV6_DESK_WARNING", warnings: lapses };
 
   const db = getDb();
-  await db.transaction(async () => {
+  const cancelledMeanwhile = await db.transaction(async () => {
+    // Asked again in this transaction (ADR 0069, DEC-45): a customer cancelling at the same moment either sees this arrival (and
+    // goes to staff, `customerCancel`) or this sees the cancellation, never neither.
+    const live = (await db.prepare("SELECT status FROM bookings WHERE id = ?").get(booking.id)) as { status: string } | undefined;
+    if (!live || live.status === "cancelled") return true;
     await db.prepare("INSERT INTO check_ins (booking_id, source) VALUES (?, ?)").run(booking.id, how.desk ? "desk" : "self");
     // Staff seeing somebody arrive contradicts a no-show, so clear any stale flag; a customer's own tap does not (ADR 0058).
     if (how.desk && booking.noShow) await db.prepare("UPDATE bookings SET no_show = 0 WHERE id = ?").run(booking.id);
     if (lapses.length > 0 && how.admit) await recordAdmission(booking.id, lapses, how.admit);
+    return false;
   })();
+  if (cancelledMeanwhile) return refuse("BOOKING_WAS_CANCELLED");
   return { ok: true, booking: (await bookingByCode(booking.code))! };
 }
 
@@ -5849,13 +5932,19 @@ export async function accessCodeFor(code: string, phone: string): Promise<Access
   if (now >= ends)
     return { ok: false, reason: "over", message: "This booking has already ended." };
 
-  await db.transaction(async () => {
+  const cancelledMeanwhile = await db.transaction(async () => {
+    // Asked again in this transaction: a customer cancelling at the same moment either sees this reveal (and goes to staff,
+    // `customerCancel`) or this sees the cancellation and gives no code, never neither (ADR 0069, DEC-45).
+    const live = (await db.prepare("SELECT status FROM bookings WHERE id = ?").get(booking.id)) as { status: string } | undefined;
+    if (!live || live.status === "cancelled") return true;
     await db.prepare("INSERT INTO access_reveals (booking_id) VALUES (?)").run(booking.id);
     // Opening the door is the arrival, so there is nothing else to press.
     // Recorded as the customer's own (a code on their phone proves nobody is at the door): counted in the headcount, not as
     // attendance until staff confirm it, and it clears no no-show (ADR 0058).
     if (!booking.checkedInAt) await db.prepare("INSERT INTO check_ins (booking_id, source) VALUES (?, 'door')").run(booking.id);
+    return false;
   })();
+  if (cancelledMeanwhile) return { ok: false, reason: "cancelled", message: "This booking was cancelled." };
 
   return {
     ok: true,
@@ -7063,6 +7152,11 @@ export async function createClassSessions(input: {
   try {
     const created = await withTransaction(async () => {
       const sessions: ClassSession[] = [];
+      // The first session's day closed, or the hours narrowed, while this was being made: asked again here, in this transaction and from the
+      // court as it is now (ADR 0069, B14), where a closure or an edit that reads what is booked meets it (serializable: never neither).
+      const liveDay = await courtDay((await getCourt(courtId)) ?? court, date);
+      if (await getVenueClosure(court.venueId, date)) throw new SupervisorMissing(refuse("VENUE_CLOSED"));
+      if (start < liveDay.openMin || end > liveDay.closeMin) throw new SupervisorMissing({ ok: false, error: "Class hours are outside operating hours." });
       for (let week = 0; week < weeks; week++) {
         const weekDate = addDays(date, week * 7);
         // Somebody qualified on shift for the whole of it, where the activity here asks for one (lib/rosters.ts).
@@ -7759,10 +7853,8 @@ export async function cancelForErasure(bookingId: number): Promise<ErasedBooking
   const cutoff = await cancelCutoffForBooking(booking.id);
   const late = !isWithinCancelWindow(booking.date, booking.startHour, cutoff, zone);
   let keep = 0;
-  if (late) {
-    const court = await getCourt(booking.courtId);
-    keep = (court ? (await cancelPolicyFor(court.venueId, booking.sport)).lateKeep : null) ?? 100;
-  }
+  // On the terms the booking was sold on (ADR 0069).
+  if (late) keep = ((await bookingCancelTerms(booking.id))?.lateKeep ?? null) ?? 100;
   const done = await db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'confirmed'").run(booking.id);
   if (done.changes !== 1) return null;
   await releaseBooking(booking.id);

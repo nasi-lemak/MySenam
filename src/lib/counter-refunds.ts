@@ -6,19 +6,20 @@ import { creditScope } from "./mode";
 import { money, roundMoney } from "./region";
 import { said, withPhrase } from "./staff-text";
 import { addDays, formatHour, isPastSlot, isWithinCancelWindow, localDateOf, todayISO } from "./time";
-import { cancelPolicyFor } from "./cancel-policy";
+import { bookingCancelTerms } from "./cancel-policy";
 import { policyRefusal } from "./policy-overrides";
 import type { StaffRole } from "./roles";
 import { COUNTER_METHODS, PAID_VIA_LABELS, type Booking, type CounterMethod, type PaidVia, type Refusal } from "./types";
 import {
+  accessGivenTo,
   adminCancelBooking,
-  cancelCutoffForBooking,
   depositGone,
   findBookingByCode,
   getCourt,
   hasOpenHire,
   paidPartLeft,
   venueHours,
+  type AccessGiven,
   type CancelResult,
   type StaffCancelSettlement,
 } from "./store";
@@ -93,6 +94,12 @@ export interface StaffCancelPreview {
   kitOut: boolean;
   /** Made from a customer's account: only then can a counter payment be given back as stored credit. */
   account: boolean;
+  /** Whose terms `late`, `cutoffHours` and `keptPercent` are: the ones the booking was sold on, or (made before they were kept) the venue's current ones (ADR 0069). */
+  terms: "booked" | "current";
+  /** The digest of the terms the customer was shown when they booked, where kept. */
+  termsVersion: string | null;
+  /** What the customer has been given short of playing: nothing, a door code shown, their own check-in, or staff-verified attendance (ADR 0069, DEC-45). Staff decide the money; `back` is the explicit exception. */
+  access: AccessGiven;
 }
 
 /** Refusals, in English as sent; staff screens say them in their language (lib/staff-i18n/refusals-2.ts). */
@@ -127,9 +134,12 @@ export async function staffCancelTerms(b: Booking, role: StaffRole): Promise<Sta
   const court = await getCourt(b.courtId);
   const venueId = court?.venueId ?? 0;
   const { zone } = await venueHours(venueId);
-  const cutoff = await cancelCutoffForBooking(b.id);
+  // The terms the booking was sold on (ADR 0069, DEC-09): the late share offered here is the one the customer was shown. Staff
+  // may still choose `back` (waive it), which is explicit and logged (`logCancelled`).
+  const own = await bookingCancelTerms(b.id);
+  const cutoff = own?.cutoffHours ?? 0;
   const late = !isWithinCancelWindow(b.date, b.startHour, cutoff, zone);
-  const { lateKeep } = court ? await cancelPolicyFor(venueId, b.sport) : { lateKeep: null };
+  const lateKeep = court ? (own?.lateKeep ?? null) : null;
   const keptPercent = late && lateKeep !== null ? lateKeep : null;
   const how = howPaid(b);
   const paid = how === "none" ? 0 : roundMoney((b.totalPrice - (b.sharesPaid ?? 0)) * (await paidPartLeft(b.id)));
@@ -163,6 +173,9 @@ export async function staffCancelTerms(b: Booking, role: StaffRole): Promise<Sta
     managerOnly: role === "desk" && earlier,
     kitOut: await hasOpenHire(b.id),
     account,
+    terms: own?.source ?? "current",
+    termsVersion: own?.version ?? null,
+    access: await accessGivenTo(b.id),
   };
 }
 
@@ -195,6 +208,10 @@ export interface Settled {
   /** Handed back at the counter, and how; or given as credit. */
   paidOut?: { amount: number; via: CounterMethod | null };
   credited?: number;
+  /** Cancelled past the booking's own cutoff without keeping its late share: the venue's exception, logged as such (ADR 0069). */
+  pastTerms?: true;
+  /** What the customer had been given at the venue short of playing (ADR 0069, DEC-45), logged with the decision. */
+  access?: AccessGiven;
 }
 
 /**
@@ -215,7 +232,14 @@ function settlementFor(
     if (expectRefund !== undefined && Math.abs(option.refund - expectRefund) > 0.004) return refused(COUNTER_REFUSALS.changed);
     if (terms.managerOnly && option.refund > 0) return refused(COUNTER_REFUSALS.manager);
     const share = outcome === "keep" ? (100 - terms.keptPercent!) / 100 : 1;
-    out.settled = { outcome, refund: option.refund, kept: option.kept };
+    out.settled = {
+      outcome,
+      refund: option.refund,
+      kept: option.kept,
+      // A decision past the booking's own terms, or about a customer who had been given access, is staff's exception: on the record.
+      ...(terms.late && outcome !== "keep" ? { pastTerms: true } : {}),
+      access: terms.access,
+    };
     return {
       share,
       ...(outcome === "keep" ? { keptPercent: terms.keptPercent! } : {}),
@@ -712,13 +736,18 @@ export async function logCancelled(admin: { id: number; name: string }, venueId:
           ? `; the venue kept ${money(settled.kept)} on its late terms, ${money(settled.refund)} back as paid`
           : `; ${money(settled.refund)} back as paid`
       : "";
+  // The exceptions staff made, said plainly (ADR 0069, DEC-45): past the booking's own cutoff, or after the customer had arrived or been given the code.
+  const exception = [
+    settled?.pastTerms ? "past the cancellation cutoff the booking was sold on, the venue's late terms not applied" : "",
+    settled?.access === "verified" || settled?.access === "self_checked_in" ? "the customer had checked in" : settled?.access === "code_viewed" ? "the door code had been shown to the customer" : "",
+  ].filter(Boolean);
   await logAction(admin, {
     venueId,
     action: "booking.cancelled",
     bookingCode: booking.code,
     detail: `${booking.date} ${formatHour(booking.startHour)}, ${booking.name}, ${money(booking.totalPrice)}${
       booking.paymentStatus === "paid" ? " (was paid)" : ""
-    }${how}`,
+    }${how}${exception.length > 0 ? ` [${exception.join("; ")}]` : ""}`,
   });
   if (settled?.paidOut)
     await logAction(admin, {

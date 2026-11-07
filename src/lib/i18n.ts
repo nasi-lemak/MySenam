@@ -5260,6 +5260,8 @@ const EN = {
   "hd1.pay.heldBody": "We received {amount}, but it could not be applied to what you were paying for, because it did not match what was asked. Nothing was confirmed by it. {amount} is owed back to you, and the venue refunds it. Ask the venue if you need help.",
   "hd1.pay.overBody": "Thank you. {amount} has been paid for {codes}. You paid {extra} more than was asked: the venue owes that back to you.",
 } as const;
+  "err.CANCEL_AFTER_ARRIVAL": "You have already arrived for this booking, so it can no longer be cancelled or reduced online. If you cannot play after all, please speak to the venue's staff.",
+  "series.staysArrived": "Stays booked: you have arrived for it, so the venue's staff decide",} as const;
 
 export type Phrase = keyof typeof EN;
 
@@ -10464,6 +10466,8 @@ const MS: Record<Phrase, string> = {
   "hd1.pay.heldBody": "Kami menerima {amount}, tetapi ia tidak dapat dikenakan pada apa yang anda bayar kerana ia tidak sepadan dengan yang diminta. Tiada apa-apa yang disahkan olehnya. {amount} terhutang kepada anda, dan pusat akan memulangkannya. Tanya pusat jika anda memerlukan bantuan.",
   "hd1.pay.overBody": "Terima kasih. {amount} telah dibayar untuk {codes}. Anda membayar {extra} lebih daripada yang diminta: pusat terhutang jumlah itu kepada anda.",
 };
+  "err.CANCEL_AFTER_ARRIVAL": "Anda sudah tiba untuk tempahan ini, jadi ia tidak lagi boleh dibatalkan atau dikurangkan dalam talian. Jika anda tidak dapat bermain, sila hubungi kakitangan pusat.",
+  "series.staysArrived": "Kekal ditempah: anda sudah tiba, jadi kakitangan pusat yang memutuskan",};
 
 /** Exported so a test can hold the two languages against each other. */
 export const DICTIONARIES: Record<Locale, Record<Phrase, string>> = { en: EN, ms: MS, zh: ZH, ta: TA };

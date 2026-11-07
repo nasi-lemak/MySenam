@@ -466,6 +466,14 @@ confirmed and when is kept (`confirmed_by_name`, `confirmed_at`) and logged
   not come" signal, the coach's payout, review requests and loyalty read as
   they did.
 
+It does matter to **cancelling** ([ADR 0069](../architecture/decisions/0069-the-terms-a-booking-was-sold-on-govern-it-arrival-goes-to-staff-and-edits-meet-bookings-in-one-transaction.md),
+the owner's principle DEC-45): a customer who has checked themselves in, or
+whom the desk has checked in, cannot cancel and be refunded online while the
+court is in use (`CANCEL_AFTER_ARRIVAL`; ask the staff), whereas a door code
+only shown on their phone is not a reason to refuse or to take a refund. Staff
+cancel from the counter, on the record, whatever was given
+([cancelling after the customer has arrived](booking.md#cancelling-after-the-customer-has-arrived)).
+
 ## Entry with no set time
 
 A climbing wall, a bouldering room or a gym floor can let people in as they

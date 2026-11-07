@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { cancelPolicy, cancelPolicyFor, strikesFor } from "./cancel-policy";
+import { cancelPolicy, cancelPolicyFor, strikesFor, type StoredCancelTerms } from "./cancel-policy";
 import { cutoffFor } from "./sport-rules";
 import type { Sport } from "./types";
 import { getDb } from "./db";
@@ -66,6 +66,33 @@ export async function bookingTerms(venueId: number, sport?: Sport): Promise<Book
   };
   const version = crypto.createHash("sha256").update(JSON.stringify(terms)).digest("hex").slice(0, 16);
   return { ...terms, version };
+}
+
+/**
+ * The terms to keep on a booking made now (ADR 0069, DEC-09): what `bookingTerms` shows a customer for this sport, with the
+ * rest of what a cancellation reads (the give-back flag, how money goes back and how long staff take). Written with the booking,
+ * in its transaction, so it is the terms of the moment it was made; `bookings.cancel_terms`. A booking made in a series takes
+ * one snapshot for all its weeks (the terms the customer was shown when they booked the series).
+ */
+export async function cancelTermsSnapshot(venueId: number, sport: Sport, now: Date = new Date()): Promise<StoredCancelTerms | null> {
+  const shown = await bookingTerms(venueId, sport);
+  if (!shown) return null;
+  const policy = await cancelPolicyFor(venueId, sport);
+  return {
+    v: 1,
+    takenAt: now.toISOString(),
+    version: shown.version,
+    cutoffHours: shown.cutoffHours,
+    lateKeep: policy.lateKeep,
+    giveBack: policy.giveBack,
+    strikeLimit: policy.strikeLimit,
+    strikeDays: policy.strikeDays,
+    onlineRefunds: policy.onlineRefunds,
+    refundWithinDays: policy.refundWithinDays,
+    holdMinutes: shown.holdMinutes,
+    depositPercent: shown.depositPercent ?? null,
+    refundsAsCredit: shown.refundsAsCredit,
+  };
 }
 
 /** Where this number stands against the venue's strike limit, when it has one and any strikes. */

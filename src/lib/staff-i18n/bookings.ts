@@ -942,6 +942,10 @@ const en = {
   "sec.note.set": "now “{note}” (was: {was})",
   "sec.note.erased": "taken away (it said: “{was}”)",
   "sec.note.baseline": "the note as it stood when history began: “{note}”",
+  "hrd.cx.booked": "These are the terms this booking was sold on, whatever the venue's settings are now.",
+  "hrd.cx.current": "This booking was made before its terms were kept, so the venue's present terms are shown.",
+  "hrd.cx.arrived": "The customer has checked in. They cannot cancel this online: cancelling here is your decision, and the log will say they had checked in.",
+  "hrd.cx.codeShown": "The door code was shown to the customer. That does not stop them cancelling on the booking's terms.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1865,6 +1869,10 @@ const ms: Record<keyof typeof en, string> = {
   "sec.note.set": "kini “{note}” (sebelum ini: {was})",
   "sec.note.erased": "dibuang (ia berbunyi: “{was}”)",
   "sec.note.baseline": "nota seperti keadaannya apabila sejarah bermula: “{note}”",
+  "hrd.cx.booked": "Ini ialah terma semasa tempahan ini dijual, walau apa pun tetapan pusat sekarang.",
+  "hrd.cx.current": "Tempahan ini dibuat sebelum terma disimpan, jadi terma semasa pusat ditunjukkan.",
+  "hrd.cx.arrived": "Pelanggan sudah mendaftar masuk. Mereka tidak boleh membatalkannya dalam talian: membatalkan di sini ialah keputusan anda, dan log akan menyatakan mereka telah mendaftar masuk.",
+  "hrd.cx.codeShown": "Kod pintu telah ditunjukkan kepada pelanggan. Itu tidak menghalang mereka membatalkan mengikut terma tempahan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2788,6 +2796,10 @@ const zh: Record<keyof typeof en, string> = {
   "sec.note.set": "现为“{note}”（原为：{was}）",
   "sec.note.erased": "已删除（原内容：“{was}”）",
   "sec.note.baseline": "开始保留记录时的备注：“{note}”",
+  "hrd.cx.booked": "这是该预订出售时的条款，与场馆目前的设置无关。",
+  "hrd.cx.current": "此预订是在条款被记录之前创建的，因此显示的是场馆目前的条款。",
+  "hrd.cx.arrived": "顾客已签到。他们无法在线取消：在此取消由您决定，日志会注明他们已签到。",
+  "hrd.cx.codeShown": "已向顾客显示门禁码。这不妨碍他们按预订条款取消。",
 };
 
 const area = { en, ms, zh };

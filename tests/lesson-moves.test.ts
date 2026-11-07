@@ -174,10 +174,14 @@ describe("a customer moving their lesson", () => {
     // Nothing moved: still at 9, Ana still held then.
     expect(await findBooking(l.code, l.phone)).toMatchObject({ startMin: H(9), coachId: ana.id });
     expect(new Date((await coachHeld(l.id))[0].lo).getTime()).toBe(startsAt(date, 9));
-    // The venue's notice: changes close as cancelling does.
-    const soon = await lesson(ana, day(1), 11);
+    // The venue's notice: changes close as cancelling does, on the notice the lesson was sold on (ADR 0069, DEC-09). Changed for that
+    // decision: this used to book the lesson and then raise the venue's notice to 72 hours, expecting the live notice to bind it.
+    // Now a notice raised after booking does not close a lesson already sold, and one in force when it was booked does.
+    const sold = await lesson(ana, day(1), 11);
     await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 72 WHERE id = ?").run(venueId);
-    expect(await (await customerMove(soon, day(1), 12)).json()).toMatchObject({ code: "RESCHEDULE_CUTOFF" });
+    expect((await customerMove(sold, day(1), 12)).status).toBe(200);
+    const soon = await lesson(ana, day(1), 14);
+    expect(await (await customerMove(soon, day(1), 15)).json()).toMatchObject({ code: "RESCHEDULE_CUTOFF" });
     await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 0 WHERE id = ?").run(venueId);
   });
 });

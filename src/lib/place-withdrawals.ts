@@ -195,6 +195,9 @@ async function bookingTerms(
     if (isPastSlot(booking.date, booking.endHour, zone)) return { refusal: refuse("CANCEL_PLAYED") };
     return { share: 1, late: false, keptPercent: null };
   }
+  // Arrived (a desk's check-in, or their own tap on the QR link): the venue's staff decide, as for a cancellation (ADR 0069, DEC-45).
+  const arrived = await store.accessGivenTo(booking.id);
+  if (arrived === "verified" || arrived === "self_checked_in") return { refusal: refuse("CANCEL_AFTER_ARRIVAL") };
   const terms = await store.lateTerms(booking);
   if (!terms.allowed) {
     const cutoff = await store.cancelCutoffForBooking(booking.id);

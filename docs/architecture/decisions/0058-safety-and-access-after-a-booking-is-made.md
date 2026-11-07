@@ -59,6 +59,10 @@
 
 ## Decision 5 (E18): late cancellation after the code was revealed or a self check-in is left as it is
 
+> **Superseded by [ADR 0069](0069-the-terms-a-booking-was-sold-on-govern-it-arrival-goes-to-staff-and-edits-meet-bookings-in-one-transaction.md), decision 2**, on the owner's principle (DEC-45):
+> a customer's own check-in or a staff-verified arrival sends the customer's online cancellation to staff; a door code only shown is not a reason to refuse or to take a refund. What follows is
+> what was decided here and is kept as written.
+
 A customer can still cancel on the venue's late terms after revealing the door code or checking themselves in. At the default two-hour cutoff nothing can happen (check-in opens 60
 minutes before the start); a venue that sets a cutoff under an hour or late-cancel terms can see a customer reveal the code, cancel and use the court. No small clear rule exists in the
 documents (refusing the cancel would also trap somebody who revealed the code and cannot come), so this is **recorded as a known limitation and left**: a refusal, a fee or a rule that

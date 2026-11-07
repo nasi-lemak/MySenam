@@ -255,11 +255,16 @@ describe("the endpoints", () => {
 
     await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 72 WHERE id = ?").run(c1.venueId);
     try {
-      const late = await list();
+      // Changed for ADR 0069 (DEC-09): this used to expect the booking made before the notice was raised to be closed by it. A booking
+      // keeps the notice it was sold on, so it still offers times; one made after the notice was raised is inside it.
+      expect((await (await list()).json()).options.length).toBeGreaterThan(0);
+      const who2 = phone();
+      const b2 = await book(c1.id, [11], date, who2);
+      const late = await customerGet(new NextRequest(`http://localhost/api/bookings/reschedule?code=${b2.code}&phone=${who2}&date=${date}`));
       expect(late.status).toBe(409);
       expect(await late.json()).toMatchObject({ code: "RESCHEDULE_CUTOFF", vars: { n: 72 } });
       // Staff still see where it could go.
-      expect((await rescheduleOptions(b.code, date)).length).toBeGreaterThan(0);
+      expect((await rescheduleOptions(b2.code, date)).length).toBeGreaterThan(0);
     } finally {
       await getDb().prepare("UPDATE venues SET cancel_cutoff_hours = 2 WHERE id = ?").run(c1.venueId);
     }
