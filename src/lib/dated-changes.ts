@@ -556,6 +556,29 @@ export async function updatePolicyKeepingBookings(
   venueIds: number[]
 ): Promise<Awaited<ReturnType<typeof updatePolicy>> | DatedRefusal> {
   if (venueIds.length === 0) return updatePolicy(scope, changes);
+  // What is booked is read, measured and the rules saved in ONE transaction (ADR 0069, B14), the empty case too: a booking made
+  // while the rules are being changed either is among the bookings read here, or finds the new rules when it asks again in its own
+  // transaction (`createBookingSeries`). Serializable, so never neither; one of them is run again.
+  try {
+    return await withTransaction(() => updatePolicyMeasured(scope, changes, venueIds));
+  } catch (err) {
+    if (err instanceof StrandedUndo) return strandedRefusal(err.stranded);
+    throw err;
+  }
+}
+
+/** Thrown inside the transaction to undo the rules just saved, with the bookings they would strand. */
+class StrandedUndo extends Error {
+  constructor(readonly stranded: StrandedBooking[]) {
+    super("stranded");
+  }
+}
+
+async function updatePolicyMeasured(
+  scope: Parameters<typeof updatePolicy>[0],
+  changes: Record<string, unknown>,
+  venueIds: number[]
+): Promise<Awaited<ReturnType<typeof updatePolicy>> | DatedRefusal> {
   const todays = new Map<number, string>();
   for (const id of venueIds) todays.set(id, await venueToday(id));
   const earliest = [...todays.values()].sort()[0];
@@ -596,30 +619,19 @@ export async function updatePolicyKeepingBookings(
     return out;
   };
   const before = await hoursNow();
-  class Undo extends Error {
-    constructor(readonly stranded: StrandedBooking[]) {
-      super("stranded");
-    }
-  }
-  try {
-    return await withTransaction(async () => {
-      const saved = await updatePolicy(scope, changes);
-      if (!saved.ok) return saved;
-      const after = await hoursNow();
-      const stranded = rows
-        .filter((r, i) => {
-          const a = before[i];
-          const b = after[i];
-          if (!a || !b) return false;
-          if (a.closed === b.closed && a.openMin === b.openMin && a.closeMin === b.closeMin) return false;
-          return b.closed || r.start_min < b.openMin || r.end_min > b.closeMin;
-        })
-        .map((r) => ({ code: r.code, date: r.date, startMin: r.start_min, endMin: r.end_min, court: r.court }));
-      if (stranded.length > 0) throw new Undo(stranded);
-      return saved;
-    });
-  } catch (err) {
-    if (err instanceof Undo) return strandedRefusal(err.stranded);
-    throw err;
-  }
+  const saved = await updatePolicy(scope, changes);
+  if (!saved.ok) return saved;
+  const after = await hoursNow();
+  const stranded = rows
+    .filter((r, i) => {
+      const a = before[i];
+      const b = after[i];
+      if (!a || !b) return false;
+      if (a.closed === b.closed && a.openMin === b.openMin && a.closeMin === b.closeMin) return false;
+      return b.closed || r.start_min < b.openMin || r.end_min > b.closeMin;
+    })
+    .map((r) => ({ code: r.code, date: r.date, startMin: r.start_min, endMin: r.end_min, court: r.court }));
+  // The rules saved above are undone with this transaction, with every booking they would strand listed.
+  if (stranded.length > 0) throw new StrandedUndo(stranded);
+  return saved;
 }

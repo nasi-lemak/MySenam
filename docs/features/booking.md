@@ -427,6 +427,17 @@ refusal lists every such booking (date, time, court and code), and staff
 cancel or move them first. Hours saved in the editor apply from today; hours
 can also be set [from a later date](#hours-from-a-date).
 
+**An edit and a booking at the same moment cannot both win** ([ADR 0069](../architecture/decisions/0069-the-terms-a-booking-was-sold-on-govern-it-arrival-goes-to-staff-and-edits-meet-bookings-in-one-transaction.md)).
+The check that lists the stranded bookings and the save that follows it are one transaction (the venue's hours,
+a court's own hours from a date, the booking rules: `updateVenue`, `setHoursChange`, `setCourtHoursChange`,
+`updatePolicyKeepingBookings`, the empty case too), and a booking, a class's first session and a class move ask
+the hours, the closed days and the court's rules again **inside their own transaction, from the court as it is
+now**, not as it was when they were first checked. The transactions are serializable, so either the booking is
+among the bookings the edit lists (and the edit is refused), or the booking finds the new hours and is refused
+as outside them; never a booking standing outside hours that were already changed. A manager's override
+(`staff.override`) goes past what it went past before, never past a closed day or a change of the clocks.
+(`tests/policy-edit-races.test.ts`, also on Postgres, where two connections really overlap.)
+
 **A weekly series is checked week by week** against the hours, the closed weekdays, the closures and the court's
 booking rules (starts, lengths) in force **on that week's own date**, as its price is each week's own: a change of
 hours or a closed weekday from a later date reaches the weeks that fall after it. A week that does not fit is
@@ -1307,6 +1318,81 @@ way it was paid, as stored credit, or keeping the venue's late share where
 its terms keep one
 ([cancelling a booking paid at the counter](payments-and-credit.md#cancelling-a-booking-paid-at-the-counter)).
 
+### The terms a booking was sold on govern it
+
+The cancellation terms the customer was shown when they booked are the terms
+that govern that booking ([ADR 0069](../architecture/decisions/0069-the-terms-a-booking-was-sold-on-govern-it-arrival-goes-to-staff-and-edits-meet-bookings-in-one-transaction.md)).
+When a booking is made (every path that makes one: the customer online, staff,
+the venue's API key, a class enrolment, a lesson, an approval, a waiting-list
+place) the terms in force at that moment are written on it, in its own
+transaction (`bookings.cancel_terms`, migration 0330):
+
+- **What binds:** the free-cancellation cutoff in hours (the sport's own where
+  the venue gave the sport rules), the share the venue keeps of a late
+  cancellation (or none: no late cancelling online), and whether the court may
+  be given back late. Customer cancelling, a series' weeks, taking a person off
+  a booking, the deadline for changing its time, an account's closure, and the
+  counter's *keep the late share* option all read these, never the venue's
+  settings of the day.
+- **What is kept as evidence:** the digest of what was shown (`version`, the one
+  the terms endpoint gives a customer, so a dispute can match the two), when it
+  was taken, the strike limit and window, how money paid online goes back and how
+  long staff take, the hold and deposit terms.
+- **A policy edit changes the next booking and nothing already sold.** A
+  manager raising the cutoff from 2 hours to 48 does not make existing bookings
+  uncancellable; changing *keep 50%* to *keep 100%* does not change what an existing
+  customer loses; and, the other way, a venue that begins to allow late
+  cancelling does not change a booking sold without it. A booking made while a
+  policy is being edited takes the old terms or the new ones, in full, never a
+  mix.
+- **A weekly series** takes one snapshot for all its weeks: the terms the
+  customer was shown when they booked the series.
+- **A reschedule keeps the original terms** (customer-protective): moving a
+  booking is not a new sale. A class move, a lesson's move and a coach's change
+  keep them too.
+- **Staff overrides stay explicit.** Staff may still cancel in full past the
+  booking's cutoff, which waives the late share: it is their choice of *back*,
+  and the activity log says it was past the cutoff the booking was sold on and
+  whether the customer had checked in. The counter's preview says whose terms
+  it shows (`terms`: `booked`, or `current` for a booking from before they
+  were kept) and the digest (`termsVersion`).
+- **Where the customer sees them:** `/my-booking` and the account's list show the
+  cutoff and late share the booking was sold on.
+- **Bookings made before the terms were kept** (migration 0330) have none and
+  are read on the venue's current terms when cancelled, as they always were.
+  Nothing is backfilled: what such a customer was shown is not recorded, and
+  writing today's terms onto it would invent past terms
+  ([known limitations](../roadmap/known-limitations.md)). The method of
+  refund (card, credit or by hand) and the strike rules stay the venue's
+  settings of the day: the amount owed is the same whichever way it goes back.
+- The confirmation email and the receipt do not yet repeat the terms.
+  (`tests/booking-terms-snapshot.test.ts`)
+
+### Cancelling after the customer has arrived
+
+A customer who has already arrived cannot cancel and be refunded while the court
+is being used ([ADR 0069](../architecture/decisions/0069-the-terms-a-booking-was-sold-on-govern-it-arrival-goes-to-staff-and-edits-meet-bookings-in-one-transaction.md),
+the owner's principle DEC-45). What decides it is what the customer was given:
+
+| What happened | Customer cancelling online | Why |
+| --- | --- | --- |
+| Nothing | The booking's own terms | As before |
+| The door code was shown on their phone, nothing else | The booking's own terms; **the refund is never taken for having looked** | Looking proves nobody is there. The code for a cancelled booking is no longer given |
+| Their own check-in (the QR link), staff have not confirmed it | Refused (`CANCEL_AFTER_ARRIVAL`): ask the venue's staff | A self check-in is not verified attendance, but it is a deliberate arrival; staff decide |
+| A desk's check-in, or a self check-in staff confirmed | Refused (`CANCEL_AFTER_ARRIVAL`): ask the venue's staff | Verified attendance |
+| The venue cancels (a closure, a rain-out, an outage, staff's cancel) | Unaffected: staff's decision, the customer is refunded as the venue chose | Not the customer's doing |
+
+Nothing is confiscated: a refusal sends the customer to a person, and staff may
+cancel and refund on the record (a genuine inability, an emergency, a venue
+fault; the log says the customer had checked in). It covers a single booking, a
+week of a series (it *stays*, named *you have arrived for it*) and taking a person
+off a booking; a check-in and a cancellation at the same moment end as one or the
+other, never both. **The physical door is not revoked**: a venue's door code is
+one code for everybody and stays known to someone who saw it (see *No turnstile
+or per-person door credentials* in [known limitations](../roadmap/known-limitations.md)),
+so a staffed pilot relies on the counter, not the code, for a customer who must
+not come in. (`tests/cancel-after-access.test.ts`)
+
 **Cancelling a weekly series** shows each upcoming week and what cancelling it
 would do before anything is done: inside the free window, all of it back;
 past it, where the venue allows late cancels, the venue's share kept and the
@@ -1315,8 +1401,9 @@ venue does not, or with kit still out on hire, the week stays booked, with
 what is still owed. The customer picks the weeks, and each goes on its own
 terms, all in one transaction. A late week is cancelled only when the
 customer accepted the late terms they were shown; if a week's terms changed
-since (it crossed the cutoff, or the venue changed its policy), nothing is
-cancelled and they are asked to look again (`SERIES_CHANGED`). Asked without a
+since (it crossed the cutoff), nothing is cancelled and they are asked to look
+again (`SERIES_CHANGED`); a venue editing its policy after the series was booked
+changes no week (each is on the terms the series was sold on, above). Asked without a
 choice (an older client), only the weeks free to cancel go, and the weeks left
 are returned by name (`tests/series-cancel.test.ts`).
 

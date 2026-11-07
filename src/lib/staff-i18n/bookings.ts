@@ -931,6 +931,10 @@ const en = {
   "fx4.att.accLine": "{account}: invoice {number} was due on {due}, {days} days ago, and {amount} is still to pay.",
   "fx4.att.accBlocking": "New bookings on this account are stopped.",
   "fx4.att.accHelp": "The account's contact is reminded by email each week. Under Company and school accounts you can set after how many days overdue new bookings are stopped.",
+  "hrd.cx.booked": "These are the terms this booking was sold on, whatever the venue's settings are now.",
+  "hrd.cx.current": "This booking was made before its terms were kept, so the venue's present terms are shown.",
+  "hrd.cx.arrived": "The customer has checked in. They cannot cancel this online: cancelling here is your decision, and the log will say they had checked in.",
+  "hrd.cx.codeShown": "The door code was shown to the customer. That does not stop them cancelling on the booking's terms.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1844,6 +1848,10 @@ const ms: Record<keyof typeof en, string> = {
   "fx4.att.accLine": "{account}: invois {number} perlu dibayar pada {due}, {days} hari lalu, dan {amount} masih belum dibayar.",
   "fx4.att.accBlocking": "Tempahan baharu pada akaun ini dihentikan.",
   "fx4.att.accHelp": "Pegawai perhubungan akaun diingatkan melalui e-mel setiap minggu. Di bawah Akaun syarikat dan sekolah anda boleh menetapkan selepas berapa hari tertunggak tempahan baharu dihentikan.",
+  "hrd.cx.booked": "Ini ialah terma semasa tempahan ini dijual, walau apa pun tetapan pusat sekarang.",
+  "hrd.cx.current": "Tempahan ini dibuat sebelum terma disimpan, jadi terma semasa pusat ditunjukkan.",
+  "hrd.cx.arrived": "Pelanggan sudah mendaftar masuk. Mereka tidak boleh membatalkannya dalam talian: membatalkan di sini ialah keputusan anda, dan log akan menyatakan mereka telah mendaftar masuk.",
+  "hrd.cx.codeShown": "Kod pintu telah ditunjukkan kepada pelanggan. Itu tidak menghalang mereka membatalkan mengikut terma tempahan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2757,6 +2765,10 @@ const zh: Record<keyof typeof en, string> = {
   "fx4.att.accLine": "{account}：账单 {number} 应于 {due} 付款，已逾期 {days} 天，仍有 {amount} 未付。",
   "fx4.att.accBlocking": "该账户的新预订已被停止。",
   "fx4.att.accHelp": "账户联系人每周会收到一封电邮提醒。您可以在“公司和学校账户”中设置逾期多少天后停止新预订。",
+  "hrd.cx.booked": "这是该预订出售时的条款，与场馆目前的设置无关。",
+  "hrd.cx.current": "此预订是在条款被记录之前创建的，因此显示的是场馆目前的条款。",
+  "hrd.cx.arrived": "顾客已签到。他们无法在线取消：在此取消由您决定，日志会注明他们已签到。",
+  "hrd.cx.codeShown": "已向顾客显示门禁码。这不妨碍他们按预订条款取消。",
 };
 
 const area = { en, ms, zh };

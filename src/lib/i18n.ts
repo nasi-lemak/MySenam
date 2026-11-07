@@ -5166,7 +5166,8 @@ const EN = {
   "err.FX8_PASS_NOT_LATER": "The new end must be today or later, and after the pass's present end, {date}.",
   "err.FX8_PASS_TOO_FAR": "A pass cannot run beyond {date}.",
   "err.FX8_GRACE_RANGE": "Give whole days from 0 to {max}; 0 turns it off.",
-} as const;
+  "err.CANCEL_AFTER_ARRIVAL": "You have already arrived for this booking, so it can no longer be cancelled or reduced online. If you cannot play after all, please speak to the venue's staff.",
+  "series.staysArrived": "Stays booked: you have arrived for it, so the venue's staff decide",} as const;
 
 export type Phrase = keyof typeof EN;
 
@@ -10277,7 +10278,8 @@ const MS: Record<Phrase, string> = {
   "err.FX8_PASS_NOT_LATER": "Tarikh tamat baharu mestilah hari ini atau lebih lewat, dan selepas tarikh tamat pas sekarang, {date}.",
   "err.FX8_PASS_TOO_FAR": "Pas tidak boleh sah melepasi {date}.",
   "err.FX8_GRACE_RANGE": "Berikan bilangan hari penuh dari 0 hingga {max}; 0 mematikannya.",
-};
+  "err.CANCEL_AFTER_ARRIVAL": "Anda sudah tiba untuk tempahan ini, jadi ia tidak lagi boleh dibatalkan atau dikurangkan dalam talian. Jika anda tidak dapat bermain, sila hubungi kakitangan pusat.",
+  "series.staysArrived": "Kekal ditempah: anda sudah tiba, jadi kakitangan pusat yang memutuskan",};
 
 /** Exported so a test can hold the two languages against each other. */
 export const DICTIONARIES: Record<Locale, Record<Phrase, string>> = { en: EN, ms: MS, zh: ZH, ta: TA };

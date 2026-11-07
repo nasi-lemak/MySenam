@@ -36,7 +36,7 @@ import { logOverride, policyRefused, windowOverrideFromBody, windowRefused } fro
 import { isWindowCode } from "@/lib/restriction-strength";
 import { money } from "@/lib/region";
 import { holdNewBookings, holdPolicy, releaseExpiredHolds } from "@/lib/holds";
-import { cancelPolicy, cancelPolicyFor, struckOut } from "@/lib/cancel-policy";
+import { bookingCancelTerms, cancelPolicy, cancelPolicyFor, struckOut } from "@/lib/cancel-policy";
 import { cutoffFor } from "@/lib/sport-rules";
 import { mayShowVenue } from "@/lib/listing";
 import { rateLimit } from "@/lib/rate-limit";
@@ -725,6 +725,8 @@ export async function GET(req: NextRequest) {
   const venue = (await getVenue(found.venueId))!;
   // A lane given on arrival is not named before check-in (lib/lanes.ts).
   const court = laneHidden(booking) ? customerCourt(found, booking, await currentLocale()) : found;
+  // The terms this booking was sold on (ADR 0069); the venue's current ones for a booking made before they were kept.
+  const terms = (await bookingCancelTerms(booking.id)) ?? { ...(await cancelPolicyFor(venue.id, booking.sport)), cutoffHours: await cutoffFor(venue.id, booking.sport, venue.cancelCutoffHours) };
   return NextResponse.json({
     booking,
     court,
@@ -734,11 +736,11 @@ export async function GET(req: NextRequest) {
       area: venue.area,
       address: venue.address,
       // This sport's own, where the venue gave it rules of its own (lib/sport-rules.ts).
-      cancelCutoffHours: await cutoffFor(venue.id, booking.sport, venue.cancelCutoffHours),
+      cancelCutoffHours: terms.cutoffHours,
       timeZone: venue.timeZone,
-      lateCancelKeep: (await cancelPolicyFor(venue.id, booking.sport)).lateKeep,
+      lateCancelKeep: terms.lateKeep,
       // Or, with none, giving the court back late, nothing refunded (lib/cancel-policy.ts).
-      lateGiveBack: (await cancelPolicyFor(venue.id, booking.sport)).giveBack,
+      lateGiveBack: terms.giveBack,
       strikeLimit: (await cancelPolicy(venue.id)).strikeLimit,
       // As far as it can be moved: the venue's window, a member's where this number is one.
       lastDate: addDays(todayISO(venue.timeZone), await windowFor(venue.id, [booking.phone])),

@@ -422,7 +422,12 @@ export async function moveClasses(
       }
       const ordered = [...planned.items].sort((a, b) => a.to.date.localeCompare(b.to.date) || a.to.startMin - b.to.startMin);
       for (const item of ordered) {
-        const day = await courtDay(item.court, item.to.date);
+        // The hours and closures at the new time, asked again here, in this transaction, from the court as it is now (ADR 0069, B14): the
+        // check made when the move was planned is older than this transaction, so a day closed or hours narrowed since either is seen
+        // here, or sees this move when it reads what is held (serializable: never neither).
+        const day = await courtDay((await getCourt(item.court.id)) ?? item.court, item.to.date);
+        if (await getVenueClosure(item.court.venueId, item.to.date)) throw new Refused(refuse("VENUE_CLOSED"));
+        if (item.to.startMin < day.openMin || item.to.endMin > day.closeMin) throw new Refused(refuse("CLSA_MOVE_HOURS", { date: item.to.date }));
         const span = { start: item.to.startMin, end: item.to.endMin };
         try {
           await withTransaction(() =>

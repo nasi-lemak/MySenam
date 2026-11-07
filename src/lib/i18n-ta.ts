@@ -5002,7 +5002,8 @@ export const TA: Record<Phrase, string> = {
   "err.FX8_PASS_NOT_LATER": "புதிய முடிவு இன்று அல்லது அதற்குப் பிறகு இருக்க வேண்டும், மேலும் பாஸின் தற்போதைய முடிவு {date} க்குப் பிறகு இருக்க வேண்டும்.",
   "err.FX8_PASS_TOO_FAR": "பாஸ் {date} க்கு மேல் செல்லுபடியாகாது.",
   "err.FX8_GRACE_RANGE": "0 முதல் {max} வரை முழு நாட்களைத் தாருங்கள்; 0 என்றால் அணைக்கப்படும்.",
-};
+  "err.CANCEL_AFTER_ARRIVAL": "இந்த முன்பதிவுக்காக நீங்கள் ஏற்கெனவே வந்துவிட்டீர்கள், எனவே இனி இணையத்தில் ரத்து செய்யவோ குறைக்கவோ முடியாது. உங்களால் விளையாட முடியாவிட்டால், நிலையத்தின் ஊழியர்களிடம் பேசுங்கள்.",
+  "series.staysArrived": "முன்பதிவு தொடரும்: நீங்கள் வந்துவிட்டீர்கள், எனவே நிலைய ஊழியர்கள் முடிவு செய்வார்கள்",};
 
 /** The customer-facing refusals in English (see CUSTOMER_ERRORS_MS in lib/i18n.ts), in Tamil. */
 export const CUSTOMER_ERRORS_TA: Record<string, string> = {

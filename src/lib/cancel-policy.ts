@@ -67,6 +67,85 @@ export async function cancelPolicyFor(venueId: number, sport: string): Promise<C
   return { ...policy, lateKeep: row.late_keep === -1 ? null : row.late_keep };
 }
 
+/**
+ * The cancellation terms that govern one booking (ADR 0069, DEC-09): the ones snapshotted on it when it was made
+ * (`bookings.cancel_terms`, lib/booking-terms.ts `cancelTermsSnapshot`), so a manager editing the cutoff or the late-cancel
+ * share afterwards changes what new bookings are sold on and nothing already sold. A booking from before the snapshot
+ * existed (NULL) is read on the venue's current terms, as it always was: what it was shown is not recorded anywhere, so none is
+ * invented. `source` says which.
+ */
+export interface BookingCancelTerms extends CancelPolicy {
+  cutoffHours: number;
+  source: "booked" | "current";
+  /** The digest of the terms shown at booking (the terms endpoint's `version`), where snapshotted. */
+  version: string | null;
+}
+
+/** What is kept on a booking of the terms it was sold on: the entitlement is read back, the rest is evidence. */
+export interface StoredCancelTerms {
+  v: 1;
+  takenAt: string;
+  version: string;
+  cutoffHours: number;
+  lateKeep: number | null;
+  giveBack: boolean;
+  strikeLimit: number | null;
+  strikeDays: number;
+  onlineRefunds: OnlineRefunds;
+  refundWithinDays: number;
+  holdMinutes: number | null;
+  depositPercent: number | null;
+  refundsAsCredit: boolean;
+}
+
+/** A stored snapshot, if what is there is one this code wrote; anything malformed is no snapshot (the current terms then apply). */
+export function readStoredTerms(raw: unknown): StoredCancelTerms | null {
+  let value = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const t = value as Record<string, unknown>;
+  const hours = t.cutoffHours;
+  if (t.v !== 1 || typeof hours !== "number" || !Number.isInteger(hours) || hours < 0) return null;
+  if (t.lateKeep !== null && (typeof t.lateKeep !== "number" || t.lateKeep < 0 || t.lateKeep > 100)) return null;
+  if (typeof t.giveBack !== "boolean") return null;
+  return t as unknown as StoredCancelTerms;
+}
+
+/** The terms that govern a booking: its snapshot where it has one, else the venue's current ones for its sport. */
+export async function bookingCancelTerms(bookingId: number): Promise<BookingCancelTerms | null> {
+  const row = (await getDb()
+    .prepare(
+      `SELECT b.cancel_terms, b.sport, c.venue_id, COALESCE(sr.cancel_cutoff_hours, v.cancel_cutoff_hours) AS live_cutoff
+         FROM bookings b
+         JOIN courts c ON c.id = b.court_id
+         JOIN venues v ON v.id = c.venue_id
+         -- The sport's own, where the venue gave it one (lib/sport-rules.ts).
+         LEFT JOIN sport_rules sr ON sr.venue_id = v.id AND sr.sport = b.sport
+        WHERE b.id = ?`
+    )
+    .get(bookingId)) as { cancel_terms: unknown; sport: string; venue_id: number; live_cutoff: number } | undefined;
+  if (!row) return null;
+  const stored = readStoredTerms(row.cancel_terms);
+  const live = await cancelPolicyFor(row.venue_id, row.sport);
+  if (!stored) return { ...live, cutoffHours: row.live_cutoff ?? 0, source: "current", version: null };
+  return {
+    ...live,
+    // What was shown at booking is the entitlement. How money goes back and the strike rules stay the venue's current settings:
+    // the amount owed is the same whichever way it is paid, and a strike limit is about a number, not about this booking.
+    lateKeep: stored.lateKeep,
+    giveBack: stored.giveBack,
+    cutoffHours: stored.cutoffHours,
+    source: "booked",
+    version: typeof stored.version === "string" ? stored.version : null,
+  };
+}
+
 export async function setCancelPolicy(
   venueId: number,
   input: { lateKeep?: unknown; giveBack?: unknown; strikeLimit?: unknown; strikeDays?: unknown; onlineRefunds?: unknown; refundWithinDays?: unknown }

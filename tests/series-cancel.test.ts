@@ -129,17 +129,27 @@ describe("cancelling a weekly series", () => {
     expect((await route({ seriesCode: s.seriesCode, phone: s.phone, codes: "all" })).status).toBe(400);
   });
 
-  it("refuses a week whose terms changed since the customer looked", async () => {
+  // Changed for ADR 0069 (DEC-09): this test used to edit the venue's late-cancel policy after the customer had looked and expect the
+  // series to refuse, because terms were read live. The terms are now the ones each week was sold on, so a policy edit changes nothing
+  // already sold and there is nothing to refuse; the refusal that remains is a late week chosen without accepting its terms.
+  it("goes on the terms the series was sold on, whatever the venue changed since the customer looked", async () => {
     await setCancelPolicy(venueId, { lateKeep: 50 });
     const s = await series(2, 17);
     const plan = await seriesCancelPlan(s.seriesCode, s.phone);
     if (!plan.ok) throw new Error(plan.error);
     await setCancelPolicy(venueId, { lateKeep: null });
-    // The first week was shown late at half; now the venue allows no late cancels at all.
+    // The first week was shown late at half; the venue now allows no late cancels at all, but it was sold on half.
     expect(plan.weeks[0].outcome).toBe("late");
-    const refused = await cancelSeries(s.seriesCode, s.phone, { codes: [s.codes[0]], acceptLate: [s.codes[0]] });
+    const again = await seriesCancelPlan(s.seriesCode, s.phone);
+    if (!again.ok) throw new Error(again.error);
+    expect(again.weeks[0]).toMatchObject({ outcome: "late", keptPercent: 50 });
+    // Not accepting the late terms shown still refuses, and nothing is cancelled.
+    const refused = await cancelSeries(s.seriesCode, s.phone, { codes: [s.codes[0]] });
     expect(refused).toMatchObject({ ok: false, error: expect.stringContaining("changed") });
     expect((await row(s.codes[0])).status).toBe("confirmed");
+    const done = await cancelSeries(s.seriesCode, s.phone, { codes: [s.codes[0]], acceptLate: [s.codes[0]] });
+    expect(done).toMatchObject({ ok: true, cancelled: 1 });
+    expect(await row(s.codes[0])).toMatchObject({ status: "cancelled", late_cancelled: 1, late_kept_percent: 50 });
   });
 
   it("cancels and refunds each week once when asked twice at the same moment", async () => {

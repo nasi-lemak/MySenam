@@ -85,9 +85,11 @@ export function SeriesCancel({
           : t("series.late", { pct: w.keptPercent ?? 0, kept: money(w.kept), amount: money(w.refund) })
         : w.reason === "kit"
           ? t("series.staysKit")
-          : w.owed > 0
-            ? t("series.staysOwed", { amount: money(w.owed) })
-            : t("series.stays");
+          : w.reason === "arrived"
+            ? t("series.staysArrived")
+            : w.owed > 0
+              ? t("series.staysOwed", { amount: money(w.owed) })
+              : t("series.stays");
 
   return (
     <div className="mb-4 rounded-xl border border-red-200 bg-white p-4 shadow-sm" data-testid="series-cancel">

@@ -2558,6 +2558,9 @@ function CancelPanel({
       <p className="mt-1 text-slate-700">{paidLine}</p>
       {p.deposit > 0 && <p className="text-slate-700">{t("p8a.cx.deposit", { amount: money(p.deposit) })}</p>}
       <p className="text-slate-600">{terms}</p>
+      <p className="text-xs text-slate-500">{p.terms === "booked" ? t("hrd.cx.booked") : t("hrd.cx.current")}</p>
+      {(p.access === "verified" || p.access === "self_checked_in") && <p className="mt-1 font-medium text-amber-800">{t("hrd.cx.arrived")}</p>}
+      {p.access === "code_viewed" && <p className="text-xs text-slate-500">{t("hrd.cx.codeShown")}</p>}
       {p.how === "counter" && p.paid > 0 && !p.account && <p className="text-xs text-slate-500">{t("p8a.cx.noAccount")}</p>}
       {p.managerOnly && <p className="mt-1 font-medium text-amber-800">{t("p8a.cx.managerOnly")}</p>}
       {p.kitOut ? (
