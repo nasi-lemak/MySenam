@@ -55,10 +55,16 @@ let deskCookie: string;
 let n = 0;
 const phone = () => `0166611${String(++n).padStart(3, "0")}`;
 
-/** The first `weekday` at least `days` ahead. */
+/** Days already handed out (and the week after each, which a test may book too): no two tests share a day, whatever today's weekday. */
+const taken = new Set<string>();
+
+/** The first `weekday` at least `days` ahead that no other test has, nor the week after it. */
 function ahead(weekday: number, days: number): string {
   let d = addDays(todayISO(ZONE), days);
   while (dayOfWeek(d) !== weekday) d = addDays(d, 1);
+  while (taken.has(d) || taken.has(addDays(d, 7))) d = addDays(d, 7);
+  taken.add(d);
+  taken.add(addDays(d, 7));
   return d;
 }
 const ok = <T extends { ok: boolean }>(r: T): Extract<T, { ok: true }> => {
