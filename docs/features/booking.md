@@ -1345,6 +1345,11 @@ way it was paid, as stored credit, or keeping the venue's late share where
 its terms keep one
 ([cancelling a booking paid at the counter](payments-and-credit.md#cancelling-a-booking-paid-at-the-counter)).
 
+A customer cancelling a booking they paid at the counter gets a credit note, and the money is written down as **owed back at the
+counter** (less the venue's late share, on the terms the booking was sold on) until a member of staff hands it over: the credit note is the record
+of the cancellation, not the refund, and the customer is told the venue will return it, never that it has been returned
+([owed back after a customer cancels](payments-and-credit.md#owed-back-after-a-customer-cancels)).
+
 ### The terms a booking was sold on govern it
 
 The cancellation terms the customer was shown when they booked are the terms

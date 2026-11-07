@@ -6,6 +6,7 @@ import { currentLocale } from "@/lib/locale";
 import { cancelMovedLesson } from "@/lib/lesson-venue-moves";
 import { notifyBookingCancelled, tickOutbox } from "@/lib/notify";
 import { refundCancelled } from "@/lib/payments";
+import { counterRefundLines } from "@/lib/counter-refunds";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
   const result = await cancelMovedLesson(booking);
   if (!result.ok) return refusal(result);
   // Online money goes back as the venue's policy for what it cancels has it, before the customer is told.
-  const refunds = await refundCancelled([result.booking.id], { byVenue: true });
+  const refunds = [...(await refundCancelled([result.booking.id], { byVenue: true })), ...(await counterRefundLines([result.booking.id]))];
   await notifyBookingCancelled(result.booking, await currentLocale(), { refunds });
   await tickOutbox();
   return NextResponse.json({ booking: result.booking, refunds });

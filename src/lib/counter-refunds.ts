@@ -522,8 +522,19 @@ async function bookingPayoutsOn(venueIds: number[] | null, date: string): Promis
  */
 export const VENUE_CANCEL_CAUSES = ["closure", "outage", "rain", "api", "class", "test", "lesson_moved"] as const;
 export type VenueCancelCause = (typeof VENUE_CANCEL_CAUSES)[number];
-/** What the list of counter money owed back holds: what the venue cancelled, and a paid booking moved to a cheaper time (lib/move-money.ts). */
-export type OwedCause = VenueCancelCause | "moved_cheaper";
+/**
+ * What a customer's own cancellation of a booking paid at the counter writes (ADR 0074): the whole booking cancelled (a week of a series, a
+ * class place, an account closed), or one person taken off it (lib/place-withdrawals.ts). A credit note is written as it always was; this is
+ * the obligation to hand the money back, which the credit note is not.
+ */
+export const CUSTOMER_OWED_CAUSES = ["customer_cancelled", "place_withdrawn"] as const;
+export type CustomerOwedCause = (typeof CUSTOMER_OWED_CAUSES)[number];
+/**
+ * What the list of counter money owed back holds: what the venue cancelled, a paid booking moved to a cheaper time (lib/move-money.ts), and
+ * what the customer cancelled or took a person off (ADR 0074).
+ */
+export type OwedCause = VenueCancelCause | "moved_cheaper" | CustomerOwedCause;
+export const isCustomerOwedCause = (c: OwedCause): c is CustomerOwedCause => (CUSTOMER_OWED_CAUSES as readonly string[]).includes(c);
 export type OwedOutcome = Extract<CancelOutcome, "back" | "credit">;
 export const isOwedOutcome = (v: unknown): v is OwedOutcome => v === "back" || v === "credit";
 
@@ -558,6 +569,51 @@ export async function oweCounter(bookingId: number, cause: VenueCancelCause): Pr
   return true;
 }
 
+/**
+ * In the customer's cancellation's transaction, with the booking's row claimed and the credit note written as ever: the counter payment on
+ * it, less the venue's late share where the booking was cancelled late (`share`, from the terms it was sold on), written down as owed back.
+ * The credit note is the tax document and is not money paid; this row is what tells staff to hand it back. One per booking cancelled (a
+ * repeat writes nothing), and with `withdrawal` one per person taken off, for the part of the price that place gave back (`amount`).
+ * False where nothing was paid at the counter (online, credit, a pass, an account, or not paid).
+ */
+export async function oweCounterToCustomer(bookingId: number, share: number, withdrawal?: { id: number; amount: number }): Promise<boolean> {
+  const counter = await counterMoney(bookingId, withdrawal ? 1 : share);
+  if (!counter) return false;
+  const amount = withdrawal ? roundMoney(withdrawal.amount) : counter.amount;
+  if (amount <= 0) return false;
+  const done = await getDb()
+    .prepare(
+      `INSERT INTO counter_refunds_owed (venue_id, booking_id, amount, via, cause, withdrawal_id) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT DO NOTHING`
+    )
+    .run(counter.row.venue_id, bookingId, amount, counter.via, withdrawal ? "place_withdrawn" : "customer_cancelled", withdrawal?.id ?? null);
+  return done.changes === 1;
+}
+
+/**
+ * What these bookings still owe their customer at the counter, as a customer is told it (one line, the sum): "the venue will return RM x at
+ * the counter", never that it has been returned (ADR 0074). Empty where nothing paid at the counter is still owed.
+ */
+export async function counterRefundLines(bookingIds: number[]): Promise<{ how: "counter"; amount: number }[]> {
+  if (bookingIds.length === 0) return [];
+  const row = (await getDb()
+    .prepare(`SELECT COALESCE(SUM(amount), 0)::float AS total FROM counter_refunds_owed WHERE settled_at IS NULL AND booking_id IN (${bookingIds.map(() => "?").join(",")})`)
+    .get(...bookingIds)) as { total: number };
+  const amount = roundMoney(Number(row.total));
+  return amount > 0 ? [{ how: "counter", amount }] : [];
+}
+
+/** The customer has been told (the cancellation message was written for them): what is still owed on these bookings records when. */
+export async function counterOwedNotified(bookingIds: number[]): Promise<void> {
+  if (bookingIds.length === 0) return;
+  await getDb()
+    .prepare(
+      `UPDATE counter_refunds_owed SET customer_notified_at = now()
+        WHERE customer_notified_at IS NULL AND settled_at IS NULL AND booking_id IN (${bookingIds.map(() => "?").join(",")})`
+    )
+    .run(...bookingIds);
+}
+
 /** A counter payment owed back on a booking the venue cancelled, for staff to settle. */
 export interface OwedRefund {
   id: number;
@@ -578,13 +634,24 @@ export interface OwedRefund {
   account: boolean;
   /** Paid at the counter on an earlier day: only a manager hands it back, as when staff cancel. */
   managerOnly: boolean;
-  /** Settled already: how, by whom and when. */
-  settled: { outcome: OwedOutcome; by: string; at: string } | null;
+  /** Settled already: how, by whom and when (`via`: the way it went back where that was not the way it was paid). */
+  settled: { outcome: OwedOutcome; by: string; at: string; via: CounterMethod | null } | null;
+  /** Owed, or handed back (a credit note is written either way and says nothing of which: ADR 0074). */
+  status: "owed" | "completed";
+  /** The customer cancelled, or took a person off; the venue's own causes and a move are not theirs. */
+  byCustomer: boolean;
+  /** When the customer was told the venue will return the money at the counter; null: not told. */
+  notifiedAt: string | null;
+  /** The booking has an email address, so a message can reach the customer. */
+  hasEmail: boolean;
+  /** The credit note already written for a customer's cancellation (the tax document, not proof of a refund); null for the rest. */
+  creditNote: string | null;
 }
 
 export const OWED_REFUSALS = {
   notFound: "Nothing is owed back on that.",
   settled: "That was settled already. Look at the list again.",
+  otherWay: "This one is handed back the way it was paid.",
 } as const;
 
 /** A counter payment taken on an earlier day than the venue's today: a manager's to give back (as `setPaymentStatus` says). */
@@ -604,9 +671,17 @@ interface OwedRow {
   outcome: OwedOutcome | null;
   admin_name: string | null;
   code: string;
+  withdrawal_id: number | null;
+  settled_via: CounterMethod | null;
+  customer_notified_at: string | Date | null;
+  note_number: string | null;
 }
 
-const OWED_SQL = `SELECT o.id, o.venue_id, o.booking_id, o.amount::float AS amount, o.via, o.cause, o.owed_since, o.settled_at, o.outcome, o.admin_name, b.code
+// A customer's cancellation has its credit note already (the booking's, or the withdrawal's): it was written when they cancelled.
+const OWED_SQL = `SELECT o.id, o.venue_id, o.booking_id, o.amount::float AS amount, o.via, o.cause, o.owed_since, o.settled_at, o.outcome, o.admin_name, b.code,
+                         o.withdrawal_id, o.settled_via, o.customer_notified_at,
+                         (SELECT r.number FROM receipts r WHERE r.kind = 'credit_note'
+                             AND r.source = CASE WHEN o.withdrawal_id IS NULL THEN 'booking:' || o.booking_id ELSE 'booking:' || o.booking_id || ':place:' || o.withdrawal_id END) AS note_number
                     FROM counter_refunds_owed o JOIN bookings b ON b.id = o.booking_id`;
 
 async function toOwed(r: OwedRow, role: StaffRole, zones: Map<number, string>): Promise<OwedRefund | null> {
@@ -628,7 +703,12 @@ async function toOwed(r: OwedRow, role: StaffRole, zones: Map<number, string>): 
     paidAt: b.paidAt,
     account: await bookedFromAccount(r.booking_id),
     managerOnly: role === "desk" && paidBeforeToday(b.paidAt, zones.get(r.venue_id)!),
-    settled: r.settled_at && r.outcome ? { outcome: r.outcome, by: r.admin_name ?? "", at: new Date(r.settled_at).toISOString() } : null,
+    settled: r.settled_at && r.outcome ? { outcome: r.outcome, by: r.admin_name ?? "", at: new Date(r.settled_at).toISOString(), via: r.settled_via } : null,
+    status: r.settled_at ? "completed" : "owed",
+    byCustomer: isCustomerOwedCause(r.cause),
+    notifiedAt: r.customer_notified_at ? new Date(r.customer_notified_at).toISOString() : null,
+    hasEmail: !!b.email?.trim(),
+    creditNote: isCustomerOwedCause(r.cause) ? r.note_number : null,
   };
 }
 
@@ -666,20 +746,30 @@ export async function owedRefund(id: number, role: StaffRole): Promise<OwedRefun
 export async function settleOwed(
   id: number,
   outcome: OwedOutcome,
-  staff: CancellingStaff
+  staff: CancellingStaff,
+  /**
+   * A customer's cancellation only (ADR 0074): the customer agreed to be handed it another way than they paid (cash, QR, transfer or card).
+   * Recorded as the method used, beside the one it was paid by; `credit` is the other way, and is the outcome.
+   */
+  opts: { via?: CounterMethod } = {}
 ): Promise<{ ok: true; owed: OwedRefund; settled: Settled } | Refusal> {
   const owed = await owedRefund(id, staff.role);
   if (!owed) return refused(OWED_REFUSALS.notFound);
   if (owed.settled) return refused(OWED_REFUSALS.settled);
   if (owed.managerOnly) return refused(COUNTER_REFUSALS.manager);
   if (outcome === "credit" && !owed.account) return refused(COUNTER_REFUSALS.noAccount);
+  if (opts.via !== undefined && (outcome !== "back" || !owed.byCustomer || !(COUNTER_METHODS as readonly string[]).includes(opts.via))) return refused(OWED_REFUSALS.otherWay);
+  // The method actually used, where it is not the way it was paid.
+  const usedVia = opts.via !== undefined && opts.via !== owed.via ? opts.via : null;
   const done = await withTransaction(async () => {
     const claimed = await getDb()
-      .prepare("UPDATE counter_refunds_owed SET settled_at = now(), outcome = ?, admin_id = ?, admin_name = ? WHERE id = ? AND settled_at IS NULL")
-      .run(outcome, staff.id, staff.name, id);
+      .prepare("UPDATE counter_refunds_owed SET settled_at = now(), outcome = ?, admin_id = ?, admin_name = ?, settled_via = ? WHERE id = ? AND settled_at IS NULL")
+      .run(outcome, staff.id, staff.name, usedVia, id);
     if (claimed.changes !== 1) return null;
     // A difference owed back after a paid booking was moved to a cheaper time: that sum alone, not the booking (lib/move-money.ts).
     if (owed.cause === "moved_cheaper") return settleMoveDifference(owed, outcome, staff);
+    // A customer's cancellation: its credit note was written when they cancelled; settling hands back exactly what was written down as owed.
+    if (isCustomerOwedCause(owed.cause)) return settleCustomerOwed(owed, outcome, staff, usedVia ?? owed.via);
     // The credit note the cancellation left for now, written by whoever settles it: as stored credit, or the way it was paid.
     await creditBooking(owed.bookingId, "receipt.why.cancelled", 1, await paidPartLeft(owed.bookingId), outcome === "credit" ? PAID_VIA_LABELS.credit : undefined);
     return (await settleCounter(owed.bookingId, outcome, 1, null, staff)) ?? {};
@@ -690,6 +780,42 @@ export async function settleOwed(
     owed: (await owedRefund(id, staff.role)) ?? owed,
     settled: { outcome, refund: owed.amount, kept: 0, ...done },
   };
+}
+
+/**
+ * What a customer's cancellation (or a place they took off) wrote down as owed, settled in the claiming transaction: that sum alone (what is
+ * left after the venue's late share, or the place's own part of the price), handed back as a payout for the till (who, when, how much, the
+ * method used, and on which credit note, which was written when they cancelled), or, at the customer's request, as stored credit on the
+ * account the booking was made from. The credit note itself is never rewritten: it is the tax document, and says the sale was reversed.
+ */
+async function settleCustomerOwed(owed: OwedRefund, outcome: OwedOutcome, staff: CancellingStaff, via: CounterMethod | null): Promise<Partial<Settled>> {
+  const db = getDb();
+  const row = (await db
+    .prepare(
+      `SELECT b.code, b.user_id, b.late_cancelled, b.late_kept_percent, c.venue_id, o.withdrawal_id
+         FROM counter_refunds_owed o JOIN bookings b ON b.id = o.booking_id JOIN courts c ON c.id = b.court_id WHERE o.id = ?`
+    )
+    .get(owed.id)) as { code: string; user_id: number | null; late_cancelled: number; late_kept_percent: number | null; venue_id: number; withdrawal_id: number | null };
+  const note = (await db
+    .prepare("SELECT id FROM receipts WHERE source = ? AND kind = 'credit_note'")
+    .get(row.withdrawal_id === null ? `booking:${owed.bookingId}` : `booking:${owed.bookingId}:place:${row.withdrawal_id}`)) as { id: number } | undefined;
+  if (outcome === "credit") {
+    if (row.user_id === null) throw new Error("credit without an account");
+    await db
+      .prepare("INSERT INTO wallet_entries (user_id, amount, reason, reason_phrase, booking_id, venue_id, admin_id, withdrawal_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.user_id, owed.amount, ...withPhrase(said("srv.wallet.refund", { code: row.code })), owed.bookingId, creditScope() === "venue" ? row.venue_id : null, staff.id, row.withdrawal_id);
+    return { credited: owed.amount };
+  }
+  let kept: number | null = null;
+  if (row.withdrawal_id !== null) kept = ((await db.prepare("SELECT kept_percent FROM place_withdrawals WHERE id = ?").get(row.withdrawal_id)) as { kept_percent: number | null }).kept_percent;
+  else if (row.late_cancelled === 1) kept = row.late_kept_percent;
+  await db
+    .prepare(
+      `INSERT INTO counter_payouts (venue_id, booking_id, credit_note_id, amount, via, kept_percent, admin_id, admin_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(row.venue_id, owed.bookingId, note?.id ?? null, owed.amount, via, kept, staff.id, staff.name);
+  return { paidOut: { amount: owed.amount, via } };
 }
 
 /**

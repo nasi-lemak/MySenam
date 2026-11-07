@@ -547,6 +547,10 @@ export async function withdrawPlace(
             .run(a.ownRefund, booking.id);
         }
         if (a.ownRefund > 0) await creditBookingPlace(booking.id, w.id, taken, a.ownRefund, why);
+        // Paid at the counter and taken off by the customer or the venue's own system: nobody is at the till, so the credit note is not the refund
+        // and the money is owed back there (ADR 0074). Staff at the counter hand it over as they take the person off.
+        if (a.ownRefund > 0 && o.how === "hand" && by.kind !== "staff")
+          await (await import("./counter-refunds")).oweCounterToCustomer(booking.id, 1, { id: w.id, amount: a.ownRefund });
       }
       // The part settled from a deposit paid online goes back to that payment, with a credit note on the deposit's receipt.
       if (o.deposit > 0 && a.depositPaymentId !== null) {
@@ -704,7 +708,7 @@ export async function notifyWithdrawn(booking: Booking, withdrawal: WithdrawOutc
   if (!court || !venue || !hasBeenLive(venue)) return;
   const t = translator(locale);
   const who = withdrawal.name ?? t("ent.msg.places", { n: withdrawal.places });
-  await enqueue({
+  const sent = await enqueue({
     bookingId: booking.id,
     venueId: venue.id,
     kind: "booking_cancelled",
@@ -723,4 +727,6 @@ export async function notifyWithdrawn(booking: Booking, withdrawal: WithdrawOutc
       money: withdrawMoney(locale, withdrawal),
     },
   });
+  // The customer has been told the venue gives the money back at the counter: recorded on what is owed (ADR 0074).
+  if (withdrawal.how === "hand" && sent.status !== "abandoned") await (await import("./counter-refunds")).counterOwedNotified([booking.id]);
 }

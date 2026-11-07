@@ -609,6 +609,8 @@ the same way, week by week on each week's terms
 Closed days, outages, rain-outs, the venue's API key and a class called off
 cancel without asking staff booking by booking; what was paid at the counter
 on them is owed back ([owed back after the venue cancels](#owed-back-after-the-venue-cancels)).
+So is what a customer paid at the counter and then cancels themselves
+([owed back after a customer cancels](#owed-back-after-a-customer-cancels)).
 
 Tested in `tests/counter-refunds.test.ts` on PGlite and Postgres: each
 outcome, the desk and the manager, a booking paid online, a changed amount,
@@ -691,6 +693,53 @@ five ways the venue cancels, both ways of settling, the desk and the manager,
 another venue's staff, two settling at once, and the cash-up of the day it was
 handed back; the screen in `tests/components/owed-series-move.test.tsx`.
 
+### Owed back after a customer cancels
+
+A customer cancelling a booking they paid at the counter (cash, QR, transfer, card terminal, or a tick whose method was never recorded) used to
+get a credit note and nothing else: no task for staff, no payout, and the credit note was taken for the refund. Now the money is **owed back**
+on the same list as the venue's own cancellations leave (`counter_refunds_owed`, migrations 0346 and 0347,
+[ADR 0074](../architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md); `oweCounterToCustomer`
+in `src/lib/counter-refunds.ts`), written in the cancellation's own transaction:
+
+- **Every customer path.** The customer's own cancellation (by code and phone, and from their account), a week of a weekly series, a class place
+  they cancel, a booking cancelled because they closed their account, and a person they (or the venue's API key) took off a paid booking
+  ([refunds for one person's place](#refunds-for-one-persons-place)). Cause `customer_cancelled`, or `place_withdrawn` with one row for each
+  withdrawal. What the venue itself cancels keeps its own cause and rules ([owed back after the venue cancels](#owed-back-after-the-venue-cancels));
+  a customer's cause is never added on top of those.
+- **How much.** What the booking's own counter payment still holds, less the venue's late share where the customer cancelled late. The share is the
+  one in the terms the booking was **sold on** ([ADR 0069](../architecture/decisions/0069-the-terms-a-booking-was-sold-on-govern-it-arrival-goes-to-staff-and-edits-meet-bookings-in-one-transaction.md)):
+  a policy edit afterwards changes nothing already sold. A deposit paid online goes back online as before; only the counter part is owed here. A
+  booking moved to a cheaper time and then cancelled has two obligations (the move's difference and the rest), both settleable, together what was paid.
+- **The credit note is written as it always was, and is not the refund.** It is the tax document and the till's record of the cancellation. Nothing
+  is paid out, and nothing is marked paid, until a named member of staff says so. The list, the panel and the customer's message say so in those words.
+- **Listed for staff** under *Owed back at the counter* (`owed` on `GET /api/admin/bookings`): the customer and booking code, the amount, how it was
+  paid, why, the day it arose, its status (*owed*, then *completed* once handed back), the credit note's number, whether the customer has been told, and
+  what to do. Not paid at the counter (unpaid, online, credit, a pass, an account) writes nothing.
+- **Settled once** (`POST /api/admin/bookings/owed`): *handed back* (a payout for the till: the amount, who, when, the method used and the credit note
+  written at the cancellation, which is linked and **not written again**; `payment.paid_out`) or *as stored credit* on the booking's account
+  (`payment.owed_credited`). The front desk hands back a payment taken today and a manager an older one. The customer may agree to be handed it another way
+  than they paid (cash, QR, transfer or card): the request carries `via`, the method used is recorded beside the one it was paid with (`settled_via`) and
+  the log says it was not the way it was paid. Two members of staff at once settle it once; a second go is refused.
+- **The customer is told.** The cancellation response and message say "the venue will return RM x to you at the counter, where you paid it; it has not
+  been returned yet" (`how: "counter"` in `refunds`; customer text `rf74.refundCounter` in English, Malay, Chinese and Tamil), by email or WhatsApp where
+  they left an address, and never that the money was returned. The row records when they were told (`customer_notified_at`); with no address it stays
+  empty and the panel asks staff to tell them at the counter.
+- **The till.** The credit note counts in the cash-up on the day it was written, under the method it was paid by, with no member of staff on it (so it
+  is in the all-staff cash-up, not a desk's own); the payout is in the list of money handed back on the day it was handed over. Same amount and method
+  when it goes back the way it was paid; another day, or another method, puts them on two days or two methods. Recorded in
+  [known limitations](../roadmap/known-limitations.md) and in the ADR with the alternative (writing the credit note when the money is handed back, as the
+  venue's causes do).
+- **Past cancellations** are not turned into tasks (nobody can say whether the money was handed over then, and a refund must not be paid twice).
+  `scripts/reconcile-counter-cancellations.sql` is read only and lists the candidates for a manager to review: cancelled, paid at the counter, a credit
+  note, no owed row, no payout, no credit given by staff, not logged as cancelled by a member of staff.
+  Run it with `psql "$DATABASE_URL" -f scripts/reconcile-counter-cancellations.sql`; a row is a lead, not a proof.
+
+Tested in `tests/customer-cancel-counter-owed.test.ts` (each customer path, a late share on the terms sold, an edit of the policy afterwards, the
+deposit, the withdrawals, the message, settling once and twice, an alternative method, credit, the desk and the manager, another venue's staff, a double
+submit, the customer against staff, against the desk taking the payment back, a cheaper move then a cancellation, the closure, the cash-up and the
+reconciliation script) on PGlite and Postgres, and `tests/customer-cancel-counter-owed-migration.test.ts` (the migrations on an install with money
+already owed). A mock gateway is not a live check; the counter is not a provider, and nothing here contacts one.
+
 ### Refunds for one person's place
 
 Taking one person off a paid booking, the others staying booked
@@ -716,7 +765,11 @@ through the paths a cancellation uses, and nothing twice:
   ([refunds that are interrupted](#refunds-that-are-interrupted)): to the card
   through Stripe, to credit, or owed by staff, as the venue chose.
 - **Paid at the counter**, the credit note is written and the venue's staff
-  give the money back.
+  give the money back. When the customer (or the venue's API key) takes the
+  person off, the money is written down as owed back at the counter, one row
+  for the withdrawal (`place_withdrawn`, [ADR 0074](../architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md)),
+  settled like any other ([owed back after a customer cancels](#owed-back-after-a-customer-cancels));
+  staff at the counter hand it over themselves as they take the person off.
 - **A pass** spent for that place gives back its entries (whole entries,
   rounded down on a late withdrawal); one that paid for the booking as a
   whole gives back nothing for one person.

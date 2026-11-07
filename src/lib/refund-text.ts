@@ -2,7 +2,7 @@ import type { CancelRefund, RefundStatus } from "./payments";
 import type { T } from "./i18n";
 import { money } from "./region";
 
-const PHRASE = { gateway: "mine.refundGateway", credit: "mine.refundCredit", staff: "mine.refundStaff" } as const;
+const PHRASE = { gateway: "mine.refundGateway", credit: "mine.refundCredit", staff: "mine.refundStaff", counter: "rf74.refundCounter" } as const;
 
 /** What a customer is told about money paid online for a booking they cancelled. */
 export function refundLines(t: T, refunds: Pick<CancelRefund, "how" | "amount" | "dueBy">[] | undefined): string[] {

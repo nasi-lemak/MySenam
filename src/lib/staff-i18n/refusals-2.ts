@@ -1029,4 +1029,6 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   // Hardening (BILL, ADR 0065)
   "This venue has sold stored credit or gift vouchers, and what a consolidated e-invoice does with them is not settled (a question for your tax adviser). Tick that you understand before turning e-invoicing on.": { ms: "Pusat ini telah menjual kredit tersimpan atau baucar hadiah, dan apa yang dilakukan e-invois disatukan terhadapnya belum ditetapkan (soalan untuk penasihat cukai anda). Tandakan bahawa anda faham sebelum menghidupkan e-invois.", zh: "本场馆已售出储值或礼券，而合并电子发票如何处理它们尚无定论（需请教税务顾问）。开启电子发票前，请勾选表示您已了解。" },
   "That payment is not waiting to be checked.": { ms: "Bayaran itu tidak menunggu untuk disemak.", zh: "该付款不在待核查之列。" },
+  // Hardening (REFUND, ADR 0074)
+  "This one is handed back the way it was paid.": { ms: "Yang ini dipulangkan mengikut cara ia dibayar.", zh: "这笔款项按原支付方式退还。" },
 };

@@ -728,8 +728,8 @@ const en = {
   // r9e: a weekly series moved in one step; counter money owed back after the venue cancelled.
   "r9e.act.seriesMoved": "Moved the weeks of a weekly series in one step",
   "r9e.act.owedCredited": "Gave money owed back after the venue cancelled as stored credit",
-  "r9e.owed.title": "Owed back at the counter: bookings the venue cancelled",
-  "r9e.owed.help": "Each was paid at the counter and cancelled by a closed day, a court out of service, a rain-out, the venue's API, a class called off, or a test booking a manager cleared as real money. When the customer comes, hand it back the way it was paid, or give it as credit; it is recorded with your name, and a payout is in today's cash-up.",
+  "r9e.owed.title": "Owed back at the counter: cancelled bookings paid there",
+  "r9e.owed.help": "Each was paid at the counter and then cancelled: by the customer, or by a closed day, a court out of service, a rain-out, the venue's API, a class called off, or a test booking a manager cleared as real money. A credit note is only the record of the cancellation; it is not money paid, and nothing here is paid until you say so. When the customer comes, hand it back the way it was paid, or give it as credit; it is recorded with your name, and a payout is in today's cash-up.",
   "r9e.owed.line": "{code} · {name} · {when} · {amount} by {via} · {why}",
   "r9e.owed.cause.closure": "the venue closed that day",
   "r9e.owed.cause.outage": "court out of service",
@@ -1656,8 +1656,8 @@ const ms: Record<keyof typeof en, string> = {
   // r9e
   "r9e.act.seriesMoved": "Memindahkan minggu-minggu siri mingguan sekali gus",
   "r9e.act.owedCredited": "Memberi wang yang perlu dipulangkan selepas pusat membatalkan sebagai kredit tersimpan",
-  "r9e.owed.title": "Perlu dipulangkan di kaunter: tempahan yang dibatalkan oleh pusat",
-  "r9e.owed.help": "Setiap satu dibayar di kaunter dan dibatalkan kerana hari ditutup, gelanggang tidak beroperasi, hujan, API pusat, kelas dibatalkan, atau tempahan percubaan yang dikosongkan oleh pengurus sebagai wang sebenar. Apabila pelanggan datang, pulangkan mengikut cara ia dibayar, atau beri sebagai kredit; ia direkodkan dengan nama anda, dan bayaran balik dimasukkan dalam tunai hari ini.",
+  "r9e.owed.title": "Perlu dipulangkan di kaunter: tempahan yang dibatalkan dan dibayar di sana",
+  "r9e.owed.help": "Setiap satu dibayar di kaunter kemudian dibatalkan: oleh pelanggan, atau kerana hari ditutup, gelanggang tidak beroperasi, hujan, API pusat, kelas dibatalkan, atau tempahan percubaan yang dikosongkan oleh pengurus sebagai wang sebenar. Nota kredit hanyalah rekod pembatalan, bukan wang yang telah dibayar, dan tiada apa-apa di sini dianggap telah dibayar sehingga anda menyatakannya. Apabila pelanggan datang, pulangkan mengikut cara ia dibayar, atau beri sebagai kredit; ia direkodkan dengan nama anda, dan bayaran balik dimasukkan dalam tunai hari ini.",
   "r9e.owed.line": "{code} · {name} · {when} · {amount} melalui {via} · {why}",
   "r9e.owed.cause.closure": "pusat ditutup pada hari itu",
   "r9e.owed.cause.outage": "gelanggang tidak beroperasi",
@@ -2583,8 +2583,8 @@ const zh: Record<keyof typeof en, string> = {
   // r9e
   "r9e.act.seriesMoved": "一次性调整每周系列的各周",
   "r9e.act.owedCredited": "将场馆取消后应退的款项以储值退还",
-  "r9e.owed.title": "需在柜台退还：场馆取消的预订",
-  "r9e.owed.help": "以下每笔均在柜台付款，并因场馆闭馆、场地停用、雨天取消、场馆 API、课程取消，或经理按真实款项清除的测试预订而被取消。顾客到来时，按原付款方式退还，或以储值退还；记录会附上您的姓名，退款计入今天的收银结算。",
+  "r9e.owed.title": "需在柜台退还：在柜台付款后取消的预订",
+  "r9e.owed.help": "以下每笔均在柜台付款，之后被取消：由顾客取消，或因场馆闭馆、场地停用、雨天取消、场馆 API、课程取消，或经理按真实款项清除的测试预订而被取消。贷项通知单只是取消的记录，并不表示款项已付出；在您确认之前，这里的款项都视为尚未付出。顾客到来时，按原付款方式退还，或以储值退还；记录会附上您的姓名，退款计入今天的收银结算。",
   "r9e.owed.line": "{code} · {name} · {when} · {amount}（{via}）· {why}",
   "r9e.owed.cause.closure": "场馆当天闭馆",
   "r9e.owed.cause.outage": "场地停用",

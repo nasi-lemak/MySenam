@@ -22,6 +22,20 @@ const en = {
   "m68.hire.saved": "Recorded: the deposit was held by {method}. It is counted under that from now on, and the note that it was not recorded when taken stays.",
   "m68.hire.statedBy": "Not recorded when it was taken. Held by {method}, as {by} said on {when}.",
   "m68.hire.failed": "Could not record it",
+  // A customer's cancellation of a booking paid at the counter (ADR 0074): the obligation on the list of money owed back at the counter
+  "rf74.owed.cause.customer": "the customer cancelled it",
+  "rf74.owed.cause.place": "the customer took a person off it",
+  "rf74.owed.arose": "Arose {date}",
+  "rf74.owed.status": "Owed: not handed back yet",
+  "rf74.owed.action": "To do: hand back {amount} ({via}) when the customer comes, then press the button. A credit note is not money paid.",
+  "rf74.owed.note": "Credit note {note}",
+  "rf74.owed.told": "Customer told on {date}",
+  "rf74.owed.notToldEmail": "Customer not told yet: tell them at the counter",
+  "rf74.owed.notToldNoEmail": "No email address: tell the customer the venue will return it at the counter",
+  "rf74.owed.viaLabel": "Hand back by",
+  "rf74.owed.viaAsPaid": "As paid ({via})",
+  "rf74.owed.viaAsPaidNone": "As paid (method not recorded)",
+  "rf74.owed.doneVia": "{amount} handed back for {code}, by {via}, not the way it was paid: it is recorded with your name.",
 } as const;
 
 const ms: Record<keyof typeof en, string> = {
@@ -40,6 +54,19 @@ const ms: Record<keyof typeof en, string> = {
   "m68.hire.saved": "Direkodkan: deposit dipegang secara {method}. Ia dikira di bawah kaedah itu mulai sekarang, dan catatan bahawa ia tidak direkodkan semasa diambil kekal.",
   "m68.hire.statedBy": "Tidak direkodkan semasa diambil. Dipegang secara {method}, seperti dinyatakan oleh {by} pada {when}.",
   "m68.hire.failed": "Tidak dapat direkodkan",
+  "rf74.owed.cause.customer": "pelanggan membatalkannya",
+  "rf74.owed.cause.place": "pelanggan mengeluarkan seorang daripadanya",
+  "rf74.owed.arose": "Timbul pada {date}",
+  "rf74.owed.status": "Terhutang: belum dipulangkan",
+  "rf74.owed.action": "Perlu dibuat: pulangkan {amount} ({via}) apabila pelanggan datang, kemudian tekan butang. Nota kredit bukan wang yang telah dibayar.",
+  "rf74.owed.note": "Nota kredit {note}",
+  "rf74.owed.told": "Pelanggan dimaklumkan pada {date}",
+  "rf74.owed.notToldEmail": "Pelanggan belum dimaklumkan: beritahu mereka di kaunter",
+  "rf74.owed.notToldNoEmail": "Tiada alamat e-mel: beritahu pelanggan bahawa pusat akan memulangkannya di kaunter",
+  "rf74.owed.viaLabel": "Pulangkan melalui",
+  "rf74.owed.viaAsPaid": "Seperti dibayar ({via})",
+  "rf74.owed.viaAsPaidNone": "Seperti dibayar (kaedah tidak direkodkan)",
+  "rf74.owed.doneVia": "{amount} dipulangkan untuk {code}, melalui {via}, bukan cara ia dibayar: ia direkodkan dengan nama anda.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -58,6 +85,19 @@ const zh: Record<keyof typeof en, string> = {
   "m68.hire.saved": "已记录：押金以{method}方式代管。今后按此方式计算，“收取时未记录”的标记仍会保留。",
   "m68.hire.statedBy": "收取时未记录。{by}于{when}说明以{method}方式代管。",
   "m68.hire.failed": "无法记录",
+  "rf74.owed.cause.customer": "顾客取消了预订",
+  "rf74.owed.cause.place": "顾客取消了其中一人的名额",
+  "rf74.owed.arose": "产生于 {date}",
+  "rf74.owed.status": "待退还：尚未交还",
+  "rf74.owed.action": "待办：顾客前来时退还 {amount}（{via}），然后按下按钮。贷项通知单不代表款项已付出。",
+  "rf74.owed.note": "贷项通知单 {note}",
+  "rf74.owed.told": "已于 {date} 通知顾客",
+  "rf74.owed.notToldEmail": "尚未通知顾客：请在柜台告知",
+  "rf74.owed.notToldNoEmail": "没有电子邮件地址：请告知顾客场馆会在柜台退还",
+  "rf74.owed.viaLabel": "退还方式",
+  "rf74.owed.viaAsPaid": "按原支付方式（{via}）",
+  "rf74.owed.viaAsPaidNone": "按原支付方式（方式未记录）",
+  "rf74.owed.doneVia": "已以{via}退还 {code} 的 {amount}，并非按原支付方式：系统已记录，并附上您的姓名。",
 };
 
 const area = { en, ms, zh };

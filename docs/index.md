@@ -143,6 +143,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0062 Passes judged on the session's date and entries given back are not dead; a membership's days given back never run into its renewal; a suspension of a renewing membership gives its days back; the concession check and the review invitation are decided once](architecture/decisions/0062-passes-memberships-and-concessions-decided-once-and-on-the-session-date.md) ·
 [0072 A host's no-show mark is told, answered and reviewed, and counts at its own venue; coaches are told of every lesson; what ends and what is struck is seen](architecture/decisions/0072-a-hosts-no-show-mark-is-told-answered-and-reviewed-and-counts-at-its-venue.md)
 [0065 A payment is settled for the amount the gateway took and never into a lapsed hold; stored value and e-invoicing wait for the adviser](architecture/decisions/0065-a-payment-is-settled-for-the-amount-the-gateway-took-and-never-into-a-lapsed-hold.md)
+[0074 A customer's cancellation of a booking paid at the counter is an obligation to hand the money back; a credit note is the record of the cancellation, not the refund](architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md)
 
 ## Integrations
 

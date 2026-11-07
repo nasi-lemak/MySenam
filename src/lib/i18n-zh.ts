@@ -5094,6 +5094,7 @@ export const ZH: Record<Phrase, string> = {
   "hd1.pay.overBody": "谢谢。已为 {codes} 支付 {amount}。您多付了 {extra}，场馆会把这部分退还给您。",
   "err.CANCEL_AFTER_ARRIVAL": "您已到达此预订的场地，因此无法再在线取消或减少人数。如果您确实无法使用，请联系场馆工作人员。",
   "series.staysArrived": "保留预订：您已到达，由场馆工作人员决定",
+  "rf74.refundCounter": "场馆会在柜台（您付款的地方）退还 {amount} 给您。这笔钱尚未退还：贷项通知单只是取消的记录，并不是退款。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

@@ -648,7 +648,7 @@ export async function cancelMovedPlace(token: string, bookingId: number): Promis
   if (!done.ok) return done;
   await db.prepare("UPDATE class_move_offers SET cancelled_at = now() WHERE id = ? AND cancelled_at IS NULL").run(offer.id);
   // What was paid online goes back through the gateway as for any booking the venue cancels; the customer is told how (and the venue, if it asked to hear).
-  const refunds = await refundCancelled([booking.id], { byVenue: true });
+  const refunds = [...(await refundCancelled([booking.id], { byVenue: true })), ...(await (await import("./counter-refunds")).counterRefundLines([booking.id]))];
   const locale = ((await db.prepare("SELECT locale FROM bookings WHERE id = ?").get(booking.id)) as { locale: string | null } | undefined)?.locale;
   await notifyBookingCancelled({ ...booking, status: "cancelled" }, locale === "ms" || locale === "zh" || locale === "ta" ? locale : "en", { refunds });
   const venueId = (await getCourt(booking.courtId))?.venueId ?? null;
