@@ -266,6 +266,14 @@ async function billplz() {
   if (bill.body.id) {
     const read = await json(`${host}/api/v3/bills/${bill.body.id}`, { headers: auth });
     p.step("bill read back, unpaid", read.status === 200 && read.body.paid === false, `${read.body.state ?? read.status}`);
+    // The fields the app's settlement check (docs/integrations/payment-gateways.md#billplz, ADR 0065) relies on in the bill it fetches
+    // for a redirect: its collection, its amount and what was paid, in sen. Whether a bill can be paid short or over is not proven here:
+    // pay the sandbox bill that way by hand and compare the callback (see the step below).
+    p.step(
+      "bill carries collection_id, amount and paid_amount as the settlement check reads them",
+      read.status === 200 && read.body.collection_id === process.env.BILLPLZ_SANDBOX_COLLECTION_ID && read.body.amount === 100 && read.body.paid_amount === 0,
+      `collection_id ${read.body.collection_id ?? "missing"}, amount ${read.body.amount ?? "missing"}, paid_amount ${read.body.paid_amount ?? "missing"}`
+    );
     const deleted = await fetch(`${host}/api/v3/bills/${bill.body.id}`, { method: "DELETE", headers: auth });
     p.step("bill deleted (an abandoned payment)", deleted.status === 200, `${deleted.status}`);
   }
@@ -285,7 +293,7 @@ async function billplz() {
     const booking = await bookAndOpenPayment(through, owner.court);
     p.step("the app opened a Billplz sandbox bill", booking.payStatus === 200 && /billplz-sandbox\.com/.test(booking.payUrl ?? ""), `${booking.payStatus} ${booking.payError ?? ""}`);
     // Billplz's sandbox payment simulator is a page of its own, not an API: paying on it is the manual step.
-    p.step("pay on the sandbox page; callback and signed redirect", null, `open the bill URL from the app (booking ${booking.code}) and pay with the sandbox bank; the callback needs a public address (stage-remote.mjs)`);
+    p.step("pay on the sandbox page; callback and signed redirect", null, `open the bill URL from the app (booking ${booking.code}) and pay with the sandbox bank; the callback needs a public address (stage-remote.mjs). Also record what the callback carried (id, collection_id, state, amount, paid_amount) and whether the sandbox can pay a bill short or over: until then settlement amounts are PENDING (docs/integrations/payment-gateways.md#billplz)`);
   } catch (err) {
     p.step("through the app", false, err instanceof Error ? err.message : String(err));
   }

@@ -230,6 +230,20 @@ the language the booking was made in (English, Malay, Chinese, Tamil), to the
 booking's email; the text is the same line the customer sees on their booking page.
 WhatsApp is not used (it needs a template Meta has approved).
 
+#### A payment that was not applied
+
+When money arrived and was applied to nothing (it came after the booking's hold was let go, was less
+than the page asked for, or could not be matched to it; [settlement checks](../features/payments-and-credit.md#settlement-checks),
+[ADR 0065](../architecture/decisions/0065-a-payment-is-settled-for-the-amount-the-gateway-took-and-never-into-a-lapsed-hold.md)),
+its payer is emailed once (`payment_not_applied`, `src/lib/notify.ts` `notifyPaymentNotApplied`) saying the
+booking was not confirmed by that payment and that the money is owed back, in the language the booking was
+made in, by email only (urgent news: not held to the day's limit). It goes only to the booking's email when the
+booking's account has proved that address (`users.email_confirmed_at`); an address only typed on a booking is
+not relied on, and staff see that payment on the list of payments to check with *no usable contact*. One message
+per payment (`payment-not-applied:<payment>`), and the payment is stamped told. The generic refund notice
+(*owed by a date*) is not sent as well for a payment this one told. An excess owed back after an overpayment is
+told by the refund notice, not this one.
+
 #### A venue taken off the marketplace
 
 When a venue is suspended by the owner (itself or with its business) or held for an invoice more than 14 days

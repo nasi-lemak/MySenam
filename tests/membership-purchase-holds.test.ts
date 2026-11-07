@@ -107,7 +107,9 @@ async function stripeEvent(id: string, type: string, object: Record<string, unkn
 }
 /** Billplz's server-to-server callback, signed with the venue's X Signature key. */
 async function billplzPaid(billId: string) {
-  const fields: Record<string, string> = { id: billId, paid: "true", paid_at: new Date().toISOString(), state: "paid" };
+  // As Billplz documents the callback: the bill's collection, what it was for and what was paid (ADR 0065).
+  const sen = String(Math.round(((await getDb().prepare("SELECT amount::float AS amount FROM online_payments WHERE bill_id = ?").get(billId)) as { amount: number }).amount * 100));
+  const fields: Record<string, string> = { id: billId, collection_id: "colhold", paid: "true", amount: sen, paid_amount: sen, paid_at: new Date().toISOString(), state: "paid" };
   fields.x_signature = xSignature(fields, BILLPLZ_SIGNATURE);
   const res = await callback(
     new NextRequest("http://localhost/api/payments/billplz/callback", {

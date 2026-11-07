@@ -86,6 +86,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "payment.paid": "Marked paid",
   "payment.unpaid": "Marked unpaid",
   "payment.refunded": "Recorded a refund",
+  "payment.settlement_check": "A payment was recorded as the gateway reported it",
+  "payment.settlement_reviewed": "Checked a payment that did not match",
   "court.created": "Added a court",
   "court.changed": "Changed a court",
   "credit.changed": "Changed stored credit",

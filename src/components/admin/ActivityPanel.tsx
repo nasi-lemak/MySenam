@@ -85,6 +85,8 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "payment.paid": "act.a.paymentPaid",
   "payment.unpaid": "act.a.paymentUnpaid",
   "payment.refunded": "act.a.paymentRefunded",
+  "payment.settlement_check": "act.a.paymentSettlementCheck",
+  "payment.settlement_reviewed": "act.a.paymentSettlementReviewed",
   "court.created": "act.a.courtCreated",
   "court.changed": "act.a.courtChanged",
   "credit.changed": "act.a.creditChanged",

@@ -1903,6 +1903,8 @@ async function tellRefundState(status: RefundStatus): Promise<boolean> {
   if (!first || !first.email?.trim()) return false;
   // A customer who cancelled themselves was told the date in the cancellation message.
   if (status.state === "owed" && (await getDb().prepare("SELECT 1 FROM messages WHERE booking_id = ? AND kind = 'booking_cancelled' LIMIT 1").get(first.id))) return false;
+  // A payment not applied has its own notice, which said what is owed back and why (`notifyPaymentNotApplied`).
+  if (status.state === "owed" && (await getDb().prepare("SELECT 1 FROM online_payments WHERE id = ? AND settlement_payer_told_at IS NOT NULL").get(status.paymentId))) return false;
   const court = await getCourt(first.courtId);
   const venue = court ? await getVenue(court.venueId) : null;
   if (!venue || !hasBeenLive(venue)) return false;
@@ -1930,5 +1932,58 @@ async function tellRefundState(status: RefundStatus): Promise<boolean> {
     },
     false
   );
+  return message !== null;
+}
+
+/**
+ * A payment was not applied (it came after the booking's hold was let go, was less than the page asked for, or could
+ * not be matched to the page: lib/payment-settlement.ts, ADR 0065). Its payer is told by email, once, what became of
+ * their booking and that their money is owed back, but only when the booking's email is one its account has proved is
+ * its own (`users.email_confirmed_at`). An address only typed on a booking is not relied on to tell anybody that money
+ * was taken: that payment is on staff's list of payments to check, marked with no usable contact, and its payer sees
+ * the outcome on the payment's return page. WhatsApp is not used (it needs a template Meta has approved). One
+ * message per payment, and the payment is stamped told. Returns whether it wrote one.
+ */
+export async function notifyPaymentNotApplied(paymentId: number): Promise<boolean> {
+  const db = getDb();
+  const p = (await db
+    .prepare(
+      `SELECT venue_id, amount::float AS amount, refund_due::float AS refund_due, settlement_issue, settlement_payer_told_at AS told
+         FROM online_payments WHERE id = ? AND venue_id IS NOT NULL AND purpose NOT IN ('invoice', 'pack')`
+    )
+    .get(paymentId)) as { venue_id: number; amount: number; refund_due: number; settlement_issue: string | null; told: string | null } | undefined;
+  if (!p || !p.settlement_issue || p.settlement_issue === "overpaid" || p.told) return false;
+  const { payerContact } = await import("./payment-settlement");
+  const who = await payerContact(paymentId);
+  if (who.contact !== "verified" || who.bookingId === null) return false;
+  const first = await getBookingById(who.bookingId);
+  const court = first ? await getCourt(first.courtId) : null;
+  const venue = court ? await getVenue(court.venueId) : null;
+  if (!first || !venue || !hasBeenLive(venue)) return false;
+  const key = `payment-not-applied:${paymentId}`;
+  if (await messageExists(key)) return false;
+  const locale = await localeOf(first.id);
+  const kind = p.settlement_issue === "hold_lapsed" ? "lapsed" : p.settlement_issue === "underpaid" ? "underpaid" : "held";
+  const message = await deliver(
+    first,
+    {
+      bookingId: first.id,
+      venueId: venue.id,
+      kind: "payment_not_applied",
+      locale,
+      subject: "hd1.pna.subject",
+      body: `hd1.pna.body.${kind}` as Phrase,
+      dedupeKey: key,
+      vars: {
+        name: firstName(first.name),
+        code: first.code,
+        venue: venue.name,
+        amount: money(p.refund_due > 0 ? p.refund_due : p.amount),
+        link: linkIn(`${await venueBaseUrl(venue.id)}${bookingLinkPath(first.code, first.date)}`, locale),
+      },
+    },
+    false
+  );
+  if (message !== null) await db.prepare("UPDATE online_payments SET settlement_payer_told_at = datetime('now') WHERE id = ? AND settlement_payer_told_at IS NULL").run(paymentId);
   return message !== null;
 }

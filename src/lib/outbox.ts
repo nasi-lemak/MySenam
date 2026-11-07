@@ -121,7 +121,13 @@ export type MessageKind =
    * overdue invoice): what stands, what waits and whom to ask, once per suspension (lib/suspension-notices.ts). Urgent news: not held
    * to the daily limit.
    */
-  | "venue_suspension_notice";
+  | "venue_suspension_notice"
+  /**
+   * By email only, once per payment, to the verified email of the customer whose payment was not applied (it came after their booking's
+   * hold was let go, was less than the page asked for, or could not be matched to it): their money is owed back and the booking is not
+   * confirmed by it (lib/notify.ts `notifyPaymentNotApplied`, ADR 0065). Urgent news: not held to the daily limit.
+   */
+  | "payment_not_applied";
 
 /**
  * Messages to the venue's own staff, which they asked for: not held to the
@@ -138,7 +144,7 @@ const UNCAPPED_KINDS: MessageKind[] = ["venue_new_booking", "venue_booking_chang
  * because a busy day (reminders, campaigns from several venues, class changes) is exactly when a cancellation matters most.
  * They are held to a much higher ceiling of their own instead (`urgentPerRecipientPerDay`).
  */
-export const URGENT_NEWS_KINDS: readonly string[] = [...URGENT_KINDS, "refund_notice", "venue_suspension_notice"];
+export const URGENT_NEWS_KINDS: readonly string[] = [...URGENT_KINDS, "refund_notice", "venue_suspension_notice", "payment_not_applied"];
 
 /** The most urgent notices one address or number is sent in a day (MYSENAM_URGENT_PER_RECIPIENT_PER_DAY, default 30). */
 export function urgentPerRecipientPerDay(): number {

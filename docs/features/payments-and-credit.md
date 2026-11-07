@@ -33,8 +33,9 @@ it is let go for somebody else and the customer is charged nothing.
   part-way through paying is not undercut. On Stripe the page itself closes
   then too, so a slot already let go cannot be paid for; a page opened earlier
   is sent again only while it has time left. Billplz pages cannot be closed: a
-  payment that still lands after the hold was let go is listed under *Refunds
-  owed*, as for any booking cancelled after paying.
+  payment that still lands after the hold was let go is **never turned back into
+  the booking** and is owed back ([settlement checks](#settlement-checks), owner
+  decision DEC-14, [ADR 0065](../architecture/decisions/0065-a-payment-is-settled-for-the-amount-the-gateway-took-and-never-into-a-lapsed-hold.md)).
 - A held slot comes free on time: holds are let go on the scheduler's tick,
   and on the way past whenever anybody books, searches or opens a day's
   availability. The waitlist is offered it.
@@ -146,8 +147,10 @@ running booking software and running a payments business.
   the booking's signed link ([links that open a booking](booking.md#links-that-open-a-booking)). A weekly series is paid in one bill; weeks already settled are left
   out. Pressing the button twice sends the customer to the same bill.
 - **Marked paid** only when Billplz says so, in a callback or the customer's
-  redirect back, and only after its signature checks out under that venue's
-  key. Either can arrive first; both are safe to repeat. The Bookings tab shows
+  redirect back, only after its signature checks out under that venue's
+  key, and only for the amount the page asked for
+  ([settlement checks](#settlement-checks)). Either can arrive first; both are
+  safe to repeat. The Bookings tab shows
   these as `✓ online`, which cannot be toggled off by mistake: that money is in
   Billplz, not the till.
 - **Refunds** — a booking paid online and then cancelled, or paid at the counter
@@ -260,6 +263,67 @@ running booking software and running a payments business.
   person hands it back. Staff voiding a gift voucher or a membership choose
   their own outcome (they are not a bulk cancellation) and stay on *Refunds
   owed* for the one-click or by-hand refund.
+
+### Settlement checks
+
+A report that a payment page was paid is believed for the amount the page asked for,
+never on its own (audit C19 and C18, [ADR 0065](../architecture/decisions/0065-a-payment-is-settled-for-the-amount-the-gateway-took-and-never-into-a-lapsed-hold.md);
+`src/lib/payment-settlement.ts`, `settleBill` in `src/lib/payments.ts`; migration 0316).
+What Billplz sends, as its documentation lists it (read 7 November 2026; **not yet
+exercised against a Billplz sandbox**): the callback carries `id`, `collection_id`,
+`paid`, `state` (`due`, `paid` or `deleted`), `amount` and `paid_amount` (in sen),
+`paid_at` and `x_signature`; the browser's redirect carries only `billplz[id]`,
+`billplz[paid]`, `billplz[paid_at]` and `billplz[x_signature]`. So:
+
+- **The callback is checked field by field** after its signature: `state` must be
+  `paid`, `collection_id` must be the collection this venue's account pays into,
+  `amount` must be the page's amount, and `paid_amount` is what was taken. The
+  payment is found by its bill (`bill_id`, unique) and checked under the key of the
+  venue it belongs to, so another venue's valid key does not settle it, and it is
+  claimed once, so it is never settled twice however often or at once it is reported.
+- **The redirect is checked against the bill itself**: a paid redirect is believed only when
+  Billplz's own record of the bill (`GET /api/v3/bills/:id`, with the venue's key) says the
+  same, with the same figures. If Billplz cannot be asked, nothing is applied and the
+  return page shows the payment's own state; the callback decides.
+- **The same** for Stripe: the session's amount and currency are held against the page's.
+
+| What the gateway reports | What is done |
+| ------------------------ | ------------ |
+| The page's amount | Settled as always; `received_amount` recorded |
+| More | The page's amount is settled; the excess is **owed back** (`refund_due`), the payment's `amount` becomes what was received and `billed_amount` keeps what was asked; the payment is on the list to check as *overpaid* |
+| Less, a bill not for the amount asked, another currency, a bill in another collection, or a paid report missing the amounts Billplz documents on it | **Nothing is applied.** What was received is recorded and all owed back; no receipt; the booking (or pass, membership, top-up) stays as it was and can be paid again on a new page; a purchase it was holding is let go and a subscription it started is stopped. On the list to check |
+| Something that disagrees after the payment was applied (a redirect with no figures came first) | Recorded and flagged; nothing undone |
+
+A refund *owed* is never a refund *paid*: Billplz refunds stay manual (*Refunds owed*, then
+*Mark refunded* after refunding in Billplz's dashboard). Each observation is one activity-log
+row (actor MySenam) beside the payment's own columns; nothing already written is edited.
+
+**Payments to check** (under *Online payment*, and a red line in *Needs attention* with
+the venue's count, the amount owed back and the oldest date): each payment that was not
+applied, owed an excess, or came after a hold was let go, with what was received against
+what was asked, what is owed back, and how the payer can be reached: *told by email* (an
+address their account has proved), or *no usable contact* (only an address typed on the
+booking, or none: ring them). *Mark checked* takes it off the list, once, with a note,
+and is in the activity log (`POST /api/admin/online-payments`); it moves no money. What is owed
+back is also under *Refunds owed*, where it is refunded in the usual way.
+
+**A payment after the booking's hold was let go** (owner decision DEC-14: do not revive).
+At settlement a booking whose hold has run out counts as lapsed whether or not the
+scheduler has let it go yet, so the outcome does not depend on the tick. Late is judged
+by when the payer paid, as the gateway's signed report says (Billplz's `paid_at`; else the
+moment it is reported), so a payment made inside the hold is not late because the callback
+came slowly; one made after it is, however soon it is reported. The payment is not
+taken into it, any lapsed hold is let go at once (the waiting list is offered the slot), and
+the payment is recorded as *paid after the hold was let go*, all of it owed back. The
+reservation is never recreated and no slot is taken from anyone who booked it meanwhile; a
+new booking is made through the ordinary availability and consent flow. Applies to a payment
+for a whole booking, a weekly series and a deposit, and so to a class place, which is a
+booking. A booking made on approval keeps its own rule
+([above](#paying-online-to-hold-a-booking)). The payer is told: the return page says the
+booking was **not confirmed** and the money is owed back, and, when the booking's email is
+one its account has proved, an email says so once (`payment_not_applied`); otherwise staff
+see *no usable contact*. Memberships, passes, vouchers and top-ups hold no scarce place, so
+a late payment for one is still issued, as before. Billplz refunds are by hand.
 
 The keys are encrypted in the database, which is the file that gets backed up
 and copied off the machine. The key that unlocks them is `MYSENAM_SECRET`, or,
@@ -789,6 +853,13 @@ Credit, a gift voucher (which becomes credit) and a pass are means of paying,
 not discounts: they pay the price as it stands after member prices,
 concessions and any promo code, and never change it
 ([discounts together](pricing.md#discounts-together)).
+
+**E-invoicing is an open question for credit and vouchers.** Their sale is a liability in the
+sales journal and the booking they pay is the sale, but the consolidated e-invoice carries both
+(RM130 for RM30 of sales, audit C2). What it should do is a tax question for the venue's adviser,
+not decided in code: see the [memo for the tax adviser](../operations/einvoice-stored-credit-memo.md).
+Switching e-invoicing on at a venue that has sold either is refused unless its manager says they
+understand ([MyInvois](../integrations/myinvois.md)).
 
 ### Whose credit it is
 

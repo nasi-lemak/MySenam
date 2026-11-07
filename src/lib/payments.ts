@@ -29,7 +29,7 @@ import { Booking, MAX_TOP_UP } from "./types";
 import { settleInvoice } from "./billing";
 import { settlePack } from "./whatsapp-credit";
 import { notifyBookingConfirmed, notifyPaid } from "./notify";
-import { extendHolds, holdPolicy, PAYMENT_PAGE_MINUTES } from "./holds";
+import { extendHolds, holdPolicy, PAYMENT_PAGE_MINUTES, releaseExpiredHolds } from "./holds";
 import { venueBaseUrl } from "./storefront";
 import { errorText, isLocale, translator, type ErrorCode } from "./i18n";
 import { money, region, isAmount, roundMoney } from "./region";
@@ -38,6 +38,7 @@ import { venueTax } from "./tax";
 import { clockValue, said, withPhrase, type StaffText } from "./staff-text";
 import { cancelPolicy, struckOut, type OnlineRefunds } from "./cancel-policy";
 import { activateVoucher, pendingVoucher, sendVoucher, type Voucher, type VoucherInput } from "./vouchers";
+import { assessSettlement, fromMinor, ISSUE_ENGLISH, logSettlement, recordReceived, toMinor, type Assessment, type SettlementIssue } from "./payment-settlement";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -320,6 +321,10 @@ interface PaymentRow {
   pass_holder_kind?: "customer" | "participant" | null;
   pass_participant_id?: number | null;
   pass_id?: number | null;
+  /** What the gateway reported taking and why a payment was not (or not wholly) applied (migration 0316; lib/payment-settlement.ts). */
+  received_amount?: number | null;
+  billed_amount?: number | null;
+  settlement_issue?: SettlementIssue | null;
 }
 
 export interface OnlinePayment {
@@ -359,6 +364,13 @@ export interface OnlinePayment {
   };
   /** On a refund owed (`refundsOwed`): since when, the date the customer was told, and whether that has passed. */
   owed?: RefundClock;
+  /**
+   * Why the money was not applied, or needs a look: set where the gateway's figures did not match the page's, or the
+   * payment came after the booking's hold was let go (lib/payment-settlement.ts, ADR 0065). `amount` is then what was
+   * received, and `billedAmount` what the page asked for.
+   */
+  settlementIssue?: SettlementIssue;
+  billedAmount?: number;
   /** The pass a payment for one issued (lib/pass-purchases.ts). */
   pass?: { code: string; name: string; venueId: number; venueName: string; expiresOn: string; holderName: string | null };
 }
@@ -421,6 +433,8 @@ async function toPayment(r: PaymentRow): Promise<OnlinePayment> {
     ...(r.membership_id ? { membership: await membershipSummary(r.membership_id) } : {}),
     ...(r.coach_change_id ? { coachChangeId: r.coach_change_id } : {}),
     ...(r.pass_id ? { pass: await passSummary(r.pass_id) } : {}),
+    ...(r.settlement_issue ? { settlementIssue: r.settlement_issue } : {}),
+    ...(r.billed_amount != null ? { billedAmount: Number(r.billed_amount) } : {}),
   };
 }
 
@@ -640,8 +654,99 @@ export interface Settled {
  * callback it thinks failed — so this is safe to call any number of times. A
  * booking cancelled, or paid some other way, before the money arrived is not
  * marked paid twice: the amount is written down as owed back instead.
+ *
+ * "Paid" is believed for the amount the page asked for, not on its own: the figures the gateway reports are held
+ * against the page's first (lib/payment-settlement.ts, ADR 0065). A match is settled below. More than was asked is
+ * settled for what was asked and the excess recorded as owed back. Less, or a report that cannot be matched to the
+ * page, is applied to nothing: the money received is recorded and owed back whole, and the payment goes on the list
+ * of payments to check (`holdUnapplied`).
  */
 export async function settleBill(result: PaymentResult): Promise<Settled | null> {
+  const row = (await getDb().prepare("SELECT * FROM online_payments WHERE bill_id = ?").get(result.billId)) as PaymentRow | undefined;
+  // A page that failed or is still open carries no money to check, and neither does a bill nobody here made.
+  if (!row || !result.paid) return settleOnce(result);
+  // A signed return whose amount could not be confirmed: nothing to apply, and nothing to let go either. Only the callback decides.
+  if (result.unconfirmed) return { payment: await toPayment(row), newlyPaid: [] };
+  const check = assessSettlement(row, result);
+  const applied = row.status === "paid";
+  if (check.kind === "hold" && !applied && (await holdUnapplied(row, result, check)))
+    return { payment: await toPayment((await getDb().prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id)) as PaymentRow), newlyPaid: [] };
+  const settled = await settleOnce(result);
+  // Written down once, under the guard that nothing was recorded: a repeat, or a redirect after the callback, adds nothing.
+  await recordReceived(row, check, applied || check.kind === "hold");
+  return settled;
+}
+
+/**
+ * The money arrived but is not what the page asked for (or cannot be matched to it): nothing is applied. The payment
+ * is claimed once (the same claim a settlement makes, so a callback repeated or two at once hold it once), recorded as
+ * what was received (`amount` becomes that, `billed_amount` keeps what was asked), all of it owed back, and flagged for
+ * staff; what the page was for (a booking, a pass, a membership, a top-up) is left as it was, a purchase it was
+ * holding is let go, and a subscription it started is stopped. Billplz refunds stay manual: staff refund from
+ * *Refunds owed*. Returns false when someone else had already claimed it.
+ */
+async function holdUnapplied(row: PaymentRow, result: PaymentResult, check: Extract<Assessment, { kind: "hold" }>): Promise<boolean> {
+  const db = getDb();
+  const receivedMinor = check.receivedMinor;
+  // What is treated as received: what the gateway said; failing that what the bill is said to be for; failing that what was asked.
+  const kept = fromMinor(receivedMinor ?? result.billedMinor ?? toMinor(row.amount));
+  let held = false;
+  await db.transaction(async () => {
+    const claimed = await db
+      .prepare(
+        `UPDATE online_payments
+            SET status = 'paid', paid_at = datetime('now'), received_amount = ?, billed_amount = amount, amount = ?, refund_due = ?,
+                settlement_issue = ?, settlement_issue_at = datetime('now')
+          WHERE id = ? AND status = 'pending'`
+      )
+      .run(receivedMinor === null ? null : fromMinor(receivedMinor), kept, kept, check.issue, row.id);
+    if (claimed.changes !== 1) return;
+    held = true;
+    await logSettlement(
+      row.venue_id,
+      `Payment ${row.id} (${row.bill_id}) was not applied: ${money(kept)} received against ${money(Number(row.amount))} asked, ${ISSUE_ENGLISH[check.issue]}; ${money(kept)} is owed back`
+    );
+  })();
+  if (!held) return false;
+  // What the page was for does not happen; what it was holding is let go.
+  if (row.purpose === "membership") await releaseForPayment(row.id, "not_applied");
+  if (row.purpose === "pass") await db.prepare("UPDATE online_payments SET page_closed_at = COALESCE(page_closed_at, datetime('now')) WHERE id = ?").run(row.id);
+  if (row.purpose === "coach" && row.coach_change_id) await (await import("./lesson-coaches")).releaseCoachPage(row.coach_change_id, row.coach_attempt ?? null);
+  if (result.subscriptionId) {
+    await db.prepare("UPDATE online_payments SET subscription_id = ? WHERE id = ?").run(result.subscriptionId, row.id);
+    await stopSubscription(result.subscriptionId);
+  }
+  await tellPayerNotApplied(row.id);
+  return true;
+}
+
+/** Tell the payer (by email, to an address their account has proved) that a payment was not applied. Never throws: the payment is recorded already. */
+async function tellPayerNotApplied(paymentId: number): Promise<void> {
+  try {
+    await (await import("./notify")).notifyPaymentNotApplied(paymentId);
+  } catch (err) {
+    console.error(`[mysenam] the payer of payment ${paymentId} could not be told it was not applied:`, err);
+  }
+}
+
+/**
+ * When the payer paid, as a hold judges it: the gateway's own time where its signed report gives one that can be
+ * believed (a callback can be retried for hours, and a payment made inside a hold is not late because the gateway was
+ * slow to say so), else now. Never earlier than the page was opened, never in the future. UTC, as holds are stored
+ * ("2026-11-07 10:00:00").
+ */
+export function paidInstant(reported: string | null | undefined, pageOpened: string | null | undefined, now = new Date()): string {
+  const utc = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
+  if (!reported) return utc(now);
+  // Billplz writes "2026-11-07 10:00:00 +0800"; others an ISO time.
+  const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-])(\d{2})(\d{2})$/.exec(reported.trim());
+  const at = new Date(m ? `${m[1]}T${m[2]}${m[3]}${m[4]}:${m[5]}` : reported);
+  if (Number.isNaN(at.getTime()) || at.getTime() > now.getTime() + 60_000) return utc(now);
+  if (pageOpened && utc(at) < String(pageOpened).slice(0, 19)) return utc(now);
+  return utc(at);
+}
+
+async function settleOnce(result: PaymentResult): Promise<Settled | null> {
   const db = getDb();
   const row = await db.prepare("SELECT * FROM online_payments WHERE bill_id = ?").get(result.billId) as
     | PaymentRow
@@ -898,6 +1003,8 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
   const newlyPaid: number[] = [];
   // Bookings a deposit was just paid on: held no longer, the rest due at the counter.
   const deposited: number[] = [];
+  // A booking this payment came too late for: its hold had run out (let go already, or not yet, on the scheduler's tick).
+  let lapsed = false;
   await db.transaction(async () => {
     const claimed = await db
       .prepare("UPDATE online_payments SET status = 'paid', paid_at = ? WHERE id = ? AND status = 'pending'")
@@ -907,11 +1014,13 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
     const linked = await db
       .prepare(`
         SELECT b.id, b.status, b.payment_status, b.total_price::float AS total_price, b.shares_paid::float AS shares_paid,
-               b.deposit_paid::float AS deposit_paid, pb.amount::float AS billed
+               b.deposit_paid::float AS deposit_paid, pb.amount::float AS billed, b.released_unpaid,
+               CASE WHEN b.hold_until IS NOT NULL AND b.hold_until < ?
+                     AND NOT EXISTS (SELECT 1 FROM approval_requests ar WHERE ar.booking_id = b.id) THEN 1 ELSE 0 END AS expired
           FROM online_payment_bookings pb JOIN bookings b ON b.id = pb.booking_id
          WHERE pb.payment_id = ?
       `)
-      .all(row.id) as {
+      .all(paidInstant(result.paidAt, row.created_at), row.id) as {
       id: number;
       status: string;
       payment_status: string;
@@ -919,25 +1028,38 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
       shares_paid: number;
       deposit_paid: number;
       billed: number | null;
+      released_unpaid: number | null;
+      expired: number;
     }[];
     let owed = 0;
+    // A payment is never taken into a booking whose hold has run out, and never brings one back (ADR 0065): the money is
+    // owed back, and what becomes of the booking is the hold's own doing: let go (below), for somebody else to book through
+    // the ordinary availability and consent flow. A booking made on approval has its own late-payment rule (lib/approvals.ts).
+    const wasLapsed = (b: { expired: number; released_unpaid: number | null }) => Number(b.expired) === 1 || Number(b.released_unpaid) === 1;
     if (row.deposit === 1) {
       // A deposit counts towards the booking like a share, on its own receipt; the booking stays unpaid
       // for the rest. Not for one cancelled, paid already, or with a deposit on it from another page.
       for (const b of linked) {
         const due = Math.round((Number(b.total_price) - Number(b.shares_paid)) * 100) / 100;
         const billed = Number(b.billed ?? 0);
-        if (b.status === "confirmed" && b.payment_status === "unpaid" && Number(b.deposit_paid) === 0 && billed <= due + 0.005) {
+        if (b.status === "confirmed" && b.payment_status === "unpaid" && Number(b.deposit_paid) === 0 && billed <= due + 0.005 && Number(b.expired) !== 1) {
           await db
             .prepare("UPDATE bookings SET shares_paid = shares_paid + ?, deposit_paid = deposit_paid + ? WHERE id = ?")
             .run(billed, billed, b.id);
           deposited.push(b.id);
-        } else owed += billed;
+        } else {
+          owed += billed;
+          if (wasLapsed(b)) lapsed = true;
+        }
       }
       if (owed > 0)
         await db
           .prepare("UPDATE online_payments SET refund_due = LEAST(amount, refund_due + ?) WHERE id = ?")
           .run(Math.round(owed * 100) / 100, row.id);
+      if (lapsed)
+        await db
+          .prepare("UPDATE online_payments SET settlement_issue = COALESCE(settlement_issue, 'hold_lapsed'), settlement_issue_at = COALESCE(settlement_issue_at, datetime('now')) WHERE id = ?")
+          .run(row.id);
       if (deposited.length > 0) {
         const codes = (await db
           .prepare(`SELECT code FROM bookings WHERE id IN (${deposited.map(() => "?").join(",")}) ORDER BY id`)
@@ -953,7 +1075,7 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
       const due = Math.round((Number(b.total_price) - Number(b.shares_paid)) * 100) / 100;
       // What this page asked for it; a page made before that was recorded asked what it cost.
       const billed = b.billed === null ? due : Number(b.billed);
-      if (b.status === "confirmed" && b.payment_status === "unpaid" && billed >= due - 0.005) {
+      if (b.status === "confirmed" && b.payment_status === "unpaid" && billed >= due - 0.005 && Number(b.expired) !== 1) {
         await db.prepare(
           "UPDATE bookings SET payment_status = 'paid', paid_at = ?, paid_via = 'online' WHERE id = ?"
         ).run(paidAt, b.id);
@@ -965,15 +1087,27 @@ export async function settleBill(result: PaymentResult): Promise<Settled | null>
           await db.prepare("UPDATE online_payment_bookings SET amount = ? WHERE payment_id = ? AND booking_id = ?").run(due, row.id, b.id);
         }
       } else {
-        // Cancelled, paid another way, or dearer than the page asked: none of it is kept for this booking.
+        // Cancelled, paid another way, dearer than the page asked, or its hold run out: none of it is kept for this booking.
         owed += billed;
+        if (wasLapsed(b)) lapsed = true;
       }
     }
     if (owed > 0)
       await db
         .prepare("UPDATE online_payments SET refund_due = LEAST(amount, refund_due + ?) WHERE id = ?")
         .run(Math.round(owed * 100) / 100, row.id);
+    if (lapsed)
+      await db
+        .prepare("UPDATE online_payments SET settlement_issue = COALESCE(settlement_issue, 'hold_lapsed'), settlement_issue_at = COALESCE(settlement_issue_at, datetime('now')) WHERE id = ?")
+        .run(row.id);
   })();
+  if (lapsed) {
+    // A booking whose hold ran out but that the tick has not let go yet is let go now (the waiting list offered the slot),
+    // and the payer is told their money is owed back and the booking was not confirmed.
+    await releaseExpiredHolds().catch((err) => console.error("[mysenam] letting go of lapsed holds after a late payment failed:", err));
+    await logSettlement(row.venue_id, `Payment ${row.id} (${row.bill_id}) came after the booking's hold was let go: ${money(Number(row.amount))} is owed back and the booking was not confirmed`);
+    await tellPayerNotApplied(row.id);
+  }
 
   const fresh = await db.prepare("SELECT * FROM online_payments WHERE id = ?").get(row.id) as PaymentRow;
   // A deposit on a held booking: it stands now, and is confirmed as one paid in full would be.

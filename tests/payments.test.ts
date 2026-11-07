@@ -88,14 +88,14 @@ function fakeBillplz() {
 }
 
 /** The callback Billplz would send for a bill, signed. */
-function callbackFields(billId: string, paid: boolean, key = SIGNATURE_KEY) {
+function callbackFields(billId: string, paid: boolean, key = SIGNATURE_KEY, sen = 2500) {
   const fields: Record<string, string> = {
     id: billId,
     collection_id: "col123",
     paid: paid ? "true" : "false",
     state: paid ? "paid" : "due",
-    amount: "2500",
-    paid_amount: paid ? "2500" : "0",
+    amount: String(sen),
+    paid_amount: paid ? String(sen) : "0",
     due_at: "2026-10-16",
     email: "",
     mobile: "60123456789",
@@ -423,19 +423,21 @@ describe("the routes", () => {
       })
     );
     expect(res.status).toBe(200);
-    const { url } = await res.json();
+    const { url, amount } = await res.json();
     const billId = url.split("/").pop();
+    // The callback names what the bill was for and what was paid: the page's own amount (ADR 0065).
+    const sen = toSen(amount);
 
-    const forged = await (await callback()).POST(form(callbackFields(billId, true, "guessed-key")));
+    const forged = await (await callback()).POST(form(callbackFields(billId, true, "guessed-key", sen)));
     expect(forged.status).toBe(400);
     expect((await findBooking(booking.code, PHONE))!.paymentStatus).toBe("unpaid");
 
-    const real = await (await callback()).POST(form(callbackFields(billId, true)));
+    const real = await (await callback()).POST(form(callbackFields(billId, true, SIGNATURE_KEY, sen)));
     expect(real.status).toBe(200);
     expect((await findBooking(booking.code, PHONE))!.paidOnline).toBe(true);
 
     // Billplz retries: the same callback again is still a 200, and changes nothing.
-    expect((await (await callback()).POST(form(callbackFields(billId, true)))).status).toBe(200);
+    expect((await (await callback()).POST(form(callbackFields(billId, true, SIGNATURE_KEY, sen)))).status).toBe(200);
   });
 
   it("a callback for a bill nobody made is turned away", async () => {

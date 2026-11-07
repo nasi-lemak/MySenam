@@ -5166,6 +5166,16 @@ const EN = {
   "err.FX8_PASS_NOT_LATER": "The new end must be today or later, and after the pass's present end, {date}.",
   "err.FX8_PASS_TOO_FAR": "A pass cannot run beyond {date}.",
   "err.FX8_GRACE_RANGE": "Give whole days from 0 to {max}; 0 turns it off.",
+  // Hardening (BILL, ADR 0065): a payment that was not applied, and what its payer is told
+  "hd1.pna.subject": "Your payment to {venue} was not applied to booking {code}",
+  "hd1.pna.body.lapsed": "Hello {name},\n\nYour payment of {amount} to {venue} arrived after the time your booking {code} was held for you had ended. The booking had already been let go, so this payment has not confirmed it. The {amount} is owed back to you, and the venue will refund it.\n\nYou can follow it here: {link}\n\nIf you still want to play, please make a new booking: it depends on the time being free.",
+  "hd1.pna.body.underpaid": "Hello {name},\n\nWe received a payment to {venue} for booking {code}, but it was less than the amount asked for, so it has not been applied to the booking. The {amount} we received is owed back to you, and the venue will refund it.\n\nYou can follow it here: {link}",
+  "hd1.pna.body.held": "Hello {name},\n\nWe received a payment to {venue} for booking {code}, but it could not be matched to what you were paying for, so it has not been applied. The {amount} is owed back to you, and the venue will check it and refund it.\n\nYou can follow it here: {link}",
+  "hd1.pay.lateTitle": "Payment received, booking not confirmed",
+  "hd1.pay.lateBody": "Your payment of {amount} came after the hold on your booking had ended, so the booking was let go and this payment did not confirm it. {amount} is owed back to you, and the venue refunds it. If you still want to play, make a new booking.",
+  "hd1.pay.heldTitle": "Payment received, not applied",
+  "hd1.pay.heldBody": "We received {amount}, but it could not be applied to what you were paying for, because it did not match what was asked. Nothing was confirmed by it. {amount} is owed back to you, and the venue refunds it. Ask the venue if you need help.",
+  "hd1.pay.overBody": "Thank you. {amount} has been paid for {codes}. You paid {extra} more than was asked: the venue owes that back to you.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10277,6 +10287,16 @@ const MS: Record<Phrase, string> = {
   "err.FX8_PASS_NOT_LATER": "Tarikh tamat baharu mestilah hari ini atau lebih lewat, dan selepas tarikh tamat pas sekarang, {date}.",
   "err.FX8_PASS_TOO_FAR": "Pas tidak boleh sah melepasi {date}.",
   "err.FX8_GRACE_RANGE": "Berikan bilangan hari penuh dari 0 hingga {max}; 0 mematikannya.",
+  // Hardening (BILL, ADR 0065): a payment that was not applied, and what its payer is told
+  "hd1.pna.subject": "Bayaran anda kepada {venue} tidak dikenakan pada tempahan {code}",
+  "hd1.pna.body.lapsed": "Helo {name},\n\nBayaran anda sebanyak {amount} kepada {venue} tiba selepas masa tempahan {code} ditahan untuk anda telah tamat. Tempahan itu sudah dilepaskan, jadi bayaran ini tidak mengesahkannya. Wang {amount} itu terhutang kepada anda, dan pusat akan memulangkannya.\n\nAnda boleh mengikutinya di sini: {link}\n\nJika anda masih mahu bermain, sila buat tempahan baharu: ia bergantung pada masa itu masih kosong.",
+  "hd1.pna.body.underpaid": "Helo {name},\n\nKami menerima bayaran kepada {venue} untuk tempahan {code}, tetapi jumlahnya kurang daripada yang diminta, jadi ia tidak dikenakan pada tempahan itu. Wang {amount} yang kami terima terhutang kepada anda, dan pusat akan memulangkannya.\n\nAnda boleh mengikutinya di sini: {link}",
+  "hd1.pna.body.held": "Helo {name},\n\nKami menerima bayaran kepada {venue} untuk tempahan {code}, tetapi ia tidak dapat dipadankan dengan apa yang anda bayar, jadi ia tidak dikenakan. Wang {amount} itu terhutang kepada anda, dan pusat akan menyemaknya dan memulangkannya.\n\nAnda boleh mengikutinya di sini: {link}",
+  "hd1.pay.lateTitle": "Bayaran diterima, tempahan tidak disahkan",
+  "hd1.pay.lateBody": "Bayaran anda sebanyak {amount} tiba selepas tahanan tempahan anda tamat, jadi tempahan itu dilepaskan dan bayaran ini tidak mengesahkannya. {amount} terhutang kepada anda, dan pusat akan memulangkannya. Jika anda masih mahu bermain, buat tempahan baharu.",
+  "hd1.pay.heldTitle": "Bayaran diterima, tidak dikenakan",
+  "hd1.pay.heldBody": "Kami menerima {amount}, tetapi ia tidak dapat dikenakan pada apa yang anda bayar kerana ia tidak sepadan dengan yang diminta. Tiada apa-apa yang disahkan olehnya. {amount} terhutang kepada anda, dan pusat akan memulangkannya. Tanya pusat jika anda memerlukan bantuan.",
+  "hd1.pay.overBody": "Terima kasih. {amount} telah dibayar untuk {codes}. Anda membayar {extra} lebih daripada yang diminta: pusat terhutang jumlah itu kepada anda.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

@@ -39,6 +39,38 @@ never knows which gateway a payment went through.
 - **Verification may ask the gateway.** A report's check can be a signature or
   a call to the gateway's own API, which is how a return address that carries
   no signature is checked.
+- **A report is also checked against the page** before anything is applied: the
+  bill, the collection, the currency and the amount the gateway says it took are held against
+  what the page asked for, and a payment that does not match is recorded and owed back,
+  never applied ([settlement checks](../features/payments-and-credit.md#settlement-checks),
+  [ADR 0065](../architecture/decisions/0065-a-payment-is-settled-for-the-amount-the-gateway-took-and-never-into-a-lapsed-hold.md)).
+  A gateway reports these in `PaymentResult` (`billedMinor`, `receivedMinor`, `currency`,
+  `mismatch`, `unconfirmed`); one that reports none is believed for the page's amount as before.
+
+### Billplz
+
+- **What its callback carries** (Billplz's API documentation, read 7 November 2026):
+  `id`, `collection_id`, `paid`, `state` (`due`, `paid` or `deleted`), `amount` and `paid_amount`
+  (integers, in sen), `due_at`, `email`, `mobile`, `name`, `url`, `paid_at` and `x_signature`;
+  `transaction_id` and `transaction_status` only if "extra payment completion information" is on.
+  The signature is HMAC-SHA256 over the other fields, each key then value, sorted without regard to
+  case and joined with `|`, under the venue's X Signature key (`src/lib/billplz.ts`).
+  **The redirect carries only** `billplz[id]`, `billplz[paid]`, `billplz[paid_at]` and `billplz[x_signature]`,
+  so MySenam asks Billplz for the bill (`GET /api/v3/bills/:id`, with the venue's API key) before it believes a
+  paid redirect. A callback is retried by Billplz up to five times (15 seconds, 15 minutes, 15 minutes, 24
+  hours) unless it is answered 200 within 20 seconds, so a forged or unknown report is answered 400 and a
+  real one 200 however often it arrives.
+- **What MySenam checks**: the signature; `state` is `paid`; `collection_id` is the collection the
+  venue entered; `amount` is the page's amount; `paid_amount` is what was taken; a paid callback
+  without `amount` or `paid_amount` is held, not believed.
+- **Not confirmed, and recorded as such**: whether a Billplz bill can be paid for less or more than its
+  amount (the documentation does not say, and its samples show `paid_amount` equal to `amount`
+  on a paid bill and `0` on a due one); whether `reference_1` (which MySenam sets to the booking
+  codes) can be read back on the bill, though the callback does not carry it. **Sandbox
+  verification is PENDING**: until a Billplz sandbox collection has been paid short, over and in full and its
+  callbacks and bill compared with the fields above, online payments through Billplz are not
+  live-verified (`INTEGRATION_VERIFICATION_REQUIRED`). The tests in `tests/billplz-settlement.test.ts` use
+  faithful payloads against a stand-in and prove the arithmetic and the guards, not Billplz.
 
 ### Stripe
 

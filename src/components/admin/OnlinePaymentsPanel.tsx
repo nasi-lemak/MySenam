@@ -3,6 +3,7 @@
 import { readJson } from "@/lib/read-response";
 import { useCallback, useEffect, useState } from "react";
 import type { OnlinePayment, PaymentDispute, PaymentSettings, RefundInFlight, RefundWorkload } from "@/lib/payments";
+import type { PaymentToCheck } from "@/lib/payment-settlement";
 import type { ManagedVenue } from "./shared";
 import { HoldPolicyEditor } from "./HoldPolicyEditor";
 import { money } from "@/lib/region";
@@ -33,6 +34,22 @@ export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedV
     coach: t("cp7.opay.coach"),
     pass: t("pso.opay.pass"),
   };
+  /** Why a payment is on the list of payments to check, and how its payer can be reached about it (ADR 0065). */
+  const ISSUE: Record<PaymentToCheck["issue"], string> = {
+    underpaid: t("hd1.chk.issue.underpaid"),
+    overpaid: t("hd1.chk.issue.overpaid"),
+    bill_amount: t("hd1.chk.issue.bill_amount"),
+    collection: t("hd1.chk.issue.collection"),
+    currency: t("hd1.chk.issue.currency"),
+    unverified: t("hd1.chk.issue.unverified"),
+    hold_lapsed: t("hd1.chk.issue.hold_lapsed"),
+    short_after_settled: t("hd1.chk.issue.short_after_settled"),
+  };
+  const CONTACT: Record<PaymentToCheck["contact"], string> = {
+    verified: t("hd1.chk.contact.verified"),
+    unverified: t("hd1.chk.contact.unverified"),
+    none: t("hd1.chk.contact.none"),
+  };
   const REFUND_STATE: Record<RefundInFlight["state"], string> = {
     asked: t("opay.state.asked"),
     failed: t("opay.state.failed"),
@@ -44,6 +61,7 @@ export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedV
   const [owed, setOwed] = useState<OnlinePayment[]>([]);
   const [inFlight, setInFlight] = useState<RefundInFlight[]>([]);
   const [disputes, setDisputes] = useState<PaymentDispute[]>([]);
+  const [toCheck, setToCheck] = useState<PaymentToCheck[]>([]);
   const [workload, setWorkload] = useState<RefundWorkload | null>(null);
   const [withinDays, setWithinDays] = useState(7);
   const [form, setForm] = useState({
@@ -81,6 +99,7 @@ export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedV
       setOwed(paymentsData.refundsOwed);
       setInFlight(paymentsData.refundsInFlight ?? []);
       setDisputes(paymentsData.disputes ?? []);
+      setToCheck(paymentsData.paymentsToCheck ?? []);
       setWorkload(paymentsData.workload ?? null);
       setWithinDays(paymentsData.refundWithinDays ?? 7);
     } catch (err) {
@@ -318,6 +337,44 @@ export function OnlinePaymentsPanel({ venues, desk = false }: { venues: ManagedV
                   state: REFUND_STATE[r.state],
                   since: clock.time(r.since, venueId),
                 })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {toCheck.length > 0 && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4" data-testid="payments-to-check">
+          <h3 className="font-semibold text-red-900">{t("hd1.chk.title")}</h3>
+          <p className="mt-0.5 text-xs text-red-800">{t("hd1.chk.intro")}</p>
+          <ul className="mt-2 space-y-2 text-sm">
+            {toCheck.map((p) => (
+              <li key={p.id} className="rounded-lg bg-white p-2.5 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium">{ISSUE[p.issue]}</p>
+                    <p className="text-xs text-slate-600">
+                      {p.billedAmount !== null && p.billedAmount !== p.amount
+                        ? t("hd1.chk.amounts", { received: money(p.amount), asked: money(p.billedAmount) })
+                        : t("hd1.chk.received", { received: money(p.amount) })}{" "}
+                      · {p.refundOwed > 0 ? t("hd1.chk.owed", { amount: money(p.refundOwed) }) : t("hd1.chk.noneOwed")} · {p.payerName ?? ""} {p.payerPhone ?? ""} ·{" "}
+                      {p.bookingCodes.length > 0 ? <span className="font-mono">{p.bookingCodes.join(", ")}</span> : (PURPOSES[p.purpose] ?? p.purpose)} · {p.providerName}{" "}
+                      <span className="font-mono">{p.billId}</span>
+                    </p>
+                    <p className={`text-xs ${p.contact === "verified" ? "text-slate-500" : "font-medium text-red-800"}`}>{CONTACT[p.contact]}</p>
+                  </div>
+                  <button
+                    disabled={busy}
+                    onClick={() => {
+                      const note = prompt(t("hd1.chk.notePrompt"), "");
+                      if (note === null) return;
+                      call("/api/admin/online-payments", "POST", { venueId, paymentId: p.id, action: "review", note }, t("hd1.chk.done"));
+                    }}
+                    className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-semibold text-red-900 hover:bg-red-100 disabled:opacity-50"
+                  >
+                    {t("hd1.chk.markChecked")}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

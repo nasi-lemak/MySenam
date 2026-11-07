@@ -81,6 +81,8 @@ export function AttentionPanel() {
     open: UrgentNotice[];
     recent: UrgentNotice[];
     refundsOverdue?: OverdueRefunds[];
+    /** Per venue: payments waiting to be checked (lib/payment-settlement.ts). */
+    paymentChecks?: { venueId: number; venueName: string; count: number; owed: number; oldest: string }[];
     guardianTasks?: NoticeTask[];
     guardianReviews?: GuardianReviews[];
     classCoachConflicts?: ClassCoachConflict[];
@@ -130,6 +132,7 @@ export function AttentionPanel() {
   }, [load]);
 
   const overdue = data?.refundsOverdue ?? [];
+  const paymentChecks = data?.paymentChecks ?? [];
   const tasks = data?.guardianTasks ?? [];
   const reviews = data?.guardianReviews ?? [];
   const guardians = tasks.length + reviews.length > 0;
@@ -155,7 +158,7 @@ export function AttentionPanel() {
   const modLines = mod ? (mod.openReports > 0 ? 1 : 0) + mod.suspensionsToReview.length + (mod.reviewRequests > 0 ? 1 : 0) : 0;
   const compLines = days.size + (comp?.undrawn.length ?? 0) + modLines;
   const overdueAccounts = data?.accountsOverdue ?? [];
-  if (!data?.open || !data.recent || (overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
+  if (!data?.open || !data.recent || (overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && paymentChecks.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
 
   /** Postpone a day's fixtures of a tournament or a team league to another day (ADR 0059). */
   async function postpone(d: { kind: CompetitionFixture["kind"]; ownerId: number; date: string }) {
@@ -425,6 +428,14 @@ export function AttentionPanel() {
           </ul>
         </div>
       )}
+      {paymentChecks.length > 0 && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-800" data-testid="payment-checks">
+          <strong>{t("hd1.att.checks")}</strong>{" "}
+          {t("hd1.att.checksHelp", {
+            list: paymentChecks.map((v) => t("hd1.att.checksVenue", { venue: v.venueName, count: v.count, amount: money(v.owed), date: v.oldest })).join("; "),
+          })}
+        </div>
+      )}
       {overdue.length > 0 && (
         <div className="mb-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-800">
           <strong>{t("att.refundsOverdue")}</strong>{" "}
@@ -437,7 +448,7 @@ export function AttentionPanel() {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 || moveRequests.length > 0 || overrideAlerts.length > 0 || flags.length > 0 ? t("att.title") : t("att.nothing")}
+          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || paymentChecks.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 || moveRequests.length > 0 || overrideAlerts.length > 0 || flags.length > 0 ? t("att.title") : t("att.nothing")}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">

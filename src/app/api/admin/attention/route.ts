@@ -4,6 +4,7 @@ import { logAction } from "@/lib/activity";
 import { closeNoticeTask, guardianReviews, openNoticeTasks } from "@/lib/contact-guardians";
 import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent";
 import { overdueRefunds } from "@/lib/payments";
+import { paymentChecksSummary } from "@/lib/payment-settlement";
 import { classCoachConflicts } from "@/lib/class-coaches";
 import { uncoveredSessions } from "@/lib/rosters";
 import { listMoveRequests } from "@/lib/class-move-requests";
@@ -67,6 +68,8 @@ export async function GET(req: NextRequest) {
     open: await openNotices(admin.venueIds),
     recent: await recentlyClosed(admin.venueIds),
     refundsOverdue: await overdueRefunds(admin.venueIds),
+    // Payments received and not applied, an excess owed back, a payment after a hold was let go: waiting for a look (ADR 0065).
+    paymentChecks: await paymentChecksSummary(admin.venueIds),
     guardianTasks: await openNoticeTasks(admin.venueIds),
     guardianReviews: admin.role === "desk" ? [] : await guardianReviews(admin.venueIds),
     // Upcoming class sessions whose coach cannot teach them as set (lib/class-coaches.ts): never silently dropped.
