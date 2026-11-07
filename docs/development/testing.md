@@ -104,7 +104,7 @@ acceptance scenario (UAT)**. `ci` is another name for it.
 A step passes only when its process exited 0, no test or test file in it
 failed, it ran tests, and nothing was skipped that
 [`scripts/lib/expected-skips.mjs`](../../scripts/lib/expected-skips.mjs) does not
-allow: on PGlite only the Postgres-only tests listed there (13 tests in 7 files,
+allow: on PGlite only the Postgres-only tests listed there (15 tests in 8 files,
 which must then run on Postgres); on Postgres, the browser tests and the
 acceptance scenarios, **nothing**. A process that is killed, runs past its time
 limit (type-check 25 minutes, the suites 90, the build 40, the acceptance
