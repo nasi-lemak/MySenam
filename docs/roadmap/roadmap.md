@@ -19,6 +19,8 @@ are added here as PROPOSED until the owner decides.
 
 | Idea | Status | Why, and what it needs |
 | ---- | ------ | ---------------------- |
+| Write a customer's credit note at settlement so the cash-up and the payout agree | PROPOSED | A customer's cancellation of a counter payment keeps its credit note at the cancel ([ADR 0074](../architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md)); moving it changes the tax document's date: the owner's and the adviser's choice. |
+| Show what the venue will return at the counter on My Booking | PROPOSED | Only the cancel response and the email say so today. |
 | Billplz sandbox settlement check | BLOCKED | The Billplz test keys and a sandbox account (the owner). Settlement checks are built and tested against stand-in payloads ([ADR 0065](../architecture/decisions/0065-a-payment-is-settled-for-the-amount-the-gateway-took-and-never-into-a-lapsed-hold.md)); online payments are not offered until `node scripts/verify-integrations.mjs billplz` passes against the sandbox, including whether a bill can be short-paid and that `paid_amount` is on the callback. |
 | E-invoicing of stored credit and vouchers (C2, DEC-19) | BLOCKED | A qualified Malaysian tax adviser's answer to the questions in the [memo](../operations/einvoice-stored-credit-memo.md). Until then a venue that sells credit or vouchers cannot switch e-invoicing on without acknowledging that. |
 | Renewal notice and plan improvements for current members | PROPOSED | A member is not told before an automatic renewal that a plan's benefits changed, and a venue cannot give current terms an improvement ([ADR 0071](../architecture/decisions/0071-a-membership-keeps-the-benefits-it-was-sold-with.md)). Needs a renewal message (audit D11). |
@@ -149,6 +151,7 @@ Done means the acceptance criterion below was checked, not that code exists.
 | 70. Class places held for payment and several offers at once (7 November 2026, [ADR 0070](../architecture/decisions/0070-class-places-held-for-payment-and-several-offers-at-once.md)) | Delivered | Audit B9 = E10, B6. |
 | 71. A membership keeps the benefits it was sold with (7 November 2026, migrations 0337, 0338, [ADR 0071](../architecture/decisions/0071-a-membership-keeps-the-benefits-it-was-sold-with.md)) | Delivered | Audit D6, D18, D19. |
 | 72. A host's no-show mark is told, answered and reviewed (7 November 2026, migration 0341, [ADR 0072](../architecture/decisions/0072-a-hosts-no-show-mark-is-told-answered-and-reviewed-and-counts-at-its-venue.md)) | Delivered | Audit F6, E16, D11/G16 (in part), D13 (documented). |
+| 73. A customer's cancellation of a counter-paid booking is owed back at the counter (7 November 2026, migrations 0346, 0347, [ADR 0074](../architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md)) | Delivered | The counter-refund gap found by the cross-domain tests. |
 
 Deliberate exclusions (surge pricing, referral credit) are recorded under
 [known limitations](known-limitations.md#deliberately-unsupported), not here.
