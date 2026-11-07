@@ -183,7 +183,9 @@ one rather than the other.
   through within a link's life is dropped.
 - **The email**, through the outbox in the language the page was in, held
   like a password reset's (no venue's, its text not kept once sent, never
-  readdressed, not sent once its link would have run out):
+  readdressed, not sent once its link would have run out), as **security
+  mail** (kind `auth_email`: [forgotten passwords](#forgotten-passwords),
+  [ADR 0073](decisions/0073-security-mail-is-its-own-class-and-a-production-marketplace-needs-email-that-can-deliver.md)):
   - an address no account holds gets a link to `/register` to finish;
   - an address with an account gets a notice saying it already has one, that
     nothing was made or changed, with a link to sign in and one to ask for a
@@ -211,10 +213,23 @@ one rather than the other.
   address ([rate limiting](security.md#rate-limiting)); an address is sent at
   most 3 emails an hour and 5 a day, links and notices together
   (`registration_links`, kept a day for the count), past which requests are
-  answered the same and nothing is sent; the outbox's daily cap per recipient
-  stands behind both. Checking and using a link count against the sign-in
-  limit, as a reset does. The form's hidden field, filled in only by scripts,
-  gets the same answer, and nothing is sent.
+  answered the same and nothing is sent. A request made within 60 seconds of
+  the last, or while the last email has not gone yet (the provider is down),
+  makes no second link and no second email: the one waiting is sent when it
+  can be. Behind these stands the security-mail allowance of the outbox (10 a
+  day to an address, apart from the ordinary mail limit). Checking and using a
+  link count against the sign-in limit, as a reset does. The form's hidden
+  field, filled in only by scripts, gets the same answer, and nothing is sent.
+  **Many people behind one venue network count together** against the per-address
+  registration limit (5 an hour; raise it with `MYSENAM_SIGNUPS_PER_ADDRESS_PER_HOUR`
+  where a venue's own Wi-Fi is the front door).
+- **When email cannot deliver.** On a production marketplace whose email is not
+  set up, is invalid or contradictory, has no sender, or only logs, the form
+  does not answer *check your email*: it answers `503` `EMAIL_UNAVAILABLE`
+  (*Sign-up and password reset are not available right now. Please contact the
+  venue you booked with, or try again later.*), the same for every address,
+  and writes nothing down ([email configuration](../integrations/messaging.md#email-configuration-and-its-checks)).
+  The page's *check your email* says an email is on its way, not that it was sent.
 
 An account records when its address was proved (`email_confirmed_at`,
 migration 0224): made by this link, made by Google with an address Google has
@@ -340,11 +355,26 @@ message to whoever runs the site (`src/lib/password-reset.ts`).
   and on the scheduler's next tick, so the time taken does not tell either.
   A request not worked through within the link's 30 minutes is dropped, and
   the address is kept only until it is worked through. An account gets at
-  most three links an hour, and the endpoints share the sign-in rate limit;
+  most three links an hour (a link lives 30 minutes, so that is also the most
+  that can be open at once), and the endpoints share the sign-in rate limit;
   asking is also limited per client address whichever accounts it names (30
-  an hour), so one place cannot send a link to every account it can name or
-  fill the queue ahead of everybody else's
-  ([rate limiting](security.md#rate-limiting)).
+  an hour; many people behind one network count together, and the limit can be
+  raised with `MYSENAM_RESETS_PER_ADDRESS_PER_HOUR`), so one place cannot send a
+  link to every account it can name or fill the queue ahead of everybody
+  else's ([rate limiting](security.md#rate-limiting)).
+- **One email for one wish.** A request made within 60 seconds of the last
+  link for the account, or while the last link's email has not gone yet (the
+  provider is down), makes no second link and no second email, and is answered
+  the same: what is waiting is sent when it can be. The link, its email and the
+  checks are one transaction under a lock on the account, so requests that
+  arrive together make one.
+- **Security mail, not ordinary mail** (`auth_email`, [ADR 0073](decisions/0073-security-mail-is-its-own-class-and-a-production-marketplace-needs-email-that-can-deliver.md)).
+  The email is not held to the outbox's limit of 8 a day for ordinary mail and
+  does not count towards it; it has an allowance of its own, 10 a day to an
+  address (`MYSENAM_AUTH_MAIL_PER_RECIPIENT_PER_DAY`). Past it the email is
+  written off, marked not sent with the reason, its link is void, and the
+  platform's owners are told ([what the operator does](../integrations/messaging.md#security-mail)).
+  The person is told what everybody is told.
 - A link for an account that has been erased or removed since it was sent is
   refused like any other that cannot be used (`RESET_INVALID`): nobody is
   signed in. Changing the password signed in voids the links still out, as
@@ -366,17 +396,19 @@ The links go out by email (Amazon SES or SMTP, with `MAIL_FROM`: [email transpor
 send them; with `MYSENAM_SEND=log` they are written to the server log instead,
 which is how to test it locally.
 
-What the person sees when no email arrives is always *check your email*: the
-answer must not depend on the address. The email is queued and retried while
-its link could still be used; one the mail server could not take before the link
-ran out is dropped (*not sent: it ran out*) and the person asks again. Nobody is
-told of that, and the outbox's daily limit per address (8 messages, of every
-kind) applies to these emails too: an address already sent that many today is
-sent no link, and the message is kept marked not sent
-([security](security.md#limits-that-follow-the-phone-number)). Whether mail
-reaches an inbox at all also depends on the domain's SPF, DKIM and DMARC
-records and the mail provider's sender verification, which are set up outside
-the code and are not checked by it.
+What the person sees when no email arrives is always *a link is on its way*:
+the answer must not depend on the address, and it promises nothing the provider
+has not accepted. The email is queued and tried again soon, after 1, 2, 5 and
+then every 10 minutes, while its link could still be used (it is "sent" only once
+the provider accepted it); one the mail server could not take before the link
+ran out is dropped unsent (*not sent: it ran out*), the platform's owners get
+the `auth-mail-expired` alert, and the person asks again. The person is not
+told. Whether mail reaches an inbox at all also depends on the domain's SPF,
+DKIM and DMARC records and the mail provider's sender verification, which are
+set up outside the code and are not checked by it
+([SES checklist](../operations/email-ses-checklist.md)); the app itself checks
+only that email is set up and valid, and on a production marketplace refuses
+the request when it is not.
 
 ## Staff invitations
 
@@ -418,7 +450,7 @@ remove whom is in [tenancy](tenancy.md#who-manages-staff-accounts).
   and the acceptance scenarios) both work: a blank password invites, the
   email written to the server log.
 - **The link is never shown to staff.** The email is filed under the venue it is for, and the venue's messages screen is open to the
-  front desk, so a link into somebody's account (kind `account_email`: an invitation, a reset, an address to confirm) is not shown
+  front desk, so a link into somebody's account (kind `account_email` or `auth_email`: an invitation, a reset, an address to confirm) is not shown
   there or in the platform owner's list, whatever state the message is in, nor any other link with a `token=` in a staff view
   (`forStaff` in `src/lib/outbox.ts`); a front-desk account cannot read an invitation to become a manager and accept it first. Sending
   an invitation again gives up an earlier one that had not gone, link and all.

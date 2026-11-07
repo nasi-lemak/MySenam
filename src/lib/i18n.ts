@@ -2626,7 +2626,7 @@ const EN = {
   "su7.intro": "Enter your email address. We will email you a link to finish creating your account.",
   "su7.send": "Email me a link",
   "su7.checkTitle": "Check your email",
-  "su7.check": "We have sent an email to {email}. Open the link in it within {minutes} minutes to finish creating your account. If this address already has an account, the email says how to sign in instead.",
+  "su7.check": "An email is on its way to {email}. Open the link in it within {minutes} minutes to finish creating your account. If this address already has an account, the email says how to sign in instead.",
   "su7.notArrived": "Nothing after a few minutes? Check your spam folder, or try again.",
   "su7.otherAddress": "Use another address",
   "su7.finishTitle": "Finish creating your account",
@@ -5264,6 +5264,7 @@ const EN = {
   "series.staysArrived": "Stays booked: you have arrived for it, so the venue's staff decide",
   // ADR 0074: money paid at the counter and a booking cancelled: the venue hands it back at the counter, and nothing is said to have been returned before it has.
   "rf74.refundCounter": "The venue will return {amount} to you at the counter, where you paid it. It has not been returned yet: the credit note is only the record of the cancellation, not the refund.",
+  "err.EMAIL_UNAVAILABLE": "Sign-up and password reset are not available right now. Please contact the venue you booked with, or try again later.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -7843,7 +7844,7 @@ const MS: Record<Phrase, string> = {
   "su7.intro": "Masukkan alamat e-mel anda. Kami akan menghantar pautan melalui e-mel untuk melengkapkan pembukaan akaun anda.",
   "su7.send": "Hantar pautan kepada saya",
   "su7.checkTitle": "Semak e-mel anda",
-  "su7.check": "Kami telah menghantar e-mel ke {email}. Buka pautan di dalamnya dalam masa {minutes} minit untuk melengkapkan pembukaan akaun anda. Jika alamat ini sudah mempunyai akaun, e-mel itu menerangkan cara untuk log masuk.",
+  "su7.check": "Satu e-mel sedang dihantar ke {email}. Buka pautan di dalamnya dalam masa {minutes} minit untuk melengkapkan pembukaan akaun anda. Jika alamat ini sudah mempunyai akaun, e-mel itu menerangkan cara untuk log masuk.",
   "su7.notArrived": "Tiada apa-apa selepas beberapa minit? Semak folder spam anda, atau cuba lagi.",
   "su7.otherAddress": "Guna alamat lain",
   "su7.finishTitle": "Lengkapkan pembukaan akaun anda",
@@ -10472,6 +10473,7 @@ const MS: Record<Phrase, string> = {
   "err.CANCEL_AFTER_ARRIVAL": "Anda sudah tiba untuk tempahan ini, jadi ia tidak lagi boleh dibatalkan atau dikurangkan dalam talian. Jika anda tidak dapat bermain, sila hubungi kakitangan pusat.",
   "series.staysArrived": "Kekal ditempah: anda sudah tiba, jadi kakitangan pusat yang memutuskan",
   "rf74.refundCounter": "Pusat akan memulangkan {amount} kepada anda di kaunter, tempat anda membayarnya. Ia belum dipulangkan: nota kredit hanyalah rekod pembatalan, bukan bayaran balik.",
+  "err.EMAIL_UNAVAILABLE": "Pendaftaran dan tetapan semula kata laluan tidak tersedia buat masa ini. Sila hubungi pusat tempat anda membuat tempahan, atau cuba lagi kemudian.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

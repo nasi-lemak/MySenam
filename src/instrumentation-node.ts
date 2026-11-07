@@ -38,6 +38,12 @@ export async function startNode(): Promise<void> {
   const { checkStaffTwoFactorSetting } = await import("./lib/two-factor");
   const refusedTwoFactor = await checkStaffTwoFactorSetting();
   if (refusedTwoFactor) console.error(`[mysenam] ${refusedTwoFactor}`);
+  // Email that cannot deliver: on a production marketplace sign-up and forgotten-password requests are refused (not answered "check your
+  // email" with nothing sent), said here and to the owners; elsewhere a warning (ADR 0073). Never a message sent, never a provider asked.
+  const { checkEmailConfiguration } = await import("./lib/email-health");
+  const emailProblem = await checkEmailConfiguration();
+  if (emailProblem?.level === "error") console.error(`[mysenam] ${emailProblem.message}`);
+  else if (emailProblem) warn(emailProblem.message);
   const { scanMode, withdrawnOptOutSet } = await import("./lib/document-scanner");
   if (scanMode() === "unconfigured")
     warn("No malware scanner is configured (MYSENAM_CLAMD): supporting documents sent with applications wait in quarantine, and nobody can open them, until one is.");

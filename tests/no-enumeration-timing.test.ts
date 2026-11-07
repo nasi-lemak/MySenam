@@ -88,7 +88,12 @@ describe("signing in", () => {
 });
 
 describe("asking for a password reset", () => {
-  const forget = () => getDb().prepare("DELETE FROM password_resets").run();
+  // The race below asks for far more links than a real address is sent in a day; the security-mail allowance (ADR 0073) would write the
+  // later ones off, so the mails of the address are forgotten with the links.
+  const forget = async () => {
+    await getDb().prepare("DELETE FROM password_resets").run();
+    await getDb().prepare("DELETE FROM messages WHERE kind = 'auth_email'").run();
+  };
 
   it("does the same awaited work whether or not an account holds the address", async () => {
     await settleResetRequests();
@@ -177,7 +182,8 @@ describe("asking to sign up", () => {
       );
     expect(await subjects("timed@timing.my")).toEqual(["You already have a MySenam account"]);
     expect(await subjects("nobody-signup@timing.my")).toEqual(["Finish creating your MySenam account"]);
-    expect(await subjects("pending-signup@timing.my")).toEqual(["Finish creating your MySenam account", "Finish creating your MySenam account"]);
+    // A link already out and not yet sent is not made again (ADR 0073): the second request is answered the same and sends nothing more.
+    expect(await subjects("pending-signup@timing.my")).toEqual(["Finish creating your MySenam account"]);
     expect((await getDb().prepare("SELECT COUNT(*)::int AS n FROM registration_requests").get()) as { n: number }).toEqual({ n: 0 });
   });
 

@@ -478,7 +478,7 @@ export async function correctStaff(by: Admin, id: number, change: { name?: unkno
     to: target.email,
     subject: own("r9a.mail.movingSubject", { site: siteName() }),
     text: own("r9a.mail.movingBody", { name: target.name.split(/\s+/)[0], who: by.name, email, site: siteName() }),
-    kind: "account_email",
+    kind: "auth_email",
     venueId: target.venueId,
     locale: own.locale,
   });

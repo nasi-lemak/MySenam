@@ -90,11 +90,14 @@ the one-click unsubscribe headers.
 | Goes through | nodemailer, to any SMTP server, on port 25, 465 or 587 | SESv2 `SendEmail` at `https://email.<region>.amazonaws.com/v2/email/outbound-emails`, port 443 |
 | Why | Any provider | Many cloud hosts refuse outgoing SMTP ports, especially on new accounts; HTTPS is not refused |
 
-If both are set, **SES is used and `SMTP_URL` is not**. SES is chosen only
+If both are set, **SES is used and `SMTP_URL` is not** (the validator calls that `contradictory`
+and a production marketplace refuses to take sign-ups on it: [email configuration](#email-configuration-and-its-checks)). SES is chosen only
 when all four of its required settings are present; the `AWS_*` variable
 names are deliberately not read, since other tools on a machine set them
 (sometimes to placeholders). With neither set, messages queue and the
-dashboard says so, as for any unconfigured channel.
+dashboard says so, as for any unconfigured channel; on a production marketplace
+sign-up and forgotten-password requests are refused instead of answered
+*check your email* ([email configuration](#email-configuration-and-its-checks)).
 
 **How the SES transport sends** (`src/lib/ses.ts`). The message is built
 with nodemailer (`streamTransport`), without sending it, to get the finished
@@ -292,6 +295,106 @@ invoice under its own key and the invoice stamped after (`issued_notified_at`,
 twice, and the overdue warning is now told before it is stamped. Invoices issued
 before the change are not told as new. Front-desk staff are not sent the invoice.
 
+### Security mail
+
+*(Pilot-readiness limitations L1 and L4; [ADR 0073](../architecture/decisions/0073-security-mail-is-its-own-class-and-a-production-marketplace-needs-email-that-can-deliver.md).)*
+
+The mail a person cannot get into, or keep, their own account without is a kind of its own, `auth_email`, and is
+not counted with ordinary mail:
+
+| Message | Where |
+| ------- | ----- |
+| A sign-up link, and the notice an existing account is sent in its place | `src/lib/registration.ts` |
+| A password-reset link, customers and staff | `src/lib/password-reset.ts` |
+| The notice that a staff member's two-factor sign-in was reset | `src/lib/two-factor-reset.ts` |
+| The notice to the old address that a staff account's address was moved | `src/lib/staff-accounts.ts` |
+
+Staff and player invitations, guest invitations, guardians' requests, team invitations, membership suspensions and an
+application's address check stay `account_email` (held to the day's limit for ordinary mail as before): they are not what gets a
+person into their own account.
+
+- **Handled as `account_email` is.** The link is never shown to staff and not kept once the message has gone, been given up or been
+  written off; it is never readdressed and staff cannot put it back in the queue (the person asks again).
+- **Counted apart.** Ordinary mail's limit (8 a day per recipient) neither counts it nor holds it: eight booking mails to an address
+  leave its reset and sign-up links alone, and a flood of reset requests for a victim never uses up their booking confirmations.
+  Security mail has an allowance of its own, **10 a day per address**
+  (`MYSENAM_AUTH_MAIL_PER_RECIPIENT_PER_DAY`, 5 to 100), counted among security mail alone.
+- **One email for one wish.** A reset request within 60 seconds of the account's last link, or while that link's email has not yet
+  gone, is answered like any other and makes no second link or email; the account's cap is 3 links an hour; a sign-up address's
+  3 an hour and 5 a day. Requests that arrive together make one.
+- **Honest about delivery.** "Sent" is set only when the provider accepted the message. A temporary failure is tried again after
+  1, 2, 5 and then every 10 minutes while the link is valid (ordinary mail's wait grows to two hours); a refusal that cannot be
+  helped is given up at once with the reason; a link that ran out before delivery is dropped unsent, "Not sent: it ran out before
+  it could go". All three stay in the platform's messages (*Venues & staff → Messages → Platform emails*) as `failed` or
+  `abandoned` with the reason. `abandoned` is the outbox's one terminal "given up" status.
+- **Past the allowance** the message is written `abandoned` ("Not sent: already 10 sign-in and account emails to this address
+  today…"), the link it would have carried is void, and the platform's owners get the `auth-mail-ceiling` alert (at most one in six
+  hours, never naming the address). A link that ran out unsent raises `auth-mail-expired`. The person is told what everybody is
+  told: nothing about the address is revealed.
+- **What the operator does for a legitimate person who is locked out.** Open the platform's messages and find the email to their
+  address: *Not sent: already N sign-in and account emails* means the allowance (it falls as the day's count ages; asking again
+  after the oldest of the counted emails is a day old works; an address that is being flooded is somebody else's attack and
+  should wait, not be raised), *ran out before it could go* means the provider was down (check [email health](#email-configuration-and-its-checks),
+  fix it, then they ask again), a provider's reason means that (a sender not verified, the sandbox). Confirm who they are by the
+  means the venue already has (a booking code and the phone number on it). The operator **never sends a link by hand and never
+  reads one out of the database**: tokens are kept only as keyed hashes and the text of an account email is not kept. A person
+  whose account uses Google can sign in with Google meanwhile. Raising `MYSENAM_AUTH_MAIL_PER_RECIPIENT_PER_DAY` is for an install
+  whose legitimate traffic needs it, not for one address.
+- **Shared networks.** Sign-up requests are counted per client address (5 an hour) and reset requests per client address (30 an
+  hour); many people behind one venue network count together. Both can be raised
+  (`MYSENAM_SIGNUPS_PER_ADDRESS_PER_HOUR`, `MYSENAM_RESETS_PER_ADDRESS_PER_HOUR`); the sign-in budget (10 in 10 minutes) that the
+  link pages share is not a setting ([rate limiting](../architecture/security.md#rate-limiting)).
+
+Tested in `tests/auth-mail-allowance.test.ts` (eight ordinary messages then a reset, a sign-up and a notice; the allowance and its
+alert; repeated and concurrent requests, on PGlite and Postgres; a temporary failure and its retries; a refusal; a link that ran out;
+one-time use; an unknown address; a shared network) with a stand-in provider. That proves the app's handling, not delivery.
+
+### Email configuration and its checks
+
+*(Pilot-readiness limitation L2; [ADR 0073](../architecture/decisions/0073-security-mail-is-its-own-class-and-a-production-marketplace-needs-email-that-can-deliver.md).)*
+
+`src/lib/email-config.ts` is the one validator of the install's email settings. It reads the environment and answers with a state:
+
+| State | Means |
+| ----- | ----- |
+| `not_configured` | no provider at all |
+| `invalid` | SES half set up, a region that is not an AWS region, an SMTP address that is not `smtp://` or `smtps://` with a host, or a `MAIL_FROM` with no address in it |
+| `contradictory` | SES and SMTP both set (the app uses SES and ignores SMTP) |
+| `missing_sender` | a provider and no `MAIL_FROM` |
+| `log_only` | `MYSENAM_SEND=log`: every message, links included, goes to the server log and is marked sent |
+| `configured_unverified` | looks right; no controlled delivery check is recorded |
+| `delivery_verified` | looks right, and `MAIL_DELIVERY_VERIFIED` holds the fingerprint of exactly this provider and sender |
+
+Problems name settings and never their values. **Provider reachable** is not a state but an explicit call that asks the provider
+without sending a message (Amazon SES's account call, or an SMTP connection and sign-in): the owner's `POST /api/admin/system`
+with `{"check":"email"}`, and the verification script. It is never made at start-up, by a page, or by the tests, and *reachable* is
+not *delivered*. **Delivery verified** is never inferred from credentials: `node scripts/verify-integrations.mjs email --send`
+(to an address the operator controls, `VERIFY_EMAIL_TO`) prints the fingerprint after the provider accepted the message; once a
+person has confirmed in that inbox that it arrived, not in spam, with SPF, DKIM and DMARC passing, the operator sets
+`MAIL_DELIVERY_VERIFIED` to it and restarts. Changing the provider (region or host) or the sender gives a new fingerprint and
+returns the install to *configured, unverified*.
+
+**On a production marketplace** (`NODE_ENV=production` and `MYSENAM_MARKETPLACE=on`, as the staff two-factor default reads
+it), a state that cannot deliver (everything above except the last two, `log_only` included) **refuses** a sign-up request and a
+forgotten-password request, for customers and staff: `503` `EMAIL_UNAVAILABLE` ("Sign-up and password reset are not available
+right now. Please contact the venue you booked with, or try again later."), the same whatever the address, with nothing written
+down. The start-up log says so as an error and the owners get a `config:email` alert. The one exception is
+`MYSENAM_SEND=log` together with `MYSENAM_SYNTHETIC_DATA=on`, for staging and acceptance installs that hold synthetic data and no
+real account; it is honoured and flagged all the same. There is no other bypass. `configured_unverified` does not refuse (requests
+queue and are tried; the owners' alert says delivery has not been verified until it is). An install that is not a marketplace is
+warned, not refused; there is no mode that switches authentication off. Development and tests keep their mock and log transports
+and are never refused.
+
+**What the owner sees** (`GET /api/admin/system`, `email`; the *System health* panel for the alerts): the state and its
+problems; the last hour's sends (accepted, refused, share refused); the email waiting and the age of the oldest (a venue's bulk
+news excluded); what was given up in the last day, security mail apart. The scheduler checks after each outbox pass, at most
+every five minutes: `email:failing` when at least 5 sends in an hour were tried and at least half were refused, `email:backlog`
+when the oldest waiting email is 30 minutes old, `config:email` for the configuration, each cleared when it stops. A message's
+`last_attempt_at` (migration 0343) is what the hour is counted on; messages from before it are not counted. No token, link
+or credential is ever in a log, an alert or this answer (tested across a full reset flow, a failure and a recovery).
+
+Setting up Amazon SES for real customers, with the controlled check, is in the [SES checklist](../operations/email-ses-checklist.md).
+
 ### Emails that belong to no venue's customers
 
 Emails to people applying to list a venue, password reset links, alerts to
@@ -302,7 +405,7 @@ twice:
 
 | Message | Kind | Belongs to | Gives up |
 | ------- | ---- | ---------- | -------- |
-| Password reset link (customers and staff) | `account_email` | the platform | when the link runs out (`expires_at`, the reset's own lifetime) |
+| Password reset link (customers and staff), a sign-up link | `auth_email` ([security mail](#security-mail)) | the platform | when the link runs out (`expires_at`, the reset's own lifetime) |
 | Confirming an application's email address | `account_email` | the platform | when the confirmation link runs out |
 | An application approved, refused, or asked for more | `applicant` | the platform | after seven days of failing (`MYSENAM_MESSAGE_MAX_AGE_DAYS`), or at once for an address that is not one |
 | Alerts to the platform's owners (system alerts such as a failed backup, courts or classes piling up, an application, a reported review, a dispute on the platform's account) | `staff_alert` | the platform | after seven days |
@@ -312,7 +415,7 @@ twice:
   its link stops working is given up ("Not sent: it ran out before it could
   go"), not retried, and cannot be put back in the queue, to the same
   address or another.
-- **What it carries is not kept.** Once an `account_email` is sent, given up
+- **What it carries is not kept.** Once an `account_email` or `auth_email` is sent, given up
   or capped, its body (with the link) is wiped from the outbox; the owners'
   list shows that it went, never the link.
 - **Staff alerts are not held to the daily limit** that protects customers
