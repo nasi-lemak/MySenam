@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE, authenticateAdmin, createAdminSession, getAdminById } from "@/lib/admin-auth";
 import { hasTwoFactor, issueLoginTicket, redeemLoginTicket } from "@/lib/two-factor";
-import { failedFor, rateLimit, refusedFor } from "@/lib/rate-limit";
+import { clientAddress, failedFor, rateLimit, refusedFor } from "@/lib/rate-limit";
 import { sessionCookieOptions } from "@/lib/session-cookie";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,9 @@ export async function POST(req: NextRequest) {
   if (typeof ticket === "string" && typeof code === "string") {
     const limitedCode = await rateLimit(req, "login", ticket);
     if (limitedCode) return limitedCode;
-    const done = await redeemLoginTicket(ticket, code);
+    const done = await redeemLoginTicket(ticket, code, clientAddress(req));
+    // Too many tries for this account from here: waited out, never a lock for good (lib/two-factor.ts `countAttempt`).
+    if (!done.ok && done.locked) return NextResponse.json({ error: done.error }, { status: 429, headers: { "Retry-After": String(done.retryAfter ?? 60) } });
     if (!done.ok) return NextResponse.json({ error: done.error }, { status: 401 });
     return signedIn(req, done.adminId);
   }

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
-import { ADMIN_SESSION_COOKIE, canAccessVenue, getAdminByToken } from "@/lib/admin-auth";
+import { ADMIN_SESSION_COOKIE, canAccessVenue, getActingStaffByToken } from "@/lib/admin-auth";
 import { cashUpAs } from "@/lib/cash-up";
 import { getVenue } from "@/lib/store";
 import { momentClock } from "@/lib/region";
@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function CashUpPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const token = (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
-  const admin = token ? await getAdminByToken(token) : null;
+  // Held to the install's two-factor rule as every staff page is: an account that has not set it up is nobody's staff here (ADR 0064).
+  const admin = token ? await getActingStaffByToken(token) : null;
   const ask = await searchParams;
   const venueId = Number(ask.venueId);
   if (!admin || !Number.isInteger(venueId) || venueId <= 0 || !canAccessVenue(admin, venueId)) notFound();

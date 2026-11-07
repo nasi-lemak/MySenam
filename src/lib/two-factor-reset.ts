@@ -6,7 +6,7 @@ import { emailPlain } from "./outbox";
 import { siteName } from "./site";
 import { translator, type T } from "./i18n";
 import { staffReaderLocale } from "./staff-locales";
-import { checkSecondFactor, hasTwoFactor } from "./two-factor";
+import { checkSecondFactor, clearAttempts, hasTwoFactor } from "./two-factor";
 
 /**
  * Two-factor sign-in reset, for a member of staff who has lost both their
@@ -41,6 +41,8 @@ async function reset(target: Admin, entry: { by: Admin | null; reason: string })
       .run(target.id);
     await db.prepare("DELETE FROM admin_sessions WHERE admin_id = ?").run(target.id);
     await db.prepare("DELETE FROM admin_login_tickets WHERE admin_id = ?").run(target.id);
+    // Whatever the attempts at its code had added up to is cleared with it: this is how a locked-out account is let back in at once.
+    await clearAttempts(target.id);
     // AI assistants signed in as the account are signed out with it (lib/mcp/oauth.ts).
     await db.prepare("UPDATE oauth_grants SET revoked_at = datetime('now'), revoked_reason = 'two-factor sign-in was reset' WHERE admin_id = ? AND revoked_at IS NULL").run(target.id);
     await db
@@ -70,7 +72,7 @@ async function reset(target: Admin, entry: { by: Admin | null; reason: string })
  * Reset `targetId`'s two-factor sign-in, by `by`, who proves it is them with
  * `code` (their own current code or one of their recovery codes).
  */
-export async function resetTwoFactorFor(by: Admin, targetId: number, input: { reason: unknown; code: unknown }): Promise<ResetResult> {
+export async function resetTwoFactorFor(by: Admin, targetId: number, input: { reason: unknown; code: unknown; address?: string }): Promise<ResetResult> {
   if (!isOwner(by) && !isManager(by)) return refused("Only a platform owner or a business manager can reset two-factor sign-in.");
   if (targetId === by.id) return refused("You cannot reset your own two-factor sign-in. Use a recovery code, or ask somebody above you.", 409);
   const reason = typeof input.reason === "string" ? input.reason.trim() : "";
@@ -82,7 +84,7 @@ export async function resetTwoFactorFor(by: Admin, targetId: number, input: { re
   if (isOwner(target) && !isOwner(by)) return refused("Only another platform owner can reset an owner's two-factor sign-in.");
   // Somebody resetting others' protection has it on themselves, and shows it now.
   if (!(await hasTwoFactor(by.id))) return refused("Turn two-factor sign-in on for your own account before resetting anybody else's.");
-  if (typeof input.code !== "string" || !(await checkSecondFactor(by.id, input.code)))
+  if (typeof input.code !== "string" || !(await checkSecondFactor(by.id, input.code, input.address ?? "")))
     return refused("Your own two-factor code is not right.", 401);
   if (!(await hasTwoFactor(target.id))) return refused("That account does not have two-factor sign-in on.", 409);
   await reset(target, { by, reason });

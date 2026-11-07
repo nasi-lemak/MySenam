@@ -269,7 +269,10 @@ these once with a real account, in its sandbox where it has one:
 - [ ] **Secrets**: `ADMIN_EMAIL` and an `ADMIN_PASSWORD` of 12 characters or
       more set before the first start (without it production makes no owner
       and refuses the published default); `MYSENAM_SECRET` set and
-      kept out of backups; two-factor sign-in on for the owner account.
+      kept out of backups; two-factor sign-in on for the owner account (on a
+      marketplace the owner and every manager are required to enrol at first
+      sign-in, by default, and `MYSENAM_STAFF_2FA=off` is refused:
+      [two-factor sign-in](../architecture/authentication.md#two-factor-sign-in)).
 - [ ] **Email**: either Amazon SES over HTTPS (`SES_ACCESS_KEY_ID`,
       `SES_SECRET_ACCESS_KEY`, `SES_REGION`, `MAIL_FROM`; SES wins if
       `SMTP_URL` is set too) or SMTP (`SMTP_URL`, `MAIL_FROM`; ports 25, 465

@@ -61,18 +61,62 @@ of the admin dashboard by scanning a QR code.
 - **Signing in** with it on takes the password, then the code. The password
   alone earns a five-minute ticket, not a session, and five wrong codes void
   it. A code is good once: the same one twice is refused.
+- **Attempts are counted before the code is looked at** ([ADR 0064](decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md)).
+  The ticket's attempt is taken in the statement that claims it, so parallel
+  requests cannot all pass the cap of five before any is counted (forty wrong
+  codes sent at once on one ticket are five answers); then the attempt is
+  counted against the account from that address (10 in 15 minutes) and the
+  account from anywhere (50 in an hour), in `admin_two_factor_attempts`
+  (migration 0313), by one atomic upsert each, so every instance and every
+  parallel request counts against one number. Past a limit the attempt is
+  refused (`429`, `Retry-After`) and the code is **not** looked at, a right one
+  included. Every limit ends by itself when its fixed window does (failing again
+  does not extend it); a refused attempt from one address does not count
+  against the account, so one address cannot lock everybody out; a wrong code
+  never clears a counter, and a right one clears only that address's and gives the
+  account's attempt back. The same count guards the other places a code is
+  asked for (turning it off, new recovery codes, an owner resetting somebody
+  else's). A ticket is used up by the first right code (a second request
+  holding it, however close, is turned away), and a ticket that never existed,
+  ran out or was used is answered alike: the answers say nothing of whether an
+  account exists or which factor it has. **The way back from a lock** is waiting
+  out the window, signing in from another address meanwhile, or a reset by
+  somebody with authority over the account, which clears the counters at once
+  ([below](#two-factor-sign-in)); nothing here locks an account for good, and the
+  addresses are kept as a keyed hash, not as addresses
+  (`tests/two-factor-attempts.test.ts`).
 - **Recovery codes**, ten, are shown once when it is turned on, for a lost
   phone; each signs in once, and new ones can be made (which voids the old).
   Only their hashes are kept, and the app's secret is sealed like payment keys.
+- **Compulsory by default on a production marketplace** (`MYSENAM_MARKETPLACE=on`
+  and `NODE_ENV=production`): the platform owner, business managers and venue
+  managers must have it, front desk may choose, with nothing set. `off` (or a
+  value that is not `owners`, `managers` or `all`) **cannot undo it**: it is
+  refused, enforcement carries on at `managers`, the start-up log says so and the
+  owners are alerted (`config:staff-2fa`); `owners` is raised to `managers`, and
+  `all` stays `all`. The one way a production marketplace runs without it is
+  `MYSENAM_SYNTHETIC_DATA=on` together with `MYSENAM_STAFF_2FA=off`, which says the
+  install holds synthetic data and no real account (staging and the acceptance
+  server): honoured, and flagged by an alert all the same. Anywhere else (a
+  development machine, the tests, one venue's own install) it is as configured, and
+  unset, each account chooses (`staffTwoFactor` in `src/lib/two-factor.ts`,
+  [ADR 0064](decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md),
+  `tests/staff-two-factor-default.test.ts`). It is read on every request, so the
+  first owner enrols at first sign-in (nothing skips it), a session made before
+  the rule applied is not staff until its account has enrolled, and a branch staff
+  member made manager (or a desk account made manager) must enrol at the next
+  thing they do; after a reset the account is back to enrolling.
 - **Compulsory** with `MYSENAM_STAFF_2FA` (`owners`, `managers` or `all`): an
-  account without it can sign in only to set it up, and cannot turn it off.
+  account without it can sign in only to set it up, and cannot turn it off. What the
+  dashboard is told about such an account (`/api/admin/auth/me`) is that and nothing else:
+  no venues.
   It is staff nowhere else until it has: not in the admin routes
   (`requireAdmin`), and not where a public route or page recognises staff
   (`getActingStaff`, `getActingStaffByToken` in `src/lib/admin-auth.ts`): the
   counter booking or enrolling through `/api/bookings` and
   `/api/classes/enrol`, staff-only rooms and the manager's override in
   `/api/availability`, a preview of a venue not yet open, a platform invoice's
-  page. Asking one of those for what only staff do (an override, paid at the
+  page, the day's cash-up sheet. Asking one of those for what only staff do (an override, paid at the
   counter) answers `403` `TWO_FACTOR_REQUIRED`; anything else is answered as
   for anybody signed out (`tests/staff-two-factor-gate.test.ts`).
 - Turning it on or off goes in the staff activity log.

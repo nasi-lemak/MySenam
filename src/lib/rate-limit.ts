@@ -177,6 +177,11 @@ function clientKey(req: NextRequest): string {
   return addressBucket(req.headers.get("x-real-ip") ?? "unknown");
 }
 
+/** Where a request came from, as a limit counts it (a v6 address as its /64): for what is kept against an address in the database. */
+export function clientAddress(req: NextRequest): string {
+  return clientKey(req);
+}
+
 /**
  * The address a limit counts against. An IPv6 user is handed a whole /64 (or
  * more) and can walk through it at will, so a v6 address counts as its /64;
