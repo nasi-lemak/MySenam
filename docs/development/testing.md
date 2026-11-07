@@ -964,6 +964,41 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 8 November 2026, commit `d844e4a` (final operational hardening, release verification on the AI VM: PASS)
+
+`node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
+on a loopback port), of commit `d844e4a7a5f22342f47c14f0f4c3389efca8fe25`, tree clean, source digest `50df113e84edcff7f56a19bd5434dc07d84e6846b7c0baa53d367d198b05ec22` (the same
+before and after the run). Started 19:51 UTC on 7 November (03:51 Malaysian time on the 8th), 5477 seconds. Report: `artifacts/verify/d844e4a7a5f2-1794081060593.json` (not committed). This
+verifies the source of the [final operational hardening round](../audits/final-operational-hardening-2026-11-07.md): security mail as its own class, owed-back tasks for a customer's counter-paid
+cancellation, validated production email, the tournament-day helper, migrations 0342 to 0347. **This is not CI** (no GitHub Actions job was started) **and not production readiness.**
+
+| Step | Result |
+| ---- | ------ |
+| Type-check | Passed |
+| Lint (`--max-warnings 0`) | Passed |
+| Documentation checks | 174 of 174 passed |
+| Suite on PGlite | 6939 passed, 0 failed, 15 skipped (the 15 Postgres-only tests listed in `scripts/lib/expected-skips.mjs`), of 6954 |
+| Suite on PostgreSQL 16 | 6955 passed, 0 failed, **0 skipped**, of 6955; the server committed 2427 transactions during it (Postgres was used) |
+| Production build (`.next` removed first) | Succeeded |
+| Browser end-to-end tests | 12 of 12 passed |
+| Acceptance scenarios (UAT) | 27 files; 95 of 95 passed, none skipped |
+| CI | Not run: GitHub Actions workflows start only by hand |
+| Real services | None exercised (below) |
+
+**How it got there.** Before it, one complete run failed and one was lost; neither was retried into a pass:
+
+| Run | Commit | Failed | Cause and fix |
+| --- | ------ | ------ | ------------- |
+| 1 | `82f07a6` | One acceptance scenario (everything else passed: PGlite 6939 of 6954, Postgres 6955 of 6955, end-to-end 12 of 12) | *Email 4* had a stranger type a new account's address seconds after that account's own sign-up link and expected the *you already have an account* email; security mail now has a 60-second cooldown per address (ADR 0073), so none is sent that fast. The scenario waits a minute: the product behaviour is the intended one (a defect of a test about a changed rule) |
+| (lost) | `82f07a6` | A container restart killed a run during the acceptance scenarios | No report was written; it counts as nothing |
+| 2 | `d844e4a` | Nothing | PASS |
+
+Two defects of tests were found by a full PGlite run before these, not by them: `tests/qualification-levels.test.ts` chose dates by weekday and collided on a Sunday in Malaysian time (it failed the same way on `c23ca9e` that day); and one run of `tests/erasure-ledger-restore.test.ts` crashed with a no-space error while the VM's disk was at 99%
+(see [known limitations](../roadmap/known-limitations.md)). Commits after `d844e4a` that change only this file leave the verification standing; `node scripts/verify.mjs check` says so.
+
+**Not verified by this run, by name** (each is in the report's `integrations`, with the command that checks it): Amazon SES (the read-only check on 7 November found DMARC and SPF records, could not read the account or the identity, and sent nothing; see
+[provider verification](../operations/pilot-provider-verification.md)), Billplz (blocked: no sandbox credentials), Backblaze B2 (blocked: no credentials), Stripe, WhatsApp, SMS, MyInvois, Xero, Google sign-in, ClamAV on the Droplet. The suites use stand-ins for all of them.
+
 #### 7 November 2026, commit `c23ca9e` (post-audit hardening round, release verification on the AI VM: PASS)
 
 `node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
