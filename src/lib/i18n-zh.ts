@@ -5091,9 +5091,9 @@ export const ZH: Record<Phrase, string> = {
   "hd1.pay.heldTitle": "已收到付款，但未生效",
   "hd1.pay.heldBody": "我们收到了 {amount}，但它与所要求的不符，因此无法用于您所付的项目，也没有使任何事项生效。这 {amount} 应退还给您，场馆会为您退款。如需帮助，请联系场馆。",
   "hd1.pay.overBody": "谢谢。已为 {codes} 支付 {amount}。您多付了 {extra}，场馆会把这部分退还给您。",
-};
   "err.CANCEL_AFTER_ARRIVAL": "您已到达此预订的场地，因此无法再在线取消或减少人数。如果您确实无法使用，请联系场馆工作人员。",
-  "series.staysArrived": "保留预订：您已到达，由场馆工作人员决定",};
+  "series.staysArrived": "保留预订：您已到达，由场馆工作人员决定",
+};
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */
 export const CUSTOMER_ERRORS_ZH: Record<string, string> = {

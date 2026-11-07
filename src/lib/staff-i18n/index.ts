@@ -44,8 +44,7 @@ import { sayWith, type StaffText } from "../staff-text";
  */
 export { STAFF_LOCALES, staffLocale, staffLocales, type StaffLocale };
 
-export const STAFF_AREAS = { common, approvals, server, bookings, competitions, teams, ratings, ladders, accounting, rosters, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp, playerMessages, money };
-export const STAFF_AREAS = { common, approvals, server, bookings, competitions, teams, ratings, ladders, accounting, rosters, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp, playerMessages, people };
+export const STAFF_AREAS = { common, approvals, server, bookings, competitions, teams, ratings, ladders, accounting, rosters, courts, credit, platform, reports, settings, shell, venues, alerts, guide, guideSetup, guidePlaybook, guideHelp, playerMessages, money, people };
 
 const EN = {
   ...common.en,
