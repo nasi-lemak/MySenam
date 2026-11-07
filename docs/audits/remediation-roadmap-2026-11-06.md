@@ -249,3 +249,11 @@ a week of a pilot venue's own use with the daily *Refunds owed* and *Needs atten
 clear; and the owner's written answers to DEC-05, DEC-03 (a stance), DEC-14 and DEC-24.
 What would make it worse: a first venue that wants unmanned hours, online payment
 before the sandbox check, or stored credit in volume.
+
+## Status after the hardening round
+
+*Added on 7 November 2026. The findings above are kept as written (audit records are
+never rewritten).* What the [hardening round](hardening-2026-11-07.md) did to each
+remaining finding, with its tests and what remains, is in
+[that record](hardening-2026-11-07.md#2-what-the-round-did-to-each-remaining-finding), and
+the open items are in [known limitations](../roadmap/known-limitations.md#business-process-audit-6-november-2026-open-items).

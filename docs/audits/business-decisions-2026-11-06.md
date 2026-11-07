@@ -701,3 +701,39 @@ The records are [ADR 0053](../architecture/decisions/0053-a-closure-is-written-f
 | DEC-57 | Implemented | Payer details, messages and webhook deliveries reached by erasure and the 730-day rule (provisional: not a statement of what the law requires). ADR 0057 |
 | DEC-58 | Owner | Not changed (G20) |
 | DEC-59 | Owner | Not changed (G20) |
+
+## Status after the hardening round
+
+*Added on 7 November 2026, after the [hardening round](hardening-2026-11-07.md) the
+owner authorised in writing; the sections above still say what was open at the
+baseline.* The owner authorised these decisions by name; each is built in the way its
+[decision record](../architecture/decisions/) says, and **remains the owner's to
+confirm or change where the record names a choice the brief did not settle**. None of
+it settles a tax, consumer-law or data-protection question, and none was checked
+against a real provider.
+
+One decision was added: **DEC-60**, below. Of the now 60 decisions, **27** are
+implemented, **14** in part and **19** remain for the owner.
+
+| ID | Outcome now | What was built, and what stays with the owner |
+| -- | ----------- | --------------------------------------------- |
+| DEC-05 | Implemented | On a production marketplace the owner, business managers and branch managers must enrol in two-factor by default, the front desk may; `off` is refused (enforcement stays on, logged, owner alert), not an exit at start, which the owner may prefer; a staging override exists for synthetic data only. ADR 0064 |
+| DEC-09 | Implemented | The terms shown at booking govern that booking (alternative (a)); earlier bookings use the current terms, nothing invented; refund method and strike rules stay live. ADR 0069 |
+| DEC-11 | Implemented | Online class enrolments are held for payment like courts and released to the waiting list; staff and counter enrolments are not held. ADR 0070 |
+| DEC-14 | Implemented | A payment after the hold lapsed never revives the booking; it is owed back, listed and told to a confirmed address. Billplz refunds stay manual (DEC-24). ADR 0065 |
+| DEC-16 | In part | The difference is shown first and given back the way it was paid. **Owner:** that staff (managers only) may keep it after the cutoff; stored credit offered in the app; pass-paid returns nothing; the venue's own court move keeps the price. ADR 0067 |
+| DEC-19 | Owner | **Not decided.** The memo, the guard on enabling e-invoicing at a venue that sells credit or vouchers, and a test pinning the current RM130 for RM30 of sales are in; the treatment is a tax adviser's. ADR 0065 |
+| DEC-33 | Owner | A kept amount never makes the time free (built); whether percentages should always be recomputed is open. ADR 0067 |
+| DEC-34 | Implemented | A term keeps the benefits it was sold with; renewals take the plan then; legacy terms are backfilled from the current plan and marked. **Owner:** telling a member before a renewal; a way to give current members an improvement. ADR 0071 |
+| DEC-38 | In part | Needs-attention lists and one email each for an ending pass or membership and a recorded no-show. **Owner:** voucher emails, a second reminder, the ringgit liability line. ADR 0072 |
+| DEC-40 | Implemented | The desk is included: no check-in of a refused number, with no override. ADR 0064 |
+| DEC-45 | Implemented | A customer's own or verified check-in sends a cancellation to staff, nothing forfeited; a shown code alone changes nothing. **Owner:** the stricter reading that an unconfirmed self check-in also goes to staff was taken. ADR 0069 |
+| DEC-50 | Implemented | A mark needs a reason, the player is told and answers, a manager reviews, the host can take it back, it counts at its venue; platform-wide only by the owner with a written reason. ADR 0072 |
+| DEC-60 | Implemented | See below. ADR 0067 |
+
+### DEC-60 Discounts when a booking moves
+
+- **Question.** A rescheduled booking lost the last-minute discount a fresh booking at that time would get (audit B11), and a kept concession amount could make the new time free (D3). No decision record existed.
+- **Alternatives.** (a) The discount is an entitlement fixed when the booking was made and tied to its time: a move re-prices a marked booking as it was made, minute by minute, and a booking never earns one by moving. (b) Recompute the discount at the new time for every booking. (c) Drop any discount on a move.
+- **Decided (the owner's principle of 7 November: do not silently create or remove a discount on a reschedule).** (a), shown before the customer confirms; a concession or code stays at its amount but never makes the time free.
+- **Status.** Implemented, [ADR 0067](../architecture/decisions/0067-a-paid-booking-moved-cheaper-gives-the-difference-back-and-a-move-never-silently-changes-a-discount.md). Open: DEC-33, whether percentages are recomputed.

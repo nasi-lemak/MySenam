@@ -172,6 +172,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | What the consolidated e-invoice does with stored credit and gift vouchers today, where it counts them twice, what LHDN's FAQ and Guideline say (read 7 November 2026), and the questions for a Malaysian tax adviser (audit C2, DEC-19; no treatment chosen) | [E-invoicing and stored value: a memo for the tax adviser](operations/einvoice-stored-credit-memo.md) |
 | The questions to put to a Malaysian lawyer before youth messaging is enabled, with the interim measure for each, and the launch gate | [Legal review: youth messaging](operations/legal-review-youth-messaging.md) |
 | What to do when something goes wrong: severity, containment, evidence, recovery, breach notification in Malaysia and Singapore | [Incident response](operations/incident-response.md) |
+| Whether a restricted pilot can start: the capability matrix, integrations, operating conditions, acceptance criteria | [Pilot readiness](operations/pilot-readiness-2026-11-07.md) |
 | Installs from before Postgres or before the rename from MudahTempah, and outages from before migration 0090 | [Legacy installs](archive/migrations/legacy-installs.md) |
 
 ## Plans, research and audits
@@ -184,7 +185,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | Go-to-market research, October 2026: competitors, costs, pricing, segments, and what became of its recommendations | [Go-to-market research](research/go-to-market/index.md) |
 | Where to store and scan supporting documents, and at what cost (October 2026): object storage, on-demand scanners and GuardDuty compared with clamd on the 4 GB Droplet; a recommendation, not a decision | [Document storage and scanning costs](research/2026-10-27-document-storage-and-scanning-costs.md) |
 | Audits by date, and a tracker of the launch audit's open items | [Audits](audits/index.md) |
-| The business-process audit of 6 November 2026: every finding with evidence and status, and what is left in order | [Findings register](audits/findings-register-2026-11-06.md) ([E to H](audits/findings-register-2026-11-06-e-to-h.md)), [remediation roadmap](audits/remediation-roadmap-2026-11-06.md) |
+| The business-process audit of 6 November 2026: every finding with evidence and status, and what is left in order | [Findings register](audits/findings-register-2026-11-06.md) ([E to H](audits/findings-register-2026-11-06-e-to-h.md)), [remediation roadmap](audits/remediation-roadmap-2026-11-06.md), [the hardening round that followed](audits/hardening-2026-11-07.md) |
 | The same audit's workflow inventory, consistency matrix, state machines and owner decisions | [Inventory](audits/business-process-inventory-2026-11-06.md), [cross-domain consistency](audits/cross-domain-consistency-2026-11-06.md), [state transitions and recovery](audits/state-transitions-and-recovery-2026-11-06.md), [business decisions](audits/business-decisions-2026-11-06.md) |
 
 ## Where new information belongs
