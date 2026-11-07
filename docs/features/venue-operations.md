@@ -1058,6 +1058,16 @@ booked or declined (and by whom). Where the venue gave an address for new
 bookings, it is emailed there too. Staff then book the courts themselves,
 blocking them or booking them in the customer's name.
 
+**An enquiry nobody has answered is on the staff *Needs attention* list**
+(`enquiriesAttention` in `src/lib/enquiries.ts`; hardening round E17, [ADR 0066](../architecture/decisions/0066-operations-hardening-grants-deliveries-leases-and-the-worklist.md)),
+oldest first, whether or not the venue set an alert email or a WhatsApp number: the email is a courtesy and the list is the record
+that somebody must answer. Each line says who asked, what for and how long ago; after **two days** (`ENQUIRY_NUDGE_DAYS`) it adds a
+gentle line that the customer is waiting, and that a short reply, even only to say staff will come back to them, is kind. Nothing
+is sent to the customer or to staff by it. It shows the first 20 and says how many more there are, to the venue's own staff
+(front desk too) and to the platform owners for every venue; it carries the name and kind only, never the message or the number. An
+enquiry leaves it when staff mark it replied, booked or declined, and returns if put back to *new*. No acknowledgement is sent to the
+enquirer (not built: a decision for the owner, [known limitations](../roadmap/known-limitations.md)).
+
 The email button fills in a subject in the customer's language where the
 platform knows it: the language of an account with the enquiry's email
 address, else the language the venue page was in when they asked

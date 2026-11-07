@@ -588,6 +588,19 @@ const en = {
   "fx5.ei.run.b": "MySenam could not finish {step} the e-invoices for {venue}: {why}. Other venues carry on. It tries again by itself. If you keep getting this, tell the platform owner.",
   "fx5.ei.step.consolidating": "consolidating",
   "fx5.ei.step.sending": "sending",
+  "whd.title": "Events that could not be delivered",
+  "whd.intro": "These were given up on after {tries} tries and are kept {days} days. Sending one again sends the same event with the same id, so your system can ignore a repeat. It tells you the event was sent, not that your system handled it.",
+  "whd.count": "{n} not delivered",
+  "whd.lastTried": "last tried {date}",
+  "whd.eventId": "event {id}",
+  "whd.resent": "sent again {n}×, last {date}",
+  "whd.sendAgain": "Send again",
+  "whd.sendAllAgain": "Send all again",
+  "whd.more": "and {n} more",
+  "whd.turnOnFirst": "Turn the address back on to send these again.",
+  "whd.confirmAll": "Send {n} events again to {url}? The same events go out again with the same ids.",
+  "whd.queued": "{n} sent again; they go out within a minute.",
+  "whd.nothingQueued": "Nothing to send again: it is already waiting or was delivered.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1170,6 +1183,19 @@ const ms: Record<keyof typeof en, string> = {
   "fx5.ei.run.b": "MySenam tidak dapat menyiapkan {step} e-invois untuk {venue}: {why}. Pusat lain diteruskan. Ia mencuba semula dengan sendirinya. Jika anda terus menerima ini, beritahu pemilik platform.",
   "fx5.ei.step.consolidating": "penyatuan",
   "fx5.ei.step.sending": "penghantaran",
+  "whd.title": "Acara yang tidak dapat dihantar",
+  "whd.intro": "Ini telah ditinggalkan selepas {tries} percubaan dan disimpan {days} hari. Menghantar semula menghantar acara yang sama dengan id yang sama, jadi sistem anda boleh mengabaikan ulangan. Ia hanya memberitahu acara itu telah dihantar, bukan bahawa sistem anda telah mengendalikannya.",
+  "whd.count": "{n} tidak dihantar",
+  "whd.lastTried": "dicuba kali terakhir {date}",
+  "whd.eventId": "acara {id}",
+  "whd.resent": "dihantar semula {n}×, terakhir {date}",
+  "whd.sendAgain": "Hantar semula",
+  "whd.sendAllAgain": "Hantar semula semua",
+  "whd.more": "dan {n} lagi",
+  "whd.turnOnFirst": "Hidupkan semula alamat itu untuk menghantar semula ini.",
+  "whd.confirmAll": "Hantar semula {n} acara ke {url}? Acara yang sama dihantar semula dengan id yang sama.",
+  "whd.queued": "{n} dihantar semula; ia keluar dalam masa seminit.",
+  "whd.nothingQueued": "Tiada apa untuk dihantar semula: ia sudah menunggu atau telah dihantar.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1752,6 +1778,19 @@ const zh: Record<keyof typeof en, string> = {
   "fx5.ei.run.b": "MySenam 无法完成 {venue} 电子发票的{step}：{why}。其他场馆照常处理。系统会自动重试。若您持续收到此通知，请告知平台所有者。",
   "fx5.ei.step.consolidating": "合并",
   "fx5.ei.step.sending": "发送",
+  "whd.title": "未能送达的事件",
+  "whd.intro": "这些事件在尝试 {tries} 次后已放弃，保留 {days} 天。重新发送会发出同一事件、同一编号，您的系统可据此忽略重复。这只说明事件已发出，不代表您的系统已处理。",
+  "whd.count": "{n} 条未送达",
+  "whd.lastTried": "最后尝试于 {date}",
+  "whd.eventId": "事件 {id}",
+  "whd.resent": "已重新发送 {n} 次，最近一次 {date}",
+  "whd.sendAgain": "重新发送",
+  "whd.sendAllAgain": "全部重新发送",
+  "whd.more": "还有 {n} 条",
+  "whd.turnOnFirst": "请先重新开启该地址，才能重新发送这些事件。",
+  "whd.confirmAll": "向 {url} 重新发送 {n} 条事件？相同的事件会以相同的编号再次发出。",
+  "whd.queued": "已重新发送 {n} 条；一分钟内发出。",
+  "whd.nothingQueued": "无需重新发送：事件已在等待发送或已送达。",
 };
 
 const area = { en, ms, zh };

@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
 import { isLocale, type Locale } from "./i18n";
 import { enqueue } from "./outbox";
 import { siteName } from "./site";
@@ -92,46 +92,75 @@ export async function grantLoyalty(): Promise<number> {
         )
         .get(v.id, r.phone_key)) as { name: string; phone: string; email: string | null; user_id: number | null; locale: string | null };
       for (let i = 0; i < due; i++) {
-        const pass = await issuePass({
-          venueId: v.id,
-          name: "Loyalty: one free hour",
-          entries: 1,
-          price: 0,
-          holderName: who.name,
-          holderPhone: who.phone,
-          expiresOn: addDays(todayISO(), REWARD_DAYS),
-          adminId: null,
-          ...(who.user_id ? { userId: who.user_id } : {}),
-        });
-        if (!pass.ok) break;
-        await db.prepare("INSERT INTO loyalty_rewards (venue_id, phone_key, pass_id) VALUES (?, ?, ?)").run(v.id, r.phone_key, pass.pass.id);
-        given++;
-        if (who.email) {
-          const locale: Locale = who.locale && isLocale(who.locale) ? who.locale : "en";
-          await enqueue({
-            venueId: v.id,
-            kind: "loyalty_reward",
-            channel: "email",
-            recipient: who.email,
-            locale,
-            subject: "msg.loyaltySubject",
-            body: "msg.loyalty",
-            dedupeKey: `loyalty:${pass.pass.id}`,
-            vars: {
-              name: who.name.trim().split(/\s+/)[0],
-              venue: v.name,
-              every: v.loyalty_every,
-              code: pass.pass.code,
-              until: pass.pass.expiresOn,
-              link: linkIn(`${await venueBaseUrl(v.id)}/venue/${v.id}`, locale),
-              site: siteName(),
-            },
-          });
-        }
+        // The reward's own place in this number's rewards here: the database holds (venue, number, place) unique, so a second run
+        // that finds it due too (another instance, a retry) records nothing and issues no pass (docs/features/pricing.md).
+        const place = Number(r.rewards) + i + 1;
+        const issued = await giveReward(v, r.phone_key, place, who);
+        if (issued === "refused") break;
+        if (issued === "given") given++;
       }
     }
   }
   return given;
+}
+
+type Giver = { id: number; name: string; loyalty_every: number };
+type Holder = { name: string; phone: string; email: string | null; user_id: number | null; locale: string | null };
+class RewardRefused extends Error {}
+
+/**
+ * One reward, all or nothing in one transaction: the place is claimed first (the unique key), then the pass is issued and tied
+ * to it, then the email is queued. A stop at any point gives all of it or none. "taken": somebody else gave this place already.
+ */
+async function giveReward(v: Giver, phoneKey: string, place: number, who: Holder): Promise<"given" | "taken" | "refused"> {
+  try {
+    return await withTransaction(async () => {
+      const db = getDb();
+      const claimed = await db
+        .prepare("INSERT INTO loyalty_rewards (venue_id, phone_key, n) VALUES (?, ?, ?) ON CONFLICT (venue_id, phone_key, n) DO NOTHING")
+        .run(v.id, phoneKey, place);
+      if (claimed.changes !== 1) return "taken" as const;
+      const pass = await issuePass({
+        venueId: v.id,
+        name: "Loyalty: one free hour",
+        entries: 1,
+        price: 0,
+        holderName: who.name,
+        holderPhone: who.phone,
+        expiresOn: addDays(todayISO(), REWARD_DAYS),
+        adminId: null,
+        ...(who.user_id ? { userId: who.user_id } : {}),
+      });
+      if (!pass.ok) throw new RewardRefused();
+      await db.prepare("UPDATE loyalty_rewards SET pass_id = ? WHERE venue_id = ? AND phone_key = ? AND n = ?").run(pass.pass.id, v.id, phoneKey, place);
+      if (who.email) {
+        const locale: Locale = who.locale && isLocale(who.locale) ? who.locale : "en";
+        await enqueue({
+          venueId: v.id,
+          kind: "loyalty_reward",
+          channel: "email",
+          recipient: who.email,
+          locale,
+          subject: "msg.loyaltySubject",
+          body: "msg.loyalty",
+          dedupeKey: `loyalty:${pass.pass.id}`,
+          vars: {
+            name: who.name.trim().split(/\s+/)[0],
+            venue: v.name,
+            every: v.loyalty_every,
+            code: pass.pass.code,
+            until: pass.pass.expiresOn,
+            link: linkIn(`${await venueBaseUrl(v.id)}/venue/${v.id}`, locale),
+            site: siteName(),
+          },
+        });
+      }
+      return "given" as const;
+    });
+  } catch (err) {
+    if (err instanceof RewardRefused) return "refused";
+    throw err;
+  }
 }
 
 /** Once a day is enough: hours are counted after the day they were played. */

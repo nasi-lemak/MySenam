@@ -1012,4 +1012,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "Hold a waiting-list offer for 5 to 120 minutes.": { ms: "Tahan tawaran senarai menunggu selama 5 hingga 120 minit.", zh: "候补名额的提供时间须为 5 至 120 分钟。" },
   // MEMB (D19, ADR 0071): a membership plan whose share of the price comes to more than a court member rate.
   "Members on this plan would pay {0} an hour on {1}, more than its member rate of {2}: confirm to save it anyway.": { ms: "Ahli pelan ini akan membayar {0} sejam di {1}, lebih daripada kadar ahli sebanyak {2}: sahkan untuk menyimpannya juga.", zh: "此配套的会员在 {1} 每小时需付 {0}，高于其会员价 {2}：确认后仍将保存。" },
+  // Hardening round (G17): sending failed webhook events again
+  "That delivery was not found for this venue.": { ms: "Penghantaran itu tidak ditemui untuk pusat ini.", zh: "在本场馆未找到该推送。" },
+  "Turn the address back on before sending an event again.": { ms: "Hidupkan semula alamat itu sebelum menghantar semula sesuatu acara.", zh: "请先重新开启该地址，再重新发送事件。" },
+  "Say which delivery or address to send again.": { ms: "Nyatakan penghantaran atau alamat yang hendak dihantar semula.", zh: "请指明要重新发送的推送或地址。" },
 };

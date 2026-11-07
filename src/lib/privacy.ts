@@ -216,8 +216,10 @@ const RULES: Rule[] = [
     days: RETENTION.webhookDeliveryDays,
     action: "deleted",
     table: "webhook_deliveries",
-    // Delivered, or tried as often as it will be; never one still to go.
-    where: "(delivered_at IS NOT NULL OR attempts >= 8) AND created_at < ?",
+    // Delivered, or tried as often as it will be, or waiting on an address turned off (nothing sends those: they would stay for
+    // ever); never one still to go to an address that is on.
+    where:
+      "(delivered_at IS NOT NULL OR attempts >= 8 OR NOT EXISTS (SELECT 1 FROM webhook_endpoints e WHERE e.id = webhook_deliveries.endpoint_id AND e.active = 1)) AND created_at < ?",
   },
   {
     what: said("srv.ret.bookingNames"),

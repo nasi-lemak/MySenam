@@ -76,9 +76,22 @@ export interface TickResult {
   outbox: { sent: number; failed: number } | null;
 }
 
-/** Do whatever is due now. Never throws: one failure must not stop the next tick. */
-export async function runScheduledWork(now = new Date()): Promise<TickResult> {
+/**
+ * Do whatever is due now. Never throws: one failure must not stop the next tick.
+ *
+ * Two units, which the scheduler runs apart (ADR 0066, `startScheduler`): the **short** work (the outbox, refunds, holds, invoices,
+ * everything but the next) and the **long** work, the backup and what is copied off-site, which can take an hour on a large
+ * database. `only` picks one; by default both, one after the other, as a caller that wants one pass of everything (a test, a
+ * script) expects.
+ */
+export async function runScheduledWork(now = new Date(), only: "all" | "short" | "long" = "all"): Promise<TickResult> {
   const result: TickResult = { backup: null, outbox: null };
+  if (only !== "long") await runShortWork(now, result);
+  if (only !== "short") await runLongWork(now, result);
+  return result;
+}
+
+async function runShortWork(now: Date, result: TickResult): Promise<void> {
   // Stamped first, so a scheduler that has stopped shows on /api/health.
   await heartbeat().catch(() => undefined);
 
@@ -356,6 +369,30 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
+    // Once an hour: is there a copy recent enough to recover from? Read here, in the short unit, so a long job that is stuck is
+    // still noticed (after each backup the long unit looks again).
+    if (now.getUTCMinutes() === 0) await checkBackupHealth(now);
+  } catch (err) {
+    console.error("[mysenam] checking backups failed:", err);
+  }
+}
+
+/**
+ * The backup, its off-site copy and the erasure ledger's: work that waits on a disk or a network for as long as the data is big, so
+ * it is never in the same pass as the outbox, refunds and the heartbeat. Never throws.
+ */
+async function runLongWork(now: Date, result: TickResult): Promise<void> {
+  try {
+    // Erasure-ledger entries not yet off-site, copied (tried again each minute until accepted); once an hour,
+    // the owners told of one still waiting (lib/erasure-ledger-offsite.ts). Small, so before the backup rather than behind it.
+    const ledger = await import("./erasure-ledger-offsite");
+    await ledger.shipLedger(now);
+    if (now.getUTCMinutes() === 0) await ledger.checkLedgerShipping(now.getTime());
+  } catch (err) {
+    console.error("[mysenam] copying the erasure ledger off-site failed:", err);
+  }
+
+  try {
     if (backupDue(now, hoursSinceLastBackup())) {
       const taken = await createBackup();
       if (!taken.ok) {
@@ -381,23 +418,11 @@ export async function runScheduledWork(now = new Date()): Promise<TickResult> {
   }
 
   try {
-    // Erasure-ledger entries not yet off-site, copied (tried again each minute until accepted); once an hour,
-    // the owners told of one still waiting (lib/erasure-ledger-offsite.ts).
-    const ledger = await import("./erasure-ledger-offsite");
-    await ledger.shipLedger(now);
-    if (now.getUTCMinutes() === 0) await ledger.checkLedgerShipping(now.getTime());
-  } catch (err) {
-    console.error("[mysenam] copying the erasure ledger off-site failed:", err);
-  }
-
-  try {
-    // Once an hour, and after each backup: is there a copy recent enough to recover from?
-    if (result.backup !== null || now.getUTCMinutes() === 0) await checkBackupHealth(now);
+    // After each backup: is there a copy recent enough to recover from?
+    if (result.backup !== null) await checkBackupHealth(now);
   } catch (err) {
     console.error("[mysenam] checking backups failed:", err);
   }
-
-  return result;
 }
 
 /**
@@ -434,64 +459,160 @@ const INSTANCE = `${process.env.HOSTNAME ?? "app"}-${process.pid}-${crypto.rando
 /** Held this long past each renewal: an instance that stops is taken over within three minutes. */
 export const LEASE_MS = 3 * MINUTE;
 
+/** The lease rows in `settings`: the short work's, and the long work's (the backup and its off-site copy). */
+export const SHORT_LEASE = "scheduler_lease";
+export const LONG_LEASE = "scheduler_lease_long";
+
+/**
+ * The longest the long work (a backup and its upload) is waited for, in milliseconds (MYSENAM_LONG_JOB_MINUTES, default 120). Past it
+ * the lease stops being renewed, so it runs out and another instance may take the work, and the owners are told. The work is not
+ * cancelled (a request in flight cannot be taken back): this process starts no second one until the first ends.
+ */
+export function longJobMs(): number {
+  const minutes = Number(process.env.MYSENAM_LONG_JOB_MINUTES ?? 120);
+  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 120) * MINUTE;
+}
+
 /**
  * The scheduled work runs on one instance at a time, however many there are:
- * backups, reminders, invoices and released holds must not happen twice. The
+ * backups, reminders, invoices and released holds must not happen twice. A
  * lease is a row in `settings` naming the instance and when it runs out; an
  * instance takes it when it is free or has run out, and renews it each tick
- * and every minute while one runs (`withSchedulerLease`).
+ * and every minute while one runs (`withLease`). There are two, so that a long
+ * backup does not hold up the rest (ADR 0066): the short work's
+ * (`SHORT_LEASE`, which `holdSchedulerLease` and `withSchedulerLease` take) and
+ * the long work's (`LONG_LEASE`); one instance may hold either or both, and
+ * another the other.
  * Works with any connection pooling, and on PGlite.
  */
-export async function holdSchedulerLease(instance = INSTANCE, now = Date.now()): Promise<boolean> {
+export async function holdLease(key: string, instance = INSTANCE, now = Date.now()): Promise<boolean> {
   const row = await getDb()
     .prepare(
-      `INSERT INTO settings (key, value) VALUES ('scheduler_lease', ?)
+      `INSERT INTO settings (key, value) VALUES (?, ?)
        ON CONFLICT (key) DO UPDATE SET value = excluded.value
         WHERE split_part(settings.value, '|', 1) = ? OR split_part(settings.value, '|', 2)::bigint < ?
        RETURNING value`
     )
-    .get(`${instance}|${now + LEASE_MS}`, instance, now);
+    .get(key, `${instance}|${now + LEASE_MS}`, instance, now);
   return row !== undefined;
 }
 
+export const holdSchedulerLease = (instance = INSTANCE, now = Date.now()) => holdLease(SHORT_LEASE, instance, now);
+
 /**
- * Run work holding the lease, renewed every minute while it runs: a tick that
- * outlasts the lease (a large backup and its upload) does not let another
- * instance decide this one has stopped and start the same work. False, and
- * nothing run, when another instance has it.
+ * Run work holding a lease, renewed every minute while it runs: a pass that outlasts the lease does not let another instance decide
+ * this one has stopped and start the same work. `held`: another instance has it and nothing ran. With `maxMs`, work that is still
+ * going after that long is let go of: the renewing stops (the lease runs out within three minutes), the answer is `overran`, and
+ * the work itself carries on unwatched. Otherwise `ran`.
  */
-export async function withSchedulerLease(work: () => Promise<void>, instance = INSTANCE): Promise<boolean> {
-  if (!(await holdSchedulerLease(instance).catch(() => false))) return false;
-  const renew = setInterval(() => void holdSchedulerLease(instance).catch(() => false), MINUTE);
+export async function withLease(
+  key: string,
+  work: () => Promise<void>,
+  opts: { instance?: string; maxMs?: number } = {}
+): Promise<"ran" | "held" | "overran"> {
+  const instance = opts.instance ?? INSTANCE;
+  if (!(await holdLease(key, instance).catch(() => false))) return "held";
+  const renew = setInterval(() => void holdLease(key, instance).catch(() => false), MINUTE);
   renew.unref?.();
+  let limit: ReturnType<typeof setTimeout> | undefined;
   try {
-    await work();
+    const job = work();
+    if (opts.maxMs === undefined) {
+      await job;
+      return "ran";
+    }
+    const outcome = await Promise.race([
+      job.then(() => "ran" as const),
+      new Promise<"overran">((settle) => {
+        limit = setTimeout(() => settle("overran"), opts.maxMs);
+        limit.unref?.();
+      }),
+    ]);
+    // Its failure, if it comes after we stopped waiting, is its own to report.
+    if (outcome === "overran") job.catch(() => undefined);
+    return outcome;
   } finally {
     clearInterval(renew);
+    if (limit) clearTimeout(limit);
   }
-  return true;
 }
 
-/** Start ticking, once per process. */
-export function startScheduler(): void {
-  if (state.__mysenamScheduler || !schedulerEnabled()) return;
+/** Run work holding the short lease. False, and nothing run, when another instance has it. */
+export async function withSchedulerLease(work: () => Promise<void>, instance = INSTANCE): Promise<boolean> {
+  return (await withLease(SHORT_LEASE, work, { instance })) !== "held";
+}
+
+/**
+ * The two ticks this process runs each minute, apart from each other (`startScheduler` runs them; the tests drive them): the short
+ * work's, and the long work's.
+ */
+export function schedulerTicks(): { tick: () => Promise<void>; longTick: () => Promise<void> } {
   let busy = false;
   const tick = async () => {
-    // A slow upload must not have the next minute start a second one.
+    // A slow pass must not have the next minute start a second one.
     if (busy) return;
     busy = true;
     try {
       // Another instance has it: this one serves pages and leaves the rest.
       await withSchedulerLease(async () => {
-        await runScheduledWork();
+        await runScheduledWork(new Date(), "short");
       });
     } finally {
       busy = false;
     }
   };
-  state.__mysenamScheduler = setInterval(tick, MINUTE);
+  // The backup and its upload, on their own lease and their own clock (ADR 0066): they can take an hour, and for that hour the
+  // outbox, refunds and the heartbeat must not wait. Another instance may run them while this one runs the rest.
+  let longBusy = false;
+  const longTick = async () => {
+    if (longBusy) return;
+    longBusy = true;
+    let started = false;
+    try {
+      const outcome = await withLease(
+        LONG_LEASE,
+        async () => {
+          started = true;
+          try {
+            await runScheduledWork(new Date(), "long");
+          } finally {
+            // Also when it ends long after we gave up waiting: only then may this process start the next.
+            longBusy = false;
+          }
+        },
+        { maxMs: longJobMs() }
+      );
+      if (outcome === "overran") {
+        const minutes = +(longJobMs() / MINUTE).toFixed(1);
+        console.error(`[mysenam] the backup and its off-site copy had not finished after ${minutes} minutes; their lease was let go`);
+        await raiseAlert(
+          "scheduler:long-jobs-overran",
+          failed("srv.work.backup"),
+          `Still running after ${minutes} minutes. Its lease was not renewed, so another instance may take the work; this one starts no second backup until it ends.`
+        );
+      }
+    } catch (err) {
+      console.error("[mysenam] the backup unit failed:", err);
+    } finally {
+      if (!started) longBusy = false;
+    }
+  };
+  return { tick, longTick };
+}
+
+/** Start ticking, once per process. */
+export function startScheduler(): void {
+  if (state.__mysenamScheduler || !schedulerEnabled()) return;
+  const { tick, longTick } = schedulerTicks();
+  state.__mysenamScheduler = setInterval(() => {
+    void tick();
+    void longTick();
+  }, MINUTE);
   state.__mysenamScheduler.unref?.();
   // Soon after starting, rather than a minute in: a server that was down at
   // the backup hour catches up straight away.
-  setTimeout(tick, 15_000).unref?.();
+  setTimeout(() => {
+    void tick();
+    void longTick();
+  }, 15_000).unref?.();
 }

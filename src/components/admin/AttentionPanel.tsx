@@ -19,6 +19,7 @@ import { useStaffT } from "./StaffLanguage";
 import type { CompetitionFixture, UndrawnTournament } from "@/lib/competition-fixtures";
 import type { ModerationAttention } from "@/lib/message-moderation";
 import type { OverdueInvoice } from "@/lib/accounts";
+import type { EnquiryAttention } from "@/lib/enquiries";
 
 const REACH_STYLE: Record<UrgentNotice["reach"], string> = {
   unreachable: "bg-red-100 text-red-800",
@@ -107,6 +108,8 @@ export function AttentionPanel() {
     messageModeration?: ModerationAttention | null;
     /** Invoices to company and school accounts unpaid past their day, oldest first, and whether the venue's block stops new bookings on each (lib/accounts.ts). */
     accountsOverdue?: (OverdueInvoice & { blocking: boolean })[];
+    /** Private hire enquiries nobody has answered, oldest first, with a nudge for those waiting longest (lib/enquiries.ts). */
+    enquiries?: { total: number; items: EnquiryAttention[] };
   } | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [moveTo, setMoveTo] = useState<Record<string, string>>({});
@@ -155,7 +158,8 @@ export function AttentionPanel() {
   const modLines = mod ? (mod.openReports > 0 ? 1 : 0) + mod.suspensionsToReview.length + (mod.reviewRequests > 0 ? 1 : 0) : 0;
   const compLines = days.size + (comp?.undrawn.length ?? 0) + modLines;
   const overdueAccounts = data?.accountsOverdue ?? [];
-  if (!data?.open || !data.recent || (overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
+  const enquiries = data?.enquiries ?? { total: 0, items: [] };
+  if (!data?.open || !data.recent || (enquiries.total === 0 && overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
 
   /** Postpone a day's fixtures of a tournament or a team league to another day (ADR 0059). */
   async function postpone(d: { kind: CompetitionFixture["kind"]; ownerId: number; date: string }) {
@@ -265,6 +269,19 @@ export function AttentionPanel() {
           {sg.appealsWaiting > 0 && <p>{t.plural("msg4.att.appeals", sg.appealsWaiting)}</p>}
           {sg.reviewsOpen > 0 && <p>{t.plural("msg4.att.reviews", sg.reviewsOpen)}</p>}
           {sg.retention && <p>{t("msg4.att.retention", { cases: sg.retention.cases, holds: sg.retention.holds, months: sg.retention.months })}</p>}
+        </div>
+      )}
+      {enquiries.total > 0 && (
+        <div className="mb-3 space-y-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-900" data-testid="attention-enquiries">
+          <strong>{t.plural("enq.att.title", enquiries.total)}</strong>
+          {enquiries.items.map((e) => (
+            <p key={e.id}>
+              {t("enq.att.line", { name: e.name, kind: t.known(`enq.kind.${e.kind}`) ?? e.kind, age: e.ageDays === 0 ? t("enq.att.today") : e.ageDays === 1 ? t("enq.att.yesterday") : t("enq.att.daysAgo", { n: e.ageDays }) })}
+              {e.nudge && <span className="ml-1 font-semibold">{t("enq.att.nudge")}</span>}
+            </p>
+          ))}
+          {enquiries.total > enquiries.items.length && <p className="text-xs">{t("enq.att.more", { n: enquiries.total - enquiries.items.length })}</p>}
+          <p className="text-xs">{t("enq.att.help", { place: t("sh.tab.bookings") })}</p>
         </div>
       )}
       {overdueAccounts.length > 0 && (

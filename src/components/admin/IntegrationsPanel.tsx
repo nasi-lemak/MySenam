@@ -24,6 +24,8 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
   const [venueId, setVenueId] = useState(venues[0]?.id ?? 0);
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
+  const [retry, setRetry] = useState({ tries: 8, days: 30, most: 50 });
+  const [notice, setNotice] = useState<string | null>(null);
   const [google, setGoogle] = useState(false);
   const [ai, setAi] = useState<AiPersonalData>({ on: false, changedAt: null, changedBy: null });
   const [keyForm, setKeyForm] = useState({ name: "", scope: "read" });
@@ -39,6 +41,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
     if (!res.ok) return setError(t.err(d, t("int.couldNotLoad")));
     setKeys(d.keys);
     setEndpoints(d.endpoints);
+    if (d.webhookRetry) setRetry(d.webhookRetry);
     setGoogle(d.google);
     setAi(d.aiPersonalData);
   }, [venueId, t]);
@@ -62,6 +65,13 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
     }
     await load();
     return d;
+  }
+
+  /** Failed deliveries sent again (one, or all of an address's): what happened, said plainly. */
+  async function sendAgain(body: Record<string, unknown>) {
+    setNotice(null);
+    const d = await act({ action: "redeliver", ...body });
+    if (d) setNotice(d.requeued > 0 ? t("whd.queued", { n: d.requeued }) : t("whd.nothingQueued"));
   }
 
   const input = "rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none";
@@ -94,6 +104,7 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
       </p>
       <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{t("int.keyWarning")}</div>
       {error && <p className="mt-2 text-sm text-rose-700">{error}</p>}
+      {notice && <p className="mt-2 text-sm text-emerald-700">{notice}</p>}
       {shown && (
         <div className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm">
           <p className="font-semibold">{t("int.copyNow", { label: shown.label })}</p>
@@ -196,6 +207,47 @@ export function IntegrationsPanel({ venues, isOwner }: { venues: ManagedVenue[];
                 </button>
               </span>
             </div>
+            {e.failedCount > 0 && (
+              <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold">
+                    {t("whd.title")}: {t("whd.count", { n: e.failedCount })}
+                  </span>
+                  {e.active ? (
+                    <button
+                      type="button"
+                      className="font-medium text-teal-700 underline"
+                      onClick={() => {
+                        if (window.confirm(t("whd.confirmAll", { n: Math.min(e.failedCount, retry.most), url: e.url }))) void sendAgain({ id: e.id });
+                      }}
+                    >
+                      {t("whd.sendAllAgain")}
+                    </button>
+                  ) : (
+                    <span>{t("whd.turnOnFirst")}</span>
+                  )}
+                </div>
+                <p className="mt-1">{t("whd.intro", { tries: retry.tries, days: retry.days })}</p>
+                <ul className="mt-1 space-y-1">
+                  {e.failed.slice(0, 5).map((d) => (
+                    <li key={d.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        {clock.when(d.createdAt, venueId)} {d.event}: {t("int.triedTimes", { error: d.lastError ?? String(d.lastStatus ?? ""), n: d.attempts })}
+                        {d.lastAttemptAt ? `, ${t("whd.lastTried", { date: clock.when(d.lastAttemptAt, venueId) })}` : ""}
+                        {d.eventId ? ` · ${t("whd.eventId", { id: d.eventId })}` : ""}
+                        {d.redeliveries > 0 && d.redeliveredAt ? ` · ${t("whd.resent", { n: d.redeliveries, date: clock.when(d.redeliveredAt, venueId) })}` : ""}
+                      </span>
+                      {e.active && (
+                        <button type="button" className="font-medium text-teal-700 underline" onClick={() => void sendAgain({ deliveryId: d.id })}>
+                          {t("whd.sendAgain")}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {e.failedCount > Math.min(e.failed.length, 5) && <p className="mt-1">{t("whd.more", { n: e.failedCount - Math.min(e.failed.length, 5) })}</p>}
+              </div>
+            )}
             {e.recent.length > 0 && (
               <ul className="mt-1 text-xs text-slate-500">
                 {e.recent.slice(0, 5).map((d, i) => (

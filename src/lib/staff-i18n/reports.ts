@@ -428,6 +428,15 @@ const en = {
   "fx5.rpt.owedTotalNote": "Provisional: how each is treated in your books is for your adviser.",
   "fx5.rpt.passValue": "Unspent pass value (estimate)",
   "fx5.rpt.passValueNote": "At the price paid; not in the total above.",
+  "enq.att.title_one": "1 private hire enquiry has not been answered",
+  "enq.att.title_other": "{n} private hire enquiries have not been answered",
+  "enq.att.line": "{name} ({kind}), asked {age}.",
+  "enq.att.today": "today",
+  "enq.att.yesterday": "yesterday",
+  "enq.att.daysAgo": "{n} days ago",
+  "enq.att.nudge": "They have waited a while: a short reply, even only to say you will come back to them, is kind.",
+  "enq.att.more": "and {n} more.",
+  "enq.att.help": "Answer it under {place}, then mark it replied, booked or declined; it stays here until you do, whether or not an alert email is set.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -852,6 +861,15 @@ const ms: Record<keyof typeof en, string> = {
   "fx5.rpt.owedTotalNote": "Sementara: layanan setiap satu dalam akaun anda ditentukan oleh penasihat anda.",
   "fx5.rpt.passValue": "Nilai pas yang belum digunakan (anggaran)",
   "fx5.rpt.passValueNote": "Pada harga yang dibayar; tidak termasuk dalam jumlah di atas.",
+  "enq.att.title_one": "1 pertanyaan sewaan persendirian belum dijawab",
+  "enq.att.title_other": "{n} pertanyaan sewaan persendirian belum dijawab",
+  "enq.att.line": "{name} ({kind}), bertanya {age}.",
+  "enq.att.today": "hari ini",
+  "enq.att.yesterday": "semalam",
+  "enq.att.daysAgo": "{n} hari lalu",
+  "enq.att.nudge": "Mereka sudah menunggu agak lama: jawapan ringkas, walaupun sekadar memberitahu anda akan menghubungi mereka semula, amat dihargai.",
+  "enq.att.more": "dan {n} lagi.",
+  "enq.att.help": "Jawab di bawah {place}, kemudian tandakan sebagai dijawab, ditempah atau ditolak; ia kekal di sini sehingga anda berbuat demikian, sama ada e-mel amaran ditetapkan atau tidak.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1276,6 +1294,15 @@ const zh: Record<keyof typeof en, string> = {
   "fx5.rpt.owedTotalNote": "暂定：各项在贵场馆账目中的处理，须由贵场馆的顾问决定。",
   "fx5.rpt.passValue": "未使用的通行证价值（估算）",
   "fx5.rpt.passValueNote": "按支付的价格计；不计入上方合计。",
+  "enq.att.title_one": "有 1 个包场询问尚未回复",
+  "enq.att.title_other": "有 {n} 个包场询问尚未回复",
+  "enq.att.line": "{name}（{kind}），{age}询问。",
+  "enq.att.today": "今天",
+  "enq.att.yesterday": "昨天",
+  "enq.att.daysAgo": "{n} 天前",
+  "enq.att.nudge": "对方已等了一段时间：哪怕只是简短回复，告知稍后会再联系，也是一份体贴。",
+  "enq.att.more": "还有 {n} 个。",
+  "enq.att.help": "请在“{place}”中回复，然后标记为已回复、已预订或已婉拒；在您处理之前，无论是否设置了提醒邮件，它都会一直显示在这里。",
 };
 
 const area = { en, ms, zh };
