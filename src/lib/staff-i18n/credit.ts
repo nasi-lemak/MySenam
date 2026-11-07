@@ -474,6 +474,10 @@ const en = {
   "fx4.acc.blockSave": "Save",
   "fx4.acc.blockSaved": "Saved.",
   "fx4.acc.overridePrompt": "{message}\n\nGive a reason to charge this booking to the account anyway (it is recorded):",
+  // MEMB (ADR 0071): the benefits a membership was sold with, and a plan edited since.
+  "mbr.cr.terms": "Sold with: {benefits} (plan version {v})",
+  "mbr.cr.termsBackfilled": "Terms as the plan stood when this was recorded: {benefits}",
+  "mbr.cr.planChanged": "The plan has been edited since; this term keeps these benefits, a renewal takes the plan as it is then.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -949,6 +953,10 @@ const ms: Record<keyof typeof en, string> = {
   "fx4.acc.blockSave": "Simpan",
   "fx4.acc.blockSaved": "Disimpan.",
   "fx4.acc.overridePrompt": "{message}\n\nBerikan sebab untuk tetap mengecaj tempahan ini ke akaun (direkodkan):",
+  // MEMB (ADR 0071): the benefits a membership was sold with, and a plan edited since.
+  "mbr.cr.terms": "Dijual dengan: {benefits} (versi pelan {v})",
+  "mbr.cr.termsBackfilled": "Syarat seperti pelan itu semasa ini direkodkan: {benefits}",
+  "mbr.cr.planChanged": "Pelan telah diubah sejak itu; tempoh ini mengekalkan faedah ini, pembaharuan mengambil pelan seperti ketika itu.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1424,6 +1432,10 @@ const zh: Record<keyof typeof en, string> = {
   "fx4.acc.blockSave": "保存",
   "fx4.acc.blockSaved": "已保存。",
   "fx4.acc.overridePrompt": "{message}\n\n请写明理由，仍将此预订记入该账户（会被记录）：",
+  // MEMB (ADR 0071): the benefits a membership was sold with, and a plan edited since.
+  "mbr.cr.terms": "出售时的权益：{benefits}（配套版本 {v}）",
+  "mbr.cr.termsBackfilled": "按记录此项时配套的内容：{benefits}",
+  "mbr.cr.planChanged": "此后配套已被修改；本期保留上述权益，续期则按届时的配套内容。",
 };
 
 const area = { en, ms, zh };

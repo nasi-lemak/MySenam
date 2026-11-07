@@ -5,7 +5,7 @@ import { errorText, translator, type ErrorCode } from "./i18n";
 import { inSameBusiness } from "./branches";
 import { normalisePhone } from "./store";
 import { addDays, todayISO } from "./time";
-import { MAX_MEMBERSHIP_COVERS, type BenefitScope, type Refusal } from "./types";
+import { MAX_MEMBERSHIP_COVERS, type BenefitScope, type MembershipBenefits, type Refusal } from "./types";
 import { isScope, PLAN_SCOPES } from "./entitlements";
 import { money, region, isAmount } from "./region";
 
@@ -65,7 +65,40 @@ export interface MembershipPlan {
    */
   admitsEntry: boolean;
   admitsEntrySport: string | null;
+  /**
+   * The tier's version (migration 0337): 1 until a benefit a membership carries is edited, then one more on each such
+   * edit. A membership records the version it was sold at (`MembershipBenefits`), so staff can see which terms it has.
+   */
+  version: number;
 }
+
+/**
+ * What a membership carries of its tier, taken when the term is sold (ADR 0071, migration 0337): the benefits a member
+ * paid for, which a later edit of the tier does not change. Renewals take the tier as it stands at the renewal.
+ */
+export type { MembershipBenefits };
+
+/** The benefits a plan gives, in the shape a membership keeps them. */
+export function benefitsOf(plan: Pick<MembershipPlan, "ratePercent" | "aheadDays" | "scope" | "admitsEntry" | "admitsEntrySport" | "extendOnSuspension">): MembershipBenefits {
+  return {
+    ratePercent: plan.ratePercent,
+    aheadDays: plan.aheadDays,
+    scope: plan.scope,
+    admitsEntry: plan.admitsEntry,
+    admitsEntrySport: plan.admitsEntry ? plan.admitsEntrySport : null,
+    extendOnSuspension: plan.extendOnSuspension,
+  };
+}
+
+/** The benefits of a membership on no tier: the venue's member rates and window, the booking as its scope, nothing more. */
+export const PLAIN_BENEFITS: MembershipBenefits = {
+  ratePercent: null,
+  aheadDays: null,
+  scope: "booking",
+  admitsEntry: false,
+  admitsEntrySport: null,
+  extendOnSuspension: false,
+};
 
 export const OFFERED_FOR = ["account", "participant", "individual", "family"] as const;
 export type OfferedFor = (typeof OFFERED_FOR)[number];
@@ -96,6 +129,7 @@ interface PlanRow {
   extend_on_suspension?: boolean | number | null;
   admits_entry?: boolean | null;
   admits_entry_sport?: string | null;
+  version?: number | null;
 }
 
 const toPlan = (r: PlanRow): MembershipPlan => ({
@@ -113,9 +147,10 @@ const toPlan = (r: PlanRow): MembershipPlan => ({
   extendOnSuspension: r.extend_on_suspension === true || r.extend_on_suspension === 1,
   admitsEntry: r.admits_entry === true,
   admitsEntrySport: r.admits_entry === true ? (r.admits_entry_sport ?? null) : null,
+  version: r.version ?? 1,
 });
 
-const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension, admits_entry, admits_entry_sport";
+const PLAN_COLUMNS = "id, venue_id, name, months, price::float AS price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension, admits_entry, admits_entry_sport, version";
 
 /** The plans a venue has on offer, cheapest first. */
 export async function listPlans(venueId: number): Promise<MembershipPlan[]> {
@@ -136,7 +171,48 @@ export async function planById(id: number, opts: { retired?: boolean } = {}): Pr
   return row ? toPlan(row) : null;
 }
 
-export type PlanResult = { ok: true; plan: MembershipPlan } | { ok: false; error: string };
+export type PlanResult =
+  | { ok: true; plan: MembershipPlan }
+  // `needsConfirm`: nothing was saved because the tier prices members above the venue's own member rate; saving it anyway
+  // is asked for again with `confirmAboveMemberRate` (D19, ADR 0071).
+  | { ok: false; error: string; needsConfirm?: "above-member-rate" };
+
+/**
+ * D19 (ADR 0071): a tier whose share of the public price comes to more than a court's member rate prices its members above
+ * a plain member, which is almost always a slip. The first court (by id) where it does, with both prices at the peak or
+ * off-peak rate that shows it; null when it is at or below every member rate, or the tier has no share of its own.
+ */
+export async function aboveMemberRate(
+  venueId: number,
+  ratePercent: number | null
+): Promise<{ court: string; tier: number; member: number } | null> {
+  if (ratePercent === null) return null;
+  const courts = (await getDb()
+    .prepare(
+      "SELECT name, off_peak_rate::float AS off, peak_rate::float AS peak, member_off_peak_rate::float AS m_off, member_peak_rate::float AS m_peak FROM courts WHERE venue_id = ? ORDER BY id"
+    )
+    .all(venueId)) as { name: string; off: number; peak: number; m_off: number | null; m_peak: number | null }[];
+  const minor = 10 ** region().currency.minorUnits;
+  for (const c of courts)
+    for (const [pub, member] of [[c.off, c.m_off], [c.peak, c.m_peak]] as const) {
+      if (member === null || member === undefined) continue;
+      const tier = Math.round(Math.round(pub * minor) * ratePercent / 100) / minor;
+      if (tier > member) return { court: c.name, tier, member };
+    }
+  return null;
+}
+
+/** The refusal that asks for a tier above a member rate to be confirmed; null when it is fine or confirmed. */
+async function aboveRefusal(venueId: number, ratePercent: number | null, confirmed: unknown): Promise<PlanResult | null> {
+  if (confirmed === true) return null;
+  const above = await aboveMemberRate(venueId, ratePercent);
+  if (!above) return null;
+  return {
+    ok: false,
+    needsConfirm: "above-member-rate",
+    error: `Members on this plan would pay ${money(above.tier)} an hour on ${above.court}, more than its member rate of ${money(above.member)}: confirm to save it anyway.`,
+  };
+}
 
 /** A tier's benefits as given: each null for the venue's; what the price covers, the whole booking unless said. */
 function readBenefits(input: {
@@ -197,7 +273,11 @@ async function readAdmits(
   return { admitsEntry, admitsEntrySport: admitsEntry ? (sport as string | null) : null };
 }
 
-/** Change a plan's benefits. Memberships already on it get them from now. */
+/**
+ * Change a plan's benefits, for the memberships sold from now on: a term already sold keeps the benefits it was sold with, and a
+ * renewal takes the plan as it is when it is made (ADR 0071). The plan's version goes up when a benefit a membership carries
+ * changes. A share of the public price above a court's member rate is refused until `confirmAboveMemberRate: true` (D19).
+ */
 export async function setPlanBenefits(
   venueId: number,
   planId: number,
@@ -211,6 +291,7 @@ export async function setPlanBenefits(
     extendOnSuspension?: unknown;
     admitsEntry?: unknown;
     admitsEntrySport?: unknown;
+    confirmAboveMemberRate?: unknown;
   }
 ): Promise<PlanResult> {
   const benefits = readBenefits(input);
@@ -226,21 +307,47 @@ export async function setPlanBenefits(
   // Not said: whether its members come in with no booking stays as it is.
   const admits = await readAdmits(input, current);
   if (typeof admits === "string") return { ok: false, error: admits };
-  // Not said: what the price covers stays as it is.
+  // A share above a member rate is asked about only when this edit moves it up or changes it: a plan already so is not nagged.
+  if (benefits.ratePercent !== current.ratePercent) {
+    const ask = await aboveRefusal(venueId, benefits.ratePercent, input.confirmAboveMemberRate);
+    if (ask) return ask;
+  }
+  // Not said: what the price covers stays as it is. The version goes up, in the same statement, when a benefit a
+  // membership carries changes (every SET expression reads the row as it was).
+  const scope = input.scope === undefined || input.scope === null ? null : benefits.scope;
   const done = await getDb()
     .prepare(
-      "UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope), offered_for = ?, family_limit = ?, cover_swaps = ?, extend_on_suspension = ?, admits_entry = ?, admits_entry_sport = ? WHERE id = ? AND venue_id = ? AND retired_at IS NULL"
+      `UPDATE membership_plans SET rate_percent = ?, ahead_days = ?, scope = COALESCE(?, scope), offered_for = ?, family_limit = ?, cover_swaps = ?, extend_on_suspension = ?, admits_entry = ?, admits_entry_sport = ?,
+              version = CASE WHEN rate_percent IS DISTINCT FROM ?::int OR ahead_days IS DISTINCT FROM ?::int OR scope IS DISTINCT FROM COALESCE(?::text, scope)
+                               OR extend_on_suspension IS DISTINCT FROM ?::boolean OR admits_entry IS DISTINCT FROM ?::boolean
+                               OR (?::boolean AND admits_entry_sport IS DISTINCT FROM ?::text) THEN version + 1 ELSE version END
+        WHERE id = ? AND venue_id = ? AND retired_at IS NULL`
     )
-    .run(benefits.ratePercent, benefits.aheadDays, input.scope === undefined || input.scope === null ? null : benefits.scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, extendOnSuspension, admits.admitsEntry, admits.admitsEntrySport, planId, venueId);
+    .run(
+      benefits.ratePercent, benefits.aheadDays, scope, holders.offeredFor, holders.familyLimit, holders.coverSwaps, extendOnSuspension, admits.admitsEntry, admits.admitsEntrySport,
+      benefits.ratePercent, benefits.aheadDays, scope, extendOnSuspension, admits.admitsEntry, admits.admitsEntry, admits.admitsEntrySport,
+      planId, venueId
+    );
   if (done.changes !== 1) return { ok: false, error: "That plan is not offered here." };
   return { ok: true, plan: (await planById(planId))! };
 }
 
-/** The furthest ahead any plan's members book here, for the venue's outer window. */
+/**
+ * The furthest ahead any plan's members book here, for the venue's outer window: the plans on offer, and the terms already
+ * sold that are still running with the window they were sold with (ADR 0071), so a plan edited down never shuts a member out
+ * of what they paid for. A row with no snapshot counts as its plan is.
+ */
 export async function longestPlanWindow(venueId: number): Promise<number | null> {
   const row = (await getDb()
-    .prepare("SELECT MAX(ahead_days) AS n FROM membership_plans WHERE venue_id = ? AND retired_at IS NULL")
-    .get(venueId)) as { n: number | null } | undefined;
+    .prepare(
+      `SELECT GREATEST(
+         (SELECT MAX(ahead_days) FROM membership_plans WHERE venue_id = ? AND retired_at IS NULL),
+         (SELECT MAX(CASE WHEN m.benefits IS NULL THEN t.ahead_days ELSE (m.benefits->>'aheadDays')::int END)
+            FROM memberships m LEFT JOIN membership_plans t ON t.id = m.tier_id
+           WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.expires_on >= ?)
+       ) AS n`
+    )
+    .get(venueId, venueId, todayISO())) as { n: number | null } | undefined;
   return row?.n ?? null;
 }
 
@@ -259,6 +366,7 @@ export async function createPlan(
     extendOnSuspension?: unknown;
     admitsEntry?: unknown;
     admitsEntrySport?: unknown;
+    confirmAboveMemberRate?: unknown;
   }
 ): Promise<PlanResult> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
@@ -277,6 +385,8 @@ export async function createPlan(
   if (typeof extendOnSuspension === "string") return { ok: false, error: extendOnSuspension };
   const admits = await readAdmits(input, { admitsEntry: false, admitsEntrySport: null });
   if (typeof admits === "string") return { ok: false, error: admits };
+  const ask = await aboveRefusal(venueId, benefits.ratePercent, input.confirmAboveMemberRate);
+  if (ask) return ask;
   const info = await getDb()
     .prepare(
       "INSERT INTO membership_plans (venue_id, name, months, price, rate_percent, ahead_days, scope, offered_for, family_limit, cover_swaps, extend_on_suspension, admits_entry, admits_entry_sport) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"

@@ -11,6 +11,7 @@ import { isBlocked, phoneBlocked, venueNotOpen } from "./limits";
 import { venueIsOpen } from "./listing";
 import { suspendedOn } from "./membership-suspensions";
 import { selectionAtVenue } from "./participant-bookings";
+import { PASS_USE_ORDER_SQL } from "./pass-rules";
 import { phoneKey } from "./phone";
 import { signOffHolds } from "./sign-offs";
 import { courtZone, getCourt, memberNumberTrusted } from "./store";
@@ -238,9 +239,13 @@ async function admittingMembership(
       : `m.holder_kind = 'customer' AND phone_key(m.holder_phone) = phone_key(?)`;
   const rows = (await getDb()
     .prepare(
-      `SELECT m.id, m.code, t.name AS plan, t.admits_entry_sport AS sport FROM memberships m JOIN membership_plans t ON t.id = m.tier_id
+      // Whether it admits, and where, as the term was sold (ADR 0071): a later edit of its plan does not change it.
+      `SELECT m.id, m.code, t.name AS plan,
+              CASE WHEN m.benefits IS NULL THEN t.admits_entry_sport ELSE m.benefits->>'admitsEntrySport' END AS sport
+         FROM memberships m JOIN membership_plans t ON t.id = m.tier_id
         WHERE ${inSameBusiness("m.venue_id")} AND m.status = 'active' AND m.starts_on <= ? AND m.expires_on >= ?
-          AND t.admits_entry AND ${whose} AND NOT ${suspendedOn("m")}
+          AND CASE WHEN m.benefits IS NULL THEN t.admits_entry ELSE COALESCE((m.benefits->>'admitsEntry')::boolean, FALSE) END
+          AND ${whose} AND NOT ${suspendedOn("m")}
         ORDER BY m.id`
     )
     .all(
@@ -291,9 +296,9 @@ async function admittingPasses(court: Court, person: EntryPerson, channel: Entry
          FROM passes p
         WHERE ${inSameBusiness("p.venue_id")} AND p.status = 'active' AND p.expires_on >= ? AND p.kind = 'session' AND p.coach_id IS NULL
           AND p.scope <> 'resource' AND phone_key(p.holder_phone) = phone_key(?)
-        ORDER BY p.day_pass DESC, p.expires_on, p.id`
+        ORDER BY COALESCE(p.day_pass AND p.day_used_on::text = ?, FALSE) DESC, ${PASS_USE_ORDER_SQL}`
     )
-    .all(court.venueId, date, person.phone)) as PassRow[];
+    .all(court.venueId, date, person.phone, date)) as PassRow[];
   const verified =
     channel === "self" && person.userId
       ? ((await getDb().prepare("SELECT verified_phone FROM users WHERE id = ?").get(person.userId)) as { verified_phone: string | null } | undefined)?.verified_phone ?? null

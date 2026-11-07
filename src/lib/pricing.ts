@@ -109,13 +109,18 @@ const scale = () => 10 ** region().currency.minorUnits;
 const toMinor = (amount: number) => Math.round(amount * scale());
 const fromMinor = (minor: number) => minor / scale();
 
+/**
+ * The hourly rate before last-minute and quantity prices, and the share of it a tier takes. A member never pays more than a
+ * non-member for the same slot (D19, ADR 0071): a member rate above the public rate, or a share above 100%, is held to it.
+ */
 function hourlyMinor(court: CourtRates, peak: boolean, member: MemberPricing): { minor: number; percent: number } {
-  if (typeof member === "number") return { minor: toMinor(peak ? court.peakRate : court.offPeakRate), percent: member };
+  const publicMinor = toMinor(peak ? court.peakRate : court.offPeakRate);
+  if (typeof member === "number") return { minor: publicMinor, percent: Math.min(member, 100) };
   if (member) {
     const rate = peak ? court.memberPeakRate : court.memberOffPeakRate;
-    if (rate !== null && rate !== undefined) return { minor: toMinor(rate), percent: 100 };
+    if (rate !== null && rate !== undefined) return { minor: Math.min(toMinor(rate), publicMinor), percent: 100 };
   }
-  return { minor: toMinor(peak ? court.peakRate : court.offPeakRate), percent: 100 };
+  return { minor: publicMinor, percent: 100 };
 }
 
 /** The minutes of the business day `date` where last-minute prices apply to a booking made at `at`: (now, now + hours]. */
@@ -200,7 +205,7 @@ export function priceBooking(input: {
     // So many games at the price of one, as a fixed price is: peak by the start, a tier's share, a last-minute price.
     const peak = isPeakAt(input.span.start);
     const one = toMinor(peak && pricing.gamePeakPrice !== null && pricing.gamePeakPrice !== undefined ? pricing.gamePeakPrice : pricing.gamePrice!);
-    const percent = typeof member === "number" ? member : 100;
+    const percent = typeof member === "number" ? Math.min(member, 100) : 100;
     const off = offAt(input.span.start);
     const each = Math.round((one * percent * (100 - off)) / 10_000);
     courtMinor = each * games;
@@ -208,7 +213,7 @@ export function priceBooking(input: {
   } else if (fixed) {
     const peak = isPeakAt(input.span.start);
     const base = toMinor(peak && fixed.peakPrice !== null ? fixed.peakPrice : fixed.price);
-    const percent = typeof member === "number" ? member : 100;
+    const percent = typeof member === "number" ? Math.min(member, 100) : 100;
     const off = offAt(input.span.start);
     // base × percent × (100 − off), in hundredths of hundredths.
     courtMinor = Math.round((base * percent * (100 - off)) / 10_000);

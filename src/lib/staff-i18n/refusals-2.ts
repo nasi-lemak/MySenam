@@ -1010,4 +1010,6 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "The date must be after today.": { ms: "Tarikh mestilah selepas hari ini.", zh: "日期必须晚于今天。" },
   "At most 90 days at a time.": { ms: "Paling lama 90 hari pada satu masa.", zh: "每次最多 90 天。" },
   "Hold a waiting-list offer for 5 to 120 minutes.": { ms: "Tahan tawaran senarai menunggu selama 5 hingga 120 minit.", zh: "候补名额的提供时间须为 5 至 120 分钟。" },
+  // MEMB (D19, ADR 0071): a membership plan whose share of the price comes to more than a court member rate.
+  "Members on this plan would pay {0} an hour on {1}, more than its member rate of {2}: confirm to save it anyway.": { ms: "Ahli pelan ini akan membayar {0} sejam di {1}, lebih daripada kadar ahli sebanyak {2}: sahkan untuk menyimpannya juga.", zh: "此配套的会员在 {1} 每小时需付 {0}，高于其会员价 {2}：确认后仍将保存。" },
 };
